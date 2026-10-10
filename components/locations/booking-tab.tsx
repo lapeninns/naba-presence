@@ -21,6 +21,9 @@ import { useId, useRef, useState } from "react"
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
+import { usePlaceActionReview } from "@/components/locations/place-actions/use-place-action-review"
+import { SavedPlaceActionWork } from "@/components/locations/place-actions/saved-place-action-work"
+import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -46,9 +49,6 @@ import {
 } from "@/components/ui/select"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
-  createPlaceAction,
-  deletePlaceAction,
-  updatePlaceAction,
   type PlaceActionLink,
   type PlaceActionType,
   type PlaceActionsState,
@@ -58,12 +58,11 @@ import {
   actionTypeLabel,
   checkBookingUrl,
   hostOf,
+  humaniseActionType,
 } from "@/lib/editors/booking-presentation"
 import { editorGate } from "@/lib/editors/gate"
 import type { LocationCapabilities } from "@/lib/locations/gating"
-import { queryKeys } from "@/lib/queries/keys"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
-import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
 
 export { humaniseActionType } from "@/lib/editors/booking-presentation"
@@ -79,10 +78,12 @@ const TYPE_ICON: Record<string, LucideIcon> = {
 }
 
 export function BookingTab({ locationId }: { locationId: string }) {
+  const workflow = usePlaceActionReview(locationId)
   return (
+    <div id="section-action-links" className="flex min-w-0 flex-col gap-5">
     <LocationTab
       locationId={locationId}
-      loadingLabel="booking links"
+      loadingLabel="action links"
       useResource={usePlaceActions}
       resource="booking"
     >
@@ -93,10 +94,13 @@ export function BookingTab({ locationId }: { locationId: string }) {
             state={state}
             caps={caps}
             writeReason={publishReason}
+            workflow={workflow}
           />
         </EditorFrame>
       )}
     </LocationTab>
+    <SavedPlaceActionWork locationId={locationId} workflow={workflow} />
+    </div>
   )
 }
 
@@ -106,29 +110,25 @@ function formatObserved(value: string) {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
 }
 
-/**
- * Booking links (reference listing-booking): the links Google holds, grouped
- * by the button they sit behind, an "add" form, and a sketch of the buttons
- * a customer sees. Every change here is a direct Google write confirmed in a
- * dialog first; there is no NabaPresence copy and no review step.
- */
 function BookingLinks({
   locationId,
   state,
   caps,
   writeReason,
+  workflow,
 }: {
   locationId: string
   state: PlaceActionsState
   caps: LocationCapabilities | undefined
   /** Why Google writes are blocked for this resource, or null. Booking links are Google-direct, so this is the only gate. */
   writeReason: string | null
+  workflow: ReturnType<typeof usePlaceActionReview>
 }) {
   const [deleteTarget, setDeleteTarget] = useState<PlaceActionLink | null>(null)
   const [editTarget, setEditTarget] = useState<PlaceActionLink | null>(null)
   const [preferTarget, setPreferTarget] = useState<PlaceActionLink | null>(null)
   const [confirmFailure, setConfirmFailure] = useState<string | null>(null)
-  const disabled = writeReason !== null
+  const disabled = writeReason !== null || workflow.busy || workflow.unresolved
   const gate = editorGate({
     caps,
     resource: "booking",
@@ -141,41 +141,21 @@ function BookingLinks({
     savesHere: false,
   })
 
-  const remove = useResourceMutation({
-    mutationFn: (link: PlaceActionLink) =>
-      deletePlaceAction(locationId, link.id, {
-        expectedGoogleHash: link.googleHash,
-      }),
-    invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Booking link removed",
-    onSuccess: () => setDeleteTarget(null),
-    onError: (_error, message) => setConfirmFailure(message),
-  })
-
-  const prefer = useResourceMutation({
-    mutationFn: (link: PlaceActionLink) =>
-      updatePlaceAction(locationId, link.id, {
-        uri: link.uri,
-        placeActionType: link.placeActionType as PlaceActionType,
-        isPreferred: true,
-        expectedGoogleHash: link.googleHash,
-      }),
-    invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Preferred link sent to Google",
-    onSuccess: () => setPreferTarget(null),
-    onError: (_error, message) => setConfirmFailure(message),
-  })
+  const remove = { isPending: workflow.busy, mutate: (link: PlaceActionLink) => void workflow.preview({ operation: "delete", name: link.googleLinkName }).then((result) => { if (result.ok) setDeleteTarget(null); else setConfirmFailure(result.error) }) }
+  const prefer = { isPending: workflow.busy, mutate: (link: PlaceActionLink) => void workflow.preview({ operation: "update", name: link.googleLinkName, payload: placeActionInputSchema.parse({ uri: link.uri, placeActionType: link.placeActionType, isPreferred: true }) }).then((result) => { if (result.ok) setPreferTarget(null); else setConfirmFailure(result.error) }) }
 
   if (state.supportedTypes.length === 0 && state.links.length === 0) {
+    const unsupported = Boolean(state.unsupportedTypes?.length || state.unsupportedLinks?.length)
     return (
+      <div className="flex min-w-0 flex-col gap-4">
       <div className="rounded-(--np-radius-card) border border-line bg-surface">
         <Empty
           icon={<Unlink />}
           titleAs="h2"
-          title="Google doesn’t offer booking links for this listing"
-          description="Google reports no Reserve, Order or Book buttons this listing can show, so there’s nothing to manage here. The primary category usually decides this."
+          title={unsupported ? "Manage these action types in Google" : "Google doesn’t offer action links for this listing"}
+          description={unsupported ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them." : "Google reports no action types for this exact listing. Check its category before preparing a new link."}
           action={
-            <Link
+            unsupported ? <a href="https://business.google.com/" target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "secondary" }))}>Manage action links in Google</a> : <Link
               href={`/listings/${locationId}/profile`}
               className={cn(buttonVariants({ variant: "secondary" }))}
             >
@@ -183,6 +163,9 @@ function BookingLinks({
             </Link>
           }
         />
+      </div>
+      {/* The empty state above already carries the Google handoff. */}
+      <GoogleManagedLinks links={state.unsupportedLinks ?? []} handoff={false} />
       </div>
     )
   }
@@ -202,6 +185,7 @@ function BookingLinks({
 
   return (
     <div className="@container/booking flex flex-col gap-5">
+      {workflow.unresolved ? <Alert variant="info"><AlertTitle>Action link changes are paused</AlertTitle><AlertDescription>Read the saved outcome and refresh its observation before another action link change.</AlertDescription></Alert> : null}
       {gate ? (
         <CapabilityBanner
           tone={gate.tone}
@@ -214,7 +198,7 @@ function BookingLinks({
       {latest && latest.status !== "succeeded" ? (
         latest.status === "failed" ? (
           <Alert variant="destructive" role="status">
-            <AlertTitle>The last change didn’t reach Google</AlertTitle>
+            <AlertTitle>Google rejected the last change</AlertTitle>
             <AlertDescription>
               The last change ({latest.operation.toLowerCase()}) failed. The
               links below are what Google holds now.
@@ -222,11 +206,11 @@ function BookingLinks({
           </Alert>
         ) : (
           <Alert variant="info">
-            <AlertTitle>Sent to Google — waiting for confirmation</AlertTitle>
+            <AlertTitle>The last action link outcome needs a check</AlertTitle>
             <AlertDescription>
-              The last change ({latest.operation.toLowerCase()}) hasn’t been
-              confirmed yet. The links below are what Google held when we last
-              checked.
+              The last change ({latest.operation.toLowerCase()}) has no confirmed
+              outcome. Read its saved request before another change. The links
+              below are what Google held when we last checked.
             </AlertDescription>
           </Alert>
         )
@@ -239,8 +223,8 @@ function BookingLinks({
               <Empty
                 icon={<Link2 />}
                 titleAs="h2"
-                title="No booking links yet"
-                description="Customers can’t reserve or order from this listing. Add a link below and the button appears on Google as soon as Google accepts it."
+                title="No action links yet"
+                description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
               />
             </div>
           ) : (
@@ -367,10 +351,12 @@ function BookingLinks({
             </p>
           ) : null}
 
+          <GoogleManagedLinks links={state.unsupportedLinks ?? []} />
+
           <AddLinkForm
-            locationId={locationId}
             state={state}
             disabled={disabled}
+            workflow={workflow}
           />
         </div>
 
@@ -384,13 +370,13 @@ function BookingLinks({
           setDeleteTarget(null)
           setConfirmFailure(null)
         }}
-        title="Remove this booking link from Google?"
+        title="Review removing this action link?"
         description={
           deleteTarget
             ? `Customers stop seeing it on the ${actionTypeLabel(deleteTarget.placeActionType)} button once Google accepts the change.`
             : "This removes the link from your Google Business Profile."
         }
-        confirmLabel="Remove"
+        confirmLabel="Prepare removal review"
         confirmVariant="danger"
         requireAcknowledgement={false}
         pending={remove.isPending}
@@ -416,7 +402,7 @@ function BookingLinks({
             : "Make this the preferred link?"
         }
         description="Google shows the preferred link first on the button. The other links stay on the listing."
-        confirmLabel="Send to Google"
+        confirmLabel="Prepare preferred link review"
         requireAcknowledgement={false}
         pending={prefer.isPending}
         onConfirm={() => {
@@ -429,9 +415,10 @@ function BookingLinks({
       </OverwriteConfirmDialog>
 
       <EditLinkDialog
-        locationId={locationId}
         link={editTarget}
         others={state.links}
+        workflow={workflow}
+        disabled={disabled}
         onClose={() => setEditTarget(null)}
       />
     </div>
@@ -456,6 +443,52 @@ function UriPreview({ uri }: { uri: string }) {
 }
 
 /** "How customers see it": the buttons Google would draw, from real links only. */
+/** Links Google returned with an action type this release cannot model: listed read-only with a handoff. */
+function GoogleManagedLinks({ links, handoff = true }: { links: NonNullable<PlaceActionsState["unsupportedLinks"]>; handoff?: boolean }) {
+  if (links.length === 0) return null
+  return (
+    <section
+      aria-labelledby="booking-google-managed"
+      className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+    >
+      <div className="flex flex-col gap-1 border-b border-line px-5 py-4">
+        <h2 id="booking-google-managed" className="text-title font-semibold text-ink">
+          Managed in Google
+        </h2>
+        <p className="text-ui text-ink-muted">
+          Google lists {links.length === 1 ? "an action link" : "action links"} of a type this editor can’t change yet. They stay in place and are part of every review’s Google baseline.
+        </p>
+      </div>
+      <ul className="divide-y divide-line">
+        {links.map((link) => (
+          <li key={link.name} className="flex min-w-0 flex-col gap-1.5 px-5 py-3">
+            <span className="font-mono text-[12.5px] break-all text-ink-secondary">{link.uri}</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <StatusPill tone="outline" plain>
+                <Lock className="size-3" strokeWidth={1.75} aria-hidden />
+                {humaniseActionType(link.placeActionType)}
+              </StatusPill>
+              <span className="text-caption text-ink-muted">Can’t be edited here</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {handoff ? (
+        <div className="border-t border-line px-5 py-3">
+          <a
+            href="https://business.google.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+          >
+            Manage these links in Google
+          </a>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
 function BookingPreview({ links }: { links: PlaceActionLink[] }) {
   const types = [...new Set(links.map((link) => link.placeActionType))]
   const headingId = useId()
@@ -521,13 +554,13 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
 }
 
 function AddLinkForm({
-  locationId,
   state,
   disabled,
+  workflow,
 }: {
-  locationId: string
   state: PlaceActionsState
   disabled: boolean
+  workflow: ReturnType<typeof usePlaceActionReview>
 }) {
   const headingId = useId()
   const uriId = useId()
@@ -541,22 +574,8 @@ function AddLinkForm({
   const [uri, setUri] = useState("")
   const [preferred, setPreferred] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
 
-  const add = useResourceMutation({
-    mutationFn: () =>
-      createPlaceAction(locationId, {
-        uri: uri.trim(),
-        placeActionType: type,
-        isPreferred: preferred,
-      }),
-    invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Booking link added",
-    onSuccess: () => {
-      setUri("")
-      setPreferred(false)
-      setError(null)
-    },
-  })
 
   const sameType = state.links.filter((link) => link.placeActionType === type)
 
@@ -568,7 +587,8 @@ function AddLinkForm({
       uriRef.current?.focus()
       return
     }
-    add.mutate()
+    setFailure(null)
+    if (!disabled) void workflow.preview({ operation: "create", payload: { uri: uri.trim(), placeActionType: type, isPreferred: preferred } }).then((result) => { if (!result.ok) setFailure(result.error) })
   }
 
   if (state.supportedTypes.length === 0) return null
@@ -582,10 +602,10 @@ function AddLinkForm({
     >
       <div className="flex flex-col gap-0.5">
         <h2 id={headingId} className="text-title font-semibold text-ink">
-          Add a booking link
+          Add an action link
         </h2>
         <p className="text-ui text-ink-muted">
-          The link goes to Google as soon as you add it.
+          Prepare a review first. Approval saves the exact request; sending to Google is a separate action.
         </p>
       </div>
       <div className="grid gap-4 @[560px]/booking:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] @[560px]/booking:items-start">
@@ -631,6 +651,7 @@ function AddLinkForm({
           <FieldError />
         </Field>
       </div>
+      {failure ? <FailureNote message={failure} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
         <Checkbox
           checked={preferred}
@@ -644,10 +665,10 @@ function AddLinkForm({
           type="submit"
           variant="secondary"
           disabled={disabled}
-          pending={add.isPending}
-          pendingLabel="Sending to Google…"
+          pending={workflow.busy}
+          pendingLabel="Preparing review…"
         >
-          Add booking link
+          Review action link
         </Button>
       </div>
     </form>
@@ -655,15 +676,17 @@ function AddLinkForm({
 }
 
 function EditLinkDialog({
-  locationId,
   link,
   others,
   onClose,
+  workflow,
+  disabled,
 }: {
-  locationId: string
   link: PlaceActionLink | null
   others: PlaceActionLink[]
   onClose: () => void
+  workflow: ReturnType<typeof usePlaceActionReview>
+  disabled: boolean
 }) {
   const uriId = useId()
   const uriRef = useRef<HTMLInputElement>(null)
@@ -678,22 +701,6 @@ function EditLinkDialog({
     setFailure(null)
   }
 
-  const update = useResourceMutation({
-    mutationFn: () => {
-      if (!link) throw new Error("No link selected.")
-      return updatePlaceAction(locationId, link.id, {
-        uri: uri.trim(),
-        placeActionType: link.placeActionType as PlaceActionType,
-        isPreferred: link.isPreferred,
-        expectedGoogleHash: link.googleHash,
-      })
-    },
-    invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Booking link sent to Google",
-    onSuccess: onClose,
-    // The toast goes away; the dialog keeps the link and says what happened.
-    onError: (_error, message) => setFailure(message),
-  })
 
   const sameType = link
     ? others.filter(
@@ -717,7 +724,8 @@ function EditLinkDialog({
               uriRef.current?.focus()
               return
             }
-            update.mutate()
+            if (link && !disabled) void workflow.preview({ operation: "update", name: link.googleLinkName,
+              payload: placeActionInputSchema.parse({ uri: uri.trim(), placeActionType: link.placeActionType, isPreferred: link.isPreferred }) }).then((result) => { if (result.ok) onClose(); else setFailure(result.error) })
           }}
         >
           <DialogHeader>
@@ -725,7 +733,7 @@ function EditLinkDialog({
               Edit {link ? actionTypeLabel(link.placeActionType) : ""} link
             </DialogTitle>
             <DialogDescription>
-              The new link replaces this one on Google as soon as you save.
+              Review this change before approval. Sending to Google is a separate action.
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -754,11 +762,11 @@ function EditLinkDialog({
             </Button>
             <Button
               type="submit"
-              pending={update.isPending}
-              pendingLabel="Sending to Google…"
-              disabled={!link || uri.trim() === link.uri}
+              pending={workflow.busy}
+              pendingLabel="Preparing review…"
+              disabled={disabled || !link || uri.trim() === link.uri}
             >
-              Save to Google
+              Review action link change
             </Button>
           </DialogFooter>
         </form>

@@ -1,6 +1,6 @@
 "use client"
 
-import {
+import { CalendarDays,
   BarChart3,
   Building2,
   ChevronDown,
@@ -28,7 +28,8 @@ import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 /**
- * The four places an operator works, in the order they are visited.
+ * The places an operator works, in the order they are visited. Calendar
+ * holds scheduled post publications across every visible listing.
  *
  * Home is gone: it was a page of numbers whose every link led to the Inbox,
  * so the Inbox is the landing page and the numbers live in its Today strip.
@@ -39,6 +40,7 @@ const NAV_ITEMS = [
   { href: "/inbox", label: "Inbox", icon: Inbox },
   { href: "/listings", label: "Listings", icon: Store },
   { href: "/clients", label: "Clients", icon: Building2 },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/reports", label: "Reports", icon: BarChart3 },
 ] as const
 

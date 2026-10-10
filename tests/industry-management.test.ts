@@ -23,6 +23,7 @@ vi.mock("@/lib/server/gbp-management", () => ({
     canPublish: true,
   }),
   cacheGbpSnapshot: mocks.snapshot,
+  stableGoogleHash: () => "h".repeat(64),
   startGbpMutation: mocks.mutate,
   settleGbpMutation: vi.fn(),
   auditGbpMutation: vi.fn(),
@@ -44,6 +45,11 @@ vi.mock("@/lib/server/google", async () => {
     googleApiRetiredError: transport.googleApiRetiredError,
   }
 })
+// The reviewed lodging workflow reads saved reviews from the database.
+vi.mock("@/lib/server/gbp-change-sets", () => ({
+  approvedLodgingChange: vi.fn(),
+  listLodgingChangeSets: async () => [],
+}))
 vi.mock("@/lib/server/route", () => ({
   route: (config: unknown) => config,
 }))
@@ -76,12 +82,13 @@ describe("industry editor load", () => {
     const state = await loadIndustryManagement(session, "l1")
 
     const urls = mocks.request.mock.calls.map(([url]) => String(url))
-    expect(urls).toHaveLength(3)
+    // Healthcare services are reviewed in the general Services editor, so
+    // this editor reads lodging only.
+    expect(urls).toHaveLength(2)
     for (const url of urls) expect(retiredGoogleApi(url)).toBeNull()
     expect(urls.map((url) => new URL(url).pathname).sort()).toEqual([
       "/v1/locations/l1/lodging",
       "/v1/locations/l1/lodging:getGoogleUpdated",
-      "/v4/accounts/a1/locations/l1/serviceList",
     ])
     expect(urls.join(" ")).not.toMatch(
       /businesscalls|healthProviderAttributes|insuranceNetworks/
@@ -91,12 +98,15 @@ describe("industry editor load", () => {
       "canManage",
       "healthcareServices",
       "lodging",
+      "lodgingChangeSets",
+      "lodgingHash",
       "lodgingUpdated",
       "writesEnabled",
     ])
+    expect(state.healthcareServices).toEqual({ data: null, error: null })
     expect(
       mocks.snapshot.mock.calls.map(([input]) => input.resourceType)
-    ).toEqual(["lodging", "healthcare_services"])
+    ).toEqual(["lodging"])
   })
 })
 

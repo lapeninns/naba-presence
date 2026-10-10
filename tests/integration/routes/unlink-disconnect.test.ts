@@ -399,7 +399,9 @@ describeDatabase("unlink and disconnect routing cleanup", () => {
     )
     expect(response.status, await response.clone().text()).toBe(200)
     expect(
-      google.calls.filter((call) => call.path.endsWith("/revoke"))
+      google.calls
+        .filter((call) => call.path.endsWith("/revoke"))
+        .map(({ method, path, body }) => ({ method, path, body }))
     ).toEqual([
       {
         method: "POST",

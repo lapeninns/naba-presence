@@ -117,11 +117,12 @@ describe("google-values attributes", () => {
     expect(
       describeAttributeValue(bool, { name: "attributes/wifi", values: [true] })
     ).toBe("Yes")
-    expect(describeAttributeValue(bool, undefined)).toBe("No")
+    expect(describeAttributeValue(bool, undefined)).toBe("Not set")
+    expect(describeAttributeValue(bool, { name: "attributes/wifi", values: [false] })).toBe("No")
     expect(
       describeAttributeValue(enumMeta, {
         name: enumMeta.parent,
-        repeatedEnumValue: { setValues: ["FULL"] },
+        values: ["FULL"],
       })
     ).toBe("Full access")
     expect(describeAttributeValue(enumMeta, undefined)).toBe("Not set")
@@ -259,7 +260,7 @@ describe("business-information draft", () => {
       locality: "Camden",
     }
     const update = buildLocationUpdate(initial, touched)
-    expect(update.updateMask).toEqual(["title", "storefrontAddress"])
+    expect(update.updateMask).toEqual(["title", "storefrontAddress.locality"])
     expect(update.payload).toEqual({
       title: "Camden Boutique Hotel",
       storefrontAddress: {

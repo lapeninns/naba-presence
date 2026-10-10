@@ -11,6 +11,7 @@ import {
   type SettingsCapabilities,
 } from "@/lib/contracts/location-capabilities"
 import type { ReviewCapabilities } from "@/lib/contracts/reviews"
+import { resourceActionCapabilities } from "@/lib/domain/google-resource-catalogue"
 import {
   type GbpFlags,
   gbpIngestionEnabled,
@@ -174,23 +175,42 @@ export async function locationCapabilitiesForIds(
   const result = new Map<string, LocationCapabilities>()
   if (unique.length === 0) return result
 
-  const publishesEnabled = resourceWritesEnabled(getServerEnv())
+  const env = getServerEnv()
+  const publishesEnabled = resourceWritesEnabled(env)
+  const actionWritesEnabled = {
+    profileWrites: publishesEnabled.profile,
+    media: publishesEnabled.photos,
+    posts: publishesEnabled.posts,
+    foodMenus: publishesEnabled.menu,
+    placeActions: publishesEnabled.booking,
+    performance: publishesEnabled.performance,
+  }
 
-  const links = await sql<{ locationId: string }[]>`
-    select location_id::text as "locationId"
-    from location_link
-    where location_id in ${sql(unique)}
-      and is_active = true
+  const links = await sql<{ locationId: string; connected: boolean }[]>`
+    select l.location_id::text as "locationId",
+      coalesce(a.is_active and c.status in ('active', 'expired'), false) as connected
+    from location_link l
+    left join external_location e on e.id = l.external_location_id
+    left join google_account a on a.google_connection_id = e.google_connection_id
+      and a.google_account_name = e.google_account_name
+    left join google_connection c on c.id = e.google_connection_id
+    where l.location_id in ${sql(unique)}
+      and l.is_active = true
   `
   const linkedIds = new Set(links.map((row) => row.locationId))
+  const connectedIds = new Set(links.filter((row) => row.connected).map((row) => row.locationId))
   const canEditCanonical = isManagerialRole(session.role)
 
   const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const { canPublish } = grants.get(id) ?? NO_GRANT
+    const { canPublish, visible } = grants.get(id) ?? NO_GRANT
     result.set(id, {
       canEditCanonical,
       canPublish,
+      resourceActions: resourceActionCapabilities({
+        connected: connectedIds.has(id), canRead: visible, canPublish,
+        managerial: canEditCanonical, writesEnabled: actionWritesEnabled,
+      }),
       resources: buildResources({
         canEditCanonical,
         canPublish,

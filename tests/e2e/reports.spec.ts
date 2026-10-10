@@ -65,7 +65,7 @@ test.describe("reports", () => {
     await page.goto("/performance?tab=google")
     // The same words also name the actions chart's series; the tiles come
     // first in the DOM.
-    await expect(page.getByText("Calls", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("Call button taps", { exact: true }).first()).toBeVisible()
     await expect(page.getByText("Website clicks", { exact: true }).first()).toBeVisible()
   })
 

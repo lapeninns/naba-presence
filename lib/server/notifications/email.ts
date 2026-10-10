@@ -38,15 +38,20 @@ export function emailConfigured(): boolean {
 }
 
 export async function sendTenantEmail(
-  message: EmailMessage
+  message: EmailMessage,
+  options: { readonly idempotencyKey?: string } = {}
 ): Promise<SendResult> {
   if (!getServerEnv().TENANT_EMAIL_ENABLED) {
     return { status: "suppressed", reason: "tenant_email_disabled" }
   }
-  return sendEmail(message)
+  return sendEmail(message, options)
 }
 
-export async function sendEmail(message: EmailMessage): Promise<SendResult> {
+/**
+ * `idempotencyKey` is sent as Resend's `Idempotency-Key`: a retry after a lost
+ * response returns the first send instead of emailing again.
+ */
+export async function sendEmail(message: EmailMessage, options: { readonly idempotencyKey?: string } = {}): Promise<SendResult> {
   const env = getServerEnv()
   if (!emailConfigured()) {
     return { status: "suppressed", reason: "provider_not_configured" }
@@ -58,6 +63,7 @@ export async function sendEmail(message: EmailMessage): Promise<SendResult> {
       headers: {
         authorization: `Bearer ${env.EMAIL_API_KEY}`,
         "content-type": "application/json",
+        ...(options.idempotencyKey ? { "idempotency-key": options.idempotencyKey } : {}),
       },
       body: JSON.stringify({
         from: env.EMAIL_FROM,

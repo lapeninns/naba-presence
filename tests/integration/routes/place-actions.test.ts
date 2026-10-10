@@ -9,6 +9,7 @@ import {
   seedGoogleConnection,
   seedLinkedReview,
 } from "../helpers/tenant"
+import { placeActionReviewResponseSchema, type ReviewedPlaceActionRequest } from "@/lib/contracts/place-action-review"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -25,6 +26,7 @@ describeDatabase("Google Place Actions", () => {
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: google.baseUrl,
       GBP_PLACE_ACTIONS_ENABLED: "true",
+      GBP_PROFILE_WRITES_ENABLED: "true",
       PUBLISH_ENABLED: "true",
     })
   })
@@ -60,6 +62,10 @@ describeDatabase("Google Place Actions", () => {
       },
     ]
 
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionTypeMetadata" },
+      () => ({ status: 200, json: { placeActionTypeMetadata: [{ placeActionType: "DINING_RESERVATION", displayName: "Dining reservation" }] } })
+    )
     google.respond(
       { method: "GET", pathIncludes: "/placeActionLinks" },
       () => ({ status: 200, json: { placeActionLinks: links } })
@@ -116,6 +122,16 @@ describeDatabase("Google Place Actions", () => {
     )
 
     const base = `${server.baseUrl}/api/locations/${linked.locationId}/place-actions`
+    const reviews = `${server.baseUrl}/api/locations/${linked.locationId}/place-action-reviews`
+    async function sendReviewed(request: ReviewedPlaceActionRequest) {
+      const preview = await fetch(reviews, { method: "POST", headers: jsonHeaders(owner.cookie, "preview-link"), body: JSON.stringify(request) })
+      expect(preview.status, await preview.clone().text()).toBe(200)
+      const review = placeActionReviewResponseSchema.parse(await preview.json()).review
+      const body = JSON.stringify({ expectedPayloadHash: review.changeSet.payloadHash })
+      const approval = await fetch(`${reviews}/${review.changeSet.id}`, { method: "POST", headers: jsonHeaders(owner.cookie, "approve-link"), body })
+      expect(approval.status, await approval.clone().text()).toBe(200)
+      return fetch(`${reviews}/${review.changeSet.id}/execute`, { method: "POST", headers: jsonHeaders(owner.cookie, "send-link"), body })
+    }
     const initial = await fetch(base, { headers: { cookie: owner.cookie } })
     expect(initial.status, await initial.clone().text()).toBe(200)
     expect((await initial.json()).placeActions).toMatchObject({
@@ -123,20 +139,15 @@ describeDatabase("Google Place Actions", () => {
       links: [{ providerType: "AGGREGATOR_3P", isEditable: false }],
     })
 
-    const create = await fetch(base, {
-      method: "POST",
-      headers: jsonHeaders(owner.cookie, "create-link"),
-      body: JSON.stringify({
-        confirmation: "create_google_place_action",
+    const create = await sendReviewed({ operation: "create", payload: {
         uri: "https://book.example.com/old-crown",
         placeActionType: "DINING_RESERVATION",
         isPreferred: true,
-      }),
+      },
     })
-    expect(create.status, await create.clone().text()).toBe(201)
+    expect(create.status, await create.clone().text()).toBe(200)
     expect(await create.json()).toMatchObject({
-      status: "succeeded",
-      idempotent: false,
+      attempt: { executionState: "accepted", confirmationState: "confirmed", idempotent: false },
     })
 
     const afterCreate = await fetch(base, {
@@ -164,19 +175,14 @@ describeDatabase("Google Place Actions", () => {
     })
     expect(stale.status).toBe(409)
 
-    const update = await fetch(`${base}/${merchant.id}`, {
-      method: "PATCH",
-      headers: jsonHeaders(owner.cookie, "update-link"),
-      body: JSON.stringify({
-        confirmation: "update_google_place_action",
+    const update = await sendReviewed({ operation: "update", name: merchant.googleLinkName, payload: {
         uri: "https://book.example.com/new",
         placeActionType: "DINING_RESERVATION",
         isPreferred: false,
-        expectedGoogleHash: merchant.googleHash,
-      }),
+      },
     })
     expect(update.status, await update.clone().text()).toBe(200)
-    expect(await update.json()).toMatchObject({ status: "succeeded" })
+    expect(await update.json()).toMatchObject({ attempt: { executionState: "accepted", confirmationState: "confirmed" } })
 
     const afterUpdate = await fetch(base, {
       headers: { cookie: owner.cookie },
@@ -189,16 +195,9 @@ describeDatabase("Google Place Actions", () => {
       isPreferred: false,
     })
 
-    const remove = await fetch(`${base}/${merchant.id}`, {
-      method: "DELETE",
-      headers: jsonHeaders(owner.cookie, "delete-link"),
-      body: JSON.stringify({
-        confirmation: "delete_google_place_action",
-        expectedGoogleHash: updatedMerchant.googleHash,
-      }),
-    })
+    const remove = await sendReviewed({ operation: "delete", name: merchant.googleLinkName })
     expect(remove.status, await remove.clone().text()).toBe(200)
-    expect(await remove.json()).toMatchObject({ status: "succeeded" })
+    expect(await remove.json()).toMatchObject({ attempt: { executionState: "accepted", confirmationState: "confirmed" } })
 
     const final = await fetch(base, { headers: { cookie: owner.cookie } })
     expect((await final.json()).placeActions.links).toHaveLength(1)

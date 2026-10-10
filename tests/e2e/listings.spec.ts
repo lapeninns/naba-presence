@@ -50,7 +50,7 @@ test.describe("listings", () => {
     ).toBeVisible()
     for (const column of ["Listing", "Client", "Health", "Waiting"]) {
       await expect(
-        page.getByRole("columnheader", { name: column })
+        page.getByRole("columnheader", { name: column, exact: true })
       ).toBeVisible()
     }
     const row = page
@@ -395,19 +395,45 @@ test.describe("listings", () => {
     // and makes the plain label lookup ambiguous (strict-mode violation).
     // getByRole pins the accessible role too, so it resolves to the single
     // textbox unambiguously.
+    await page.waitForLoadState("networkidle")
     await page
-      .getByRole("textbox", { name: "Link" })
+      .getByRole("textbox", { name: "Link", exact: true })
       .fill("https://book.e2e/reserve")
-    const created = page.waitForResponse(
+    // A link change is reviewed, approved, then sent as a separate step.
+    await page
+      .getByRole("button", { name: "Review action link", exact: true })
+      .click()
+    const sheet = page.getByRole("dialog", {
+      name: /^(Review action link change|Saved action link outcome)$/,
+    })
+    await sheet
+      .getByRole("button", { name: "Approve action link change", exact: true })
+      .click()
+    const send = sheet.getByRole("button", {
+      name: "Send approved action link change",
+      exact: true,
+    })
+    await expect(send).toBeDisabled()
+    await sheet
+      .getByRole("checkbox", {
+        name: "Send this exact approved action link change to Google.",
+      })
+      .check()
+    const sent = page.waitForResponse(
       (r) =>
         r.request().method() === "POST" &&
-        new URL(r.url()).pathname ===
-          `/api/locations/${state.primaryLocationId}/place-actions`
+        new URL(r.url()).pathname.startsWith(
+          `/api/locations/${state.primaryLocationId}/place-action-reviews/`
+        ) &&
+        r.url().endsWith("/execute")
     )
-    await page.getByRole("button", { name: "Add booking link" }).click()
-    expect((await created).status()).toBe(201)
+    await send.click()
+    expect((await sent).status()).toBe(200)
     await expect(
-      page.getByText("Booking link added", { exact: true })
+      sheet.getByText("Accepted by Google", { exact: true })
+    ).toBeVisible()
+    await expect(
+      sheet.getByText("Independently confirmed", { exact: true })
     ).toBeVisible()
   })
 
@@ -455,19 +481,42 @@ test.describe("listings", () => {
     // See the note in the listing publish journey: the industry sections load
     // after the editor's first paint.
     await page.waitForLoadState("networkidle")
-    const checkin = page.getByLabel("Check-in time")
+    const lodging = page.getByRole("region", {
+      name: "Lodging details",
+      exact: true,
+    })
+    await lodging
+      .getByRole("searchbox", { name: "Find a lodging detail" })
+      .fill("Checkin time")
+    const checkin = lodging.getByLabel("Check-in time", { exact: true })
     await expect(checkin).toBeVisible()
     await checkin.fill("16:00")
-    const published = page.waitForResponse(
-      (r) =>
-        r.request().method() === "PATCH" &&
-        new URL(r.url()).pathname ===
-          `/api/locations/${state.primaryLocationId}/industry`
-    )
-    await page.getByRole("button", { name: "Save lodging" }).click()
-    expect((await published).status()).toBe(200)
+    // Lodging changes are reviewed, approved, then sent as a separate step.
+    await page
+      .getByRole("button", { name: "Review lodging changes", exact: true })
+      .click()
+    const dialog = page.getByRole("dialog", {
+      name: /^(Review changes|Saved lodging outcome)$/,
+    })
+    await dialog
+      .getByRole("button", { name: "Approve lodging changes", exact: true })
+      .click()
+    const send = dialog.getByRole("button", {
+      name: "Send approved lodging changes",
+      exact: true,
+    })
+    await expect(send).toBeDisabled()
+    await dialog
+      .getByRole("checkbox", {
+        name: "Send these exact approved lodging changes to Google.",
+      })
+      .check()
+    await send.click()
     await expect(
-      page.getByText("Lodging details published to Google", { exact: true })
+      dialog.getByText("Accepted by Google", { exact: true })
+    ).toBeVisible()
+    await expect(
+      dialog.getByText("Independently confirmed", { exact: true })
     ).toBeVisible()
   })
 
@@ -493,20 +542,36 @@ test.describe("listings", () => {
         level: 2,
       })
     ).toBeVisible()
-    const published = page.waitForResponse(
-      (r) =>
-        r.request().method() === "PATCH" &&
-        new URL(r.url()).pathname ===
-          `/api/locations/${state.primaryLocationId}/administration`
-    )
-    await page.getByRole("button", { name: "Start verification" }).click()
-    expect((await published).status()).toBe(200)
-    await expect(
-      page.getByText("Verification started", { exact: true })
-    ).toBeVisible()
+    // Starting verification is reviewed, approved, then sent separately.
+    const panel = page.locator('section[aria-labelledby="verification-start"]')
+    await panel
+      .getByRole("button", { name: "Check available methods" })
+      .click()
+    await panel.getByRole("radio").check()
+    await panel.getByLabel("Email username").fill("operations")
+    await panel
+      .getByRole("button", { name: "Review verification request" })
+      .click()
+    await panel
+      .getByRole("button", { name: "Approve verification request" })
+      .click()
+    const send = panel.getByRole("button", {
+      name: "Send approved verification request",
+    })
+    await expect(send).toBeDisabled()
+    await panel
+      .getByRole("checkbox", {
+        name: "Send this exact approved verification request to Google.",
+      })
+      .check()
+    await expect(send).toBeEnabled()
+    // Stop before the send: the journey listing already has merchant
+    // standing on Google, so the server refuses the write
+    // (verification_not_required). verification-start-backend.spec.ts sends
+    // and confirms each method on an unverified fixture.
   })
 
-  test("access danger zone: delete stays disabled until the location name is typed", async ({
+  test("access danger zone: a reviewed deletion stays unsendable until approved, named and consented", async ({
     baseURL,
     page,
   }) => {
@@ -522,23 +587,32 @@ test.describe("listings", () => {
     ).toBeVisible()
 
     await page.getByRole("button", { name: "Delete this location" }).click()
-    const confirm = page.getByRole("button", { name: "Delete location" })
-    await expect(confirm).toBeDisabled()
     await page
-      .getByLabel("Type the location's name to confirm")
-      .fill(state.directReview.locationName)
-    await expect(confirm).toBeEnabled()
-
-    const deleted = page.waitForResponse(
-      (r) =>
-        r.request().method() === "PATCH" &&
-        new URL(r.url()).pathname ===
-          `/api/locations/${state.primaryLocationId}/administration`
+      .getByRole("button", { name: "Prepare deletion review", exact: true })
+      .click()
+    const review = page.locator(
+      'section[aria-labelledby="lifecycle-review-title"]'
     )
-    await confirm.click()
-    expect((await deleted).status()).toBe(200)
-    await expect(
-      page.getByText("Location deleted from Google", { exact: true })
-    ).toBeVisible()
+    await review
+      .getByRole("button", { name: "Approve lifecycle request" })
+      .click()
+    const send = review.getByRole("button", { name: "Send approved deletion" })
+    await expect(send).toBeDisabled()
+    await review
+      .getByLabel("Type the listing name:", { exact: false })
+      .fill(state.directReview.locationName)
+    await expect(send).toBeDisabled()
+    await review
+      .getByRole("checkbox", {
+        name: "Send this exact approved lifecycle request to Google.",
+      })
+      .check()
+    await expect(send).toBeEnabled()
+    // The shared journey tenant keeps its listing: stop short of the send,
+    // which lifecycle-backend.spec.ts covers end to end on its own tenant.
+    await review
+      .getByRole("button", { name: "Keep this location unchanged" })
+      .click()
+    await expect(review).toHaveCount(0)
   })
 })

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   buildGoogleProfilePatch,
+  hashGoogleProfile,
   classifyProfileField,
   normalizeGoogleProfile,
   type NormalizedProfile,
@@ -41,11 +42,28 @@ describe("standalone profile domain", () => {
       payload: {
         title: "Old Crown Girton",
         profile: { description: "Local food and ales" },
-        phoneNumbers: { primaryPhone: "+44 1223 000000" },
+        phoneNumbers: { primaryPhone: "+44 1223 000000", additionalPhones: [] },
         websiteUri: "https://example.com",
       },
-      updateMask: ["title", "profile", "phoneNumbers", "websiteUri"],
+      updateMask: ["title", "profile.description", "phoneNumbers", "websiteUri"],
     })
+  })
+
+  it("requires a primary phone while allowing description clearing", () => {
+    const canonical: NormalizedProfile = { name: null, description: null, phone: null, website: null, address: null, mapsUrl: null, reviewUrl: null }
+    expect(() => buildGoogleProfilePatch({ canonical, selectedFields: ["phone"] })).toThrow("primary phone")
+    expect(buildGoogleProfilePatch({ canonical, selectedFields: ["description"] })).toEqual({
+      payload: { profile: {} },
+      updateMask: ["profile.description"],
+    })
+  })
+
+  it("preserves additional phones and detects changes to the reviewed collection", () => {
+    const location = { phoneNumbers: { primaryPhone: "111", additionalPhones: ["222", "333"] } }
+    const canonical = { ...normalizeGoogleProfile(location), phone: "444" }
+    expect(buildGoogleProfilePatch({ canonical, selectedFields: ["phone"], googlePhoneNumbers: location.phoneNumbers })).toEqual({ payload: { phoneNumbers: { primaryPhone: "444", additionalPhones: ["222", "333"] } }, updateMask: ["phoneNumbers"] })
+    expect(hashGoogleProfile(location, canonical)).not.toBe(hashGoogleProfile({ phoneNumbers: { ...location.phoneNumbers, additionalPhones: ["222"] } }, canonical))
+    expect(hashGoogleProfile(location, canonical)).toBe(hashGoogleProfile({ phoneNumbers: { ...location.phoneNumbers, additionalPhones: ["333", "222"] } }, canonical))
   })
 
   it("classifies independent and conflicting edits against baselines", () => {
