@@ -30,6 +30,9 @@ function fakeSql(strings: TemplateStringsArray, ...values: unknown[]) {
   return Promise.resolve([])
 }
 
+vi.mock("@/lib/server/pause-controls", () => ({
+  requireGbpDispatch: async () => {},
+}))
 vi.mock("@/lib/server/db", () => ({
   getDatabase: () => ({}),
   jsonColumn: (_sql: unknown, value: unknown) => value,

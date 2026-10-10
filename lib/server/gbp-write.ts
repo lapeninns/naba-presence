@@ -12,7 +12,9 @@ import "server-only"
  *
  * It owns:
  *   - loadLinkedLocation   the one "linked Google location" context query
- *   - requireGbpWrite      capability + kill-switch gate (module keeps its code)
+ *   - requireGbpWrite      capability + env kill-switch gate (module keeps its code)
+ *   - the dispatch pause gate in runGbpWrite (env + operator pause table,
+ *     lib/server/pause-controls.ts), checked before anything is written
  *   - requirePublishGrant  the 403 for members without publish rights
  *   - idempotencyKey       one key recipe
  *   - AttemptStore         a module's attempt table behind one interface,
@@ -51,6 +53,10 @@ import { connectionAccessToken } from "@/lib/server/google/connections"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import {
+  requireGbpDispatch,
+  type PausedError,
+} from "@/lib/server/pause-controls"
 import {
   beginOperation,
   claimAmbientIntent,
@@ -655,6 +661,14 @@ export type TenantTransaction = <T>(
 export type GbpWriteDeps = {
   /** Test seam; defaults to lib/server/db withTenant. */
   withTenant?: TenantTransaction
+  /**
+   * Test seam for the dispatch pause gate; defaults to
+   * lib/server/pause-controls requireGbpDispatch (env and operator table).
+   */
+  requireDispatch?: (
+    surface: GbpWriteSurface,
+    paused?: PausedError
+  ) => Promise<void>
 }
 
 export type GbpWritePhaseContext = { attemptId: string }
@@ -706,6 +720,15 @@ type GbpWriteBase<TResponse, TReadback, TIntent> = {
   organisationId: string
   actorUserId: string
   requestId: string
+  /**
+   * The kill-switch surface this write belongs to. Checked against the env
+   * flags and the operator pause table (lib/server/pause-controls.ts) at
+   * dispatch, before anything is written, so a pause set after the module's
+   * own early gate still stops the provider call.
+   */
+  surface: GbpWriteSurface
+  /** The module's paused error; defaults to 503 `google_writes_paused`. */
+  paused?: GateError
   store: AttemptStore<TIntent>
   key: string
   intent: TIntent
@@ -844,6 +867,10 @@ export async function hasGbpAttempt(
  *   (f) tenant txn: settle succeeded (+ onSuccess + audit) or failed/ambiguous
  * Throws exactly what the provider/readback threw (or the mismatch ApiError)
  * after settling, so routes keep their existing error mapping.
+ *
+ * Before (a), the dispatch gate: a paused surface (env or operator table)
+ * throws the module's paused error with nothing written, so a paused write
+ * leaves no attempt row and no receipt to reconcile later.
  */
 export async function runGbpWrite<
   TResponse,
@@ -860,6 +887,10 @@ export async function runGbpWrite<
       'runGbpWrite: `inProgress` is required when onExisting is "resume"'
     )
   }
+  await (deps.requireDispatch ?? requireGbpDispatch)(
+    input.surface,
+    input.paused
+  )
   const scope = { organisationId: input.organisationId, key: input.key }
   const inProgressError = () =>
     input.inProgress

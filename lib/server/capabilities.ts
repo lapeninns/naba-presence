@@ -18,6 +18,16 @@ import {
   getServerEnv,
 } from "@/lib/server/env"
 import {
+  NO_PAUSES,
+  dbPaused,
+  effectiveEnabled,
+  gbpIngestionScopes,
+  gbpWriteScopes,
+  loadPauseSnapshot,
+  type PauseScope,
+  type PauseSnapshot,
+} from "@/lib/server/pause-controls"
+import {
   NO_GRANT,
   actionAllowed,
   grantsFor,
@@ -102,23 +112,35 @@ export type {
 // Per-resource write availability, mirroring the per-surface kill switch each
 // lib/server module checks at its provider-mutation/ingestion boundary
 // (profile/hours/businessInformation/industry/administration are all Google
-// Business Information writes). A paused surface stays visible read-only.
+// Business Information writes), and the operator pause table runGbpWrite
+// checks at dispatch (lib/server/pause-controls.ts). A paused surface stays
+// visible read-only. An unreadable pause table is not shown as a pause: this
+// is a display, and the dispatch gate still refuses (it fails closed).
 export function resourceWritesEnabled(
-  env: GbpFlags
+  env: GbpFlags,
+  pauses: PauseSnapshot = NO_PAUSES
 ): Record<LocationResourceKey, boolean> {
-  const profileWrites = gbpWritesEnabled(env, "profileWrites")
+  const notPaused = (scopes: readonly PauseScope[]) =>
+    scopes.every((scope) =>
+      effectiveEnabled(true, dbPaused(pauses, scope), "open")
+    )
+  const writes = (surface: Parameters<typeof gbpWriteScopes>[0]) =>
+    gbpWritesEnabled(env, surface) && notPaused(gbpWriteScopes(surface))
+  const profileWrites = writes("profileWrites")
   return {
     profile: profileWrites,
     hours: profileWrites,
     businessInformation: profileWrites,
     industry: profileWrites,
     administration: profileWrites,
-    photos: gbpWritesEnabled(env, "media"),
-    posts: gbpWritesEnabled(env, "posts"),
-    menu: gbpWritesEnabled(env, "foodMenus"),
-    booking: gbpWritesEnabled(env, "placeActions"),
+    photos: writes("media"),
+    posts: writes("posts"),
+    menu: writes("foodMenus"),
+    booking: writes("placeActions"),
     performance:
-      env.PUBLISH_ENABLED && gbpIngestionEnabled(env, "performance"),
+      env.PUBLISH_ENABLED &&
+      gbpIngestionEnabled(env, "performance") &&
+      notPaused(["publish", ...gbpIngestionScopes("performance")]),
   }
 }
 
@@ -169,7 +191,9 @@ function buildResources(input: {
     }
 
     const consoleOnly =
-      key === "industry" || key === "administration" || key === "businessInformation"
+      key === "industry" ||
+      key === "administration" ||
+      key === "businessInformation"
     if (consoleOnly && !canEditCanonical) {
       resources[key] = {
         state: "unavailable",
@@ -180,7 +204,8 @@ function buildResources(input: {
 
     if (!publishesEnabled[key]) {
       resources[key] = {
-        state: canEditCanonical || key === "performance" ? "readOnly" : "blocked",
+        state:
+          canEditCanonical || key === "performance" ? "readOnly" : "blocked",
         reasonCode: "publishing_paused",
       }
       continue
@@ -209,7 +234,10 @@ export async function locationCapabilitiesForIds(
   const result = new Map<string, LocationCapabilities>()
   if (unique.length === 0) return result
 
-  const publishesEnabled = resourceWritesEnabled(getServerEnv())
+  const publishesEnabled = resourceWritesEnabled(
+    getServerEnv(),
+    await loadPauseSnapshot()
+  )
 
   const links = await sql<{ locationId: string }[]>`
     select location_id::text as "locationId"

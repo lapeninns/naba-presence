@@ -2,9 +2,9 @@ import type { z } from "zod"
 
 import { sweepSchema } from "@/lib/contracts/sync"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { withAdvisoryLock } from "@/lib/server/leases"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { log } from "@/lib/server/logger"
 import {
   linkedLocations,
@@ -17,6 +17,13 @@ import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
+
+// SYNC_ENABLED is the hard override; the operator pause table
+// (lib/server/pause-controls.ts) pauses the same scope without a redeploy.
+const SYNC_PAUSED = {
+  code: "sync_paused",
+  message: "Review sync is paused.",
+}
 
 type SweepFailure = {
   organisationId: string
@@ -46,9 +53,7 @@ export const POST = route({
   origin: "same",
   handler: async ({ request, requestId }) => {
     const session = await authenticate(request)
-    if (!getServerEnv().SYNC_ENABLED) {
-      throw new ApiError(503, "sync_paused", "Review sync is paused.")
-    }
+    await requireScopesEnabled("sync", SYNC_PAUSED)
     const input = sweepSchema.parse(await request.json().catch(() => ({})))
     return session
       ? runSweepPage({ session, input, requestId })
@@ -64,9 +69,7 @@ export const POST = route({
 export const GET = route({
   auth: "cron",
   handler: async ({ query, requestId }) => {
-    if (!getServerEnv().SYNC_ENABLED) {
-      throw new ApiError(503, "sync_paused", "Review sync is paused.")
-    }
+    await requireScopesEnabled("sync", SYNC_PAUSED)
     sweepSchema.parse(cronPageInput(query))
     return enqueueFleetSweep(requestId)
   },

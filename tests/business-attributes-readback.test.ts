@@ -32,6 +32,9 @@ vi.mock("@/lib/server/db", () => ({
     callback(fakeSql),
 }))
 vi.mock("@/lib/server/audit", () => ({ writeAudit: mocks.audit }))
+vi.mock("@/lib/server/pause-controls", () => ({
+  requireGbpDispatch: async () => {},
+}))
 vi.mock("@/lib/server/env", () => ({
   gbpWritesEnabled: () => true,
   getServerEnv: () => ({}),

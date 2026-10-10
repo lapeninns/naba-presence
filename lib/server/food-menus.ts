@@ -337,13 +337,15 @@ function foodMenusReadback(
   }
 }
 
+const FOOD_MENUS_PAUSED = {
+  code: "food_menus_paused",
+  message: "Food Menu publishing is paused.",
+}
+
 export async function publishFoodMenus(
   input: PublishFoodMenusInput
 ): Promise<PublishFoodMenusResult> {
-  requireGbpWrite(getServerEnv(), "foodMenus", {
-    code: "food_menus_paused",
-    message: "Food Menu publishing is paused.",
-  })
+  requireGbpWrite(getServerEnv(), "foodMenus", FOOD_MENUS_PAUSED)
   const live = await readLiveFoodMenus(input.session, input.locationId)
   assertFoodMenusPublishable(live, input)
   if (live.state.status === "in_sync")
@@ -354,6 +356,8 @@ export async function publishFoodMenus(
     Record<string, unknown>,
     Record<string, unknown>
   >({
+    surface: "foodMenus",
+    paused: FOOD_MENUS_PAUSED,
     organisationId: input.session.organisationId,
     actorUserId: input.session.userId,
     requestId: input.requestId,

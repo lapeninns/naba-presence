@@ -16,6 +16,7 @@ import type { TransactionSql } from "postgres"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 
 import {
   classifyProviderFailure,
@@ -133,9 +134,21 @@ async function settlePublishFailure(
   }
 }
 
+/**
+ * The reply pipeline's dispatch pause gate: the `publish` scope under its env
+ * override and the operator pause table (lib/server/pause-controls.ts).
+ * Checked before phase one, so a paused publish or delete writes nothing.
+ */
+export const REPLY_PUBLISHING_PAUSED = {
+  status: 503,
+  code: "publishing_paused",
+  message: "Publishing is temporarily paused.",
+}
+
 export async function executePublish(
   input: PublishInput
 ): Promise<PublishOutcome> {
+  await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
   const phaseOne = await preparePublish(input)
   if (phaseOne.kind === "outcome") return phaseOne.outcome
   if (phaseOne.kind === "needs_recovery") {

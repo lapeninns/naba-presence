@@ -65,6 +65,9 @@ const rejectionRowSchema = z.object({
  * - `lastCycleCompletedAt`, `cycleStaleAfterSeconds` and `cycleStale` are
  *   for ticks whose work spans several runs (the retention walk); the window
  *   is null for every other tick.
+ * - `paused` is a tick a pause scope holds (an env flag off or an operator
+ *   pause, migration 0071), and `pausedScopes` which; a paused tick that is
+ *   also `stale` is paused, not dead, and is not alerted on.
  */
 export const schedulerTickSchema = z.object({
   name: z.string(),
@@ -83,6 +86,8 @@ export const schedulerTickSchema = z.object({
   lastCycleCompletedAt: z.string().nullable().default(null),
   cycleStaleAfterSeconds: z.number().nullable().default(null),
   cycleStale: z.boolean().default(false),
+  paused: z.boolean().default(false),
+  pausedScopes: z.array(z.string()).default([]),
 })
 export type SchedulerTick = z.infer<typeof schedulerTickSchema>
 

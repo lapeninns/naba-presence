@@ -107,14 +107,16 @@ function linkedLocation(session: Session, locationId: string) {
   )
 }
 
+const PLACE_ACTIONS_PAUSED = {
+  status: 503,
+  code: "place_actions_paused",
+  message: "Place Action writes are paused.",
+}
+
 /** Linked location plus the write gates (kill switch, then publish grant). */
 async function linkedForWrite(session: Session, locationId: string) {
   const linked = await linkedLocation(session, locationId)
-  requireGbpWrite(getServerEnv(), "placeActions", {
-    status: 503,
-    code: "place_actions_paused",
-    message: "Place Action writes are paused.",
-  })
+  requireGbpWrite(getServerEnv(), "placeActions", PLACE_ACTIONS_PAUSED)
   requirePublishGrant(linked, {
     code: "publish_not_allowed",
     message: "You cannot publish for this location.",
@@ -339,6 +341,8 @@ async function runPlaceActionWrite<TResponse, TReadback>(
 ) {
   const { organisationId, linked, operation, linkId, payload } = input
   const result = await runGbpWrite<TResponse, TReadback>({
+    surface: "placeActions",
+    paused: PLACE_ACTIONS_PAUSED,
     organisationId,
     actorUserId: input.session.userId,
     requestId: input.requestId,

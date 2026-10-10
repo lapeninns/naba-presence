@@ -342,13 +342,15 @@ type MediaWriteScope = {
 
 type MediaWriteResult = { id: string; status: string; idempotent: boolean }
 
+const MEDIA_PAUSED = {
+  status: 503,
+  code: "media_paused",
+  message: "Google media writes are paused.",
+}
+
 /** Capability + kill switch (503 media_paused), then the publish grant (403). */
 function requireMediaWrite(linked: LinkedLocation) {
-  requireGbpWrite(getServerEnv(), "media", {
-    status: 503,
-    code: "media_paused",
-    message: "Google media writes are paused.",
-  })
+  requireGbpWrite(getServerEnv(), "media", MEDIA_PAUSED)
   requirePublishGrant(linked, {
     code: "publish_not_allowed",
     message: "You cannot publish for this location.",
@@ -467,6 +469,8 @@ async function runMediaWrite<TResponse, TReadback = never>(
   }
 ): Promise<MediaWriteResult> {
   const result = await runGbpWrite<TResponse, TReadback>({
+    surface: "media",
+    paused: MEDIA_PAUSED,
     organisationId: scope.organisationId,
     actorUserId: scope.session.userId,
     requestId: scope.requestId,

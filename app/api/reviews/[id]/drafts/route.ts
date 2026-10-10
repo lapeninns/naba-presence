@@ -31,6 +31,7 @@ import {
 } from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
@@ -124,13 +125,12 @@ export const POST = route({
     clientRequestId,
     tenant,
   }) => {
-    if (!getServerEnv().DRAFTS_ENABLED) {
-      throw new ApiError(
-        503,
-        "drafts_paused",
-        "Draft generation is temporarily paused."
-      )
-    }
+    // DRAFTS_ENABLED is the hard override; the operator pause table
+    // (lib/server/pause-controls.ts) pauses drafts without a redeploy.
+    await requireScopesEnabled("drafts", {
+      code: "drafts_paused",
+      message: "Draft generation is temporarily paused.",
+    })
     const { id } = params
     const correlationId = requestId
 

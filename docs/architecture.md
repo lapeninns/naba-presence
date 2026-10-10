@@ -383,6 +383,42 @@ interface can show a paused-write notice without hiding the surface: disabled
 features render current stored/live state and a reason code, so an operator
 can distinguish "no data" from "writes intentionally disabled".
 
+### Operator pause controls
+
+The env flags above are read once per process, so on their own they take a
+redeploy. `ops_pause_control` (migration 0071) is the hot layer on top:
+one row per scope (the env switches' own names, plus `scheduled_post`,
+`bulk`, `billing`, `mutation_recover` and `invitation_email` reserved for work
+that lands later), read through `lib/server/pause-controls.ts` with a
+5-second cache. A scope runs only when its env flag is on **and** its row is
+not paused: the env flag stays the hard override, and a row can add a pause
+but never lift one. The checks sit where work starts:
+
+- the runner's claim: `claimableKinds(env, pauses)` in `lib/server/jobs.ts`
+  filters `claim_due_jobs` by both layers;
+- provider dispatch: `runGbpWrite` takes the write's `surface` and calls
+  `requireGbpDispatch` (`publish` plus the surface) before anything is
+  written, answering the module's own paused error; the reply pipeline
+  checks `publish` in `executePublish`, `executeReplyDelete` and, for an item
+  the runner claimed just before a pause, `retryPublishAttempt` (which then
+  skips and leaves the row `retryable`);
+- whole-tick routes: `app/api/cron/retention/route.ts`,
+  `app/api/cron/health/route.ts` (`notifications`), and the review sync ticks
+  `app/api/sync/reconcile/route.ts` and `app/api/sync/sweep/route.ts`
+  (`sync`), plus the drafts route (`drafts`).
+
+A paused answer carries `details.pausedScopes`, so it is distinguishable
+from a failure. An unreadable pause table fails closed for anything that
+claims, sends or deletes, and open for reporting: `lib/server/ops-liveness.ts`
+marks a tick its scope holds as `paused` (with `pausedScopes`) and raises no
+staleness alert for it. The runtime role can read the tables and nothing
+else; operators write them through `scripts/ops-pause.mjs` (`pnpm ops:pause`).
+
+`organisation_feature` (same migration) is the per-organisation product
+flag, off without a row, read inside the tenant transaction by
+`lib/server/org-features.ts` `isOrgFeatureEnabled`. A paused scope stops the
+work even where the feature is on.
+
 ## One write pipeline: `runGbpWrite`
 
 `lib/server/gbp-write.ts` is the single implementation of the write discipline

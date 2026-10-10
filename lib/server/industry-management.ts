@@ -252,6 +252,7 @@ export async function mutateIndustryManagement(input: {
     Record<string, unknown>,
     Record<string, unknown>
   >({
+    surface: "profileWrites",
     organisationId,
     actorUserId: input.session.userId,
     requestId: input.requestId,

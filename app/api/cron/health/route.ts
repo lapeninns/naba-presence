@@ -1,6 +1,4 @@
 import { getDatabase } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
 import { withAdvisoryLock } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
 import {
@@ -8,6 +6,7 @@ import {
   evaluateOrganisation,
 } from "@/lib/server/notifications/evaluate"
 import { evaluatePlatform } from "@/lib/server/notifications/platform"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -83,16 +82,21 @@ async function runHealthTick(requestId: string) {
   return { skipped: false, ...result }
 }
 
+// NOTIFICATIONS_ENABLED is the hard override; the operator pause table
+// (lib/server/pause-controls.ts) pauses the same scope without a redeploy.
+// Either way the tick evaluates nothing, and the liveness report shows it as
+// paused rather than stale.
 function assertEnabled() {
-  if (!getServerEnv().NOTIFICATIONS_ENABLED) {
-    throw new ApiError(503, "notifications_paused", "Notifications are paused.")
-  }
+  return requireScopesEnabled("notifications", {
+    code: "notifications_paused",
+    message: "Notifications are paused.",
+  })
 }
 
 export const POST = route({
   auth: "cron",
-  handler: ({ requestId }) => {
-    assertEnabled()
+  handler: async ({ requestId }) => {
+    await assertEnabled()
     return runHealthTick(requestId)
   },
 })
@@ -100,8 +104,8 @@ export const POST = route({
 // Vercel Cron entry point.
 export const GET = route({
   auth: "cron",
-  handler: ({ requestId }) => {
-    assertEnabled()
+  handler: async ({ requestId }) => {
+    await assertEnabled()
     return runHealthTick(requestId)
   },
 })

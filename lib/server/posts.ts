@@ -1337,6 +1337,8 @@ async function publishLocalPost(input: {
     Record<string, unknown>,
     LocalPostAttemptIntent
   >({
+    surface: "posts",
+    paused: POSTS_PAUSED,
     organisationId: input.organisationId,
     actorUserId: input.session.userId,
     requestId: input.requestId,
@@ -1568,6 +1570,8 @@ export async function deleteLocalPost(input: {
   const googlePostName = post.googlePostName
   try {
     await runGbpWrite<void, { listed: boolean }, LocalPostAttemptIntent>({
+      surface: "posts",
+      paused: POSTS_PAUSED,
       organisationId: input.organisationId,
       actorUserId: input.session.userId,
       requestId: input.requestId,

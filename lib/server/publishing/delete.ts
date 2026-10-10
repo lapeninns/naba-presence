@@ -18,6 +18,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
   canPublishLocation,
   requireLocationAccess,
@@ -39,6 +40,7 @@ import {
   replyTarget,
   type ReplyTarget,
 } from "./provider"
+import { REPLY_PUBLISHING_PAUSED } from "./publish"
 import { recoverForRequest } from "./recover"
 import { applyDeletedReply, setReviewWorkflow } from "./settle"
 import type {
@@ -396,6 +398,7 @@ async function settleDeleteFailure(
 export async function executeReplyDelete(
   input: ReplyDeleteInput
 ): Promise<ReplyDeleteOutcome> {
+  await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
   const phaseOne = await prepareDelete(input)
   if (phaseOne.kind === "outcome") return phaseOne.outcome
   if (phaseOne.kind === "needs_recovery") {

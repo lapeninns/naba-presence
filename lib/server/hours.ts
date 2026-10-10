@@ -158,7 +158,10 @@ async function readLiveHours(session: Session, locationId: string) {
         !(error instanceof ApiError) &&
         !(error instanceof ZodError) &&
         !(error instanceof TypeError) &&
-        !(error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"))
+        !(
+          error instanceof Error &&
+          (error.name === "AbortError" || error.name === "TimeoutError")
+        )
       )
         throw error
       googleLocation = { ...googleLocation, categories: undefined }
@@ -466,7 +469,9 @@ function checkPublishSnapshot(
   }
   const requireConfirmation = (statuses: string[]) => {
     if (
-      statuses.some((status) => ["google_dirty", "conflict"].includes(status)) &&
+      statuses.some((status) =>
+        ["google_dirty", "conflict"].includes(status)
+      ) &&
       !input.confirmOverwriteGoogleChanges
     ) {
       throw new ApiError(
@@ -590,6 +595,8 @@ async function publishHoursToGoogle(
     )
 
   return runGbpWrite({
+    surface: "profileWrites",
+    paused: HOURS_PUBLISHING_DISABLED,
     organisationId: session.organisationId,
     actorUserId: session.userId,
     requestId: input.requestId,
@@ -689,12 +696,14 @@ async function publishHoursToGoogle(
   })
 }
 
+const HOURS_PUBLISHING_DISABLED = {
+  status: 409,
+  code: "hours_publishing_disabled",
+  message: "Hours publishing is currently disabled.",
+}
+
 export async function publishCanonicalHours(input: PublishHoursInput) {
-  requireGbpWrite(getServerEnv(), "profileWrites", {
-    status: 409,
-    code: "hours_publishing_disabled",
-    message: "Hours publishing is currently disabled.",
-  })
+  requireGbpWrite(getServerEnv(), "profileWrites", HOURS_PUBLISHING_DISABLED)
   const live = await readLiveHours(input.session, input.locationId)
   requirePublishGrant(live.linked, {
     code: "publish_permission_required",

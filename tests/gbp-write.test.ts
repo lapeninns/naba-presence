@@ -34,6 +34,10 @@ import type { Session } from "@/lib/server/session"
 
 import { pgliteSql } from "./helpers/pglite-tx"
 
+// The dispatch pause gate reads the operator pause table; these tests run
+// without one, so dispatch is open unless a test says otherwise.
+const dispatchOpen = async () => {}
+
 // The write pipeline is exercised against a real Postgres (pglite) with the
 // shape of an hours-style attempt table (validating/publishing vocabulary),
 // a started-style table (media/place-action vocabulary) and audit_log, using
@@ -197,6 +201,7 @@ describe("gbp-write", () => {
     organisationId: ORG,
     actorUserId: USER,
     requestId: "req-1",
+    surface: "profileWrites",
     store: hoursStyle,
     key: idempotencyKey([ORG, EXTERNAL, "hours_publish", "3"]),
     intent: {
@@ -227,7 +232,7 @@ describe("gbp-write", () => {
   })
 
   const run = (overrides: Partial<Input> = {}) =>
-    runGbpWrite(base(overrides), { withTenant })
+    runGbpWrite(base(overrides), { withTenant, requireDispatch: dispatchOpen })
 
   it("exports the status vocabulary once", () => {
     expect([...GBP_ATTEMPT_STATUSES]).toEqual([
@@ -238,6 +243,34 @@ describe("gbp-write", () => {
       "failed",
       "ambiguous",
     ])
+  })
+
+  it("refuses a paused surface at dispatch with nothing written", async () => {
+    const gates: string[] = []
+    const paused = new ApiError(409, "hours_publishing_disabled", "paused")
+    await expect(
+      runGbpWrite(
+        base({
+          paused: {
+            status: 409,
+            code: "hours_publishing_disabled",
+            message: "x",
+          },
+        }),
+        {
+          withTenant,
+          requireDispatch: async (surface, gate) => {
+            gates.push(`${surface}:${gate?.code}`)
+            throw paused
+          },
+        }
+      )
+    ).rejects.toBe(paused)
+    // The module's own gate reached the dispatch check, and no phase ran.
+    expect(gates).toEqual(["profileWrites:hours_publishing_disabled"])
+    expect(calls).toEqual([])
+    expect(await rows("write_attempt")).toEqual([])
+    expect(await audits()).toEqual([])
   })
 
   it("success path: validate, publish, readback, settle succeeded, onSuccess, audit", async () => {
@@ -758,6 +791,7 @@ describe("gbp-write", () => {
         organisationId: ORG,
         actorUserId: USER,
         requestId: "req-typed",
+        surface: "profileWrites",
         store: hoursStyle,
         key: idempotencyKey([ORG, EXTERNAL, "typed"]),
         intent: {
@@ -770,7 +804,7 @@ describe("gbp-write", () => {
         mutate: async () => ({ name: "locations/1" }),
         onAmbiguous: "fail",
       },
-      { withTenant }
+      { withTenant, requireDispatch: dispatchOpen }
     )
     expect(result.idempotent).toBe(false)
     const [row] = await rows("write_attempt")
@@ -911,7 +945,7 @@ describe("gbp-write", () => {
         validate: undefined,
         audit: undefined,
       },
-      { withTenant }
+      { withTenant, requireDispatch: dispatchOpen }
     )
     expect(result.attemptId).toBe("custom-1")
     expect(seen).toEqual([

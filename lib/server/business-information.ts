@@ -72,6 +72,12 @@ function writesEnabled() {
   return gbpWritesEnabled(getServerEnv(), "profileWrites")
 }
 
+const BUSINESS_INFORMATION_PAUSED = {
+  status: 503,
+  code: "business_information_paused",
+  message: "Google Business Information writes are paused.",
+}
+
 async function loadedContext(session: Session, locationId: string) {
   return withTenant(session.organisationId, (sql) =>
     resolveGbpLocationContext(sql, session, locationId)
@@ -201,6 +207,8 @@ async function runManagementWrite<TResponse>(
   }
   try {
     const result = await runGbpWrite<TResponse, Record<string, unknown>>({
+      surface: "profileWrites",
+      paused: BUSINESS_INFORMATION_PAUSED,
       organisationId,
       actorUserId: input.session.userId,
       requestId: input.requestId,
@@ -325,9 +333,9 @@ export async function updateBusinessInformation(input: {
   }
   if (!writesEnabled()) {
     throw new ApiError(
-      503,
-      "business_information_paused",
-      "Google Business Information writes are paused."
+      BUSINESS_INFORMATION_PAUSED.status,
+      BUSINESS_INFORMATION_PAUSED.code,
+      BUSINESS_INFORMATION_PAUSED.message
     )
   }
   assertBusinessInformationMask(input.payload, input.updateMask)
@@ -417,9 +425,9 @@ export async function updateBusinessAttributes(input: {
     )
   if (!writesEnabled())
     throw new ApiError(
-      503,
-      "business_information_paused",
-      "Google Business Information writes are paused."
+      BUSINESS_INFORMATION_PAUSED.status,
+      BUSINESS_INFORMATION_PAUSED.code,
+      BUSINESS_INFORMATION_PAUSED.message
     )
   const token = await connectionAccessToken(
     getDatabase(),

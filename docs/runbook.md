@@ -137,10 +137,12 @@ order by a.created_at;
 
 Every flag is read once per process — `getServerEnv` parses `process.env` on
 first use and memoises it — so flipping one takes an environment change **and** a
-redeploy. None of them is a hot switch, and none takes effect on a running
-process. When background provider traffic has
-to stop faster than a redeploy, disable the project's Cron Jobs in the Vercel
-dashboard (or the single cron for the offending tick) instead:
+redeploy. None of the env flags is a hot switch. The hot switch is the
+operator pause table (below, "Operator pauses"): it stops the same scopes on
+every instance within five seconds, with no redeploy. When even that is not
+available (the database itself is the problem), disable the project's Cron
+Jobs in the Vercel dashboard (or the single cron for the offending tick)
+instead:
 that halts all eight ticks — the jobs runner, reconciliation, retention,
 presence-resource reconciliation, the provider-deletion sweep, the
 performance/keyword ingests and the health/notification tick — in one step,
@@ -176,6 +178,45 @@ The runner enforces all three of its flags at the claim, not inside the work:
 keeps its status and its `next_attempt_at` untouched. A tick that is claiming a
 reduced set logs `jobs.kinds_paused` with the flags responsible. Nothing is
 re-armed, and no retry or recovery budget is spent, while a flag is off.
+
+### Operator pauses
+
+`ops_pause_control` (migration 0071, `lib/server/pause-controls.ts`) holds one
+row per scope: `jobs`, `publish`, `sync`, `notifications`, `retention`,
+`drafts`, the Google surfaces (`profileWrites`, `posts`, `media`,
+`placeActions`, `foodMenus`, `performance`, `keywords`) and the reserved
+`scheduled_post`, `bulk`, `billing`, `mutation_recover`, `invitation_email`.
+A paused row has the same effect as its env flag being off, at the same
+places: the runner's claim, provider dispatch (`runGbpWrite`, the reply
+pipeline) and the retention, health, reconcile, sweep and drafts routes.
+Every instance picks a change up within the five-second pause cache.
+
+```sh
+DIRECT_DATABASE_URL=... pnpm ops:pause status
+DIRECT_DATABASE_URL=... pnpm ops:pause pause --scope publish \
+  --operator you@example.com --reason "Google incident: stop all writes"
+DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
+  --operator you@example.com --reason "Google incident resolved"
+```
+
+- The env flag stays the hard override. `resume` lifts only the table's
+  pause; a scope whose env flag is off stays paused until the redeploy.
+- Every call appends an `ops_pause_event` row (scope, before/after, operator,
+  reason). The table is append-only.
+- `naba_app_runtime` can read both tables and cannot write either or run
+  `set_ops_pause`, so this needs the owner/operator connection. Pausing
+  production is an incident action; resuming it is a release operation that
+  needs approval.
+- A paused answer carries `details.pausedScopes`. If the pause table cannot
+  be read, claims and Google writes stop (fail closed) and the answer says
+  `pauseStateUnknown: true`; the liveness report keeps alerting (fail open).
+- A tick held by its scope (`jobs`, `sync` for reconcile and sweep,
+  `retention`, `performance`, `keywords`, `notifications` for health) reports
+  `paused: true` in `schedulerTicks` and raises no stale or never-completed
+  alert while paused. A wedged lease is still alerted.
+- Per-organisation product flags live in `organisation_feature` (off without
+  a row): `pnpm ops:pause feature --organisation <uuid> --feature
+  post_scheduling --enable --operator you@example.com`.
 
 ## Scheduled work
 

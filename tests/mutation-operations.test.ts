@@ -36,6 +36,10 @@ import { requireSession } from "@/lib/server/session"
 
 import { pgliteSql } from "./helpers/pglite-tx"
 
+// The dispatch pause gate reads the operator pause table; these tests run
+// without one, so dispatch is open unless a test says otherwise.
+const dispatchOpen = async () => {}
+
 // The operation ledger (0067_mutation_operation.sql) through runGbpWrite on
 // PGlite: the real migration over the slice of the schema it references, a
 // generic attempt table, and fake providers that count their calls.
@@ -150,6 +154,7 @@ describe("mutation operation ledger", () => {
     organisationId: ORG,
     actorUserId: USER,
     requestId: crypto.randomUUID(),
+    surface: "profileWrites",
     store,
     key: idempotencyKey([ORG, LOCATION, "hours_publish", content]),
     intent: {},
@@ -181,7 +186,11 @@ describe("mutation operation ledger", () => {
     intentId: string | null,
     content: string,
     overrides: Partial<Input> = {}
-  ) => runGbpWrite(base(content, { intentId, ...overrides }), { withTenant })
+  ) =>
+    runGbpWrite(base(content, { intentId, ...overrides }), {
+      withTenant,
+      requireDispatch: dispatchOpen,
+    })
 
   it("records the intent before dispatch and settles it confirmed_applied", async () => {
     let seenDuringMutate: Row[] = []
@@ -320,8 +329,14 @@ describe("mutation operation ledger", () => {
 
   it("takes the request's ambient intent, for the first described write only", async () => {
     await withMutationIntent(INTENT, async () => {
-      await runGbpWrite(base("a"), { withTenant })
-      await runGbpWrite(base("b"), { withTenant })
+      await runGbpWrite(base("a"), {
+        withTenant,
+        requireDispatch: dispatchOpen,
+      })
+      await runGbpWrite(base("b"), {
+        withTenant,
+        requireDispatch: dispatchOpen,
+      })
     })
     const rows = await operations()
     expect(rows).toHaveLength(1)

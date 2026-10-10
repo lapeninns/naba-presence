@@ -5,7 +5,14 @@ import type {
   SchedulerTick,
 } from "@/lib/contracts/operations"
 import { getDatabase } from "@/lib/server/db"
+import { getServerEnv } from "@/lib/server/env"
 import { SCHEDULER_TICK_NAMES } from "@/lib/server/leases"
+import {
+  loadPauseSnapshot,
+  scopesEnabled,
+  type PauseScope,
+  type PauseSnapshot,
+} from "@/lib/server/pause-controls"
 
 /**
  * How long each tick may go without completing before its absence is worth
@@ -52,6 +59,43 @@ export const TICK_CYCLE_STALE_AFTER_SECONDS: Record<string, number> = {
 
 const SCHEDULER_STALE_AFTER_SECONDS = TICK_STALE_AFTER_SECONDS.jobs
 
+/**
+ * The pause scope that stops each tick's whole run (lib/server/pause-
+ * controls.ts), env override or operator table. A paused tick is expected
+ * not to complete -- retention and the review sync ticks answer 503, the
+ * health tick evaluates nothing -- so it is reported as paused rather than
+ * stale, and is not alerted on. presence-resources has no scope: nothing
+ * pauses it, so its absence is always a fault.
+ */
+export const TICK_PAUSE_SCOPES: Record<string, readonly PauseScope[]> = {
+  jobs: ["jobs"],
+  reconcile: ["sync"],
+  sweep: ["sync"],
+  retention: ["retention"],
+  performance: ["performance"],
+  keywords: ["keywords"],
+  health: ["notifications"],
+}
+
+/**
+ * The ticks paused right now and the scopes holding them. An unreadable
+ * pause table counts as not paused here: this feeds alerting, which must
+ * keep paging on a dead tick when it cannot tell whether it was paused.
+ */
+export function pausedTicks(
+  env: Parameters<typeof scopesEnabled>[0],
+  snapshot: PauseSnapshot
+): Map<string, PauseScope[]> {
+  const paused = new Map<string, PauseScope[]>()
+  for (const [tick, scopes] of Object.entries(TICK_PAUSE_SCOPES)) {
+    const holding = scopes.filter(
+      (scope) => !scopesEnabled(env, snapshot, [scope], "open")
+    )
+    if (holding.length) paused.set(tick, holding)
+  }
+  return paused
+}
+
 export type TickRow = {
   name: string
   beatAt: Date | null
@@ -74,11 +118,13 @@ const secondsSince = (value: Date | null | undefined, now: Date) =>
  * Per-tick liveness from the run ledger, one entry per scheduled tick in
  * report order. A tick with no row reads as never completed and never
  * registered (so no grace anchor), which is what a database without 0070's
- * seed rows looks like.
+ * seed rows looks like. `paused` names the ticks a pause scope holds and
+ * which scopes (pausedTicks).
  */
 export function tickLiveness(
   rows: readonly TickRow[],
-  now: Date
+  now: Date,
+  paused: ReadonlyMap<string, readonly PauseScope[]> = new Map()
 ): SchedulerTick[] {
   const byName = new Map(rows.map((row) => [row.name, row]))
   return SCHEDULER_TICK_NAMES.map((name) => {
@@ -115,6 +161,8 @@ export function tickLiveness(
         cycleStaleAfterSeconds !== null &&
         cycleAge !== null &&
         cycleAge > cycleStaleAfterSeconds,
+      paused: paused.has(name),
+      pausedScopes: [...(paused.get(name) ?? [])],
     }
   })
 }
@@ -138,6 +186,12 @@ export type TickFinding = {
  * The health tick is left out: it is the one evaluating, so it cannot report
  * its own absence, and on its very first run it has not completed yet. Its
  * absence needs a signal from outside the deployment.
+ *
+ * A paused tick (TICK_PAUSE_SCOPES) raises no stopped, never-completed or
+ * overdue-cycle finding: not completing is what a pause is. Its open
+ * incidents resolve, and if it still does not complete once the pause is
+ * lifted, the next evaluation opens them again. A wedged lease is still
+ * reported, because a paused tick does not take its lease at all.
  */
 export function tickFindings(
   ticks: readonly SchedulerTick[],
@@ -146,6 +200,20 @@ export function tickFindings(
   const findings: TickFinding[] = []
   for (const tick of ticks) {
     if (tick.name === "health") continue
+    if (tick.paused) {
+      if (tick.lockWedged) {
+        findings.push({
+          kind: "tick_lock_wedged",
+          subject: tick.name,
+          details: {
+            consecutiveSkips: tick.consecutiveSkips,
+            lastSkippedAt: tick.lastSkippedAt,
+            lastStartedAt: tick.lastStartedAt,
+          },
+        })
+      }
+      continue
+    }
     const failure = {
       lastStartedAt: tick.lastStartedAt,
       lastFailedAt: tick.lastFailedAt,
@@ -243,6 +311,7 @@ export async function schedulerLiveness(
       last_cycle_completed_at as "lastCycleCompletedAt"
     from ops_heartbeat
   `
+  const paused = pausedTicks(getServerEnv(), await loadPauseSnapshot())
   const scheduler = rows.find((row) => row.name === "scheduler")?.beatAt
   const schedulerAge = secondsSince(scheduler, now)
   return {
@@ -252,6 +321,6 @@ export async function schedulerLiveness(
     schedulerHeartbeatAt: iso(scheduler),
     schedulerHeartbeatStale:
       schedulerAge === null || schedulerAge > SCHEDULER_STALE_AFTER_SECONDS,
-    schedulerTicks: tickLiveness(rows, now),
+    schedulerTicks: tickLiveness(rows, now, paused),
   }
 }

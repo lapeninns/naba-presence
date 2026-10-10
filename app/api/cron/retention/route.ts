@@ -4,10 +4,8 @@ import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
-import {
-  recordTickCycleCompleted,
-  withAdvisoryLock,
-} from "@/lib/server/leases"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
+import { recordTickCycleCompleted, withAdvisoryLock } from "@/lib/server/leases"
 import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
 import { reapStrandedLocalPosts } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
@@ -49,13 +47,13 @@ async function retain({
   batchSize,
 }: RetentionInput) {
   const env = getServerEnv()
-  if (!env.RETENTION_ENABLED) {
-    throw new ApiError(
-      503,
-      "retention_paused",
-      "Retention is paused. Set RETENTION_ENABLED=true to resume the purge."
-    )
-  }
+  // RETENTION_ENABLED is the hard override; the operator pause table
+  // (lib/server/pause-controls.ts) pauses the same scope without a redeploy.
+  await requireScopesEnabled("retention", {
+    code: "retention_paused",
+    message:
+      "Retention is paused (RETENTION_ENABLED or an operator pause). Resume the scope to restart the purge.",
+  })
   const deletesEnabled = env.RETENTION_DELETES_ENABLED
   // Stay inside the scheduler's 55s abort so a long page returns a cursor
   // instead of discarding every organisation it already committed.

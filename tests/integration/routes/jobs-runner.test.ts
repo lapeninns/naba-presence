@@ -831,4 +831,54 @@ describeDatabase("durable background jobs", () => {
       expect((await webhookState(eventId)).status).toBe("processed")
     }, 30_000)
   })
+
+  describe("with publish paused in the operator table", () => {
+    const pause = (paused: boolean) =>
+      admin`
+        select * from set_ops_pause(
+          'publish', ${paused}, 'Runner pause test', 'jobs-runner.test'
+        )
+      `
+    // Past the app's pause cache (PAUSE_CACHE_TTL_MS, 5s).
+    const propagate = () => new Promise((resolve) => setTimeout(resolve, 5_300))
+
+    afterAll(async () => {
+      await pause(false)
+      await propagate()
+    }, 20_000)
+
+    it("claims no retry, keeps its back-off, and still drains sync work", async () => {
+      const subject = await fixture()
+      healthyReviews()
+      stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+        status: 200,
+        json: { comment: "x", updateTime: "2026-08-20T10:00:00.000Z" },
+      }))
+      const attemptId = await seedPublishAttempt(
+        subject,
+        "retryable",
+        "A retry the operator pause must hold."
+      )
+      const eventId = await seedWebhook(subject, 0)
+      const before = await attemptState(attemptId)
+      await pause(true)
+      await propagate()
+
+      // No redeploy and no env change: the same server stops claiming.
+      await runTick()
+
+      const after = await attemptState(attemptId)
+      expect(after.status).toBe("retryable")
+      expect(after.nextAttemptAt).toEqual(before.nextAttemptAt)
+      expect(after.leaseExpiresAt).toBeNull()
+      expect(stub.calls.filter((call) => call.method === "PUT")).toEqual([])
+      expect((await webhookState(eventId)).status).toBe("processed")
+
+      // Resumed, the held retry drains by itself.
+      await pause(false)
+      await propagate()
+      await runTick()
+      expect((await attemptState(attemptId)).status).toBe("succeeded")
+    }, 60_000)
+  })
 })

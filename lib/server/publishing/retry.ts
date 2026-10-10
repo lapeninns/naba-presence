@@ -12,6 +12,7 @@ import type { TransactionSql } from "postgres"
 
 import { deleteWorkflowTarget } from "@/lib/domain/workflow"
 import { withTenant } from "@/lib/server/db"
+import { isScopeEnabled } from "@/lib/server/pause-controls"
 
 import {
   classifyProviderFailure,
@@ -270,6 +271,12 @@ export async function retryPublishAttempt(
   organisationId: string,
   attemptId: string
 ): Promise<RetryResult> {
+  // The dispatch half of the pause: the runner stops claiming `retry` when
+  // `publish` is paused, but an item it claimed just before the pause lands
+  // here. Skipped leaves the row `retryable` with its back-off untouched, so
+  // no retry budget is spent while paused; an unreadable pause table skips
+  // too.
+  if (!(await isScopeEnabled("publish"))) return "skipped"
   const claim = await withTenant(organisationId, (sql) =>
     claimRetry(sql, organisationId, attemptId)
   )

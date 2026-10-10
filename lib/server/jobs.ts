@@ -33,9 +33,10 @@ import "server-only"
  * The kill switches are enforced at the claim, not inside the work: a claimed
  * row is already 'running' with a lease, so a runner that claims and then
  * skips re-arms the row every tick and reports a backlog that is only its own
- * churn. `claimableKinds` turns the flags into the `p_kinds` filter, and a
- * paused kind keeps its status and its `next_attempt_at` until the flag comes
- * back (docs/runbook.md, "Kill switches").
+ * churn. `claimableKinds` turns the flags -- the env hard overrides and the
+ * operator pause table (lib/server/pause-controls.ts) -- into the `p_kinds`
+ * filter, and a paused kind keeps its status and its `next_attempt_at` until
+ * the switch comes back (docs/runbook.md, "Kill switches").
  *
  * Concurrency is bounded by `JOBS_CONCURRENCY` and, independently, by the
  * database pool and the process-local Google pacer
@@ -54,13 +55,17 @@ import { retryDelayMs } from "@/lib/domain/retry"
 import { releaseStaleReservations } from "@/lib/server/ai-credits"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import {
-  gbpIngestionEnabled,
-  getServerEnv,
-  type ServerEnv,
-} from "@/lib/server/env"
+import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { syncDueKeywords } from "@/lib/server/keywords"
 import { log } from "@/lib/server/logger"
+import {
+  gbpIngestionScopes,
+  loadPauseSnapshot,
+  pausedScopes,
+  scopesEnabled,
+  type PauseScope,
+  type PauseSnapshot,
+} from "@/lib/server/pause-controls"
 import {
   recoverAttempt,
   retryPublishAttempt,
@@ -86,7 +91,11 @@ const JOB_KINDS = [
   "keywords",
 ] as const
 
-const RECURRING_KINDS = new Set<JobKind>(["reconcile", "performance", "keywords"])
+const RECURRING_KINDS = new Set<JobKind>([
+  "reconcile",
+  "performance",
+  "keywords",
+])
 
 export type JobKind = (typeof JOB_KINDS)[number]
 
@@ -95,7 +104,8 @@ type ClaimedJob = {
   jobId: string
   organisationId: string
   externalLocationId: string | null
-  syncType: "backfill" | "sweep" | "reconcile" | "performance" | "keywords" | null
+  syncType:
+    "backfill" | "sweep" | "reconcile" | "performance" | "keywords" | null
   retryCount: number
 }
 
@@ -156,26 +166,38 @@ function recoveryDelayMs(attempts: number) {
 }
 
 /**
- * The kinds this process may claim. `PUBLISH_ENABLED` covers the two publish
- * kinds and `SYNC_ENABLED` the three ingestion kinds, exactly as the runbook
- * describes them; `JOBS_ENABLED` off claims nothing at all.
+ * The scopes each kind answers to. The publish kinds stop with `publish`,
+ * the ingestion kinds with their own surface (as their routes do), and every
+ * other kind with `sync`, exactly as the runbook describes them; `jobs`
+ * paused claims nothing at all.
  */
-function claimableKinds(env: ServerEnv): JobKind[] {
-  if (!env.JOBS_ENABLED) return []
-  return JOB_KINDS.filter((kind) => {
-    switch (kind) {
-      case "recover":
-      case "retry":
-        return env.PUBLISH_ENABLED
-      // Ingestion surfaces answer to their own flag, as their routes do.
-      case "performance":
-        return gbpIngestionEnabled(env, "performance")
-      case "keywords":
-        return gbpIngestionEnabled(env, "keywords")
-      default:
-        return env.SYNC_ENABLED
-    }
-  })
+function kindScopes(kind: JobKind): PauseScope[] {
+  switch (kind) {
+    case "recover":
+    case "retry":
+      return ["publish"]
+    case "performance":
+      return gbpIngestionScopes("performance")
+    case "keywords":
+      return gbpIngestionScopes("keywords")
+    default:
+      return ["sync"]
+  }
+}
+
+/**
+ * The kinds this process may claim, under both the env hard overrides and
+ * the operator pause table (lib/server/pause-controls.ts). An unreadable
+ * pause table claims nothing: claiming is the first step of sending.
+ */
+export function claimableKinds(
+  env: ServerEnv,
+  pauses: PauseSnapshot
+): JobKind[] {
+  if (!scopesEnabled(env, pauses, ["jobs"])) return []
+  return JOB_KINDS.filter((kind) =>
+    scopesEnabled(env, pauses, kindScopes(kind))
+  )
 }
 
 /**
@@ -666,7 +688,8 @@ async function deferRecurring(job: ClaimedJob, error: unknown) {
       update sync_checkpoint
       set
         next_attempt_at = ${new Date(
-          Date.now() + retryDelayMs(job.retryCount + 1, Math.random, 60_000, 30 * 60_000)
+          Date.now() +
+            retryDelayMs(job.retryCount + 1, Math.random, 60_000, 30 * 60_000)
         )},
         last_error_code = coalesce(last_error_code, 'job_failed'),
         lease_expires_at = null
@@ -869,13 +892,18 @@ export async function runDueJobs(options: {
     recurring: 0,
   }
 
-  const kinds = claimableKinds(env)
+  const pauses = await loadPauseSnapshot()
+  const kinds = claimableKinds(env, pauses)
   if (kinds.length < JOB_KINDS.length) {
     log.warn("jobs.kinds_paused", {
       requestId: options.requestId,
       jobsEnabled: env.JOBS_ENABLED,
       publishEnabled: env.PUBLISH_ENABLED,
       syncEnabled: env.SYNC_ENABLED,
+      // The scopes the operator pause table or an env flag holds off, and
+      // whether the table could be read at all.
+      pausedScopes: pausedScopes(env, pauses),
+      pauseStateUnknown: pauses.readFailed,
       claiming: kinds,
     })
   }
