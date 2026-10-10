@@ -3,9 +3,7 @@ import "server-only"
 import type { Fragment, TransactionSql } from "postgres"
 
 import type { LocationScope } from "@/lib/contracts/members"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { log } from "@/lib/server/logger"
 import type { Session } from "@/lib/server/session"
 
 // Location visibility and publish grants: THE ONLY implementation.
@@ -15,16 +13,18 @@ import type { Session } from "@/lib/server/session"
 // from location_member ...)` in route files, capabilities, or query
 // builders) -- compose one of the exports below instead.
 //
-// The rule
+// The rule (member.location_scope, supabase 0063/0064)
 //   owner / admin  -> every location is visible, editable and publishable.
-//   viewer, member -> if the user has NO location_member rows at all, every
-//                     location in the organisation is visible; otherwise
-//                     only the assigned locations are.
+//   viewer, member -> scope 'all': every location in the organisation.
+//                     scope 'assigned': exactly the location_member rows,
+//                     and NOTHING when there are none.
 //   canEdit        -> visible and role is not "viewer".
-//   canPublish     -> owner/admin: true. viewer: false. member: the
-//                     assigned row's can_publish when the user has
-//                     assignments, else the organisation-level
-//                     session.canPublish fallback.
+//   canPublish     -> owner/admin: true. viewer: false. member: 'all' uses
+//                     the organisation-level member.can_publish (carried as
+//                     session.canPublish); 'assigned' uses the row's
+//                     can_publish.
+//   no membership  -> nothing (no member row in this organisation reads as
+//                     neither 'all' nor any row).
 //   client         -> visible when at least one of its locations is. This
 //                     COMPOSES the rule above rather than adding a second
 //                     one; there is deliberately no client_member table,
@@ -37,33 +37,36 @@ import type { Session } from "@/lib/server/session"
 //                     so it can never reach grantsFor / canPublishLocation:
 //                     it reads, it never edits or publishes.
 //
+// Absence never means "all"
+//   Before 0063 a member or viewer with no rows saw every location, so
+//   deleting someone's last listing widened them to everything. The scope is
+//   now named, and there is no fallback to that rule anywhere: zero rows on
+//   'assigned' is no access. The database keeps "a member or viewer holding
+//   a row is 'assigned'" (0064 triggers), so 'all' plus rows only happens for
+//   owners and admins, whose rows are latent; if it ever did happen to a
+//   member, 'all' wins and the rows are ignored.
+//
 // Client access is location_member rows too
 //   Team edits access a client at a time (PUT /api/members/[userId]/
 //   client-access), and a scoped invitation grants clients on acceptance.
 //   Both EXPAND a client into one row per listing filed under it, in
-//   lib/server/client-access.ts; the rule above still reads only rows.
-//   Three consequences follow from "no rows = every location":
-//   * Zero rows is a widening, never a removal. Every writer refuses a
-//     change that would leave a member or viewer with no rows unless the
-//     caller says `allClients: true` (the client-access route), and a scoped invitation whose clients have no listings left
-//     is refused at acceptance rather than accepted unscoped.
-//   * A listing filed under a client later reaches only the people who hold
-//     EVERY other listing of that client (extendClientHolders, called by
-//     POST /api/clients/[id]/locations, POST /api/location-links and the
-//     automatic Google setup; each extension is audited as
-//     member.client_access_extended). Someone holding part of a client, and
-//     anyone holding "Unfiled listings", is not extended.
-//   * Deleting a listing cascades its rows away; a member whose only rows
-//     go with it is back to every location. No route deletes listings today.
+//   lib/server/client-access.ts, and set the scope in the same transaction.
+//   * "Every client" is asked for by name (`allClients: true`) and saved as
+//     scope 'all'; choosing no clients is saved as 'assigned' with no rows,
+//     which is no access, not every client.
+//   * A listing filed under a client later reaches only the 'assigned'
+//     people who hold EVERY other listing of that client
+//     (extendClientHolders, called by POST /api/clients/[id]/locations,
+//     POST /api/location-links and the automatic Google setup; each
+//     extension is audited as member.client_access_extended). Someone holding
+//     part of a client, and anyone holding "Unfiled listings", is not
+//     extended.
+//   * Deleting a listing cascades its rows away; a member whose only rows go
+//     with it sees nothing until an owner grants them more.
 //
-// Explicit scope, shadowed (supabase 0063)
-//   member.location_scope ('all' | 'assigned') is now written with the rows
-//   by every writer, but NOTHING here reads it to decide a grant yet. When
-//   SCOPE_SHADOW_COMPARE is on, grantsFor also fetches it and logs
-//   permissions.scope_shadow_mismatch for any location where the explicit
-//   rule ('all' -> every location; 'assigned' -> exactly the rows, none when
-//   there are none) would answer differently. Readers switch only once that
-//   log stays quiet.
+// Membership is read inside the tenant transaction; RLS on member and
+// location_member scopes both to the session's organisation, as for every
+// other read here.
 //
 // How routes use it
 //   * Filtering a SELECT by what the session may see:
@@ -175,15 +178,53 @@ export function visibilityPredicate(
   }
   if (isManagerialRole(session.role)) return sql`true`
   return sql`(
-    not exists (
-      select 1 from location_member visibility_lm
-      where visibility_lm.user_id = ${session.userId}
-    )
+    ${scopeIsAll(sql, session.userId)}
     or exists (
       select 1 from location_member visibility_lm
       where visibility_lm.user_id = ${session.userId}
         and visibility_lm.location_id = ${locationColumn}
     )
+  )`
+}
+
+/**
+ * True when the user's membership of the tenant's organisation is scope
+ * 'all'. No membership is false: absence never widens.
+ */
+function scopeIsAll(sql: TransactionSql, userId: string): Fragment {
+  return sql`exists (
+    select 1 from member visibility_m
+    where visibility_m.user_id = ${userId}
+      and visibility_m.location_scope = 'all'
+  )`
+}
+
+/**
+ * SQL fragment that is true when the scope may publish to the row whose
+ * location id is `locationColumn`: the canPublish half of `grantsFor`, for
+ * queries that decide it per row in one statement (review queues). It
+ * implies visibility.
+ */
+export function publishPredicate(
+  sql: TransactionSql,
+  scope: GrantScope,
+  locationColumn: Fragment
+): Fragment {
+  if (isManagerialRole(scope.role)) return sql`true`
+  if (scope.role === "viewer") return sql`false`
+  return sql`(
+    case
+      when ${scopeIsAll(sql, scope.userId)} then ${scope.canPublish}
+      else coalesce(
+        (
+          select publish_lm.can_publish
+          from location_member publish_lm
+          where publish_lm.user_id = ${scope.userId}
+            and publish_lm.location_id = ${locationColumn}
+        ),
+        false
+      )
+    end
   )`
 }
 
@@ -206,45 +247,22 @@ export async function grantsFor(
   }
 
   type ScopeRow = {
-    hasAssignments: boolean
+    locationScope: LocationScope | null
     grants: Record<string, boolean> | null
-    locationScope?: LocationScope | null
   }
-  // Two whole statements rather than an optional fragment: the shadowed one
-  // is today's query plus one column, so the grant it answers is identical.
-  const shadow = scopeShadowCompareEnabled()
-  const [scope] = shadow
-    ? await sql<ScopeRow[]>`
-        select
-          exists (
-            select 1 from location_member
-            where user_id = ${session.userId}
-          ) as "hasAssignments",
-          (
-            select json_object_agg(lm.location_id::text, lm.can_publish)
-            from location_member lm
-            where lm.user_id = ${session.userId}
-              and lm.location_id in ${sql(unique)}
-          ) as grants,
-          (
-            select m.location_scope from member m
-            where m.user_id = ${session.userId}
-          ) as "locationScope"
-      `
-    : await sql<ScopeRow[]>`
-        select
-          exists (
-            select 1 from location_member
-            where user_id = ${session.userId}
-          ) as "hasAssignments",
-          (
-            select json_object_agg(lm.location_id::text, lm.can_publish)
-            from location_member lm
-            where lm.user_id = ${session.userId}
-              and lm.location_id in ${sql(unique)}
-          ) as grants
-      `
-  const hasAssignments = scope?.hasAssignments ?? false
+  const [scope] = await sql<ScopeRow[]>`
+    select
+      (
+        select m.location_scope from member m
+        where m.user_id = ${session.userId}
+      ) as "locationScope",
+      (
+        select json_object_agg(lm.location_id::text, lm.can_publish)
+        from location_member lm
+        where lm.user_id = ${session.userId}
+          and lm.location_id in ${sql(unique)}
+      ) as grants
+  `
   // Postgres renders uuid keys lower-case; the caller's ids arrive as typed
   // (z.uuid() accepts upper-case hex), so compare case-insensitively — the
   // SQL `uuid = uuid` this replaced never cared about casing.
@@ -254,91 +272,55 @@ export async function grantsFor(
       publish,
     ])
   )
-  const viewer = session.role === "viewer"
-
   for (const id of unique) {
-    const key = id.toLowerCase()
-    const visible = hasAssignments ? assignedPublish.has(key) : true
-    const canEdit = visible && !viewer
-    const canPublish = viewer
-      ? false
-      : hasAssignments
-        ? (assignedPublish.get(key) ?? false)
-        : session.canPublish
-    result.set(id, { visible, canEdit, canPublish })
-  }
-  if (shadow && scope?.locationScope) {
-    const mismatched = scopeShadowMismatches({
-      role: session.role,
-      sessionCanPublish: session.canPublish,
-      locationScope: scope.locationScope,
-      assignedPublish,
-      current: result,
-    })
-    if (mismatched.length > 0) {
-      log.warn("permissions.scope_shadow_mismatch", {
-        userId: session.userId,
+    result.set(
+      id,
+      memberGrant({
         role: session.role,
-        locationScope: scope.locationScope,
-        hasAssignments,
-        mismatched: mismatched.length,
-        sample: mismatched.slice(0, 5),
+        sessionCanPublish: session.canPublish,
+        locationScope: scope?.locationScope ?? null,
+        assignedPublish: assignedPublish.has(id.toLowerCase())
+          ? (assignedPublish.get(id.toLowerCase()) ?? false)
+          : null,
       })
-    }
+    )
   }
   return result
 }
 
 /**
- * Whether grantsFor shadows the explicit scope. Diagnostic only, so a
- * server env that cannot be read (a unit test without one) means off; the
- * deployed app has already validated its env at startup.
- */
-function scopeShadowCompareEnabled(): boolean {
-  try {
-    return getServerEnv().SCOPE_SHADOW_COMPARE === true
-  } catch {
-    return false
-  }
-}
-
-/**
- * The ids in `current` (today's row-inferred grants for a member or viewer)
- * where the explicit-scope rule would grant differently, in `visible` or
- * `canPublish`. Pure: the explicit rule is
+ * The rule for one location, for a member or viewer. Pure:
  *
- *   'all'      -> visible everywhere; publish is the organisation-level
- *                 member.can_publish (the session fallback);
- *   'assigned' -> visible exactly where a row exists, publish from that row,
- *                 and nothing at all when there are no rows.
+ *   no membership -> nothing;
+ *   'all'         -> visible; publish is the organisation-level
+ *                    member.can_publish (the session's canPublish);
+ *   'assigned'    -> visible exactly where a row exists, publish from that
+ *                    row; no row is no access, never a fallback to 'all'.
  *
- * Viewers never publish under either rule. Owners and admins never reach
- * here: both rules give them every location.
+ * Viewers never edit or publish.
  */
-export function scopeShadowMismatches(input: {
+export function memberGrant(input: {
   role: Session["role"]
   sessionCanPublish: boolean
-  locationScope: LocationScope
-  /** Lower-cased location id -> the row's can_publish, for rows that exist. */
-  assignedPublish: ReadonlyMap<string, boolean>
-  current: ReadonlyMap<string, LocationGrant>
-}): string[] {
-  const mismatched: string[] = []
-  for (const [id, grant] of input.current) {
-    const key = id.toLowerCase()
-    const visible =
-      input.locationScope === "all" ? true : input.assignedPublish.has(key)
-    const canPublish =
-      !visible || input.role === "viewer"
-        ? false
-        : input.locationScope === "all"
-          ? input.sessionCanPublish
-          : (input.assignedPublish.get(key) ?? false)
-    if (visible !== grant.visible || canPublish !== grant.canPublish) {
-      mismatched.push(id)
-    }
-  }
-  return mismatched
+  locationScope: LocationScope | null
+  /** The row's can_publish, or null when the user holds no row here. */
+  assignedPublish: boolean | null
+}): LocationGrant {
+  if (isManagerialRole(input.role)) return { ...FULL_GRANT }
+  const visible =
+    input.locationScope === "all"
+      ? true
+      : input.locationScope === "assigned"
+        ? input.assignedPublish !== null
+        : false
+  if (!visible) return { ...NO_GRANT }
+  const viewer = input.role === "viewer"
+  const canPublish = viewer
+    ? false
+    : input.locationScope === "all"
+      ? input.sessionCanPublish
+      : input.assignedPublish === true
+  return { visible, canEdit: !viewer, canPublish }
 }
 
 async function grantFor(

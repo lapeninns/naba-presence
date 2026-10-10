@@ -67,7 +67,7 @@ function row(...allowed: boolean[]): Record<LocationAction, boolean> {
  * batch read, the member row, and the active link's connection.
  */
 function scriptedSql(script: {
-  hasAssignments?: boolean
+  locationScope?: "all" | "assigned" | null
   grants?: Record<string, boolean> | null
   member?: { role: GrantScope["role"]; canPublish: boolean } | null
   connectionId?: string | null
@@ -81,10 +81,13 @@ function scriptedSql(script: {
       then(onFulfilled: (rows: unknown[]) => unknown) {
         queries.push(text)
         let rows: unknown[]
-        if (text.includes('as "hasAssignments"')) {
+        if (text.includes('as "locationScope"')) {
           rows = [
             {
-              hasAssignments: script.hasAssignments ?? false,
+              locationScope:
+                script.locationScope === undefined
+                  ? "all"
+                  : script.locationScope,
               grants: script.grants ?? null,
             },
           ]
@@ -113,9 +116,9 @@ describe("actionAllowed -- role x action", () => {
       it.each(LOCATION_ACTIONS.map((action) => [action] as const))(
         "%s",
         async (action) => {
-          // Unassigned members see every location and publish by the
+          // Members on scope 'all' see every location and publish by the
           // organisation flag; this is the grant grantsFor builds for them.
-          const { sql } = scriptedSql({ hasAssignments: false })
+          const { sql } = scriptedSql({ locationScope: "all" })
           const expected = EXPECTED[actor.name][action]
           const call = requireLocationAction(sql, actor.scope, LOCATION, action)
           if (expected) {
@@ -191,7 +194,7 @@ describe("requireLocationAction -- grants from location_member rows", () => {
   const member: GrantScope = { userId: USER, role: "member", canPublish: true }
 
   it("404s (not 403) a location outside the member's assignments", async () => {
-    const { sql } = scriptedSql({ hasAssignments: true, grants: {} })
+    const { sql } = scriptedSql({ locationScope: "assigned", grants: {} })
     const error = await requireLocationAction(sql, member, LOCATION, "read", {
       code: "location_not_found",
       message: "Location not found.",
@@ -201,7 +204,7 @@ describe("requireLocationAction -- grants from location_member rows", () => {
   })
 
   it("keeps the legacy 404 code when the caller names none", async () => {
-    const { sql } = scriptedSql({ hasAssignments: true, grants: {} })
+    const { sql } = scriptedSql({ locationScope: "assigned", grants: {} })
     await expect(
       requireLocationAction(sql, member, LOCATION, "edit")
     ).rejects.toMatchObject({ status: 404, code: "review_not_found" })
@@ -209,7 +212,7 @@ describe("requireLocationAction -- grants from location_member rows", () => {
 
   it("uses the assigned row's can_publish, not the organisation flag", async () => {
     const { sql } = scriptedSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: { [LOCATION]: false },
     })
     await expect(
@@ -264,7 +267,7 @@ describe("authz/actor -- session-free actor", () => {
     await expect(
       recheck({
         member: { role: "member", canPublish: true },
-        hasAssignments: true,
+        locationScope: "assigned",
         grants: {},
       })
     ).resolves.toEqual({ ok: false, reason: "location_hidden" })
@@ -340,7 +343,7 @@ describe("authz/actor -- session-free actor", () => {
       recheck(
         {
           member: { role: "member", canPublish: false },
-          hasAssignments: true,
+          locationScope: "assigned",
           grants: { [LOCATION]: true },
           connectionId: CONNECTION.toUpperCase(),
         },

@@ -34,8 +34,9 @@ function isUniqueViolation(error: unknown) {
  * Checks a scoped invitation before it is stored, and returns the client ids
  * de-duplicated. The scope only means something for members and viewers,
  * every id must be a client of this organisation (RLS scopes the lookup), and
- * together they must hold at least one listing: accepted with none, the
- * invitee would have no location_member rows, which means every client.
+ * together they must hold at least one listing: an `assigned` scope with
+ * nothing in it would join the invitee seeing nothing, so it is refused here
+ * as acceptance refuses it (invitation_scope_empty), never widened.
  */
 async function validateClientScope(
   sql: TransactionSql,
@@ -67,8 +68,8 @@ async function validateClientScope(
   if (found.every((client) => client.listings === 0)) {
     throw new ApiError(
       409,
-      "would_widen_to_all_clients",
-      "Those clients have no listings yet, so the invitation would give every client. Add their listings first, or invite for all clients."
+      "invitation_scope_empty",
+      "Those clients have no listings yet, so the invitation would give access to nothing. Add their listings first, or invite for all clients."
     )
   }
   return clientIds

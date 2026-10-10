@@ -229,11 +229,6 @@ export const serverEnvSchema = z.object({
   RETENTION_ENABLED: featureFlag(true),
   RETENTION_DELETES_ENABLED: featureFlag(true),
   PASSWORD_AUTH_ENABLED: featureFlag(true),
-  // Diagnostic only: lib/server/permissions.ts grantsFor also reads the
-  // explicit member.location_scope (supabase 0063) and logs
-  // permissions.scope_shadow_mismatch wherever it would grant differently
-  // from today's row-inferred rule. Never changes a grant.
-  SCOPE_SHADOW_COMPARE: featureFlag(true),
   LOCAL_BOOTSTRAP_ENABLED: featureFlag(false),
   // The /design-system route is internal evidence, not a product surface: it
   // renders the contrast pairs and the component hierarchy the accessibility

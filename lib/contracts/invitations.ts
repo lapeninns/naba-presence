@@ -24,7 +24,7 @@ export const invitationCreateSchema = z
      * Scope a member or viewer to these clients. Left out, they join seeing
      * every client. On acceptance each client becomes one location_member row
      * per listing filed under it then (supabase 0056); never an empty list,
-     * because no rows means every client.
+     * because an assigned scope with nothing in it gives no access.
      */
     clientIds: z.array(z.uuid()).min(1).max(200).optional(),
     /**

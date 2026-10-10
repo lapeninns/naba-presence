@@ -83,7 +83,9 @@ export function LocationAccessForm({
         title: "Location access saved",
         description: result.allClients
           ? `${member.displayName} can see every location.`
-          : undefined,
+          : result.noAccess
+            ? `${member.displayName} can’t see any location until you give them access.`
+            : undefined,
         type: "success",
       })
       onDone()
@@ -107,12 +109,11 @@ export function LocationAccessForm({
     setDirty(true)
   }
 
-  const nothingPicked = mode === "some" && picks.size === 0
   const consequence =
     mode === "all"
       ? `${name} will see every location, including ones added later.`
       : picks.size === 0
-        ? `Choose at least one location. With none, ${name} would see every location, so it can’t be saved that way.`
+        ? `${name} will see no locations until you give them access. They stay on the team.`
         : `${name} will see ${picks.size === 1 ? "1 location" : `${picks.size} locations`}. Locations added later stay hidden from them.`
 
   const onSave = () => {
@@ -257,7 +258,7 @@ export function LocationAccessForm({
       <DialogFooter>
         <DialogClose render={<Button variant="ghost">Cancel</Button>} />
         <Button
-          disabled={!dirty || nothingPicked}
+          disabled={!dirty}
           pending={save.isPending}
           pendingLabel="Saving…"
           onClick={onSave}

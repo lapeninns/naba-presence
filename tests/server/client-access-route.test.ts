@@ -164,6 +164,7 @@ describe("GET /api/members/[userId]/client-access", () => {
       userId: TARGET,
       role: "member",
       allClients: false,
+      noAccess: false,
       clients: [
         {
           clientId: CROWN,
@@ -267,17 +268,29 @@ describe("PUT /api/members/[userId]/client-access", () => {
     )
   })
 
-  it("refuses an empty client list: zero rows would mean every client", async () => {
+  it("saves an empty client list as assigned with no rows: no access, not every client", async () => {
     signedIn(admin)
     const { writes } = fakeTenant({
       role: "member",
       grants: [{ locationId: "l6", clientId: BELL, canPublish: false }],
     })
     const response = await put({ clients: [] })
-    expect(response.status).toBe(409)
-    expect((await response.json()).error).toBe("would_widen_to_all_clients")
-    expect(writes).toHaveLength(0)
-    expect(vi.mocked(writeAudit)).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.allClients).toBe(false)
+    expect(body.noAccess).toBe(true)
+    expect(writes).toHaveLength(2)
+    expect(writes[0].text).toContain("update member set location_scope")
+    expect(writes[0].values).toEqual(["assigned", TARGET])
+    expect(writes[1].text).toContain("delete from location_member")
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          after: { allClients: false, locationScope: "assigned", grants: [] },
+        }),
+      })
+    )
   })
 
   it("clears every row only when allClients: true is sent", async () => {

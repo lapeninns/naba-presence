@@ -101,8 +101,9 @@ export async function loadGrants(
 /**
  * Grants `userId` every listing filed under `clientIds` now. Returns the
  * listing ids granted; an empty result means the clients hold no listings
- * any more, which the caller must treat as a refusal — no rows means every
- * client (lib/server/permissions.ts).
+ * any more, which the caller must treat as a refusal — an `assigned` scope
+ * with no rows sees nothing (lib/server/permissions.ts), which is not what
+ * the scope asked for.
  */
 export async function grantClientListings(
   sql: TransactionSql,
@@ -168,7 +169,7 @@ export type ExtendedGrant = {
  * would be invisible to him with nothing on screen saying so. The rule is
  * deliberately narrow: only a user who holds EVERY other listing of the
  * client gets the new one. Someone scoped to one branch stays scoped to it,
- * and "All clients" people (no rows) already see it. Viewers never publish;
+ * and "All clients" people (scope `all`) already see it. Viewers never publish;
  * a member publishes to the new listing when they publish to most of the
  * client's others (a tie is Drafts only).
  *

@@ -58,9 +58,9 @@ export const locationAccessEntrySchema = z.strictObject({
 export type LocationAccessEntry = z.input<typeof locationAccessEntrySchema>
 
 /**
- * PUT body. "All clients" is its own explicit shape, never an empty list:
- * a member with no listings sees every client, so an empty `clients` array
- * is refused rather than read as "everything" (see planClientAccess).
+ * PUT body. "All clients" is its own explicit shape (scope `all`). An empty
+ * `clients` or `locations` list is scope `assigned` with no listings, which
+ * is no access, never "everything" (see planClientAccess).
  */
 export const clientAccessUpdateSchema = z.union([
   z.strictObject({ allClients: z.literal(true) }),
@@ -94,8 +94,13 @@ export type ClientAccessRow = z.infer<typeof clientAccessRowSchema>
 export const clientAccessResponseSchema = z.object({
   userId: z.string(),
   role: memberRoleSchema,
-  /** No location_member rows: every client, including ones added later. */
+  /** Scope `all`: every client, including ones added later. */
   allClients: z.boolean(),
+  /**
+   * Scope `assigned` with no listings: they see nothing. Defaults to false so
+   * a response from an older server still parses.
+   */
+  noAccess: z.boolean().default(false),
   clients: z.array(clientAccessRowSchema),
   /** The member's location_member rows, for the per-location form. */
   locationGrants: z

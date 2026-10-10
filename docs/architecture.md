@@ -94,11 +94,14 @@ lookup and one `last_seen_at` write; in route handlers the cache is a no-op.
 
 "Which locations may this member see, edit or publish to" is decided in
 `lib/server/permissions.ts` and nowhere else. Owners and admins see, edit and
-publish everywhere. A viewer or member with no `location_member` rows sees
-every location in the organisation; one with assignments sees only those.
-`canEdit` is visible-and-not-viewer; `canPublish` is true for owner/admin,
-false for viewer, and for a member the assigned row's `can_publish` when
-assignments exist, else the organisation-level `session.canPublish` fallback.
+publish everywhere. A viewer or member sees what their membership's
+`location_scope` names: `all` is every location in the organisation,
+`assigned` is exactly their `location_member` rows, and no rows on `assigned`
+is no access. Absence never means "all": there is no fallback to the old
+"no rows sees everything" rule. `canEdit` is visible-and-not-viewer;
+`canPublish` is true for owner/admin, false for viewer, and for a member the
+organisation-level `member.can_publish` (as `session.canPublish`) on `all`,
+or the assigned row's `can_publish` on `assigned`.
 Routes compose the rule instead of restating it: `visibilityPredicate(sql,
 session, column)` is a SQL fragment (`true` for owner/admin) appended to any
 SELECT; `requireLocationAccess` raises a 404 for a hidden or nonexistent
@@ -109,28 +112,33 @@ one query and feeds the capability payloads. There is no inline
 query builders. Every helper expects the tenant transaction, so RLS already
 scopes `location_member` to the organisation before the rule runs.
 
-Membership scope is being made explicit (migration 0063). `member` and
+Membership scope is explicit (migrations 0063, 0064). `member` and
 `invitation` carry `location_scope`: `all` (every location; owners and admins
 always) or `assigned` (exactly the `location_member` rows, none when there are
 none). Every writer sets it in the same transaction as the rows: the
-client-access PUT, the role PATCH (promotion to owner/admin keeps the rows,
-latent, under `all`; demotion makes held rows `assigned`), and invitation
-acceptance, which copies the invitation's scope and refuses with 409
+client-access PUT (choosing no clients saves `assigned` with no rows, which is
+no access), the role PATCH (promotion to owner/admin keeps the rows, latent,
+under `all`; demotion makes held rows `assigned`), and invitation acceptance,
+which copies the invitation's scope and refuses with 409
 `invitation_scope_empty` when an assigned invitation's clients or listings are
-all gone. A business workspace can scope an invitation to listings
+all gone. Creating an invitation for clients that hold no listings is refused
+with the same code. A business workspace can scope an invitation to listings
 (`locationIds`, stored in `invitation.location_ids`). `extendClientHolders`
-extends only `assigned` holders. Reads still use the row rule above; with
-`SCOPE_SHADOW_COMPARE` on (default), `grantsFor` also reads the scope and logs
-`permissions.scope_shadow_mismatch` wherever the explicit rule would grant
-differently, without changing the grant.
+extends only `assigned` holders. `publishPredicate` is the per-row SQL form of
+`canPublish` for the review queues.
 
 0063 is expand-only: it runs before the release that writes the scope is
 deployed, so it refuses nothing the deployed code writes. An invitation
 trigger names the scope `assigned` whenever `client_ids` or `location_ids` is
-set. Older member writers can still leave the scope out of step with the rows,
-so the reader switch first runs `reconcile_member_location_scope()`
-(re-runnable; it recomputes the scope from the rows, so it changes no one's
-access while readers use the rows) once only the new writers are live.
+set. Because readers now trust the scope, 0064 keeps the one dangerous drift
+(a member or viewer holding rows but named `all`) from arising out of writers
+that predate it: inserting a `location_member` row for such a member, or
+demoting an owner/admin who holds rows, names them `assigned`. It also
+redefines `reconcile_member_location_scope()` to only ever narrow (the 0063
+version moved row-less members to `all`, a widening once zero rows means no
+access), runs it once, and leaves it safe to rerun. The opposite drift, an
+older "every client" save that removed the rows but left `assigned`, is a
+narrowing and is fixed by saving the member's access again.
 
 Visibility never authorises a write. Every mutation names its action
 (`read`, `edit`, `request_approval`, `triage`, `assign`, `decide_approval`,

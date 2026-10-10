@@ -3,7 +3,7 @@ import "server-only"
 import type { Fragment, TransactionSql } from "postgres"
 
 import type { ReviewQueue } from "@/lib/contracts/reviews"
-import { isManagerialRole } from "@/lib/server/permissions"
+import { publishPredicate } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -94,28 +94,12 @@ export function queuePredicate(
 
 /**
  * Whether the session could approve a reply for the review's location at all.
- * Mirrors `grantsFor`'s canPublish rule in SQL so the queue can be computed
- * in one statement instead of per row.
+ * `publishPredicate` is grantsFor's canPublish rule in SQL, so the queue can
+ * be computed in one statement instead of per row.
  */
 function canApproveHere(
   sql: TransactionSql,
   session: Pick<Session, "userId" | "role" | "canPublish">
 ): Fragment {
-  if (isManagerialRole(session.role)) return sql`true`
-  if (session.role === "viewer") return sql`false`
-  return sql`(
-    case
-      when exists (select 1 from location_member lm where lm.user_id = ${session.userId})
-        then coalesce(
-          (
-            select lm.can_publish
-            from location_member lm
-            where lm.user_id = ${session.userId}
-              and lm.location_id = r.location_id
-          ),
-          false
-        )
-      else ${session.canPublish}
-    end
-  )`
+  return publishPredicate(sql, session, sql`r.location_id`)
 }

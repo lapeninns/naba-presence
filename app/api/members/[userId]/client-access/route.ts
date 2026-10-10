@@ -49,6 +49,7 @@ async function loadMember(sql: TransactionSql, userId: string, lock: boolean) {
 function respond(
   userId: string,
   role: MemberRole,
+  locationScope: LocationScope,
   grants: AccessGrant[],
   catalogue: ClientCatalogueEntry[]
 ): ClientAccessResponse {
@@ -59,7 +60,8 @@ function respond(
       name: entry.name,
       archived: entry.archived,
       total: entry.listingIds.length,
-    }))
+    })),
+    locationScope
   )
   return {
     userId,
@@ -80,7 +82,13 @@ export const GET = route({
       const member = await loadMember(sql, params.userId, false)
       const grants = await loadGrants(sql, params.userId)
       const catalogue = await loadClientCatalogue(sql)
-      return respond(params.userId, member.role, grants, catalogue)
+      return respond(
+        params.userId,
+        member.role,
+        member.locationScope,
+        grants,
+        catalogue
+      )
     }),
 })
 
@@ -113,7 +121,8 @@ export const PUT = route({
       if (!plan.ok) throw new ApiError(plan.status, plan.code, plan.message)
 
       // The scope is written with the rows it describes (supabase 0063):
-      // "every client" is `all`, anything narrower is exactly these rows.
+      // "every client" is `all`, anything narrower is exactly these rows,
+      // and no rows on `assigned` is no access.
       const locationScope: LocationScope = plan.allClients ? "all" : "assigned"
       await sql`
         update member set location_scope = ${locationScope}
@@ -143,7 +152,7 @@ export const PUT = route({
         metadata: {
           request: body,
           before: {
-            allClients: before.length === 0,
+            allClients: member.locationScope === "all",
             locationScope: member.locationScope,
             grants: before.map(({ locationId, canPublish }) => ({
               locationId,
@@ -158,6 +167,12 @@ export const PUT = route({
           clientRequestId,
         },
       })
-      return respond(params.userId, member.role, after, catalogue)
+      return respond(
+        params.userId,
+        member.role,
+        locationScope,
+        after,
+        catalogue
+      )
     }),
 })

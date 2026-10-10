@@ -72,5 +72,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0061_workspace_mode",
   "0062_post_approval_binding",
   "0063_membership_scope",
+  "0064_membership_scope_invariant",
   "20260729000400_remove_local_demo_data",
 ]

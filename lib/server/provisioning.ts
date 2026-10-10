@@ -226,7 +226,8 @@ function invitedMemberScope(pending: PendingInvitationScope): LocationScope {
  * insert above never rewrites an existing membership, and adding rows to one
  * would narrow someone the invitation was never about. A scoped invitation
  * whose targets no longer hold any listing is REFUSED: accepted with no rows,
- * the invitee would see every location, the opposite of what was asked for.
+ * the invitee would join an `assigned` scope that sees nothing, which is not
+ * what was asked for either.
  * The membership was inserted with scope `assigned` in this transaction, so
  * the refusal rolls both back together.
  */

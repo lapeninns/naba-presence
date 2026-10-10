@@ -6,7 +6,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { ApiError } from "@/lib/server/http"
 import {
   canPublishLocation,
+  FULL_GRANT,
   grantsFor,
+  memberGrant,
+  NO_GRANT,
+  publishPredicate,
   requireLocationAccess,
   visibilityPredicate,
 } from "@/lib/server/permissions"
@@ -20,9 +24,9 @@ import type { Session } from "@/lib/server/session"
 //      way postgres.js does at execution time so the text and parameter list
 //      can be asserted.
 //   2. Rule permutations: a scripted fake `sql` feeds grantsFor a known
-//      hasAssignments/grants row and counts the queries issued.
+//      locationScope/grants row and counts the queries issued.
 //   3. Real execution: the same rendered SQL runs against @electric-sql/pglite
-//      with a minimal location_member/review schema, so the json_object_agg
+//      with a minimal member/location_member/review schema, so the json_object_agg
 //      batch query and the visibility predicate are proven against Postgres
 //      semantics rather than a stub.
 
@@ -31,6 +35,12 @@ const LOCATION_B = "22222222-2222-4222-8222-222222222222"
 const LOCATION_C = "33333333-3333-4333-8333-333333333333"
 const USER_ASSIGNED = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const USER_UNASSIGNED = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+// Scope 'assigned' with every row gone: the case that used to widen.
+const USER_EMPTIED = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+// No membership row at all.
+const USER_STRANGER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+// Scope 'all' while holding a row: the rows are ignored.
+const USER_ALL_WITH_ROWS = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
@@ -132,7 +142,7 @@ function pgliteSql(db: PGlite): TransactionSql {
 
 // A scripted `sql` for rule permutations without a database.
 type FakeScript = {
-  hasAssignments: boolean
+  locationScope: "all" | "assigned" | null
   grants: Record<string, boolean> | null
 }
 
@@ -144,11 +154,11 @@ function fakeSql(script: FakeScript) {
       const rendered = render(query)
       const execute = () => {
         calls.push(rendered)
-        if (!rendered.text.includes('as "hasAssignments"')) {
+        if (!rendered.text.includes('as "locationScope"')) {
           throw new Error(`FakeSql: unexpected query -- ${rendered.text}`)
         }
         return Promise.resolve([
-          { hasAssignments: script.hasAssignments, grants: script.grants },
+          { locationScope: script.locationScope, grants: script.grants },
         ])
       }
       return {
@@ -191,7 +201,7 @@ describe("visibilityPredicate", () => {
   )
 
   it.each(["member", "viewer"] as const)(
-    "is the has-assignments-or-assigned rule for %s, bound to the given column",
+    "is the scope-all-or-assigned-row rule for %s, bound to the given column",
     (role) => {
       const fragment = visibilityPredicate(
         sql,
@@ -202,12 +212,15 @@ describe("visibilityPredicate", () => {
 
       expect(params).toEqual([USER_ASSIGNED, USER_ASSIGNED])
       expect(text).toBe(
-        "( not exists ( select 1 from location_member visibility_lm " +
-          "where visibility_lm.user_id = $1 ) " +
+        "( exists ( select 1 from member visibility_m " +
+          "where visibility_m.user_id = $1 " +
+          "and visibility_m.location_scope = 'all' ) " +
           "or exists ( select 1 from location_member visibility_lm " +
           "where visibility_lm.user_id = $2 " +
           "and visibility_lm.location_id = r.location_id ) )"
       )
+      // Never the old "no rows means every location" rule.
+      expect(text).not.toContain("not exists")
     }
   )
 
@@ -219,7 +232,7 @@ describe("visibilityPredicate", () => {
     )} and r.id = ${LOCATION_A}`
     const { text, params } = render(query as unknown as QueryLike)
 
-    expect(text.startsWith("select 1 from review r where ( not exists")).toBe(
+    expect(text.startsWith("select 1 from review r where ( exists")).toBe(
       true
     )
     expect(text.endsWith("and r.id = $3")).toBe(true)
@@ -231,7 +244,7 @@ describe("visibilityPredicate", () => {
 
 describe("grantsFor -- rule permutations (scripted sql)", () => {
   it("returns an empty map and issues no query for no ids", async () => {
-    const { sql, calls } = fakeSql({ hasAssignments: true, grants: null })
+    const { sql, calls } = fakeSql({ locationScope: "assigned", grants: null })
     const grants = await grantsFor(sql, makeSession(), [])
     expect(grants.size).toBe(0)
     expect(calls).toHaveLength(0)
@@ -240,7 +253,7 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
   it.each(["owner", "admin"] as const)(
     "%s: full grant for every id without touching the database",
     async (role) => {
-      const { sql, calls } = fakeSql({ hasAssignments: true, grants: null })
+      const { sql, calls } = fakeSql({ locationScope: "assigned", grants: null })
       const grants = await grantsFor(sql, makeSession({ role }), [
         LOCATION_A,
         LOCATION_B,
@@ -261,7 +274,7 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
 
   it("member with assignments: exactly ONE query, dedupes ids, assigned/unassigned mixed", async () => {
     const { sql, calls } = fakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: { [LOCATION_A]: true, [LOCATION_B]: false },
     })
     const grants = await grantsFor(sql, makeSession({ canPublish: true }), [
@@ -301,9 +314,9 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
   })
 
   it.each([true, false])(
-    "member with NO assignments sees everything and falls back to session.canPublish=%s",
+    "member on scope all sees everything and publishes per member.can_publish=%s",
     async (canPublish) => {
-      const { sql } = fakeSql({ hasAssignments: false, grants: null })
+      const { sql } = fakeSql({ locationScope: "all", grants: null })
       const grants = await grantsFor(sql, makeSession({ canPublish }), [
         LOCATION_A,
       ])
@@ -319,7 +332,7 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
     // Postgres renders uuid keys lower-case; z.uuid() accepts upper-case hex.
     // The SQL equality this replaced was case-insensitive, so the map is too.
     const { sql } = fakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: { [LOCATION_A.toLowerCase()]: true },
     })
     const upper = LOCATION_A.toUpperCase()
@@ -335,7 +348,7 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
 
   it("viewer: visibility follows assignments, never edits or publishes", async () => {
     const { sql } = fakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: { [LOCATION_A]: true },
     })
     const grants = await grantsFor(
@@ -355,8 +368,8 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
     })
   })
 
-  it("viewer with NO assignments sees everything but still cannot publish", async () => {
-    const { sql } = fakeSql({ hasAssignments: false, grants: null })
+  it("viewer on scope all sees everything but still cannot publish", async () => {
+    const { sql } = fakeSql({ locationScope: "all", grants: null })
     const grants = await grantsFor(
       sql,
       makeSession({ role: "viewer", canPublish: true }),
@@ -370,6 +383,74 @@ describe("grantsFor -- rule permutations (scripted sql)", () => {
   })
 })
 
+describe("grantsFor -- explicit scope, never absence-means-all", () => {
+  it.each(["member", "viewer"] as const)(
+    "%s on scope assigned with ZERO rows sees nothing",
+    async (role) => {
+      const { sql } = fakeSql({ locationScope: "assigned", grants: null })
+      const grants = await grantsFor(
+        sql,
+        makeSession({ role, canPublish: true }),
+        [LOCATION_A, LOCATION_B]
+      )
+      expect(grants.get(LOCATION_A)).toEqual(NO_GRANT)
+      expect(grants.get(LOCATION_B)).toEqual(NO_GRANT)
+    }
+  )
+
+  it("no membership row (scope null) sees nothing", async () => {
+    const { sql } = fakeSql({ locationScope: null, grants: null })
+    const grants = await grantsFor(sql, makeSession({ canPublish: true }), [
+      LOCATION_A,
+    ])
+    expect(grants.get(LOCATION_A)).toEqual(NO_GRANT)
+  })
+
+  it("scope all plus rows ignores the rows: visible everywhere, publish from member.can_publish", async () => {
+    const { sql } = fakeSql({
+      locationScope: "all",
+      grants: { [LOCATION_A]: true },
+    })
+    const grants = await grantsFor(sql, makeSession({ canPublish: false }), [
+      LOCATION_A,
+      LOCATION_B,
+    ])
+    expect(grants.get(LOCATION_A)).toEqual({
+      visible: true,
+      canEdit: true,
+      canPublish: false,
+    })
+    expect(grants.get(LOCATION_B)).toEqual({
+      visible: true,
+      canEdit: true,
+      canPublish: false,
+    })
+  })
+})
+
+describe("memberGrant (pure rule)", () => {
+  it.each([
+    ["member", "all", null, true, { visible: true, canEdit: true, canPublish: true }],
+    ["member", "all", false, true, { visible: true, canEdit: true, canPublish: true }],
+    ["member", "assigned", true, false, { visible: true, canEdit: true, canPublish: true }],
+    ["member", "assigned", false, true, { visible: true, canEdit: true, canPublish: false }],
+    ["member", "assigned", null, true, NO_GRANT],
+    ["member", null, null, true, NO_GRANT],
+    ["viewer", "all", null, true, { visible: true, canEdit: false, canPublish: false }],
+    ["viewer", "assigned", true, true, { visible: true, canEdit: false, canPublish: false }],
+    ["viewer", "assigned", null, true, NO_GRANT],
+    ["admin", "assigned", null, false, FULL_GRANT],
+    ["owner", null, null, false, FULL_GRANT],
+  ] as const)(
+    "%s / scope %s / row %s / org publish %s",
+    (role, locationScope, assignedPublish, sessionCanPublish, expected) => {
+      expect(
+        memberGrant({ role, locationScope, assignedPublish, sessionCanPublish })
+      ).toEqual(expected)
+    }
+  )
+})
+
 // --- 3. real execution against PGlite --------------------------------------
 
 describe("permissions against PGlite", () => {
@@ -379,6 +460,15 @@ describe("permissions against PGlite", () => {
   beforeAll(async () => {
     db = new PGlite()
     await db.exec(`
+      create table member (
+        user_id uuid primary key,
+        location_scope text not null
+      );
+      insert into member (user_id, location_scope) values
+        ('${USER_ASSIGNED}', 'assigned'),
+        ('${USER_UNASSIGNED}', 'all'),
+        ('${USER_EMPTIED}', 'assigned'),
+        ('${USER_ALL_WITH_ROWS}', 'all');
       create table location_member (
         location_id uuid not null,
         user_id uuid not null,
@@ -391,7 +481,8 @@ describe("permissions against PGlite", () => {
       );
       insert into location_member (location_id, user_id, can_publish) values
         ('${LOCATION_A}', '${USER_ASSIGNED}', true),
-        ('${LOCATION_B}', '${USER_ASSIGNED}', false);
+        ('${LOCATION_B}', '${USER_ASSIGNED}', false),
+        ('${LOCATION_A}', '${USER_ALL_WITH_ROWS}', false);
       insert into review (id, location_id) values
         ('${LOCATION_A}', '${LOCATION_A}'),
         ('${LOCATION_B}', '${LOCATION_B}'),
@@ -437,7 +528,7 @@ describe("permissions against PGlite", () => {
     })
   })
 
-  it("grantsFor: unassigned member sees everything with the session fallback", async () => {
+  it("grantsFor: a member on scope all sees everything with member.can_publish", async () => {
     const session = makeSession({ userId: USER_UNASSIGNED, canPublish: false })
     const grants = await grantsFor(sql, session, [LOCATION_A, LOCATION_C])
     expect(grants.get(LOCATION_A)).toEqual({
@@ -463,8 +554,84 @@ describe("permissions against PGlite", () => {
       visibleReviewIds({ role: "member", userId: USER_UNASSIGNED })
     ).resolves.toEqual([LOCATION_A, LOCATION_B, LOCATION_C])
     await expect(
+      visibleReviewIds({ role: "member", userId: USER_ALL_WITH_ROWS })
+    ).resolves.toEqual([LOCATION_A, LOCATION_B, LOCATION_C])
+    // Assigned with every row gone, and no membership at all: nothing.
+    await expect(
+      visibleReviewIds({ role: "member", userId: USER_EMPTIED })
+    ).resolves.toEqual([])
+    await expect(
+      visibleReviewIds({ role: "viewer", userId: USER_STRANGER })
+    ).resolves.toEqual([])
+    await expect(
       visibleReviewIds({ role: "owner", userId: USER_UNASSIGNED })
     ).resolves.toEqual([LOCATION_A, LOCATION_B, LOCATION_C])
+  })
+
+  it("grantsFor: deleting an assigned member's last row yields no access, not every location", async () => {
+    const userId = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+    await db.exec(`
+      insert into member (user_id, location_scope) values ('${userId}', 'assigned');
+      insert into location_member (location_id, user_id, can_publish)
+        values ('${LOCATION_C}', '${userId}', true);
+    `)
+    const session = makeSession({ userId, canPublish: true })
+    const before = await grantsFor(sql, session, [LOCATION_A, LOCATION_C])
+    expect(before.get(LOCATION_C)).toEqual(FULL_GRANT)
+    expect(before.get(LOCATION_A)).toEqual(NO_GRANT)
+
+    await db.exec(`delete from location_member where user_id = '${userId}'`)
+    const after = await grantsFor(sql, session, [LOCATION_A, LOCATION_C])
+    expect(after.get(LOCATION_A)).toEqual(NO_GRANT)
+    expect(after.get(LOCATION_C)).toEqual(NO_GRANT)
+    await expect(
+      visibleReviewIds({ role: "member", userId })
+    ).resolves.toEqual([])
+  })
+
+  it("grantsFor: no membership row sees nothing", async () => {
+    const grants = await grantsFor(
+      sql,
+      makeSession({ userId: USER_STRANGER, canPublish: true }),
+      [LOCATION_A]
+    )
+    expect(grants.get(LOCATION_A)).toEqual(NO_GRANT)
+  })
+
+  it("publishPredicate agrees with grantsFor row by row", async () => {
+    const cases = [
+      makeSession({ userId: USER_ASSIGNED }),
+      makeSession({ userId: USER_UNASSIGNED, canPublish: true }),
+      makeSession({ userId: USER_UNASSIGNED, canPublish: false }),
+      makeSession({ userId: USER_ALL_WITH_ROWS, canPublish: true }),
+      makeSession({ userId: USER_EMPTIED, canPublish: true }),
+      makeSession({ userId: USER_STRANGER, canPublish: true }),
+      makeSession({ userId: USER_ASSIGNED, role: "viewer" }),
+      makeSession({ userId: USER_EMPTIED, role: "admin" }),
+    ]
+    for (const session of cases) {
+      const rows = await sql<{ id: string; publish: boolean }[]>`
+        select r.id::text as id,
+          ${publishPredicate(sql, session, sql`r.location_id`)} as publish
+        from review r
+        order by r.id
+      `
+      const grants = await grantsFor(
+        sql,
+        session,
+        rows.map((row) => row.id)
+      )
+      for (const row of rows) {
+        expect(
+          { session: session.userId, role: session.role, id: row.id, publish: row.publish },
+        ).toEqual({
+          session: session.userId,
+          role: session.role,
+          id: row.id,
+          publish: grants.get(row.id)!.canPublish,
+        })
+      }
+    }
   })
 
   it("requireLocationAccess / canPublishLocation are thin wrappers over the same grant", async () => {

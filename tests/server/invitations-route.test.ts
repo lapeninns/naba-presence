@@ -160,7 +160,7 @@ describe("POST /api/invitations client scope", () => {
     expect((await response.json()).error).toBe("client_not_found")
   })
 
-  it("refuses clients with no listings: accepted, that would mean every client", async () => {
+  it("refuses clients with no listings: an assigned scope with nothing in it", async () => {
     signedIn(owner)
     const { inserts } = fakeTenant([{ id: EMPTY, listings: 0, name: "New" }])
     const response = await post({
@@ -169,7 +169,7 @@ describe("POST /api/invitations client scope", () => {
       clientIds: [EMPTY],
     })
     expect(response.status).toBe(409)
-    expect((await response.json()).error).toBe("would_widen_to_all_clients")
+    expect((await response.json()).error).toBe("invitation_scope_empty")
     expect(inserts).toHaveLength(0)
   })
 

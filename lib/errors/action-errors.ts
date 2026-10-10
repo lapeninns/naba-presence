@@ -307,8 +307,8 @@ const COPY: Record<string, string> = {
   duplicate_location: "That location appears more than once.",
   location_not_found: "That location no longer exists.",
   // Client access (PUT /api/members/[userId]/client-access, invitations).
-  would_widen_to_all_clients:
-    "Choose at least one client that has listings. Someone with no listings sees every client, so choose All clients if that’s what you mean.",
+  invitation_scope_empty:
+    "Those clients or locations have no listings left, so the invitation would give access to nothing. Choose others, or invite for all of them.",
   role_sees_all_clients:
     "Owners and admins always see every client. Change their role to limit what they see.",
   duplicate_client: "That client appears more than once.",

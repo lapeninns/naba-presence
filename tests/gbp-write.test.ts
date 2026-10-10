@@ -1060,6 +1060,8 @@ describe("loadLinkedLocation", () => {
                                   ('${UNLINKED}', '${ORG}', 'Unlinked', 'Europe/London');
       insert into external_location values ('${EXTERNAL}', '${CONNECTION}', 'accounts/1', 'locations/1');
       insert into location_link values ('${LOCATION}', '${EXTERNAL}', true);
+      insert into member values ('${USER}', 'all'),
+                                ('00000000-0000-4000-8000-0000000000aa', 'all');
     `)
   })
 
@@ -1179,11 +1181,16 @@ describe("loadLinkedLocation", () => {
   })
 
   it("a hidden-but-existing location surfaces as the same notFound, never review_not_found", async () => {
-    // The member is assigned to UNLINKED only, so LOCATION exists but is hidden.
+    // The member is assigned to UNLINKED only, so LOCATION exists but is
+    // hidden. (Holding a row names the scope 'assigned', as 0064 does.)
     await db.query("insert into location_member values ($1, $2, true)", [
       USER,
       UNLINKED,
     ])
+    await db.query(
+      "update member set location_scope = 'assigned' where user_id = $1",
+      [USER]
+    )
     try {
       const member = { ...session, role: "member" as const }
       await expect(
@@ -1218,6 +1225,7 @@ describe("loadLinkedLocation", () => {
       ).resolves.toMatchObject({ locationId: LOCATION })
     } finally {
       await db.query("delete from location_member")
+      await db.query("update member set location_scope = 'all'")
     }
   })
 
