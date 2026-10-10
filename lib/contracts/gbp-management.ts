@@ -2,11 +2,16 @@
 // industry, administration, booking). Client-safe: zod only.
 import { z } from "zod"
 
+export const gbpExecutionStateSchema = z.enum(["unrecorded", "pending", "accepted", "rejected", "unknown"])
+export const gbpConfirmationStateSchema = z.enum(["unrecorded", "pending", "confirmed", "unresolved"])
+
 /** Result of a GBP management mutation: the attempt row plus the idempotent flag. */
 export const gbpMutationResultSchema = z.object({
   id: z.string(),
   status: z.string(),
   idempotent: z.boolean(),
+  executionState: gbpExecutionStateSchema.optional(),
+  confirmationState: gbpConfirmationStateSchema.optional(),
 })
 export type GbpMutationResult = z.infer<typeof gbpMutationResultSchema>
 

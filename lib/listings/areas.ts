@@ -27,6 +27,8 @@ export type ListingAreaModel =
   | "google_direct"
   /** Its own draft → approval → publish lifecycle. */
   | "lifecycle"
+  /** An exact reviewed operation, followed by independent confirmation. */
+  | "reviewed"
   /** Google's changes, accepted or ignored here. */
   | "inbound"
 
@@ -99,7 +101,7 @@ export const LISTING_AREAS: readonly ListingArea[] = [
     label: "People with access",
     description: "Who may edit the listing on Google, and invitations",
     segment: "people",
-    model: "google_direct",
+    model: "reviewed",
     capability: "administration",
     consoleGated: true,
   },
@@ -108,7 +110,7 @@ export const LISTING_AREAS: readonly ListingArea[] = [
     label: "Verification",
     description: "Whether Google has verified the listing, and how to",
     segment: "verification",
-    model: "google_direct",
+    model: "reviewed",
     capability: "administration",
     consoleGated: true,
   },
@@ -143,6 +145,10 @@ export function listingHref(locationId: string, segment?: string): string {
 
 /** What the model means for the operator, said once. */
 export function modelNote(model: ListingAreaModel, area?: ListingAreaKey): string {
+  // Booking links have no NabaPresence draft, but nothing goes out unreviewed:
+  // each change is prepared, reviewed and approved, then sent separately.
+  if (area === "booking") return "No draft is kept here: review each link change, approve it, then send it to Google as a separate step."
+  if (area === "people") return "Administrator and invitation changes are reviewed and approved before sending. Google's acknowledgement and independent access confirmation are separate."
   if (area === "profile") return "Save here keeps the name, description, phone and website. Other profile edits are published after review."
   switch (model) {
     case "canonical":
@@ -151,6 +157,8 @@ export function modelNote(model: ListingAreaModel, area?: ListingAreaKey): strin
       return "Changes here go to Google straight away."
     case "lifecycle":
       return "Each post is drafted, approved if your policy asks, then published."
+    case "reviewed":
+      return "Review the exact request, approve it, then send. Google confirmation is checked separately."
     case "inbound":
       return "Google's changes wait here until you accept or ignore them. Accepting changes NabaPresence's copy only."
   }

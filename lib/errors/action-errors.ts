@@ -36,6 +36,8 @@ const APPROVAL_COPY: Record<ActionErrorContext, Record<string, string>> = {
 }
 
 const COPY: Record<string, string> = {
+  google_confirmation_required:
+    "Google has not confirmed this change. Check the recorded outcome in Activity before publishing again.",
   // ---- Session / permissions (shared) -------------------------------------
   authentication_required:
     "Your session has expired. Sign in again to continue.",

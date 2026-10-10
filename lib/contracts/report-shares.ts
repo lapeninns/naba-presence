@@ -9,6 +9,7 @@
 import { z } from "zod"
 
 import type { GooglePerformanceMetric } from "@/lib/domain/google-contract"
+import type { PresenceResponse } from "./analytics"
 
 // ---------------------------------------------------------------------------
 // Link lifetimes
@@ -168,10 +169,14 @@ export type SharedClientReport = {
     from: string
     to: string
     freshThrough: string | null
-    totals: Record<GooglePerformanceMetric, number>
+    /** Null when Google sent no rows for that metric; never shown as zero. */
+    totals: Record<GooglePerformanceMetric, number | null>
     series: Array<{
       date: string
       metrics: Partial<Record<GooglePerformanceMetric, number>>
     }>
+    previous?: PresenceResponse["previous"]
+    fetchedAt?: PresenceResponse["fetchedAt"]
+    coverage?: PresenceResponse["coverage"]
   } | null
 }

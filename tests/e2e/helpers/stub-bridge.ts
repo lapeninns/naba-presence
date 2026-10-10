@@ -381,7 +381,11 @@ export default async function startJourneyBridge(config: FullConfig) {
     stub.respond({ method: "GET", pathIncludes: "/media" }, () => ({ status: 200, json: { mediaItems: [] } }))
     stub.respond({ method: "GET", pathIncludes: "/media/customers" }, () => ({ status: 200, json: { mediaItems: [] } }))
     stub.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({ status: 200, json: { localPosts: [], nextPageToken: null } }))
-    stub.respond({ method: "GET", pathIncludes: "/placeActionLinks" }, () => ({ status: 200, json: { placeActionLinks: [] } }))
+    // Action links are stateful: a reviewed create is confirmed by reading the
+    // link back. The listing offers the one action type the journey adds.
+    const placeActionLinks: Record<string, unknown>[] = []
+    stub.respond({ method: "GET", pathIncludes: "/placeActionLinks" }, () => ({ status: 200, json: { placeActionLinks } }))
+    stub.respond({ method: "GET", pathIncludes: "/placeActionTypeMetadata" }, () => ({ status: 200, json: { placeActionTypeMetadata: [{ placeActionType: "DINING_RESERVATION", displayName: "Reserve a table" }] } }))
     // Settings > Connections notifications card (Task 11): the Google
     // notifications GET, so the card loads clean off the M5-seeded active
     // account (`google_account.is_active = true` -> deriveAutoSelection
@@ -399,7 +403,10 @@ export default async function startJourneyBridge(config: FullConfig) {
     // the readback hash matches the request.
     stub.respond({ method: "POST", pathIncludes: "/placeActionLinks" }, (call) => {
       const body = (call.body ?? {}) as Record<string, unknown>
-      return { status: 200, json: { name: "locations/stub/placeActionLinks/created", uri: body.uri, placeActionType: body.placeActionType, isPreferred: body.isPreferred ?? false } }
+      const parent = new URL(call.path, "http://stub").pathname.replace(/^\/v1\//, "").replace(/\/placeActionLinks$/, "")
+      const link = { name: `${parent}/placeActionLinks/created${placeActionLinks.length + 1}`, providerType: "MERCHANT", isEditable: true, uri: body.uri, placeActionType: body.placeActionType, isPreferred: body.isPreferred ?? false }
+      placeActionLinks.push(link)
+      return { status: 200, json: link }
     })
 
     // --- M8 console stubs (Task 8) ------------------------------------------
@@ -449,13 +456,28 @@ export default async function startJourneyBridge(config: FullConfig) {
       { method: "GET", pathIncludes: `${primaryGoogleLocationName}/lodging:getGoogleUpdated` },
       () => ({ status: 200, json: { diffMask: { paths: [] } } })
     )
+    // Stateful, in Google's TimeOfDay shape: the reviewed lodging send reads
+    // the resource back to confirm it independently, so each masked
+    // `group.field` a write sends has to show up on the next GET.
+    const lodging: Record<string, Record<string, unknown>> = {
+      policies: { checkinTime: { hours: 15, minutes: 0 }, checkoutTime: { hours: 11, minutes: 0 } },
+    }
     stub.respond(
       { method: "GET", pathIncludes: `${primaryGoogleLocationName}/lodging?` },
-      () => ({ status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, policies: { checkinTime: "15:00", checkoutTime: "11:00" } } })
+      () => ({ status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, ...lodging } })
     )
     stub.respond(
       { method: "PATCH", pathIncludes: `${primaryGoogleLocationName}/lodging?` },
-      (call) => ({ status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, ...(call.body as Record<string, unknown>) } })
+      (call) => {
+        const body = (call.body ?? {}) as Record<string, Record<string, unknown> | undefined>
+        const mask = new URL(call.path, "http://stub").searchParams.get("updateMask")?.split(",") ?? []
+        for (const path of mask) {
+          const [group, field, ...rest] = path.split(".")
+          if (!group || !field || rest.length || [group, field].some((key) => ["__proto__", "constructor", "prototype"].includes(key))) continue
+          lodging[group] = { ...lodging[group], [field]: body[group]?.[field] }
+        }
+        return { status: 200, json: { name: `${primaryGoogleLocationName}/lodging`, ...lodging } }
+      }
     )
     stub.respond(
       { method: "GET", pathIncludes: `${primaryAccountName}/${primaryGoogleLocationName}/serviceList` },
@@ -476,20 +498,24 @@ export default async function startJourneyBridge(config: FullConfig) {
       status: 200,
       json: { hasVoiceOfMerchant: true },
     }))
+    // Verification is stateful: a reviewed start is confirmed independently by
+    // listing the location's verifications after the write.
+    const verifications: Record<string, unknown>[] = []
     stub.respond(
       { method: "GET", pathIncludes: `${primaryGoogleLocationName}/verifications` },
-      () => ({ status: 200, json: { verifications: [] } })
+      () => ({ status: 200, json: { verifications } })
     )
     stub.respond({ method: "POST", pathIncludes: "fetchVerificationOptions" }, () => ({
       status: 200,
-      json: { options: [{ verificationMethod: "EMAIL" }] },
+      json: { options: [{ verificationMethod: "EMAIL", emailData: { user: "owner", domain: "riverside.example", isUserNameEditable: true } }] },
     }))
     // Lowercase ":verify" (start_verification) never collides with the
     // capital-V "fetchVerificationOptions"/"...Verifications" paths above.
-    stub.respond({ method: "POST", pathIncludes: ":verify" }, () => ({
-      status: 200,
-      json: { name: `${primaryGoogleLocationName}/verifications/e2e`, method: "EMAIL", state: "PENDING" },
-    }))
+    stub.respond({ method: "POST", pathIncludes: ":verify" }, () => {
+      const verification = { name: `${primaryGoogleLocationName}/verifications/e2e`, method: "EMAIL", state: "PENDING", createTime: "2026-09-30T01:00:00Z" }
+      if (!verifications.length) verifications.push(verification)
+      return { status: 200, json: { verification } }
+    })
     stub.respond(
       { method: "GET", pathIncludes: `${primaryGoogleLocationName}/admins` },
       () => ({
@@ -501,7 +527,7 @@ export default async function startJourneyBridge(config: FullConfig) {
       { method: "GET", pathIncludes: `${primaryAccountName}/admins` },
       () => ({
         status: 200,
-        json: { admins: [{ name: `${primaryAccountName}/admins/owner`, admin: "Journey Owner", role: "PRIMARY_OWNER" }] },
+        json: { accountAdmins: [{ name: `${primaryAccountName}/admins/owner`, admin: "Journey Owner", role: "PRIMARY_OWNER" }] },
       })
     )
     stub.respond(
@@ -524,6 +550,19 @@ export default async function startJourneyBridge(config: FullConfig) {
     // DELETE (`.../v1/{locationName}/admins/{adminId}`, since the location
     // name is a strict prefix of that path) and silently misroute it here.
     stub.respond({ method: "DELETE", pathEndsWith: primaryGoogleLocationName }, () => ({ status: 200, json: {} }))
+    // A reviewed lifecycle request reads the source account's role (registered
+    // below, after the accounts.list rule that would otherwise shadow it) and
+    // the exact location's deletion eligibility before it saves a review.
+    stub.respond(
+      { method: "GET", pathIncludes: `/v1/${primaryGoogleLocationName}?readMask=name%2Cmetadata` },
+      () => ({ status: 200, json: { name: primaryGoogleLocationName, metadata: { placeId: "ChIJ_journey_primary", canDelete: true } } })
+    )
+    // Verification options check the exact identity and business type first;
+    // a storefront business needs no private verification address.
+    stub.respond(
+      { method: "GET", pathIncludes: `/v1/${primaryGoogleLocationName}?readMask=name%2CserviceArea` },
+      () => ({ status: 200, json: { name: primaryGoogleLocationName, serviceArea: { businessType: "CUSTOMER_AND_BUSINESS_LOCATION" } } })
+    )
 
     // A separate approval-required org: a requester whose publish routes to
     // approval (202), and a distinct owner approver who approves (200).
@@ -625,6 +664,32 @@ export default async function startJourneyBridge(config: FullConfig) {
               type: "LOCATION_GROUP",
               role: "OWNER",
               permissionLevel: "OWNER_LEVEL",
+            },
+          ],
+        },
+      })
+    )
+    // The primary account's own resource, for the reviewed lifecycle request.
+    // Registered after the `/accounts` list rule above so this exact match
+    // wins over it.
+    stub.respond({ method: "GET", pathEndsWith: connection.googleAccountName }, () => ({
+      status: 200,
+      json: { name: connection.googleAccountName, role: "OWNER" },
+    }))
+    // Its membership read (`/locations?readMask=...`) would otherwise fall to
+    // the generic readMask rule, which answers with a single location rather
+    // than a list. The place ID matches the eligibility read above.
+    stub.respond(
+      { method: "GET", pathIncludes: `/${connection.googleAccountName}/locations?readMask=` },
+      () => ({
+        status: 200,
+        json: {
+          locations: [
+            {
+              name: primaryGoogleLocationName,
+              title: locationName(directReview.locationId),
+              metadata: { hasVoiceOfMerchant: true, placeId: "ChIJ_journey_primary", canDelete: true },
+              storefrontAddress: { addressLines: ["1 Journey Way"], locality: "Auckland", postalCode: "1010" },
             },
           ],
         },

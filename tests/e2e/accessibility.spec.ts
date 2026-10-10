@@ -594,7 +594,7 @@ for (const theme of themes) {
         // labelled with its column name instead.
         if (viewport.name === "desktop") {
           await expect(
-            page.getByRole("columnheader", { name: "Listing" })
+            page.getByRole("columnheader", { name: "Listing", exact: true })
           ).toBeVisible()
         } else {
           await expect(

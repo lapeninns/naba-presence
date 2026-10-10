@@ -31,9 +31,6 @@ export function attributeControlKind(
     case "BOOL": return "bool"
     case "ENUM": return "enum"
     case "URL": return "url"
-    // REPEATED_ENUM has no dedicated control (no caller handles this kind);
-    // it falls to the read-only note via the default branch below, same as
-    // any other unmapped valueType.
     default: return "unsupported"
   }
 }

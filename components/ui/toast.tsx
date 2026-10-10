@@ -29,16 +29,87 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
  * stacking upward. Below 640px it spans the width at the TOP, under the
  * safe area, stacking downward: a phone's bottom edge belongs to sticky
  * action bars and bottom sheets (the review sheet's "Try again", the
- * editor's Publish), and a bottom toast covered exactly those.
+ * editor's Publish), and a bottom toast covered exactly those. From 640px
+ * an open sheet or dialog footer lifts the stack above it (see
+ * `modalFooterClearance`).
  */
-function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
+/** The toast column's widest extent from the right edge: 380px + 16px inset. */
+const TOAST_COLUMN = 396
+
+const MODAL_FOOTERS =
+  '[data-slot="sheet-content"] [data-slot="sheet-footer"], [data-slot="dialog-content"] [data-slot="dialog-footer"]'
+
+/**
+ * How far above the viewport's bottom edge an open sheet or dialog footer
+ * reaches, when that footer runs under the toast column. From 640px the
+ * toasts sit bottom-right, exactly where a right-hand sheet keeps its
+ * actions ("Read saved outcome", "Refresh observation"), so the stack is
+ * lifted clear of the footer rather than covering the recovery action a
+ * warning toast points at.
+ */
+export function modalFooterClearance(
+  root: ParentNode,
+  viewport: { width: number; height: number }
+): number {
+  let top = viewport.height
+  for (const footer of root.querySelectorAll(MODAL_FOOTERS)) {
+    const rect = footer.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) continue
+    if (rect.right <= viewport.width - TOAST_COLUMN) continue
+    if (rect.bottom <= 0 || rect.top >= viewport.height) continue
+    top = Math.min(top, rect.top)
+  }
+  return Math.max(0, Math.ceil(viewport.height - top))
+}
+
+function useModalFooterClearance() {
+  const [clearance, setClearance] = React.useState(0)
+  React.useEffect(() => {
+    const measure = () =>
+      setClearance(
+        modalFooterClearance(document, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })
+      )
+    const observer = new MutationObserver(measure)
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-open", "data-closed", "data-slot", "hidden"],
+    })
+    window.addEventListener("resize", measure)
+    // A sheet slides in: measure again once its transition settles.
+    document.addEventListener("transitionend", measure, true)
+    measure()
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", measure)
+      document.removeEventListener("transitionend", measure, true)
+    }
+  }, [])
+  return clearance
+}
+
+function ToastViewport({
+  className,
+  style,
+  ...props
+}: ToastPrimitive.Viewport.Props) {
+  const clearance = useModalFooterClearance()
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
+      data-footer-clearance={clearance > 0 ? clearance : undefined}
       className={cn(
-        "pointer-events-none fixed top-[max(16px,env(safe-area-inset-top))] right-4 left-4 z-[120] w-auto outline-none sm:top-auto sm:bottom-[max(16px,env(safe-area-inset-bottom))] sm:left-auto sm:w-[min(380px,calc(100vw-32px))]",
+        "pointer-events-none fixed top-[max(16px,env(safe-area-inset-top))] right-4 left-4 z-[120] w-auto outline-none sm:top-auto sm:bottom-[calc(max(16px,env(safe-area-inset-bottom))+var(--toast-footer-clearance,0px))] sm:left-auto sm:w-[min(380px,calc(100vw-32px))]",
         className
       )}
+      style={(state) => ({
+        ...(typeof style === "function" ? style(state) : style),
+        ["--toast-footer-clearance" as string]: `${clearance}px`,
+      })}
       {...props}
     />
   )
@@ -53,7 +124,7 @@ function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast pointer-events-auto absolute top-0 right-0 z-[calc(1000-var(--toast-index))] w-full origin-top sm:top-auto sm:bottom-0 sm:origin-bottom rounded-(--np-radius-card) bg-charcoal text-ink-on-charcoal shadow-np-pop will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
+        "group/toast pointer-events-auto [[data-base-ui-inert]_&]:pointer-events-none absolute top-0 right-0 z-[calc(1000-var(--toast-index))] w-full origin-top sm:top-auto sm:bottom-0 sm:origin-bottom rounded-(--np-radius-card) bg-charcoal text-ink-on-charcoal shadow-np-pop will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
         "[--dir:1] [--gap:0.5rem] [--peek:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] sm:[--dir:-1]",
         "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+var(--dir)*(var(--toast-index)*var(--peek)+var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_var(--np-duration-overlay)_var(--np-ease-spring),opacity_var(--np-duration-standard)_var(--np-ease-standard),height_var(--np-duration-fast)_var(--np-ease-standard)]",
         // A hover bridge across the gap to the next toast, on whichever side

@@ -78,13 +78,16 @@ describe("Google transport", () => {
     vi.restoreAllMocks()
   })
 
-  it("retries a safe request when Google is temporarily unavailable", async () => {
+  it.each([
+    "https://mybusiness.googleapis.com/v4/example",
+    "https://businessprofileperformance.googleapis.com/v1/locations/1:fetchMultiDailyMetricsTimeSeries",
+  ])("retries a supported safe request %s when Google is temporarily unavailable", async (url) => {
     // Given: a provider that succeeds after one retryable response.
     const { googleRequest } = await import("@/lib/server/google")
 
     // When: a safe request crosses the real HTTP transport.
     const result = await googleRequest<{ readonly ok: boolean }>(
-      "https://mybusiness.googleapis.com/v4/example",
+      url,
       "access-token",
       {},
       { maxAttempts: 2, timeoutMs: 1000 }
@@ -124,6 +127,12 @@ describe("Google transport", () => {
     ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/questions/3/answers:upsert", "POST"],
     ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2:associate", "POST"],
     ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2:clearLocationAssociation", "POST"],
+    ["https://mybusinessbusinesscalls.googleapis.com/v1/locations/1/businesscallsinsights", "GET"],
+    ["https://mybusinessqanda.googleapis.com/v1/locations/1/questions", "GET"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights", "POST"],
+    ["https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights", "POST"],
+    ["https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate", "POST"],
+    ["https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation", "POST"],
   ])("refuses the retired endpoint %s before any network call", async (url, method) => {
     // Given: a provider that would answer anything.
     mode = StubMode.retryOnce

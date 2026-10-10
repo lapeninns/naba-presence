@@ -4,6 +4,7 @@ import { SignInPanel } from "@/components/auth/sign-in-panel"
 import { confirmStatusMessage } from "@/lib/api/auth-errors"
 import { sanitiseNextPath } from "@/lib/api/next-path"
 import { getSession } from "@/lib/server/session"
+import { getServerEnv } from "@/lib/server/env"
 
 export const metadata = { title: "Sign in · NabaPresence" }
 
@@ -25,6 +26,9 @@ export default async function SignInPage({
     <SignInPanel
       initialMode={
         params.mode === "create-account" ? "create-account" : "sign-in"
+      }
+      registrationAllowed={
+        getServerEnv().REGISTRATION_MODE === "open" || Boolean(params.invite)
       }
       inviteToken={params.invite}
       nextPath={nextPath}

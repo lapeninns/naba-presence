@@ -262,7 +262,7 @@ describeDatabase("reply approval", () => {
     expect(decisions).toHaveLength(0)
   })
 
-  // The harness runs without an OPENAI_API_KEY, which is a supported install:
+  // The harness runs without Workers AI credentials, which is a supported install:
   // the semantic pass does not run, and the stored row must not claim it did.
   it("records only the checks that ran", async () => {
     const fixture = await createFixture()

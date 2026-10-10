@@ -8,11 +8,13 @@ const LABELS: Record<GooglePerformanceMetric, string> = {
   BUSINESS_IMPRESSIONS_DESKTOP_SEARCH: "Search views (desktop)",
   BUSINESS_IMPRESSIONS_MOBILE_MAPS: "Maps views (mobile)",
   BUSINESS_IMPRESSIONS_MOBILE_SEARCH: "Search views (mobile)",
-  CALL_CLICKS: "Calls",
+  // Google counts taps on the Call button, not calls placed or answered.
+  CALL_CLICKS: "Call button taps",
   WEBSITE_CLICKS: "Website clicks",
   BUSINESS_DIRECTION_REQUESTS: "Directions requests",
   BUSINESS_CONVERSATIONS: "Messages",
-  BUSINESS_BOOKINGS: "Bookings",
+  // Google counts booking actions started from the profile, not completed reservations.
+  BUSINESS_BOOKINGS: "Booking button clicks",
   BUSINESS_FOOD_ORDERS: "Food orders",
   BUSINESS_FOOD_MENU_CLICKS: "Menu views",
 }
@@ -59,7 +61,7 @@ export const HEADLINE_METRICS: ReadonlyArray<{
       "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
     ],
   },
-  { key: "calls", label: "Calls", hint: "Taps on Call", metrics: ["CALL_CLICKS"] },
+  { key: "calls", label: "Call button taps", hint: "Not calls answered", metrics: ["CALL_CLICKS"] },
   { key: "web", label: "Website clicks", metrics: ["WEBSITE_CLICKS"] },
   {
     key: "directions",
@@ -88,9 +90,13 @@ export const ACTION_SERIES_KEYS = {
   directions: ["BUSINESS_DIRECTION_REQUESTS"],
 } as const
 
+/** Null only when every metric is missing; a missing part of a sum is never read as zero. */
 export function sumMetrics(
-  totals: Record<GooglePerformanceMetric, number>,
+  totals: Record<GooglePerformanceMetric, number | null>,
   metrics: readonly GooglePerformanceMetric[]
-): number {
-  return metrics.reduce((sum, metric) => sum + (totals[metric] ?? 0), 0)
+): number | null {
+  const present = metrics
+    .map((metric) => totals[metric])
+    .filter((value): value is number => typeof value === "number")
+  return present.length ? present.reduce((sum, value) => sum + value, 0) : null
 }
