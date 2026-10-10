@@ -50,7 +50,9 @@ describeDatabase("operational notifications", () => {
     await server.stop()
     await email.stop()
     await destroyTenants(admin, organisations)
-    await admin`delete from platform_incident where subject = 'reconcile'`
+    await admin`
+      delete from platform_incident where subject in ('reconcile', 'keywords')
+    `
     await admin.end()
   })
 
@@ -416,6 +418,57 @@ describeDatabase("operational notifications", () => {
         where name = 'reconcile'
       `
     }
+  }, 120_000)
+
+  it("alerts a tick that never completed after grace", async () => {
+    const [before] = await admin<
+      { beatAt: Date | null; registeredAt: Date }[]
+    >`
+      select beat_at as "beatAt", registered_at as "registeredAt"
+      from ops_heartbeat where name = 'keywords'
+    `
+    // keywords is a daily tick with a two-day grace: registered three days
+    // ago and never completed by the cron, only by a manual refresh.
+    await admin`
+      update ops_heartbeat
+      set beat_at = null,
+          registered_at = now() - interval '3 days',
+          last_manual_completed_at = now()
+      where name = 'keywords'
+    `
+    try {
+      await runTick()
+      await runTick()
+      const [incident] = await admin<
+        { status: string; notifyStatus: string }[]
+      >`
+        select status, notify_status as "notifyStatus"
+        from platform_incident
+        where kind = 'tick_never_completed' and subject = 'keywords'
+          and status = 'open'
+      `
+      expect(incident).toEqual({ status: "open", notifyStatus: "sent" })
+      expect(
+        sentTo(OPS).filter((mail) =>
+          mail.subject.includes("keywords tick has never completed")
+        )
+      ).toHaveLength(1)
+    } finally {
+      await admin`
+        update ops_heartbeat
+        set beat_at = ${before?.beatAt ?? null},
+            registered_at = ${before?.registeredAt ?? new Date()}
+        where name = 'keywords'
+      `
+    }
+    // Back inside its grace, the incident resolves on the next tick.
+    await runTick()
+    const open = await admin`
+      select 1 from platform_incident
+      where kind = 'tick_never_completed' and subject = 'keywords'
+        and status = 'open'
+    `
+    expect(open).toHaveLength(0)
   }, 120_000)
 })
 

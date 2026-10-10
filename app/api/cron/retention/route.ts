@@ -4,7 +4,10 @@ import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import {
+  recordTickCycleCompleted,
+  withAdvisoryLock,
+} from "@/lib/server/leases"
 import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
 import { reapStrandedLocalPosts } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
@@ -548,9 +551,18 @@ function runRetentionTick({
   clientRequestId: string | null
   query: RetentionQuery
 }) {
-  return withAdvisoryLock("naba:retention", () =>
-    retain({ requestId, clientRequestId, ...query })
-  )
+  return withAdvisoryLock("naba:retention", async () => {
+    const result = await retain({ requestId, clientRequestId, ...query })
+    // The page that ends the enumeration ends a cycle over every
+    // organisation, failures included (they are reported, not retried
+    // here). The tick ledger alerts when no cycle completes within the
+    // window (ops-liveness.ts TICK_CYCLE_STALE_AFTER_SECONDS); the retention
+    // dispatcher (plan P04-1) reports its persisted cycle the same way.
+    if (result.nextCursor === null) {
+      await recordTickCycleCompleted("naba:retention")
+    }
+    return result
+  })
 }
 
 export const POST = route({

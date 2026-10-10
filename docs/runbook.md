@@ -433,6 +433,33 @@ deliveries are recorded `suppressed` (`provider_not_configured`) — check
 delivery is unique per incident and recipient and is claimed before the send,
 so re-running the tick never double-emails.
 
+### Stale heartbeat
+
+The health tick emails `OPS_ALERT_EMAILS` and opens a `platform_incident`
+for four tick findings, read from each tick's `ops_heartbeat` run ledger
+(0070) and shown in `schedulerTicks` on the platform health endpoint:
+
+- `stale_heartbeat`: the tick used to complete and has not for
+  `staleAfterSeconds`. Check `lastFailedAt`/`lastErrorCode` first: a tick that
+  starts and fails needs the function logs; one with no recent
+  `lastStartedAt` is not firing (Vercel Cron Jobs page, `CRON_SECRET`).
+- `tick_never_completed`: no scheduled run has completed since `registeredAt`
+  plus the same grace. A `lastManualCompletedAt` does not count: a customer
+  refreshing proves the route works, not that the cron fires. Check the
+  tick's entry in `vercel.json` and that its cron is enabled.
+- `tick_lock_wedged`: three or more scheduled fires in a row found the
+  advisory lock held. Find the holder in `pg_locks` (`locktype = 'advisory'`)
+  joined to `pg_stat_activity`; a session stuck holding it releases the lock
+  when its connection is terminated.
+- `tick_cycle_overdue`: a tick that runs in cycles (retention) has not
+  finished a walk over every organisation within `cycleStaleAfterSeconds`.
+  Check `retention.organisation_failed` logs and whether pages return a
+  cursor nothing follows.
+
+The incident resolves on the first health tick after the condition clears.
+The health tick cannot alert on its own absence; that needs a signal from
+outside the deployment.
+
 ### Rotating the token encryption key
 
 1. Generate a new 32+ character secret. Set

@@ -136,9 +136,22 @@ export function renderIncidentEmail(
   }
 }
 
+function lastFailure(details: Record<string, unknown>): string[] {
+  return details.lastFailedAt
+    ? [
+        `Its last run failed at ${text(details.lastFailedAt, "an unknown time")} (${text(details.lastErrorCode, "unknown error")}).`,
+      ]
+    : []
+}
+
 /** Infrastructure alerts for operators. */
 export function renderPlatformEmail(
-  kind: "stale_heartbeat" | "google_quota_pressure",
+  kind:
+    | "stale_heartbeat"
+    | "tick_never_completed"
+    | "tick_lock_wedged"
+    | "tick_cycle_overdue"
+    | "google_quota_pressure",
   subject: string,
   details: Record<string, unknown>
 ): { subject: string; text: string } {
@@ -148,7 +161,39 @@ export function renderPlatformEmail(
       text: [
         `The scheduled "${subject}" tick has not completed since ${text(details.lastCompletedAt, "an unknown time")}.`,
         `It is expected at least every ${details.staleAfterSeconds ?? "?"} seconds.`,
+        ...lastFailure(details),
         'Check Vercel Cron and the function logs (docs/runbook.md, "Stale heartbeat").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "tick_never_completed") {
+    return {
+      subject: `NabaPresence: the ${subject} tick has never completed`,
+      text: [
+        `The scheduled "${subject}" tick has not completed a run since it was registered at ${text(details.registeredAt, "an unknown time")}.`,
+        `It is expected at least every ${details.staleAfterSeconds ?? "?"} seconds. Manual refreshes do not count.`,
+        ...lastFailure(details),
+        'Check that its cron is configured and the function logs (docs/runbook.md, "Stale heartbeat").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "tick_lock_wedged") {
+    return {
+      subject: `NabaPresence: the ${subject} tick keeps skipping on its lock`,
+      text: [
+        `The last ${details.consecutiveSkips ?? "?"} scheduled "${subject}" runs found its advisory lock already held and did nothing.`,
+        `The lock was last taken at ${text(details.lastStartedAt, "an unknown time")}.`,
+        'Look for a long-running or stuck session holding it (docs/runbook.md, "Stale heartbeat").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "tick_cycle_overdue") {
+    return {
+      subject: `NabaPresence: the ${subject} cycle is overdue`,
+      text: [
+        `The "${subject}" tick has not finished a full cycle since ${text(details.lastCycleCompletedAt ?? details.registeredAt, "an unknown time")}.`,
+        `A cycle is expected at least every ${details.cycleStaleAfterSeconds ?? "?"} seconds.`,
+        'Check the tick\'s failures and cursor in the function logs (docs/runbook.md, "Stale heartbeat").',
       ].join("\n"),
     }
   }

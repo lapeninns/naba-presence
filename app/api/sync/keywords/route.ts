@@ -154,7 +154,9 @@ async function runKeywordsPage({
       lastProcessedOrganisationId,
       skippedOrganisations: organisationIds.length - processed,
     }
-  })
+    // A session refresh takes the fleet lease too; recorded as manual so it
+    // cannot stand in for the cron's heartbeat.
+  }, { trigger: session ? "manual" : "cron" })
   if ("skipped" in result) {
     // The cron branch reports the skip; a manual refresh must not, or the
     // button clears itself and the user reads unchanged numbers as fresh.

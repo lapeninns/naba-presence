@@ -47,16 +47,42 @@ const rejectionRowSchema = z.object({
 
 /**
  * One scheduled tick's liveness. `lastCompletedAt` is the `ops_heartbeat` row
- * the tick's advisory lease stamps when a run completes, and
+ * the tick's advisory lease stamps when a scheduled run completes, and
  * `staleAfterSeconds` is the multiple of that tick's documented interval past
  * which the absence of a run is worth acting on. A tick that has never
  * completed reports `null` and `stale: true`.
+ *
+ * The run ledger (0070) fields carry a `.default(...)` so a monitor or panel
+ * reading a response from a build without them still parses it:
+ * - `lastStartedAt` / `lastSkippedAt` / `lastFailedAt` / `lastErrorCode` are
+ *   the scheduled runs' attempts, lock skips and failures;
+ * - `consecutiveSkips` counts lock skips since the lease was last taken, and
+ *   `lockWedged` is true once that streak is long enough to act on;
+ * - `neverCompleted` is a tick with no completed scheduled run, and
+ *   `registeredAt` the grace anchor for alerting on it;
+ * - `lastManualCompletedAt` is the last session-driven run under the same
+ *   lease, kept apart so it cannot stand in for the cron;
+ * - `lastCycleCompletedAt`, `cycleStaleAfterSeconds` and `cycleStale` are
+ *   for ticks whose work spans several runs (the retention walk); the window
+ *   is null for every other tick.
  */
 export const schedulerTickSchema = z.object({
   name: z.string(),
   lastCompletedAt: z.string().nullable(),
   staleAfterSeconds: z.number(),
   stale: z.boolean(),
+  neverCompleted: z.boolean().default(false),
+  registeredAt: z.string().nullable().default(null),
+  lastStartedAt: z.string().nullable().default(null),
+  lastSkippedAt: z.string().nullable().default(null),
+  consecutiveSkips: z.number().int().nonnegative().default(0),
+  lockWedged: z.boolean().default(false),
+  lastFailedAt: z.string().nullable().default(null),
+  lastErrorCode: z.string().nullable().default(null),
+  lastManualCompletedAt: z.string().nullable().default(null),
+  lastCycleCompletedAt: z.string().nullable().default(null),
+  cycleStaleAfterSeconds: z.number().nullable().default(null),
+  cycleStale: z.boolean().default(false),
 })
 export type SchedulerTick = z.infer<typeof schedulerTickSchema>
 

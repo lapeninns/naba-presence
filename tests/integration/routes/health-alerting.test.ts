@@ -354,7 +354,23 @@ describeDatabase("operations health alerting", () => {
       lastCompletedAt: expect.any(String),
       stale: false,
       staleAfterSeconds: 300,
+      // The run ledger (0070): the same run started under the lease, and
+      // the seeded row gives every tick a registration to measure from.
+      neverCompleted: false,
+      lastStartedAt: expect.any(String),
+      registeredAt: expect.any(String),
+      consecutiveSkips: expect.any(Number),
+      lockWedged: false,
+      cycleStaleAfterSeconds: null,
     })
+    const retention = health.schedulerTicks.find(
+      (tick: { name: string }) => tick.name === "retention"
+    )
+    expect(retention).toMatchObject({
+      cycleStaleAfterSeconds: expect.any(Number),
+    })
+    expect(retention).toHaveProperty("lastSkippedAt")
+    expect(retention).toHaveProperty("lastCycleCompletedAt")
   })
 
   it("supports cron-authenticated platform scope without a browser session", async () => {

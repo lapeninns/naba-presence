@@ -78,5 +78,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0067_mutation_operation",
   "0068_hours_publish_selection",
   "0069_gbp_management_started_at",
+  "0070_ops_tick_runs",
   "20260729000400_remove_local_demo_data",
 ]

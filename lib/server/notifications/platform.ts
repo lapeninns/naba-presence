@@ -3,13 +3,29 @@ import "server-only"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
-import { schedulerLiveness } from "@/lib/server/ops-liveness"
+import {
+  schedulerLiveness,
+  tickFindings,
+  type TickFinding,
+} from "@/lib/server/ops-liveness"
 
 import { sendEmail } from "./email"
 import { renderPlatformEmail } from "./messages"
 
+export type PlatformIncidentKind =
+  | TickFinding["kind"]
+  | "google_quota_pressure"
+
+const PLATFORM_INCIDENT_KINDS: readonly PlatformIncidentKind[] = [
+  "stale_heartbeat",
+  "tick_never_completed",
+  "tick_lock_wedged",
+  "tick_cycle_overdue",
+  "google_quota_pressure",
+]
+
 type PlatformFinding = {
-  kind: "stale_heartbeat" | "google_quota_pressure"
+  kind: PlatformIncidentKind
   subject: string
   details: Record<string, unknown>
 }
@@ -25,27 +41,20 @@ export type PlatformEvaluation = {
  * scheduled tick that has stopped completing, and sustained Google rate
  * limiting. Platform-level like ops_heartbeat, so read outside withTenant.
  *
- * A tick that has never completed is not alerted: on a fresh deploy the
- * daily ticks have simply not come round yet, and the operations health
- * endpoint already reports them as unregistered. What pages is a tick that
- * used to run and stopped.
+ * Tick findings come from the run ledger (ops-liveness.ts tickFindings): a
+ * tick that used to complete and stopped, one that has never completed past
+ * the grace from its registration (0070), a lease wedged by repeated lock
+ * skips, and a multi-run tick that has not finished a cycle in its window.
+ * Only scheduled runs count; a manual refresh under the same lease does not.
  */
 export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   const database = getDatabase()
-  const liveness = await schedulerLiveness()
-  const findings: PlatformFinding[] = liveness.schedulerTicks
-    // The evaluating tick cannot report its own absence.
-    .filter(
-      (tick) => tick.stale && tick.lastCompletedAt && tick.name !== "health"
-    )
-    .map((tick) => ({
-      kind: "stale_heartbeat",
-      subject: tick.name,
-      details: {
-        lastCompletedAt: tick.lastCompletedAt,
-        staleAfterSeconds: tick.staleAfterSeconds,
-      },
-    }))
+  const now = new Date()
+  const liveness = await schedulerLiveness(now)
+  const findings: PlatformFinding[] = tickFindings(
+    liveness.schedulerTicks,
+    now
+  )
   const throttled = await database<
     { bucket: string; throttledCount: number }[]
   >`
@@ -77,7 +86,7 @@ export async function evaluatePlatform(): Promise<PlatformEvaluation> {
     if (row?.inserted) opened.push({ id: row.id, finding })
   }
   let resolved = 0
-  for (const kind of ["stale_heartbeat", "google_quota_pressure"] as const) {
+  for (const kind of PLATFORM_INCIDENT_KINDS) {
     const current = findings
       .filter((finding) => finding.kind === kind)
       .map((finding) => finding.subject)

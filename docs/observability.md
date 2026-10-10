@@ -89,7 +89,11 @@ without bypassing RLS. It contains:
 - `schedulerHeartbeatAt` and `schedulerHeartbeatStale`
 - `schedulerTicks`, one entry per tick (`jobs`, `reconcile`, `retention`,
   `performance`, `keywords`, `presence-resources`, `sweep`, `health`) with
-  `lastCompletedAt`, `staleAfterSeconds` and `stale`
+  `lastCompletedAt`, `staleAfterSeconds` and `stale`, and the run ledger
+  (0070): `neverCompleted`, `registeredAt`, `lastStartedAt`, `lastSkippedAt`,
+  `consecutiveSkips`, `lockWedged`, `lastFailedAt`, `lastErrorCode`,
+  `lastManualCompletedAt`, and for ticks that run in cycles (retention)
+  `lastCycleCompletedAt`, `cycleStaleAfterSeconds` and `cycleStale`
 
 The owner/admin scope returns the same fields for one tenant plus `sync`,
 `webhooks`, `connections`, `publish24h`, `replyRejections30d` and
@@ -119,6 +123,24 @@ is served by the endpoint rather than hard-coded in the monitor, so an interval
 change moves the threshold with it. Since migration 0046 the sweep's fleet
 enqueue takes `naba:sweep`, so `sweep` is listed like the other ticks.
 
+Since migration 0070 each row is also the tick's run ledger
+(`lib/server/leases.ts`). A scheduled run records when it took the lease
+(`lastStartedAt`), a lock skip records `lastSkippedAt` and lengthens
+`consecutiveSkips` (taking the lease resets it), and a throw records
+`lastFailedAt` and its code without moving `lastCompletedAt`. A session-driven
+refresh under the same fleet lease (reconcile, performance, keywords) records
+only `lastManualCompletedAt`, so it cannot make a dead cron look alive. The
+migration seeds a row for every tick, and `registeredAt` is the grace anchor
+for a tick that has never completed. The health tick alerts operators
+(`lib/server/notifications/platform.ts`, `tickFindings` in
+`lib/server/ops-liveness.ts`) on four tick findings: `stale_heartbeat` (a tick
+that used to complete and stopped), `tick_never_completed` (no completed
+scheduled run within `staleAfterSeconds` of `registeredAt`),
+`tick_lock_wedged` (`consecutiveSkips` reached three) and `tick_cycle_overdue`
+(no completed cycle within `cycleStaleAfterSeconds`; the retention page that
+ends the organisation walk records one). The health tick never alerts on
+itself.
+
 The `scheduler` row is stamped at the start of every authenticated jobs run,
 including one that claims nothing because a kill switch is off, so it does not
 certify that work is being done — `jobs.kinds_paused` in the logs is what says a
@@ -136,6 +158,9 @@ Treat a missing heartbeat as silent.
 | Dead letters        | `deadWebhookEvents > 0`                                                     | ticket   |
 | Scheduler silent    | `schedulerHeartbeatStale` is true (the endpoint applies the 5-minute rule)  | page     |
 | Tick silent         | any `schedulerTicks[].stale` is true, other than during a deliberate pause  | page     |
+| Tick never ran      | `neverCompleted` past `registeredAt` + `staleAfterSeconds`                  | page     |
+| Lock wedged         | any `schedulerTicks[].lockWedged` is true                                   | page     |
+| Cycle overdue       | any `schedulerTicks[].cycleStale` is true                                   | ticket   |
 | Refresh token cliff | `refreshTokensExpiringSoon > 0`                                             | ticket   |
 | Overdue purge       | `pendingPurgeAgeSeconds > 86400`, or `heldPurgeLocations` non-zero and flat | ticket   |
 | Reconcile stale     | `reconcileStalenessSeconds > 3600`                                          | ticket   |

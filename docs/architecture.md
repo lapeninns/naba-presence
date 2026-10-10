@@ -752,9 +752,11 @@ last_succeeded_at` moves only on success and is what every freshness signal
 reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
 runs the older seven for local and non-Vercel deployments.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
-locks so overlapping schedulers skip rather than duplicate work, and stamps that
-loop's `ops_heartbeat` row on a completed run so the lock namespace and the
-liveness names cannot drift.
+locks so overlapping schedulers skip rather than duplicate work, and records
+each run in that loop's `ops_heartbeat` row (start, skip streak, failure and
+completion; 0070) so the lock namespace and the liveness names cannot drift. A
+session-driven refresh under the same lease is recorded as manual and never
+moves the cron heartbeat.
 
 `/api/sync/presence-resources` performs a separate bounded sweep for Hours,
 Profile, Posts, Media, Food Menus, and Place Actions. It selects the least

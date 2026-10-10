@@ -252,8 +252,12 @@ async function runReconcilePage({
   requestId,
   clientRequestId,
 }: ReconcilePageInput) {
-  const result = await withAdvisoryLock("naba:reconcile", () =>
-    reconcile({ session, input, requestId, clientRequestId })
+  // A session reconcile takes the fleet lease too; recorded as manual so it
+  // cannot stand in for the cron's heartbeat.
+  const result = await withAdvisoryLock(
+    "naba:reconcile",
+    () => reconcile({ session, input, requestId, clientRequestId }),
+    { trigger: session ? "manual" : "cron" }
   )
   if ("skipped" in result) {
     return {

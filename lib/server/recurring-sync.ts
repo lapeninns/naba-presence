@@ -38,8 +38,15 @@ export type RecurringEnqueueResult = {
 }
 
 /**
- * Enqueue under the kind's lease, which also stamps its heartbeat, so a cron
- * that stops firing shows up as a stale tick in operations health.
+ * Enqueue under the kind's lease, which records the run in the tick ledger
+ * (lib/server/leases.ts), so a cron that stops firing, keeps failing or keeps
+ * skipping on its lock shows up in operations health. Always a scheduled
+ * (`cron`) run: the session refreshes take the lease in their own routes and
+ * record themselves as manual.
+ *
+ * The heartbeat this stamps proves the enqueue, not the work: the runner
+ * drains the queue, and how stale the work is shows in the checkpoints
+ * (`reconcileStalenessSeconds`, `dueMetricsCheckpointBacklog`).
  */
 export async function enqueueRecurring(
   kind: RecurringKind,

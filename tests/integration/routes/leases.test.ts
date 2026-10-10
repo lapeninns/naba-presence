@@ -140,6 +140,154 @@ describeDatabase("scheduler advisory leases", () => {
     if (before) expect(after!.getTime()).toBeGreaterThan(before.getTime())
   })
 
+  type LedgerRow = {
+    beatAt: Date | null
+    lastStartedAt: Date | null
+    lastSkippedAt: Date | null
+    consecutiveSkips: number
+    lastFailedAt: Date | null
+    lastErrorCode: string | null
+    lastManualCompletedAt: Date | null
+    lastCycleCompletedAt: Date | null
+    registeredAt: Date
+  }
+
+  async function ledger(name: string) {
+    const [row] = await admin<LedgerRow[]>`
+      select
+        beat_at as "beatAt",
+        last_started_at as "lastStartedAt",
+        last_skipped_at as "lastSkippedAt",
+        consecutive_skips as "consecutiveSkips",
+        last_failed_at as "lastFailedAt",
+        last_error_code as "lastErrorCode",
+        last_manual_completed_at as "lastManualCompletedAt",
+        last_cycle_completed_at as "lastCycleCompletedAt",
+        registered_at as "registeredAt"
+      from ops_heartbeat
+      where name = ${name}
+    `
+    return row
+  }
+
+  it("seeds a registered ledger row for every tick", async () => {
+    const rows = await admin<{ name: string }[]>`
+      select name from ops_heartbeat
+      where registered_at is not null
+    `
+    expect(rows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "jobs",
+        "reconcile",
+        "retention",
+        "performance",
+        "keywords",
+        "presence-resources",
+        "sweep",
+        "health",
+      ])
+    )
+  })
+
+  it("counts lock skips in a row and ends the streak when the lease is taken", async () => {
+    await admin`
+      update ops_heartbeat set consecutive_skips = 0 where name = 'sweep'
+    `
+    const before = await ledger("sweep")
+    const lock = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+    await lock`select pg_advisory_lock(hashtext('naba:sweep'))`
+    try {
+      for (let fire = 0; fire < 2; fire += 1) {
+        const skipped = await cronPost("/api/sync/sweep")
+        expect(skipped.status, await skipped.clone().text()).toBe(200)
+        expect(await skipped.json()).toMatchObject({ skipped: true })
+      }
+      const wedged = await ledger("sweep")
+      expect(wedged.consecutiveSkips).toBe(2)
+      expect(wedged.lastSkippedAt).not.toBeNull()
+      // A skip did nothing, so neither the heartbeat nor the start moves.
+      expect(wedged.beatAt).toEqual(before.beatAt)
+      expect(wedged.lastStartedAt).toEqual(before.lastStartedAt)
+    } finally {
+      await lock`select pg_advisory_unlock(hashtext('naba:sweep'))`
+      await lock.end()
+    }
+
+    const completed = await cronPost("/api/sync/sweep")
+    expect(completed.status, await completed.clone().text()).toBe(200)
+    const after = await ledger("sweep")
+    expect(after.consecutiveSkips).toBe(0)
+    expect(after.lastStartedAt).not.toBeNull()
+    expect(after.beatAt).not.toBeNull()
+    if (before.beatAt) {
+      expect(after.beatAt!.getTime()).toBeGreaterThan(before.beatAt.getTime())
+    }
+  })
+
+  it("records a failed run without moving the heartbeat", async () => {
+    const paused = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      RETENTION_ENABLED: "false",
+    })
+    try {
+      const before = await ledger("retention")
+      const response = await fetch(`${paused.baseUrl}/api/cron/retention`, {
+        method: "POST",
+        headers: { authorization: "Bearer route-harness-cron-secret" },
+      })
+      expect(response.status, await response.clone().text()).toBe(503)
+      const after = await ledger("retention")
+      expect(after.lastFailedAt).not.toBeNull()
+      expect(after.lastErrorCode).toBe("retention_paused")
+      expect(after.lastStartedAt).not.toBeNull()
+      expect(after.beatAt).toEqual(before.beatAt)
+      expect(after.lastCycleCompletedAt).toEqual(before.lastCycleCompletedAt)
+    } finally {
+      await paused.stop()
+    }
+  })
+
+  it("records a retention page that ends the walk as a completed cycle", async () => {
+    const before = await ledger("retention")
+    const response = await cronPost("/api/cron/retention?batch_size=100")
+    expect(response.status, await response.clone().text()).toBe(200)
+    const body = (await response.json()) as { nextCursor: string | null }
+    const after = await ledger("retention")
+    expect(after.beatAt).not.toBeNull()
+    if (body.nextCursor === null) {
+      expect(after.lastCycleCompletedAt).not.toBeNull()
+      if (before.lastCycleCompletedAt) {
+        expect(after.lastCycleCompletedAt!.getTime()).toBeGreaterThan(
+          before.lastCycleCompletedAt.getTime()
+        )
+      }
+    } else {
+      // A page with more organisations after it has not finished the cycle.
+      expect(after.lastCycleCompletedAt).toEqual(before.lastCycleCompletedAt)
+    }
+  })
+
+  it("keeps a manual refresh off the cron heartbeat", async () => {
+    const { owner } = await linkedFixture()
+    stub.reset()
+    const before = await ledger("performance")
+    const response = await fetch(`${server.baseUrl}/api/sync/performance`, {
+      method: "POST",
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      body: JSON.stringify({}),
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    const after = await ledger("performance")
+    expect(after.lastManualCompletedAt).not.toBeNull()
+    if (before.lastManualCompletedAt) {
+      expect(after.lastManualCompletedAt!.getTime()).toBeGreaterThan(
+        before.lastManualCompletedAt.getTime()
+      )
+    }
+    expect(after.beatAt).toEqual(before.beatAt)
+    expect(after.lastStartedAt).toEqual(before.lastStartedAt)
+  })
+
   it("allows only one concurrent fleet reconciliation", async () => {
     const { linked } = await linkedFixture()
     stub.reset()
