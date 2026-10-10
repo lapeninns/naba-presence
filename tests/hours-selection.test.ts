@@ -509,21 +509,80 @@ describe("per-part drift after a selective publish", () => {
         blocked: false,
       })
     ).toBeNull()
-    const partial = nextComparisonParts({
-      previous: null,
-      canonicalParts,
-      googleParts: before,
-      blocked: false,
-      establish: { keys: ["regular:1"] },
+    expect(
+      classifyHoursPartDrift({
+        canonicalParts,
+        googleParts: before,
+        baseline: null,
+      })
+    ).toBeNull()
+  })
+
+  it("seeds the parts a first selective publish leaves out with the earlier whole-schedule verdict", () => {
+    // Saved: Monday edited. Google: Tuesday edited, unknown to the saved
+    // schedule. No part baseline yet; the whole schedule reads as a conflict.
+    const canonicalSchedule = structuredClone(google)
+    canonicalSchedule.regular[1].periods[0].opensAt = "10:00"
+    const googleSchedule = structuredClone(google)
+    googleSchedule.regular[2].periods[0].opensAt = "08:30"
+    // Monday is published; Google now has it.
+    const published = structuredClone(googleSchedule)
+    published.regular[1] = structuredClone(canonicalSchedule.regular[1])
+    const canonicalParts = hoursPartHashes(canonicalSchedule)
+    const googleParts = hoursPartHashes(published)
+    const seed = (priorStatus?: "core_dirty" | "google_dirty" | "conflict") =>
+      nextComparisonParts({
+        previous: null,
+        canonicalParts,
+        googleParts,
+        blocked: false,
+        establish: { keys: ["regular:1"], priorStatus },
+      })
+    const classify = (baseline: ReturnType<typeof seed>) =>
+      classifyHoursPartDrift({ canonicalParts, googleParts, baseline })
+
+    // Every part is known at the publish, so the baseline is complete.
+    expect(seed("conflict")?.complete).toBe(true)
+    // Tuesday keeps needing an overwrite confirmation; it never turns local.
+    expect(classify(seed("conflict"))).toEqual({ "regular:2": "conflict" })
+    expect(classify(seed())).toEqual({ "regular:2": "conflict" })
+    expect(classify(seed("google_dirty"))).toEqual({
+      "regular:2": "google_dirty",
     })
-    expect(partial?.complete).toBe(false)
-    // Unknown parts of an incomplete baseline stay local, never Google.
+    expect(classify(seed("core_dirty"))).toEqual({ "regular:2": "core_dirty" })
+
+    // A later Google edit to a part seeded as local is a conflict.
+    const googleLater = structuredClone(published)
+    googleLater.regular[2].periods[0].opensAt = "07:00"
+    expect(
+      classifyHoursPartDrift({
+        canonicalParts,
+        googleParts: hoursPartHashes(googleLater),
+        baseline: seed("core_dirty"),
+      })
+    ).toEqual({ "regular:2": "conflict" })
+
+    // Once the part matches again it is its own baseline.
+    const matched = nextComparisonParts({
+      previous: seed("conflict"),
+      canonicalParts: hoursPartHashes(published),
+      googleParts,
+      blocked: false,
+    })
+    expect(matched?.parts["regular:2"]).toEqual([
+      googleParts["regular:2"],
+      googleParts["regular:2"],
+    ])
+  })
+
+  it("treats a differing part an incomplete baseline does not list as a conflict", () => {
+    const canonicalParts = hoursPartHashes(canonical)
     const parts = classifyHoursPartDrift({
       canonicalParts,
       googleParts: before,
-      baseline: partial,
+      baseline: { complete: false, parts: {} },
     })
-    expect(parts?.["regular:2"]).toBe("core_dirty")
+    expect(new Set(Object.values(parts ?? {}))).toEqual(new Set(["conflict"]))
     expect(
       classifyHoursPartDrift({
         canonicalParts,

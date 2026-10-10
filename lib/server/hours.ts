@@ -11,6 +11,7 @@ import {
   hoursPartHashes,
   hoursSelectionFromKeys,
   hoursSelectionKeys,
+  hoursSelectionMask,
   selectedHoursMatch,
   unselectedHoursUnchanged,
   legacyHoursHash,
@@ -442,16 +443,20 @@ function snapshotStale(): ApiError {
  * A selective publish pins the saved schedule by revision and hash and each
  * selected part's Google hash; unselected parts may have changed on Google
  * since review, because they are re-read and written back as they are now.
- * Its approved mask must be exactly the fields its changed parts write, a
- * subset of the whole-schedule mask; selected parts that already match
- * Google are left out. The overwrite confirmation is needed when a part it
+ * Its approved mask must lie within the selection's fields and cover every
+ * field its changed parts write, which must be in the whole-schedule mask;
+ * selected parts that already match Google are left out. When every selected
+ * part already matches, nothing is sent: `selection_in_sync` (other parts
+ * may still differ) or `in_sync` (the whole schedule matches). The overwrite confirmation is needed when a part it
  * writes changed on Google (per-part drift), or, with no part baseline yet,
  * when the whole schedule did.
  */
 function checkPublishSnapshot(
   live: LiveHours,
   input: PublishHoursInput
-): { kind: "in_sync" } | { kind: "proceed"; plan: PublishPlan } {
+):
+  | { kind: "in_sync" | "selection_in_sync" }
+  | { kind: "proceed"; plan: PublishPlan } {
   const approvedMask = [...new Set(input.approvedUpdateMask)].sort()
   if (
     live.resource.revision !== input.expectedCanonicalRevision ||
@@ -515,7 +520,9 @@ function checkPublishSnapshot(
   const changedKeys = selectedKeys.filter(
     (key) => live.canonicalParts[key] !== live.googleParts[key]
   )
-  if (changedKeys.length === 0) return { kind: "in_sync" }
+  if (changedKeys.length === 0) {
+    return { kind: live.status === "in_sync" ? "in_sync" : "selection_in_sync" }
+  }
   const selection = hoursSelectionFromKeys(changedKeys)
   const patch = buildGoogleHoursPatch({
     canonical: live.canonical,
@@ -529,9 +536,16 @@ function checkPublishSnapshot(
       patch.blockingIssues.join(" ")
     )
   }
+  // The approval may name fields of selected parts that have since come to
+  // match Google (another publish sent them); the write is then narrower
+  // than the review, never wider.
+  const selectionMask = hoursSelectionMask(input.selection)
   if (
-    approvedMask.join(",") !== [...patch.updateMask].sort().join(",") ||
-    patch.updateMask.some((field) => !live.patch.updateMask.includes(field))
+    approvedMask.some((field) => !selectionMask.includes(field)) ||
+    patch.updateMask.some(
+      (field) =>
+        !approvedMask.includes(field) || !live.patch.updateMask.includes(field)
+    )
   ) {
     throw snapshotStale()
   }
@@ -658,7 +672,7 @@ async function publishHoursToGoogle(
         googleParts: ctx.readback
           ? hoursPartHashes(ctx.readback)
           : live.googleParts,
-        establish: { keys: selectedKeys ?? "all" },
+        establish: { keys: selectedKeys ?? "all", priorStatus: live.status },
       })
     },
     audit: (ctx) => ({
@@ -687,8 +701,8 @@ export async function publishCanonicalHours(input: PublishHoursInput) {
     message: "You cannot publish this location.",
   })
   const checked = checkPublishSnapshot(live, input)
-  if (checked.kind === "in_sync") {
-    return { status: "in_sync" as const, idempotent: true }
+  if (checked.kind !== "proceed") {
+    return { status: checked.kind, idempotent: true }
   }
   const result = await publishHoursToGoogle(live, input, checked.plan)
   return {

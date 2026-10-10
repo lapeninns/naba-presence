@@ -729,9 +729,18 @@ export function unselectedHoursUnchanged(input: {
  * The comparison baseline per part: the canonical and Google part hashes
  * (null = absent) as of the last match or publish. `complete` means every
  * part was captured, so a key missing here was absent on both sides; an
- * incomplete baseline (a selective publish with no earlier part baseline)
- * knows only the keys it lists.
+ * incomplete baseline knows only the keys it lists. A side recorded as
+ * `HOURS_PART_UNKNOWN` never equals a live hash, so it always reads as
+ * changed since the baseline.
  */
+/**
+ * Baseline side whose history is unknown: a selective publish that starts
+ * the part baseline cannot tell, for a differing part it did not write,
+ * which side changed. It records the whole-schedule verdict instead (see
+ * `nextComparisonParts`), using this marker for the side that changed.
+ */
+export const HOURS_PART_UNKNOWN = "unknown"
+
 export type HoursComparisonParts = {
   complete: boolean
   parts: Record<string, [string | null, string | null]>
@@ -743,6 +752,8 @@ export type HoursComparisonParts = {
  * classification applies. A part publish leaves the unselected parts
  * different on purpose; they classify against their own baseline, so they
  * stay `core_dirty` rather than turning into a Google change or conflict.
+ * A differing part an incomplete baseline does not list has no history, so
+ * it is a conflict: overwriting it needs confirmation, never silently local.
  */
 export function classifyHoursPartDrift(input: {
   canonicalParts: Record<string, string>
@@ -763,7 +774,7 @@ export function classifyHoursPartDrift(input: {
       input.baseline.parts[key] ??
       (input.baseline.complete ? ([null, null] as const) : undefined)
     if (!base) {
-      result[key] = "core_dirty"
+      result[key] = "conflict"
       continue
     }
     const coreChanged = canonical !== base[0]

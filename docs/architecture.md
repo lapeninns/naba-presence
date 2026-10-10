@@ -316,10 +316,13 @@ live Google hours, so every other day, date and service in a written field is
 sent back exactly as Google holds it, and fields with nothing selected are
 left out of the mask. The selection pins each selected part's Google hash
 (`googlePartHashes` on the GET) rather than the whole Google hash, so a Google
-edit to an unselected part does not make the review stale; the approved mask
-must be exactly the fields the changed selected parts write. Readback verifies
-the selected parts and that no unselected part changed; the attempt records
-the parts in `hours_sync_attempt.selection` (migration 0068).
+edit to an unselected part does not make the review stale. The approved mask
+must lie within the selection's fields and cover every field the changed
+selected parts write; when every selected part already matches Google nothing
+is sent and the response is `selection_in_sync` (`in_sync` only when the whole
+schedule matches). Readback verifies the selected parts and that no
+unselected part changed; the attempt records the parts in
+`hours_sync_attempt.selection` (migration 0068).
 
 Drift is also classified per part (`classifyHoursPartDrift`) against a
 per-part comparison baseline in
@@ -330,7 +333,16 @@ of only the parts it wrote, so the differences it leaves on purpose stay
 overwrite confirmation is asked for only when a part being written changed on
 Google. The listing summary uses the same per-part classification from the
 stored `observed_google_part_hashes`. With no part baseline yet (rows from
-before 0068), the whole-schedule hashes decide as before.
+before 0068), the whole-schedule hashes decide as before. The first selective
+publish from there starts a complete part baseline and seeds each differing
+part it did not write with the whole-schedule verdict from before the publish
+(`HOURS_PART_UNKNOWN` marks the side that changed), so an unpublished Google
+edit keeps needing overwrite confirmation instead of reading as local.
+
+Selective hours publication ships ungated: the release plan scopes it as a
+fix to hours publication (whole-schedule publishes overwrote unselected
+Google edits), so the feature-flag rule for new customer-visible work does
+not apply. The server still accepts requests without a `selection`.
 
 ## Per-surface kill switches
 

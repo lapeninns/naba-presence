@@ -1,7 +1,11 @@
 import "server-only"
 import type { TransactionSql } from "postgres"
 
-import type { HoursComparisonParts } from "@/lib/domain/hours-vocabulary"
+import {
+  HOURS_PART_UNKNOWN,
+  type HoursComparisonParts,
+  type HoursDriftStatus,
+} from "@/lib/domain/hours-vocabulary"
 import { jsonColumnOrNull } from "@/lib/server/db"
 
 export type HoursObservation = {
@@ -38,24 +42,51 @@ type ObservationInput = {
        * A verified publish: the published pair becomes the comparison
        * baseline even though the schedules differ. "all" for a whole-schedule
        * publish; part keys for a selective one, which moves only those parts'
-       * baselines and keeps the others.
+       * baselines and keeps the others. `priorStatus` is the whole-schedule
+       * drift before the publish, which seeds the unwritten parts when no
+       * part baseline exists yet.
        */
-      establish?: { keys: string[] | "all" }
+      establish?: HoursEstablish
     }
 )
+
+type HoursEstablish = {
+  keys: string[] | "all"
+  priorStatus?: HoursDriftStatus
+}
+
+/**
+ * The baseline pair that keeps a differing part classified as `status`:
+ * the changed side gets the unknown marker, the other side its live hash.
+ */
+function seededPair(
+  status: HoursDriftStatus,
+  canonical: string | null,
+  google: string | null
+): [string | null, string | null] {
+  if (status === "core_dirty") return [HOURS_PART_UNKNOWN, google]
+  if (status === "google_dirty") return [canonical, HOURS_PART_UNKNOWN]
+  return [HOURS_PART_UNKNOWN, HOURS_PART_UNKNOWN]
+}
 
 /**
  * The next per-part baseline. A part that matches (and is not blocked) is
  * its own baseline; an established part takes the published pair; every
  * other part keeps its previous baseline. With no previous part baseline and
  * nothing established, there is none (the whole hashes decide).
+ *
+ * A selective publish with no previous part baseline starts a complete one:
+ * every part is known at that moment. A differing part it did not write has
+ * no history of its own, so it is seeded with the whole-schedule verdict
+ * from before the publish (`priorStatus`; a conflict when unknown). A Google
+ * edit there keeps needing confirmation instead of turning local.
  */
 export function nextComparisonParts(input: {
   previous: HoursComparisonParts | null
   canonicalParts: Record<string, string>
   googleParts: Record<string, string>
   blocked: boolean
-  establish?: { keys: string[] | "all" }
+  establish?: HoursEstablish
 }): HoursComparisonParts | null {
   const keys = [
     ...new Set([
@@ -79,9 +110,27 @@ export function nextComparisonParts(input: {
   }
   const established = input.establish?.keys ?? []
   if (!input.previous && established.length === 0) return null
+  if (!input.previous) {
+    const selected = new Set(established)
+    const prior = input.establish?.priorStatus ?? "conflict"
+    return {
+      complete: true,
+      parts: Object.fromEntries(
+        keys.map((key) => {
+          const [canonical, google] = pair(key)
+          return [
+            key,
+            selected.has(key) || canonical === google
+              ? pair(key)
+              : seededPair(prior, canonical, google),
+          ]
+        })
+      ),
+    }
+  }
   const next: HoursComparisonParts = {
-    complete: input.previous?.complete ?? false,
-    parts: { ...(input.previous?.parts ?? {}) },
+    complete: input.previous.complete,
+    parts: { ...input.previous.parts },
   }
   if (!input.blocked) {
     for (const key of keys) {

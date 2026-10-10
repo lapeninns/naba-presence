@@ -287,7 +287,12 @@ export const saveHoursResponseSchema = z.object({
 export type SaveHoursResponse = z.infer<typeof saveHoursResponseSchema>
 
 export const publishHoursResponseSchema = z.object({
-  status: z.enum(["in_sync", "published"]),
+  /**
+   * `in_sync`: the whole schedule already matches Google. `selection_in_sync`:
+   * every selected part already matches Google, so nothing was sent, while
+   * other parts may still differ.
+   */
+  status: z.enum(["in_sync", "selection_in_sync", "published"]),
   attemptId: z.string().optional(),
   idempotent: z.boolean().optional(),
 })

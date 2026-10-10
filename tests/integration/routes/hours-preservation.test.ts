@@ -333,6 +333,65 @@ describeDatabase("hours legacy transition and replacement routes", () => {
     expect(final.google.regular[1]).toEqual(initial.google.regular[1])
   }, 30_000)
 
+  it("keeps a Google edit needing confirmation after a first selective publish from no part baseline", async () => {
+    const f = await fixture()
+    const initial = await f.read()
+    expect(initial.status).toBe("in_sync")
+    const edited = structuredClone(initial.canonical)
+    edited.regular[1].periods[0].opensAt = "10:00"
+    expect((await f.save(initial, edited)).status).toBe(200)
+    // A location compared before part baselines existed has only the whole
+    // hashes.
+    await admin`update presence_resource_reconcile_state set comparison_part_hashes = null where organisation_id = ${f.owner.organisationId} and location_id = ${f.linked.locationId} and resource = 'hours'`
+    const before = f.provider()
+    f.setProvider({
+      ...before,
+      regularHours: {
+        periods: [
+          ...(before.regularHours?.periods ?? []),
+          {
+            openDay: "TUESDAY",
+            closeDay: "TUESDAY",
+            openTime: { hours: 12, minutes: 0 },
+            closeTime: { hours: 13, minutes: 0 },
+          },
+        ],
+      },
+    })
+    const reviewed = await f.read()
+    expect(reviewed.partStatus).toBeUndefined()
+    expect(reviewed.status).toBe("conflict")
+
+    const monday = await f.publishParts(
+      reviewed,
+      { regularDays: [1] },
+      { confirm: true }
+    )
+    expect(monday.status, await monday.clone().text()).toBe(200)
+    const settled = await f.read()
+    // Tuesday's Google edit is not reclassified as a local change.
+    expect(settled.partStatus).toEqual({ "regular:2": "conflict" })
+    expect(settled.status).toBe("conflict")
+    const unconfirmed = await f.publishParts(settled, { regularDays: [2] })
+    expect(unconfirmed.status).toBe(409)
+    expect(await unconfirmed.json()).toMatchObject({
+      error: "google_hours_overwrite_confirmation_required",
+    })
+
+    // Monday already matches Google: a Monday-only publish sends nothing
+    // and says the selection, not the schedule, is in sync.
+    const patchesBefore = google.calls.length
+    const noop = await f.publishParts(settled, { regularDays: [1] })
+    expect(noop.status, await noop.clone().text()).toBe(200)
+    expect(await noop.json()).toEqual({
+      status: "selection_in_sync",
+      idempotent: true,
+    })
+    expect(
+      google.calls.slice(patchesBefore).filter((c) => c.method === "PATCH")
+    ).toEqual([])
+  }, 30_000)
+
   it("reconciles legacy boundaries explicitly, preserves local edits and old baselines, and rejects old reviews", async () => {
     const f = await fixture()
     const initialized = await f.read()

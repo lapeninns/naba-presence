@@ -238,7 +238,7 @@ function HoursForm({
           confirmOverwriteGoogleChanges: needsAck,
           ...partial,
         })
-        if (result.status === "in_sync") return NOTHING_TO_SEND
+        if (result.status !== "published") return NOTHING_TO_SEND
       },
     })
     return steps
