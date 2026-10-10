@@ -39,7 +39,10 @@ import {
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
-import { requireGbpDispatch } from "@/lib/server/pause-controls"
+import {
+  loadPauseSnapshot,
+  requireGbpDispatch,
+} from "@/lib/server/pause-controls"
 import {
   operationSummary,
   requestScopedKeyPart,
@@ -1165,8 +1168,11 @@ export async function requestOrPublishLocalPost(input: {
   //
   // `reconciled` is the second pass, after an `ambiguous` post was settled
   // from Google's live list (see below), naming what the uncertain write was.
-  const decide = (reconciled: false | "create" | "update") =>
-    withTenant(input.organisationId, async (sql) => {
+  const decide = async (reconciled: false | "create" | "update") => {
+    // Read before the transaction: a pooled read inside it could wait on the
+    // connection the transaction itself holds (lib/server/db.ts).
+    const pauses = await loadPauseSnapshot()
+    return withTenant(input.organisationId, async (sql) => {
       // A viewer may neither publish nor ask for approval; an approver's
       // decision needs publication authority, not just an edit grant.
       const grant = await requireLocationAction(
@@ -1182,7 +1188,7 @@ export async function requestOrPublishLocalPost(input: {
         // The dispatch gate itself (env and operator pause table), not just
         // the env flag: a table pause must refuse here, before a decision
         // row or its audit is written, as well as at runGbpWrite.
-        await requireGbpDispatch("posts", POSTS_PAUSED)
+        await requireGbpDispatch("posts", POSTS_PAUSED, { snapshot: pauses })
         const linked = await loadLinkedLocation(
           sql,
           input.session,
@@ -1279,6 +1285,7 @@ export async function requestOrPublishLocalPost(input: {
       }
       return publishWith(approval)
     })
+  }
   let decided = await decide(false)
   if (decided.kind === "reconcile") {
     // A provider read, so outside the deciding transaction; the second pass

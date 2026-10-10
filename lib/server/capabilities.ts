@@ -24,7 +24,6 @@ import {
   effectiveEnabled,
   gbpIngestionScopes,
   gbpWriteScopes,
-  loadPauseSnapshot,
   type PauseScope,
   type PauseSnapshot,
 } from "@/lib/server/pause-controls"
@@ -230,17 +229,21 @@ function buildResources(input: {
   return resources
 }
 
+// `pauses` is the pause snapshot the caller loaded before its transaction
+// opened: read inside it, an expired cache would wait for a second pooled
+// connection while the transaction holds one (lib/server/db.ts).
 export async function locationCapabilitiesForIds(
   sql: TransactionSql,
   session: Session,
-  locationIds: string[]
+  locationIds: string[],
+  pauses: PauseSnapshot
 ): Promise<Map<string, LocationCapabilities>> {
   const unique = [...new Set(locationIds)]
   const result = new Map<string, LocationCapabilities>()
   if (unique.length === 0) return result
 
   const env = getServerEnv()
-  const publishesEnabled = resourceWritesEnabled(env, await loadPauseSnapshot())
+  const publishesEnabled = resourceWritesEnabled(env, pauses)
   const actionWritesEnabled = {
     profileWrites: publishesEnabled.profile,
     media: publishesEnabled.photos,
@@ -291,9 +294,15 @@ export async function locationCapabilitiesForIds(
 export async function locationCapabilities(
   sql: TransactionSql,
   session: Session,
-  locationId: string
+  locationId: string,
+  pauses: PauseSnapshot
 ): Promise<LocationCapabilities> {
-  const map = await locationCapabilitiesForIds(sql, session, [locationId])
+  const map = await locationCapabilitiesForIds(
+    sql,
+    session,
+    [locationId],
+    pauses
+  )
   // Whether this location's listing writes park for a second publisher --
   // or requests parked before the policy or feature went off still wait
   // here -- so the editors only ask for pending change requests where there

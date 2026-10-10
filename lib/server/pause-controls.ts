@@ -302,11 +302,14 @@ export const GOOGLE_WRITES_PAUSED: PausedError = {
 /**
  * The dispatch gate for a Google write surface: env and database, publish
  * and the surface. Called immediately before anything durable is written
- * for a provider call.
+ * for a provider call. Inside a transaction, pass a `snapshot` loaded before
+ * it began: an expired cache would otherwise read the table through a second
+ * pooled connection while the transaction holds one (lib/server/db.ts).
  */
 export function requireGbpDispatch(
   surface: GbpWriteSurface,
-  paused: PausedError = GOOGLE_WRITES_PAUSED
+  paused: PausedError = GOOGLE_WRITES_PAUSED,
+  options: { snapshot?: PauseSnapshot } = {}
 ): Promise<void> {
-  return requireScopesEnabled(gbpWriteScopes(surface), paused)
+  return requireScopesEnabled(gbpWriteScopes(surface), paused, options)
 }

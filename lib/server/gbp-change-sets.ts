@@ -31,6 +31,9 @@ type ChangeSetRow = {
 
 type ChangeResource = "lodging" | "business_info" | "attributes" | "verification_start" | "verification_complete" | "administration_access" | "location_lifecycle" | "place_action"
 
+const LISTING_DISPATCH = { scope: "profileWrites", paused: { code: "google_writes_paused", message: "Google writes are paused." } } as const
+const PLACE_ACTION_DISPATCH = { scope: "placeActions", paused: { status: 503, code: "place_actions_paused", message: "Place Action writes are paused." } } as const
+
 export function lodgingChangeHash(payload: unknown, updateMask: readonly string[]) {
   return stableGoogleHash({ payload, updateMask: [...new Set(updateMask)].sort() })
 }
@@ -172,8 +175,11 @@ export async function approvedGbpChange(input: {
 }) {
   const { session, linked, changeSetId, payload, updateMask, resourceType } = input
   // Every reviewed change set dispatches through here, so the operator pause
-  // table (lib/server/pause-controls.ts) holds them off as well as the env.
-  await requireGbpDispatch("profileWrites", { code: "google_writes_paused", message: "Google writes are paused." })
+  // table (lib/server/pause-controls.ts) holds them off as well as the env,
+  // under the surface that resource writes to: pausing placeActions must stop
+  // a reviewed Place Action link, not only the booking capability.
+  const surface = resourceType === "place_action" ? PLACE_ACTION_DISPATCH : LISTING_DISPATCH
+  await requireGbpDispatch(surface.scope, surface.paused)
   return withTenant(session.organisationId, async (sql) => {
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
     if (!row.approved_by) throw new ApiError(409, "approval_required", "Review and approve the exact change before publishing.")

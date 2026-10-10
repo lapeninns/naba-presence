@@ -294,8 +294,28 @@ describe("dispatch gates outside runGbpWrite", () => {
       changeSets.indexOf("export async function approvedGbpChange")
     )
     expect(approved.slice(0, approved.indexOf("\n}\n"))).toContain(
-      'await requireGbpDispatch("profileWrites"'
+      "await requireGbpDispatch(surface.scope, surface.paused)"
     )
+    // Each resource answers to the surface it writes to: a reviewed Place
+    // Action link to placeActions (main's reviewed path is now the only one
+    // that writes links), the listing resources to profileWrites.
+    expect(approved).toContain(
+      'resourceType === "place_action" ? PLACE_ACTION_DISPATCH : LISTING_DISPATCH'
+    )
+    expect(changeSets).toMatch(
+      /const PLACE_ACTION_DISPATCH = \{ scope: "placeActions"/
+    )
+    expect(changeSets).toMatch(
+      /const LISTING_DISPATCH = \{ scope: "profileWrites"/
+    )
+    // currentPlaceActionContext's requireGbpWrite is the env flag alone, so
+    // the reviewed change set gate must run on the Place Action send path.
+    const execution = source("lib/server/place-action-execution.ts")
+    expect(
+      execution.match(
+        /await approvedGbpChange\(\{[^}]*resourceType: "place_action"/g
+      )
+    ).toHaveLength(2)
   })
 
   it("leaves no env-only google_writes_paused refusal", () => {
@@ -328,6 +348,38 @@ describe("dispatch gates outside runGbpWrite", () => {
     expect(
       schedules.indexOf("const pauses = await loadPauseSnapshot()")
     ).toBeLessThan(schedules.indexOf("const plan = await withTenant("))
+  })
+
+  // A pooled pause-table read inside a tenant transaction can wait on the
+  // connection that transaction holds once the cached snapshot has expired.
+  it("reads the pause table before tenant transactions, not inside them", () => {
+    // Capabilities take the snapshot from their callers, which load it
+    // before tenant()/withTenant().
+    expect(source("lib/server/capabilities.ts")).not.toContain(
+      "loadPauseSnapshot("
+    )
+    for (const [path, open] of [
+      ["app/api/locations/[id]/capabilities/route.ts", "await tenant("],
+      [
+        "lib/server/prefetch.ts",
+        "locationCapabilities(sql, session, locationId, pauses)",
+      ],
+    ] as const) {
+      const text = source(path)
+      expect(text, path).toContain("const pauses = await loadPauseSnapshot()")
+      expect(
+        text.indexOf("const pauses = await loadPauseSnapshot()"),
+        path
+      ).toBeLessThan(text.indexOf(open))
+    }
+    const posts = source("lib/server/posts.ts")
+    const decide = posts.slice(posts.indexOf("const decide = async"))
+    expect(
+      decide.indexOf("const pauses = await loadPauseSnapshot()")
+    ).toBeLessThan(decide.indexOf("return withTenant("))
+    expect(decide).toContain(
+      'await requireGbpDispatch("posts", POSTS_PAUSED, { snapshot: pauses })'
+    )
   })
 })
 

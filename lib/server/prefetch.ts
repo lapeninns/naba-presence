@@ -30,6 +30,7 @@ import {
 import { withTenant } from "@/lib/server/db"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
+import { loadPauseSnapshot } from "@/lib/server/pause-controls"
 import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
 import type { Session } from "@/lib/server/session"
 
@@ -137,9 +138,11 @@ export async function readLocationCapabilities(
   session: Session,
   locationId: string
 ): Promise<LocationCapabilities> {
+  // Read before the transaction, never inside it (lib/server/db.ts).
+  const pauses = await loadPauseSnapshot()
   const payload = {
     capabilities: await withTenant(session.organisationId, (sql) =>
-      locationCapabilities(sql, session, locationId)
+      locationCapabilities(sql, session, locationId, pauses)
     ),
   } satisfies LocationCapabilitiesResponse
   return throughWire(locationCapabilitiesResponseSchema, payload).capabilities
