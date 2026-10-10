@@ -124,6 +124,22 @@ export async function recordApprovalDecision(
       "This reply changed after you opened it. Read the current draft before deciding."
     )
   }
+  // The draft's author is the other half of the two people, whoever asked:
+  // an approval by them would never count (has_qualifying_approval in
+  // publishing/intent.ts excludes it), so refuse it here rather than record a
+  // decision the publish then parks again.
+  if (record.require_two_person_approval && input.decision === "approve") {
+    const [draft] = await sql<{ created_by: string | null }[]>`
+      select created_by::text as created_by from draft where id = ${draftId}
+    `
+    if (draft?.created_by === session.userId) {
+      throw new ApiError(
+        403,
+        "second_approver_required",
+        "A different authorised user must approve this reply."
+      )
+    }
+  }
 
   // Bound to what the approver read: a review edited on Google after the
   // pane loaded would otherwise be approved here and only refused later by

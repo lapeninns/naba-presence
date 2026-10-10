@@ -130,8 +130,7 @@ describeDatabase("reply approval", () => {
         headers: { cookie, "content-type": "application/json" },
         body: JSON.stringify({
           draftId: fixture.draft.draftId,
-          expectedReviewUpdateTime:
-            fixture.draft.expectedReviewUpdateTime,
+          expectedReviewUpdateTime: fixture.draft.expectedReviewUpdateTime,
         }),
       }
     )
@@ -394,6 +393,46 @@ describeDatabase("reply approval", () => {
       decision: "approve",
     })
     expect(approved.status).toBe(200)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+  })
+
+  // Two-person means the approver is neither the requester nor the draft's
+  // author: an author approving a draft somebody else submitted is still one
+  // person vouching for their own text.
+  it("refuses the draft's author as approver in two-person mode, whoever asked", async () => {
+    // createFixture's draft is written by the owner.
+    const fixture = await createFixture()
+    await admin`
+      update organisation
+      set require_two_person_approval = true
+      where id = ${fixture.owner.organisationId}
+    `
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+
+    const byAuthor = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+    })
+    expect(byAuthor.status).toBe(403)
+    expect((await byAuthor.json()).error).toBe("second_approver_required")
+    const [recorded] = await admin<{ count: number }[]>`
+      select count(*)::integer as count from approval_decision
+      where review_id = ${fixture.review.reviewId}
+    `
+    expect(recorded.count).toBe(0)
+    expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(0)
+
+    const secondAdmin = await createActor(fixture.owner.organisationId, {
+      role: "admin",
+      canPublish: true,
+    })
+    const approved = await decide(fixture, secondAdmin.cookie, {
+      decision: "approve",
+    })
+    expect(approved.status, await approved.clone().text()).toBe(200)
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
   })
 

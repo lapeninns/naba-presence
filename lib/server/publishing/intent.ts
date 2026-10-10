@@ -106,6 +106,9 @@ export async function loadPublishRecord(
           and ad.draft_id = d.id
           and ad.decision = 'approved'
           and ad.decided_by is distinct from rr.approval_requested_by
+          -- Two people means two people: the draft's author approving it
+          -- is the author publishing it, whoever pressed Request.
+          and ad.decided_by is distinct from d.created_by
       ) as has_qualifying_approval,
       coalesce(rr.publish_generation, 0) as publish_generation
     from review r
