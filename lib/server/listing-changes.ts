@@ -3,7 +3,7 @@ import "server-only"
 import { randomUUID } from "node:crypto"
 
 import type { TransactionSql } from "postgres"
-import type { ZodType } from "zod"
+import { z, type ZodType } from "zod"
 
 import {
   LISTING_CHANGE_LABEL,
@@ -12,6 +12,10 @@ import {
   type ListingChangeRequest,
 } from "@/lib/contracts/listing-changes"
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
+import {
+  describeListingChange,
+  type ListingChangeTargetNow,
+} from "@/lib/domain/listing-change-details"
 import { writeAudit } from "@/lib/server/audit"
 import { jsonColumn, withTenant } from "@/lib/server/db"
 import type { GbpWriteSurface } from "@/lib/server/env"
@@ -72,6 +76,22 @@ import type { Session } from "@/lib/server/session"
 
 export const LISTING_CHANGE_FEATURE = "listing_change_approvals" as const
 
+/**
+ * The organisation roles the authoring route admits (its `route({ roles })`
+ * gate), for the kinds whose route has one. The surface functions check only
+ * the publish grant, so a decision enforces these itself: nobody approves --
+ * and so sends, as themselves -- or rejects a write their role may not make.
+ * tests/listing-changes.test.ts pins this against the routes.
+ */
+export const LISTING_CHANGE_DECIDER_ROLES: Partial<
+  Record<ListingChangeKind, readonly Session["role"][]>
+> = {
+  profile_publish: ["owner", "admin"],
+  business_information_update: ["owner", "admin"],
+  business_attributes_update: ["owner", "admin"],
+  industry_update: ["owner", "admin"],
+}
+
 /** One kind of listing write that can park, and how to send it later. */
 export type ListingChangeEntry<TBody = unknown, TResult = unknown> = {
   kind: ListingChangeKind
@@ -85,6 +105,11 @@ export type ListingChangeEntry<TBody = unknown, TResult = unknown> = {
   body: ZodType<TBody>
   /** The fields the change writes, shown to the approver. */
   fieldMask: (body: TBody) => string[]
+  /**
+   * True for a write that adds a new item (a photo, a booking link): it
+   * names no target, so a newer request does not replace it.
+   */
+  creates?: boolean
   /** The baseline the author edited against, if the body names one. */
   expectedRevision: (body: TBody) => string | null
   /** The surface's own write: what the route does when nothing parks it. */
@@ -152,6 +177,31 @@ export async function listingApprovalRequired(
   return isOrgFeatureEnabled(sql, organisationId, LISTING_CHANGE_FEATURE)
 }
 
+/**
+ * Whether any change request at this location is still waiting for a
+ * decision. Requests parked before the policy or feature was switched off
+ * stay pending (and decidable) until someone approves, rejects or withdraws
+ * them, so the editors keep showing them. Runs in the caller's tenant
+ * transaction.
+ */
+export async function hasPendingListingChanges(
+  sql: TransactionSql,
+  organisationId: string,
+  locationId: string
+): Promise<boolean> {
+  if (!z.uuid().safeParse(locationId).success) return false
+  const [row] = await sql<{ pending: boolean }[]>`
+    select exists (
+      select 1 from mutation_operation
+      where organisation_id = ${organisationId}
+        and location_id = ${locationId}
+        and state = 'awaiting_approval'
+        and change_request is not null
+    ) as pending
+  `
+  return row?.pending ?? false
+}
+
 // ---------------------------------------------------------------------------
 // Rows
 // ---------------------------------------------------------------------------
@@ -170,6 +220,8 @@ type ChangeRow = {
   actorUserId: string | null
   authorName: string | null
   approvalRef: string | null
+  /** What the change's photo or booking link holds now, if it names one. */
+  targetNow: ListingChangeTargetNow
   createdAt: Date
   updatedAt: Date
 }
@@ -188,16 +240,42 @@ const changeColumns = (sql: TransactionSql) => sql`
   o.actor_user_id::text as "actorUserId",
   u.display_name as "authorName",
   o.approval_ref as "approvalRef",
+  case
+    when o.target_ref is null then null
+    when o.surface = 'media' then (
+      select jsonb_build_object(
+        'category', m.category,
+        'description', m.description,
+        'googleUrl', m.google_url
+      )
+      from gbp_media_item m
+      where m.id::text = o.target_ref
+        and m.location_id = o.location_id
+        and m.deleted_at is null
+    )
+    when o.surface = 'place_action' then (
+      select jsonb_build_object(
+        'uri', p.uri,
+        'placeActionType', p.place_action_type,
+        'isPreferred', p.is_preferred
+      )
+      from place_action_link p
+      where p.id::text = o.target_ref
+        and p.location_id = o.location_id
+        and p.deleted_at is null
+    )
+  end as "targetNow",
   o.created_at as "createdAt",
   o.updated_at as "updatedAt"
 `
 
 function toWire(
   row: ChangeRow,
-  viewer: { userId: string; canDecide: boolean }
+  viewer: Pick<Session, "userId" | "role"> & { canDecide: boolean }
 ): ListingChangeRequest {
   const isOwn = row.actorUserId === viewer.userId
   const kind = row.changeRequest.kind
+  const roles = LISTING_CHANGE_DECIDER_ROLES[kind]
   return {
     id: row.id,
     intentId: row.intentId,
@@ -206,6 +284,12 @@ function toWire(
     locationId: row.locationId,
     target: row.changeRequest.target ?? null,
     fieldMask: row.fieldMask ?? [],
+    details: describeListingChange({
+      kind,
+      target: row.changeRequest.target ?? null,
+      body: row.changeRequest.body,
+      targetNow: row.targetNow,
+    }),
     payloadHash: row.payloadHash,
     outcome: row.state,
     errorCode: row.errorCode,
@@ -213,7 +297,11 @@ function toWire(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     isOwn,
-    canDecide: viewer.canDecide && !isOwn && row.state === "awaiting_approval",
+    canDecide:
+      viewer.canDecide &&
+      !isOwn &&
+      row.state === "awaiting_approval" &&
+      (!roles || roles.includes(viewer.role)),
   }
 }
 
@@ -247,7 +335,7 @@ function parkedAnswer(
 ): ListingChangeParkedResponse {
   return {
     status: "awaiting_approval",
-    changeRequest: toWire(row, { userId: session.userId, canDecide: false }),
+    changeRequest: toWire(row, { ...session, canDecide: false }),
     operation: { operationId: row.id, outcome: row.state },
   }
 }
@@ -256,11 +344,49 @@ function parkedAnswer(
 // Parking
 // ---------------------------------------------------------------------------
 
+const LOCATION_NOT_FOUND = {
+  code: "location_not_found",
+  message: "Location not found.",
+}
+
+/**
+ * What a retry of an intent whose change request is no longer pending
+ * answers: why it ended, with its receipt's outcome, never "sent for
+ * approval" again for a write that is live or was dropped.
+ */
+const SETTLED_REPLAY: Record<string, string> = {
+  approval_rejected:
+    "Another publisher rejected this change. Nothing was sent to Google.",
+  approval_withdrawn: "This change was withdrawn. Nothing was sent to Google.",
+  approval_superseded:
+    "A newer request replaced this change. Nothing was sent from this one.",
+  approval_invalidated:
+    "The saved content changed after this request, so it was not sent. Make the change again.",
+}
+
+function settledReplay(row: ChangeRow): ApiError {
+  const details = { details: { operationId: row.id, outcome: row.state } }
+  const code = row.errorCode ?? ""
+  const ended = SETTLED_REPLAY[code]
+  if (row.state === "failed" && ended) {
+    return new ApiError(409, code, ended, details)
+  }
+  return new ApiError(
+    409,
+    "change_request_decided",
+    "This change was already approved and sent. Reload to see where it stands.",
+    details
+  )
+}
+
 /**
  * Parks the write as a change request when approval is required, and returns
  * the 202 answer; null means "send it as before". A retry of the same intent
- * gets the request it already parked (whatever the policy says now), and the
- * same intent with a different body is a 409 `intent_conflict`.
+ * gets the request it already parked (whatever the policy says now) while
+ * that request is pending, and the reason it ended once it is not; the same
+ * intent with a different body is a 409 `intent_conflict`. An intent first
+ * used by a write that was sent directly (before the policy came on) is left
+ * to the surface, which answers from that write's own receipt.
  */
 export async function parkListingChange<TBody>(
   entry: ListingChangeEntry<TBody, unknown>,
@@ -270,14 +396,27 @@ export async function parkListingChange<TBody>(
   const target = input.target ?? null
   const payloadHash = payloadHashOf(entry.kind, locationId, target, body)
   const ambient = currentIntentId()
+  // Some listing routes take the location id as any string; it is a uuid
+  // column, so anything else is the surface's 404, not a Postgres 22P02.
+  if (!z.uuid().safeParse(locationId).success) {
+    throw new ApiError(404, LOCATION_NOT_FOUND.code, LOCATION_NOT_FOUND.message)
+  }
   return withTenant(session.organisationId, async (sql) => {
     if (ambient) {
-      const replay = await loadChange(sql, session.organisationId, {
-        intentId: ambient,
-      })
+      const [prior] = await sql<{ isChange: boolean }[]>`
+        select change_request is not null as "isChange"
+        from mutation_operation
+        where organisation_id = ${session.organisationId}
+          and intent_id = ${ambient}
+      `
+      if (prior && !prior.isChange) return null
+      const replay = prior
+        ? await loadChange(sql, session.organisationId, { intentId: ambient })
+        : null
       if (replay) {
         if (replay.payloadHash !== payloadHash) throw intentConflict()
         claimAmbientIntent()
+        if (replay.state !== "awaiting_approval") throw settledReplay(replay)
         return parkedAnswer(replay, session)
       }
     }
@@ -313,16 +452,24 @@ export async function parkListingChange<TBody>(
       if (!winner || winner.payloadHash !== payloadHash) throw intentConflict()
       return parkedAnswer(winner, session)
     }
-    // The newer request is the one people mean now.
+    // The newer request is the one people mean now -- when it replaces the
+    // older one: the same change to the same thing (kind, operation and
+    // target). A create names no target, and two creates are two things (a
+    // second photo, a second booking link), so a create supersedes only an
+    // identical pending create, never a different one.
+    const replaces = entry.creates
+      ? sql`and payload_hash = ${payloadHash}`
+      : sql`and target_ref is not distinct from ${target}`
     await sql`
       update mutation_operation
       set state = 'failed', error_code = 'approval_superseded', updated_at = now()
       where organisation_id = ${session.organisationId}
         and location_id = ${locationId}
         and surface = ${entry.surface}
+        and action = ${entry.action(body)}
         and state = 'awaiting_approval'
         and change_request ->> 'kind' = ${entry.kind}
-        and target_ref is not distinct from ${target}
+        ${replaces}
         and id <> ${inserted.id}
     `
     await writeAudit(sql, {
@@ -386,10 +533,7 @@ export async function listListingChanges(
   locationId: string
 ): Promise<ListingChangeRequest[]> {
   return withTenant(session.organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId, {
-      code: "location_not_found",
-      message: "Location not found.",
-    })
+    await requireLocationAccess(sql, session, locationId, LOCATION_NOT_FOUND)
     const canDecide =
       session.role !== "viewer" &&
       (await canPublishLocation(sql, session, locationId))
@@ -404,7 +548,7 @@ export async function listListingChanges(
       order by o.created_at, o.id
       limit 100
     `
-    return rows.map((row) => toWire(row, { userId: session.userId, canDecide }))
+    return rows.map((row) => toWire(row, { ...session, canDecide }))
   })
 }
 
@@ -459,6 +603,17 @@ async function lockPending(
     throw new ApiError(404, PARKED_NOT_FOUND.code, PARKED_NOT_FOUND.message)
   }
   if (row.state !== "awaiting_approval") throw notPending()
+  // The authoring route's role gate (LISTING_CHANGE_DECIDER_ROLES). The
+  // author may still withdraw their own request: they made it through that
+  // gate.
+  const roles = LISTING_CHANGE_DECIDER_ROLES[row.changeRequest.kind]
+  if (
+    roles &&
+    !roles.includes(input.session.role) &&
+    row.actorUserId !== input.session.userId
+  ) {
+    throw new ApiError(403, "permission_denied", "You do not have permission.")
+  }
   if (row.payloadHash !== input.payloadHash) {
     throw new ApiError(
       409,
@@ -529,7 +684,7 @@ export async function rejectListingChange(
     })
     return {
       changeRequest: toWire(after ?? row, {
-        userId: input.session.userId,
+        ...input.session,
         canDecide: true,
       }),
     }
@@ -611,14 +766,20 @@ export async function approveListingChange<TBody, TResult>(
         "This change can no longer be sent as it was requested. Make it again."
       )
     }
-    result = await withMutationIntent(dispatchIntentId, () =>
-      entry.dispatch({
-        session: input.session,
-        locationId: input.locationId,
-        target: approved.changeRequest.target ?? null,
-        body: parsed.data,
-        requestId: input.requestId,
-      })
+    // The change request follows the dispatch's receipt onto its attempt
+    // row in the transaction that claims it, before anything is sent, so an
+    // approval interrupted after that point is settled with the attempt.
+    result = await withMutationIntent(
+      dispatchIntentId,
+      () =>
+        entry.dispatch({
+          session: input.session,
+          locationId: input.locationId,
+          target: approved.changeRequest.target ?? null,
+          body: parsed.data,
+          requestId: input.requestId,
+        }),
+      { followers: [approved.id] }
     )
   } catch (error) {
     await settle({
@@ -638,7 +799,7 @@ export async function approveListingChange<TBody, TResult>(
   )
   return {
     changeRequest: toWire(after ?? approved, {
-      userId: input.session.userId,
+      ...input.session,
       canDecide: true,
     }),
     result,
@@ -665,10 +826,12 @@ function answeredOutcome(result: unknown): OperationOutcome {
 /**
  * Points an approved change request at its dispatch: the attempt row the
  * dispatch's receipt is linked to and that receipt's state, so the attempt's
- * settle or recovery settles both. Without a dispatch receipt (refused
- * before any attempt, or a write that sends nothing) the request takes
- * `fallback`. The dispatch receipt carries recovery, so the change request
- * itself is never queued for it.
+ * settle or recovery settles both. The request was normally linked already
+ * (a follower of the dispatch intent, linkOperationAttempt) and settled with
+ * the attempt; this records the dispatch's ids and takes its state. Without
+ * a dispatch receipt (refused before any attempt, or a write that sends
+ * nothing) the request takes `fallback`. The dispatch receipt carries
+ * recovery, so the change request itself is not queued for it.
  */
 async function followDispatch(
   sql: TransactionSql,
@@ -719,7 +882,13 @@ async function followDispatch(
         next_recovery_at = null,
         updated_at = now()
       where id = ${input.changeId}
-        and state = 'sent'
+        and (
+          state = 'sent'
+          or (
+            attempt_table = ${dispatch.attemptTable}
+            and attempt_id = ${dispatch.attemptId}
+          )
+        )
     `
     return
   }
@@ -732,7 +901,51 @@ async function followDispatch(
       updated_at = now()
     where id = ${input.changeId}
       and state = 'sent'
+      and attempt_id is null
   `
+}
+
+/**
+ * How long an approved change request may stay `sent` with no attempt row
+ * before it counts as interrupted: well past the decision route's
+ * maxDuration (60s), so a dispatch still running is never caught.
+ */
+export const INTERRUPTED_APPROVAL_AFTER_SECONDS = 300
+
+/**
+ * Settles approved change requests whose dispatch never claimed an attempt
+ * -- the approval was killed (a timeout, a crash) between committing the
+ * decision and its dispatch reaching Google. A dispatch that got that far
+ * linked the request to its attempt (linkOperationAttempt), and the
+ * attempt's own settle, reapers and recovery settle it; one that did not
+ * sent nothing, so the request settles `failed`
+ * (`approval_dispatch_interrupted`) and the person may approve a new one.
+ * Runs in the caller's tenant transaction; `ids` narrows it to the receipts
+ * being read.
+ */
+export async function settleInterruptedListingChanges(
+  sql: TransactionSql,
+  input: { organisationId: string; ids?: readonly string[] }
+): Promise<number> {
+  const only = input.ids
+    ? sql`and (id::text = any(${input.ids as string[]}::text[])
+        or intent_id::text = any(${input.ids as string[]}::text[]))`
+    : sql``
+  const settled = await sql`
+    update mutation_operation
+    set state = 'failed',
+      error_code = 'approval_dispatch_interrupted',
+      next_recovery_at = null,
+      updated_at = now()
+    where organisation_id = ${input.organisationId}
+      and change_request is not null
+      and state = 'sent'
+      and attempt_id is null
+      and updated_at < now() - make_interval(secs => ${INTERRUPTED_APPROVAL_AFTER_SECONDS})
+      ${only}
+    returning id
+  `
+  return settled.length
 }
 
 /**
@@ -746,6 +959,9 @@ export async function refuseUploadWhenApprovalRequired(
   session: Session,
   locationId: string
 ): Promise<void> {
+  if (!z.uuid().safeParse(locationId).success) {
+    throw new ApiError(404, LOCATION_NOT_FOUND.code, LOCATION_NOT_FOUND.message)
+  }
   const refused = await withTenant(session.organisationId, async (sql) =>
     (await listingApprovalRequired(sql, session.organisationId))
       ? canPublishLocation(sql, session, locationId)

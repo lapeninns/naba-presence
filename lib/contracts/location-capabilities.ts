@@ -81,7 +81,9 @@ export const locationCapabilitiesSchema = z.object({
    * Two-person approval of listing writes applies here (the organisation's
    * policy and its `listing_change_approvals` feature are on): a publisher's
    * Google write parks as a change request (lib/server/listing-changes.ts).
-   * Only the single-location capabilities answer carries it.
+   * Also true while requests parked before the policy or feature went off
+   * are still pending here, so they stay visible and decidable. Only the
+   * single-location capabilities answer carries it.
    */
   listingChangeApprovals: z.boolean().optional(),
 })

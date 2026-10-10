@@ -40,7 +40,18 @@ import {
 // Request intent
 // ---------------------------------------------------------------------------
 
-type AmbientIntent = { intentId: string; claimed: boolean }
+type AmbientIntent = {
+  intentId: string
+  claimed: boolean
+  /**
+   * Receipts that follow this intent's write (an approved listing change
+   * request, lib/server/listing-changes.ts): linked to its attempt row in the
+   * same transaction that links the intent's own receipt, so whatever
+   * settles that attempt -- this request, a reaper, recovery -- settles them
+   * too, even if this request never finishes.
+   */
+  followers?: readonly string[]
+}
 
 const ambientIntent = new AsyncLocalStorage<AmbientIntent>()
 
@@ -63,10 +74,21 @@ export function parseIntentHeader(request: Request): string | null {
   return parsed.data.toLowerCase()
 }
 
-/** Runs `fn` with `intentId` as the request's ambient intent (null: none). */
-export function withMutationIntent<T>(intentId: string | null, fn: () => T): T {
+/**
+ * Runs `fn` with `intentId` as the request's ambient intent (null: none).
+ * `followers` are receipt ids linked to the attempt the intent's write uses
+ * (see AmbientIntent).
+ */
+export function withMutationIntent<T>(
+  intentId: string | null,
+  fn: () => T,
+  options: { followers?: readonly string[] } = {}
+): T {
   if (!intentId) return fn()
-  return ambientIntent.run({ intentId, claimed: false }, fn)
+  return ambientIntent.run(
+    { intentId, claimed: false, followers: options.followers },
+    fn
+  )
 }
 
 /** The ambient intent id, without claiming it. */
@@ -230,7 +252,11 @@ export async function beginOperation(
   return { operation: existing, created: false }
 }
 
-/** Points a receipt at the attempt row that carries its write. */
+/**
+ * Points a receipt at the attempt row that carries its write, and -- when it
+ * is the ambient intent's own receipt -- that intent's followers still
+ * waiting on a write (`sent`, unlinked).
+ */
 export async function linkOperationAttempt(
   sql: TransactionSql,
   input: { operationId: string; attemptTable: string | null; attemptId: string }
@@ -241,6 +267,23 @@ export async function linkOperationAttempt(
       attempt_id = ${input.attemptId},
       updated_at = now()
     where id = ${input.operationId}
+  `
+  const store = ambientIntent.getStore()
+  if (!store?.followers?.length) return
+  await sql`
+    update mutation_operation f
+    set attempt_table = ${input.attemptTable},
+      attempt_id = ${input.attemptId},
+      updated_at = now()
+    where f.id = any(${store.followers as string[]}::uuid[])
+      and f.state = 'sent'
+      and f.attempt_id is null
+      and exists (
+        select 1 from mutation_operation o
+        where o.id = ${input.operationId}
+          and o.intent_id = ${store.intentId}
+          and o.organisation_id = f.organisation_id
+      )
   `
 }
 

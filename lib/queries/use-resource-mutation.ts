@@ -71,8 +71,19 @@ export type ResourceMutationOptions<TData, TVariables> = {
   errorContext?: ActionErrorContext
   /** Extra success work (reset local state, close a dialog). Runs before invalidation. */
   onSuccess?: (data: TData, variables: TVariables) => void
-  /** Extra error work; `message` is the already-humanised copy. Runs before the toast. */
+  /**
+   * Extra error work; `message` is the already-humanised copy. Runs before the toast.
+   * Not called for a write two-person mode held for approval: see `onParked`.
+   */
   onError?: (error: unknown, message: string, variables: TVariables) => void
+  /**
+   * A listing write two-person mode held for a second publisher (a 202,
+   * `isAwaitingApproval`): nothing failed and nothing was sent, so it is not
+   * an error and `onError` does not run. Close the dialog or reset the form
+   * here as on success; the editor's approval panel shows the request, and
+   * an info toast says it was sent for approval.
+   */
+  onParked?: (variables: TVariables) => void
   /**
    * What makes two calls the same action, for reusing an intent on a retry.
    * Defaults to the variables. A `mutationFn` that reads what it sends from
@@ -105,6 +116,7 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
     errorContext,
     onSuccess,
     onError,
+    onParked,
     intentKey,
   } = options
   // Each call's fingerprint and intent, by the variables TanStack hands
@@ -151,6 +163,23 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
     onError: (error, variables) => {
       const call = calls.current.get(variables)
       calls.current.delete(variables)
+      // Two-person mode held the write for a second publisher: nothing
+      // failed and nothing was sent, so it is not an error -- onError does
+      // not run and it is not toasted as one -- and the approval panels
+      // pick the new request up. Its intent is spent: the same form again
+      // is a new request.
+      if (isAwaitingApproval(error)) {
+        if (call) unconfirmed.current.delete(call.key)
+        onParked?.(variables)
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.listingChangeRequestsAll,
+        })
+        toasts.add({
+          title: describeActionError(error),
+          type: "info",
+        })
+        return
+      }
       if (call) {
         if (isUnconfirmedFailure(error)) {
           unconfirmed.current.set(call.key, call.intentId)
@@ -162,19 +191,6 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
         ? errorToast(error)
         : describeActionError(error, { context: errorContext })
       onError?.(error, message, variables)
-      // Two-person mode held the write for a second publisher: nothing
-      // failed and nothing was sent, so it is not toasted as an error, and
-      // the approval panels pick the new request up.
-      if (isAwaitingApproval(error)) {
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.listingChangeRequestsAll,
-        })
-        toasts.add({
-          title: describeActionError(error),
-          type: "info",
-        })
-        return
-      }
       toasts.add({ title: message, type: "error" })
     },
   })

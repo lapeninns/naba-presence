@@ -306,6 +306,10 @@ function LodgingSection({
       setPublishError(null)
       setReviewOpen(false)
     },
+    onParked: () => {
+      setPublishError(null)
+      setReviewOpen(false)
+    },
     onError: (_error, message) => setPublishError(message),
   })
 

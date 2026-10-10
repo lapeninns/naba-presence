@@ -219,18 +219,29 @@ as a `mutation_operation` receipt in the outcome state `awaiting_approval`
 (`supabase/migrations/0075_listing_change_approval.sql`) holding the frozen,
 validated body (`change_request`), its payload hash, the fields it writes
 (`field_mask`), the baseline it was edited against (`expected_revision`) and
-its author, and answers 202. A same-intent retry gets the same request; a
-newer request for the same change supersedes the older one, and a local save
+its author, and answers 202. A same-intent retry gets the same request
+while it is pending and the reason it ended once it is not; a newer request
+for the same change (same kind, operation and target) supersedes the older
+one -- a create only an identical pending create -- and a local save
 of the content a publish request would send (hours, profile, menus)
 invalidates it. `POST /api/locations/[id]/change-requests/[changeId]`
-approves or rejects: the decider needs `decide_approval`, must not be the
-author, and must name the request's payload hash; the decision is a
+approves or rejects: the decider needs `decide_approval` and the authoring
+route's organisation roles (`LISTING_CHANGE_DECIDER_ROLES`), must not be the
+author, and must name the request's payload hash. Each request carries
+`details`, every content value its frozen body sends and what its target
+photo or link holds now (`lib/domain/listing-change-details.ts`), which the
+panel shows beside Approve. The decision is a
 `mutation_approval_decision` row whose CHECK forbids the requester deciding.
 An approval dispatches the frozen body through the same registry entry, as
 the approver, so `runGbpWrite` and the surface's own freshness checks run as
 for any write and a stale baseline is refused with the surface's 409. The
-change request then follows its dispatch's attempt row and receipt state, so
-the attempt's settle or the `mutation_recover` job settles it too. A media
+change request is a follower of the dispatch intent: `linkOperationAttempt`
+links it to the dispatch's attempt row in the transaction that claims it,
+before anything is sent, so the attempt's settle, the reapers or the
+`mutation_recover` job settle it even if the approval request dies. One that
+died before claiming an attempt sent nothing and is settled `failed`
+(`approval_dispatch_interrupted`) by `settleInterruptedListingChanges` on its
+receipt read or the retention run. A media
 upload cannot be frozen (no asset store yet), so it is refused with 409
 `listing_change_upload_unsupported` while approval applies. The editors show
 pending requests above themselves (`components/locations/listing-change-requests.tsx`,

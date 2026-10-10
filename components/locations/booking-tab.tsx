@@ -167,6 +167,7 @@ function BookingLinks({
     invalidate: [queryKeys.locationBooking(locationId)],
     successToast: "Booking link removed",
     onSuccess: () => setDeleteTarget(null),
+    onParked: () => setDeleteTarget(null),
     onError: (_error, message) => setConfirmFailure(message),
   })
 
@@ -191,6 +192,7 @@ function BookingLinks({
         "Preferred link live on Google"
       ),
     onSuccess: () => setPreferTarget(null),
+    onParked: () => setPreferTarget(null),
     onError: (_error, message) => setConfirmFailure(message),
   })
 
@@ -595,6 +597,13 @@ function AddLinkForm({
       setPreferred(false)
       setError(null)
     },
+    // Held for approval: the request is in the panel above, so the form
+    // clears as it would after a send.
+    onParked: () => {
+      setUri("")
+      setPreferred(false)
+      setError(null)
+    },
   })
 
   const sameType = state.links.filter((link) => link.placeActionType === type)
@@ -741,6 +750,7 @@ function EditLinkDialog({
         "Booking link live on Google"
       ),
     onSuccess: onClose,
+    onParked: onClose,
     // The toast goes away; the dialog keeps the link and says what happened.
     onError: (_error, message) => setFailure(message),
   })

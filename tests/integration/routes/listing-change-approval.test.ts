@@ -347,7 +347,8 @@ describeDatabase("listing writes - two-person change approval", () => {
       errorCode: "approval_withdrawn",
     })
 
-    const older = await (
+    // Two different creates are two links: both stay pending.
+    const bookA = await (
       await send(
         owner.cookie,
         "POST",
@@ -355,7 +356,7 @@ describeDatabase("listing writes - two-person change approval", () => {
         createBody("https://book.example.com/a")
       )
     ).json()
-    const newer = await (
+    const bookB = await (
       await send(
         owner.cookie,
         "POST",
@@ -363,12 +364,108 @@ describeDatabase("listing writes - two-person change approval", () => {
         createBody("https://book.example.com/b")
       )
     ).json()
-    expect(await stored(older.changeRequest.id)).toMatchObject({
+    expect(await stored(bookA.changeRequest.id)).toMatchObject({
+      state: "awaiting_approval",
+    })
+    expect(await stored(bookB.changeRequest.id)).toMatchObject({
+      state: "awaiting_approval",
+    })
+    // The same create again replaces the identical pending one.
+    const bookAAgain = await (
+      await send(
+        owner.cookie,
+        "POST",
+        `${base}/place-actions`,
+        createBody("https://book.example.com/a")
+      )
+    ).json()
+    expect(await stored(bookA.changeRequest.id)).toMatchObject({
       state: "failed",
       errorCode: "approval_superseded",
     })
-    expect(await stored(newer.changeRequest.id)).toMatchObject({
+    // A newer change to the same link supersedes the older one.
+    const linkId = randomUUID()
+    const updateBody = (uri: string) => ({
+      confirmation: "update_google_place_action",
+      uri,
+      placeActionType: "DINING_RESERVATION",
+      isPreferred: false,
+      expectedGoogleHash: "0".repeat(64),
+    })
+    const olderUpdate = await (
+      await send(
+        owner.cookie,
+        "PATCH",
+        `${base}/place-actions/${linkId}`,
+        updateBody("https://book.example.com/c")
+      )
+    ).json()
+    const newerUpdate = await (
+      await send(
+        owner.cookie,
+        "PATCH",
+        `${base}/place-actions/${linkId}`,
+        updateBody("https://book.example.com/d")
+      )
+    ).json()
+    expect(await stored(olderUpdate.changeRequest.id)).toMatchObject({
+      state: "failed",
+      errorCode: "approval_superseded",
+    })
+    expect(await stored(newerUpdate.changeRequest.id)).toMatchObject({
       state: "awaiting_approval",
+    })
+    const list = await (
+      await fetch(`${base}/change-requests`, {
+        headers: { cookie: second.cookie },
+      })
+    ).json()
+    expect(
+      list.changeRequests.map((change: { id: string }) => change.id).sort()
+    ).toEqual(
+      [
+        bookB.changeRequest.id,
+        bookAAgain.changeRequest.id,
+        newerUpdate.changeRequest.id,
+      ].sort()
+    )
+    // The approver reads the values each request sends.
+    const shown = list.changeRequests.find(
+      (change: { id: string }) => change.id === bookB.changeRequest.id
+    )
+    expect(shown.details).toContainEqual({
+      label: "Web address",
+      value: "https://book.example.com/b",
+    })
+
+    // A retry of a decided intent says how it ended, never "sent for approval".
+    const intentId = randomUUID()
+    const doomed = await (
+      await send(
+        owner.cookie,
+        "POST",
+        `${base}/place-actions`,
+        createBody("https://book.example.com/e"),
+        intentId
+      )
+    ).json()
+    await send(
+      second.cookie,
+      "POST",
+      `${base}/change-requests/${doomed.changeRequest.id}`,
+      { decision: "reject", payloadHash: doomed.changeRequest.payloadHash }
+    )
+    const retried = await send(
+      owner.cookie,
+      "POST",
+      `${base}/place-actions`,
+      createBody("https://book.example.com/e"),
+      intentId
+    )
+    expect(retried.status).toBe(409)
+    expect(await retried.json()).toMatchObject({
+      error: "approval_rejected",
+      details: { outcome: "failed" },
     })
     expect(googleWrites()).toHaveLength(0)
   }, 60_000)
@@ -453,4 +550,199 @@ describeDatabase("listing writes - two-person change approval", () => {
     },
     60_000
   )
+
+  it("requires the authoring route's roles of a decider", async () => {
+    const { owner, second, base } = await tenant({
+      twoPerson: true,
+      feature: true,
+    })
+    const parked = await send(
+      owner.cookie,
+      "PATCH",
+      `${base}/business-information`,
+      {
+        operation: "update_location",
+        confirmation: "publish_business_information_to_google",
+        expectedGoogleHash: "0".repeat(64),
+        updateMask: ["title"],
+        payload: { title: "The Two Person Arms" },
+      }
+    )
+    expect(parked.status, await parked.clone().text()).toBe(202)
+    const change = (await parked.json()).changeRequest
+    expect(change.details).toContainEqual({
+      label: "Title",
+      value: "The Two Person Arms",
+    })
+
+    // A member publisher may not make this write, so may not approve it.
+    const list = await (
+      await fetch(`${base}/change-requests`, {
+        headers: { cookie: second.cookie },
+      })
+    ).json()
+    expect(list.changeRequests).toMatchObject([
+      { id: change.id, canDecide: false },
+    ])
+    for (const decision of ["approve", "reject"]) {
+      const refused = await send(
+        second.cookie,
+        "POST",
+        `${base}/change-requests/${change.id}`,
+        { decision, payloadHash: change.payloadHash }
+      )
+      expect(refused.status).toBe(403)
+      expect((await refused.json()).error).toBe("permission_denied")
+    }
+    const decisions = await admin`
+      select 1 from mutation_approval_decision where operation_id = ${change.id}
+    `
+    expect(decisions).toHaveLength(0)
+    expect(await stored(change.id)).toMatchObject({
+      state: "awaiting_approval",
+    })
+  }, 60_000)
+
+  it("refuses an upload while approval applies", async () => {
+    const { owner, base } = await tenant({ twoPerson: true, feature: true })
+    const form = new FormData()
+    form.set(
+      "file",
+      new File([new Uint8Array([1, 2, 3])], "a.jpg", { type: "image/jpeg" })
+    )
+    form.set("mediaFormat", "PHOTO")
+    form.set("category", "INTERIOR")
+    form.set("confirmation", "create_google_media")
+    const refused = await fetch(`${base}/media`, {
+      method: "POST",
+      headers: { cookie: owner.cookie, "Idempotency-Key": randomUUID() },
+      body: form,
+    })
+    expect(refused.status).toBe(409)
+    expect((await refused.json()).error).toBe(
+      "listing_change_upload_unsupported"
+    )
+    expect(google.calls.filter((call) => call.method !== "GET")).toHaveLength(0)
+  }, 60_000)
+
+  it("settles an approval interrupted before its dispatch claimed an attempt", async () => {
+    const { owner, second, base } = await tenant({
+      twoPerson: true,
+      feature: true,
+    })
+    const parked = await (
+      await send(owner.cookie, "POST", `${base}/place-actions`, createBody())
+    ).json()
+    // What a killed approval leaves: decided and `sent`, nothing linked.
+    await admin`
+      update mutation_operation
+      set state = 'sent', receipt = '{"dispatchIntentId":"x"}'::jsonb,
+        updated_at = now() - interval '10 minutes'
+      where id = ${parked.changeRequest.id}
+    `
+    const receipt = await fetch(
+      `${server.baseUrl}/api/mutations/${parked.changeRequest.id}`,
+      { headers: { cookie: second.cookie } }
+    )
+    expect((await receipt.json()).operation).toMatchObject({
+      outcome: "failed",
+      errorCode: "approval_dispatch_interrupted",
+    })
+  }, 60_000)
+
+  it("links the request to its dispatch attempt before anything is sent", async () => {
+    const { owner, second, base, linked } = await tenant({
+      twoPerson: true,
+      feature: true,
+    })
+    const parked = await (
+      await send(owner.cookie, "POST", `${base}/place-actions`, createBody())
+    ).json()
+    // Google holds the create open, so the state while it is in flight --
+    // what an approval killed now would leave -- can be read.
+    google.respond(
+      { method: "POST", pathIncludes: "/placeActionLinks" },
+      (call) => ({
+        status: 200,
+        delayMs: 2_000,
+        json: {
+          name: `${linked.googleLocationName}/placeActionLinks/merchant-slow`,
+          providerType: "MERCHANT",
+          isEditable: true,
+          ...(call.body as Record<string, unknown>),
+        },
+      })
+    )
+    const approving = send(
+      second.cookie,
+      "POST",
+      `${base}/change-requests/${parked.changeRequest.id}`,
+      { decision: "approve", payloadHash: parked.changeRequest.payloadHash }
+    )
+    const deadline = Date.now() + 20_000
+    while (googleWrites().length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    expect(googleWrites()).toHaveLength(1)
+    const [inFlight] = await admin<
+      {
+        attemptId: string | null
+        state: string
+        dispatchAttempt: string | null
+      }[]
+    >`
+      select c.attempt_id::text as "attemptId", c.state,
+        d.attempt_id::text as "dispatchAttempt"
+      from mutation_operation c
+      join mutation_operation d
+        on d.organisation_id = c.organisation_id
+       and d.intent_id::text = c.receipt ->> 'dispatchIntentId'
+      where c.id = ${parked.changeRequest.id}
+    `
+    expect(inFlight?.state).toBe("sent")
+    expect(inFlight?.attemptId).not.toBeNull()
+    expect(inFlight?.attemptId).toBe(inFlight?.dispatchAttempt)
+    expect((await approving).status).toBe(200)
+  }, 60_000)
+
+  it("refuses an approval of a paused surface before recording a decision", async () => {
+    const { owner, second, base } = await tenant({
+      twoPerson: true,
+      feature: true,
+    })
+    const paused = await startAppServer({
+      GOOGLE_API_PROXY_BASE: google.baseUrl,
+      GBP_PLACE_ACTIONS_ENABLED: "false",
+      PUBLISH_ENABLED: "true",
+    })
+    try {
+      const pausedBase = base.replace(server.baseUrl, paused.baseUrl)
+      const parked = await (
+        await send(
+          owner.cookie,
+          "POST",
+          `${pausedBase}/place-actions`,
+          createBody()
+        )
+      ).json()
+      const refused = await send(
+        second.cookie,
+        "POST",
+        `${pausedBase}/change-requests/${parked.changeRequest.id}`,
+        { decision: "approve", payloadHash: parked.changeRequest.payloadHash }
+      )
+      expect(refused.status).toBe(503)
+      const decisions = await admin`
+        select 1 from mutation_approval_decision
+        where operation_id = ${parked.changeRequest.id}
+      `
+      expect(decisions).toHaveLength(0)
+      expect(await stored(parked.changeRequest.id)).toMatchObject({
+        state: "awaiting_approval",
+      })
+      expect(googleWrites()).toHaveLength(0)
+    } finally {
+      await paused.stop()
+    }
+  }, 60_000)
 })

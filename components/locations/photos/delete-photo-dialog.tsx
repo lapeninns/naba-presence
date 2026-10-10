@@ -60,6 +60,7 @@ export function DeletePhotoDialog({
       }
     },
     onSuccess: onClose,
+    onParked: onClose,
   })
 
   const categoryLabel = item ? humaniseCategory(item.category) : ""

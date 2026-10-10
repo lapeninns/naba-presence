@@ -248,6 +248,7 @@ export const LISTING_CHANGE_ENTRIES = {
   }),
   media_create: entry({
     kind: "media_create",
+    creates: true,
     surface: "media",
     gbpSurface: "media",
     action: () => "create",
@@ -311,6 +312,7 @@ export const LISTING_CHANGE_ENTRIES = {
   }),
   place_action_create: entry({
     kind: "place_action_create",
+    creates: true,
     surface: "place_action",
     gbpSurface: "placeActions",
     action: () => "create",

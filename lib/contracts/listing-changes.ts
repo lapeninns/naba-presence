@@ -89,6 +89,17 @@ export const LISTING_CHANGE_LABEL: Record<ListingChangeKind, string> = {
 export const LISTING_CHANGE_AWAITING_APPROVAL =
   "listing_change_awaiting_approval"
 
+/**
+ * One value the approver reads before deciding: a content field of the
+ * frozen request, or what its target (a photo, a booking link) holds now
+ * (lib/domain/listing-change-details.ts).
+ */
+export const listingChangeDetailSchema = z.object({
+  label: z.string(),
+  value: z.string(),
+})
+export type ListingChangeDetail = z.infer<typeof listingChangeDetailSchema>
+
 export const listingChangeRequestSchema = z.object({
   /** The receipt id: GET /api/mutations/{id} answers for it too. */
   id: z.string(),
@@ -100,6 +111,11 @@ export const listingChangeRequestSchema = z.object({
   target: z.string().nullable(),
   /** The fields the change writes. */
   fieldMask: z.array(z.string()),
+  /**
+   * Every value the request sends, derived from the same stored body the
+   * payload hash covers, so the approver approves what they read.
+   */
+  details: z.array(listingChangeDetailSchema),
   /** What an approval must name: sha256 of the frozen request. */
   payloadHash: z.string(),
   outcome: operationOutcomeSchema,

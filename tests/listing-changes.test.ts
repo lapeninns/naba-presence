@@ -19,7 +19,11 @@ import {
   isUnconfirmedFailure,
 } from "@/lib/errors/action-errors"
 import { LISTING_CHANGE_ENTRIES } from "@/lib/server/listing-change-registry"
-import { LISTING_CHANGE_FEATURE } from "@/lib/server/listing-changes"
+import { describeListingChange } from "@/lib/domain/listing-change-details"
+import {
+  LISTING_CHANGE_DECIDER_ROLES,
+  LISTING_CHANGE_FEATURE,
+} from "@/lib/server/listing-changes"
 import { RECOVERY_ADAPTERS } from "@/lib/server/mutation-recovery-registry"
 
 /**
@@ -86,6 +90,126 @@ describe("listing change registry", () => {
   })
 })
 
+describe("deciding a listing change", () => {
+  /** The `roles` of the route() block that submits `kind`, if any. */
+  function routeRoles(kind: string): string[] | null {
+    const files = [
+      "hours/route.ts",
+      "profile/route.ts",
+      "business-information/route.ts",
+      "industry/route.ts",
+      "food-menus/route.ts",
+      "media/route.ts",
+      "media/[mediaId]/route.ts",
+      "place-actions/route.ts",
+      "place-actions/[linkId]/route.ts",
+    ]
+    for (const file of files) {
+      const source = readFileSync(
+        join(process.cwd(), "app/api/locations/[id]", file),
+        "utf8"
+      )
+      for (const block of source.split(/\nexport const /)) {
+        if (
+          !block.includes("submitListingChange(") ||
+          !block.includes(`"${kind}"`)
+        ) {
+          continue
+        }
+        const roles = /\broles: \[([^\]]*)\]/.exec(block)
+        return roles
+          ? roles[1]!
+              .split(",")
+              .map((role) => role.trim().replace(/"/g, ""))
+              .filter(Boolean)
+          : null
+      }
+    }
+    throw new Error(`no route submits ${kind}`)
+  }
+
+  it("requires the authoring route's roles of every decider", () => {
+    for (const kind of LISTING_CHANGE_KINDS) {
+      const expected = routeRoles(kind)
+      const actual = LISTING_CHANGE_DECIDER_ROLES[kind]
+      expect(actual ? [...actual].sort() : null, kind).toEqual(
+        expected ? expected.sort() : null
+      )
+    }
+  })
+
+  it("shows the approver every content value of the frozen body", () => {
+    const details = describeListingChange({
+      kind: "place_action_create",
+      target: null,
+      body: {
+        confirmation: "create_google_place_action",
+        uri: "https://phish.example.com/book",
+        placeActionType: "DINING_RESERVATION",
+        isPreferred: true,
+      },
+    })
+    expect(details).toEqual([
+      { label: "Web address", value: "https://phish.example.com/book" },
+      { label: "Link type", value: "DINING_RESERVATION" },
+      { label: "Preferred link", value: "Yes" },
+    ])
+
+    const info = describeListingChange({
+      kind: "business_information_update",
+      target: null,
+      body: {
+        operation: "update_location",
+        payload: { title: "The Bell", phoneNumbers: { primaryPhone: "01234" } },
+        updateMask: ["title", "phoneNumbers"],
+        expectedGoogleHash: "a".repeat(64),
+      },
+    })
+    expect(info).toContainEqual({ label: "Title", value: "The Bell" })
+    expect(info).toContainEqual({
+      label: "Phone numbers › Primary phone",
+      value: "01234",
+    })
+    // Bookkeeping is not content: masks are shown as fieldMask, hashes are
+    // checked at dispatch.
+    expect(info.map((row) => row.label).join()).not.toMatch(/mask|hash/i)
+  })
+
+  it("names the photo a delete removes and what it is now", () => {
+    expect(
+      describeListingChange({
+        kind: "media_delete",
+        target: "66666666-6666-4666-8666-666666666666",
+        body: { confirmation: "delete_google_media", expectedGoogleHash: "c" },
+        targetNow: { category: "INTERIOR", googleUrl: "https://g/p.jpg" },
+      })
+    ).toEqual([
+      { label: "Photo", value: "66666666-6666-4666-8666-666666666666" },
+      { label: "Now: category", value: "INTERIOR" },
+      { label: "Now: google url", value: "https://g/p.jpg" },
+    ])
+  })
+
+  it("says a saved-copy publish sends the editor's saved copy", () => {
+    expect(
+      describeListingChange({
+        kind: "hours_publish",
+        target: null,
+        body: {
+          confirmation: "publish_nabapresence_hours_to_google",
+          expectedCanonicalRevision: 4,
+          approvedUpdateMask: ["regularHours"],
+          confirmOverwriteGoogleChanges: false,
+        },
+      })
+    ).toEqual([
+      expect.objectContaining({ label: "Publishes" }),
+      { label: "Saved version", value: "4" },
+      { label: "Overwrite changes made on Google", value: "No" },
+    ])
+  })
+})
+
 describe("a parked answer on the client", () => {
   afterEach(() => vi.restoreAllMocks())
 
@@ -99,6 +223,7 @@ describe("a parked answer on the client", () => {
       locationId: "33333333-3333-4333-8333-333333333333",
       target: null,
       fieldMask: ["regularHours"],
+      details: [],
       payloadHash: "b".repeat(64),
       outcome: "awaiting_approval",
       errorCode: null,

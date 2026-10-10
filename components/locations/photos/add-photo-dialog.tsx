@@ -183,6 +183,10 @@ export function AddPhotoDialog({
       setUrl("")
       onOpenChange(false)
     },
+    onParked: () => {
+      setUrl("")
+      onOpenChange(false)
+    },
   })
 
   const ready = entries.filter((entry) => entry.status === "ready")

@@ -7,6 +7,7 @@ import { log } from "@/lib/server/logger"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { recordTickCycleCompleted, withAdvisoryLock } from "@/lib/server/leases"
 import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
+import { settleInterruptedListingChanges } from "@/lib/server/listing-changes"
 import { reapStrandedLocalPosts } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
@@ -459,6 +460,13 @@ async function retain({
             recoverAfterSeconds: 0,
           })
         }
+        // Approved listing change requests whose dispatch never claimed an
+        // attempt (lib/server/listing-changes.ts): nothing was sent for
+        // them, and left `sent` they would read as in flight for good.
+        const interruptedApprovals = await settleInterruptedListingChanges(
+          sql,
+          { organisationId: organisation.id }
+        )
         const counts = {
           auditLogs,
           media,
@@ -489,6 +497,7 @@ async function retain({
           strandedMedia: strandedMedia.count,
           strandedPlaceActions: strandedPlaceActions.count,
           strandedManagement: strandedManagement.count,
+          interruptedApprovals,
         }
         const heldLocationsSkipped = held?.count ?? 0
         if (

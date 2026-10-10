@@ -2,6 +2,7 @@ import {
   mutationReceiptParamsSchema,
   type MutationReceiptResponse,
 } from "@/lib/contracts/mutation-operations"
+import { settleInterruptedListingChanges } from "@/lib/server/listing-changes"
 import { loadMutationReceipt } from "@/lib/server/mutation-operations"
 import { route } from "@/lib/server/route"
 
@@ -20,8 +21,14 @@ export const GET = route({
     params,
     tenant,
   }): Promise<MutationReceiptResponse> => ({
-    operation: await tenant((sql) =>
-      loadMutationReceipt(sql, session, params.operationId)
-    ),
+    operation: await tenant(async (sql) => {
+      // An approved listing change whose dispatch was interrupted before it
+      // claimed an attempt answers `failed` rather than `sent` for good.
+      await settleInterruptedListingChanges(sql, {
+        organisationId: session.organisationId,
+        ids: [params.operationId],
+      })
+      return loadMutationReceipt(sql, session, params.operationId)
+    }),
   }),
 })

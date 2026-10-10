@@ -229,11 +229,16 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   organisation's two-person policy: with both on, a publisher's hours,
   profile, business information, attribute, industry, menu, media and
   booking-link writes park as change requests that another publisher approves
-  on the editor. Turning it off leaves parked requests `awaiting_approval`
-  (still decidable through `POST /api/locations/{id}/change-requests/{id}`);
-  find them with `select id, location_id, change_request ->> 'kind' from
-  mutation_operation where state = 'awaiting_approval'`. Media uploads are
-  refused (409 `listing_change_upload_unsupported`) while it applies.
+  on the editor. Turning it (or the policy) off leaves parked requests
+  `awaiting_approval`: the editors keep listing them, and they stay
+  decidable there and through `POST /api/locations/{id}/change-requests/{id}`
+  until someone approves, rejects or withdraws them. Find them with `select
+  id, location_id, change_request ->> 'kind' from mutation_operation where
+  state = 'awaiting_approval'`. Media uploads are refused (409
+  `listing_change_upload_unsupported`) while it applies. An approval killed
+  before its dispatch claimed an attempt settles `failed`
+  (`approval_dispatch_interrupted`) after five minutes, on its receipt read or
+  the daily retention run; one killed later settles with its attempt.
 
 ## Scheduled work
 

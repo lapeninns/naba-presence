@@ -55,6 +55,17 @@ const COPY: Record<string, string> = {
   change_request_not_found: "This change request was not found.",
   change_request_invalid:
     "This change can no longer be sent as it was requested. Make it again.",
+  change_request_decided:
+    "This change was already approved and sent. Reload to see where it stands.",
+  approval_rejected:
+    "Another publisher rejected this change. Nothing was sent to Google.",
+  approval_withdrawn: "This change was withdrawn. Nothing was sent to Google.",
+  approval_superseded:
+    "A newer request replaced this change. Nothing was sent from this one.",
+  approval_invalidated:
+    "The saved content changed after this request, so it was not sent. Make the change again.",
+  approval_dispatch_interrupted:
+    "This approval was interrupted before anything was sent to Google. Make the change again.",
   // ---- Session / permissions (shared) -------------------------------------
   authentication_required:
     "Your session has expired. Sign in again to continue.",

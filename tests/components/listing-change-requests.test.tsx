@@ -5,9 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { ListingChangeRequests } from "@/components/locations/listing-change-requests"
+import { DeletePhotoDialog } from "@/components/locations/photos/delete-photo-dialog"
 import { Toaster } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import * as listingChangesApi from "@/lib/api/listing-changes"
+import * as mediaApi from "@/lib/api/location-media"
+import type { MediaItem } from "@/lib/api/location-media"
 import {
   LISTING_CHANGE_AWAITING_APPROVAL,
   type ListingChangeRequest,
@@ -30,6 +33,7 @@ function change(
     locationId: LOCATION,
     target: null,
     fieldMask: ["regularHours"],
+    details: [],
     payloadHash: "b".repeat(64),
     outcome: "awaiting_approval",
     errorCode: null,
@@ -86,6 +90,36 @@ describe("ListingChangeRequests", () => {
       { decision: "approve", payloadHash: "b".repeat(64) },
     ])
     expect(await screen.findByText("Live on Google")).toBeInTheDocument()
+  })
+
+  it("shows the approver every value the request sends before they approve it", async () => {
+    vi.spyOn(listingChangesApi, "fetchListingChangeRequests").mockResolvedValue(
+      [
+        change({
+          kind: "place_action_create",
+          label: "Add a booking link",
+          fieldMask: ["uri", "placeActionType", "isPreferred"],
+          details: [
+            { label: "Web address", value: "https://book.example.com/table" },
+            { label: "Link type", value: "DINING_RESERVATION" },
+            { label: "Preferred link", value: "No" },
+          ],
+        }),
+      ]
+    )
+    renderWithProviders(
+      <ListingChangeRequests locationId={LOCATION} editor="booking" />
+    )
+
+    const list = await screen.findByLabelText(
+      "What this change sends: Add a booking link"
+    )
+    expect(list).toHaveTextContent("Web address")
+    expect(list).toHaveTextContent("https://book.example.com/table")
+    expect(list).toHaveTextContent("DINING_RESERVATION")
+    expect(
+      screen.getByRole("button", { name: "Approve and send" })
+    ).toBeInTheDocument()
   })
 
   it("lets the author withdraw but never approve their own request", async () => {
@@ -177,5 +211,46 @@ describe("usePublishFlow with a parked step", () => {
     })
     expect(await screen.findByText("Sent for approval")).toBeInTheDocument()
     expect(screen.queryByText("Opening hours sent to Google")).toBeNull()
+  })
+})
+
+describe("an editor dialog whose write is held for approval", () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it("closes like a send and says it was sent for approval, not that it failed", async () => {
+    vi.spyOn(mediaApi, "deleteMediaItem").mockRejectedValue(
+      new ApiClientError(
+        202,
+        LISTING_CHANGE_AWAITING_APPROVAL,
+        "Sent for approval.",
+        { outcome: "awaiting_approval" }
+      )
+    )
+    const onClose = vi.fn()
+    const onDeleted = vi.fn()
+    const item = {
+      id: "66666666-6666-4666-8666-666666666666",
+      googleHash: "c".repeat(64),
+      category: "INTERIOR",
+      mediaFormat: "PHOTO",
+      thumbnailUrl: null,
+      createTime: null,
+    } as unknown as MediaItem
+    renderWithProviders(
+      <DeletePhotoDialog
+        locationId={LOCATION}
+        item={item}
+        onClose={onClose}
+        onDeleted={onDeleted}
+      />
+    )
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Delete from Google" })
+    )
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(await screen.findByText(/^Sent for approval\./)).toBeInTheDocument()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(onDeleted).not.toHaveBeenCalled()
   })
 })

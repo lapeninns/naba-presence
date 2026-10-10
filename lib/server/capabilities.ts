@@ -34,7 +34,10 @@ import {
   isManagerialRole,
   type LocationGrant,
 } from "@/lib/server/permissions"
-import { listingApprovalRequired } from "@/lib/server/listing-changes"
+import {
+  hasPendingListingChanges,
+  listingApprovalRequired,
+} from "@/lib/server/listing-changes"
 import type { Session } from "@/lib/server/session"
 
 // One capability object per review (shape: ReviewCapabilities in
@@ -274,12 +277,13 @@ export async function locationCapabilities(
   locationId: string
 ): Promise<LocationCapabilities> {
   const map = await locationCapabilitiesForIds(sql, session, [locationId])
-  // Whether this location's listing writes park for a second publisher, so
-  // the editors only ask for pending change requests where there can be any.
-  const listingChangeApprovals = await listingApprovalRequired(
-    sql,
-    session.organisationId
-  )
+  // Whether this location's listing writes park for a second publisher --
+  // or requests parked before the policy or feature went off still wait
+  // here -- so the editors only ask for pending change requests where there
+  // can be any, and never lose sight of one that is still pending.
+  const listingChangeApprovals =
+    (await listingApprovalRequired(sql, session.organisationId)) ||
+    (await hasPendingListingChanges(sql, session.organisationId, locationId))
   const found = map.get(locationId)
   if (found) return { ...found, listingChangeApprovals }
   return {

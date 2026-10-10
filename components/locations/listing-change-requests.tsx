@@ -95,19 +95,34 @@ export function ListingChangeRequests({
           <Alert key={change.id} variant="info">
             <AlertTitle>{change.label}: waiting for approval</AlertTitle>
             <AlertDescription>
-              {change.isOwn
-                ? "You asked"
-                : `${change.author.name ?? "A publisher"} asked`}{" "}
-              {formatRelativeTime(change.createdAt)}
-              {change.fieldMask.length > 0
-                ? ` to change ${change.fieldMask.join(", ")}`
-                : ""}
-              . Nothing has gone to Google yet.{" "}
-              {change.isOwn
-                ? "Another publisher needs to approve it."
-                : change.canDecide
-                  ? "Approving sends exactly this request to Google."
-                  : "A publisher other than its author needs to approve it."}
+              <p>
+                {change.isOwn
+                  ? "You asked"
+                  : `${change.author.name ?? "A publisher"} asked`}{" "}
+                {formatRelativeTime(change.createdAt)}
+                {change.fieldMask.length > 0
+                  ? ` to change ${change.fieldMask.join(", ")}`
+                  : ""}
+                . Nothing has gone to Google yet.{" "}
+                {change.isOwn
+                  ? "Another publisher needs to approve it."
+                  : change.canDecide
+                    ? "Approving sends exactly the values below to Google."
+                    : "A publisher other than its author needs to approve it."}
+              </p>
+              {change.details.length > 0 ? (
+                <dl
+                  className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-ui"
+                  aria-label={`What this change sends: ${change.label}`}
+                >
+                  {change.details.map((detail, index) => (
+                    <div key={index} className="contents">
+                      <dt className="text-ink-muted">{detail.label}</dt>
+                      <dd className="min-w-0 break-words">{detail.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
             </AlertDescription>
             {change.canDecide || change.isOwn ? (
               <AlertActions>
