@@ -22,8 +22,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useToastManager } from "@/components/ui/toast"
-import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
+import type {
+  BulkReviewActionInput,
+  BulkReviewResult,
+  ReviewRow,
+} from "@/lib/contracts/reviews"
 import { describeErrorCode } from "@/lib/errors/action-errors"
+import {
+  BULK_ROW_STATUS_LABEL,
+  summariseBulkOutcome,
+} from "@/lib/inbox/bulk-outcome"
 import { isRatingOnly } from "@/lib/inbox/template-batch"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
@@ -86,39 +94,54 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
   if (chosen.length === 0) return templateDialog
 
+  // Approval is bound to the draft on screen: a row with no draft has
+  // nothing the operator could have read, so it cannot be approved here.
   const approvable = chosen.filter(
     (row) =>
-      row.workflowStatus === "awaiting_approval" && row.capabilities.canPublish
+      row.workflowStatus === "awaiting_approval" &&
+      row.capabilities.canPublish &&
+      row.draftId !== null
   )
 
   const run = async (
     action: "approve" | "assign" | "mark_reviewed",
     assigneeId?: string | null
   ) => {
-    const ids =
+    const input: BulkReviewActionInput | null =
       action === "approve"
-        ? approvable.map((row) => row.id)
-        : chosen.map((row) => row.id)
-    if (ids.length === 0) return
+        ? approvable.length === 0
+          ? null
+          : {
+              action,
+              // Exactly what this list showed: the server refuses a row whose
+              // draft or review has moved since (approval_draft_changed,
+              // review_changed) instead of approving it unread.
+              approvals: approvable.map((row) => ({
+                reviewId: row.id,
+                draftId: row.draftId!,
+                reviewUpdateTime: row.updateTime,
+              })),
+            }
+        : chosen.length === 0
+          ? null
+          : action === "assign"
+            ? {
+                action,
+                reviewIds: chosen.map((row) => row.id),
+                assigneeId: assigneeId ?? null,
+              }
+            : { action, reviewIds: chosen.map((row) => row.id) }
+    if (!input) return
     try {
-      const result = await bulk.mutateAsync({
-        action,
-        reviewIds: ids,
-        ...(action === "assign" ? { assigneeId: assigneeId ?? null } : {}),
-      })
+      const result = await bulk.mutateAsync(input)
       setOutcome(result)
-      const ok = result.results.filter((row) => row.status === "ok").length
-      const skipped = result.results.length - ok
+      const summary = summariseBulkOutcome(result)
       toast.add({
-        title:
-          skipped === 0
-            ? `${ok} ${ok === 1 ? "review" : "reviews"} updated`
-            : `${ok} updated, ${skipped} skipped`,
-        description:
-          skipped === 0 ? undefined : "The bar lists which, and why.",
-        type: skipped === 0 ? "success" : "warning",
+        title: summary.title,
+        description: summary.description,
+        type: summary.tone,
       })
-      if (skipped === 0) clear()
+      if (summary.allOk) clear()
     } catch (error) {
       toast.add({
         title: "That batch did not run",
@@ -256,7 +279,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
               className="flex items-center gap-2 text-caption text-ink-on-charcoal"
             >
               <span className="font-semibold">
-                {row.status === "failed" ? "Failed" : "Skipped"}
+                {BULK_ROW_STATUS_LABEL[row.status]}
               </span>
               <span className="min-w-0 truncate">
                 {describeRow(row.reviewId)}

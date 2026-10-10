@@ -130,6 +130,11 @@ const COPY: Record<string, string> = {
     "We could not confirm this reply on Google. Try again shortly.",
   verification_required:
     "This reply needs re-verifying before it can be published. Re-verify and try again.",
+  // Bulk rows: an unexpected fault on one row is reported on that row. After
+  // an approval it may already have reached Google, so it is not "failed".
+  publish_outcome_unknown:
+    "The approval is recorded but we could not tell whether the reply reached Google. Check the review before trying again.",
+  bulk_row_failed: "Something went wrong with this one. Nothing was changed.",
   publish_in_progress:
     "A publish for this reply is already under way. Wait a moment and try again.",
   // The Google write pipeline raises these while another request for the same

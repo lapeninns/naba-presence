@@ -23,7 +23,8 @@ import type { Session } from "@/lib/server/session"
  *  2. Two-person mode always requires an approver other than the requester.
  *  3. The decision names ONE draft: the parked one, never "whichever is
  *     newest", so a stale pane gets a 409 rather than credit for approving
- *     text it never showed.
+ *     text it never showed. When the caller says which review version it
+ *     showed, a review that has moved since is a 409 too.
  *  4. Rejection returns the reply to draft and records the decision.
  */
 export type ApprovalDecision =
@@ -121,6 +122,21 @@ export async function recordApprovalDecision(
       409,
       "approval_draft_changed",
       "This reply changed after you opened it. Read the current draft before deciding."
+    )
+  }
+
+  // Bound to what the approver read: a review edited on Google after the
+  // pane loaded would otherwise be approved here and only refused later by
+  // executePublish, after the decision row and audit already claimed it.
+  if (
+    input.expectedReviewUpdateTime !== undefined &&
+    new Date(input.expectedReviewUpdateTime).getTime() !==
+      record.update_time.getTime()
+  ) {
+    throw new ApiError(
+      409,
+      "review_changed",
+      "The review changed after you opened it. Read it again before deciding."
     )
   }
 

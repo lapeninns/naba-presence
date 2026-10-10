@@ -546,17 +546,44 @@ export type ReviewCounts = z.infer<typeof reviewCountsSchema>
 export const BULK_REVIEW_ACTIONS = ["approve", "assign", "mark_reviewed"] as const
 export type BulkReviewAction = (typeof BULK_REVIEW_ACTIONS)[number]
 
-export const bulkReviewActionSchema = z
-  .object({
-    action: z.enum(BULK_REVIEW_ACTIONS),
-    reviewIds: z.array(z.uuid()).min(1).max(100),
-    /** Required for `assign`; null clears the assignee. */
-    assigneeId: z.uuid().nullable().optional(),
-  })
-  .refine(
-    (value) => value.action !== "assign" || value.assigneeId !== undefined,
-    { message: "Choose who to assign these to", path: ["assigneeId"] }
-  )
+/**
+ * One approval as the operator saw it: the draft on screen and the review's
+ * update time when it was shown. The server refuses the row (409) when either
+ * moved, so a bulk approve can never publish text nobody in the batch read,
+ * or answer a review that was edited after the reply was written.
+ */
+export const bulkApprovalItemSchema = z.object({
+  reviewId: z.uuid(),
+  draftId: z.uuid(),
+  reviewUpdateTime: z.iso.datetime({ offset: true }),
+})
+export type BulkApprovalItem = z.infer<typeof bulkApprovalItemSchema>
+
+const bulkReviewIdsSchema = z.array(z.uuid()).min(1).max(100)
+
+export const bulkReviewActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("approve"),
+    approvals: z
+      .array(bulkApprovalItemSchema)
+      .min(1)
+      .max(100)
+      .refine(
+        (items) => new Set(items.map((item) => item.reviewId)).size === items.length,
+        { message: "Each review can be approved once per batch" }
+      ),
+  }),
+  z.object({
+    action: z.literal("assign"),
+    reviewIds: bulkReviewIdsSchema,
+    /** null clears the assignee. */
+    assigneeId: z.uuid({ error: "Choose who to assign these to" }).nullable(),
+  }),
+  z.object({
+    action: z.literal("mark_reviewed"),
+    reviewIds: bulkReviewIdsSchema,
+  }),
+])
 export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
 
 /**
@@ -564,12 +591,31 @@ export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
  * reviews where three are no longer pending must apply the other seventeen
  * and say which three it skipped — failing the batch would punish the
  * operator for someone else's concurrent edit.
+ *
+ * - `ok`: the action took effect (for approve: Google accepted the reply).
+ * - `skipped`: the row was not eligible; nothing changed.
+ * - `failed`: the row could not be processed; nothing is known to have
+ *   changed for it.
+ * - `approved_not_published`: the approval is recorded but the publish did
+ *   not go out (rate limit, a refusal, a review that moved). The reply waits
+ *   in its current state; it is not "skipped".
+ * - `uncertain`: the approval is recorded and Google may or may not have the
+ *   reply. Its state must be checked before anyone retries.
  */
+export const BULK_REVIEW_ROW_STATUSES = [
+  "ok",
+  "skipped",
+  "failed",
+  "approved_not_published",
+  "uncertain",
+] as const
+export type BulkReviewRowStatus = (typeof BULK_REVIEW_ROW_STATUSES)[number]
+
 export const bulkReviewResultSchema = z.object({
   results: z.array(
     z.object({
       reviewId: z.string(),
-      status: z.enum(["ok", "skipped", "failed"]),
+      status: z.enum(BULK_REVIEW_ROW_STATUSES),
       code: z.string().optional(),
     })
   ),
@@ -643,6 +689,13 @@ export type DeleteReplyResult = z.infer<typeof deleteReplyResultSchema>
 export const approvalInputSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   draftId: z.uuid().optional(),
+  /**
+   * The review's update time as the approver saw it. When present, a review
+   * that has since changed is refused with 409 `review_changed` instead of
+   * being approved against text the approver never read. Bulk approve always
+   * sends it.
+   */
+  expectedReviewUpdateTime: z.iso.datetime({ offset: true }).optional(),
   note: z.string().trim().max(2000).optional(),
 })
 export type ApprovalInput = z.infer<typeof approvalInputSchema>

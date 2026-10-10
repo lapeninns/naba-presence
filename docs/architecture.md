@@ -126,6 +126,13 @@ action, refuses a relinked Google connection or a changed approval policy,
 and fails closed on a supplied security version, generation id or entitlement
 until those mechanisms exist (P02-S9, P03-S2/P07-S2, P07-S1 wire them in). A bulk assignee must pass the same
 recheck for the review's location (`assignee_not_eligible` otherwise).
+Bulk approve (`app/api/reviews/bulk/route.ts`) names, per row, the draft and
+review update time the operator was shown; `recordApprovalDecision` refuses
+a moved draft (`approval_draft_changed`) or review (`review_changed`) before
+anything is recorded. Row outcomes are truthful about the two commits an
+approval spans (`lib/server/review-bulk-outcome.ts`): `skipped`/`failed`
+before the decision commits, `approved_not_published` or `uncertain` after it,
+and an unexpected fault on one row is that row's outcome, not the batch's.
 `tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
 every session mutation declares non-viewer `roles`, calls an action guard in
 its own handler, delegates through a named call chain that ends in one, or is
