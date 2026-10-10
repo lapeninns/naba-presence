@@ -26,7 +26,12 @@ import {
 import { reconcileLegacyHoursBoundaries } from "@/lib/domain/hours-vocabulary"
 import { ApiClientError } from "@/lib/api/client"
 import { editorGate } from "@/lib/editors/gate"
-import { validateHours } from "@/lib/editors/hours-presentation"
+import {
+  hoursPublishParts,
+  hoursSelectionRequest,
+  markHoursConflicts,
+  validateHours,
+} from "@/lib/editors/hours-presentation"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   NOTHING_TO_SEND,
@@ -38,7 +43,10 @@ import type {
   LocationCapabilities,
   TabGateReasons,
 } from "@/lib/locations/gating"
-import { hoursChangeRows } from "@/lib/locations/hours-diff"
+import {
+  hoursChangeRows,
+  type HoursChangeRow,
+} from "@/lib/locations/hours-diff"
 import { queryKeys } from "@/lib/queries/keys"
 import { useHours } from "@/lib/queries/use-location-hours"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
@@ -75,6 +83,12 @@ export function HoursTab({ locationId }: { locationId: string }) {
   )
 }
 
+function leftOutNote(dirty: boolean) {
+  return dirty
+    ? "Your whole schedule is saved here first. Anything left out stays as Google has it now and waits for a later publish."
+    : "Anything left out stays as Google has it now and waits for a later publish."
+}
+
 function isEmptySchedule(hours: HoursState["google"]) {
   return (
     hours.regular.every((day) => day.isClosed || day.periods.length === 0) &&
@@ -106,9 +120,13 @@ function HoursForm({
     hours: HoursState
     draft: HoursState["canonical"]
     dirty: boolean
-    needsAck: boolean
-    rows: ReturnType<typeof hoursChangeRows>
+    rows: ReturnType<typeof markHoursConflicts<HoursChangeRow>>
   } | null>(null)
+  // The parts (days, dates, services) going out with this publish. Every
+  // changed part starts ticked; anything unticked is still saved here.
+  const [selectedParts, setSelectedParts] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
   const [reconciling, setReconciling] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -124,29 +142,32 @@ function HoursForm({
     return map
   }, [attempts, issues])
 
-  const needsAck =
-    hours.status === "google_dirty" || hours.status === "conflict"
-
-  const rows = useMemo(() => {
-    const input = {
-      draft,
-      google: hours.google,
-      canonical: hours.canonical,
-    }
-    const all = hoursChangeRows({
-      ...input,
-      supportedHoursTypes: hours.supportedHoursTypes,
-    })
-    return needsAck
-      ? all.map((row) => ({ ...row, state: "conflict" as const }))
-      : all
-  }, [
-    draft,
-    hours.google,
-    hours.canonical,
-    hours.supportedHoursTypes,
-    needsAck,
-  ])
+  // A row overwrites a Google change when its part changed on Google since
+  // the last publish (or, with no per-part baseline, when the schedule did).
+  const rows = useMemo(
+    () =>
+      markHoursConflicts(
+        hoursChangeRows({
+          draft,
+          google: hours.google,
+          canonical: hours.canonical,
+          supportedHoursTypes: hours.supportedHoursTypes,
+        }),
+        hours
+      ),
+    [draft, hours]
+  )
+  const parts = useMemo(
+    () => hoursPublishParts(rows, hours.supportedHoursTypes),
+    [rows, hours.supportedHoursTypes]
+  )
+  // Part selection needs the Google part hashes to pin each part.
+  const canSelectParts = Boolean(hours.googlePartHashes)
+  const reviewRows = reviewed
+    ? canSelectParts
+      ? reviewed.rows.filter((row) => selectedParts.has(row.part))
+      : reviewed.rows
+    : rows
 
   /**
    * Save then publish, behind one button. The publish call needs the revision
@@ -159,6 +180,8 @@ function HoursForm({
     saved.current = null
     if (!reviewed) return []
     const snapshot = reviewed
+    const chosen = [...selectedParts]
+    const needsAck = reviewRows.some((row) => row.state === "conflict")
     const steps: PublishStep[] = []
     if (snapshot.dirty) {
       steps.push({
@@ -202,17 +225,31 @@ function HoursForm({
         // An empty mask means the saved schedule already matches Google —
         // nothing left to send, and the publish route would reject it.
         if (fresh.updateMask.length === 0) return NOTHING_TO_SEND
-        await publishHours(locationId, {
+        // Only the chosen days, dates and services; Google keeps the rest.
+        const partial = canSelectParts
+          ? hoursSelectionRequest(fresh, chosen)
+          : null
+        if (canSelectParts && !partial) return NOTHING_TO_SEND
+        const result = await publishHours(locationId, {
           expectedCanonicalRevision: fresh.canonicalResource.revision,
           expectedCanonicalHash: fresh.canonicalHash,
           expectedGoogleHash: fresh.googleHash,
           approvedUpdateMask: fresh.updateMask,
-          confirmOverwriteGoogleChanges: snapshot.needsAck,
+          confirmOverwriteGoogleChanges: needsAck,
+          ...partial,
         })
+        if (result.status === "in_sync") return NOTHING_TO_SEND
       },
     })
     return steps
-  }, [locationId, reviewed, expectSave])
+  }, [
+    locationId,
+    reviewed,
+    expectSave,
+    selectedParts,
+    reviewRows,
+    canSelectParts,
+  ])
 
   const flow = usePublishFlow({
     steps: buildSteps,
@@ -276,9 +313,9 @@ function HoursForm({
       hours: structuredClone(hours),
       draft: structuredClone(draft),
       dirty: isDirty,
-      needsAck,
       rows: structuredClone(rows),
     })
+    setSelectedParts(new Set(parts.map((part) => part.key)))
     setReviewOpen(true)
   }
 
@@ -462,8 +499,27 @@ function HoursForm({
       <ReviewChangesSheet
         open={reviewOpen}
         onOpenChange={setReviewOpen}
-        rows={reviewed?.rows ?? rows}
+        rows={reviewRows}
         locationName={hours.location.name}
+        selection={
+          reviewed && canSelectParts
+            ? {
+                options: hoursPublishParts(
+                  reviewed.rows,
+                  reviewed.hours.supportedHoursTypes
+                ),
+                selected: selectedParts,
+                onChange: (key, checked) =>
+                  setSelectedParts((current) => {
+                    const next = new Set(current)
+                    if (checked) next.add(key)
+                    else next.delete(key)
+                    return next
+                  }),
+                note: leftOutNote(reviewed.dirty),
+              }
+            : undefined
+        }
         onPublish={() => void flow.publish()}
         publishing={flow.isPublishing}
         results={flow.results}

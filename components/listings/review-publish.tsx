@@ -60,6 +60,10 @@ import {
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
+import {
+  hoursSelectionRequest,
+  markHoursConflicts,
+} from "@/lib/editors/hours-presentation"
 import { hoursChangeRows } from "@/lib/locations/hours-diff"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
@@ -178,20 +182,29 @@ function useHoursReview(locationId: string, enabled: boolean) {
   const review = useMemo<AreaReview | null>(() => {
     if (!enabled || !query.data) return null
     const hours = query.data
-    const needsAck =
-      hours.status === "google_dirty" || hours.status === "conflict"
-    // The row-level conflict flag compares Google with a baseline this state
-    // does not carry (draft and canonical are the same saved copy here), so
-    // it would mark every row. The area's own drift status decides instead.
-    const rows = hoursChangeRows({
-      draft: hours.canonical,
-      google: hours.google,
-      canonical: hours.canonical,
-      supportedHoursTypes: hours.supportedHoursTypes,
-    }).map((row) => ({
-      ...row,
-      state: needsAck ? ("conflict" as const) : ("changed" as const),
-    }))
+    // A row overwrites a Google change when its part (day, date, service)
+    // changed on Google since its baseline; with no per-part baseline the
+    // area's own drift status decides for every row.
+    const changes = markHoursConflicts(
+      hoursChangeRows({
+        draft: hours.canonical,
+        google: hours.google,
+        canonical: hours.canonical,
+        supportedHoursTypes: hours.supportedHoursTypes,
+      }),
+      hours
+    )
+    const rows: ChangeRow[] = changes
+    const needsAck = rows.some((row) => row.state === "conflict")
+    // Publish exactly the parts shown, pinned to the Google parts read for
+    // this page; every other day, date and service stays as Google has it.
+    const partial =
+      changes.length > 0
+        ? hoursSelectionRequest(
+            hours,
+            changes.map((row) => row.part)
+          )
+        : null
     const blockedReason = hours.reconciliationRequired
       ? "Open the hours editor to review and save the missing closing boundaries before publishing."
       : hours.publicationBlocked
@@ -218,6 +231,7 @@ function useHoursReview(locationId: string, enabled: boolean) {
                     expectedGoogleHash: hours.googleHash,
                     approvedUpdateMask: hours.updateMask,
                     confirmOverwriteGoogleChanges: needsAck,
+                    ...partial,
                   })
                   if (result.status === "in_sync") return NOTHING_TO_SEND
                 },

@@ -49,6 +49,7 @@ function ReviewChangesSheet({
   results,
   error,
   publishDisabledReason,
+  selection,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -66,6 +67,18 @@ function ReviewChangesSheet({
   error?: string | null
   /** Why publishing can't run right now (paused, no permission). */
   publishDisabledReason?: string | null
+  /**
+   * Present when the resource can publish part of a change (hours: single
+   * days, dates and services). `rows` should then hold only the chosen
+   * parts' rows; whatever is left out stays saved here.
+   */
+  selection?: {
+    options: ReadonlyArray<{ key: string; label: string }>
+    selected: ReadonlySet<string>
+    onChange: (key: string, checked: boolean) => void
+    /** What happens to the parts left out, in the resource's words. */
+    note?: string
+  }
 }) {
   const unresolved = rows.filter((row) => row.blocking)
   const conflicts = rows.filter((row) => row.state === "conflict")
@@ -78,6 +91,16 @@ function ReviewChangesSheet({
   if (open !== wasOpen) {
     setWasOpen(open)
     if (open) setAcknowledged(false)
+  }
+  // Choosing another part that overwrites a Google change asks again: the
+  // tick covered the conflicts on screen when it was given.
+  const conflictSignature = conflicts
+    .map((row) => row.key ?? row.field)
+    .join("\n")
+  const [ackedSignature, setAckedSignature] = React.useState(conflictSignature)
+  if (conflictSignature !== ackedSignature) {
+    setAckedSignature(conflictSignature)
+    setAcknowledged(false)
   }
 
   const blocked =
@@ -103,6 +126,30 @@ function ReviewChangesSheet({
         </SheetHeader>
 
         <SheetBody>
+          {selection && selection.options.length > 1 ? (
+            <fieldset className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
+              <legend className="px-1 text-ui font-semibold text-ink">
+                Choose what to publish
+              </legend>
+              {selection.options.map((option) => (
+                <Checkbox
+                  key={option.key}
+                  checked={selection.selected.has(option.key)}
+                  disabled={publishing}
+                  onCheckedChange={(checked) =>
+                    selection.onChange(option.key, Boolean(checked))
+                  }
+                  label={option.label}
+                  labelClassName="text-ui"
+                />
+              ))}
+              <p className="text-caption text-ink-muted">
+                {selection.note ??
+                  "Anything left out stays as Google has it now."}
+              </p>
+            </fieldset>
+          ) : null}
+
           <ChangeDiff
             rows={rows}
             caption={`Changes to publish for ${locationName}`}
