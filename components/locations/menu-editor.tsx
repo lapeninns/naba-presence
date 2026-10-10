@@ -1,8 +1,16 @@
 "use client"
 
-import { ChevronDownIcon, ChevronUpIcon, Plus, Trash2Icon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { Plus, RotateCcw, Trash2Icon, UtensilsCrossed } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
+import {
+  FieldCaption,
+  InlineError,
+  MenuItemEditor,
+} from "@/components/locations/menu/item-editor"
+import { MenuPreview } from "@/components/locations/menu/menu-preview"
+import { MenuSectionEditor } from "@/components/locations/menu/section-editor"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -13,6 +21,13 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Empty } from "@/components/ui/empty"
+import { fieldChromeClassName } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import {
   Select,
   SelectContent,
@@ -20,10 +35,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { FoodMenu } from "@/lib/api/location-menu"
+import {
+  currencyOf as storedCurrencyOf,
+  hydrateMenus,
+  insertAt,
+  moveBy,
+  parseMenuPrice,
+  readLabel,
+  readPrice,
+  withPrice,
+} from "@/lib/locations/forms/menu-editor"
 import { cn } from "@/lib/utils"
+
+export { currencySymbol, readPrice } from "@/lib/locations/forms/menu-editor"
 
 type Json = Record<string, unknown>
 
@@ -34,97 +60,77 @@ type Json = Record<string, unknown>
  * the menu is saved or compared with Google.
  */
 const PRICE_TEXT_KEY = "__npPriceText"
+/**
+ * The currency of a price the operator cleared, so re-entering an amount in
+ * the same session keeps EUR rather than falling back to GBP. Browser only,
+ * like PRICE_TEXT_KEY.
+ */
+const CURRENCY_KEY = "__npPriceCurrency"
+const DRAFT_KEYS = [PRICE_TEXT_KEY, CURRENCY_KEY] as const
 
-/** An amount in the item's currency: whole units, then up to two decimals. */
-const PRICE_PATTERN = /^\d{1,7}(\.\d{1,2})?$/
+/** Google accepts at most this many menus in one replacement. */
+const MAX_MENUS = 100
 
-function label(node: Json): { displayName: string; description: string } {
-  const labels = Array.isArray(node.labels) ? node.labels : []
-  const first = (labels[0] ?? {}) as Json
-  return {
-    displayName: typeof first.displayName === "string" ? first.displayName : "",
-    description: typeof first.description === "string" ? first.description : "",
-  }
-}
-
+/**
+ * Change the primary label only; translations and unknown label properties
+ * survive. A cleared description is removed rather than sent empty.
+ */
 function withLabel(node: Json, displayName: string, description: string): Json {
   const labels = Array.isArray(node.labels) ? [...(node.labels as Json[])] : []
-  // Explicit Json annotation: without it TS narrows the spread's inferred
-  // type to just `{ displayName: string }` (losing the index signature),
-  // which then rejects the `.description` assignment/delete below.
   const first: Json = { ...((labels[0] as Json) ?? {}), displayName }
   if (description) first.description = description
   else delete first.description
   return { ...node, labels: [first, ...labels.slice(1)] }
 }
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  GBP: "£",
-  EUR: "€",
-  USD: "$",
-  AUD: "$",
-  CAD: "$",
-  NZD: "$",
-  INR: "₹",
-  JPY: "¥",
-}
-
-// The item's own currency, derived from its existing price; GBP only as a
-// fallback for an item that has never had a price (never rewrites another currency).
+/**
+ * The item's currency: the one it is priced in, else the one it was priced
+ * in before the operator cleared it, else GBP for a never-priced item. An
+ * imported currency is never rewritten.
+ */
 export function currencyOf(item: Json): string {
-  const price = (item.attributes ?? {}) as Json
-  const code = (price.price ?? {}) as Json
-  return typeof code.currencyCode === "string" && code.currencyCode
-    ? code.currencyCode
-    : "GBP"
+  const remembered = item[CURRENCY_KEY]
+  if (typeof remembered === "string" && remembered) {
+    const stored = (item.attributes as Json | undefined)?.price
+    if (!stored) return remembered
+  }
+  return storedCurrencyOf(item)
 }
 
-export function currencySymbol(code: string): string {
-  return CURRENCY_SYMBOLS[code] ?? code
-}
-
-export function readPrice(item: Json): string {
-  const attributes = (item.attributes ?? {}) as Json
-  const price = (attributes.price ?? {}) as Json
-  if (price.units === undefined && price.nanos === undefined) return ""
-  const units = String(price.units ?? "0")
-  const nanos = typeof price.nanos === "number" ? price.nanos : 0
-  const fraction = nanos ? (nanos / 1e9).toFixed(2).slice(1) : ""
-  return `${units}${fraction}`
+/**
+ * The stored price as an editable amount: exact (never rounded to two
+ * places), with a whole amount shown without a trailing ".00".
+ */
+function storedPriceText(item: Json): string {
+  const exact = readPrice(item)
+  return exact.endsWith(".00") ? exact.slice(0, -3) : exact
 }
 
 /** What the price field shows: the text being typed, else the stored price. */
 function priceText(item: Json): string {
   const typed = item[PRICE_TEXT_KEY]
-  return typeof typed === "string" ? typed : readPrice(item)
+  return typeof typed === "string" ? typed : storedPriceText(item)
 }
 
 function withPriceText(item: Json, value: string): Json {
-  const trimmed = value.trim()
-  const attributes = { ...((item.attributes ?? {}) as Json) }
+  const parsed = parseMenuPrice(value)
+  const currency = currencyOf(item)
+  const hadPrice = Boolean((item.attributes as Json | undefined)?.price)
   let next: Json = { ...item }
-  if (!trimmed) {
-    delete attributes.price
-    next = { ...next, attributes }
-  } else if (PRICE_PATTERN.test(trimmed)) {
-    // Preserve the item's existing currency; default GBP only for a
-    // brand-new price.
-    const existing = (attributes.price ?? {}) as Json
-    const currencyCode =
-      typeof existing.currencyCode === "string" && existing.currencyCode
-        ? existing.currencyCode
-        : "GBP"
-    const [unitsPart, fractionPart = ""] = trimmed.split(".")
-    const units = String(Number.parseInt(unitsPart || "0", 10) || 0)
-    const nanos = fractionPart
-      ? Math.round(Number(`0.${fractionPart}`) * 1e9)
-      : 0
-    attributes.price = { currencyCode, units, nanos }
-    next = { ...next, attributes }
+  if (parsed.ok && parsed.value === null) {
+    if (hadPrice) {
+      next = withPrice(item, "")
+      // Remember a non-default currency so typing a new amount keeps it.
+      if (currency !== "GBP") next[CURRENCY_KEY] = currency
+    }
+  } else if (parsed.ok) {
+    // Exact decimal conversion; invalid text never replaces a valid price.
+    next = withPrice(item, value, currency)
+    delete next[CURRENCY_KEY]
   }
   // Keep the typed text only while it reads differently from the stored
   // price, so retyping the original value leaves the item unchanged.
-  if (value === readPrice(next)) delete next[PRICE_TEXT_KEY]
+  if (value === storedPriceText(next)) delete next[PRICE_TEXT_KEY]
   else next[PRICE_TEXT_KEY] = value
   return next
 }
@@ -137,6 +143,13 @@ function itemsOf(section: Json): Json[] {
   return Array.isArray(section.items) ? (section.items as Json[]) : []
 }
 
+function stripItem(item: Json): Json {
+  if (!DRAFT_KEYS.some((key) => key in item)) return item
+  const clean = { ...item }
+  for (const key of DRAFT_KEYS) delete clean[key]
+  return clean
+}
+
 /** Removes the editor's typing state so only Google's own fields remain. */
 export function stripDraftKeys(menus: FoodMenu[]): FoodMenu[] {
   return menus.map((menu) => {
@@ -147,97 +160,86 @@ export function stripDraftKeys(menus: FoodMenu[]): FoodMenu[] {
         if (!Array.isArray(section.items)) return section
         return {
           ...section,
-          items: (section.items as Json[]).map((item) => {
-            if (!(PRICE_TEXT_KEY in item)) return item
-            const clean = { ...item }
-            delete clean[PRICE_TEXT_KEY]
-            return clean
-          }),
+          items: (section.items as Json[]).map(stripItem),
         }
       }),
     }
   })
 }
 
+// The first menu keeps the ids it always had, so links into it still work.
+const scope = (m: number) => (m === 0 ? "menu" : `menu-m${m}`)
+
 export const menuFieldId = {
-  section: (s: number) => `menu-s${s}-name`,
-  itemName: (s: number, i: number) => `menu-s${s}-i${i}-name`,
-  itemPrice: (s: number, i: number) => `menu-s${s}-i${i}-price`,
+  menuName: (m = 0) => `menu-m${m}-title`,
+  section: (s: number, m = 0) => `${scope(m)}-s${s}-name`,
+  sectionDescription: (s: number, m = 0) => `${scope(m)}-s${s}-description`,
+  itemName: (s: number, i: number, m = 0) => `${scope(m)}-s${s}-i${i}-name`,
+  itemPrice: (s: number, i: number, m = 0) => `${scope(m)}-s${s}-i${i}-price`,
+  itemDescription: (s: number, i: number, m = 0) =>
+    `${scope(m)}-s${s}-i${i}-description`,
 }
 
-export type MenuProblem = { fieldId: string; message: string }
+export type MenuProblem = {
+  fieldId: string
+  message: string
+  /** Which menu the field is in, so the editor can show that menu first. */
+  menuIndex?: number
+}
 
 /**
- * What must be fixed before the menu can be reviewed: every section and item
- * needs a name (Google shows nothing else to customers), and a price must
- * be an amount. Returned in reading order so the summary lists them as they
- * appear.
+ * What must be fixed before the menu can be reviewed: every menu, section
+ * and item needs a name (Google shows nothing else to customers), and a
+ * price must be an exact, non-negative amount. Every menu is checked, not
+ * only the one on screen. Returned in reading order so the summary lists
+ * them as they appear.
  */
 export function validateMenu(menus: FoodMenu[]): MenuProblem[] {
   const problems: MenuProblem[] = []
-  const menu = (menus[0] ?? {}) as Json
-  sectionsOf(menu).forEach((section, s) => {
-    const sectionName = label(section).displayName.trim()
-    const where = sectionName || `Section ${s + 1}`
-    if (!sectionName)
+  const several = menus.length > 1
+  menus.forEach((menu, m) => {
+    const menuName = readLabel(menu).displayName.trim()
+    const menuWhere = menuName || `Menu ${m + 1}`
+    const prefix = several ? `${menuWhere} · ` : ""
+    if (!menuName)
       problems.push({
-        fieldId: menuFieldId.section(s),
-        message: `Section ${s + 1}: name this section.`,
+        menuIndex: m,
+        fieldId: menuFieldId.menuName(m),
+        message: `Menu ${m + 1}: name this menu.`,
       })
-    itemsOf(section).forEach((item, i) => {
-      const itemName = label(item).displayName.trim()
-      if (!itemName)
+    sectionsOf(menu).forEach((section, s) => {
+      const sectionName = readLabel(section).displayName.trim()
+      const where = sectionName || `Section ${s + 1}`
+      if (!sectionName)
         problems.push({
-          fieldId: menuFieldId.itemName(s, i),
-          message: `${where}, item ${i + 1}: name this item.`,
+          menuIndex: m,
+          fieldId: menuFieldId.section(s, m),
+          message: `${prefix}Section ${s + 1}: name this section.`,
         })
-      const typed = item[PRICE_TEXT_KEY]
-      if (
-        typeof typed === "string" &&
-        typed.trim() &&
-        !PRICE_PATTERN.test(typed.trim())
-      )
-        problems.push({
-          fieldId: menuFieldId.itemPrice(s, i),
-          message: `${itemName || `${where}, item ${i + 1}`}: enter the price as an amount, like 12.50.`,
-        })
+      itemsOf(section).forEach((item, i) => {
+        const itemName = readLabel(item).displayName.trim()
+        if (!itemName)
+          problems.push({
+            menuIndex: m,
+            fieldId: menuFieldId.itemName(s, i, m),
+            message: `${prefix}${where}, item ${i + 1}: name this item.`,
+          })
+        const typed = item[PRICE_TEXT_KEY]
+        const parsed = typeof typed === "string" ? parseMenuPrice(typed) : null
+        if (parsed && !parsed.ok)
+          problems.push({
+            menuIndex: m,
+            fieldId: menuFieldId.itemPrice(s, i, m),
+            message: `${prefix}${itemName || `${where}, item ${i + 1}`}: ${
+              /too large/.test(parsed.error)
+                ? "this price is too large."
+                : "enter the price as an amount, like 12.50."
+            }`,
+          })
+      })
     })
   })
   return problems
-}
-
-function move<T>(list: T[], from: number, to: number): T[] {
-  if (to < 0 || to >= list.length) return list
-  const next = [...list]
-  const [entry] = next.splice(from, 1)
-  next.splice(to, 0, entry as T)
-  return next
-}
-
-function FieldCaption({
-  htmlFor,
-  children,
-}: {
-  htmlFor: string
-  children: React.ReactNode
-}) {
-  return (
-    <label
-      htmlFor={htmlFor}
-      className="text-[11.5px] leading-4 font-semibold text-ink-muted"
-    >
-      {children}
-    </label>
-  )
-}
-
-function InlineError({ id, message }: { id: string; message?: string }) {
-  if (!message) return null
-  return (
-    <p id={id} className="text-caption font-medium text-danger-ink">
-      {message}
-    </p>
-  )
 }
 
 type MenuIdentities = {
@@ -246,10 +248,13 @@ type MenuIdentities = {
 }
 
 function registerMenuNodes(
-  sections: Json[],
+  menus: Json[],
   previous: MenuIdentities
 ): MenuIdentities {
-  const nodes = sections.flatMap((section) => [section, ...itemsOf(section)])
+  const nodes = menus.flatMap((menu) => [
+    menu,
+    ...sectionsOf(menu).flatMap((section) => [section, ...itemsOf(section)]),
+  ])
   if (
     nodes.length === previous.keys.size &&
     nodes.every((node) => previous.keys.has(node))
@@ -264,16 +269,43 @@ function registerMenuNodes(
   return { keys, nextId }
 }
 
+/** The last removal, restorable into the CURRENT draft (one level, session). */
+type Removal =
+  | { kind: "menu"; node: Json; index: number }
+  | { kind: "section"; node: Json; index: number; menuKey: string }
+  | {
+      kind: "item"
+      node: Json
+      index: number
+      menuKey: string
+      sectionKey: string
+    }
+
+function removalName(removal: Removal): string {
+  return readLabel(removal.node).displayName.trim() || `this ${removal.kind}`
+}
+
+function removalItemCount(removal: Removal): number {
+  if (removal.kind === "item") return 1
+  if (removal.kind === "section") return itemsOf(removal.node).length
+  return sectionsOf(removal.node).reduce(
+    (sum, section) => sum + itemsOf(section).length,
+    0
+  )
+}
+
 /**
- * The food menu editor (reference `.menu-ed`). Each section is a card with a
- * sunken head holding its name, item count and order controls; each item is
- * a bordered row inside it with name, description and price, and move and
- * remove controls that are always visible (never hover-only).
+ * The food menu workspace. Choose a menu, find a section, edit its items,
+ * preview the draft, then review. The menu selector scopes editing only:
+ * validation, review and publishing always cover every menu.
  *
- * It edits the first menu's sections and items, the parts the repo's menu
- * model covers. Anything else Google stores on them (options, attributes,
- * extra labels) is carried through untouched, and an item with options says
- * so.
+ * Each section is a card with a sunken head holding its name, item count
+ * and order controls; each item is a bordered row inside it with name,
+ * description and price, and move, duplicate and remove controls that are
+ * always visible (never hover-only). Removal asks first and can be undone
+ * once without losing later edits. Anything else Google stores on menus,
+ * sections and items (options, attributes, extra labels) is carried through
+ * untouched, and an item with options says so.
  */
 export function MenuEditor({
   menus,
@@ -291,17 +323,18 @@ export function MenuEditor({
   changedPaths?: readonly string[]
   validationAttempt?: number
 }) {
-  const menu = (menus[0] ?? {}) as Json
-  const sections = sectionsOf(menu)
-  const [removeIndex, setRemoveIndex] = useState<number | null>(null)
   const [search, setSearch] = useState("")
   const [changedOnly, setChangedOnly] = useState(false)
   const [activeItem, setActiveItem] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<string | null>(null)
+  const [view, setView] = useState<"edit" | "preview">("edit")
+  const [pending, setPending] = useState<Removal | null>(null)
+  const [undo, setUndo] = useState<Removal | null>(null)
+  const [announcement, setAnnouncement] = useState("")
   const [identity, setIdentity] = useState(() =>
-    registerMenuNodes(sections, { keys: new Map(), nextId: 0 })
+    registerMenuNodes(menus, { keys: new Map(), nextId: 0 })
   )
-  const registered = registerMenuNodes(sections, identity)
+  const registered = registerMenuNodes(menus, identity)
   if (registered !== identity) setIdentity(registered)
   function keyOf(node: Json): string {
     const key = registered.keys.get(node)
@@ -315,12 +348,51 @@ export function MenuEditor({
       keys: new Map(current.keys).set(next, key),
     }))
   }
+  const [selectedKey, setSelectedKey] = useState<string | null>(() =>
+    menus[0] ? keyOf(menus[0]) : null
+  )
   const [collapsed, setCollapsed] = useState(
-    () => new Set(sections.length > 8 ? sections.slice(1).map(keyOf) : [])
+    () =>
+      new Set(
+        menus.flatMap((menu) => {
+          const sections = sectionsOf(menu)
+          return sections.length > 8 ? sections.slice(1).map(keyOf) : []
+        })
+      )
   )
   const [focusTarget, setFocusTarget] = useState<{ fieldId: string } | null>(
     null
   )
+  const removedRef = useRef(false)
+  const undoRef = useRef<HTMLButtonElement>(null)
+  const cancelRef = useRef<HTMLButtonElement>(null)
+
+  // A draft replaced from outside (Discard, a colleague's revision, Start
+  // from Google) is not ours to undo into: drop the removal history then.
+  const [source, setSource] = useState(menus)
+  const [emitted, setEmitted] = useState<FoodMenu[] | null>(null)
+  if (menus !== source) {
+    setSource(menus)
+    if (menus !== emitted) {
+      setUndo(null)
+      setPending(null)
+    }
+  }
+
+  // Selecting a menu that only exists after the parent re-renders.
+  const [pendingSelect, setPendingSelect] = useState<number | null>(null)
+  if (pendingSelect !== null && menus[pendingSelect]) {
+    setPendingSelect(null)
+    setSelectedKey(keyOf(menus[pendingSelect]))
+  }
+
+  const foundIndex = menus.findIndex(
+    (menu) => registered.keys.get(menu) === selectedKey
+  )
+  const activeIndex = foundIndex === -1 ? 0 : foundIndex
+  const menu = (menus[activeIndex] ?? {}) as Json
+  const sections = sectionsOf(menu)
+
   const [lastValidationAttempt, setLastValidationAttempt] =
     useState(validationAttempt)
   if (validationAttempt !== lastValidationAttempt) {
@@ -329,6 +401,14 @@ export function MenuEditor({
       setSearch("")
       setChangedOnly(false)
       setCollapsed(new Set())
+      setView("edit")
+      // Show the menu holding the first problem, so the summary's link and
+      // the field's own error are on screen together.
+      const here = problems.some(
+        (problem) => (problem.menuIndex ?? 0) === activeIndex
+      )
+      const first = menus[problems[0]?.menuIndex ?? 0]
+      if (!here && first) setSelectedKey(keyOf(first))
     }
   }
   useEffect(() => {
@@ -337,6 +417,7 @@ export function MenuEditor({
     target?.scrollIntoView?.({ block: "center" })
     target?.focus({ preventScroll: true })
   }, [focusTarget])
+
   const query = search.trim().toLocaleLowerCase()
   const filtering = Boolean(query) || changedOnly
   const totalItems = sections.reduce(
@@ -351,8 +432,8 @@ export function MenuEditor({
   ) {
     if (activeItem === keyOf(item) || activeSection === keyOf(section))
       return true
-    const details = label(item)
-    const itemPath = `menus[0].sections[${sectionIndex}].items[${itemIndex}]`
+    const details = readLabel(item)
+    const itemPath = `menus[${activeIndex}].sections[${sectionIndex}].items[${itemIndex}]`
     const changed = changedPaths.some(
       (path) =>
         path === itemPath ||
@@ -361,7 +442,7 @@ export function MenuEditor({
         itemPath.startsWith(`${path}.`)
     )
     const text =
-      `${label(section).displayName} ${details.displayName} ${details.description}`.toLocaleLowerCase()
+      `${readLabel(section).displayName} ${details.displayName} ${details.description}`.toLocaleLowerCase()
     return (!query || text.includes(query)) && (!changedOnly || changed)
   }
   const shownItems = sections.reduce(
@@ -377,18 +458,28 @@ export function MenuEditor({
   function revealSection(index: number) {
     setSearch("")
     setChangedOnly(false)
+    setView("edit")
     setCollapsed(
       (current) =>
         new Set([...current].filter((key) => key !== keyOf(sections[index])))
     )
-    setFocusTarget({ fieldId: menuFieldId.section(index) })
+    setFocusTarget({ fieldId: menuFieldId.section(index, activeIndex) })
   }
 
   const problemFor = (fieldId: string) =>
     problems.find((problem) => problem.fieldId === fieldId)?.message
 
+  function emit(next: FoodMenu[]) {
+    if (disabled) return
+    setEmitted(next)
+    onChange(next)
+  }
+  function setMenu(next: Json) {
+    carryIdentity(menu, next)
+    emit(menus.map((entry, m) => (m === activeIndex ? next : entry)))
+  }
   function setSections(next: Json[]) {
-    onChange([{ ...menu, sections: next }, ...menus.slice(1)])
+    setMenu({ ...menu, sections: next })
   }
   function setSection(index: number, section: Json) {
     carryIdentity(sections[index], section)
@@ -398,123 +489,464 @@ export function MenuEditor({
     setSection(sectionIndex, { ...sections[sectionIndex], items })
   }
 
-  const removing = removeIndex === null ? null : sections[removeIndex]
-  const removingName = removing ? label(removing).displayName.trim() : ""
-  const removingCount = removing ? itemsOf(removing).length : 0
+  function addMenu() {
+    if (disabled || menus.length >= MAX_MENUS) return
+    const created: Json = { labels: [{ displayName: "" }] }
+    emit([...menus, created])
+    // The new object is registered on the next render; select it by index.
+    setPendingSelect(menus.length)
+    setView("edit")
+    setSearch("")
+    setChangedOnly(false)
+    setFocusTarget({ fieldId: menuFieldId.menuName(menus.length) })
+    setAnnouncement("New menu added. Enter its name.")
+  }
+  function addSection() {
+    if (disabled) return
+    setSections([...sections, { labels: [{ displayName: "" }], items: [] }])
+    setSearch("")
+    setChangedOnly(false)
+    setFocusTarget({
+      fieldId: menuFieldId.section(sections.length, activeIndex),
+    })
+    setAnnouncement("New section added. Enter its name.")
+  }
+
+  function addItem(sectionIndex: number, duplicateOf?: number) {
+    if (disabled) return
+    const items = itemsOf(sections[sectionIndex])
+    const source = duplicateOf === undefined ? null : items[duplicateOf]
+    const position = source ? (duplicateOf as number) + 1 : items.length
+    const created: Json = source
+      ? withLabel(
+          source,
+          `${readLabel(source).displayName || "Item"} (copy)`,
+          readLabel(source).description
+        )
+      : { labels: [{ displayName: "" }] }
+    setItems(sectionIndex, insertAt(items, position, created))
+    setFocusTarget({
+      fieldId: menuFieldId.itemName(sectionIndex, position, activeIndex),
+    })
+    setAnnouncement(
+      source
+        ? "Item duplicated. Edit the copy below the original."
+        : "New item added. Enter its name."
+    )
+  }
+
+  function remove() {
+    const removal = pending
+    if (!removal || disabled) return
+    removedRef.current = true
+    if (removal.kind === "menu") {
+      emit(menus.filter((_, m) => m !== removal.index))
+    } else if (removal.kind === "section") {
+      setSections(sections.filter((_, s) => s !== removal.index))
+    } else {
+      const sectionIndex = sections.findIndex(
+        (section) => keyOf(section) === removal.sectionKey
+      )
+      if (sectionIndex !== -1)
+        setItems(
+          sectionIndex,
+          itemsOf(sections[sectionIndex]).filter((_, i) => i !== removal.index)
+        )
+    }
+    setUndo(removal)
+    setPending(null)
+    setAnnouncement(
+      `${removalName(removal)} removed from the draft. Undo is available.`
+    )
+  }
+
+  function restore() {
+    const removal = undo
+    if (!removal || disabled) return
+    setUndo(null)
+    if (removal.kind === "menu") {
+      const index = Math.min(removal.index, menus.length)
+      emit(insertAt(menus, index, removal.node))
+      setPendingSelect(index)
+      setFocusTarget({ fieldId: menuFieldId.menuName(index) })
+    } else {
+      const m = menus.findIndex((entry) => keyOf(entry) === removal.menuKey)
+      const target = menus[m]
+      if (!target) {
+        setAnnouncement(
+          "That entry’s menu was removed, so it can’t be restored."
+        )
+        return
+      }
+      const targetSections = sectionsOf(target)
+      let next: Json
+      let fieldId: string
+      if (removal.kind === "section") {
+        const index = Math.min(removal.index, targetSections.length)
+        next = {
+          ...target,
+          sections: insertAt(targetSections, index, removal.node),
+        }
+        fieldId = menuFieldId.section(index, m)
+      } else {
+        const s = targetSections.findIndex(
+          (section) => keyOf(section) === removal.sectionKey
+        )
+        const section = targetSections[s]
+        if (!section) {
+          setAnnouncement(
+            "That item’s section was removed, so it can’t be restored."
+          )
+          return
+        }
+        const items = itemsOf(section)
+        const index = Math.min(removal.index, items.length)
+        const restored = {
+          ...section,
+          items: insertAt(items, index, removal.node),
+        }
+        carryIdentity(section, restored)
+        next = {
+          ...target,
+          sections: targetSections.map((entry, i) =>
+            i === s ? restored : entry
+          ),
+        }
+        fieldId = menuFieldId.itemName(s, index, m)
+        setCollapsed(
+          (current) =>
+            new Set([...current].filter((key) => key !== removal.sectionKey))
+        )
+      }
+      carryIdentity(target, next)
+      emit(menus.map((entry, i) => (i === m ? next : entry)))
+      setSelectedKey(removal.menuKey)
+      setFocusTarget({ fieldId })
+    }
+    setSearch("")
+    setChangedOnly(false)
+    setView("edit")
+    setAnnouncement(
+      `${removalName(removal)} restored. Your other edits are unchanged.`
+    )
+  }
+
+  const allProblems = validateMenu(menus)
+  const previewBlocked = allProblems.length > 0
+  const showPreview = view === "preview" && !previewBlocked
+  const menuLabel = readLabel(menu)
+  const menuNameId = menuFieldId.menuName(activeIndex)
+  const menuNameError = problemFor(menuNameId)
+  const pendingCount = pending ? removalItemCount(pending) : 0
+
+  if (menus.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-5 rounded-lg border border-line bg-surface px-6 py-12">
+        <Empty
+          icon={<UtensilsCrossed aria-hidden />}
+          titleAs="h3"
+          title="Build your first menu"
+          description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
+        />
+        {!disabled ? (
+          <Button onClick={addMenu}>
+            <Plus aria-hidden />
+            Create menu
+          </Button>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
-    <div className="flex flex-col gap-3.5">
-      <div
-        className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
-        role="search"
-        aria-label="Find menu items"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Input
-            type="search"
-            aria-label="Search menu"
-            placeholder="Search items, descriptions or sections"
-            value={search}
-            onChange={(event) => {
-              setActiveItem(null)
-              setActiveSection(null)
-              setSearch(event.target.value)
-            }}
-            className="min-w-0 shrink-0 sm:flex-1"
-          />
-          <Select
-            value={null}
-            onValueChange={(value) => {
-              if (typeof value === "string") revealSection(Number(value))
-            }}
-          >
-            <SelectTrigger aria-label="Jump to section" className="sm:w-64">
-              <SelectValue placeholder="Jump to section" />
-            </SelectTrigger>
-            <SelectContent>
-              {sections.map((section, index) => (
-                <SelectItem key={keyOf(section)} value={String(index)}>
-                  {label(section).displayName || `Section ${index + 1}`}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Checkbox
-            checked={changedOnly}
-            onCheckedChange={(checked) => setChangedOnly(Boolean(checked))}
-            label="Changed items only"
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCollapsed(new Set(sections.map(keyOf)))}
-          >
-            Collapse all sections
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setCollapsed(new Set())}
-          >
-            Expand all sections
-          </Button>
-          {filtering ? (
+    <div data-slot="menu-editor" className="flex min-w-0 flex-col gap-3.5">
+      <p className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </p>
+
+      {undo ? (
+        <Alert variant="info">
+          <AlertTitle>{removalName(undo)} removed from this draft</AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>Undo the last removal without losing your other edits.</span>
             <Button
-              variant="ghost"
+              ref={undoRef}
+              variant="secondary"
               size="sm"
-              onClick={() => {
+              disabled={disabled}
+              onClick={restore}
+            >
+              <RotateCcw aria-hidden />
+              Undo removal
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-sm">
+            <FieldCaption htmlFor="menu-select">Menu</FieldCaption>
+            <select
+              id="menu-select"
+              value={keyOf(menu)}
+              onChange={(event) => {
+                setSelectedKey(event.target.value)
                 setSearch("")
                 setChangedOnly(false)
               }}
+              className={cn(
+                fieldChromeClassName,
+                "h-(--np-field-h) w-full px-3"
+              )}
             >
-              Clear filters
-            </Button>
-          ) : null}
-        </div>
-        <p role="status" className="text-caption text-ink-muted">
-          {shownItems} of {totalItems} items shown · {sections.length} sections
-          total
-        </p>
-        {filtering && shownItems === 0 ? (
-          <p className="text-body text-ink-muted">
-            No items match these filters. Saving and reviewing still includes
-            your full menu.
-          </p>
-        ) : null}
-      </div>
-      {sections.map((section, sectionIndex) => {
-        const items = itemsOf(section)
-        const sectionLabel = label(section)
-        const sectionName = sectionLabel.displayName || "this section"
-        const sectionId = menuFieldId.section(sectionIndex)
-        const sectionError = problemFor(sectionId)
-        const sectionKey = keyOf(section)
-        const expanded = filtering || !collapsed.has(sectionKey)
-        const matching = items.filter((item, itemIndex) =>
-          itemMatches(section, sectionIndex, item, itemIndex)
-        )
-        if (filtering && matching.length === 0) return null
-        return (
-          <section
-            key={sectionKey}
-            aria-label={
-              sectionLabel.displayName || `Section ${sectionIndex + 1}`
-            }
-            className="@container/section rounded-lg border border-line bg-surface"
-          >
-            <div
-              data-slot="field"
-              className="flex flex-wrap items-center gap-2 rounded-t-lg border-b border-line bg-surface-alt px-4 py-3"
+              {menus.map((entry, m) => (
+                <option key={keyOf(entry)} value={keyOf(entry)}>
+                  {readLabel(entry).displayName || `Untitled menu ${m + 1}`}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <SegmentedControl
+              aria-label="Menu view"
+              value={showPreview ? "preview" : "edit"}
+              onValueChange={(next) =>
+                setView(next === "preview" ? "preview" : "edit")
+              }
             >
+              <SegmentedControlItem value="edit">
+                Edit menu
+              </SegmentedControlItem>
+              <SegmentedControlItem value="preview" disabled={previewBlocked}>
+                Preview
+              </SegmentedControlItem>
+            </SegmentedControl>
+            {!disabled ? (
               <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-expanded={expanded}
-                aria-controls={`${sectionKey}-items`}
-                aria-label={`${expanded ? "Collapse" : "Expand"} ${sectionName}`}
-                onClick={() => {
+                variant="secondary"
+                disabled={menus.length >= MAX_MENUS}
+                onClick={addMenu}
+              >
+                <Plus aria-hidden />
+                New menu
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <p className="text-caption text-ink-muted">
+          {menus.length} {menus.length === 1 ? "menu" : "menus"} in this draft.
+          Saving, review and publishing include every menu, not only the one
+          selected.
+          {menus.length >= MAX_MENUS
+            ? ` Google allows at most ${MAX_MENUS} menus.`
+            : ""}
+          {previewBlocked && view === "preview"
+            ? " Fix the names and prices that need attention to preview."
+            : ""}
+        </p>
+      </div>
+
+      {showPreview ? (
+        <MenuPreview
+          menu={hydrateMenus(stripDraftKeys([menu]), keyOf(menu))[0]!}
+        />
+      ) : (
+        <>
+          <section
+            aria-labelledby="menu-details-heading"
+            className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3
+                id="menu-details-heading"
+                className="text-title font-semibold text-ink"
+              >
+                Menu details
+              </h3>
+              {!disabled ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
+                  aria-label={`Remove menu ${menuLabel.displayName || `Untitled menu ${activeIndex + 1}`}`}
+                  onClick={() =>
+                    setPending({ kind: "menu", node: menu, index: activeIndex })
+                  }
+                >
+                  <Trash2Icon aria-hidden />
+                  Remove menu
+                </Button>
+              ) : null}
+            </div>
+            <div data-slot="field" className="flex min-w-0 flex-col gap-1">
+              <FieldCaption htmlFor={menuNameId}>Menu name</FieldCaption>
+              <Input
+                id={menuNameId}
+                aria-invalid={menuNameError ? true : undefined}
+                aria-describedby={
+                  menuNameError ? `${menuNameId}-error` : undefined
+                }
+                placeholder="For example, lunch menu"
+                value={menuLabel.displayName}
+                disabled={disabled}
+                onChange={(event) =>
+                  setMenu(
+                    withLabel(menu, event.target.value, menuLabel.description)
+                  )
+                }
+              />
+              <InlineError id={`${menuNameId}-error`} message={menuNameError} />
+            </div>
+            <div className="flex min-w-0 flex-col gap-1">
+              <FieldCaption htmlFor={`${menuNameId}-description`}>
+                Menu description <span className="font-normal">(optional)</span>
+              </FieldCaption>
+              <Textarea
+                id={`${menuNameId}-description`}
+                rows={2}
+                placeholder="A short introduction to this menu"
+                value={menuLabel.description}
+                disabled={disabled}
+                onChange={(event) =>
+                  setMenu(
+                    withLabel(menu, menuLabel.displayName, event.target.value)
+                  )
+                }
+                className="field-sizing-content min-h-(--np-field-h)"
+              />
+            </div>
+          </section>
+
+          {sections.length > 0 ? (
+            <div
+              className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+              role="search"
+              aria-label="Find menu items"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  type="search"
+                  aria-label="Search menu"
+                  placeholder="Search items, descriptions or sections"
+                  value={search}
+                  onChange={(event) => {
+                    setActiveItem(null)
+                    setActiveSection(null)
+                    setSearch(event.target.value)
+                  }}
+                  className="min-w-0 shrink-0 sm:flex-1"
+                />
+                <Select
+                  value={null}
+                  onValueChange={(value) => {
+                    if (typeof value === "string") revealSection(Number(value))
+                  }}
+                >
+                  <SelectTrigger
+                    aria-label="Jump to section"
+                    className="sm:w-64"
+                  >
+                    <SelectValue placeholder="Jump to section" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sections.map((section, index) => (
+                      <SelectItem key={keyOf(section)} value={String(index)}>
+                        {readLabel(section).displayName ||
+                          `Section ${index + 1}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Checkbox
+                  checked={changedOnly}
+                  onCheckedChange={(checked) =>
+                    setChangedOnly(Boolean(checked))
+                  }
+                  label="Changed items only"
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCollapsed(new Set(sections.map(keyOf)))}
+                >
+                  Collapse all sections
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setCollapsed(new Set())}
+                >
+                  Expand all sections
+                </Button>
+                {filtering ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSearch("")
+                      setChangedOnly(false)
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                ) : null}
+              </div>
+              <p role="status" className="text-caption text-ink-muted">
+                {shownItems} of {totalItems} items shown · {sections.length}{" "}
+                sections total
+              </p>
+              {filtering && shownItems === 0 ? (
+                <p className="text-body text-ink-muted">
+                  No items match these filters. Saving and reviewing still
+                  includes your full menu.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-line bg-surface">
+              <Empty
+                icon={<UtensilsCrossed aria-hidden />}
+                titleAs="h3"
+                title="Start with a section"
+                description="Group this menu into sections such as starters, mains or drinks, then add the items customers can order."
+              />
+            </div>
+          )}
+
+          {sections.map((section, sectionIndex) => {
+            const items = itemsOf(section)
+            const sectionKey = keyOf(section)
+            const expanded = filtering || !collapsed.has(sectionKey)
+            const matching = items.filter((item, itemIndex) =>
+              itemMatches(section, sectionIndex, item, itemIndex)
+            )
+            if (filtering && matching.length === 0) return null
+            const sectionLabel = readLabel(section)
+            const sectionId = menuFieldId.section(sectionIndex, activeIndex)
+            return (
+              <MenuSectionEditor
+                key={sectionKey}
+                section={section}
+                sectionIndex={sectionIndex}
+                count={sections.length}
+                itemCount={items.length}
+                panelId={`${sectionKey}-items`}
+                ids={{
+                  name: sectionId,
+                  description: menuFieldId.sectionDescription(
+                    sectionIndex,
+                    activeIndex
+                  ),
+                }}
+                expanded={expanded}
+                disabled={disabled}
+                nameError={problemFor(sectionId)}
+                onActivate={() => setActiveSection(sectionKey)}
+                onDeactivate={() => setActiveSection(null)}
+                onToggle={() => {
                   if (filtering) {
                     setSearch("")
                     setChangedOnly(false)
@@ -526,120 +958,49 @@ export function MenuEditor({
                     return next
                   })
                 }}
-              >
-                {expanded ? (
-                  <ChevronUpIcon aria-hidden />
-                ) : (
-                  <ChevronDownIcon aria-hidden />
-                )}
-              </Button>
-              <Input
-                id={sectionId}
-                onFocus={() => setActiveSection(sectionKey)}
-                onBlur={() => setActiveSection(null)}
-                aria-label={`Section ${sectionIndex + 1} name`}
-                aria-invalid={sectionError ? true : undefined}
-                aria-describedby={
-                  sectionError ? `${sectionId}-error` : undefined
-                }
-                placeholder="Section name, e.g. Starters"
-                value={sectionLabel.displayName}
-                disabled={disabled}
-                onChange={(event) =>
+                onName={(value) =>
                   setSection(
                     sectionIndex,
-                    withLabel(
-                      section,
-                      event.target.value,
-                      sectionLabel.description
-                    )
+                    withLabel(section, value, sectionLabel.description)
                   )
                 }
-                className="min-w-0 flex-[1_1_12rem] font-semibold"
-              />
-              <span className="font-mono text-caption text-ink-muted tabular-nums">
-                {items.length} {items.length === 1 ? "item" : "items"}
-              </span>
-              {!disabled ? (
-                <span className="ml-auto flex items-center gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Move ${sectionName} up`}
-                    disabled={sectionIndex === 0}
-                    onClick={() =>
-                      setSections(
-                        move(sections, sectionIndex, sectionIndex - 1)
-                      )
-                    }
-                  >
-                    <ChevronUpIcon aria-hidden />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Move ${sectionName} down`}
-                    disabled={sectionIndex === sections.length - 1}
-                    onClick={() =>
-                      setSections(
-                        move(sections, sectionIndex, sectionIndex + 1)
-                      )
-                    }
-                  >
-                    <ChevronDownIcon aria-hidden />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Remove section ${sectionIndex + 1}`}
-                    className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
-                    onClick={() =>
-                      items.length > 0
-                        ? setRemoveIndex(sectionIndex)
-                        : setSections(
-                            sections.filter((_, i) => i !== sectionIndex)
-                          )
-                    }
-                  >
-                    <Trash2Icon aria-hidden />
-                  </Button>
-                </span>
-              ) : null}
-              {sectionError ? (
-                <div className="basis-full">
-                  <InlineError
-                    id={`${sectionId}-error`}
-                    message={sectionError}
-                  />
-                </div>
-              ) : null}
-            </div>
-
-            {expanded ? (
-              <div
-                id={`${sectionKey}-items`}
-                className="flex flex-col gap-2.5 p-4"
+                onDescription={(value) =>
+                  setSection(
+                    sectionIndex,
+                    withLabel(section, sectionLabel.displayName, value)
+                  )
+                }
+                onMove={(direction) => {
+                  setSections(moveBy(sections, sectionIndex, direction))
+                  setAnnouncement(
+                    `${sectionLabel.displayName || "Section"} moved ${direction < 0 ? "up" : "down"}.`
+                  )
+                }}
+                onRemove={() =>
+                  setPending({
+                    kind: "section",
+                    node: section,
+                    index: sectionIndex,
+                    menuKey: keyOf(menu),
+                  })
+                }
+                onAddItem={() => addItem(sectionIndex)}
               >
-                {items.length === 0 ? (
-                  <p className="text-caption text-ink-muted">
-                    No items in this section yet.
-                  </p>
-                ) : null}
                 {items.map((item, itemIndex) => {
                   if (!itemMatches(section, sectionIndex, item, itemIndex))
                     return null
-                  const itemLabel = label(item)
-                  const itemName =
-                    itemLabel.displayName || `item ${itemIndex + 1}`
-                  const nameId = menuFieldId.itemName(sectionIndex, itemIndex)
-                  const priceId = menuFieldId.itemPrice(sectionIndex, itemIndex)
-                  const descriptionId = `menu-s${sectionIndex}-i${itemIndex}-description`
-                  const nameError = problemFor(nameId)
-                  const priceError = problemFor(priceId)
-                  const currency = currencyOf(item)
-                  const options = Array.isArray(item.options)
-                    ? item.options.length
-                    : 0
+                  const itemKey = keyOf(item)
+                  const itemLabel = readLabel(item)
+                  const nameId = menuFieldId.itemName(
+                    sectionIndex,
+                    itemIndex,
+                    activeIndex
+                  )
+                  const priceId = menuFieldId.itemPrice(
+                    sectionIndex,
+                    itemIndex,
+                    activeIndex
+                  )
                   const updateItem = (next: Json) => {
                     carryIdentity(item, next)
                     setItems(
@@ -648,253 +1009,108 @@ export function MenuEditor({
                     )
                   }
                   return (
-                    <div
-                      key={keyOf(item)}
-                      onFocusCapture={() => setActiveItem(keyOf(item))}
-                      onBlurCapture={(event) => {
-                        if (!event.currentTarget.contains(event.relatedTarget))
-                          setActiveItem(null)
+                    <MenuItemEditor
+                      key={itemKey}
+                      item={item}
+                      sectionIndex={sectionIndex}
+                      itemIndex={itemIndex}
+                      count={items.length}
+                      ids={{
+                        name: nameId,
+                        price: priceId,
+                        description: menuFieldId.itemDescription(
+                          sectionIndex,
+                          itemIndex,
+                          activeIndex
+                        ),
                       }}
-                      className="rounded-md border border-line bg-surface p-3"
-                    >
-                      <div
-                        className={cn(
-                          "grid grid-cols-1 items-start gap-x-3 gap-y-2.5 @[26rem]/section:grid-cols-[minmax(0,1fr)_auto]",
-                          "@[46rem]/section:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_8rem_auto]"
-                        )}
-                      >
-                        <div
-                          data-slot="field"
-                          className="flex min-w-0 flex-col gap-1"
-                        >
-                          <FieldCaption htmlFor={nameId}>
-                            Item name
-                          </FieldCaption>
-                          <Input
-                            id={nameId}
-                            aria-label={`Item name — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
-                            aria-invalid={nameError ? true : undefined}
-                            aria-describedby={
-                              nameError ? `${nameId}-error` : undefined
-                            }
-                            placeholder="Item"
-                            value={itemLabel.displayName}
-                            disabled={disabled}
-                            onChange={(event) =>
-                              updateItem(
-                                withLabel(
-                                  item,
-                                  event.target.value,
-                                  itemLabel.description
-                                )
-                              )
-                            }
-                          />
-                          <InlineError
-                            id={`${nameId}-error`}
-                            message={nameError}
-                          />
-                        </div>
-
-                        <div
-                          className={cn(
-                            "row-start-2 flex min-w-0 flex-col gap-1 @[26rem]/section:col-span-2",
-                            "@[46rem]/section:col-span-1 @[46rem]/section:col-start-2 @[46rem]/section:row-start-1"
-                          )}
-                        >
-                          <FieldCaption htmlFor={descriptionId}>
-                            Description
-                          </FieldCaption>
-                          <Textarea
-                            id={descriptionId}
-                            aria-label={`Description — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
-                            placeholder="Description"
-                            value={itemLabel.description}
-                            disabled={disabled}
-                            rows={1}
-                            onChange={(event) =>
-                              updateItem(
-                                withLabel(
-                                  item,
-                                  itemLabel.displayName,
-                                  event.target.value
-                                )
-                              )
-                            }
-                            // Grows with its content where the browser can
-                            // (`field-sizing`), so a two-line description is
-                            // read rather than half-shown behind a scrollbar.
-                            className="field-sizing-content min-h-(--np-field-h)"
-                          />
-                        </div>
-
-                        <div
-                          data-slot="field"
-                          className={cn(
-                            "row-start-3 flex max-w-48 min-w-0 flex-col gap-1",
-                            "@[46rem]/section:col-start-3 @[46rem]/section:row-start-1 @[46rem]/section:max-w-none"
-                          )}
-                        >
-                          <FieldCaption htmlFor={priceId}>
-                            Price ({currency})
-                          </FieldCaption>
-                          <div className="relative">
-                            <span
-                              aria-hidden
-                              className="pointer-events-none absolute top-1/2 left-[11px] -translate-y-1/2 font-mono text-ui text-ink-muted"
-                            >
-                              {currencySymbol(currency)}
-                            </span>
-                            <Input
-                              id={priceId}
-                              aria-label={`Price (${currency}) — section ${sectionIndex + 1}, item ${itemIndex + 1}`}
-                              aria-invalid={priceError ? true : undefined}
-                              aria-describedby={
-                                priceError ? `${priceId}-error` : undefined
-                              }
-                              inputMode="decimal"
-                              placeholder="0.00"
-                              value={priceText(item)}
-                              disabled={disabled}
-                              onChange={(event) =>
-                                updateItem(
-                                  withPriceText(item, event.target.value)
-                                )
-                              }
-                              className="pl-7 font-mono tabular-nums"
-                            />
-                          </div>
-                          <InlineError
-                            id={`${priceId}-error`}
-                            message={priceError}
-                          />
-                        </div>
-
-                        {!disabled ? (
-                          <div
-                            className={cn(
-                              "row-start-4 flex items-center gap-0.5 justify-self-end @[26rem]/section:col-start-2 @[26rem]/section:row-start-1 @[26rem]/section:self-end",
-                              "@[46rem]/section:col-start-4"
-                            )}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Move ${itemName} up`}
-                              disabled={itemIndex === 0}
-                              onClick={() =>
-                                setItems(
-                                  sectionIndex,
-                                  move(items, itemIndex, itemIndex - 1)
-                                )
-                              }
-                            >
-                              <ChevronUpIcon aria-hidden />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Move ${itemName} down`}
-                              disabled={itemIndex === items.length - 1}
-                              onClick={() =>
-                                setItems(
-                                  sectionIndex,
-                                  move(items, itemIndex, itemIndex + 1)
-                                )
-                              }
-                            >
-                              <ChevronDownIcon aria-hidden />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
-                              aria-label={`Remove item ${itemIndex + 1} from section ${sectionIndex + 1}`}
-                              onClick={() =>
-                                setItems(
-                                  sectionIndex,
-                                  items.filter((_, i) => i !== itemIndex)
-                                )
-                              }
-                            >
-                              <Trash2Icon aria-hidden />
-                            </Button>
-                          </div>
-                        ) : null}
-                      </div>
-                      {options > 0 ? (
-                        <p className="mt-2 text-caption text-ink-muted">
-                          {options} {options === 1 ? "option" : "options"} from
-                          Google kept as they are.
-                        </p>
-                      ) : null}
-                    </div>
+                      currency={currencyOf(item)}
+                      priceText={priceText(item)}
+                      disabled={disabled}
+                      nameError={problemFor(nameId)}
+                      priceError={problemFor(priceId)}
+                      onActivate={() => setActiveItem(itemKey)}
+                      onDeactivate={() => setActiveItem(null)}
+                      onName={(value) =>
+                        updateItem(
+                          withLabel(item, value, itemLabel.description)
+                        )
+                      }
+                      onDescription={(value) =>
+                        updateItem(
+                          withLabel(item, itemLabel.displayName, value)
+                        )
+                      }
+                      onPrice={(value) =>
+                        updateItem(withPriceText(item, value))
+                      }
+                      onMove={(direction) =>
+                        setItems(
+                          sectionIndex,
+                          moveBy(items, itemIndex, direction)
+                        )
+                      }
+                      onDuplicate={() => addItem(sectionIndex, itemIndex)}
+                      onRemove={() =>
+                        setPending({
+                          kind: "item",
+                          node: item,
+                          index: itemIndex,
+                          menuKey: keyOf(menu),
+                          sectionKey,
+                        })
+                      }
+                    />
                   )
                 })}
-                {!disabled ? (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="self-start"
-                    onClick={() =>
-                      setItems(sectionIndex, [
-                        ...items,
-                        { labels: [{ displayName: "" }] },
-                      ])
-                    }
-                  >
-                    <Plus aria-hidden />
-                    Add item
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-        )
-      })}
-      {!disabled ? (
-        <Button
-          variant="secondary"
-          className="self-start"
-          onClick={() =>
-            setSections([
-              ...sections,
-              { labels: [{ displayName: "" }], items: [] },
-            ])
-          }
-        >
-          <Plus aria-hidden />
-          Add section
-        </Button>
-      ) : null}
+              </MenuSectionEditor>
+            )
+          })}
+          {!disabled ? (
+            <Button
+              variant="secondary"
+              className="self-start"
+              onClick={addSection}
+            >
+              <Plus aria-hidden />
+              Add section
+            </Button>
+          ) : null}
+        </>
+      )}
 
       <AlertDialog
-        open={removeIndex !== null}
+        open={pending !== null}
         onOpenChange={(open) => {
-          if (!open) setRemoveIndex(null)
+          if (!open) setPending(null)
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogTitle>Remove this section?</AlertDialogTitle>
+        <AlertDialogContent
+          initialFocus={cancelRef}
+          finalFocus={() => {
+            if (!removedRef.current) return true
+            removedRef.current = false
+            return undoRef.current ?? true
+          }}
+        >
+          <AlertDialogTitle>
+            Remove {pending ? removalName(pending) : "this entry"}?
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {removingName ? `“${removingName}”` : "The section"} and its{" "}
-            {removingCount} {removingCount === 1 ? "item" : "items"} leave this
-            draft. Google keeps its menu until you publish, and Discard brings
-            the section back.
+            {pendingCount} {pendingCount === 1 ? "item will" : "items will"} be
+            removed from this draft. You can undo the last removal, and Google
+            keeps its menu until you review and publish.
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogClose
-              render={<Button variant="ghost">Keep it</Button>}
+              render={
+                <Button ref={cancelRef} variant="ghost">
+                  Keep editing
+                </Button>
+              }
             />
-            <Button
-              variant="danger"
-              onClick={() => {
-                if (removeIndex !== null)
-                  setSections(sections.filter((_, i) => i !== removeIndex))
-                setRemoveIndex(null)
-              }}
-            >
-              Remove section
+            <Button variant="danger" disabled={disabled} onClick={remove}>
+              Remove {pending?.kind ?? "entry"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
