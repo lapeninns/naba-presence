@@ -23,7 +23,11 @@ describeDatabase("administration persisted intent isolation and account serialis
     expect((await fetch(`${root}/${second.changeSet.id}`, { method: "POST", headers: { cookie: fixture.owner.cookie, "content-type": "application/json" }, body: JSON.stringify({ expectedPayloadHash: second.changeSet.payloadHash }) })).status).toBe(200)
     fixture.state.delayMs = 500
     const first = fixture.execute(saved)
-    await expect.poll(() => fixture.writes().length).toBe(1)
+    // Reaching the first write (token, account lock, baseline read) can take
+    // longer than the default 1s poll in a loaded integration run; the 500ms
+    // Google delay still holds the account lock once it lands, so the
+    // collision below is unchanged. As in lifecycle-coordination.test.ts.
+    await expect.poll(() => fixture.writes().length, { timeout: 10_000 }).toBe(1)
     const collision = await fetch(`${root}/${second.changeSet.id}/execute`, { method: "POST", headers: { cookie: fixture.owner.cookie, "content-type": "application/json" }, body: JSON.stringify({ expectedPayloadHash: second.changeSet.payloadHash }) })
     expect(collision.status).toBe(409)
     expect(await collision.json()).toMatchObject({ error: "administration_in_progress" })
