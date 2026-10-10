@@ -5,6 +5,7 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { withAdvisoryLock } from "@/lib/server/leases"
+import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
 import { reapStrandedLocalPosts } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
@@ -415,6 +416,25 @@ async function retain({
             and created_at <= now() - interval '24 hours'
           returning id
         `
+        // The receipts linked to those rows (lib/server/mutation-operations.ts)
+        // settle with them: left `sent`, GET /api/mutations/{id} would keep
+        // reporting a write in flight that is now of unknown outcome.
+        for (const [attemptTable, rows] of [
+          ["hours_sync_attempt", strandedHours],
+          ["profile_sync_attempt", strandedProfiles],
+          ["food_menus_sync_attempt", strandedFoodMenus],
+          ["gbp_media_mutation", strandedMedia],
+          ["place_action_mutation", strandedPlaceActions],
+          ["gbp_management_mutation", strandedManagement],
+        ] as const) {
+          await settleOperationsForAttempts(sql, {
+            attemptTable,
+            attemptIds: rows.map((row) => String(row.id)),
+            state: "uncertain",
+            attemptStatus: "ambiguous",
+            errorCode: "attempt_interrupted",
+          })
+        }
         const counts = {
           auditLogs,
           media,

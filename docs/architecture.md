@@ -393,9 +393,14 @@ The client mints an intent id per user action and sends it as the
 `lib/contracts/mutation-operations.ts`); `apiFetch` in `lib/api/client.ts`
 sends a fresh one on every mutation unless the caller passes the id of the
 action it is retrying, and `useResourceMutation` hands one to each `mutate`
-call. `route()` parses it into `ctx.intentId` (400 `invalid_intent_id` when it
-is not a UUID) and makes it the handler's ambient intent. `x-request-id` stays
-per-request correlation.
+call. No `lib/api` wrapper forwards that id yet and no editor keeps it for a
+retry, so through the UI every attempt is a new intent; resending the intent
+on an explicit retry of an uncertain write is a follow-up, and until it lands
+only callers that pass `intentId` themselves are deduplicated. `route()`
+parses the header into `ctx.intentId` on session routes (400
+`invalid_intent_id` when it is not a UUID; cron and public routes ignore it)
+and makes it the handler's ambient intent. `x-request-id` stays per-request
+correlation.
 
 `runGbpWrite` records the intent in `mutation_operation`
 (`supabase/migrations/0067_mutation_operation.sql`) in the same transaction
@@ -411,12 +416,22 @@ ambient intent. Then:
   success returns `idempotent` with the original attempt, a failure re-raises
   the recorded status and code; nothing is sent to Google;
 - same intent, different payload hash — 409 `intent_conflict`;
-- same intent still `sent` on another attempt row — 409 `intent_in_progress`;
+- same intent still `sent` on another attempt row, or on its own row while
+  that row is in flight on a replay surface (media, place actions, post
+  delete) — 409 `intent_in_progress`;
+- same intent still `sent` on a row something else has settled — the row's
+  outcome settles the receipt and answers as above;
 - no intent — no receipt; the write behaves exactly as before.
 
 Settling an attempt settles every receipt still `sent` on it, so a receipt an
 interrupted request left behind is settled by whichever request recovers the
-row. States are the shared outcome vocabulary: `confirmed_applied` only after
+row; a new intent that finds another request's row in flight joins that row
+and settles with it. The paths that settle attempt rows without
+`runGbpWrite` -- the retention cron's stranded-attempt reapers
+(`app/api/cron/retention/route.ts`) and `reapStrandedLocalPosts` /
+`settleStrandedLocalPosts` in `lib/server/posts.ts` -- settle the linked
+receipts too (`settleOperationsForAttempts`). States are the shared outcome
+vocabulary: `confirmed_applied` only after
 a verifying readback, `awaiting_confirmation` for a write Google accepted
 without one, `rejected` for Google's own 4xx refusal, `uncertain` for an
 ambiguous write, otherwise `failed`. `GET /api/mutations/{id}`
@@ -425,8 +440,10 @@ id or by intent id, so a client that lost the answer can ask what happened;
 a receipt follows its location's visibility. `approval_ref`,
 `security_version` and the recovery columns are reserved for later slices.
 `recheckAuthorisation` (`lib/server/authz/actor.ts`) takes the recorded
-`connection_generation` and refuses with `generation_changed` when the
-location's connection now holds another credential.
+`google_connection_id` and `connection_generation` together: a relink to
+another connection is `connection_changed`, the same connection holding
+another credential is `generation_changed`, and a generation without its
+connection id is refused, since the counter is per connection.
 
 A module's own pre-dispatch checks still run before `runGbpWrite`, so a replay
 after success can be answered by them first (hours and menus answer `in_sync`;

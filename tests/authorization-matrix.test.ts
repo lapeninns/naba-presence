@@ -73,7 +73,10 @@ function scriptedSql(script: {
   connectionId?: string | null
   /** The active connection's credential_generation (default 1). */
   generation?: number | null
-  policy?: { approvalRequired: boolean; requireTwoPersonApproval: boolean } | null
+  policy?: {
+    approvalRequired: boolean
+    requireTwoPersonApproval: boolean
+  } | null
 }) {
   const queries: string[] = []
   const fn = (first: unknown) => {
@@ -168,11 +171,11 @@ describe("locationActionCapabilities -- the UI projection of the matrix", () => 
       const grant = {
         visible: true,
         canEdit: actor.scope.role !== "viewer",
-        canPublish: actor.scope.role !== "viewer" && (
-          actor.scope.role === "owner" ||
-          actor.scope.role === "admin" ||
-          actor.scope.canPublish
-        ),
+        canPublish:
+          actor.scope.role !== "viewer" &&
+          (actor.scope.role === "owner" ||
+            actor.scope.role === "admin" ||
+            actor.scope.canPublish),
       }
       const expected = EXPECTED[name]
       expect(locationActionCapabilities(actor.scope.role, grant)).toEqual({
@@ -324,16 +327,37 @@ describe("authz/actor -- session-free actor", () => {
         { connectionId: CONNECTION, generation: 2 }
       )
     ).resolves.toEqual({ ok: false, reason: "generation_changed" })
-    // No active link at all: the generation cannot be proven.
+    // No active link at all: the connection cannot be proven.
     await expect(
-      recheck({ member: owner }, { generation: 2 })
-    ).resolves.toEqual({ ok: false, reason: "generation_changed" })
+      recheck({ member: owner }, { connectionId: CONNECTION, generation: 2 })
+    ).resolves.toEqual({ ok: false, reason: "connection_changed" })
     await expect(
       recheck(
         { member: owner, connectionId: CONNECTION, generation: 2 },
         { connectionId: CONNECTION, generation: 2 }
       )
     ).resolves.toMatchObject({ ok: true })
+  })
+
+  it("refuses a generation that is not tied to its connection", async () => {
+    const owner = { role: "owner" as const, canPublish: false }
+    const OTHER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+    // Relinked to another connection that happens to hold the same number:
+    // credential_generation is per connection, so this is a different
+    // Google identity, not the credential the work was queued under.
+    await expect(
+      recheck(
+        { member: owner, connectionId: OTHER, generation: 2 },
+        { connectionId: CONNECTION, generation: 2 }
+      )
+    ).resolves.toEqual({ ok: false, reason: "connection_changed" })
+    // A generation alone cannot say which connection it counts.
+    await expect(
+      recheck(
+        { member: owner, connectionId: CONNECTION, generation: 2 },
+        { generation: 2 }
+      )
+    ).resolves.toEqual({ ok: false, reason: "connection_changed" })
   })
 
   it("fails closed on an entitlement it cannot verify yet", async () => {

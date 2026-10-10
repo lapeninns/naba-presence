@@ -851,17 +851,24 @@ export async function runGbpWrite<
     return operation
   }
 
-  /** Links this request's receipt to `row` and, when `row` is settled, settles it. */
-  const recordOnRow = async (sql: TransactionSql, row: AttemptRow) => {
-    if (!operationId) return
+  /**
+   * Links this request's receipt to `row` and, when `row` is settled, settles
+   * it. Returns this request's receipt when it settled it, so the caller can
+   * answer from it.
+   */
+  const recordOnRow = async (
+    sql: TransactionSql,
+    row: AttemptRow
+  ): Promise<MutationOperation | null> => {
+    if (!operationId) return null
     await linkOperationAttempt(sql, {
       operationId,
       attemptTable,
       attemptId: row.id,
     })
     const state = outcomeForAttemptStatus(row.status, readbackVerified)
-    if (state === "sent") return
-    await settleOperationsForAttempt(sql, {
+    if (state === "sent") return null
+    const settled = await settleOperationsForAttempt(sql, {
       organisationId: input.organisationId,
       attemptTable,
       attemptId: row.id,
@@ -873,7 +880,15 @@ export async function runGbpWrite<
         rawStatus: row.rawStatus,
       },
     })
+    return settled.find((operation) => operation.id === operationId) ?? null
   }
+
+  const intentInProgress = () =>
+    new ApiError(
+      409,
+      "intent_in_progress",
+      "This change is still being sent. Check its status before retrying."
+    )
 
   const decide = (existing: AttemptRow | null): Decision => {
     if (!existing) return { kind: "start", row: null }
@@ -905,11 +920,20 @@ export async function runGbpWrite<
         operation?.attemptId &&
         (decided.row === null || decided.row.id !== operation.attemptId)
       ) {
-        throw new ApiError(
-          409,
-          "intent_in_progress",
-          "This change is still being sent. Check its status before retrying."
-        )
+        throw intentInProgress()
+      }
+      if (operation?.attemptId && decided.row) {
+        // The receipt's own row. Settled while the receipt still says `sent`
+        // means something other than runGbpWrite settled it (a reaper that
+        // predates the receipt link, or one that failed to commit it):
+        // answer from the row's outcome rather than re-arm or replay it.
+        const settled = await recordOnRow(sql, decided.row)
+        if (settled) return { kind: "receipt" as const, operation: settled }
+        // Still in flight. A replay surface would answer `idempotent` from
+        // the unfinished row -- a 200 before Google has answered -- so a
+        // second request under the same intent waits for the first instead.
+        // A resume surface recovers the row by readback below.
+        if (onExisting === "replay") throw intentInProgress()
       }
       if (decided.kind === "idempotent") await recordOnRow(sql, decided.row)
       if (decided.kind !== "start") return decided
@@ -950,7 +974,9 @@ export async function runGbpWrite<
         })
         // Also without an intent of its own: this may be settling a row an
         // earlier request's receipt is waiting on.
-        if (ledger)
+        if (ledger) {
+          // The table's own word for success, which a replay answers with.
+          const settled = await input.store.find(sql, scope)
           await settleOperationsForAttempt(sql, {
             organisationId: input.organisationId,
             attemptTable,
@@ -960,9 +986,12 @@ export async function runGbpWrite<
             receipt: {
               attemptId: success.attemptId,
               attemptStatus: "succeeded",
+              rawStatus:
+                settled?.id === success.attemptId ? settled.rawStatus : null,
               httpStatus: httpStatus ?? null,
             },
           })
+        }
         if (input.onSuccess) await input.onSuccess(sql, success)
         const audit =
           typeof input.audit === "function" ? input.audit(success) : input.audit
@@ -1099,10 +1128,44 @@ export async function runGbpWrite<
     }
   }
 
+  /**
+   * Recovers an in-flight row another request (or an interrupted earlier
+   * one) holds. When recovery leaves the row to its owner -- still inside the
+   * grace window, or settled `ambiguous` by a failed readback -- this
+   * request's new receipt joins that row, so it settles with it instead of
+   * staying `sent` with nothing sent for it. On the re-arm path it stays
+   * unlinked until this request starts its own write.
+   */
+  const recoverForIntent = async (row: AttemptRow) => {
+    try {
+      return await recoverInFlight(row)
+    } catch (error) {
+      if (operationId) {
+        try {
+          await withTenant(input.organisationId, async (sql) => {
+            const found = await input.store.find(sql, scope)
+            await recordOnRow(sql, found?.id === row.id ? found : row)
+          })
+        } catch (linkError) {
+          log.error("gbp_write.receipt_link_failed", {
+            organisationId: input.organisationId,
+            requestId: input.requestId,
+            attemptId: row.id,
+            error:
+              linkError instanceof Error
+                ? linkError.message
+                : String(linkError),
+          })
+        }
+      }
+      throw error
+    }
+  }
+
   let claimed = await claim()
   if (claimed.kind === "receipt") return replayReceipt(claimed.operation)
   if (claimed.kind === "in_flight") {
-    const recovered = await recoverInFlight(claimed.row)
+    const recovered = await recoverForIntent(claimed.row)
     if (recovered) {
       // The interrupted write had landed; it is now settled, reconciled and
       // audited, and this request wrote nothing of its own.

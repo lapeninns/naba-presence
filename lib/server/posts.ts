@@ -31,7 +31,10 @@ import {
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
-import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  requestScopedKeyPart,
+  settleOperationsForAttempts,
+} from "@/lib/server/mutation-operations"
 import {
   requireLocationAccess,
   requireLocationAction,
@@ -327,13 +330,30 @@ async function settleStrandedLocalPosts(
     // too: left `started` it stays in flight for its whole 180-day retention
     // and the idempotency gate reads it as a publish still running.
     if (post.attemptId && post.attemptStatus === "started") {
-      await sql`
+      const settled = await sql`
         update gbp_local_post_attempt
         set status = ${name ? "succeeded" : "failed"},
           provider_error_code = ${name ? null : "google_post_not_published"},
           finished_at = now()
         where id = ${post.attemptId} and status = 'started'
+        returning id
       `
+      // And the receipt waiting on it (lib/server/mutation-operations.ts).
+      // Google's own list holding the post's name proves it; a match by
+      // content is only Google having accepted something like it.
+      if (settled.length > 0) {
+        await settleOperationsForAttempts(sql, {
+          attemptTable: "gbp_local_post_attempt",
+          attemptIds: [post.attemptId],
+          state: !name
+            ? "failed"
+            : name === post.googlePostName
+              ? "confirmed_applied"
+              : "awaiting_confirmation",
+          attemptStatus: name ? "succeeded" : "failed",
+          errorCode: name ? null : "google_post_not_published",
+        })
+      }
     }
   }
 }
@@ -368,14 +388,22 @@ export async function reapStrandedLocalPosts(
     returning id::text as id
   `
   if (reaped.length > 0) {
-    await sql`
+    const attempts = await sql<{ id: string }[]>`
       update gbp_local_post_attempt
       set status = 'ambiguous', provider_error_code = 'publish_lease_expired',
         finished_at = now()
       where post_id = any(${reaped.map((row) => row.id)}::uuid[])
         and status = 'started'
         and operation <> 'delete'
+      returning id::text as id
     `
+    await settleOperationsForAttempts(sql, {
+      attemptTable: "gbp_local_post_attempt",
+      attemptIds: attempts.map((row) => row.id),
+      state: "uncertain",
+      attemptStatus: "ambiguous",
+      errorCode: "publish_lease_expired",
+    })
   }
   return { count: reaped.length }
 }

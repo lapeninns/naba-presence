@@ -21,10 +21,11 @@ import {
 /** Handed to `mutationFn` with every call. */
 export type MutationIntent = {
   /**
-   * One id per `mutate` call: forward it to the lib/api function (its
-   * `intentId` option) and reuse it for any retry of this same action, so
-   * the server answers the retry from its receipt rather than writing
-   * twice. Undefined where the browser offers no UUIDs.
+   * One id per `mutate` call, for `apiFetch`'s `intentId` option: resent on
+   * a retry of this same action, the server answers the retry from its
+   * receipt rather than writing twice. No lib/api wrapper forwards it yet
+   * (docs/architecture.md, "Operation receipts"), so today each call still
+   * sends a fresh intent. Undefined where the browser offers no UUIDs.
    */
   intentId: string | undefined
 }

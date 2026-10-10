@@ -28,6 +28,7 @@ import {
   failureOutcome,
   parseIntentHeader,
   requestScopedKeyPart,
+  settleOperationsForAttempts,
   withMutationIntent,
 } from "@/lib/server/mutation-operations"
 import { route } from "@/lib/server/route"
@@ -331,6 +332,143 @@ describe("mutation operation ledger", () => {
     expect(mutations).toBe(2)
   })
 
+  /**
+   * An interrupted request under INTENT: its receipt is `sent` and linked to
+   * an attempt row it left in flight (`publishing`, started `ageMs` ago).
+   */
+  const strand = async (
+    options: { intentId?: string | null; ageMs?: number } = {}
+  ) => {
+    const {
+      rows: [attempt],
+    } = await db.query<{ id: string }>(
+      `insert into write_attempt
+         (organisation_id, actor_user_id, status, idempotency_key, started_at)
+       values ($1, $2, 'publishing', $3, now() - ($4 || ' milliseconds')::interval)
+       returning id::text as id`,
+      [
+        ORG,
+        USER,
+        idempotencyKey([ORG, LOCATION, "hours_publish", "a"]),
+        String(options.ageMs ?? 0),
+      ]
+    )
+    const intentId = options.intentId === undefined ? INTENT : options.intentId
+    if (intentId) {
+      await db.query(
+        `insert into mutation_operation
+           (organisation_id, intent_id, actor_user_id, surface, action,
+            payload_hash, attempt_table, attempt_id, state)
+         values ($1, $2, $3, 'hours', 'publish', $4, 'write_attempt', $5, 'sent')`,
+        [ORG, intentId, USER, idempotencyKey(["a"]), attempt.id]
+      )
+    }
+    return attempt.id
+  }
+
+  it("settles a receipt when a reaper settles its attempt, and a same-intent retry answers from it", async () => {
+    const attemptId = await strand({ ageMs: 25 * 60 * 60 * 1000 })
+    // What the retention cron does to a row stranded for a day.
+    await withTenant(ORG, async (sql) => {
+      await sql`
+        update write_attempt set status = 'ambiguous',
+          provider_error_code = 'attempt_interrupted', finished_at = now()
+        where id = ${attemptId}
+      `
+      await settleOperationsForAttempts(sql, {
+        attemptTable: "write_attempt",
+        attemptIds: [attemptId],
+        state: "uncertain",
+        attemptStatus: "ambiguous",
+        errorCode: "attempt_interrupted",
+      })
+    })
+    const [operation] = await operations()
+    expect(operation).toMatchObject({
+      state: "uncertain",
+      error_code: "attempt_interrupted",
+    })
+    await expect(run(INTENT, "a")).rejects.toMatchObject({
+      status: 502,
+      code: "attempt_interrupted",
+    })
+    expect(mutations).toBe(0)
+  })
+
+  it("answers from a linked attempt settled behind the receipt's back instead of re-arming it", async () => {
+    const attemptId = await strand()
+    // Settled without touching the receipt (a reaper predating the link).
+    await db.query(
+      "update write_attempt set status = 'ambiguous' where id = $1",
+      [attemptId]
+    )
+    await expect(run(INTENT, "a")).rejects.toMatchObject({ status: 502 })
+    expect(mutations).toBe(0)
+    const [operation] = await operations()
+    expect(operation).toMatchObject({
+      state: "uncertain",
+      attempt_id: attemptId,
+    })
+  })
+
+  it("links a new intent to another request's in-flight attempt instead of leaving it unlinked", async () => {
+    const attemptId = await strand({ intentId: null })
+    await expect(run(OTHER_INTENT, "a")).rejects.toMatchObject({
+      status: 409,
+      code: "in_progress",
+    })
+    expect(mutations).toBe(0)
+    const [operation] = await operations()
+    expect(operation).toMatchObject({
+      intent_id: OTHER_INTENT,
+      attempt_id: attemptId,
+      state: "sent",
+    })
+    // It settles with that row.
+    await db.query(
+      "update write_attempt set status = 'publishing', started_at = now() - interval '1 hour' where id = $1",
+      [attemptId]
+    )
+    const recovered = await run(null, "a")
+    expect(recovered).toMatchObject({ idempotent: true, attemptId })
+    const [settled] = await operations()
+    expect(settled.state).toBe("confirmed_applied")
+  })
+
+  it("refuses a second replay-surface request under an intent whose write is still in flight", async () => {
+    await strand()
+    await expect(
+      run(INTENT, "a", { onExisting: "replay" })
+    ).rejects.toMatchObject({ status: 409, code: "intent_in_progress" })
+    expect(mutations).toBe(0)
+  })
+
+  it("replays an internal failure with the status the original request answered", async () => {
+    const fail = {
+      mutate: async (): Promise<{ name: string }> => {
+        mutations += 1
+        throw new Error("boom")
+      },
+    }
+    await expect(run(INTENT, "a", fail)).rejects.toThrow("boom")
+    const [operation] = await operations()
+    expect(operation).toMatchObject({
+      state: "failed",
+      receipt: expect.objectContaining({ httpStatus: 500 }),
+    })
+    await expect(run(INTENT, "a", fail)).rejects.toMatchObject({
+      status: 500,
+      code: "google_write_failed",
+    })
+    expect(mutations).toBe(1)
+  })
+
+  it("keeps the attempt's raw status on a success receipt for replays", async () => {
+    await run(INTENT, "a")
+    const [operation] = await operations()
+    expect(operation.receipt).toMatchObject({ rawStatus: "succeeded" })
+  })
+
   it("hides one organisation's receipts from another through forced RLS", async () => {
     await run(INTENT, "a")
     const other = "00000000-0000-4000-8000-0000000000ff"
@@ -430,6 +568,22 @@ describe("intent identity", () => {
 
     it("falls back to no intent when the header is missing", async () => {
       await handler(request({}), { params: Promise.resolve({}) })
+      expect(seen).toEqual([{ intentId: null, ambient: null }])
+    })
+
+    it("ignores the header on routes without a session", async () => {
+      const webhook = route({
+        auth: "public",
+        handler: ({ intentId }) => {
+          seen.push({ intentId, ambient: currentIntentId() })
+          return { ok: true }
+        },
+      })
+      const response = await webhook(
+        request({ [INTENT_HEADER]: "delivery-42" }),
+        { params: Promise.resolve({}) }
+      )
+      expect(response.status).toBe(200)
       expect(seen).toEqual([{ intentId: null, ambient: null }])
     })
 

@@ -98,11 +98,11 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *   9. the intent — a mutation's `Idempotency-Key` header (a client-minted
  *      UUID, one per user intent, resent unchanged on a retry) is parsed into
  *      `ctx.intentId` (400 `invalid_intent_id` when it is not a UUID; null
- *      when absent or on GET/HEAD/OPTIONS) and, for session routes, made the
- *      handler's ambient intent, so the first `runGbpWrite` of a surface that
- *      records receipts files it in the operation ledger
- *      (lib/server/mutation-operations.ts). Without the header nothing
- *      changes;
+ *      when absent, on GET/HEAD/OPTIONS, or on a route without a session,
+ *      which ignores the header) and made the handler's ambient intent, so
+ *      the first `runGbpWrite` of a surface that records receipts files it
+ *      in the operation ledger (lib/server/mutation-operations.ts). Without
+ *      the header nothing changes;
  *  10. support attribution — when the session was minted by
  *      `POST /api/support/impersonation` the handler runs inside
  *      `withAuditActor`, so every `writeAudit` it reaches records the support
@@ -362,9 +362,13 @@ export function route<
       const body = (
         config.body ? config.body.parse(await readJsonBody(request)) : undefined
       ) as B
-      const intentId = SAFE_METHODS.has(request.method.toUpperCase())
-        ? null
-        : parseIntentHeader(request)
+      // Only a session's mutations take an intent: cron and public routes
+      // (Pub/Sub, RISC) never record receipts, and a sender or proxy adding
+      // its own Idempotency-Key must not get their deliveries refused.
+      const intentId =
+        !session || SAFE_METHODS.has(request.method.toUpperCase())
+          ? null
+          : parseIntentHeader(request)
       const base = {
         request,
         requestId: rid.id,
@@ -393,8 +397,7 @@ export function route<
       }
       // Only impersonated sessions and requests with an intent pay for an
       // async context; every other request calls the handler as before.
-      const run = () =>
-        withMutationIntent(session ? intentId : null, () => config.handler(ctx))
+      const run = () => withMutationIntent(intentId, () => config.handler(ctx))
       const result = await (session?.supportActor
         ? withAuditActor(
             {

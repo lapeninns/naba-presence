@@ -251,9 +251,9 @@ export async function settleOperationsForAttempt(
     errorCode: string | null
     receipt: StoredReceipt
   }
-): Promise<void> {
-  if (!input.attemptTable) return
-  await sql`
+): Promise<MutationOperation[]> {
+  if (!input.attemptTable) return []
+  return sql<MutationOperation[]>`
     update mutation_operation
     set state = ${input.state},
       error_code = ${input.errorCode},
@@ -263,7 +263,44 @@ export async function settleOperationsForAttempt(
       and attempt_table = ${input.attemptTable}
       and attempt_id = ${input.attemptId}
       and state = 'sent'
+    returning ${operationColumns(sql)}
   `
+}
+
+/**
+ * The bulk form for paths that settle attempt rows without runGbpWrite: the
+ * retention cron's stranded-attempt reapers and the stranded local-post
+ * sweep (lib/server/posts.ts). Without it a receipt linked to a reaped row
+ * would stay `sent` for good. Runs in the caller's tenant transaction, whose
+ * RLS scopes it to that organisation.
+ */
+export async function settleOperationsForAttempts(
+  sql: TransactionSql,
+  input: {
+    attemptTable: string
+    attemptIds: readonly string[]
+    state: OperationOutcome
+    attemptStatus: string
+    errorCode: string | null
+  }
+): Promise<number> {
+  if (input.attemptIds.length === 0) return 0
+  const settled = await sql`
+    update mutation_operation
+    set state = ${input.state},
+      error_code = ${input.errorCode},
+      receipt = jsonb_build_object(
+        'attemptId', attempt_id::text,
+        'attemptStatus', ${input.attemptStatus}::text,
+        'rawStatus', ${input.attemptStatus}::text
+      ),
+      updated_at = now()
+    where attempt_table = ${input.attemptTable}
+      and attempt_id = any(${input.attemptIds as string[]}::uuid[])
+      and state = 'sent'
+    returning id
+  `
+  return settled.length
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +371,7 @@ export function receiptError(operation: MutationOperation): ApiError {
       ? receipt.httpStatus
       : operation.state === "uncertain"
         ? 502
-        : 409
+        : 500
   return new ApiError(
     status,
     operation.errorCode ?? "mutation_failed",
@@ -346,14 +383,19 @@ export function receiptError(operation: MutationOperation): ApiError {
   )
 }
 
-/** The receipt fields a thrown error contributes. */
+/**
+ * The receipt fields a thrown error contributes: the status the original
+ * request answered with, so a replay answers the same. An error that is not
+ * an ApiError reached the client as a 500 (lib/server/http.ts); its message
+ * is internal and is not kept.
+ */
 export function errorReceipt(
   error: unknown
 ): Pick<StoredReceipt, "httpStatus" | "message"> {
   if (error instanceof ApiError) {
     return { httpStatus: error.status, message: error.message.slice(0, 500) }
   }
-  return { httpStatus: null, message: null }
+  return { httpStatus: 500, message: null }
 }
 
 // ---------------------------------------------------------------------------

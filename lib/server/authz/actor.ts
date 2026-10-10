@@ -76,6 +76,11 @@ export type AuthorisationRecheck = {
    * location's active connection must still hold that generation: a
    * reconnect or disconnect since means the credential the actor's intent was
    * prepared against is gone, so the work must not dispatch on its successor.
+   *
+   * The generation is a per-connection counter (every connection starts at
+   * 1), so it means something only together with `connectionId`: a relink to
+   * another connection at the same number would otherwise pass. A generation
+   * without a connection id is refused as `connection_changed`.
    */
   generation?: number | null
   /**
@@ -139,7 +144,10 @@ export async function recheckAuthorisation(
     input.connectionId !== undefined && input.connectionId !== null
   const checkGeneration =
     input.generation !== undefined && input.generation !== null
-  if (checkConnection || checkGeneration) {
+  if (checkGeneration && !checkConnection) {
+    return { ok: false, reason: "connection_changed" }
+  }
+  if (checkConnection) {
     const [link] = await sql<
       { connectionId: string | null; generation: number | null }[]
     >`
