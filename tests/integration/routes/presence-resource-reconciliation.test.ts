@@ -216,4 +216,155 @@ describeDatabase("Presence resource background reconciliation", () => {
       failureCode: "proposal_apply_failed",
     })
   }, 60_000)
+
+  it("never advances last_succeeded_at for cached posts or cached media", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const parent = `${connection.googleAccountName}/${linked.googleLocationName}`
+    // Scoped to this tenant's location so the rules cannot leak into the
+    // other tests' tenants on the shared stub.
+    google.respond(
+      {
+        method: "GET",
+        pathIncludes: `${linked.googleLocationName}/localPosts`,
+      },
+      () => ({ status: 500, json: { error: { status: "INTERNAL" } } })
+    )
+    google.respond(
+      { method: "GET", pathIncludes: `${linked.googleLocationName}/media?` },
+      () => ({
+        status: 200,
+        json: {
+          mediaItems: [
+            {
+              name: `${parent}/media/merchant-cache`,
+              mediaFormat: "PHOTO",
+              locationAssociation: { category: "EXTERIOR" },
+              googleUrl: "https://google.example/merchant.jpg",
+              thumbnailUrl: "https://google.example/merchant-thumb.jpg",
+              createTime: "2026-07-01T10:00:00Z",
+            },
+          ],
+        },
+      })
+    )
+    google.respond(
+      {
+        method: "GET",
+        pathIncludes: `${linked.googleLocationName}/media/customers`,
+      },
+      () => ({ status: 200, json: { mediaItems: [] } })
+    )
+
+    // A previous real read: the timestamp a failed refresh must leave alone.
+    const lastRealRead = new Date("2026-09-01T08:00:00.000Z")
+    await admin`
+      insert into presence_resource_reconcile_state (
+        organisation_id, location_id, resource, status,
+        last_attempt_at, last_succeeded_at, next_attempt_at
+      ) values (
+        ${owner.organisationId}, ${linked.locationId}, 'posts', 'succeeded',
+        ${lastRealRead}, ${lastRealRead}, now() - interval '1 minute'
+      )`
+
+    const sweep = async () => {
+      const [before] = await admin<{ id: string }[]>`
+        select organisation_id::text as id from organisation_job_route
+        where organisation_id < ${owner.organisationId}
+        order by organisation_id desc limit 1`
+      const response = await fetch(
+        `${server.baseUrl}/api/sync/presence-resources`,
+        {
+          method: "POST",
+          headers: {
+            authorization: "Bearer route-harness-cron-secret",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            maxOrganisations: 1,
+            maxLocations: 5,
+            ...(before ? { organisationCursor: before.id } : {}),
+          }),
+        }
+      )
+      expect(
+        response.status,
+        `${await response.clone().text()}\n${server.stderr}`
+      ).toBe(200)
+      return (await response.json()) as {
+        outcomes: Array<{
+          organisationId: string
+          resource: string
+          status: string
+          errorCode?: string
+        }>
+      }
+    }
+
+    const first = await sweep()
+    const posts = first.outcomes.find(
+      (outcome) =>
+        outcome.organisationId === owner.organisationId &&
+        outcome.resource === "posts"
+    )
+    expect(posts).toMatchObject({ status: "failed" })
+    const [postsState] = await admin<
+      { status: string; lastErrorCode: string | null; lastSucceededAt: Date }[]
+    >`
+      select status, last_error_code as "lastErrorCode",
+        last_succeeded_at as "lastSucceededAt"
+      from presence_resource_reconcile_state
+      where organisation_id = ${owner.organisationId}
+        and location_id = ${linked.locationId} and resource = 'posts'`
+    expect(postsState.status).toBe("failed")
+    expect(postsState.lastErrorCode).not.toBeNull()
+    expect(postsState.lastSucceededAt.toISOString()).toBe(
+      lastRealRead.toISOString()
+    )
+
+    // The posts page itself still serves its cached rows and says why.
+    const page = await fetch(
+      `${server.baseUrl}/api/locations/${linked.locationId}/posts`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(page.status, await page.clone().text()).toBe(200)
+    expect((await page.json()).reconciliationError).toEqual(expect.any(String))
+
+    // Media: the first sweep filled the cache. A second sweep inside the
+    // five-minute TTL must read Google again rather than stamp success on
+    // the cache it would otherwise have served.
+    const [media] = await admin<{ count: number }[]>`
+      select count(*)::integer as count from gbp_media_item
+      where location_id = ${linked.locationId} and deleted_at is null`
+    expect(media.count).toBe(1)
+    await admin`
+      update presence_resource_reconcile_state
+      set next_attempt_at = now() - interval '1 minute'
+      where organisation_id = ${owner.organisationId}
+        and location_id = ${linked.locationId}`
+    const mediaReads = () =>
+      google.calls.filter(
+        (call) =>
+          call.method === "GET" &&
+          call.path.includes(`${linked.googleLocationName}/media?`)
+      ).length
+    const readsBefore = mediaReads()
+    const second = await sweep()
+    expect(
+      second.outcomes.find(
+        (outcome) =>
+          outcome.organisationId === owner.organisationId &&
+          outcome.resource === "media"
+      )
+    ).toMatchObject({ status: "succeeded" })
+    expect(mediaReads()).toBe(readsBefore + 1)
+  }, 60_000)
 })

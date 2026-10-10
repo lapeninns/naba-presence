@@ -117,14 +117,17 @@ async function runPerformancePage({
         break
       }
       try {
-        organisations.push({
-          organisationId,
-          outcomes: await syncDuePerformance(organisationId, {
-            requestId,
-            externalLocationId: input.externalLocationId,
-            maxLocations: input.maxLocations,
-          }),
+        // The same deadline inside the organisation: up to maxLocations
+        // paced Google reads (keywords restate several months each) would
+        // otherwise run on past the budget while holding the fleet lease.
+        const synced = await syncDuePerformance(organisationId, {
+          requestId,
+          externalLocationId: input.externalLocationId,
+          maxLocations: input.maxLocations,
+          deadline,
         })
+        organisations.push({ organisationId, outcomes: synced.outcomes })
+        if (synced.truncated) budgetExhausted = true
       } catch (error) {
         // A session syncs one organisation and owns the error: the kill
         // switch's 503 and everything else must reach the caller. The cron
@@ -142,6 +145,10 @@ async function runPerformancePage({
       }
       processed += 1
       lastProcessedOrganisationId = organisationId
+      // Stopped inside this organisation. Its unclaimed locations stay due
+      // and keep their place at the head of the next claim; the cursor moves
+      // past it so the organisations after it are not starved.
+      if (budgetExhausted) break
     }
     return {
       organisations,

@@ -363,8 +363,14 @@ export async function syncDueKeywords(
     requestId: string
     externalLocationId?: string
     maxLocations?: number
+    /**
+     * Epoch milliseconds past which no further location is claimed. At least
+     * one location is always attempted, so a deadline already in the past
+     * still makes progress; `truncated` then says the walk stopped early.
+     */
+    deadline?: number
   }
-): Promise<KeywordSyncOutcome[]> {
+): Promise<{ outcomes: KeywordSyncOutcome[]; truncated: boolean }> {
   // Ingestion boundary: GBP_KEYWORDS_ENABLED pauses provider reads and
   // checkpoint creation; stored keyword months stay readable.
   if (!gbpIngestionEnabled(getServerEnv(), "keywords")) {
@@ -377,7 +383,19 @@ export async function syncDueKeywords(
   await ensureKeywordCheckpoints(organisationId)
   const outcomes: KeywordSyncOutcome[] = []
   const maxLocations = Math.min(25, Math.max(1, options.maxLocations ?? 10))
+  let truncated = false
   for (let index = 0; index < maxLocations; index += 1) {
+    // Checked before the claim, never after it: a claimed checkpoint is
+    // leased 'running', and leaving it unworked would hold it until the
+    // reaper. Same rule as the fleet walks: processed > 0 && now >= deadline.
+    if (
+      outcomes.length > 0 &&
+      options.deadline !== undefined &&
+      Date.now() >= options.deadline
+    ) {
+      truncated = true
+      break
+    }
     const location = await claimDueKeywordLocation(
       organisationId,
       options.externalLocationId
@@ -487,5 +505,5 @@ export async function syncDueKeywords(
     outcomes.push(outcome)
     if (options.externalLocationId) break
   }
-  return outcomes
+  return { outcomes, truncated }
 }
