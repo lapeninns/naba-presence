@@ -32,6 +32,12 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      on an `origin: "same"` route (the default for `auth: "session"`) is
  *      refused with 403 `cross_origin_request` unless its `Origin` is the
  *      request's own origin, NEXTAUTH_URL's or one in APP_ALLOWED_ORIGINS.
+ *      "Own origin" is `request.url`'s, which depends on the host: self-hosted
+ *      `next start` / standalone builds it from the bound hostname and port
+ *      (`localhost:<port>` by default), not from the browser's Host header,
+ *      so a self-hosted deployment (and the E2E harness on :3100) relies on
+ *      NEXTAUTH_URL or APP_ALLOWED_ORIGINS. Whether Vercel previews pass on
+ *      their own origin is unverified (SEC-04).
  *      With no `Origin`, `Sec-Fetch-Site` decides (`same-origin` and `none`
  *      pass). A request carrying neither header is not a browser and cannot
  *      ride a victim's cookies, so it passes: that keeps

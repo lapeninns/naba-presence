@@ -53,7 +53,10 @@ response header on success and error, and written into every error body
 same-origin guard (`assertSameOrigin`), which refuses a mutation (any method
 but GET, HEAD and OPTIONS) on an `origin: "same"` route with 403
 `cross_origin_request` unless its `Origin` is the request's own origin,
-`NEXTAUTH_URL`'s or one listed in `APP_ALLOWED_ORIGINS`, falling back to
+`NEXTAUTH_URL`'s or one listed in `APP_ALLOWED_ORIGINS` (self-hosted Next
+builds `request.url` from the bound hostname and port, not the Host header, so
+the E2E harness passes through `NEXTAUTH_URL` and other browser origins need
+`APP_ALLOWED_ORIGINS`; Vercel preview origins are unverified), falling back to
 `Sec-Fetch-Site` (`same-origin` or `none`) when `Origin` is absent and letting
 a request with neither header through, since a non-browser caller cannot ride
 a victim's cookies; `origin` defaults to `"same"` for session routes and

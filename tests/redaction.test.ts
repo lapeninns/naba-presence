@@ -74,4 +74,18 @@ describe("structured log redaction", () => {
       redactForLog({ url: "https://x.test/?refresh_token=r1" })
     ).toEqual({ url: "https://x.test/?refresh_token=[REDACTED]" })
   })
+
+  it("redacts a token carried in a URL fragment", () => {
+    expect(
+      redactUrls("https://app.test/cb#access_token=opaque-1&state=s1")
+    ).toBe("https://app.test/cb#access_token=[REDACTED]&state=s1")
+  })
+
+  it("stays linear on long runs of word boundaries", () => {
+    // An unbounded scheme class made this ~2s for 80k characters.
+    const started = performance.now()
+    redactForLog("a.".repeat(100_000))
+    redactForLog(`${"a.".repeat(50_000)}://user:pw@host`)
+    expect(performance.now() - started).toBeLessThan(250)
+  })
 })

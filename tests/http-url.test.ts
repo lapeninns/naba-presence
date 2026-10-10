@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { httpUrl } from "@/lib/contracts/http-url"
 import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
@@ -68,5 +68,28 @@ describe("httpUrl()", () => {
         websiteUri: "data:text/html,hi",
       }).success
     ).toBe(false)
+  })
+
+  describe("in a browser without the static URL.parse (Safari 17, Chrome < 126)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it("still validates instead of throwing", () => {
+      // The profile editor parses businessInformationPayloadSchema client-side.
+      vi.spyOn(URL, "parse").mockImplementation(() => {
+        throw new TypeError("URL.parse is not a function")
+      })
+      expect(schema.safeParse("https://a.test").success).toBe(true)
+      expect(schema.safeParse("https://user:pw@a.test").success).toBe(false)
+      expect(schema.safeParse("not a url").success).toBe(false)
+      expect(
+        businessInformationPayloadSchema.safeParse({ websiteUri: "" }).success
+      ).toBe(true)
+      expect(
+        businessInformationPayloadSchema.safeParse({ websiteUri: "nope" })
+          .success
+      ).toBe(false)
+    })
   })
 })

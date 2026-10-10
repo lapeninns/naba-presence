@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { appOrigins } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { type RawParams, route, type RouteHandler } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
@@ -359,16 +360,29 @@ describe("route() — same-origin guard", () => {
     }
   })
 
-  it("accepts the E2E harness on :3100, whose origin is the request's own", async () => {
+  it("lets the E2E harness through via NEXTAUTH_URL; request.url follows the bound host", async () => {
+    // `next start` builds request.url from the bound hostname and port
+    // (localhost:<port> by default), never from the browser's Host header.
+    // The harness browses 127.0.0.1:3100, so it passes only because
+    // playwright.config.ts sets NEXTAUTH_URL to that origin.
+    expect(
+      appOrigins({ NEXTAUTH_URL: "http://127.0.0.1:3100", APP_ALLOWED_ORIGINS: [] })
+    ).toEqual(["http://127.0.0.1:3100"])
     const POST = route({ handler })
-    const response = await call(
-      POST,
-      new Request("http://127.0.0.1:3100/api/test", {
+    const asNextBuildsIt = (origin: string) =>
+      new Request("http://localhost:3100/api/test", {
         method: "POST",
-        headers: { origin: "http://127.0.0.1:3100" },
+        headers: { origin },
       })
-    )
-    expect(response.status).toBe(200)
+    // This suite's NEXTAUTH_URL is https://app.example.test.
+    expect(
+      (await call(POST, asNextBuildsIt("https://app.example.test"))).status
+    ).toBe(200)
+    // An origin that is neither configured nor request.url's own is refused,
+    // even though it is the host the browser actually used.
+    expect(
+      (await call(POST, asNextBuildsIt("http://127.0.0.1:3100"))).status
+    ).toBe(403)
   })
 
   it("lets a missing Origin through when Sec-Fetch-Site is same-origin or none", async () => {

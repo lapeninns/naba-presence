@@ -3,11 +3,15 @@ const sensitiveKey =
 const bearerPattern = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi
 const jwtPattern = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
 // `scheme://user:password@host`: the credentials between `//` and `@`, which
-// cannot contain `/`, `?` or `#` (those end the authority).
-const userinfoPattern = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@"'<>]+@/gi
+// cannot contain `/`, `?` or `#` (those end the authority). The scheme is
+// bounded: unbounded, every word boundary in a long `a.a.a…` run restarts a
+// scan to the end of the run, which is quadratic in the string's length.
+const userinfoPattern = /\b([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/?#@"'<>]+@/gi
 // `?name=value` / `&name=value` anywhere in a string: a request URL, a path
-// with a query or a provider redirect quoted in an error message.
-const queryParamPattern = /([?&;])([^=&#?;\s"'<>]+)=([^&#;\s"'<>]*)/g
+// with a query or a provider redirect quoted in an error message. `#` counts
+// too, for fragment-carried tokens (`#access_token=…` in an implicit-grant
+// redirect).
+const queryParamPattern = /([?&;#])([^=&#?;\s"'<>]+)=([^&#;\s"'<>]*)/g
 // Query parameter names that carry credentials: everything `sensitiveKey`
 // covers (access_token, client_secret, api_key, …) plus OAuth codes, bare
 // keys and URL signatures.

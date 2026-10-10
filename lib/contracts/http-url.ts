@@ -17,16 +17,31 @@ export function httpUrl(message = "Use an http or https link.") {
     })
     .refine(
       (value) => {
-        const url = URL.parse(value)
-        return url !== null && (url.protocol === "http:" || url.protocol === "https:")
+        const url = parseUrl(value)
+        return (
+          url !== null &&
+          (url.protocol === "http:" || url.protocol === "https:")
+        )
       },
       { message }
     )
     .refine(
       (value) => {
-        const url = URL.parse(value)
+        const url = parseUrl(value)
         return url !== null && url.username === "" && url.password === ""
       },
       { message: "Links cannot contain a user name or password." }
     )
+}
+
+// These schemas also run in the browser (the profile editor parses its payload
+// client-side), and the static `URL.parse` is missing before Safari 18 and
+// Chrome 126. Zod runs these refinements even when `z.url()` has already
+// failed, so an invalid value must also return null rather than throw.
+function parseUrl(value: string): URL | null {
+  try {
+    return new URL(value)
+  } catch {
+    return null
+  }
 }

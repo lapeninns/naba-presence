@@ -284,8 +284,10 @@ export function getServerEnv(): ServerEnv {
 /**
  * The configured application origins: NEXTAUTH_URL's origin (APP_ORIGIN)
  * followed by APP_ALLOWED_ORIGINS. The same-origin guard also accepts the
- * request's own origin, so preview deployments and the E2E harness on :3100
- * need no entry here.
+ * request's own origin, but self-hosted Next builds `request.url` from the
+ * bound hostname and port rather than the Host header, so do not rely on it:
+ * the E2E harness on :3100 passes because it sets NEXTAUTH_URL, and preview
+ * deployments are unverified (SEC-04).
  */
 export function appOrigins(
   env: Pick<ServerEnv, "NEXTAUTH_URL" | "APP_ALLOWED_ORIGINS">
