@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { bulkReviewActionSchema } from "@/lib/contracts/reviews"
 import { summariseBulkOutcome } from "@/lib/inbox/bulk-outcome"
 import { ApiError } from "@/lib/server/http"
-import { rowFromError } from "@/lib/server/review-bulk-outcome"
+import { rowFromApproval, rowFromError } from "@/lib/server/review-bulk-outcome"
 
 const ctx = {
   requestId: "req-1",
@@ -44,15 +44,47 @@ describe("bulk review row outcomes", () => {
     }
   })
 
-  it("reports an ambiguous publish as uncertain", () => {
-    expect(
-      rowFromError(
-        "r1",
-        new ApiError(502, "google_mutation_ambiguous", "maybe"),
-        "after_approval",
-        ctx
-      )
-    ).toEqual({ reviewId: "r1", status: "uncertain", code: "google_mutation_ambiguous" })
+  // Google may hold a reply (ours, a different one, or one still landing).
+  it("reports a publish Google may hold as uncertain", () => {
+    for (const code of ["google_mutation_ambiguous", "reply_diverged", "publish_in_progress"]) {
+      expect(
+        rowFromError("r1", new ApiError(409, code, "maybe"), "after_approval", ctx)
+      ).toEqual({ reviewId: "r1", status: "uncertain", code })
+    }
+  })
+
+  // The decision is spent, so "try again" would only earn approval_not_pending.
+  it("says a publish parked for automatic retry will be resent", () => {
+    for (const error of [
+      new ApiError(429, "google_rate_limited", "slow down", {
+        details: { retryScheduledAt: "2026-10-10T10:00:00.000Z" },
+      }),
+      new ApiError(409, "google_token_unavailable", "blocked", {
+        details: { retryScheduledAt: "2026-10-10T10:15:00.000Z" },
+      }),
+      new ApiError(429, "publish_retry_not_ready", "later"),
+    ]) {
+      expect(rowFromError("r1", error, "after_approval", ctx)).toEqual({
+        reviewId: "r1",
+        status: "approved_not_published",
+        code: "publish_retry_scheduled",
+      })
+    }
+  })
+
+  it("counts only a reply Google took as ok", () => {
+    expect(rowFromApproval("r1", { status: "published" })).toEqual({ reviewId: "r1", status: "ok" })
+    expect(rowFromApproval("r1", { status: "pending" })).toEqual({ reviewId: "r1", status: "ok" })
+    expect(rowFromApproval("r1", { status: "rejected" })).toEqual({
+      reviewId: "r1",
+      status: "approved_not_published",
+      code: "google_reply_rejected",
+    })
+    expect(rowFromApproval("r1", { status: "awaiting_approval" })).toEqual({
+      reviewId: "r1",
+      status: "approved_not_published",
+      code: "publish_not_sent",
+    })
   })
 
   it("turns an unexpected error into this row's outcome instead of throwing", () => {

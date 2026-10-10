@@ -64,6 +64,12 @@ export type PublishOutcome = {
     code: string
     message: string
   }
+  /**
+   * Set on a `failed` outcome the attempt row parked for an automatic retry
+   * (a 429 or a connection-blocked call): when the runner will try again.
+   * Absent means nothing will resend this reply on its own.
+   */
+  retryScheduledAt?: string
 }
 
 export type PublishInput = {

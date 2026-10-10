@@ -15,7 +15,7 @@ import {
   completeApproval,
   recordApprovalDecision,
 } from "@/lib/server/review-approval"
-import { rowFromError } from "@/lib/server/review-bulk-outcome"
+import { rowFromApproval, rowFromError } from "@/lib/server/review-bulk-outcome"
 import { route, type TenantRunner } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 
@@ -174,8 +174,10 @@ type RowContext = {
  * decision rolled back with it: the row is skipped (not eligible, or the
  * draft / review moved since the operator saw it) or failed. Once the
  * decision has committed the approval is real, so a publish that then fails
- * is `approved_not_published`, and one whose outcome Google left unknown is
- * `uncertain`. Neither is "skipped": something did change.
+ * is `approved_not_published` (with `publish_retry_scheduled` when the
+ * runner will resend it), as is a reply Google answered with REJECTED; one
+ * whose outcome Google left unknown is `uncertain`. Neither is "skipped":
+ * something did change.
  */
 async function approveRow(
   session: Session,
@@ -204,8 +206,13 @@ async function approveRow(
     })
   }
   try {
-    await completeApproval(session, item.reviewId, decision, ctx.requestId)
-    return { reviewId: item.reviewId, status: "ok" }
+    const result = await completeApproval(
+      session,
+      item.reviewId,
+      decision,
+      ctx.requestId
+    )
+    return rowFromApproval(item.reviewId, result)
   } catch (error) {
     return rowFromError(item.reviewId, error, "after_approval", {
       requestId: ctx.requestId,

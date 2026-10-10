@@ -135,6 +135,14 @@ const COPY: Record<string, string> = {
   publish_outcome_unknown:
     "The approval is recorded but we could not tell whether the reply reached Google. Check the review before trying again.",
   bulk_row_failed: "Something went wrong with this one. Nothing was changed.",
+  // After a bulk approval: the decision is spent, so "try again" would only
+  // earn approval_not_pending. Say what happens next instead.
+  publish_retry_scheduled:
+    "The approval is recorded. Google could not take the reply just now, so it will be sent again automatically.",
+  google_reply_rejected:
+    "The approval is recorded, but Google rejected the reply, so it is not on the profile. Edit the reply and publish it again.",
+  publish_not_sent:
+    "The approval is recorded, but the reply was not sent to Google. Open the review to check its state.",
   publish_in_progress:
     "A publish for this reply is already under way. Wait a moment and try again.",
   // The Google write pipeline raises these while another request for the same

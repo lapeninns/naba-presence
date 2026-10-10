@@ -134,7 +134,7 @@ describe("BulkActionBar", () => {
       screen.getByRole("button", { name: "Approve 1 of 3" })
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/2 of these are not awaiting your approval/)
+      screen.getByText(/2 of these are not ready for your approval/)
     ).toBeInTheDocument()
   })
 

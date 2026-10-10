@@ -224,7 +224,13 @@ export async function completeApproval(
     throw new ApiError(
       outcome.providerError?.status === 429 ? 429 : 409,
       outcome.providerError?.code ?? "google_publish_failed",
-      outcome.providerError?.message ?? "Google rejected the reply."
+      outcome.providerError?.message ?? "Google rejected the reply.",
+      // The attempt is parked for the retry runner; callers that report
+      // per-row outcomes (bulk approve) must not say "try again" when the
+      // decision is already spent and the resend is automatic.
+      outcome.retryScheduledAt
+        ? { details: { retryScheduledAt: outcome.retryScheduledAt } }
+        : {}
     )
   }
   return {

@@ -171,12 +171,51 @@ describeDatabase("bulk review actions", () => {
     const body = (await response.json()) as {
       results: { reviewId: string; status: string; code?: string }[]
     }
-    expect(body.results).toHaveLength(1)
-    expect(body.results[0]).toMatchObject({
-      reviewId: parked.reviewId,
-      status: "approved_not_published",
-    })
+    // Approved, and parked for the retry runner: re-approving would only
+    // earn approval_not_pending, so the row must not invite a retry.
+    expect(body.results).toEqual([
+      {
+        reviewId: parked.reviewId,
+        status: "approved_not_published",
+        code: "publish_retry_scheduled",
+      },
+    ])
     // The decision committed; "skipped" would have said nothing happened.
+    expect(await decisions(parked.reviewId)).toBe(1)
+    const [attempt] = await admin<{ status: string }[]>`
+      select pa.status
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      where rr.review_id = ${parked.reviewId}
+    `
+    expect(attempt?.status).toBe("retryable")
+  })
+
+  it("does not count a reply Google answered with REJECTED as done", async () => {
+    stub.reset()
+    const parked = await awaitingApproval()
+    stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+      status: 200,
+      json: {
+        comment: "Thank you for sharing your experience.",
+        updateTime: "2026-08-20T10:00:00.000Z",
+        state: "REJECTED",
+        policyViolation: "SPAM",
+      },
+    }))
+    const response = await post(parked.owner.cookie, {
+      action: "approve",
+      approvals: [parked.shown],
+    })
+    expect(await response.json()).toEqual({
+      results: [
+        {
+          reviewId: parked.reviewId,
+          status: "approved_not_published",
+          code: "google_reply_rejected",
+        },
+      ],
+    })
     expect(await decisions(parked.reviewId)).toBe(1)
   })
 

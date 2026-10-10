@@ -266,7 +266,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
       {partial ? (
         <p className="text-caption text-ink-muted-on-charcoal">
-          {chosen.length - approvable.length} of these are not awaiting your
+          {chosen.length - approvable.length} of these are not ready for your
           approval, so Approve will skip them.
         </p>
       ) : null}
@@ -304,7 +304,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
             Each approved reply is sent to Google straight away and appears on
             the business&apos;s profile under its name.
             {approvable.length < chosen.length
-              ? ` The other ${chosen.length - approvable.length} selected are not awaiting your approval and are left as they are.`
+              ? ` The other ${chosen.length - approvable.length} selected are not ready for your approval and are left as they are.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>

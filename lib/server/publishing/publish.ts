@@ -127,6 +127,9 @@ async function settlePublishFailure(
       message:
         error instanceof Error ? error.message : "Google publish failed.",
     },
+    ...(failure.retryable && failure.nextAttemptAt
+      ? { retryScheduledAt: failure.nextAttemptAt.toISOString() }
+      : {}),
   }
 }
 

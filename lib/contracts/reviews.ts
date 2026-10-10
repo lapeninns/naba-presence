@@ -596,11 +596,13 @@ export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
  * - `skipped`: the row was not eligible; nothing changed.
  * - `failed`: the row could not be processed; nothing is known to have
  *   changed for it.
- * - `approved_not_published`: the approval is recorded but the publish did
- *   not go out (rate limit, a refusal, a review that moved). The reply waits
- *   in its current state; it is not "skipped".
+ * - `approved_not_published`: the approval is recorded but the reply is not
+ *   live on Google (a refusal, a reply Google answered with REJECTED, a review
+ *   that moved, or a rate limit, which `publish_retry_scheduled` marks as
+ *   queued for an automatic resend). It is not "skipped".
  * - `uncertain`: the approval is recorded and Google may or may not have the
- *   reply. Its state must be checked before anyone retries.
+ *   reply (unconfirmed write, a diverged live reply, a publish still in
+ *   flight). Its state must be checked before anyone retries.
  */
 export const BULK_REVIEW_ROW_STATUSES = [
   "ok",
