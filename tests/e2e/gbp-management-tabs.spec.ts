@@ -89,7 +89,7 @@ test("Business profile editor renders live Google data with humanised fields", a
 test("Industry sections offer no retired Google controls and surface a failing section honestly", async ({ page }) => {
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
-  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, canManage: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, lodgingHash: "c".repeat(64), canManage: true, writesEnabled: true } } }))
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", metadata: { canOperateLodgingData: true } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   // Lodging is a section of the business profile now.
   await page.goto("/listings/location-management/profile")

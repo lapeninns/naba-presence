@@ -20,6 +20,7 @@ const INDUSTRY = { industry: {
     connectivity: { freeWifi: true },
   }),
   healthcareServices: { data: null, error: "Google 500 boom" },
+  lodgingHash: "a".repeat(64),
   canManage: true, writesEnabled: true,
 } }
 
@@ -98,6 +99,8 @@ describe("IndustrySections", () => {
       const body = JSON.parse((patch![1] as RequestInit).body as string)
       expect(body.operation).toBe("update_lodging")
       expect(body.updateMask).toEqual(["pets"])
+      // The loaded lodging's hash goes back as the expected baseline.
+      expect(body.expectedGoogleHash).toBe("a".repeat(64))
       expect(body.confirmation).toBe("publish_industry_data_to_google")
     })
   })

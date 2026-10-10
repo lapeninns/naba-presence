@@ -491,9 +491,11 @@ a stale snapshot answers its 409), never by a second dispatch.
 
 `ambiguous` means the provider state is not known to match the intent and
 might; `failed` means it is known not to. `classifyFailure` in
-`lib/server/gbp-write.ts` is the single implementation of that judgement, and
-is exported so the surfaces that still run their own phase machine
-(`lib/server/business-information.ts`) classify identically. An "ambiguous"
+`lib/server/gbp-write.ts` is the single implementation of that judgement.
+Business information, attributes and industry (lodging, healthcare
+serviceList) run through `runGbpWrite` on `gbpManagementAttemptStore` like the
+other surfaces (P03-S4); `business-information.ts` also uses `classifyFailure`
+to word its `*.update.unconfirmed` audit for an ambiguous outcome. An "ambiguous"
 error below is a `GoogleMutationAmbiguousError`, the one thing
 `isAmbiguousProviderError` recognises:
 
@@ -517,7 +519,34 @@ code recorded on the row is `ApiError.code`, else an object's string `code`,
 else the module's `failureCode`. The two `onAmbiguous` modes exist because the
 migrated modules kept their previous behaviour; `"readback"` is used wherever a
 readback exists (hours, profile, food menus, post publish and post delete),
-because ambiguous writes are read before any retry.
+because ambiguous writes are read before any retry. Business information,
+attributes and industry use `"fail"`: an ambiguous PATCH may still be
+applying, so a readback taken at once cannot prove it did not land.
+
+### Readback adapters
+
+`lib/domain/readback/*` are the client-safe comparisons the readbacks use: the
+live resource is read after the write, both sides are normalised the way
+Google normalises what it stores, and only the masked fields are compared, so
+unrelated drift and fields Google adds never fail a write that applied.
+
+| Adapter            | Compares                                                                                                                                            | Used by                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `business-info.ts` | masked location fields; phone digits (with Google's national-to-international rewrite), normalised links, categories by `name`, trimmed text        | `updateBusinessInformation` (`business_information_readback_mismatch`)           |
+| `attributes.ts`    | masked attributes by stable id; `false` is not unset, repeated-enum set/unset as sets, `uriValues`; a masked id absent from the payload is a delete | `updateBusinessAttributes` (`business_attributes_readback_mismatch`)             |
+| `industry.ts`      | each updateMask path of the re-read lodging or serviceList; `TimeOfDay` zero parts, Google-added siblings ignored                                   | `mutateIndustryManagement` (`industry_readback_mismatch`)                        |
+| `posts.ts`         | topic, language, summary, call to action, event title and schedule, offer fields                                                                    | `matchLivePost` (ambiguous creates, stranded posts) and post update verification |
+
+A post create is still proven by its name alone: settling a named create
+`failed` would invite a second create. Attribute and lodging writes are
+checked for staleness over the fields they write (`requireFreshMaskedBaseline`
+in `lib/server/gbp-management.ts`): the editor's whole-resource hash still
+names the snapshot cached at its load, and only a change to a masked field
+since then is stale. Lodging updates accept only the allowlisted groups in
+`lib/domain/lodging.ts` and carry the loaded `lodgingHash` as
+`expectedGoogleHash`. Healthcare serviceList stays freeform and unpinned
+pending D-24. Snapshots are cached after the row settles, and a cache failure
+is logged rather than turning a landed write into a failure.
 
 The transport (`lib/server/google/transport.ts`) decides which provider errors
 are ambiguous. In mutation mode it raises `GoogleMutationAmbiguousError` for a

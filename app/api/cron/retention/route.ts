@@ -391,9 +391,10 @@ async function retain({
           returning id
         `
         // The remaining three surfaces map every in-flight phase onto
-        // 'started' (their CHECK admits no finer vocabulary), and only place
-        // actions carries started_at -- the other two are aged off created_at,
-        // which is written in the same statement that opens the attempt.
+        // 'started' (their CHECK admits no finer vocabulary; gbp_management
+        // also has 'validated'). Place actions and gbp_management carry
+        // started_at (0069), which a re-arm resets; media is aged off
+        // created_at, written in the same statement that opens the attempt.
         const strandedMedia = await sql`
           update gbp_media_mutation
           set status = 'ambiguous', last_error_code = 'attempt_interrupted',
@@ -415,7 +416,7 @@ async function retain({
           set status = 'ambiguous', last_error_code = 'attempt_interrupted',
             finished_at = now()
           where status in ('started', 'validated')
-            and created_at <= now() - interval '24 hours'
+            and started_at <= now() - interval '24 hours'
           returning id
         `
         // The receipts linked to those rows (lib/server/mutation-operations.ts)

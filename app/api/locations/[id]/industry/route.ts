@@ -51,6 +51,10 @@ export const PATCH = route({
       operation: body.operation,
       payload: body.payload as Record<string, unknown>,
       updateMask: [...body.updateMask],
+      expectedGoogleHash:
+        body.operation === "update_lodging"
+          ? body.expectedGoogleHash
+          : undefined,
       requestId,
     })
   },

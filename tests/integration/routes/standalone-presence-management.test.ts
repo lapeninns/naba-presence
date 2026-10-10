@@ -528,6 +528,134 @@ describeDatabase("standalone NabaPresence canonical management", () => {
       ).toMatchObject({ status: "google_dirty", checkStatus: "checked" })
     }
   }, 30_000)
+
+  // Attributes and lodging read the resource back after the PATCH and compare
+  // the masked fields (lib/domain/readback/*): a Google that answers 200 but
+  // holds something else settles the attempt failed, an unreadable readback
+  // ambiguous -- never succeeded.
+  it("settles attribute and lodging writes failed or ambiguous on a divergent readback", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const location = linked.googleLocationName
+    const attributes = {
+      name: `${location}/attributes`,
+      attributes: [
+        { name: "attributes/has_wheelchair_accessible_entrance", values: [true] },
+      ],
+    }
+    const lodging = { name: `${location}/lodging`, pets: { petsAllowed: false } }
+    let lodgingReadFails = false
+    let lodgingPatches = 0
+    google.respond({ method: "GET", pathIncludes: `/v1/${location}` }, () => ({
+      status: 200,
+      json: { name: location, title: "Old Crown" },
+    }))
+    google.respond({ method: "GET", pathIncludes: "/v1/attributes?" }, () => ({
+      status: 200,
+      json: { attributeMetadata: [] },
+    }))
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${location}/attributes` },
+      () => ({ status: 200, json: attributes })
+    )
+    // Google answers the PATCH but keeps the old value.
+    google.respond(
+      { method: "PATCH", pathIncludes: `/v1/${location}/attributes` },
+      () => ({ status: 200, json: attributes })
+    )
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${location}/lodging` },
+      () =>
+        lodgingReadFails
+          ? { status: 400, json: { error: { message: "Synthetic failure" } } }
+          : { status: 200, json: lodging }
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: `/v1/${location}/lodging` },
+      () => {
+        // The second write's readback cannot be read.
+        lodgingPatches += 1
+        lodgingReadFails = lodgingPatches >= 2
+        return { status: 200, json: lodging }
+      }
+    )
+    const root = `${server.baseUrl}/api/locations/${linked.locationId}`
+    const attempts = () =>
+      admin<{ resourceType: string; status: string; code: string | null }[]>`
+        select resource_type as "resourceType", status,
+          last_error_code as code
+        from gbp_management_mutation
+        where organisation_id = ${owner.organisationId}
+        order by created_at
+      `
+
+    const info = await getJson(
+      `${root}/business-information`,
+      owner.cookie,
+      "businessInformation"
+    )
+    const attributeWrite = await fetch(`${root}/business-information`, {
+      method: "PATCH",
+      headers: jsonHeaders(owner.cookie, "attributes-divergent"),
+      body: JSON.stringify({
+        operation: "update_attributes",
+        confirmation: "publish_business_attributes_to_google",
+        expectedGoogleHash: info.attributesHash,
+        attributeMask: ["attributes/has_wheelchair_accessible_entrance"],
+        attributes: [
+          { name: "attributes/has_wheelchair_accessible_entrance", values: [false] },
+        ],
+      }),
+    })
+    expect(attributeWrite.status, await attributeWrite.clone().text()).toBe(502)
+    expect((await attributeWrite.json()).error).toBe(
+      "business_attributes_readback_mismatch"
+    )
+
+    const industry = await getJson(`${root}/industry`, owner.cookie, "industry")
+    expect(industry.lodgingHash).toMatch(/^[0-9a-f]{64}$/)
+    const lodgingWrite = (requestId: string) =>
+      fetch(`${root}/industry`, {
+        method: "PATCH",
+        headers: jsonHeaders(owner.cookie, requestId),
+        body: JSON.stringify({
+          operation: "update_lodging",
+          confirmation: "publish_industry_data_to_google",
+          expectedGoogleHash: industry.lodgingHash,
+          updateMask: ["pets"],
+          payload: { pets: { petsAllowed: true } },
+        }),
+      })
+    // The PATCH lands nothing and the readback says so: failed.
+    const mismatch = await lodgingWrite("lodging-divergent")
+    expect(mismatch.status, await mismatch.clone().text()).toBe(502)
+    expect((await mismatch.json()).error).toBe("industry_readback_mismatch")
+    // The PATCH is answered but the readback cannot be read: ambiguous.
+    const unread = await lodgingWrite("lodging-unread")
+    expect(unread.status).not.toBe(200)
+
+    expect(await attempts()).toEqual([
+      {
+        resourceType: "attributes",
+        status: "failed",
+        code: "business_attributes_readback_mismatch",
+      },
+      {
+        resourceType: "lodging",
+        status: "failed",
+        code: "industry_readback_mismatch",
+      },
+      { resourceType: "lodging", status: "ambiguous", code: expect.any(String) },
+    ])
+  }, 30_000)
 })
 
 async function getJson(url: string, cookie: string, key: string) {

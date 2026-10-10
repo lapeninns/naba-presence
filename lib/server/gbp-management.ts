@@ -12,6 +12,7 @@ import {
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import type { Session } from "@/lib/server/session"
 
 // Thin façade over lib/server/gbp-write.ts for the "complete GBP management"
@@ -76,6 +77,9 @@ export const gbpManagementAttemptStore: AttemptStore = attemptStore({
     errorCode: "last_error_code",
     response: "google_response",
     validatedAt: "validated_at",
+    // 0069: dates an in-flight row, so recovery can tell an interrupted
+    // write from one still running.
+    startedAt: "started_at",
   },
 })
 
@@ -170,6 +174,77 @@ export async function cacheGbpSnapshot(input: {
   `
   )
   return hash
+}
+
+/** The cached snapshot of one resource, as the last load or write left it. */
+export async function loadGbpSnapshot(input: {
+  organisationId: string
+  resourceType: string
+  resourceName: string
+}): Promise<{ payload: unknown; googleHash: string } | null> {
+  const [row] = await withTenant(
+    input.organisationId,
+    (sql) => sql<{ payload: unknown; googleHash: string }[]>`
+      select payload, google_hash as "googleHash"
+      from gbp_resource_snapshot
+      where organisation_id = ${input.organisationId}
+        and resource_type = ${input.resourceType}
+        and resource_name = ${input.resourceName}
+      limit 1
+    `
+  )
+  return row ?? null
+}
+
+/**
+ * Field-scoped staleness for a masked write. `expectedGoogleHash` is the
+ * whole-resource hash the editor loaded; when Google's resource still hashes
+ * to it the write is fresh. When it does not, the write is still fresh if
+ * the only changes are outside the fields it writes: the snapshot cached at
+ * that load (gbp_resource_snapshot, keyed by the same hash) is compared with
+ * the live resource over `scope` alone. Without that snapshot -- another load
+ * has replaced it since -- nothing proves which fields moved, so the write is
+ * stale, exactly as the whole-resource check was.
+ */
+export async function requireFreshMaskedBaseline(input: {
+  organisationId: string
+  resourceType: string
+  resourceName: string
+  expectedGoogleHash: string
+  current: unknown
+  /** The masked projection of a resource (e.g. maskedAttributeBaseline). */
+  scope: (resource: unknown) => unknown
+  stale: ApiError
+}): Promise<void> {
+  if (stableGoogleHash(input.current) === input.expectedGoogleHash) return
+  const snapshot = await loadGbpSnapshot(input)
+  if (
+    snapshot?.googleHash === input.expectedGoogleHash &&
+    stableGoogleHash(input.scope(snapshot.payload)) ===
+      stableGoogleHash(input.scope(input.current))
+  ) {
+    return
+  }
+  throw input.stale
+}
+
+/**
+ * Caches a readback after a write that has already settled. The write landed
+ * and is recorded, so a cache that fails to write must not turn it into a
+ * failure: it is logged, and the next load rebuilds the snapshot.
+ */
+export async function cacheGbpSnapshotAfterWrite(
+  input: Parameters<typeof cacheGbpSnapshot>[0]
+): Promise<void> {
+  try {
+    await cacheGbpSnapshot(input)
+  } catch (error) {
+    log.warn("gbp_management.snapshot_cache_failed", {
+      organisationId: input.organisationId,
+      resourceType: input.resourceType,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 export async function startGbpMutation(input: {

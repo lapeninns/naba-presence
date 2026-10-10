@@ -138,6 +138,7 @@ function IndustryEditor({
                   : ((state.lodgingUpdated.data as RawRecord | null) ?? null)
               }
               suggestedError={state.lodgingUpdated.error}
+              loadedHash={state.lodgingHash}
               disabled={disabled}
               publishReason={publishReason}
             />
@@ -215,6 +216,7 @@ function LodgingSection({
   loaded,
   suggested,
   suggestedError,
+  loadedHash,
   disabled,
   publishReason,
 }: {
@@ -222,6 +224,8 @@ function LodgingSection({
   loaded: RawRecord
   suggested: RawRecord | null
   suggestedError: string | null
+  /** Hash of `loaded`: the baseline the publish is checked against. */
+  loadedHash: string | null
   disabled: boolean
   publishReason: string | null
 }) {
@@ -278,6 +282,7 @@ function LodgingSection({
         operation: "update_lodging",
         updateMask: mask,
         payload,
+        expectedGoogleHash: loadedHash ?? undefined,
       }),
     invalidate: [queryKeys.locationIndustry(locationId)],
     successToast: { outcome: "sent", title: "Lodging details sent to Google" },

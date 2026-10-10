@@ -1,6 +1,12 @@
 // Contract for /api/locations/[id]/industry. Client-safe: zod only.
 import { z } from "zod"
 
+import {
+  lodgingMaskCoversPayload,
+  lodgingUpdateMaskSchema,
+  lodgingUpdatePayloadSchema,
+} from "@/lib/domain/lodging"
+
 import { gbpMutationWithResponseResultSchema, sectionResultSchema } from "./gbp-management"
 
 export { sectionResultSchema, type SectionResult } from "./gbp-management"
@@ -11,6 +17,11 @@ export const industryStateSchema = z.object({
   lodging: sectionResultSchema,
   lodgingUpdated: sectionResultSchema,
   healthcareServices: sectionResultSchema,
+  /**
+   * stableGoogleHash of the lodging resource as loaded (null when it could
+   * not be). A lodging update sends it back as its expected baseline.
+   */
+  lodgingHash: z.string().length(64).nullable().default(null),
   canManage: z.boolean(),
   writesEnabled: z.boolean(),
 })
@@ -46,13 +57,35 @@ export const INDUSTRY_CONFIRMATION = "publish_industry_data_to_google" as const
 const freeformMask = z.array(z.string().trim().min(1)).min(1)
 const freeformPayload = z.record(z.string(), z.unknown())
 
-export const industryMutationSchema = z.discriminatedUnion("operation", [
-  z.object({
+/**
+ * A lodging update: allowlisted groups only (lib/domain/lodging.ts), the
+ * mask and payload naming the same groups, and the hash of the lodging the
+ * editor loaded. The server refuses it as stale when a group it writes has
+ * changed on Google since; changes to other groups do not block it.
+ */
+export const lodgingMutationSchema = z
+  .object({
     operation: z.literal("update_lodging"),
     confirmation: z.literal(INDUSTRY_CONFIRMATION),
-    updateMask: freeformMask,
-    payload: freeformPayload,
-  }),
+    updateMask: lodgingUpdateMaskSchema,
+    payload: lodgingUpdatePayloadSchema,
+    expectedGoogleHash: z.string().length(64),
+  })
+  .refine(
+    (body) =>
+      lodgingMaskCoversPayload(
+        body.updateMask,
+        body.payload as Record<string, unknown>
+      ),
+    {
+      message: "The lodging changes and the fields they update do not match.",
+      path: ["updateMask"],
+    }
+  )
+
+// Healthcare serviceList stays freeform pending decision D-24.
+export const industryMutationSchema = z.discriminatedUnion("operation", [
+  lodgingMutationSchema,
   z.object({
     operation: z.literal("update_healthcare_services"),
     confirmation: z.literal(INDUSTRY_CONFIRMATION),

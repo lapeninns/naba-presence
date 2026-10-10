@@ -1,5 +1,7 @@
 import "server-only"
 
+import type { TransactionSql } from "postgres"
+
 import type {
   AttributeMetadata,
   BusinessInformationMetadataType,
@@ -9,7 +11,12 @@ import type {
   GoogleAttribute,
 } from "@/lib/contracts/location-business-information"
 import { assertBusinessInformationMask } from "@/lib/domain/business-information"
-import { getDatabase, withTenant } from "@/lib/server/db"
+import {
+  attributeMismatches,
+  maskedAttributeBaseline,
+} from "@/lib/domain/readback/attributes"
+import { businessInfoMismatches } from "@/lib/domain/readback/business-info"
+import { getDatabase, jsonColumn, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
@@ -24,13 +31,23 @@ import {
 import {
   auditGbpMutation,
   cacheGbpSnapshot,
+  cacheGbpSnapshotAfterWrite,
+  gbpManagementAttemptStore,
+  gbpManagementIdempotencyKey,
+  requireFreshMaskedBaseline,
   resolveGbpLocationContext,
-  settleGbpMutation,
   stableGoogleHash,
-  startGbpMutation,
+  type GbpLocationContext,
 } from "@/lib/server/gbp-management"
-import { classifyFailure, type GbpWritePhase } from "@/lib/server/gbp-write"
+import {
+  classifyFailure,
+  idempotencyKey,
+  providerErrorCode,
+  runGbpWrite,
+  type GbpWritePhase,
+} from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
+import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
 import type { Session } from "@/lib/server/session"
 
 const READ_MASK = [
@@ -52,32 +69,6 @@ const READ_MASK = [
 
 function writesEnabled() {
   return gbpWritesEnabled(getServerEnv(), "profileWrites")
-}
-
-function errorCode(error: unknown, fallback: string) {
-  return error && typeof error === "object" && "code" in error
-    ? String(error.code)
-    : fallback
-}
-
-function containsExpected(actual: unknown, expected: unknown): boolean {
-  if (Array.isArray(expected)) {
-    return (
-      Array.isArray(actual) &&
-      actual.length === expected.length &&
-      expected.every((item, index) => containsExpected(actual[index], item))
-    )
-  }
-  if (expected && typeof expected === "object") {
-    if (!actual || typeof actual !== "object" || Array.isArray(actual)) {
-      return false
-    }
-    return Object.entries(expected as Record<string, unknown>).every(
-      ([key, value]) =>
-        containsExpected((actual as Record<string, unknown>)[key], value)
-    )
-  }
-  return actual === expected
 }
 
 async function loadedContext(session: Session, locationId: string) {
@@ -141,6 +132,158 @@ export async function loadBusinessInformation(
   }
 }
 
+type ManagementWrite<TResponse> = {
+  session: Session
+  linked: GbpLocationContext
+  locationId: string
+  requestId: string
+  resourceType: "business_info" | "attributes"
+  action: string
+  targetResourceName: string
+  expectedGoogleHash: string
+  updateMask: string[]
+  payload: unknown
+  failureCode: string
+  validate?: () => Promise<unknown>
+  mutate: () => Promise<TResponse>
+  read: () => Promise<Record<string, unknown>>
+  /** The masked fields the readback does not confirm (empty: confirmed). */
+  mismatches: (readback: Record<string, unknown>) => string[]
+  mismatch: { code: string; message: string }
+  audit: { action: string; unconfirmedAction: string; metadata: Record<string, unknown> }
+}
+
+/**
+ * One Business Information or attributes PATCH through the shared pipeline
+ * (runGbpWrite over gbp_management_mutation). The key carries the client's
+ * intent (the Idempotency-Key header) or, without one, the request id, so a
+ * retry of the same intent replays its row instead of patching again; any
+ * existing row for the key is answered as idempotent ("replay").
+ *
+ * The readback is the live resource read again after the write and compared
+ * over the mask only (lib/domain/readback/*): a confirmed difference settles
+ * `failed`, a readback that cannot be read settles `ambiguous` (classifyFailure
+ * `readback_read`), and a confirmed write settles `succeeded` with the
+ * readback stored on the row and cached as the snapshot. An ambiguous
+ * provider call settles `ambiguous` without a readback ("fail"): a PATCH that
+ * timed out may still be applying, so a readback taken now cannot prove it
+ * did not land.
+ */
+async function runManagementWrite<TResponse>(
+  input: ManagementWrite<TResponse>
+): Promise<BusinessInformationMutationResult> {
+  const organisationId = input.session.organisationId
+  let phase: GbpWritePhase | null = null
+  let attemptId: string | null = null
+  try {
+    const result = await runGbpWrite<TResponse, Record<string, unknown>>({
+      organisationId,
+      actorUserId: input.session.userId,
+      requestId: input.requestId,
+      store: gbpManagementAttemptStore,
+      key: gbpManagementIdempotencyKey({
+        resourceType: input.resourceType,
+        operation: "patch",
+        targetResourceName: input.targetResourceName,
+        requestId: requestScopedKeyPart(input.requestId),
+      }),
+      intent: {
+        location_id: input.locationId,
+        google_account_id: input.linked.googleAccountId,
+        resource_type: input.resourceType,
+        operation: "patch",
+        target_resource_name: input.targetResourceName,
+        expected_google_hash: input.expectedGoogleHash,
+        update_mask: input.updateMask,
+        requested_payload: (sql: TransactionSql) =>
+          jsonColumn(sql, input.payload),
+      },
+      onExisting: "replay",
+      failureCode: input.failureCode,
+      operation: {
+        surface: "business_information",
+        action: input.action,
+        locationId: input.locationId,
+        targetType: input.resourceType,
+        targetRef: input.targetResourceName,
+        payloadHash: idempotencyKey([
+          input.action,
+          [...input.updateMask].sort().join(","),
+          stableGoogleHash(input.payload),
+          input.expectedGoogleHash,
+        ]),
+        googleConnectionId: input.linked.connectionId,
+      },
+      validate: input.validate
+        ? async (ctx) => {
+            phase = "validate"
+            attemptId = ctx.attemptId
+            return input.validate?.()
+          }
+        : undefined,
+      mutate: async (ctx) => {
+        phase = "mutate"
+        attemptId = ctx.attemptId
+        return input.mutate()
+      },
+      onAmbiguous: "fail",
+      readback: {
+        read: async () => {
+          phase = "readback_read"
+          const readback = await input.read()
+          // The read completed, so the provider state is known again: from
+          // here a disagreement is a definite failure, not an ambiguity.
+          phase = "readback_verify"
+          return readback
+        },
+        verify: ({ readback }) => input.mismatches(readback).length === 0,
+        hash: (readback) => stableGoogleHash(readback),
+        mismatch: { status: 502, ...input.mismatch },
+      },
+      audit: {
+        action: input.audit.action,
+        subjectType: "location",
+        subjectId: input.locationId,
+        metadata: input.audit.metadata,
+      },
+    })
+    if (result.idempotent) {
+      return { id: result.attemptId, status: result.rawStatus, idempotent: true }
+    }
+    await cacheGbpSnapshotAfterWrite({
+      organisationId,
+      locationId: input.locationId,
+      googleAccountId: input.linked.googleAccountId,
+      resourceType: input.resourceType,
+      resourceName: input.targetResourceName,
+      payload: result.readback,
+    })
+    return { id: result.attemptId, status: "succeeded", idempotent: false }
+  } catch (error) {
+    // An ambiguous outcome otherwise leaves no audit evidence at all: the
+    // success audit never runs, so an operator reconciling the mutation table
+    // against Google cannot tell a write that may have landed from one that
+    // never left. runGbpWrite settled the row with this same classification.
+    if (phase && attemptId && classifyFailure(phase, error) === "ambiguous") {
+      await auditGbpMutation({
+        organisationId,
+        session: input.session,
+        action: input.audit.unconfirmedAction,
+        subjectType: "location",
+        subjectId: input.locationId,
+        requestId: input.requestId,
+        metadata: {
+          ...input.audit.metadata,
+          mutationId: attemptId,
+          phase,
+          errorCode: providerErrorCode(error, input.failureCode),
+        },
+      })
+    }
+    throw error
+  }
+}
+
 export async function updateBusinessInformation(input: {
   session: Session
   locationId: string
@@ -170,12 +313,10 @@ export async function updateBusinessInformation(input: {
     input.session.organisationId,
     linked.connectionId
   )
-  const current = await getGoogleLocation(
-    token,
-    linked.googleLocationName,
-    [...READ_MASK],
-    { connectionKey: linked.connectionId }
-  )
+  const options = { connectionKey: linked.connectionId }
+  const read = () =>
+    getGoogleLocation(token, linked.googleLocationName, [...READ_MASK], options)
+  const current = await read()
   if (stableGoogleHash(current) !== input.expectedGoogleHash) {
     throw new ApiError(
       409,
@@ -183,132 +324,56 @@ export async function updateBusinessInformation(input: {
       "Google changed this location. Refresh before publishing."
     )
   }
-  const attempt = await startGbpMutation({
-    organisationId: input.session.organisationId,
+  const patch = (validateOnly: boolean) =>
+    patchGoogleLocation(
+      token,
+      {
+        locationName: linked.googleLocationName,
+        updateMask: input.updateMask,
+        validateOnly,
+        payload: input.payload,
+      },
+      options
+    )
+  return runManagementWrite({
     session: input.session,
+    linked,
     locationId: input.locationId,
-    googleAccountId: linked.googleAccountId,
-    resourceType: "business_info",
-    operation: "patch",
-    targetResourceName: linked.googleLocationName,
     requestId: input.requestId,
+    resourceType: "business_info",
+    action: "update_location",
+    targetResourceName: linked.googleLocationName,
     expectedGoogleHash: input.expectedGoogleHash,
     updateMask: input.updateMask,
     payload: input.payload,
-  })
-  if (attempt.idempotent) return attempt
-  // These two functions still run their own phase machine rather than
-  // runGbpWrite, so they track the phase themselves and hand it to the
-  // pipeline's classifier: a post-write read that fails leaves the state
-  // unknown (`ambiguous`), never a definite `failed` on a write Google
-  // actually applied.
-  let phase: GbpWritePhase = "validate"
-  try {
-    await patchGoogleLocation(
-      token,
-      {
-        locationName: linked.googleLocationName,
-        updateMask: input.updateMask,
-        validateOnly: true,
-        payload: input.payload,
-      },
-      { connectionKey: linked.connectionId }
-    )
-    await settleGbpMutation({
-      organisationId: input.session.organisationId,
-      mutationId: attempt.id,
-      status: "validated",
-    })
-    phase = "mutate"
-    await patchGoogleLocation(
-      token,
-      {
-        locationName: linked.googleLocationName,
-        updateMask: input.updateMask,
-        validateOnly: false,
-        payload: input.payload,
-      },
-      { connectionKey: linked.connectionId }
-    )
-    phase = "readback_read"
-    const readback = await getGoogleLocation(
-      token,
-      linked.googleLocationName,
-      [...READ_MASK],
-      { connectionKey: linked.connectionId }
-    )
-    // The read completed, so the provider state is known again: from here a
-    // disagreement is a definite failure, not an ambiguity.
-    phase = "readback_verify"
-    for (const field of input.updateMask) {
-      if (
-        !containsExpected(
-          readback[field],
-          input.payload[field as keyof typeof input.payload]
-        )
-      ) {
-        throw new ApiError(
-          502,
-          "business_information_readback_mismatch",
-          `Google did not confirm the approved ${field} value.`
-        )
-      }
-    }
-    await cacheGbpSnapshot({
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      googleAccountId: linked.googleAccountId,
-      resourceType: "business_info",
-      resourceName: linked.googleLocationName,
-      payload: readback,
-    })
-    await settleGbpMutation({
-      organisationId: input.session.organisationId,
-      mutationId: attempt.id,
-      status: "succeeded",
-      response: readback,
-    })
-    await auditGbpMutation({
-      organisationId: input.session.organisationId,
-      session: input.session,
+    failureCode: "business_information_update_failed",
+    validate: () => patch(true),
+    mutate: () => patch(false),
+    read,
+    mismatches: (readback) =>
+      businessInfoMismatches(input.updateMask, readback, input.payload),
+    mismatch: {
+      code: "business_information_readback_mismatch",
+      message: "Google did not confirm the approved values.",
+    },
+    audit: {
       action: "business_information.updated",
-      subjectType: "location",
-      subjectId: input.locationId,
-      requestId: input.requestId,
+      unconfirmedAction: "business_information.update.unconfirmed",
       metadata: { updateMask: input.updateMask },
-    })
-    return { id: attempt.id, status: "succeeded", idempotent: false }
-  } catch (error) {
-    const status = classifyFailure(phase, error)
-    const code = errorCode(error, "business_information_update_failed")
-    await settleGbpMutation({
-      organisationId: input.session.organisationId,
-      mutationId: attempt.id,
-      status,
-      errorCode: code,
-    })
-    // An ambiguous outcome otherwise leaves no audit evidence at all: the
-    // success audit never runs, so an operator reconciling the mutation table
-    // against Google cannot tell a write that may have landed from one that
-    // never left.
-    if (status === "ambiguous") {
-      await auditGbpMutation({
-        organisationId: input.session.organisationId,
-        session: input.session,
-        action: "business_information.update.unconfirmed",
-        subjectType: "location",
-        subjectId: input.locationId,
-        requestId: input.requestId,
-        metadata: {
-          updateMask: input.updateMask,
-          mutationId: attempt.id,
-          phase,
-          errorCode: code,
-        },
-      })
-    }
-    throw error
-  }
+    },
+  })
+}
+
+/**
+ * The masked attributes of an Attributes resource, normalised, hashed: the
+ * field-scoped baseline an attribute write is checked against, so a Google
+ * change to an attribute the write does not touch does not make it stale.
+ */
+export function attributeBaselineHash(
+  attributeMask: readonly string[],
+  current: unknown
+): string {
+  return stableGoogleHash(maskedAttributeBaseline(attributeMask, current))
 }
 
 export async function updateBusinessAttributes(input: {
@@ -337,103 +402,60 @@ export async function updateBusinessAttributes(input: {
     input.session.organisationId,
     linked.connectionId
   )
-  const current = await getGoogleLocationAttributes(
-    token,
-    linked.googleLocationName,
-    { connectionKey: linked.connectionId }
-  )
-  if (stableGoogleHash(current) !== input.expectedGoogleHash)
-    throw new ApiError(
+  const options = { connectionKey: linked.connectionId }
+  const resourceName = `${linked.googleLocationName}/attributes`
+  const read = () =>
+    getGoogleLocationAttributes(token, linked.googleLocationName, options)
+  const current = await read()
+  await requireFreshMaskedBaseline({
+    organisationId: input.session.organisationId,
+    resourceType: "attributes",
+    resourceName,
+    expectedGoogleHash: input.expectedGoogleHash,
+    current,
+    scope: (resource) => maskedAttributeBaseline(input.attributeMask, resource),
+    stale: new ApiError(
       409,
       "attributes_stale",
       "Google attributes changed. Refresh before publishing."
-    )
-  const attempt = await startGbpMutation({
-    organisationId: input.session.organisationId,
+    ),
+  })
+  return runManagementWrite({
     session: input.session,
+    linked,
     locationId: input.locationId,
-    googleAccountId: linked.googleAccountId,
-    resourceType: "attributes",
-    operation: "patch",
-    targetResourceName: `${linked.googleLocationName}/attributes`,
     requestId: input.requestId,
+    resourceType: "attributes",
+    action: "update_attributes",
+    targetResourceName: resourceName,
     expectedGoogleHash: input.expectedGoogleHash,
     updateMask: input.attributeMask,
     payload: input.attributes,
-  })
-  if (attempt.idempotent) return attempt
-  // Attributes have no validateOnly call, so the write is the first phase.
-  let phase: GbpWritePhase = "mutate"
-  try {
-    await patchGoogleLocationAttributes(
-      token,
-      {
-        locationName: linked.googleLocationName,
-        attributeMask: input.attributeMask,
-        attributes: input.attributes,
-      },
-      { connectionKey: linked.connectionId }
-    )
-    phase = "readback_read"
-    const readback = await getGoogleLocationAttributes(
-      token,
-      linked.googleLocationName,
-      { connectionKey: linked.connectionId }
-    )
-    // The read completed, so the provider state is known again; attributes
-    // have no field-by-field comparison to make of it.
-    phase = "readback_verify"
-    await cacheGbpSnapshot({
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      googleAccountId: linked.googleAccountId,
-      resourceType: "attributes",
-      resourceName: `${linked.googleLocationName}/attributes`,
-      payload: readback,
-    })
-    await settleGbpMutation({
-      organisationId: input.session.organisationId,
-      mutationId: attempt.id,
-      status: "succeeded",
-      response: readback,
-    })
-    await auditGbpMutation({
-      organisationId: input.session.organisationId,
-      session: input.session,
-      action: "business_attributes.updated",
-      subjectType: "location",
-      subjectId: input.locationId,
-      requestId: input.requestId,
-      metadata: { attributeMask: input.attributeMask },
-    })
-    return { id: attempt.id, status: "succeeded", idempotent: false }
-  } catch (error) {
-    const status = classifyFailure(phase, error)
-    const code = errorCode(error, "attributes_update_failed")
-    await settleGbpMutation({
-      organisationId: input.session.organisationId,
-      mutationId: attempt.id,
-      status,
-      errorCode: code,
-    })
-    if (status === "ambiguous") {
-      await auditGbpMutation({
-        organisationId: input.session.organisationId,
-        session: input.session,
-        action: "business_attributes.update.unconfirmed",
-        subjectType: "location",
-        subjectId: input.locationId,
-        requestId: input.requestId,
-        metadata: {
+    failureCode: "attributes_update_failed",
+    // Attributes have no validateOnly call, so the write is the first phase.
+    mutate: () =>
+      patchGoogleLocationAttributes(
+        token,
+        {
+          locationName: linked.googleLocationName,
           attributeMask: input.attributeMask,
-          mutationId: attempt.id,
-          phase,
-          errorCode: code,
+          attributes: input.attributes,
         },
-      })
-    }
-    throw error
-  }
+        options
+      ),
+    read,
+    mismatches: (readback) =>
+      attributeMismatches(input.attributeMask, input.attributes, readback),
+    mismatch: {
+      code: "business_attributes_readback_mismatch",
+      message: "Google did not confirm the approved attribute values.",
+    },
+    audit: {
+      action: "business_attributes.updated",
+      unconfirmedAction: "business_attributes.update.unconfirmed",
+      metadata: { attributeMask: input.attributeMask },
+    },
+  })
 }
 
 export async function searchBusinessInformationMetadata(input: {

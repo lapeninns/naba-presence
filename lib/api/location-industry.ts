@@ -20,11 +20,26 @@ export function fetchIndustry(id: string, options?: RequestOptions): Promise<Ind
 
 export function publishIndustry(
   id: string,
-  input: { operation: IndustryOperation; updateMask: string[]; payload: Record<string, unknown> }
+  input: {
+    operation: IndustryOperation
+    updateMask: string[]
+    payload: Record<string, unknown>
+    /** The loaded resource's hash; required by update_lodging. */
+    expectedGoogleHash?: string
+  }
 ) {
-  // The editor builds the mask/payload from freeform Google leaves; the route
-  // validates them per operation before anything is sent on.
-  const body = { operation: input.operation, confirmation: INDUSTRY_CONFIRMATION, updateMask: input.updateMask, payload: input.payload } satisfies Record<keyof SupportedIndustryMutation, unknown>
+  // The editor builds the mask/payload from Google leaves; the route
+  // validates them per operation (lodging against its allowlist) before
+  // anything is sent on.
+  const body = {
+    operation: input.operation,
+    confirmation: INDUSTRY_CONFIRMATION,
+    updateMask: input.updateMask,
+    payload: input.payload,
+    ...(input.expectedGoogleHash
+      ? { expectedGoogleHash: input.expectedGoogleHash }
+      : {}),
+  } satisfies Record<keyof SupportedIndustryMutation, unknown>
   return apiFetch(`/api/locations/${id}/industry`, {
     method: "PATCH",
     body,
