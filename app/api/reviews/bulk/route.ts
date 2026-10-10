@@ -1,11 +1,14 @@
+import type { TransactionSql } from "postgres"
+
 import {
   bulkReviewActionSchema,
   type BulkReviewResult,
 } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
+import { recheckAuthorisation } from "@/lib/server/authz/actor"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { requireLocationAccess } from "@/lib/server/permissions"
+import { requireLocationAction } from "@/lib/server/permissions"
 import {
   completeApproval,
   recordApprovalDecision,
@@ -29,8 +32,14 @@ type Row = BulkReviewResult["results"][number]
  * Approval reuses `lib/server/review-approval.ts`, the same module the
  * single-review route calls, so bulk cannot become a way around the
  * two-person rule or the publish-permission check.
+ *
+ * Every action here changes the review, so viewers are refused outright;
+ * each row then needs `triage` or `assign` at its own location
+ * (requireLocationAction), and an assignee must be a member of this
+ * organisation who could edit that review themselves.
  */
 export const POST = route({
+  roles: ["owner", "admin", "member"],
   body: bulkReviewActionSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
     if (body.action === "approve" && !getServerEnv().PUBLISH_ENABLED) {
@@ -63,9 +72,22 @@ export const POST = route({
           if (!review) {
             throw new ApiError(404, "review_not_found", "Review not found.")
           }
-          await requireLocationAccess(sql, session, review.locationId)
+          await requireLocationAction(
+            sql,
+            session,
+            review.locationId,
+            body.action === "assign" ? "assign" : "triage"
+          )
 
           if (body.action === "assign") {
+            if (body.assigneeId) {
+              await requireAssigneeEligible(
+                sql,
+                session.organisationId,
+                body.assigneeId,
+                review.locationId
+              )
+            }
             await sql`
               update review
                  set assigned_to = ${body.assigneeId ?? null},
@@ -112,3 +134,30 @@ export const POST = route({
     return { results } satisfies BulkReviewResult
   },
 })
+
+/**
+ * An assignee must be able to act on what they are given: a member of this
+ * organisation (not merely an app_user, which is all the foreign key checks)
+ * who can see the review's location and is not a viewer. Anyone else would
+ * hold a review they cannot open or answer.
+ */
+async function requireAssigneeEligible(
+  sql: TransactionSql,
+  organisationId: string,
+  assigneeId: string,
+  locationId: string
+) {
+  const eligible = await recheckAuthorisation(sql, {
+    organisationId,
+    actorUserId: assigneeId,
+    locationId,
+    action: "edit",
+  })
+  if (!eligible.ok) {
+    throw new ApiError(
+      422,
+      "assignee_not_eligible",
+      "That person cannot work on this review."
+    )
+  }
+}

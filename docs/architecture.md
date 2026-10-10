@@ -109,6 +109,24 @@ one query and feeds the capability payloads. There is no inline
 query builders. Every helper expects the tenant transaction, so RLS already
 scopes `location_member` to the organisation before the rule runs.
 
+Visibility never authorises a write. Every mutation names its action
+(`read`, `edit`, `request_approval`, `triage`, `assign`, `decide_approval`,
+`publish`) and calls `requireLocationAction`, which answers 404 for a hidden
+location and 403 `permission_denied` when the role or grant may not act; the
+rule is the pure `actionAllowed`, which `lib/server/capabilities.ts` also uses
+so the UI offers only what the server accepts. A viewer is read-only
+everywhere: post drafts, post and reply approval requests, post rejection and
+bulk assign/triage all refuse it. Work that runs without a session (retries,
+schedules, recovery, bulk batches) re-derives the actor's grant at dispatch
+through `lib/server/authz/actor.ts`: `actorScopeFromMembership` turns the
+member row into a grant scope, and `recheckAuthorisation` re-decides the
+action, refuses a relinked Google connection, and fails closed on a security
+version until that mechanism exists. A bulk assignee must pass the same
+recheck for the review's location (`assignee_not_eligible` otherwise).
+`tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
+every session mutation declares `roles`, calls an action guard, or is on its
+explicit allowlist.
+
 ## Google integration
 
 OAuth uses state, a signed HTTP-only state cookie, PKCE S256, offline access, and

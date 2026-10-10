@@ -18,6 +18,7 @@ import { ApiError } from "@/lib/server/http"
 import {
   canPublishLocation,
   requireLocationAccess,
+  requireLocationAction,
 } from "@/lib/server/permissions"
 
 import { requestApproval, requiresApproval } from "./approval"
@@ -395,6 +396,13 @@ export async function preparePublish(
       record.location_id
     )
     if (requiresApproval(record, canPublish)) {
+      // Asking for approval changes the reply's workflow; a viewer may not.
+      await requireLocationAction(
+        sql,
+        input.session,
+        record.location_id,
+        "request_approval"
+      )
       return {
         kind: "outcome",
         outcome: await requestApproval(sql, input, record.body),

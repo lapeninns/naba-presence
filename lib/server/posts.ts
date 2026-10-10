@@ -32,8 +32,8 @@ import {
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import {
-  canPublishLocation,
   requireLocationAccess,
+  requireLocationAction,
 } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -578,6 +578,7 @@ export async function createLocalPostDraft(
       locationId,
       POSTS_NOT_LINKED
     )
+    await requireLocationAction(sql, session, locationId, "edit")
     const [post] = await sql<{ id: string }[]>`
       insert into gbp_local_post (
         organisation_id, location_id, external_location_id,
@@ -615,7 +616,7 @@ export async function updateLocalPostDraft(
   requestId: string
 ) {
   return withTenant(organisationId, async (sql) => {
-    await requireLocationAccess(sql, session, locationId)
+    await requireLocationAction(sql, session, locationId, "edit")
     const [post] = await sql<{ id: string; status: string }[]>`
       update gbp_local_post
       set
@@ -834,13 +835,16 @@ export async function requestOrPublishLocalPost(input: {
   const { canPublish, post } = await withTenant(
     input.organisationId,
     async (sql) => {
-      await requireLocationAccess(sql, input.session, input.locationId)
+      // A viewer may neither publish nor ask for approval; an approver's
+      // decision needs publication authority, not just an edit grant.
+      const grant = await requireLocationAction(
+        sql,
+        input.session,
+        input.locationId,
+        input.approval ? "decide_approval" : "request_approval"
+      )
       return {
-        canPublish: await canPublishLocation(
-          sql,
-          input.session,
-          input.locationId
-        ),
+        canPublish: grant.canPublish,
         post: await loadPost(sql, input.locationId, input.postId),
       }
     }
@@ -1060,7 +1064,7 @@ export async function deleteLocalPost(input: {
   requestId: string
 }) {
   const post = await withTenant(input.organisationId, async (sql) => {
-    await requireLocationAccess(sql, input.session, input.locationId)
+    await requireLocationAction(sql, input.session, input.locationId, "edit")
     return loadPost(sql, input.locationId, input.postId)
   })
   if (!post.googlePostName) {

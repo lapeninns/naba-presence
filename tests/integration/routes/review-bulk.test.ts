@@ -4,7 +4,12 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
-import { createTestTenant, destroyTenants, seedReview } from "../helpers/tenant"
+import {
+  createTestTenant,
+  destroyTenants,
+  seedMemberUser,
+  seedReview,
+} from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -97,6 +102,90 @@ describeDatabase("bulk review actions", () => {
       select assigned_to::text as "assignedTo" from review where id = ${seeded.reviewId}
     `
     expect(cleared?.assignedTo).toBeNull()
+  })
+
+  it("refuses an assignee who could not work on the review", async () => {
+    // The foreign key only proves the id is some app_user. A viewer, a member
+    // assigned elsewhere, or someone in another organisation would be handed
+    // a review they cannot open or answer.
+    const owner = await fixture()
+    const other = await fixture()
+    const seeded = await seedReview(admin, { organisationId: owner.organisationId })
+    const elsewhere = await seedReview(admin, { organisationId: owner.organisationId })
+    const viewer = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      role: "viewer",
+    })
+    const scopedAway = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      role: "member",
+      assignLocationId: elsewhere.locationId,
+    })
+
+    for (const assigneeId of [viewer.userId, scopedAway.userId, other.userId]) {
+      const response = await post(owner.cookie, {
+        action: "assign",
+        reviewIds: [seeded.reviewId],
+        assigneeId,
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        results: [
+          {
+            reviewId: seeded.reviewId,
+            status: "skipped",
+            code: "assignee_not_eligible",
+          },
+        ],
+      })
+    }
+    const [row] = await admin<{ assignedTo: string | null }[]>`
+      select assigned_to::text as "assignedTo" from review where id = ${seeded.reviewId}
+    `
+    expect(row?.assignedTo).toBeNull()
+
+    // The member assigned to the other location is eligible there.
+    const ok = await post(owner.cookie, {
+      action: "assign",
+      reviewIds: [elsewhere.reviewId],
+      assigneeId: scopedAway.userId,
+    })
+    expect(((await ok.json()) as { results: { status: string }[] }).results).toEqual([
+      { reviewId: elsewhere.reviewId, status: "ok" },
+    ])
+  })
+
+  it("skips rows outside a scoped member's locations", async () => {
+    const owner = await fixture()
+    const mine = await seedReview(admin, { organisationId: owner.organisationId })
+    const hidden = await seedReview(admin, { organisationId: owner.organisationId })
+    const member = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      role: "member",
+      assignLocationId: mine.locationId,
+    })
+    const response = await post(member.cookie, {
+      action: "mark_reviewed",
+      reviewIds: [mine.reviewId, hidden.reviewId],
+    })
+    expect(((await response.json()) as { results: unknown[] }).results).toEqual([
+      { reviewId: mine.reviewId, status: "ok" },
+      { reviewId: hidden.reviewId, status: "skipped", code: "review_not_found" },
+    ])
+  })
+
+  it("refuses a viewer outright", async () => {
+    const owner = await fixture()
+    const seeded = await seedReview(admin, { organisationId: owner.organisationId })
+    const viewer = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      role: "viewer",
+    })
+    const response = await post(viewer.cookie, {
+      action: "mark_reviewed",
+      reviewIds: [seeded.reviewId],
+    })
+    expect(response.status).toBe(403)
   })
 
   it("skips an ineligible row rather than failing the batch", async () => {
