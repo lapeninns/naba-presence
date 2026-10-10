@@ -230,12 +230,14 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         stateLabel: "Nothing to send",
         detail: "Already matches Google, so no request was made.",
       }
+    // The outcome words (lib/editors/outcome.ts) say the rest: a local
+    // save is "Saved here", a Google write whose request succeeded is "Sent
+    // to Google". Neither is "Live on Google": no readback has happened yet.
     if (step.status === "done")
       return {
         id: step.key,
         label: step.label,
-        state: local ? "skipped" : "sent",
-        stateLabel: local ? "Saved here" : "Sent to Google",
+        state: local ? "saved_locally" : "sent",
         detail: local
           ? "NabaPresence’s copy. Not on Google by itself."
           : undefined,

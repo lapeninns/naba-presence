@@ -75,6 +75,35 @@ describe("useResourceMutation", () => {
     expect(screen.getByText("status: success")).toBeInTheDocument()
   })
 
+  it("toasts an outcome message in its outcome's words and kind, so a sent write is not a success", async () => {
+    renderHarness({
+      mutationFn: async () => ({ ok: true as const }),
+      successToast: { outcome: "sent", title: "Opening hours sent to Google" },
+    })
+
+    await userEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    const title = await screen.findByText("Opening hours sent to Google")
+    const toast = title.closest("[data-slot=toast]") as HTMLElement
+    // The info glyph, not the success check.
+    expect(toast.querySelector(".text-info-solid")).not.toBeNull()
+    expect(toast.querySelector(".text-success-solid")).toBeNull()
+  })
+
+  it("fills an outcome message's default words when it names none", async () => {
+    renderHarness({
+      mutationFn: async () => ({ ok: true as const }),
+      successToast: { outcome: "saved_locally" },
+    })
+
+    await userEvent.click(screen.getByRole("button", { name: "Save" }))
+
+    expect(await screen.findByText("Saved here")).toBeInTheDocument()
+    expect(
+      screen.getByText(/isn’t on Google until you publish it/)
+    ).toBeInTheDocument()
+  })
+
   it("accepts a custom invalidate function and a success toast derived from the result", async () => {
     const invalidate = vi.fn()
     const client = renderHarness({

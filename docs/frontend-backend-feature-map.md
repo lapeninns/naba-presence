@@ -52,7 +52,9 @@ cells note the new home, and `docs/architecture.md` describes each piece.
   `components/listings/area-cards.tsx`, each area editor sits inside
   `components/listings/area-frame.tsx`, and the older per-tab shell
   `components/locations/location-tab.tsx` still wraps the editors themselves;
-  mutations use `lib/queries/use-resource-mutation.ts`; error copy comes from
+  mutations use `lib/queries/use-resource-mutation.ts`; write outcomes are
+  worded by `lib/editors/outcome.ts` over the states in
+  `lib/contracts/mutation-operations.ts`; error copy comes from
   `lib/errors/action-errors.ts`; query states from `components/ui/query-states.tsx`;
   each dashboard segment has an `error.tsx` boundary.
 

@@ -1,7 +1,13 @@
-import { Check, CircleAlert, CircleDashed, Clock, Minus } from "lucide-react"
+import { CircleDashed, Minus } from "lucide-react"
 import * as React from "react"
 
+import { OUTCOME_VISUAL } from "@/components/ui/operation-outcome"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
+import {
+  OUTCOME_PRESENTATION,
+  type OperationOutcome,
+} from "@/lib/editors/outcome"
+import type { StatusTone } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
 /**
@@ -9,16 +15,17 @@ import { cn } from "@/lib/utils"
  * to Google, each stating its own outcome in words.
  *
  * States
- *   pending  "Not sent yet"          — queued, nothing has left the app
- *   sent     "Sent to Google"        — the request left; Google has not
- *                                      confirmed it (never shown as success)
- *   live     "Live on Google"        — confirmed by verification evidence
- *   failed   "Failed"                — with the provider's error code
- *   skipped  "Skipped"               — deliberately not sent (unchanged,
- *                                      or blocked by an earlier failure)
+ *   pending   "Not sent yet"   — queued, nothing has left the app
+ *   skipped   "Skipped"        — deliberately not sent (unchanged, or
+ *                                blocked by an earlier failure)
+ *   and every operation outcome (lib/editors/outcome.ts), in its shared
+ *   words: `saved_locally` "Saved here", `sent` "Sent to Google" (never
+ *   shown as success), `awaiting_confirmation`, `confirmed_applied` "Live on
+ *   Google" (only with readback or verification evidence), `rejected`,
+ *   `failed` (with the provider's error code) and `uncertain`.
  *
  * The component renders exactly the states the CALLER gives it. Only pass
- * `sent`/`live` when the app holds operation or verification evidence for
+ * `sent` or later when the app holds operation or verification evidence for
  * them; do not simulate progress.
  *
  * Props
@@ -29,8 +36,7 @@ import { cn } from "@/lib/utils"
  *              as results arrive.
  *   aria-label names the list ("Publish results").
  */
-export type PublishStepState =
-  "pending" | "sent" | "live" | "failed" | "skipped"
+export type PublishStepState = "pending" | "skipped" | OperationOutcome
 
 export type PublishStep = {
   id: string
@@ -47,16 +53,15 @@ export type PublishStep = {
   stateLabel?: string
 }
 
-const STATE_META: Record<
-  PublishStepState,
-  {
-    word: string
-    tone: PillTone
-    dashed?: boolean
-    mark: string
-    icon: React.ReactNode
-  }
-> = {
+type StepMeta = {
+  word: string
+  tone: StatusTone | PillTone
+  dashed?: boolean
+  mark: string
+  icon: React.ReactNode
+}
+
+const STATE_META: Record<PublishStepState, StepMeta> = {
   pending: {
     word: "Not sent yet",
     tone: "outline",
@@ -64,30 +69,22 @@ const STATE_META: Record<
     mark: "bg-fill text-ink-secondary",
     icon: <CircleDashed />,
   },
-  sent: {
-    word: "Sent to Google",
-    tone: "info",
-    mark: "bg-info-tint text-info-ink",
-    icon: <Clock />,
-  },
-  live: {
-    word: "Live on Google",
-    tone: "ok",
-    mark: "bg-success-tint text-success-ink",
-    icon: <Check strokeWidth={2.25} />,
-  },
-  failed: {
-    word: "Failed",
-    tone: "bad",
-    mark: "bg-danger-tint text-danger-ink",
-    icon: <CircleAlert />,
-  },
   skipped: {
     word: "Skipped",
     tone: "outline",
     mark: "bg-fill text-ink-muted",
     icon: <Minus />,
   },
+  ...(Object.fromEntries(
+    Object.entries(OUTCOME_PRESENTATION).map(([outcome, presentation]) => [
+      outcome,
+      {
+        word: presentation.label,
+        tone: presentation.tone,
+        ...OUTCOME_VISUAL[outcome as OperationOutcome],
+      },
+    ])
+  ) as Record<OperationOutcome, StepMeta>),
 }
 
 function PublishSteps({

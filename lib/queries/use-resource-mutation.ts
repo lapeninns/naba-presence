@@ -9,6 +9,10 @@ import {
 
 import { useToastManager } from "@/components/ui/toast"
 import {
+  successToastFields,
+  type SuccessToastCopy,
+} from "@/lib/editors/outcome"
+import {
   describeActionError,
   type ActionErrorContext,
 } from "@/lib/errors/action-errors"
@@ -21,9 +25,15 @@ export type ResourceMutationOptions<TData, TVariables> = {
    * fan-out invalidations.
    */
   invalidate?: readonly QueryKey[] | (() => void)
-  /** Success toast title. A function may return null to skip the toast. */
+  /**
+   * Success toast: a title, or an outcome message (lib/editors/outcome.ts)
+   * whose toast kind and default words follow the outcome, so a write that
+   * was only sent is not toasted as a success. A function may return null to
+   * skip the toast.
+   */
   successToast?:
-    string | ((data: TData, variables: TVariables) => string | null)
+    | SuccessToastCopy
+    | ((data: TData, variables: TVariables) => SuccessToastCopy | null)
   /**
    * Error copy source. Defaults to the shared `describeActionError`; override
    * per call site when a mutation needs bespoke copy. Its result is both
@@ -75,11 +85,11 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
         for (const queryKey of invalidate)
           void queryClient.invalidateQueries({ queryKey })
       }
-      const title =
+      const copy =
         typeof successToast === "function"
           ? successToast(data, variables)
           : successToast
-      if (title) toasts.add({ title, type: "success" })
+      if (copy) toasts.add(successToastFields(copy))
     },
     onError: (error, variables) => {
       const message = errorToast

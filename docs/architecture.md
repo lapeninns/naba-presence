@@ -594,7 +594,15 @@ require `canEditCanonical`) never mounts the query and a member never issues
 the 403 GET. `useResourceMutation` (`lib/queries/use-resource-mutation.ts`)
 is `useMutation` plus the three things every write used to hand-roll:
 invalidate through the `queryKeys` factory, toast on success, and
-`describeActionError` on error. `lib/errors/action-errors.ts` is the single
+`describeActionError` on error. What a write achieved is worded once: the
+seven outcome states (`saved_locally`, `sent`, `awaiting_confirmation`,
+`confirmed_applied`, `rejected`, `failed`, `uncertain`) are fixed in
+`lib/contracts/mutation-operations.ts`, `lib/editors/outcome.ts` maps each to
+its label, headline, tone and toast kind, and success toasts, the publish step
+list (`components/ui/publish-steps.tsx`) and the inline notice
+(`components/ui/operation-outcome.tsx`) all read that mapping. Only
+`confirmed_applied` may say "Live on Google"; a request that merely succeeded
+is "Sent to Google". `lib/errors/action-errors.ts` is the single
 mapping from server error codes to user copy, with 401 and 5xx fallbacks and
 one `context` switch for the two approval codes whose wording differs between
 replies and posts; no error code is ever shown. `components/ui/query-states.tsx`

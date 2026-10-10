@@ -3,6 +3,10 @@
 import { useCallback, useState } from "react"
 
 import { useToastManager } from "@/components/ui/toast"
+import {
+  successToastFields,
+  type SuccessToastCopy,
+} from "@/lib/editors/outcome"
 import { describePublishStepError } from "@/lib/errors/action-errors"
 import { ApiClientError } from "@/lib/api/client"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
@@ -67,7 +71,8 @@ export function usePublishFlow({
    */
   steps: () => PublishStep[]
   invalidate?: readonly QueryKey[]
-  successToast?: string
+  /** A title, or an outcome message whose toast kind follows the outcome. */
+  successToast?: SuccessToastCopy
   onSuccess?: () => void
 }) {
   const queryClient = useQueryClient()
@@ -137,7 +142,7 @@ export function usePublishFlow({
       toasts.add({ title: failure, type: "error" })
       return false
     }
-    if (successToast) toasts.add({ title: successToast, type: "success" })
+    if (successToast) toasts.add(successToastFields(successToast))
     onSuccess?.()
     return true
   }, [steps, invalidate, queryClient, toasts, successToast, onSuccess])
