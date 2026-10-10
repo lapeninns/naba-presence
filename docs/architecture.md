@@ -86,13 +86,15 @@ platform-level `abuse_rate_bucket` table, reached only through the SECURITY
 DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
 instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
 never plaintext. They cover password login, registration, confirmation resend,
-reset request and completion, invitation lookup and acceptance, AI draft
+reset request and completion, the emailed confirmation link (`/auth/confirm`,
+per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
 generation, support impersonation attempts (counted before the secret is
 compared) and `/share/report/[token]` lookups (which answer the same 404 as
 an unknown token when limited). The client IP comes only from the header named
 by `CLIENT_IP_HEADER`, defaulting to `x-vercel-forwarded-for` on Vercel and to
 none elsewhere; `x-forwarded-for` is never trusted by default. The retention
-cron purges ended windows once per sweep. `ABUSE_LIMITS_ENABLED` switches the
+cron purges ended windows once per sweep, even with `RETENTION_DELETES_ENABLED`
+off, since they hold no tenant data. `ABUSE_LIMITS_ENABLED` switches the
 counting off.
 
 The wrapper's altitude is the organisation. Location-level access is

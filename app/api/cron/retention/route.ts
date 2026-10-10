@@ -72,10 +72,12 @@ async function retain({
     limit ${batchSize}
   `
   // Ended abuse-limit windows (0066) are platform-level, not per tenant, so
-  // they are purged once per sweep, on its first page. A failure here is
+  // they are purged once per sweep, on its first page. They hold no tenant
+  // data, so RETENTION_DELETES_ENABLED (the switch for tenant deletes) does
+  // not stop this; leaving them would only grow the table. A failure here is
   // logged and the tenant walk goes on: a stale counter only costs space.
   let abuseRateBuckets: number | null = null
-  if (cursor === null && deletesEnabled) {
+  if (cursor === null) {
     try {
       abuseRateBuckets = await purgeAbuseRateBuckets()
     } catch (error) {

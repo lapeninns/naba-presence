@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { z } from "zod"
 
+import { clientIpFromRequest, takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError, serverRequestId } from "@/lib/server/http"
@@ -18,6 +19,9 @@ export async function GET(request: Request) {
   const rid = serverRequestId(request)
   const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
   try {
+    // Per client IP, before any token is looked at; a refusal is an ApiError,
+    // so it lands on sign-in with status=auth_rate_limited like any failure.
+    await takeAbuseBudget("confirm_email", { ip: clientIpFromRequest(request) })
     const url = new URL(request.url)
     const input = querySchema.parse({
       token_hash: url.searchParams.get("token_hash"),

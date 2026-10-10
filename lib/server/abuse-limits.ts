@@ -47,13 +47,19 @@ const HOUR = 60 * 60
 
 export const ABUSE_POLICIES = {
   // Password guessing: per IP leaves room for an office behind one NAT; per
-  // email stops a distributed guesser on one account.
+  // email stops a distributed guesser on one account. Any per-account limit
+  // lets a stranger who knows the address lock its owner out of password
+  // sign-in for a window, because their wrong guesses count against it too.
+  // The email limit is three times the IP limit so that takes at least three
+  // addresses each at their own cap, not one (D-21, SEC-07).
   login: {
     code: "auth_rate_limited",
     ip: { limit: 30, windowSeconds: MINUTES_15 },
-    email: { limit: 10, windowSeconds: MINUTES_15 },
+    email: { limit: 90, windowSeconds: MINUTES_15 },
   },
-  // The next three send mail. Per email bounds what one address receives.
+  // The next three send mail. Per email bounds what one address receives,
+  // and with it the same trade-off: one address can spend another's
+  // allowance and hold back its confirmation or recovery mail for the hour.
   register: {
     code: "auth_rate_limited",
     ip: { limit: 20, windowSeconds: HOUR },
@@ -73,6 +79,12 @@ export const ABUSE_POLICIES = {
     code: "auth_rate_limited",
     ip: { limit: 20, windowSeconds: MINUTES_15 },
     token: { limit: 5, windowSeconds: MINUTES_15 },
+  },
+  // The emailed confirmation link (GET /auth/confirm), which verifies a token
+  // and can accept an invitation. A redirect, so a refusal lands on sign-in.
+  confirm_email: {
+    code: "auth_rate_limited",
+    ip: { limit: 30, windowSeconds: MINUTES_15 },
   },
   // Token probing: an unknown token is as expensive to the prober as a real
   // one, and per IP is what bounds enumeration.

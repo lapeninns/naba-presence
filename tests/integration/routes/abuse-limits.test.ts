@@ -10,7 +10,7 @@ const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
 // The values ABUSE_POLICIES.login sets (lib/server/abuse-limits.ts).
-const LOGIN_EMAIL_LIMIT = 10
+const LOGIN_EMAIL_LIMIT = 90
 const LOGIN_IP_LIMIT = 30
 const LOGIN_WINDOW_SECONDS = 15 * 60
 
@@ -96,6 +96,18 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
     expect(stored.count).toBe(0)
   }, 120_000)
 
+  it("does not let one address lock an account out", async () => {
+    await awayFromWindowEdge(LOGIN_WINDOW_SECONDS)
+    const email = `abuse-${randomUUID()}@nabapresence.test`
+    const attacker = testIp()
+    for (let attempt = 0; attempt < LOGIN_IP_LIMIT; attempt += 1) {
+      expect((await login(email, attacker)).status).toBe(401)
+    }
+    expect((await login(email, attacker)).status).toBe(429)
+    // The owner, elsewhere, is still judged on the password alone.
+    expect((await login(email, testIp())).status).toBe(401)
+  }, 120_000)
+
   it("keeps separate buckets for separate addresses", async () => {
     await awayFromWindowEdge(LOGIN_WINDOW_SECONDS)
     const busy = testIp()
@@ -146,7 +158,7 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
       where scope = 'it_concurrency' and key_hash = ${key}
     `
     expect(bucket.hits).toBe(50)
-  })
+  }, 120_000)
 
   it("keeps the table behind its functions for the runtime role", async () => {
     // Select is granted but RLS has no policy, so no row is ever visible;
@@ -156,9 +168,9 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
       values ('it_purge', ${randomUUID().replaceAll("-", "")}, now(), now() + interval '1 hour', 1)
     `
     expect(await runtime`select * from abuse_rate_bucket`).toHaveLength(0)
-    await expect(
-      runtime`delete from abuse_rate_bucket`
-    ).rejects.toMatchObject({ code: "42501" })
+    await expect(runtime`delete from abuse_rate_bucket`).rejects.toMatchObject({
+      code: "42501",
+    })
     await expect(
       runtime`update abuse_rate_bucket set hits = 0`
     ).rejects.toMatchObject({ code: "42501" })
