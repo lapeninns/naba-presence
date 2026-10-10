@@ -20,7 +20,11 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
-import { gbpWriteScopes, isScopeEnabled } from "@/lib/server/pause-controls"
+import {
+  gbpWriteScopes,
+  loadPauseSnapshot,
+  scopesEnabled,
+} from "@/lib/server/pause-controls"
 import { canPublishLocation } from "@/lib/server/permissions"
 import { publishScheduledLocalPost } from "@/lib/server/posts"
 import type { Session } from "@/lib/server/session"
@@ -172,6 +176,9 @@ export async function processSchedule(
   now = new Date(),
   summary?: ScheduleTickSummary
 ) {
+  // Read before the transaction: a pooled read inside it could wait on the
+  // connection the transaction itself holds (lib/server/db.ts).
+  const pauses = await loadPauseSnapshot()
   const plan = await withTenant(organisationId, async (sql) => {
     const [schedule] = await sql<Schedule[]>`
       select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, timezone, template,
@@ -207,7 +214,7 @@ export async function processSchedule(
       where ll.location_id = ${schedule.locationId} and ll.is_active and gc.status in ('active', 'expired')`
     // Env and the operator pause table alike (lib/server/pause-controls.ts):
     // a table pause is the same transient block, not a failed occurrence.
-    const paused = !(await isScopeEnabled(gbpWriteScopes("posts"), { env }))
+    const paused = !scopesEnabled(env, pauses, gbpWriteScopes("posts"))
     if (paused || !link) {
       // Transient: the approval stands. Occurrences left waiting are marked
       // missed once they fall outside the grace period.

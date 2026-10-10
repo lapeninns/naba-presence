@@ -310,7 +310,9 @@ describe("dispatch gates outside runGbpWrite", () => {
       expect(text, path).not.toMatch(
         /if \(!gbpWritesEnabled\([^)]*\)\)\s*throw new ApiError\(503, "google_writes_paused"/
       )
-      expect(text, path).toContain("requireGbpDispatch(")
+      expect(text, path).toMatch(
+        /requireGbpDispatch\(|requireScopesEnabled\(gbpWriteScopes\(/
+      )
     }
   })
 
@@ -318,9 +320,14 @@ describe("dispatch gates outside runGbpWrite", () => {
     expect(source("lib/server/bulk-listing-runner.ts")).toContain(
       "isScopeEnabled(gbpWriteScopes(WRITE_FLAG[input.operation]))"
     )
-    expect(source("lib/server/publication-schedule-runner.ts")).toContain(
-      'isScopeEnabled(gbpWriteScopes("posts"), { env })'
+    // Read before the schedule's transaction, never inside it.
+    const schedules = source("lib/server/publication-schedule-runner.ts")
+    expect(schedules).toContain(
+      'scopesEnabled(env, pauses, gbpWriteScopes("posts"))'
     )
+    expect(
+      schedules.indexOf("const pauses = await loadPauseSnapshot()")
+    ).toBeLessThan(schedules.indexOf("const plan = await withTenant("))
   })
 })
 
