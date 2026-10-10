@@ -66,7 +66,9 @@ import type { Session } from "@/lib/server/session"
 //
 // Membership is read inside the tenant transaction; RLS on member and
 // location_member scopes both to the session's organisation, as for every
-// other read here.
+// other read here. The member lookups also filter on app.organisation_id
+// themselves, because a scope read from the wrong organisation could WIDEN
+// access (a location_member row from elsewhere can only fail to match).
 //
 // How routes use it
 //   * Filtering a SELECT by what the session may see:
@@ -190,11 +192,20 @@ export function visibilityPredicate(
 /**
  * True when the user's membership of the tenant's organisation is scope
  * 'all'. No membership is false: absence never widens.
+ *
+ * Both member lookups here (this one and grantsFor's) filter on the tenant
+ * transaction's app.organisation_id rather than leaning on RLS alone: a user
+ * can be 'all' in one organisation and 'assigned' in another, and on a
+ * connection that bypasses RLS an unfiltered read would let the first widen
+ * the second. Outside a tenant transaction the setting is empty, the
+ * comparison is null and no membership matches, so the read fails closed.
  */
 function scopeIsAll(sql: TransactionSql, userId: string): Fragment {
   return sql`exists (
     select 1 from member visibility_m
     where visibility_m.user_id = ${userId}
+      and visibility_m.organisation_id =
+        nullif(current_setting('app.organisation_id', true), '')::uuid
       and visibility_m.location_scope = 'all'
   )`
 }
@@ -255,6 +266,8 @@ export async function grantsFor(
       (
         select m.location_scope from member m
         where m.user_id = ${session.userId}
+          and m.organisation_id =
+            nullif(current_setting('app.organisation_id', true), '')::uuid
       ) as "locationScope",
       (
         select json_object_agg(lm.location_id::text, lm.can_publish)

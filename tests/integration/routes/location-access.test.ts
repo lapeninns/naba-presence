@@ -252,6 +252,22 @@ describeDatabase("explicit scope: removing the last assignment", () => {
     expect(await status(member.cookie, other.reviewId)).toBe(200)
   })
 
+  it("scope 'all' in another organisation does not widen an assigned-empty membership", async () => {
+    const { owner, assigned, other, member } = await fixture("member")
+    await admin`delete from location_member where user_id = ${member.userId}`
+    // The same user is 'all' in a second organisation.
+    const elsewhere = await createTestTenant(admin)
+    organisations.push(elsewhere.organisationId)
+    await admin`
+      insert into member (organisation_id, user_id, role, can_publish, location_scope)
+      values (${elsewhere.organisationId}, ${member.userId}, 'member', true, 'all')
+    `
+    expect(await status(member.cookie, assigned.reviewId)).toBe(404)
+    expect(await status(member.cookie, other.reviewId)).toBe(404)
+    // The owner of the first organisation still sees both.
+    expect(await status(owner.cookie, assigned.reviewId)).toBe(200)
+  })
+
   it("a row inserted under scope all narrows the member to it (0064)", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)

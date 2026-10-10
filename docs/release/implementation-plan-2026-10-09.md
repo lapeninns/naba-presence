@@ -94,6 +94,8 @@ Shared server/domain action guards; route visibility never authorises a mutation
 
 Explicit membership and invitation scope (`all` | `assigned`). Preserve per-location publication grants and invitation token/expiry/email matching. Scope and grant changes commit atomically. Assigned invitation whose targets disappeared fails explicitly.
 
+As built (P02-S4), the scope is read per check inside the tenant transaction, filtered by the tenant's organisation; there is no `Session.locationScope`. P06-2 (client cache reset) and P02-S8 use P02's `securityVersion` as the scope fingerprint, not a session scope field. The staging/production shadow observation was not done: the read-only check in `docs/runbook.md` ("Membership scope switch") or an owner sign-off replaces it before deploy.
+
 Supabase TOTP enrollment/challenge/verify; carry verified assurance into app opaque sessions.
 
 - Enrolled users complete MFA before getting an ordinary session.

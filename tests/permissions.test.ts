@@ -42,6 +42,11 @@ const USER_STRANGER = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 // Scope 'all' while holding a row: the rows are ignored.
 const USER_ALL_WITH_ROWS = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 
+// The tenant transaction's organisation, and another one the same user
+// belongs to. The fixture has no RLS, like a connection that bypasses it.
+const TENANT_ORG = "99999999-9999-4999-8999-999999999999"
+const OTHER_ORG = "88888888-8888-4888-8888-888888888888"
+
 function makeSession(overrides: Partial<Session> = {}): Session {
   return {
     sessionId: "session-1",
@@ -214,6 +219,8 @@ describe("visibilityPredicate", () => {
       expect(text).toBe(
         "( exists ( select 1 from member visibility_m " +
           "where visibility_m.user_id = $1 " +
+          "and visibility_m.organisation_id = " +
+          "nullif(current_setting('app.organisation_id', true), '')::uuid " +
           "and visibility_m.location_scope = 'all' ) " +
           "or exists ( select 1 from location_member visibility_lm " +
           "where visibility_lm.user_id = $2 " +
@@ -461,14 +468,18 @@ describe("permissions against PGlite", () => {
     db = new PGlite()
     await db.exec(`
       create table member (
-        user_id uuid primary key,
-        location_scope text not null
+        organisation_id uuid not null default '${TENANT_ORG}',
+        user_id uuid not null,
+        location_scope text not null,
+        primary key (organisation_id, user_id)
       );
       insert into member (user_id, location_scope) values
         ('${USER_ASSIGNED}', 'assigned'),
         ('${USER_UNASSIGNED}', 'all'),
         ('${USER_EMPTIED}', 'assigned'),
         ('${USER_ALL_WITH_ROWS}', 'all');
+      -- What withTenant() sets; the member lookups filter on it.
+      select set_config('app.organisation_id', '${TENANT_ORG}', false);
       create table location_member (
         location_id uuid not null,
         user_id uuid not null,
@@ -587,6 +598,48 @@ describe("permissions against PGlite", () => {
     await expect(
       visibleReviewIds({ role: "member", userId })
     ).resolves.toEqual([])
+  })
+
+  it("scope from another organisation never widens this one, even without RLS", async () => {
+    // 'all' elsewhere, 'assigned' with no rows here: nothing here. Without
+    // the explicit organisation filter the 'all' row would match (and
+    // grantsFor's scalar subquery would see two rows).
+    const userId = "12121212-1212-4121-8121-121212121212"
+    await db.exec(`
+      insert into member (organisation_id, user_id, location_scope) values
+        ('${OTHER_ORG}', '${userId}', 'all'),
+        ('${TENANT_ORG}', '${userId}', 'assigned');
+    `)
+    const session = makeSession({ userId, canPublish: true })
+    try {
+      const grants = await grantsFor(sql, session, [LOCATION_A, LOCATION_C])
+      expect(grants.get(LOCATION_A)).toEqual(NO_GRANT)
+      expect(grants.get(LOCATION_C)).toEqual(NO_GRANT)
+      await expect(
+        visibleReviewIds({ role: "member", userId })
+      ).resolves.toEqual([])
+
+      // Read for the other organisation, the 'all' membership applies.
+      await db.query("select set_config('app.organisation_id', $1, false)", [
+        OTHER_ORG,
+      ])
+      await expect(
+        visibleReviewIds({ role: "member", userId })
+      ).resolves.toEqual([LOCATION_A, LOCATION_B, LOCATION_C])
+
+      // Outside a tenant transaction no membership matches: fail closed.
+      await db.query("select set_config('app.organisation_id', '', false)")
+      await expect(
+        visibleReviewIds({ role: "member", userId: USER_UNASSIGNED })
+      ).resolves.toEqual([])
+      expect(
+        (await grantsFor(sql, session, [LOCATION_A])).get(LOCATION_A)
+      ).toEqual(NO_GRANT)
+    } finally {
+      await db.query("select set_config('app.organisation_id', $1, false)", [
+        TENANT_ORG,
+      ])
+    }
   })
 
   it("grantsFor: no membership row sees nothing", async () => {

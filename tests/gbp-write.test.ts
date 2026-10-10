@@ -199,7 +199,7 @@ const SCHEMA = `
   create table location_link (location_id uuid not null, external_location_id uuid not null, is_active boolean not null);
   create table google_account (id uuid primary key, google_connection_id uuid not null, google_account_name text not null);
   create table location_member (user_id uuid not null, location_id uuid not null, can_publish boolean not null);
-  create table member (user_id uuid primary key, location_scope text not null default 'all');
+  create table member (organisation_id uuid not null, user_id uuid not null, location_scope text not null default 'all', primary key (organisation_id, user_id));
 `
 
 const hoursStyle = attemptStore({
@@ -257,7 +257,10 @@ describe("gbp-write", () => {
     `)
     withTenant = (organisationId, callback) =>
       db.transaction(async (tx) => {
-        await tx.query("select $1::text as organisation", [organisationId])
+        await tx.query(
+          "select set_config('app.organisation_id', $1, true) as organisation",
+          [organisationId]
+        )
         return callback(pgliteSql(tx))
       })
   })
@@ -1060,8 +1063,9 @@ describe("loadLinkedLocation", () => {
                                   ('${UNLINKED}', '${ORG}', 'Unlinked', 'Europe/London');
       insert into external_location values ('${EXTERNAL}', '${CONNECTION}', 'accounts/1', 'locations/1');
       insert into location_link values ('${LOCATION}', '${EXTERNAL}', true);
-      insert into member values ('${USER}', 'all'),
-                                ('00000000-0000-4000-8000-0000000000aa', 'all');
+      insert into member values ('${ORG}', '${USER}', 'all'),
+                                ('${ORG}', '00000000-0000-4000-8000-0000000000aa', 'all');
+      select set_config('app.organisation_id', '${ORG}', false);
     `)
   })
 
