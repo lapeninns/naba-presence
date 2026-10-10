@@ -22,7 +22,22 @@ vi.mock("@/lib/api/location-posts", () => api)
 
 const POSTS_KEY = queryKeys.locationPosts("loc-1")
 const OWNER: LocationCapabilities = { canEditCanonical: true, canPublish: true }
-const MEMBER: LocationCapabilities = { canEditCanonical: false, canPublish: false }
+// A drafting member: may edit and request approval, may not decide or publish.
+const MEMBER: LocationCapabilities = {
+  canEditCanonical: false,
+  canPublish: false,
+  canEdit: true,
+  canRequestApproval: true,
+  canDecideApproval: false,
+}
+// The flags lib/server/capabilities.ts emits for a viewer.
+const VIEWER: LocationCapabilities = {
+  canEditCanonical: false,
+  canPublish: false,
+  canEdit: false,
+  canRequestApproval: false,
+  canDecideApproval: false,
+}
 
 function post(overrides: Partial<Post> = {}): Post {
   return {
@@ -156,12 +171,36 @@ describe("PostsActionBar", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
   })
 
-  it("gates live actions on canPublish but leaves reject and draft delete to the pause switch", () => {
+  it("gates approve and reject on decide_approval but leaves draft delete to the edit grant", () => {
     renderBar({ post: post({ status: "awaiting_approval" }), caps: MEMBER })
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled()
+    // Rejecting is the same decision as approving: the route answers 403
+    // permission_denied without decide_approval.
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
     // A draft has no Google post, so deleting it needs no publish permission.
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled()
+  })
+
+  it("lets a decide_approval holder reject even without the posts resource", () => {
+    renderBar({
+      post: post({ status: "awaiting_approval" }),
+      caps: { ...MEMBER, canPublish: true, canDecideApproval: true, canRequestApproval: false },
+    })
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled()
+  })
+
+  it("keeps a viewer's draft read-only: no request, edit or delete", () => {
+    renderBar({ caps: VIEWER })
+    expect(screen.getByRole("button", { name: "Request approval" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
+    expect(screen.getByText("Your role can view this location but not change it.")).toBeInTheDocument()
+  })
+
+  it("never offers a viewer a decision on someone's request", () => {
+    renderBar({ post: post({ status: "awaiting_approval" }), caps: VIEWER })
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
   })
 
   it("requires publish permission to delete a post that is live on Google", () => {

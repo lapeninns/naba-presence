@@ -63,6 +63,29 @@ export type AuthorisationRecheck = {
    * cannot be verified, so the recheck refuses rather than ignoring it.
    */
   securityVersion?: number | null
+  /**
+   * The organisation's approval policy when the work was queued. When given,
+   * it must still hold: work queued under "no approval needed" must not
+   * dispatch after an owner turned approval (or two-person approval) on.
+   */
+  policy?: ApprovalPolicy | null
+  /**
+   * The stable operation/generation id the work was queued under. Reserved
+   * for the intent header and generation ids (P03-S2, P07-S2); until they
+   * exist a supplied value cannot be verified, so the recheck refuses.
+   */
+  generation?: string | null
+  /**
+   * The job kind whose entitlement must still be held. Reserved for
+   * deriveAccess (P07-S1); until it exists a supplied value cannot be
+   * verified, so the recheck refuses rather than ignoring it.
+   */
+  entitlement?: string | null
+}
+
+export type ApprovalPolicy = {
+  approvalRequired: boolean
+  requireTwoPersonApproval: boolean
 }
 
 export type RecheckRefusal =
@@ -71,6 +94,9 @@ export type RecheckRefusal =
   | "action_denied"
   | "connection_changed"
   | "security_version_unverifiable"
+  | "policy_changed"
+  | "generation_unverifiable"
+  | "entitlement_unverifiable"
 
 export type RecheckResult =
   | { ok: true; scope: GrantScope; grant: LocationGrant }
@@ -88,6 +114,12 @@ export async function recheckAuthorisation(
 ): Promise<RecheckResult> {
   if (input.securityVersion !== undefined && input.securityVersion !== null) {
     return { ok: false, reason: "security_version_unverifiable" }
+  }
+  if (input.generation !== undefined && input.generation !== null) {
+    return { ok: false, reason: "generation_unverifiable" }
+  }
+  if (input.entitlement !== undefined && input.entitlement !== null) {
+    return { ok: false, reason: "entitlement_unverifiable" }
   }
   const scope = await actorScopeFromMembership(
     sql,
@@ -117,6 +149,23 @@ export async function recheckAuthorisation(
       link.connectionId.toLowerCase() !== input.connectionId.toLowerCase()
     ) {
       return { ok: false, reason: "connection_changed" }
+    }
+  }
+
+  if (input.policy) {
+    const [org] = await sql<ApprovalPolicy[]>`
+      select
+        approval_required as "approvalRequired",
+        require_two_person_approval as "requireTwoPersonApproval"
+      from organisation
+      where id = ${input.organisationId}
+    `
+    if (
+      !org ||
+      org.approvalRequired !== input.policy.approvalRequired ||
+      org.requireTwoPersonApproval !== input.policy.requireTwoPersonApproval
+    ) {
+      return { ok: false, reason: "policy_changed" }
     }
   }
 

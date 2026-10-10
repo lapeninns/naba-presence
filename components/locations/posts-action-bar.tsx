@@ -31,7 +31,11 @@ import {
   type PostsState,
 } from "@/lib/api/location-posts"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
-import { resourceDisabledReason } from "@/lib/locations/gating"
+import {
+  contentEditDisabledReason,
+  decideApprovalDisabledReason,
+  resourceDisabledReason,
+} from "@/lib/locations/gating"
 import type { OutcomeMessage } from "@/lib/editors/outcome"
 import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
 import {
@@ -135,15 +139,27 @@ export function PostsActionBar({
   // `publish_not_allowed` (lib/server/capabilities.ts), the gate the approval
   // flow exists to route around, which is why nothing in the product could
   // ever reach the approval half of the lifecycle.
+  // A viewer may neither request approval nor edit (requireLocationAction
+  // "request_approval" / "edit"), so the same button stays visible but
+  // disabled with the reason.
   const offerRequestApproval = caps ? !caps.canPublish : false
-  const primaryReason = offerRequestApproval ? pausedReason : publishReason
-  const approveReason = resourceDisabledReason(caps, "posts", writesEnabled)
-  const rejectReason = pausedReason
+  const editReason = contentEditDisabledReason(caps)
+  const primaryReason = offerRequestApproval
+    ? (pausedReason ?? editReason)
+    : publishReason
+  // Approve publishes, so it needs the posts resource to be writable as well
+  // as the decide_approval authority; reject is local-only but is the same
+  // decision, so it needs that authority too (never mere visibility).
+  const decideReason = decideApprovalDisabledReason(caps)
+  const approveReason =
+    resourceDisabledReason(caps, "posts", writesEnabled) ?? decideReason
+  const rejectReason = pausedReason ?? decideReason
   // Deleting a live (published) post needs publish permission; a draft delete
-  // still 503s when paused, so it is gated on writesEnabled too.
+  // still 503s when paused, so it is gated on writesEnabled too, and it is an
+  // edit, which a viewer may not make.
   const deleteReason = post.googlePostName
     ? resourceDisabledReason(caps, "posts", writesEnabled)
-    : pausedReason
+    : (pausedReason ?? editReason)
 
   const live = Boolean(post.googlePostName)
   // A post whose publish outcome is unknown has no Google name, so deleting
@@ -182,10 +198,10 @@ export function PostsActionBar({
       ) : null}
       {editable ? (
         // Editing a draft touches NabaPresence only, so the pause switch
-        // that blocks Google writes doesn't block it.
+        // that blocks Google writes doesn't block it; the edit grant does.
         <PostComposerSheet
           locationId={locationId}
-          disabledReason={null}
+          disabledReason={editReason}
           post={post}
           timezone={timezone}
         />

@@ -5,6 +5,7 @@ import {
   actorScopeFromMembership,
   recheckAuthorisation,
 } from "@/lib/server/authz/actor"
+import { locationActionCapabilities } from "@/lib/server/capabilities"
 import { ApiError } from "@/lib/server/http"
 import {
   actionAllowed,
@@ -70,6 +71,7 @@ function scriptedSql(script: {
   grants?: Record<string, boolean> | null
   member?: { role: GrantScope["role"]; canPublish: boolean } | null
   connectionId?: string | null
+  policy?: { approvalRequired: boolean; requireTwoPersonApproval: boolean } | null
 }) {
   const queries: string[] = []
   const fn = (first: unknown) => {
@@ -88,6 +90,8 @@ function scriptedSql(script: {
           ]
         } else if (text.includes("from member")) {
           rows = script.member ? [script.member] : []
+        } else if (text.includes("from organisation")) {
+          rows = script.policy ? [script.policy] : []
         } else if (text.includes("from location_link")) {
           rows =
             script.connectionId === undefined
@@ -141,6 +145,45 @@ describe("actionAllowed -- role x action", () => {
     for (const action of LOCATION_ACTIONS) {
       expect(actionAllowed("viewer", full, action)).toBe(action === "read")
     }
+  })
+})
+
+// The UI's per-location action flags must say exactly what the routes
+// accept, so a viewer or drafting member is never shown a control that 403s.
+describe("locationActionCapabilities -- the UI projection of the matrix", () => {
+  it.each(ACTORS.map((actor) => [actor.name, actor] as const))(
+    "%s",
+    (name, actor) => {
+      const grant = {
+        visible: true,
+        canEdit: actor.scope.role !== "viewer",
+        canPublish: actor.scope.role !== "viewer" && (
+          actor.scope.role === "owner" ||
+          actor.scope.role === "admin" ||
+          actor.scope.canPublish
+        ),
+      }
+      const expected = EXPECTED[name]
+      expect(locationActionCapabilities(actor.scope.role, grant)).toEqual({
+        canEdit: expected.edit,
+        canRequestApproval: expected.request_approval && !expected.publish,
+        canDecideApproval: expected.decide_approval,
+      })
+    }
+  )
+
+  it("grants nothing on a hidden location", () => {
+    expect(
+      locationActionCapabilities("owner", {
+        visible: false,
+        canEdit: true,
+        canPublish: true,
+      })
+    ).toEqual({
+      canEdit: false,
+      canRequestApproval: false,
+      canDecideApproval: false,
+    })
   })
 })
 
@@ -260,6 +303,36 @@ describe("authz/actor -- session-free actor", () => {
         }
       )
     ).resolves.toEqual({ ok: false, reason: "security_version_unverifiable" })
+  })
+
+  it("fails closed on a generation or entitlement it cannot verify yet", async () => {
+    const owner = { member: { role: "owner" as const, canPublish: false } }
+    await expect(recheck(owner, { generation: "gen-1" })).resolves.toEqual({
+      ok: false,
+      reason: "generation_unverifiable",
+    })
+    await expect(
+      recheck(owner, { entitlement: "scheduled_post" })
+    ).resolves.toEqual({ ok: false, reason: "entitlement_unverifiable" })
+  })
+
+  it("refuses when the approval policy changed since the work was queued", async () => {
+    const queued = { approvalRequired: false, requireTwoPersonApproval: false }
+    await expect(
+      recheck(
+        {
+          member: { role: "owner", canPublish: false },
+          policy: { approvalRequired: true, requireTwoPersonApproval: false },
+        },
+        { policy: queued }
+      )
+    ).resolves.toEqual({ ok: false, reason: "policy_changed" })
+    await expect(
+      recheck(
+        { member: { role: "owner", canPublish: false }, policy: queued },
+        { policy: queued }
+      )
+    ).resolves.toMatchObject({ ok: true })
   })
 
   it("passes an actor who still holds the action, returning the scope", async () => {

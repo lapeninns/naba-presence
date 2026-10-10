@@ -28,6 +28,30 @@ export function editDisabledReason(caps: LocationCapabilities | undefined): stri
   return caps.canEditCanonical ? null : "Only owners and admins can edit this location."
 }
 
+// Content edits (post drafts): the per-location `canEdit` the server's
+// requireLocationAction("edit") enforces. Separate from editDisabledReason,
+// which is the owner/admin canonical gate. An absent flag is "not known" ->
+// null; the route stays authoritative.
+export function contentEditDisabledReason(
+  caps: LocationCapabilities | undefined
+): string | null {
+  if (caps?.canEdit !== false) return null
+  return "Your role can view this location but not change it."
+}
+
+// Approving or rejecting someone's request needs publication authority
+// (requireLocationAction "decide_approval"). Falls back to canPublish when
+// the flag is absent, which is the same rule for every role.
+export function decideApprovalDisabledReason(
+  caps: LocationCapabilities | undefined
+): string | null {
+  if (!caps) return null
+  const allowed = caps.canDecideApproval ?? caps.canPublish
+  return allowed
+    ? null
+    : "Only someone who can publish this location can approve or reject requests."
+}
+
 export function publishDisabledReason(
   caps: LocationCapabilities | undefined,
   writesEnabled: boolean

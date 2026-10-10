@@ -61,7 +61,22 @@ function stub() {
   vi.spyOn(membersHook, "useMembers").mockReturnValue({
     data: {
       members: [
-        { userId: "u1", displayName: "Priya", email: "p@example.test" },
+        { userId: "u1", displayName: "Priya", email: "p@example.test", role: "member", locations: [] },
+        { userId: "u2", displayName: "Vic", email: "v@example.test", role: "viewer", locations: [] },
+        {
+          userId: "u3",
+          displayName: "Sol",
+          email: "s@example.test",
+          role: "member",
+          locations: [{ locationId: "l2", canPublish: true }],
+        },
+        {
+          userId: "u4",
+          displayName: "Lin",
+          email: "l@example.test",
+          role: "member",
+          locations: [{ locationId: "l1", canPublish: false }],
+        },
       ],
     },
   } as unknown as ReturnType<typeof membersHook.useMembers>)
@@ -146,6 +161,18 @@ describe("BulkActionBar", () => {
       reviewIds: ["a"],
       assigneeId: "u1",
     })
+  })
+
+  it("offers only assignees the server would accept for the chosen rows", async () => {
+    const user = userEvent.setup()
+    renderBar([row("a")], ["a"])
+    await user.click(await screen.findByRole("button", { name: /Assign/ }))
+    expect(await screen.findByRole("menuitem", { name: "Priya" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Lin" })).toBeInTheDocument()
+    // A viewer, and a member scoped to another location, would be skipped
+    // as assignee_not_eligible on every row.
+    expect(screen.queryByRole("menuitem", { name: "Vic" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Sol" })).not.toBeInTheDocument()
   })
 
   // Approving publishes, so a batch of it is confirmed like any publish.

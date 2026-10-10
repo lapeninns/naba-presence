@@ -14,7 +14,10 @@ import { ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import type { Post } from "@/lib/api/location-posts"
-import { composeDisabledReason } from "@/lib/locations/gating"
+import {
+  composeDisabledReason,
+  contentEditDisabledReason,
+} from "@/lib/locations/gating"
 import {
   formatPostTimestamp,
   matchesPostFilter,
@@ -184,7 +187,7 @@ function PostsList({
       actions={
         <PostComposerSheet
           locationId={locationId}
-          disabledReason={composeReason}
+          disabledReason={composeReason ?? contentEditDisabledReason(caps)}
           timezone={timezone}
         />
       }

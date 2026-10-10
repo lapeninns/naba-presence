@@ -156,10 +156,22 @@ describeDatabase("viewer is read-only (requireLocationAction)", () => {
     await expectDenied(
       await send(drafter.cookie, "POST", path, { decision: "reject" })
     )
-    const [row] = await admin<{ status: string }[]>`
-      select status from gbp_local_post where id = ${post.id}
+    // Approving used to re-queue the post as the drafter's own request
+    // (status awaiting_approval, requester swapped); it is now a decision
+    // that needs decide_approval, so it is refused and nothing changes.
+    await expectDenied(
+      await send(drafter.cookie, "POST", path, { decision: "approve" })
+    )
+    const [row] = await admin<
+      { status: string; approvalRequestedBy: string | null }[]
+    >`
+      select status, approval_requested_by::text as "approvalRequestedBy"
+      from gbp_local_post where id = ${post.id}
     `
-    expect(row.status).toBe("awaiting_approval")
+    expect(row).toEqual({
+      status: "awaiting_approval",
+      approvalRequestedBy: owner.userId,
+    })
   })
 
   it("refuses a reply draft and a reply approval request", async () => {

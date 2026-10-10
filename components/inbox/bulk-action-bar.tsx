@@ -56,6 +56,19 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
   // The member list is only needed to assign, so it is fetched when a
   // selection exists rather than on every visit to the inbox.
   const members = useMembers({ enabled: chosen.length > 0 })
+  // Offer only people the server would accept for at least one chosen row:
+  // never a viewer, and a member scoped to locations only when one of the
+  // chosen reviews is at one of them. The server still checks every row
+  // (`assignee_not_eligible`); this just keeps certain refusals off the menu.
+  const chosenLocations = new Set(chosen.map((row) => row.location.id))
+  const assignees = (members.data?.members ?? []).filter(
+    (member) =>
+      member.role !== "viewer" &&
+      (member.locations.length === 0 ||
+        member.locations.some((grant) =>
+          chosenLocations.has(grant.locationId)
+        ))
+  )
 
   const templateDialog = templateRows ? (
     <TemplateReplyDialog
@@ -159,7 +172,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
             Assign
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="center">
-            {(members.data?.members ?? []).map((member) => (
+            {assignees.map((member) => (
               <DropdownMenuItem
                 key={member.userId}
                 onClick={() => void run("assign", member.userId)}
@@ -167,7 +180,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
                 {member.displayName ?? member.email}
               </DropdownMenuItem>
             ))}
-            {(members.data?.members ?? []).length > 0 ? (
+            {assignees.length > 0 ? (
               <DropdownMenuSeparator />
             ) : null}
             <DropdownMenuItem onClick={() => void run("assign", null)}>

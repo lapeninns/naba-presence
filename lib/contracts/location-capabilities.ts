@@ -52,6 +52,15 @@ export type ResourceCapability = z.infer<typeof resourceCapabilitySchema>
  *   canEditCanonical === role in {owner, admin}  (the canonical-PUT route gate)
  *   canPublish        === canPublishLocation(sql, session, locationId)
  *   resources         === per-surface availability for UI gating
+ *   canEdit           === actionAllowed(role, grant, "edit")
+ *   canRequestApproval === actionAllowed(role, grant, "request_approval") && !canPublish
+ *   canDecideApproval === actionAllowed(role, grant, "decide_approval")
+ * The three action flags project lib/server/permissions.ts actionAllowed, the
+ * same rule requireLocationAction enforces on the post draft, approval-request
+ * and approve/reject routes, so a viewer is never offered a control the
+ * server refuses. The server always emits them; they are optional on the wire
+ * only so older fixtures parse, and a client reads an absent flag as "not
+ * known" (the server stays the authority), never as a grant it can rely on.
  *
  * `resources` is always emitted by the server, keyed by `LocationResourceKey`.
  * It is typed with string keys and optional deliberately: the gating
@@ -63,6 +72,9 @@ export type ResourceCapability = z.infer<typeof resourceCapabilitySchema>
 export const locationCapabilitiesSchema = z.object({
   canEditCanonical: z.boolean(),
   canPublish: z.boolean(),
+  canEdit: z.boolean().optional(),
+  canRequestApproval: z.boolean().optional(),
+  canDecideApproval: z.boolean().optional(),
   resources: z.record(z.string(), resourceCapabilitySchema).optional(),
 })
 export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>

@@ -22,6 +22,7 @@ import {
   actionAllowed,
   grantsFor,
   isManagerialRole,
+  type LocationGrant,
 } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -85,6 +86,7 @@ export async function reviewCapabilities(
 // Per-location capabilities for the Locations workspace (spec §3):
 //   canEditCanonical === role in {owner, admin}  (the canonical-PUT route gate)
 //   canPublish        === canPublishLocation(sql, session, locationId)
+//   canEdit / canRequestApproval / canDecideApproval === locationActionCapabilities
 //   resources         === per-surface availability for UI gating (Slice 0 manifest)
 // The wire shape and the resource-key vocabulary live in
 // lib/contracts/location-capabilities.ts; re-exported here for existing
@@ -117,6 +119,30 @@ export function resourceWritesEnabled(
     booking: gbpWritesEnabled(env, "placeActions"),
     performance:
       env.PUBLISH_ENABLED && gbpIngestionEnabled(env, "performance"),
+  }
+}
+
+/**
+ * The per-location action flags, projected from the same actionAllowed the
+ * post routes enforce through requireLocationAction:
+ *   canEdit            -> "edit"  (compose, edit and delete drafts)
+ *   canRequestApproval -> "request_approval", for a non-publisher only (a
+ *                         publisher's publish goes straight to Google)
+ *   canDecideApproval  -> "decide_approval" (approve or reject a request)
+ */
+export function locationActionCapabilities(
+  role: Session["role"],
+  grant: LocationGrant
+): Pick<
+  LocationCapabilities,
+  "canEdit" | "canRequestApproval" | "canDecideApproval"
+> {
+  return {
+    canEdit: actionAllowed(role, grant, "edit"),
+    canRequestApproval:
+      actionAllowed(role, grant, "request_approval") &&
+      !actionAllowed(role, grant, "publish"),
+    canDecideApproval: actionAllowed(role, grant, "decide_approval"),
   }
 }
 
@@ -196,10 +222,12 @@ export async function locationCapabilitiesForIds(
 
   const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const { canPublish } = grants.get(id) ?? NO_GRANT
+    const grant = grants.get(id) ?? NO_GRANT
+    const { canPublish } = grant
     result.set(id, {
       canEditCanonical,
       canPublish,
+      ...locationActionCapabilities(session.role, grant),
       resources: buildResources({
         canEditCanonical,
         canPublish,
@@ -221,6 +249,7 @@ export async function locationCapabilities(
     map.get(locationId) ?? {
       canEditCanonical: false,
       canPublish: false,
+      ...locationActionCapabilities(session.role, NO_GRANT),
       resources: buildResources({
         canEditCanonical: false,
         canPublish: false,

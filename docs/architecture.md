@@ -114,18 +114,22 @@ Visibility never authorises a write. Every mutation names its action
 `publish`) and calls `requireLocationAction`, which answers 404 for a hidden
 location and 403 `permission_denied` when the role or grant may not act; the
 rule is the pure `actionAllowed`, which `lib/server/capabilities.ts` also uses
-so the UI offers only what the server accepts. A viewer is read-only
+so the UI offers only what the server accepts (the location payload's
+`canEdit`, `canRequestApproval` and `canDecideApproval` gate the posts
+composer, Request approval, and Approve/Reject). A viewer is read-only
 everywhere: post drafts, post and reply approval requests, post rejection and
 bulk assign/triage all refuse it. Work that runs without a session (retries,
 schedules, recovery, bulk batches) re-derives the actor's grant at dispatch
 through `lib/server/authz/actor.ts`: `actorScopeFromMembership` turns the
 member row into a grant scope, and `recheckAuthorisation` re-decides the
-action, refuses a relinked Google connection, and fails closed on a security
-version until that mechanism exists. A bulk assignee must pass the same
+action, refuses a relinked Google connection or a changed approval policy,
+and fails closed on a supplied security version, generation id or entitlement
+until those mechanisms exist (P02-S9, P03-S2/P07-S2, P07-S1 wire them in). A bulk assignee must pass the same
 recheck for the review's location (`assignee_not_eligible` otherwise).
 `tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
-every session mutation declares `roles`, calls an action guard, or is on its
-explicit allowlist.
+every session mutation declares non-viewer `roles`, calls an action guard in
+its own handler, delegates through a named call chain that ends in one, or is
+on its explicit allowlist.
 
 ## Google integration
 
