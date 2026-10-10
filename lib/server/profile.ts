@@ -777,6 +777,7 @@ export const profileRecoveryAdapter: RecoveryAdapter<ProfileRecoveryAttempt> = {
         id::text as id,
         status as "rawStatus",
         started_at as "startedAt",
+        provider_error_code as "errorCode",
         external_location_id::text as "externalLocationId",
         direction,
         selected_fields as "selectedFields",
@@ -792,11 +793,12 @@ export const profileRecoveryAdapter: RecoveryAdapter<ProfileRecoveryAttempt> = {
       const mask = PROFILE_FIELD_MASK[key]
       return mask !== undefined && attempt.updateMask.includes(mask)
     })
-    if (
-      attempt.direction !== "to_google" ||
-      written.length === 0 ||
-      attempt.externalLocationId !== link.externalLocationId
-    ) {
+    // Nothing a readback can compare: not a publish, or no selected field
+    // the patch wrote.
+    if (attempt.direction !== "to_google" || written.length === 0) {
+      return { kind: "unverifiable", errorCode: "recovery_unsupported" }
+    }
+    if (attempt.externalLocationId !== link.externalLocationId) {
       return { kind: "unverifiable", errorCode: "target_changed" }
     }
     const readback = normalizeGoogleProfile(
@@ -806,7 +808,8 @@ export const profileRecoveryAdapter: RecoveryAdapter<ProfileRecoveryAttempt> = {
     )
     const intended = normalizeGoogleProfile(attempt.intendedPayload)
     const landed = written.every(
-      (key) => hashProfileValue(intended[key]) === hashProfileValue(readback[key])
+      (key) =>
+        hashProfileValue(intended[key]) === hashProfileValue(readback[key])
     )
     return landed
       ? { kind: "landed", confirmed: true, responseHash: hashProfile(readback) }

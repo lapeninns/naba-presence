@@ -315,6 +315,41 @@ describe("mutation recovery runner", () => {
     )
   })
 
+  it("carries a settled failure's own code and audits it like a readback", async () => {
+    const h = harness({
+      attempt: { rawStatus: "failed", errorCode: "google_readback_mismatch" },
+    })
+    await expect(h.run()).resolves.toBe("failed")
+    expect(h.readback).not.toHaveBeenCalled()
+    expect(h.ledger.settle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        state: "failed",
+        errorCode: "google_readback_mismatch",
+      })
+    )
+    expect(h.deps.audit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "mutation.recovered",
+        metadata: expect.objectContaining({
+          outcome: "failed",
+          errorCode: "google_readback_mismatch",
+          source: "attempt_settled",
+        }),
+      })
+    )
+  })
+
+  it("falls back to a generic code when the attempt recorded none", async () => {
+    const h = harness({ attempt: { rawStatus: "stale" } })
+    await expect(h.run()).resolves.toBe("failed")
+    expect(h.ledger.settle).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ errorCode: "attempt_failed" })
+    )
+  })
+
   it("defers an attempt still inside the in-flight grace window", async () => {
     const startedAt = new Date(NOW.getTime() - 10_000)
     const h = harness({ attempt: { rawStatus: "publishing", startedAt } })

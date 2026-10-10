@@ -829,6 +829,7 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
         -- gbp_media_mutation has no started_at; created_at is written in the
         -- statement that opens the attempt (see the retention reaper).
         m.created_at as "startedAt",
+        m.last_error_code as "errorCode",
         m.operation,
         m.requested_payload as "requestedPayload",
         i.google_media_name as "googleMediaName"
@@ -861,11 +862,21 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
       }
       return { kind: "not_landed", errorCode: "media_delete_mismatch" }
     }
-    const current = await getGoogleMediaItem(
-      token,
-      attempt.googleMediaName,
-      mediaTransport(link)
-    )
+    let current: Awaited<ReturnType<typeof getGoogleMediaItem>>
+    try {
+      current = await getGoogleMediaItem(
+        token,
+        attempt.googleMediaName,
+        mediaTransport(link)
+      )
+    } catch (error) {
+      // The item is gone: whether the update landed first is unknowable,
+      // and a retry would read the same 404.
+      if (error instanceof ApiError && error.status === 404) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      throw error
+    }
     const category = attempt.requestedPayload?.category
     return typeof category === "string" && mediaCategoryOf(current) === category
       ? { kind: "landed", confirmed: true, response: current }

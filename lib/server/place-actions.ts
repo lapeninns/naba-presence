@@ -629,7 +629,8 @@ const settlePlaceActionAttempt = storeSettle(placeActionAttempts)
  *   create   a live link with the requested uri and type is the create
  *            (identified by content, as the create's own recovery does, so
  *            `awaiting_confirmation`); none means nothing was created
- *   update   the targeted link carries the requested values
+ *   update   the targeted link carries the requested values (a link
+ *            Google no longer holds is `target_changed`, for a person)
  *   delete   the targeted link is no longer listed
  */
 export const placeActionRecoveryAdapter: RecoveryAdapter<PlaceActionRecoveryAttempt> =
@@ -642,6 +643,7 @@ export const placeActionRecoveryAdapter: RecoveryAdapter<PlaceActionRecoveryAtte
           m.id::text as id,
           m.status as "rawStatus",
           m.started_at as "startedAt",
+          m.last_error_code as "errorCode",
           m.external_location_id::text as "externalLocationId",
           m.operation,
           m.requested_payload as "requestedPayload",
@@ -682,11 +684,22 @@ export const placeActionRecoveryAdapter: RecoveryAdapter<PlaceActionRecoveryAtte
         if (!payload) {
           return { kind: "unverifiable", errorCode: "recovery_unsupported" }
         }
-        const current = await getGooglePlaceActionLink(
-          token,
-          attempt.googleLinkName,
-          google
-        )
+        let current: Awaited<ReturnType<typeof getGooglePlaceActionLink>>
+        try {
+          current = await getGooglePlaceActionLink(
+            token,
+            attempt.googleLinkName,
+            google
+          )
+        } catch (error) {
+          // The link is gone at Google: no later read will say whether the
+          // update landed first, so it goes to a person now rather than
+          // spending the readback ladder on a deterministic answer.
+          if (error instanceof ApiError && error.status === 404) {
+            return { kind: "unverifiable", errorCode: "target_changed" }
+          }
+          throw error
+        }
         return matchesPayload(current, payload)
           ? { kind: "landed", confirmed: true, response: current }
           : { kind: "not_landed", errorCode: "place_action_readback_mismatch" }

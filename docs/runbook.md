@@ -396,7 +396,13 @@ stop it as `recovery_exhausted`, a reconnect-blocked connection parks for 15
 minutes without counting and is abandoned after 14 days
 (`reconnect_abandoned`), and a disconnected location stops at once
 (`connection_disconnected`). A write no readback can identify (a media create)
-stops as `media_create_unverifiable`. A stopped receipt stays `uncertain`
+stops as `media_create_unverifiable`; an update whose target Google no longer
+holds (a 404 on the link or media item) stops as `target_changed`, and a
+receipt with no attempt row recorded, or a surface with no adapter, as
+`recovery_unsupported`. The first tick after 0073 is deployed also reads back
+every receipt that was already `uncertain`; those without an attempt row stop
+at once and each sends one `mutation_unconfirmed` email, so expect a short
+burst on that deploy. A stopped receipt stays `uncertain`
 with `next_recovery_at` null, is audited as `mutation.recovery_abandoned`, and
 opens a `mutation_unconfirmed` notification to the owners and admins asking
 them to check Google. The kind answers to `PUBLISH_ENABLED`, the `publish`

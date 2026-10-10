@@ -124,6 +124,8 @@ export type RecoveryAttempt = {
   /** The table's own status value. */
   rawStatus: string
   startedAt: Date | null
+  /** The table's own error code, adopted when something else settled the row. */
+  errorCode?: string | null
 }
 
 /**
@@ -606,23 +608,44 @@ export async function recoverMutationOperation(
       if (state.kind === "settled") {
         // Something else settled the row since (an interactive reconcile, or
         // a later request that re-sent the same keyed write): its verdict is
-        // this receipt's too.
-        await deps.ledger.settle(sql, {
+        // this receipt's too, with the row's own error code, and the same
+        // audit trail as a verdict read back from Google.
+        const outcome =
+          state.outcome === "succeeded" ? "confirmed_applied" : "failed"
+        const errorCode =
+          state.outcome === "succeeded"
+            ? null
+            : (attempt.errorCode ?? "attempt_failed")
+        const settled = await deps.ledger.settle(sql, {
           attemptTable: adapter.attemptTable,
           attemptId: attempt.id,
-          state: state.outcome === "succeeded" ? "confirmed_applied" : "failed",
-          errorCode: state.outcome === "succeeded" ? null : "attempt_failed",
+          state: outcome,
+          errorCode,
           receipt: {
             attemptId: attempt.id,
             attemptStatus: state.outcome,
             rawStatus: attempt.rawStatus,
           },
         })
-        return {
-          kind: "done",
-          result:
-            state.outcome === "succeeded" ? "confirmed_applied" : "failed",
+        if (settled > 0) {
+          await deps.audit(sql, {
+            organisationId,
+            actorUserId: null,
+            action: "mutation.recovered",
+            subjectType: "mutation_operation",
+            subjectId: operation.id,
+            requestId: input.requestId,
+            metadata: {
+              surface: operation.surface,
+              action: operation.action,
+              attemptId: attempt.id,
+              outcome,
+              errorCode,
+              source: "attempt_settled",
+            },
+          })
         }
+        return { kind: "done", result: outcome }
       }
       if (state.kind === "in_flight" && state.recoverAt) {
         await deps.ledger.reschedule(sql, {

@@ -461,6 +461,7 @@ export const foodMenusRecoveryAdapter: RecoveryAdapter<FoodMenusRecoveryAttempt>
           id::text as id,
           status as "rawStatus",
           started_at as "startedAt",
+          last_error_code as "errorCode",
           external_location_id::text as "externalLocationId",
           expected_canonical_hash as "expectedCanonicalHash"
         from food_menus_sync_attempt

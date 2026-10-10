@@ -44,10 +44,10 @@ import {
   requireLocationAccess,
   requireLocationAction,
 } from "@/lib/server/permissions"
-import {
-  storeSettle,
-  type RecoveryAdapter,
-  type RecoveryAttempt,
+import type {
+  RecoveryAdapter,
+  RecoveryAttempt,
+  SettledVerdict,
 } from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
@@ -601,7 +601,19 @@ function providerEvent(event: LocalPost["event"]) {
   return writable
 }
 
-function providerPayload(post: LocalPost) {
+/** The LocalPost columns a publish sends. */
+type PostContent = Pick<
+  LocalPost,
+  | "topicType"
+  | "languageCode"
+  | "summary"
+  | "callToAction"
+  | "event"
+  | "offer"
+  | "media"
+>
+
+function providerPayload(post: PostContent) {
   return Object.fromEntries(
     Object.entries({
       languageCode: post.languageCode,
@@ -1693,8 +1705,9 @@ type LocalPostRecoveryAttempt = RecoveryAttempt & {
  *            update that did not apply, safe to send again.
  *   delete   the post is no longer listed.
  *
- * The settle is localPostAttempts.settle, so the post row moves exactly as
- * it does when the publish settles itself.
+ * The settle is settleRecoveredLocalPost, not localPostAttempts.settle: a
+ * readback can run days after the write, and by then the post may carry an
+ * edit or a newer publish that this verdict says nothing about.
  */
 export const localPostRecoveryAdapter: RecoveryAdapter<LocalPostRecoveryAttempt> =
   {
@@ -1706,6 +1719,7 @@ export const localPostRecoveryAdapter: RecoveryAdapter<LocalPostRecoveryAttempt>
           a.id::text as id,
           a.status as "rawStatus",
           a.started_at as "startedAt",
+          a.provider_error_code as "errorCode",
           a.operation,
           a.intended_payload as "intendedPayload",
           p.location_id::text as "postLocationId",
@@ -1768,5 +1782,123 @@ export const localPostRecoveryAdapter: RecoveryAdapter<LocalPostRecoveryAttempt>
         ? { kind: "landed", confirmed: true, response: current }
         : { kind: "not_landed", errorCode: "google_post_update_unconfirmed" }
     },
-    settle: storeSettle(localPostAttempts),
+    settle: settleRecoveredLocalPost,
   }
+
+/**
+ * Settles a recovered post attempt, and moves the post row only while the
+ * verdict is still about it. Recovery runs from minutes to days after the
+ * write (the first delay, back-off, reconnect parks), and in that time the
+ * post can be edited (an update stranded with its name leaves the post
+ * `failed`, which is editable) and published again under a new key. The
+ * post row follows this verdict only when
+ *
+ *   - no later attempt exists for the post,
+ *   - the post still holds the content this attempt sent, and
+ *   - the post is `ambiguous` or `failed`: not `publishing` (another
+ *     publish holds its claim and lease), not `published` (a newer verdict),
+ *     and not a saved edit.
+ *
+ * Otherwise only the attempt (and, through the runner, the receipt) settles.
+ * One exception: a create that landed while the post holds no name adopts
+ * the name alone, status and content untouched, so the next publish PATCHes
+ * the post Google holds instead of creating a second one, and the
+ * reconciliation upsert, which owns only `published` rows, leaves the edit
+ * alone. A landed delete removes the post wherever it is not mid-publish:
+ * Google no longer holds it, whatever the row says.
+ */
+async function settleRecoveredLocalPost(
+  sql: TransactionSql,
+  input: { attempt: LocalPostRecoveryAttempt; verdict: SettledVerdict }
+): Promise<boolean> {
+  const { attempt, verdict } = input
+  const landed = verdict.kind === "landed"
+  const [settled] = await sql<{ postId: string; operation: string }[]>`
+    update gbp_local_post_attempt
+    set status = ${landed ? "succeeded" : "failed"},
+      provider_error_code = ${landed ? null : verdict.errorCode},
+      provider_response = ${jsonColumnOrNull(sql, landed ? verdict.response : undefined)},
+      finished_at = now()
+    where id = ${attempt.id} and status = ${attempt.rawStatus}
+    returning post_id::text as "postId", operation
+  `
+  if (!settled) return false
+
+  const [post] = await sql<
+    (PostContent &
+      Pick<LocalPost, "status" | "googlePostName"> & { latest: boolean })[]
+  >`
+    select
+      p.status,
+      p.google_post_name as "googlePostName",
+      p.topic_type as "topicType",
+      p.language_code as "languageCode",
+      p.summary,
+      p.call_to_action as "callToAction",
+      p.event,
+      p.offer,
+      p.media,
+      not exists (
+        select 1 from gbp_local_post_attempt later
+        where later.post_id = p.id
+          and later.id <> ${attempt.id}
+          and later.started_at > a.started_at
+      ) as latest
+    from gbp_local_post p
+    join gbp_local_post_attempt a on a.id = ${attempt.id}
+    where p.id = ${settled.postId}
+    for update of p
+  `
+  if (!post) return true
+
+  if (settled.operation === "delete") {
+    if (landed && post.status !== "publishing") {
+      await sql`
+        update gbp_local_post set status = 'deleted', provider_payload = null
+        where id = ${settled.postId}
+      `
+    }
+    return true
+  }
+
+  const [{ holdsIntent }] = await sql<{ holdsIntent: boolean }[]>`
+    select intended_payload = ${jsonColumn(sql, providerPayload(post))}::jsonb
+      as "holdsIntent"
+    from gbp_local_post_attempt
+    where id = ${attempt.id}
+  `
+  const current =
+    post.latest &&
+    holdsIntent &&
+    (post.status === "ambiguous" || post.status === "failed")
+  if (current) {
+    if (landed) {
+      await markPostPublished(sql, settled.postId, asRecord(verdict.response))
+    } else {
+      await sql`
+        update gbp_local_post
+        set status = 'failed', last_error_code = ${verdict.errorCode},
+          publish_lease_expires_at = null
+        where id = ${settled.postId}
+      `
+    }
+    return true
+  }
+  const name = landed ? stringOrNull(asRecord(verdict.response).name) : null
+  if (
+    settled.operation === "create" &&
+    name &&
+    !post.googlePostName &&
+    post.status !== "publishing"
+  ) {
+    await sql`
+      update gbp_local_post set google_post_name = ${name}
+      where id = ${settled.postId} and google_post_name is null
+        and not exists (
+          select 1 from gbp_local_post other
+          where other.google_post_name = ${name}
+        )
+    `
+  }
+  return true
+}

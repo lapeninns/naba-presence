@@ -647,7 +647,11 @@ schedule with the pinned canonical hash and a selective publish (0068
 `selection`) with its selected parts only. A landed write settles the attempt
 `succeeded` and the receipt `confirmed_applied` (`awaiting_confirmation` when
 the readback only identifies it, as for a post or place-action create); a
-write that did not land settles both `failed`; nothing is re-sent. Unreadable
+write that did not land settles both `failed`; nothing is re-sent. A post's
+verdict moves the post row only while the post still holds the content that
+attempt sent, has no later attempt and is `ambiguous` or `failed`; otherwise
+only the attempt and receipt settle, so a later edit or publish is never
+overwritten (a landed create still adopts its Google name). Unreadable
 reads back off up to eight counted attempts, reconnect-blocked connections
 park without counting, and a receipt nothing can resolve stays `uncertain`,
 leaves the queue and notifies the owners and admins (`mutation_unconfirmed`).

@@ -755,6 +755,7 @@ export const hoursRecoveryAdapter: RecoveryAdapter<HoursRecoveryAttempt> = {
         id::text as id,
         status as "rawStatus",
         started_at as "startedAt",
+        provider_error_code as "errorCode",
         external_location_id::text as "externalLocationId",
         intended_payload as "intendedPayload",
         pinned_canonical_hash as "pinnedCanonicalHash",

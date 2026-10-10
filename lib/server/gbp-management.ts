@@ -360,6 +360,7 @@ export type ManagementRecoveryAttempt = {
   id: string
   rawStatus: string
   startedAt: Date | null
+  errorCode?: string | null
   resourceType: string
   operation: string
   targetResourceName: string | null
@@ -377,6 +378,7 @@ export async function loadManagementRecoveryAttempt(
       id::text as id,
       status as "rawStatus",
       started_at as "startedAt",
+      last_error_code as "errorCode",
       resource_type as "resourceType",
       operation,
       target_resource_name as "targetResourceName",
