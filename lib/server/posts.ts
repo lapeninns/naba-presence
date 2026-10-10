@@ -8,6 +8,7 @@ import {
   type LocalPostInput,
   type PostRow,
 } from "@/lib/contracts/location-posts"
+import { localPostMatches } from "@/lib/domain/readback/posts"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
@@ -214,12 +215,14 @@ async function upsertLiveLocalPost(
 }
 
 /**
- * A live Google post that carries the summary/topic/language we sent, and
- * whose name no local row has claimed yet. That triple is all a stranded post
- * can be identified by: `gbp_local_post_attempt.intended_payload` is written
- * before the provider call, but Google's name for the post only exists in a
- * response we never received. Two drafts with identical text are
- * indistinguishable here, so the first unclaimed match wins.
+ * A live Google post that carries the content we sent (topic, language,
+ * summary, call to action, event title and schedule, offer; compared after
+ * normalisation by lib/domain/readback/posts.ts), and whose name no local
+ * row has claimed yet. That content is all a stranded post can be identified
+ * by: `gbp_local_post_attempt.intended_payload` is written before the
+ * provider call, but Google's name for the post only exists in a response we
+ * never received. Two drafts with identical content are indistinguishable
+ * here, so the first unclaimed match wins.
  */
 function matchLivePost(
   live: Array<Record<string, unknown>>,
@@ -229,13 +232,7 @@ function matchLivePost(
   return live.find((candidate) => {
     const name = stringOrNull(candidate.name)
     if (!name || claimed.has(name)) return false
-    return (
-      String(candidate.topicType) === String(intended.topicType) &&
-      (typeof candidate.summary === "string" ? candidate.summary : "") ===
-        (typeof intended.summary === "string" ? intended.summary : "") &&
-      String(candidate.languageCode ?? "") ===
-        String(intended.languageCode ?? "")
-    )
+    return localPostMatches(candidate, intended)
   })
 }
 
@@ -1432,12 +1429,17 @@ async function publishLocalPost(input: {
         googlePostName = stringOrNull(match?.name)
         return match ?? {}
       },
-      // A named resource is the proof that the write landed (for an update,
-      // only beside the PATCH's own response; see `read`); the body is not
-      // compared with the intent because Google normalises post bodies. No
-      // name means the list has spoken and nothing was published, so the
-      // attempt settles failed rather than fabricating a publish.
-      verify: ({ readback }) => Boolean(stringOrNull(readback.name)),
+      // A named resource is the proof that a create landed: it exists, and
+      // settling it failed would invite a second create of the same post. An
+      // update is also compared with what was sent, after the normalisation
+      // Google applies (lib/domain/readback/posts.ts): the post exists either
+      // way, so only its content says whether the PATCH applied, and a
+      // mismatch settles failed so the next publish re-sends it. No name
+      // means the list has spoken and nothing was published, so the attempt
+      // settles failed rather than fabricating a publish.
+      verify: ({ readback }) =>
+        Boolean(stringOrNull(readback.name)) &&
+        (operation === "create" || localPostMatches(readback, payload)),
       mismatch:
         operation === "create"
           ? {

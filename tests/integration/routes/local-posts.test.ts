@@ -676,6 +676,58 @@ describeDatabase("Local Posts CRUD", () => {
     expect(createCalls()).toHaveLength(1)
   })
 
+  // The readback of an update compares content (lib/domain/readback/posts.ts),
+  // not just that the post exists: Google answering the PATCH while still
+  // holding the old text is an update that did not apply.
+  it("fails an update whose readback still holds different content", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const name = postName("divergent-update")
+    let live: Record<string, unknown> | null = null
+    google.respond({ method: "POST", pathIncludes: "/localPosts" }, (call) => {
+      live = { name, state: "LIVE", ...(call.body as object) }
+      return { status: 200, json: live }
+    })
+    // Google answers the PATCH 200 but keeps the old post.
+    google.respond(
+      { method: "PATCH", pathIncludes: "/localPosts/divergent-update" },
+      () => ({ status: 200, json: live ?? {} })
+    )
+    google.respond(
+      { method: "GET", pathIncludes: "/localPosts/divergent-update" },
+      () => ({ status: 200, json: live ?? {} })
+    )
+    google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
+      status: 200,
+      json: { localPosts: live ? [live] : [] },
+    }))
+
+    const postId = await createDraft(owner.cookie, linked.locationId, "First")
+    const first = await publish(owner.cookie, linked.locationId, postId)
+    expect(first.status, await first.clone().text()).toBe(200)
+
+    const edit = await fetch(
+      `${server.baseUrl}/api/locations/${linked.locationId}/posts/${postId}`,
+      {
+        method: "PATCH",
+        headers: jsonHeaders(owner.cookie),
+        body: JSON.stringify(standardPost("Second")),
+      }
+    )
+    expect(edit.status, await edit.clone().text()).toBe(502)
+    expect((await edit.json()).error).toBe("google_post_update_unconfirmed")
+    const attempts = await admin<{ status: string; code: string | null }[]>`
+      select status, provider_error_code as code
+      from gbp_local_post_attempt
+      where organisation_id = ${owner.organisationId}
+      order by created_at
+    `
+    expect(attempts.map((attempt) => attempt.status)).toEqual([
+      "succeeded",
+      "failed",
+    ])
+    expect(createCalls()).toHaveLength(1)
+  })
+
   it("re-sends an update whose readback failed rather than adopting the listed post", async () => {
     const { owner, linked, postName } = await linkedTenant()
     const name = postName("unread-update")
