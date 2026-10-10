@@ -30,7 +30,11 @@ import {
   stableGoogleHash,
   type GbpLocationContext,
 } from "@/lib/server/gbp-management"
-import { idempotencyKey, runGbpWrite } from "@/lib/server/gbp-write"
+import {
+  hasGbpAttempt,
+  idempotencyKey,
+  runGbpWrite,
+} from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
 import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
 import type { Session } from "@/lib/server/session"
@@ -205,6 +209,12 @@ export async function mutateIndustryManagement(input: {
           options
         )
 
+  const key = gbpManagementIdempotencyKey({
+    resourceType,
+    operation: input.operation,
+    targetResourceName: resourceName,
+    requestId: requestScopedKeyPart(input.requestId),
+  })
   if (lodging) {
     if (!input.expectedGoogleHash)
       throw new ApiError(
@@ -212,23 +222,30 @@ export async function mutateIndustryManagement(input: {
         "lodging_baseline_required",
         "Refresh the lodging details before publishing."
       )
-    await requireFreshMaskedBaseline({
-      organisationId,
-      resourceType,
-      resourceName,
-      expectedGoogleHash: input.expectedGoogleHash,
-      current: await read(),
-      scope: (resource) =>
-        maskedFieldBaseline(
-          input.updateMask,
-          isRecord(resource) ? resource : {}
+    // A retry of an intent that already has a row replays it: after a write
+    // that landed, the live groups are this write's own change and no longer
+    // match the baseline the retry carries.
+    if (
+      !(await hasGbpAttempt(gbpManagementAttemptStore, { organisationId, key }))
+    ) {
+      await requireFreshMaskedBaseline({
+        organisationId,
+        resourceType,
+        resourceName,
+        expectedGoogleHash: input.expectedGoogleHash,
+        current: await read(),
+        scope: (resource) =>
+          maskedFieldBaseline(
+            input.updateMask,
+            isRecord(resource) ? resource : {}
+          ),
+        stale: new ApiError(
+          409,
+          "lodging_stale",
+          "Google changed these lodging details. Refresh before publishing."
         ),
-      stale: new ApiError(
-        409,
-        "lodging_stale",
-        "Google changed these lodging details. Refresh before publishing."
-      ),
-    })
+      })
+    }
   }
 
   const result = await runGbpWrite<
@@ -239,12 +256,7 @@ export async function mutateIndustryManagement(input: {
     actorUserId: input.session.userId,
     requestId: input.requestId,
     store: gbpManagementAttemptStore,
-    key: gbpManagementIdempotencyKey({
-      resourceType,
-      operation: input.operation,
-      targetResourceName: resourceName,
-      requestId: requestScopedKeyPart(input.requestId),
-    }),
+    key,
     intent: {
       location_id: input.locationId,
       google_account_id: linked.googleAccountId,
@@ -316,9 +328,12 @@ export async function mutateIndustryManagement(input: {
           )
         return readback
       },
+      // Lodging groups are written whole, so a leaf the payload leaves out
+      // must read back unset; healthcare serviceList stays a contains check.
       verify: ({ readback }) =>
-        industryMismatches(input.updateMask, input.payload, readback).length ===
-        0,
+        industryMismatches(input.updateMask, input.payload, readback, {
+          wholeGroups: lodging,
+        }).length === 0,
       hash: (readback) => stableGoogleHash(readback),
       mismatch: {
         status: 502,

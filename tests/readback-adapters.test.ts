@@ -123,6 +123,57 @@ describe("business information readback", () => {
     expect(phonesMatch("+44 1223 000001", "01223 000000")).toBe(false)
     expect(phonesMatch("01223 000000", "01224 000000")).toBe(false)
   })
+
+  it("matches an address across postcode and region case", () => {
+    const payload = {
+      storefrontAddress: {
+        regionCode: "gb",
+        postalCode: "cb1 2ab",
+        addressLines: ["1 High Street"],
+      },
+    }
+    const stored = (postalCode: string, line = "1 High Street") => ({
+      storefrontAddress: {
+        regionCode: "GB",
+        postalCode,
+        addressLines: [line],
+        languageCode: "en",
+      },
+    })
+    expect(
+      businessInfoMismatches(["storefrontAddress"], stored("CB1 2AB"), payload)
+    ).toEqual([])
+    expect(
+      businessInfoMismatches(["storefrontAddress"], stored("CB1 2AC"), payload)
+    ).toEqual(["storefrontAddress"])
+    expect(
+      businessInfoMismatches(
+        ["storefrontAddress"],
+        stored("CB1 2AB", "2 High Street"),
+        payload
+      )
+    ).toEqual(["storefrontAddress"])
+  })
+
+  it("matches service-area places as a set", () => {
+    const area = (ids: string[], regionCode = "GB") => ({
+      serviceArea: {
+        businessType: "CUSTOMER_AND_BUSINESS_LOCATION",
+        regionCode,
+        places: { placeInfos: ids.map((placeId) => ({ placeId })) },
+      },
+    })
+    expect(
+      businessInfoMismatches(
+        ["serviceArea"],
+        area(["p2", "p1"]),
+        area(["p1", "p2"], "gb")
+      )
+    ).toEqual([])
+    expect(
+      businessInfoMismatches(["serviceArea"], area(["p1"]), area(["p1", "p2"]))
+    ).toEqual(["serviceArea"])
+  })
 })
 
 describe("attribute readback", () => {
@@ -291,6 +342,69 @@ describe("industry readback", () => {
         pets: { petsAllowed: false, petsAllowedFree: false },
       })
     ).toEqual([])
+  })
+
+  describe("lodging groups written whole", () => {
+    const whole = { wholeGroups: true }
+
+    it("still ignores Google's own siblings and fields outside the mask", () => {
+      const readback = {
+        metadata: { updateTime: "2026-10-10T00:00:00Z" },
+        pets: {
+          petsAllowed: false,
+          petsAllowedFree: true,
+          petsAllowedException: "UNSPECIFIED",
+        },
+        policies: { checkinTime: { hours: 15 } },
+        pools: { pool: true },
+      }
+      expect(
+        industryMismatches(["pets", "policies"], payload, readback, whole)
+      ).toEqual([])
+    })
+
+    it("reports a cleared check-in time that Google kept", () => {
+      // The editor clears the time as `undefined`, which JSON drops.
+      const cleared = JSON.parse(
+        JSON.stringify({
+          policies: { checkinTime: undefined, checkoutTime: { hours: 11 } },
+        })
+      ) as Record<string, unknown>
+      const readback = {
+        policies: {
+          checkinTime: { hours: 15 },
+          checkoutTime: { hours: 11 },
+        },
+      }
+      expect(industryMismatches(["policies"], cleared, readback)).toEqual([])
+      expect(
+        industryMismatches(["policies"], cleared, readback, whole)
+      ).toEqual(["policies"])
+      expect(
+        industryMismatches(
+          ["policies"],
+          cleared,
+          { policies: { checkoutTime: { hours: 11 } } },
+          whole
+        )
+      ).toEqual([])
+    })
+
+    it("reports a group sent as {} that Google kept", () => {
+      const readback = { pets: { petsAllowed: true } }
+      expect(
+        industryMismatches(["pets"], { pets: {} }, readback, whole)
+      ).toEqual(["pets"])
+      expect(
+        industryMismatches(
+          ["pets"],
+          { pets: {} },
+          { pets: { petsAllowedException: "UNSPECIFIED" } },
+          whole
+        )
+      ).toEqual([])
+      expect(industryMismatches(["pets"], { pets: {} }, {}, whole)).toEqual([])
+    })
   })
 
   it("baselines only the masked groups", () => {

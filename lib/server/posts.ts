@@ -8,7 +8,10 @@ import {
   type LocalPostInput,
   type PostRow,
 } from "@/lib/contracts/location-posts"
-import { localPostMatches } from "@/lib/domain/readback/posts"
+import {
+  localPostMatches,
+  localPostMismatches,
+} from "@/lib/domain/readback/posts"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
@@ -1438,9 +1441,19 @@ async function publishLocalPost(input: {
       // mismatch settles failed so the next publish re-sends it. No name
       // means the list has spoken and nothing was published, so the attempt
       // settles failed rather than fabricating a publish.
-      verify: ({ readback }) =>
-        Boolean(stringOrNull(readback.name)) &&
-        (operation === "create" || localPostMatches(readback, payload)),
+      // The differing field names are logged so a normalisation this
+      // adapter does not model (a systematic false mismatch) shows up.
+      verify: ({ readback }) => {
+        if (!stringOrNull(readback.name)) return false
+        if (operation === "create") return true
+        const fields = localPostMismatches(readback, payload)
+        if (fields.length > 0)
+          log.warn("posts.update_readback_mismatch", {
+            postId: input.postId,
+            fields,
+          })
+        return fields.length === 0
+      },
       mismatch:
         operation === "create"
           ? {

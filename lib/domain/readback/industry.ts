@@ -3,17 +3,60 @@
 // again after the write and each updateMask path is compared with what the
 // payload asked for. Fields outside the mask, and fields Google adds inside a
 // masked group (the `*Exception` siblings, metadata), are ignored.
-import { containsExpected, valueAtPath } from "./compare"
+import {
+  containsExpected,
+  isEmptyValue,
+  isRecord,
+  isTimeOfDay,
+  valueAtPath,
+} from "./compare"
 
-/** The masked paths the readback does not confirm. */
+/** Keys Google keeps beside the values a group write sets. */
+function isGoogleOwnedKey(key: string): boolean {
+  return key === "metadata" || key === "name" || key.endsWith("Exception")
+}
+
+/**
+ * `actual` holds exactly what `expected` sets: every leaf `expected` names
+ * matches, and every leaf it leaves out reads back unset (or is one of
+ * Google's own sibling keys). A masked lodging group is written whole, so a
+ * leaf the editor cleared -- `policies.checkinTime` dropped from the JSON, or
+ * a group sent as `{}` -- is confirmed only once Google cleared it too.
+ */
+function matchesWhole(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((item, index) => matchesWhole(actual[index], item))
+    )
+  }
+  if (!isRecord(expected) || isTimeOfDay(expected)) {
+    return containsExpected(actual, expected)
+  }
+  if (!isRecord(actual)) return isEmptyValue(actual) && isEmptyValue(expected)
+  const keys = new Set([...Object.keys(expected), ...Object.keys(actual)])
+  return [...keys].every((key) =>
+    expected[key] === undefined
+      ? isGoogleOwnedKey(key) || isEmptyValue(actual[key])
+      : matchesWhole(actual[key], expected[key])
+  )
+}
+
+/**
+ * The masked paths the readback does not confirm. With `wholeGroups` (the
+ * lodging groups), a masked path is compared as the whole value it replaces
+ * (matchesWhole); without it, only the leaves the payload names are checked.
+ */
 export function industryMismatches(
   updateMask: readonly string[],
   payload: Record<string, unknown>,
-  readback: Record<string, unknown>
+  readback: Record<string, unknown>,
+  options: { wholeGroups?: boolean } = {}
 ): string[] {
+  const matches = options.wholeGroups ? matchesWhole : containsExpected
   return updateMask.filter(
-    (path) =>
-      !containsExpected(valueAtPath(readback, path), valueAtPath(payload, path))
+    (path) => !matches(valueAtPath(readback, path), valueAtPath(payload, path))
   )
 }
 

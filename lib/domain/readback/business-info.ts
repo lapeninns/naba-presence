@@ -1,7 +1,7 @@
 // Client-safe readback adapter for Business Information location PATCHes
 // (lib/server/business-information.ts updateBusinessInformation). Compares
 // only the masked fields, after the normalisation Google applies to phone
-// numbers, links, categories and text.
+// numbers, links, categories, addresses, service areas and text.
 import {
   containsExpected,
   isEmptyValue,
@@ -96,6 +96,65 @@ function categoriesMatch(actual: unknown, expected: unknown): boolean {
   )
 }
 
+/** A postcode as Google stores it: upper case, internal spacing ignored. */
+function normalizePostalCode(value: unknown): string {
+  return typeof value === "string"
+    ? value.replace(/\s+/gu, "").toUpperCase()
+    : ""
+}
+
+function regionCodeOf(value: unknown): string {
+  return typeof value === "string" ? value.trim().toUpperCase() : ""
+}
+
+/**
+ * A PostalAddress after Google's normalisation: region and postcode compare
+ * case-insensitively (postcode spacing ignored); every other part the
+ * payload names compares as text.
+ */
+function addressMatches(actual: unknown, expected: unknown): boolean {
+  if (!isRecord(expected)) return containsExpected(actual, expected)
+  const live = isRecord(actual) ? actual : {}
+  const { regionCode, postalCode, ...rest } = expected
+  return (
+    (regionCode === undefined ||
+      regionCodeOf(live.regionCode) === regionCodeOf(regionCode)) &&
+    (postalCode === undefined ||
+      normalizePostalCode(live.postalCode) ===
+        normalizePostalCode(postalCode)) &&
+    containsExpected(live, rest)
+  )
+}
+
+/** A served place by its place id, or its name when it has none. */
+function placeKey(value: unknown): string {
+  if (!isRecord(value)) return ""
+  if (typeof value.placeId === "string" && value.placeId.trim())
+    return `id:${value.placeId.trim()}`
+  return `name:${normalizeText(value.placeName).toLowerCase()}`
+}
+
+/**
+ * A ServiceArea: the business type and region code as set, and the served
+ * places as a set (Google does not promise their order).
+ */
+function serviceAreaMatches(actual: unknown, expected: unknown): boolean {
+  if (!isRecord(expected)) return containsExpected(actual, expected)
+  const live = isRecord(actual) ? actual : {}
+  const { regionCode, places, ...rest } = expected
+  const placeKeys = (value: unknown) => {
+    const infos = isRecord(value) ? value.placeInfos : undefined
+    return (Array.isArray(infos) ? infos : []).map(placeKey)
+  }
+  return (
+    (regionCode === undefined ||
+      regionCodeOf(live.regionCode) === regionCodeOf(regionCode)) &&
+    (places === undefined ||
+      sameSet(placeKeys(live.places), placeKeys(places))) &&
+    containsExpected(live, rest)
+  )
+}
+
 /** One masked Business Information field, compared after normalisation. */
 export function businessInfoFieldMatches(
   field: string,
@@ -109,6 +168,10 @@ export function businessInfoFieldMatches(
       return normalizeUri(actual) === normalizeUri(expected)
     case "categories":
       return categoriesMatch(actual, expected)
+    case "storefrontAddress":
+      return addressMatches(actual, expected)
+    case "serviceArea":
+      return serviceAreaMatches(actual, expected)
     case "title":
     case "storeCode":
       return normalizeText(actual) === normalizeText(expected)

@@ -83,6 +83,7 @@ import { retiredGoogleApi } from "@/lib/domain/google-retired-apis"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
+import { withMutationIntent } from "@/lib/server/mutation-operations"
 import {
   industryResourceName,
   loadIndustryManagement,
@@ -424,5 +425,51 @@ describe("industry mutation answers", () => {
         payload: live,
       },
     ])
+  })
+})
+
+describe("lodging retries and cleared leaves", () => {
+  const INTENT = "8a6f0d1e-3b1c-4c2a-9d7e-1f2a3b4c5d6e"
+
+  it("replays a landed lodging write for the same intent instead of answering lodging_stale", async () => {
+    // Given: the first attempt landed and its readback replaced the snapshot.
+    let live: Record<string, unknown> = LODGING
+    google({
+      read: () => live,
+      patch: () => {
+        live = { ...LODGING, pets: { petsAllowed: true } }
+        return live
+      },
+    })
+    await expect(
+      withMutationIntent(INTENT, () => lodgingUpdate())
+    ).resolves.toMatchObject({ status: "succeeded", idempotent: false })
+
+    // When: the client retries the same intent on a new request.
+    const retry = await withMutationIntent(INTENT, () =>
+      lodgingUpdate({ requestId: "r2" })
+    )
+
+    // Then: the stored row answers it, with no second PATCH.
+    expect(retry).toMatchObject({ status: "succeeded", idempotent: true })
+    expect(patchCalls()).toHaveLength(1)
+  })
+
+  it("settles failed when Google keeps a check-in time the editor cleared", async () => {
+    const before = {
+      ...LODGING,
+      policies: { checkinTime: { hours: 15 }, checkoutTime: { hours: 11 } },
+    }
+    // Google answers the PATCH but keeps the old check-in time.
+    google({ read: () => before, patch: () => before })
+
+    await expect(
+      lodgingUpdate({
+        updateMask: ["policies"],
+        payload: { policies: { checkoutTime: { hours: 11 } } },
+        expectedGoogleHash: stableGoogleHash(before),
+      })
+    ).rejects.toMatchObject({ status: 502, code: "industry_readback_mismatch" })
+    expect(mocks.memory.only()).toMatchObject({ status: "failed" })
   })
 })

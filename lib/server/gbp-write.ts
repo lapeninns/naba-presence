@@ -814,6 +814,25 @@ export function mutationUncertainError(attemptId: string): ApiError {
 }
 
 /**
+ * Whether `key` already has an attempt row. A surface that checks freshness
+ * against the editor's baseline before runGbpWrite asks this first and skips
+ * the check when it does: a retry of a write that landed would otherwise read
+ * its own change as a Google-side edit and answer stale, where the pipeline
+ * would replay the stored row ("replay") or resume it ("resume").
+ */
+export async function hasGbpAttempt(
+  store: Pick<AttemptStore<unknown>, "find">,
+  input: { organisationId: string; key: string },
+  deps: GbpWriteDeps = {}
+): Promise<boolean> {
+  const withTenant = deps.withTenant ?? defaultWithTenant
+  const row = await withTenant(input.organisationId, (sql) =>
+    store.find(sql, input)
+  )
+  return row !== null
+}
+
+/**
  * The phase machine:
  *   (a) tenant txn: find/start the attempt row as `validating`, recovering an
  *       interrupted one by readback first (docs/architecture.md,

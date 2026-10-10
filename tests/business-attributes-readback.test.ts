@@ -72,6 +72,7 @@ import {
 } from "@/lib/server/business-information"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { withMutationIntent } from "@/lib/server/mutation-operations"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
 import type { Session } from "@/lib/server/session"
 
@@ -375,5 +376,50 @@ describe("attributes through runGbpWrite", () => {
     await expect(
       update([{ name: mask[0]!, values: [false] }], "f".repeat(64))
     ).rejects.toMatchObject({ status: 409, code: "attributes_stale" })
+  })
+})
+
+describe("a retry of the same intent", () => {
+  const INTENT = "8a6f0d1e-3b1c-4c2a-9d7e-1f2a3b4c5d6e"
+
+  function update(requestId: string) {
+    return updateBusinessInformation({
+      session,
+      locationId: "l1",
+      payload: { title: "New Crown" },
+      updateMask: ["title"],
+      expectedGoogleHash: stableGoogleHash(LOCATION),
+      requestId,
+    })
+  }
+
+  it("replays the landed write instead of reading its own change as stale", async () => {
+    // Given: the first attempt landed, so Google now holds the new title.
+    const applied = { ...LOCATION, title: "New Crown" }
+    mocks.getLocation.mockResolvedValueOnce(LOCATION).mockResolvedValue(applied)
+    mocks.patchLocation.mockResolvedValue(applied)
+    await expect(
+      withMutationIntent(INTENT, () => update("r1"))
+    ).resolves.toMatchObject({ status: "succeeded", idempotent: false })
+
+    // When: the client retries the same intent on a new request.
+    const retry = await withMutationIntent(INTENT, () => update("r2"))
+
+    // Then: the stored row answers it; Google is not patched again.
+    expect(retry).toMatchObject({ status: "succeeded", idempotent: true })
+    expect(mocks.patchLocation).toHaveBeenCalledTimes(2)
+    expect(mocks.memory.rows.size).toBe(1)
+  })
+
+  it("is still stale for a new intent carrying the old baseline", async () => {
+    mocks.getLocation.mockResolvedValue({ ...LOCATION, title: "New Crown" })
+
+    await expect(
+      withMutationIntent(INTENT, () => update("r1"))
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "business_information_stale",
+    })
+    expect(mocks.patchLocation).not.toHaveBeenCalled()
   })
 })

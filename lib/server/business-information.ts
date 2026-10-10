@@ -41,6 +41,7 @@ import {
 } from "@/lib/server/gbp-management"
 import {
   classifyFailure,
+  hasGbpAttempt,
   idempotencyKey,
   providerErrorCode,
   runGbpWrite,
@@ -144,13 +145,22 @@ type ManagementWrite<TResponse> = {
   updateMask: string[]
   payload: unknown
   failureCode: string
+  /**
+   * The staleness check against the editor's baseline. Skipped when the key
+   * already has a row, so a retry of the same intent replays it.
+   */
+  requireFresh: () => Promise<void>
   validate?: () => Promise<unknown>
   mutate: () => Promise<TResponse>
   read: () => Promise<Record<string, unknown>>
   /** The masked fields the readback does not confirm (empty: confirmed). */
   mismatches: (readback: Record<string, unknown>) => string[]
   mismatch: { code: string; message: string }
-  audit: { action: string; unconfirmedAction: string; metadata: Record<string, unknown> }
+  audit: {
+    action: string
+    unconfirmedAction: string
+    metadata: Record<string, unknown>
+  }
 }
 
 /**
@@ -158,7 +168,10 @@ type ManagementWrite<TResponse> = {
  * (runGbpWrite over gbp_management_mutation). The key carries the client's
  * intent (the Idempotency-Key header) or, without one, the request id, so a
  * retry of the same intent replays its row instead of patching again; any
- * existing row for the key is answered as idempotent ("replay").
+ * existing row for the key is answered as idempotent ("replay"). The
+ * staleness check runs only when the key has no row yet: after a write that
+ * landed, the live resource is the write's own change and no longer matches
+ * the baseline the retry carries.
  *
  * The readback is the live resource read again after the write and compared
  * over the mask only (lib/domain/readback/*): a confirmed difference settles
@@ -175,18 +188,24 @@ async function runManagementWrite<TResponse>(
   const organisationId = input.session.organisationId
   let phase: GbpWritePhase | null = null
   let attemptId: string | null = null
+  const key = gbpManagementIdempotencyKey({
+    resourceType: input.resourceType,
+    operation: "patch",
+    targetResourceName: input.targetResourceName,
+    requestId: requestScopedKeyPart(input.requestId),
+  })
+  if (
+    !(await hasGbpAttempt(gbpManagementAttemptStore, { organisationId, key }))
+  ) {
+    await input.requireFresh()
+  }
   try {
     const result = await runGbpWrite<TResponse, Record<string, unknown>>({
       organisationId,
       actorUserId: input.session.userId,
       requestId: input.requestId,
       store: gbpManagementAttemptStore,
-      key: gbpManagementIdempotencyKey({
-        resourceType: input.resourceType,
-        operation: "patch",
-        targetResourceName: input.targetResourceName,
-        requestId: requestScopedKeyPart(input.requestId),
-      }),
+      key,
       intent: {
         location_id: input.locationId,
         google_account_id: input.linked.googleAccountId,
@@ -248,7 +267,11 @@ async function runManagementWrite<TResponse>(
       },
     })
     if (result.idempotent) {
-      return { id: result.attemptId, status: result.rawStatus, idempotent: true }
+      return {
+        id: result.attemptId,
+        status: result.rawStatus,
+        idempotent: true,
+      }
     }
     await cacheGbpSnapshotAfterWrite({
       organisationId,
@@ -316,14 +339,6 @@ export async function updateBusinessInformation(input: {
   const options = { connectionKey: linked.connectionId }
   const read = () =>
     getGoogleLocation(token, linked.googleLocationName, [...READ_MASK], options)
-  const current = await read()
-  if (stableGoogleHash(current) !== input.expectedGoogleHash) {
-    throw new ApiError(
-      409,
-      "business_information_stale",
-      "Google changed this location. Refresh before publishing."
-    )
-  }
   const patch = (validateOnly: boolean) =>
     patchGoogleLocation(
       token,
@@ -347,6 +362,15 @@ export async function updateBusinessInformation(input: {
     updateMask: input.updateMask,
     payload: input.payload,
     failureCode: "business_information_update_failed",
+    requireFresh: async () => {
+      if (stableGoogleHash(await read()) !== input.expectedGoogleHash) {
+        throw new ApiError(
+          409,
+          "business_information_stale",
+          "Google changed this location. Refresh before publishing."
+        )
+      }
+    },
     validate: () => patch(true),
     mutate: () => patch(false),
     read,
@@ -406,20 +430,6 @@ export async function updateBusinessAttributes(input: {
   const resourceName = `${linked.googleLocationName}/attributes`
   const read = () =>
     getGoogleLocationAttributes(token, linked.googleLocationName, options)
-  const current = await read()
-  await requireFreshMaskedBaseline({
-    organisationId: input.session.organisationId,
-    resourceType: "attributes",
-    resourceName,
-    expectedGoogleHash: input.expectedGoogleHash,
-    current,
-    scope: (resource) => maskedAttributeBaseline(input.attributeMask, resource),
-    stale: new ApiError(
-      409,
-      "attributes_stale",
-      "Google attributes changed. Refresh before publishing."
-    ),
-  })
   return runManagementWrite({
     session: input.session,
     linked,
@@ -432,6 +442,21 @@ export async function updateBusinessAttributes(input: {
     updateMask: input.attributeMask,
     payload: input.attributes,
     failureCode: "attributes_update_failed",
+    requireFresh: async () =>
+      requireFreshMaskedBaseline({
+        organisationId: input.session.organisationId,
+        resourceType: "attributes",
+        resourceName,
+        expectedGoogleHash: input.expectedGoogleHash,
+        current: await read(),
+        scope: (resource) =>
+          maskedAttributeBaseline(input.attributeMask, resource),
+        stale: new ApiError(
+          409,
+          "attributes_stale",
+          "Google attributes changed. Refresh before publishing."
+        ),
+      }),
     // Attributes have no validateOnly call, so the write is the first phase.
     mutate: () =>
       patchGoogleLocationAttributes(
