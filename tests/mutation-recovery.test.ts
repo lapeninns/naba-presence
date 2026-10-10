@@ -97,12 +97,14 @@ function harness(
     return verdict
   })
   const adapterSettle = vi.fn(async () => options.settleWrites ?? true)
+  const adapterUnverifiable = vi.fn(async () => {})
   const adapter: RecoveryAdapter = {
     surface: "hours",
     attemptTable: "hours_sync_attempt",
     load: vi.fn(async () => attempt),
     readback,
     settle: adapterSettle,
+    unverifiable: adapterUnverifiable,
   }
   const ledger = {
     load: vi.fn(async () => operation),
@@ -148,7 +150,16 @@ function harness(
       { organisationId: ORG, operationId: OP, requestId: "req-1" },
       deps
     )
-  return { run, deps, ledger, readback, adapterSettle, recheck, operation }
+  return {
+    run,
+    deps,
+    ledger,
+    readback,
+    adapterSettle,
+    adapterUnverifiable,
+    recheck,
+    operation,
+  }
 }
 
 describe("mutation recovery runner", () => {
@@ -373,6 +384,21 @@ describe("mutation recovery runner", () => {
     expect(h.deps.notify).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ reason: "media_create_unverifiable" })
+    )
+  })
+
+  it("lets the adapter mark an unverifiable attempt before it stops", async () => {
+    const h = harness({
+      verdict: { kind: "unverifiable", errorCode: "media_needs_resolution" },
+    })
+    await expect(h.run()).resolves.toBe("abandoned")
+    expect(h.adapterUnverifiable).toHaveBeenCalledWith(expect.anything(), {
+      attempt: expect.objectContaining({ id: ATTEMPT, rawStatus: "ambiguous" }),
+      errorCode: "media_needs_resolution",
+    })
+    expect(h.ledger.abandon).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ errorCode: "media_needs_resolution" })
     )
   })
 

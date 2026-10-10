@@ -267,7 +267,11 @@ function toLastPublish(row: AttemptRow | undefined): LastPublish | null {
     row.status === "failed" ||
     row.status === "ambiguous"
       ? row.status
-      : "in_progress"
+      : // A media create no live item accounts for (0074): as unknown as
+        // an ambiguous write, and waiting on a person rather than in flight.
+        row.status === "needs_resolution"
+        ? "ambiguous"
+        : "in_progress"
   return { at: new Date(row.at).toISOString(), status, area: row.area }
 }
 

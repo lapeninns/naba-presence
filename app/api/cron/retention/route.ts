@@ -393,15 +393,17 @@ async function retain({
         `
         // The remaining three surfaces map every in-flight phase onto
         // 'started' (their CHECK admits no finer vocabulary; gbp_management
-        // also has 'validated'). Place actions and gbp_management carry
-        // started_at (0069), which a re-arm resets; media is aged off
-        // created_at, written in the same statement that opens the attempt.
+        // also has 'validated'). All three carry started_at (place actions
+        // from the start, gbp_management from 0069, media from 0074), which
+        // a re-arm resets. A media create aged here keeps its upload_phase:
+        // recovery fails one that never reached create_sent and matches one
+        // that did against the live list, or hands it to a person.
         const strandedMedia = await sql`
           update gbp_media_mutation
           set status = 'ambiguous', last_error_code = 'attempt_interrupted',
             finished_at = now()
           where status = 'started'
-            and created_at <= now() - interval '24 hours'
+            and started_at <= now() - interval '24 hours'
           returning id
         `
         const strandedPlaceActions = await sql`

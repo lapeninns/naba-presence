@@ -662,8 +662,9 @@ Request-driven recovery needs a request to arrive, so it only ever reaches a row
 comes back to under the same key, and the usual repair — edit the canonical
 resource and publish again — mints a different one. The retention cron
 (`app/api/cron/retention/route.ts`) reaps the remainder: a row left in any
-in-flight status for twenty-four hours (measured from `started_at`, or from
-`created_at` on the two tables that lack it) is settled `ambiguous` with
+in-flight status for twenty-four hours (measured from `started_at`, which
+every GBP attempt table now carries; media gained it in 0074) is settled
+`ambiguous` with
 `attempt_interrupted`, a settled status, which the next request for that key
 reconciles as below instead of 409ing on it as in flight. The halves are not interchangeable — the
 reaper holds no provider credentials and cannot read anything back, and the
@@ -700,6 +701,38 @@ same reason a publish readback of an update proves nothing without the PATCH's
 own response, so an ambiguous update settles `failed` rather than `succeeded`.
 Post deletes read the live list only when the DELETE itself was ambiguous; a
 clean 2xx is taken as Google's answer.
+
+Media creates add upload checkpoints
+(`supabase/migrations/0074_media_mutation_checkpoints.sql`). An upload is
+three provider calls -- `media:startUpload`, the byte upload, then the create
+naming the reserved `dataRef` -- and only the create can put anything on the
+listing. `lib/server/media.ts` records `upload_phase` (`data_ref_obtained`
+with `upload_data_ref`, `bytes_uploaded`, `create_sent`) on the attempt before
+each next call, and a create from a URL records `create_sent` alone. Anything
+that fails before `create_sent`, a timeout included, settles `failed`
+(`media_upload_interrupted`): nothing can exist, so a retry is safe. A create
+is keyed on its content (`content_sha256`: the bytes, or the source URL) plus
+the intent. When the create itself is uncertain (a timeout, a 5xx, a 2xx
+without the new item's name), the live merchant media list is matched
+(`lib/domain/media-reconcile.ts`): same format, category, description and
+source URL, created after the attempt started, not already claimed by another
+create. Exactly one match is adopted (`resolution = 'adopted'`) and read back;
+none or several, or a list that cannot be read, leave the attempt
+`needs_resolution` for a person. While a create of the same content at the
+same location is unresolved (or still being sent) another one is refused with
+409 `media_needs_resolution` (`media_create_in_progress`), so it is never
+re-created blindly. The photos tab lists unresolved creates
+(`unresolvedCreates`, `components/locations/photos/unresolved-creates.tsx`)
+and `POST /api/locations/[id]/media/resolutions/[attemptId]`
+(`resolveMediaCreate`) records the person's verdict: `adopted` settles the
+attempt `succeeded` and its receipts `confirmed_applied`, `abandoned` settles
+both `failed` and lets the content be added again. Recovery
+(`mediaRecoveryAdapter`) reads the same checkpoints: a create stopped before
+`create_sent` did not land, a sent one is matched against the list or marked
+`needs_resolution` when recovery stops, and a create from before 0074 (phase
+`none`) is handed to a person as before. A create Google answered with a name
+is verified by that name and its format, not field by field, so a landed
+create is never settled `failed`.
 
 The reply pipeline in `lib/server/publishing/*` deliberately does not use
 `runGbpWrite`; "Three-phase reply mutation and recovery" states what it keeps

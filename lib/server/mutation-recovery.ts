@@ -22,8 +22,10 @@ import "server-only"
  *                 spending a readback (as lib/server/jobs.ts
  *                 settleRecoveryFailure does for replies), abandoned after
  *                 RECOVERY_PARK_LIMIT_MS
- *   unverifiable  no readback can identify the write (a media create): the
- *                 receipt stays `uncertain` and a person is told at once
+ *   unverifiable  no readback can identify the write (a media create no
+ *                 live item accounts for): the receipt stays `uncertain`,
+ *                 the adapter may mark its row (media: `needs_resolution`)
+ *                 and a person is told at once
  *
  * The job NEVER sends the write again. Re-sending is a person's decision,
  * taken from a `failed` receipt through the normal editor and pipeline.
@@ -155,6 +157,15 @@ export type RecoveryAdapter<
     sql: TransactionSql,
     input: { attempt: TAttempt; verdict: SettledVerdict; link: LinkedLocation }
   ): Promise<boolean>
+  /**
+   * Optional: records on the attempt row that no readback can identify the
+   * write (media moves an unmatched create to `needs_resolution`), in the
+   * transaction that stops recovery. Conditional on `attempt.rawStatus`.
+   */
+  unverifiable?(
+    sql: TransactionSql,
+    input: { attempt: TAttempt; errorCode: string }
+  ): Promise<void>
 }
 
 /**
@@ -745,6 +756,10 @@ export async function recoverMutationOperation(
 
   return deps.withTenant(organisationId, async (sql) => {
     if (verdict.kind === "unverifiable") {
+      await adapter.unverifiable?.(sql, {
+        attempt,
+        errorCode: verdict.errorCode,
+      })
       return stop(sql, operation, verdict.errorCode, link.locationName)
     }
     const written = await adapter.settle(sql, { attempt, verdict, link })

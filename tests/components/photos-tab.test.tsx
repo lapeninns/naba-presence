@@ -13,6 +13,7 @@ import type { MediaState } from "@/lib/api/location-media"
 const useMediaMock = vi.fn()
 const useCapsMock = vi.fn()
 const updateMediaCategoryMock = vi.fn()
+const resolveMediaCreateMock = vi.fn()
 const replace = vi.fn()
 // The tab reads page/filters from the URL; each test seeds this before render.
 let searchParams = new URLSearchParams()
@@ -37,6 +38,8 @@ vi.mock("@/lib/api/location-media", async () => {
     ...actual,
     updateMediaCategory: (...args: unknown[]) =>
       updateMediaCategoryMock(...args),
+    resolveMediaCreate: (...args: unknown[]) =>
+      resolveMediaCreateMock(...args),
     fetchMedia: vi.fn(),
   }
 })
@@ -85,6 +88,7 @@ function makeMedia(overrides: Partial<MediaState> = {}): MediaState {
     pageSize: 12,
     category: null,
     ownership: null,
+    unresolvedCreates: [],
     ...rest,
     items,
     total: overrideTotal ?? items.length,
@@ -142,6 +146,43 @@ function manyItems(count: number) {
 }
 
 describe("PhotosTab", () => {
+  it("asks a publisher to resolve an upload Google never confirmed", async () => {
+    const user = userEvent.setup()
+    resolveMediaCreateMock.mockResolvedValue({
+      id: "attempt-1",
+      status: "failed",
+      idempotent: false,
+    })
+    loaded(
+      makeMedia({
+        unresolvedCreates: [
+          {
+            attemptId: "attempt-1",
+            mediaFormat: "PHOTO",
+            category: "FOOD_AND_DRINK",
+            description: null,
+            fileName: "dish.jpg",
+            sourceUrl: null,
+            startedAt: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+    renderTab()
+    expect(
+      screen.getByText("Google did not confirm an upload")
+    ).toBeInTheDocument()
+    expect(screen.getByText(/“dish\.jpg”/)).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "It is not on Google" })
+    )
+    expect(resolveMediaCreateMock).toHaveBeenCalledWith(
+      "loc-1",
+      "attempt-1",
+      "abandoned"
+    )
+  })
+
   it("opens the redesigned add-media workspace for a publisher", async () => {
     const user = userEvent.setup()
     useMediaMock.mockReturnValue({

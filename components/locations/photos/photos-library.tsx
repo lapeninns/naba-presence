@@ -8,6 +8,7 @@ import { EditorFrame } from "@/components/editors/editor-frame"
 import { AddPhotoDialog } from "@/components/locations/photos/add-photo-dialog"
 import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
+import { UnresolvedCreates } from "@/components/locations/photos/unresolved-creates"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
@@ -100,6 +101,12 @@ export function PhotosLibrary({
       }
     >
       <div className="flex flex-col gap-4">
+        <UnresolvedCreates
+          locationId={locationId}
+          creates={media.unresolvedCreates}
+          canResolve={media.canPublish}
+          onResolved={refreshFromGoogle}
+        />
         <PhotosToolbar
           categories={media.categories}
           state={state}

@@ -63,6 +63,9 @@ const DELEGATED: Record<string, readonly Chain[]> = {
       "lib/server/media.ts#requireMediaWrite",
     ],
   ],
+  "POST app/api/locations/[id]/media/resolutions/[attemptId]/route.ts": [
+    ["lib/server/media.ts#resolveMediaCreate"],
+  ],
   "PATCH app/api/locations/[id]/media/[mediaId]/route.ts": [
     [
       "lib/server/media.ts#updateMedia",

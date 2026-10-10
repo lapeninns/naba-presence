@@ -211,7 +211,7 @@ describeDatabase("Google media management", () => {
     expect(Number(ledger.count)).toBe(3)
   }, 30_000)
 
-  it("settles a create Google answered without the item name as ambiguous", async () => {
+  it("hands a create Google answered without the item name to a person when no item matches", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
     const connection = await seedGoogleConnection(admin, {
@@ -241,15 +241,20 @@ describeDatabase("Google media management", () => {
         }),
       }
     )
+    // The live list holds no matching item, so it is neither adopted nor
+    // sent again (tests/integration/routes/media-checkpoints.test.ts).
     expect(create.status, await create.clone().text()).toBe(502)
-    expect((await create.json()).error).toBe("google_mutation_ambiguous")
+    expect((await create.json()).error).toBe("media_needs_resolution")
 
-    const [attempt] = await admin<{ status: string }[]>`
-      select status
+    const [attempt] = await admin<{ status: string; uploadPhase: string }[]>`
+      select status, upload_phase as "uploadPhase"
       from gbp_media_mutation
       where organisation_id = ${owner.organisationId}
     `
-    expect(attempt.status).toBe("ambiguous")
+    expect(attempt).toEqual({
+      status: "needs_resolution",
+      uploadPhase: "create_sent",
+    })
   }, 30_000)
 })
 

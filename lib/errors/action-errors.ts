@@ -237,6 +237,14 @@ const COPY: Record<string, string> = {
     "Google accepted the upload but did not name it, so we can’t show it yet. Refresh in a moment.",
   media_not_found:
     "That photo or video is no longer on this location. Refresh the tab.",
+  media_needs_resolution:
+    "Google did not confirm whether this was added. Check the listing on Google, then mark it as added or not added before trying again.",
+  media_create_in_progress:
+    "This is still being added to Google. Wait a moment, then refresh.",
+  media_upload_interrupted:
+    "The upload to Google did not finish, so nothing was added. Try again.",
+  media_resolution_not_pending:
+    "That upload no longer needs a decision. Refresh the tab.",
 
   // ---- Locations: booking --------------------------------------------------
   place_action_stale:

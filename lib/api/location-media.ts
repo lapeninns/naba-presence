@@ -6,14 +6,16 @@ import {
   type MediaItem,
   type MediaMutationOutcome,
   type MediaOwnership,
+  type MediaResolution,
   type MediaState,
+  type MediaUnresolvedCreate,
   type MediaUpdateRequest,
 } from "@/lib/contracts/location-media"
 import { GOOGLE_MEDIA_CATEGORIES, type GoogleMediaCategory } from "@/lib/domain/google-contract"
 
 import { ApiClientError, apiFetch, type RequestOptions } from "./client"
 
-export type { MediaItem, MediaOwnership, MediaState }
+export type { MediaItem, MediaOwnership, MediaResolution, MediaState, MediaUnresolvedCreate }
 
 export const MEDIA_CATEGORIES = GOOGLE_MEDIA_CATEGORIES
 export type MediaCategory = GoogleMediaCategory
@@ -106,6 +108,18 @@ export function deleteMediaItem(id: string, mediaId: string, input: Omit<MediaDe
   return apiFetch(`/api/locations/${id}/media/${mediaId}`, {
     method: "DELETE",
     body: { ...input, confirmation: "delete_google_media" },
+    schema: mediaMutationOutcomeSchema,
+  })
+}
+
+/**
+ * Records whether a create Google never confirmed is on the listing
+ * (`adopted`) or not (`abandoned`). Nothing is sent to Google.
+ */
+export function resolveMediaCreate(id: string, attemptId: string, resolution: MediaResolution) {
+  return apiFetch(`/api/locations/${id}/media/resolutions/${attemptId}`, {
+    method: "POST",
+    body: { resolution, confirmation: "resolve_google_media" },
     schema: mediaMutationOutcomeSchema,
   })
 }

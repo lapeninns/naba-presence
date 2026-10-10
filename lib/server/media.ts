@@ -10,12 +10,20 @@ import {
   type MediaCreateInput,
   type MediaItemWire,
   type MediaOwnership,
+  type MediaResolution,
+  type MediaUnresolvedCreateWire,
   type MediaUploadFields,
 } from "@/lib/contracts/location-media"
 import {
   GOOGLE_MEDIA_CATEGORIES,
   type GoogleMediaCategory,
 } from "@/lib/domain/google-contract"
+import {
+  matchCreatedMedia,
+  type MediaCreateIntent,
+  type MediaUploadPhase,
+} from "@/lib/domain/media-reconcile"
+import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
@@ -28,6 +36,7 @@ import {
   runGbpWrite,
   type GbpAuditSpec,
   type GbpReadback,
+  type GbpWriteResult,
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
 import {
@@ -37,10 +46,14 @@ import {
   GoogleMutationAmbiguousError,
   googleMediaItems,
   patchGoogleMediaItem,
-  uploadGoogleMediaBytes,
+  sendGoogleMediaBytes,
+  startGoogleMediaUpload,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
-import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  requestScopedKeyPart,
+  settleRecoveredOperations,
+} from "@/lib/server/mutation-operations"
 import {
   storeSettle,
   type RecoveryAdapter,
@@ -264,12 +277,16 @@ export async function loadMedia(
   const category = options.category
   const ownership = options.ownership
 
-  const { linked, cache } = await withTenant(organisationId, async (sql) => ({
-    linked: await loadLinkedLocation(sql, session, locationId, {
-      notLinked: NOT_LINKED,
-    }),
-    cache: await mediaCacheStatus(sql, locationId),
-  }))
+  const { linked, cache, unresolvedCreates } = await withTenant(
+    organisationId,
+    async (sql) => ({
+      linked: await loadLinkedLocation(sql, session, locationId, {
+        notLinked: NOT_LINKED,
+      }),
+      cache: await mediaCacheStatus(sql, locationId),
+      unresolvedCreates: await loadUnresolvedCreates(sql, locationId),
+    })
+  )
 
   if (
     shouldSyncMediaCache({
@@ -313,6 +330,7 @@ export async function loadMedia(
     pageSize,
     category: category ?? null,
     ownership: ownership ?? null,
+    unresolvedCreates,
   }
 }
 
@@ -322,9 +340,9 @@ export async function loadMedia(
 
 /**
  * gbp_media_mutation as an AttemptStore. Its CHECK constraint only knows
- * started/succeeded/failed/ambiguous, so the in-flight vocabulary maps onto
- * `started`; the table has no validated_at / http-status / response-hash
- * columns.
+ * started/succeeded/failed/ambiguous (plus needs_resolution, 0074, which only
+ * this module writes), so the in-flight vocabulary maps onto `started`; the
+ * table has no validated_at / http-status / response-hash columns.
  */
 const mediaAttempts = attemptStore({
   table: "gbp_media_mutation",
@@ -333,7 +351,11 @@ const mediaAttempts = attemptStore({
     validated: "started",
     publishing: "started",
   },
-  columns: { errorCode: "last_error_code", response: "google_response" },
+  columns: {
+    errorCode: "last_error_code",
+    response: "google_response",
+    startedAt: "started_at",
+  },
 })
 
 type MediaOperation = "create" | "update" | "delete"
@@ -452,12 +474,14 @@ async function requireFreshGoogleMedia(
  *   instead of uploading and creating the item a second time, and the same
  *   intent with different content is a 409 intent_conflict
  *   (lib/server/mutation-operations.ts). Without an intent every request is
- *   a fresh key, as before. Content alone is not a key -- it would swallow a
- *   deliberate second upload of the same photo, and under "replay" a settled
- *   failure for that key could never be retried.
+ *   a fresh key, as before. A create's key also carries its content hash.
+ *   Content alone is not a key -- it would swallow a deliberate second
+ *   upload of the same photo, and under "replay" a settled failure for that
+ *   key could never be retried.
  * - onAmbiguous "fail": an ambiguous provider call settles `ambiguous` and
- *   rethrows; there is no list-based recovery for media (unchanged). The
- *   caller retries with a fresh request id after refreshing the cache.
+ *   rethrows. An uncertain create reconciles itself against the live media
+ *   list first (createMediaItem), and one that cannot is moved on to
+ *   `needs_resolution` here.
  */
 async function runMediaWrite<TResponse, TReadback = never>(
   scope: MediaWriteScope,
@@ -465,60 +489,379 @@ async function runMediaWrite<TResponse, TReadback = never>(
     operation: MediaOperation
     mediaItemId: string | null
     expectedGoogleHash: string | null
+    /** A create's content (bytes or source URL), for its key and the unresolved-create guard. */
+    contentSha256?: string
     payload: unknown
     failureCode: string
     validate?: () => Promise<void>
-    mutate: () => Promise<TResponse>
+    mutate: (ctx: { attemptId: string }) => Promise<TResponse>
     readback?: GbpReadback<TResponse, TReadback>
+    onSuccess?: (sql: TransactionSql) => Promise<void>
     audit?: GbpAuditSpec
   }
 ): Promise<MediaWriteResult> {
-  const result = await runGbpWrite<TResponse, TReadback>({
-    surface: "media",
-    paused: MEDIA_PAUSED,
-    organisationId: scope.organisationId,
-    actorUserId: scope.session.userId,
-    requestId: scope.requestId,
-    store: mediaAttempts,
-    key: idempotencyKey([
-      scope.organisationId,
-      scope.locationId,
-      write.operation,
-      write.mediaItemId ?? "new",
-      requestScopedKeyPart(scope.requestId),
-    ]),
-    intent: {
-      location_id: scope.locationId,
-      media_item_id: write.mediaItemId,
-      operation: write.operation,
-      expected_google_hash: write.expectedGoogleHash,
-      requested_payload: (sql: TransactionSql) =>
-        jsonColumnOrNull(sql, write.payload),
-    },
-    onExisting: "replay",
-    failureCode: write.failureCode,
-    operation: {
+  let attemptId: string | null = null
+  let result: GbpWriteResult<TResponse, TReadback>
+  try {
+    result = await runGbpWrite<TResponse, TReadback>({
       surface: "media",
-      action: write.operation,
-      locationId: scope.locationId,
-      targetType: "media_item",
-      targetRef: write.mediaItemId,
-      payloadHash: idempotencyKey([
+      paused: MEDIA_PAUSED,
+      organisationId: scope.organisationId,
+      actorUserId: scope.session.userId,
+      requestId: scope.requestId,
+      store: mediaAttempts,
+      key: idempotencyKey([
+        scope.organisationId,
+        scope.locationId,
         write.operation,
         write.mediaItemId ?? "new",
-        write.expectedGoogleHash,
-        sha256(JSON.stringify(write.payload ?? null)),
+        ...(write.contentSha256 ? [write.contentSha256] : []),
+        requestScopedKeyPart(scope.requestId),
       ]),
-    },
-    validate: write.validate,
-    mutate: write.mutate,
-    onAmbiguous: "fail",
-    readback: write.readback,
-    audit: write.audit,
-  })
+      intent: {
+        location_id: scope.locationId,
+        media_item_id: write.mediaItemId,
+        operation: write.operation,
+        expected_google_hash: write.expectedGoogleHash,
+        content_sha256: write.contentSha256 ?? null,
+        requested_payload: (sql: TransactionSql) =>
+          jsonColumnOrNull(sql, write.payload),
+      },
+      onExisting: "replay",
+      failureCode: write.failureCode,
+      operation: {
+        surface: "media",
+        action: write.operation,
+        locationId: scope.locationId,
+        targetType: "media_item",
+        targetRef: write.mediaItemId,
+        payloadHash: idempotencyKey([
+          write.operation,
+          write.mediaItemId ?? "new",
+          write.expectedGoogleHash,
+          sha256(JSON.stringify(write.payload ?? null)),
+        ]),
+      },
+      validate: write.validate,
+      mutate: (ctx) => {
+        attemptId = ctx.attemptId
+        return write.mutate(ctx)
+      },
+      onAmbiguous: "fail",
+      readback: write.readback,
+      onSuccess: write.onSuccess ? (sql) => write.onSuccess!(sql) : undefined,
+      audit: write.audit,
+    })
+  } catch (error) {
+    if (error instanceof MediaNeedsResolutionError && attemptId) {
+      await markNeedsResolution(scope.organisationId, attemptId)
+      throw needsResolutionError(attemptId, error.message)
+    }
+    throw error
+  }
   return result.idempotent
     ? { id: result.attemptId, status: result.rawStatus, idempotent: true }
     : { id: result.attemptId, status: "succeeded", idempotent: false }
+}
+
+// ---------------------------------------------------------------------------
+// Creates: upload checkpoints and reconciliation (plan P03-S5)
+// ---------------------------------------------------------------------------
+
+/**
+ * An uncertain create that no single live media item accounts for. Settled
+ * `ambiguous` by the pipeline (it is a GoogleMutationAmbiguousError), then
+ * moved on to `needs_resolution` by runMediaWrite.
+ */
+class MediaNeedsResolutionError extends GoogleMutationAmbiguousError {
+  constructor(message: string) {
+    super(message)
+    this.code = "media_needs_resolution"
+  }
+}
+
+const NEEDS_RESOLUTION_MESSAGE =
+  "Google did not confirm whether this was added, and it is not in the listing’s media yet. Check Google, then mark it as added or not added."
+
+function needsResolutionError(
+  attemptId: string,
+  message = NEEDS_RESOLUTION_MESSAGE,
+  status = 502
+): ApiError {
+  return new ApiError(status, "media_needs_resolution", message, {
+    details: { attemptId },
+  })
+}
+
+/** Seconds an in-flight create is assumed to still be running (runGbpWrite's grace). */
+const CREATE_IN_FLIGHT_GRACE_SECONDS = 120
+
+/**
+ * A create whose outcome nobody knows yet: a person must resolve it, or it
+ * was sent and then settled `ambiguous` (or stranded in flight) without
+ * reconciliation. Only creates that reached `create_sent` can be uncertain;
+ * an attempt that stopped before it put nothing on the listing.
+ */
+function unresolvedCreate(sql: TransactionSql) {
+  return sql`(
+    operation = 'create'
+    and resolution is null
+    and (
+      status = 'needs_resolution'
+      or (status = 'ambiguous' and upload_phase = 'create_sent')
+      or (
+        status = 'started'
+        and upload_phase = 'create_sent'
+        and started_at <= now() - make_interval(secs => ${CREATE_IN_FLIGHT_GRACE_SECONDS})
+      )
+    )
+  )`
+}
+
+/**
+ * Refuses a create while an earlier create of the same content at the same
+ * location is unresolved (409 media_needs_resolution) or still being sent
+ * (409 media_create_in_progress): sending it again could put the photo on
+ * the listing twice. A same-intent retry of a create that settled is not
+ * blocked; the pipeline answers it from its receipt.
+ */
+async function requireNoUnresolvedCreate(
+  sql: TransactionSql,
+  locationId: string,
+  contentSha256: string
+) {
+  const [row] = await sql<{ id: string; inFlight: boolean }[]>`
+    select id::text as id,
+      (status = 'started' and not ${unresolvedCreate(sql)}) as "inFlight"
+    from gbp_media_mutation
+    where location_id = ${locationId}
+      and operation = 'create'
+      and content_sha256 = ${contentSha256}
+      and (
+        ${unresolvedCreate(sql)}
+        or (
+          status = 'started'
+          and started_at > now() - make_interval(secs => ${CREATE_IN_FLIGHT_GRACE_SECONDS})
+        )
+      )
+    order by started_at desc
+    limit 1
+  `
+  if (!row) return
+  if (row.inFlight) {
+    throw new ApiError(
+      409,
+      "media_create_in_progress",
+      "This photo is still being added to Google. Wait a moment, then refresh.",
+      { details: { attemptId: row.id } }
+    )
+  }
+  throw needsResolutionError(
+    row.id,
+    "An earlier attempt to add this to Google was not confirmed. Check Google and resolve it before adding it again.",
+    409
+  )
+}
+
+/** Records how far an upload got, before the next provider call goes out. */
+async function recordUploadPhase(
+  organisationId: string,
+  attemptId: string,
+  phase: Exclude<MediaUploadPhase, "none">,
+  dataRef?: string
+) {
+  await withTenant(organisationId, async (sql) => {
+    await sql`
+      update gbp_media_mutation
+      set upload_phase = ${phase}${dataRef ? sql`, upload_data_ref = ${dataRef}` : sql``}
+      where id = ${attemptId} and status = 'started'
+    `
+  })
+}
+
+async function markNeedsResolution(organisationId: string, attemptId: string) {
+  await withTenant(organisationId, async (sql) => {
+    await sql`
+      update gbp_media_mutation
+      set status = 'needs_resolution', last_error_code = 'media_needs_resolution'
+      where id = ${attemptId} and status = 'ambiguous'
+    `
+  })
+}
+
+/** Names other creates at the location already adopted, so no two claim one item. */
+async function claimedCreateNames(
+  sql: TransactionSql,
+  locationId: string,
+  attemptId: string
+): Promise<Set<string>> {
+  const rows = await sql<{ name: string }[]>`
+    select google_response->>'name' as name
+    from gbp_media_mutation
+    where location_id = ${locationId}
+      and operation = 'create'
+      and status = 'succeeded'
+      and id <> ${attemptId}
+      and google_response ? 'name'
+  `
+  return new Set(rows.map((row) => row.name))
+}
+
+/**
+ * The live merchant item an uncertain create made, if exactly one accounts
+ * for it. Throws MediaNeedsResolutionError otherwise -- including when Google
+ * cannot be listed -- so the create is never repeated blindly.
+ */
+async function reconcileUncertainCreate(
+  linked: LinkedLocation,
+  attemptId: string,
+  intent: MediaCreateIntent
+): Promise<GoogleMediaItem> {
+  let items: GoogleMediaItem[]
+  try {
+    items = await googleMediaItems(
+      await linked.accessToken(),
+      { ...mediaTarget(linked), customer: false },
+      mediaTransport(linked)
+    )
+  } catch {
+    throw new MediaNeedsResolutionError(NEEDS_RESOLUTION_MESSAGE)
+  }
+  const context = await withTenant(linked.organisationId, async (sql) => {
+    const [row] = await sql<{ startedAt: Date }[]>`
+      select started_at as "startedAt" from gbp_media_mutation where id = ${attemptId}
+    `
+    return {
+      startedAt: row?.startedAt ?? new Date(),
+      claimedNames: await claimedCreateNames(sql, linked.locationId, attemptId),
+    }
+  })
+  const match = matchCreatedMedia(items, intent, context)
+  if (match.kind === "match") return match.item
+  throw new MediaNeedsResolutionError(NEEDS_RESOLUTION_MESSAGE)
+}
+
+/**
+ * Anything that went wrong before the create was sent is a plain failure,
+ * even a timeout: without a create naming the upload, nothing can be on the
+ * listing, so a retry is safe.
+ */
+function beforeCreateFailure(error: unknown): unknown {
+  if (!(error instanceof GoogleMutationAmbiguousError)) return error
+  return new ApiError(
+    502,
+    "media_upload_interrupted",
+    "The upload to Google did not finish. Nothing was added; try again."
+  )
+}
+
+type CreateCheckpoint = (
+  phase: Exclude<MediaUploadPhase, "none">,
+  dataRef?: string
+) => Promise<void>
+
+/**
+ * Shared by URL create and byte upload: (upload) -> create -> read back ->
+ * audit, with a checkpoint on the attempt before each provider call.
+ */
+async function createMediaItem(
+  scope: MediaWriteScope,
+  linked: LinkedLocation,
+  create: {
+    payload: Record<string, unknown>
+    intent: MediaCreateIntent
+    contentSha256: string
+    failureCode: string
+    auditAction: "media.created" | "media.uploaded"
+    /**
+     * The provider calls. Must call `checkpoint("create_sent")` immediately
+     * before the create, and may record earlier phases before it.
+     */
+    send: (
+      token: string,
+      checkpoint: CreateCheckpoint
+    ) => Promise<GoogleMediaItem>
+  }
+): Promise<MediaWriteResult> {
+  // Set when the create was adopted from the live list rather than named by
+  // Google's answer; the success settle records the adoption.
+  let adoptedAttemptId: string | null = null
+  return runMediaWrite<GoogleMediaItem, GoogleMediaItem>(scope, {
+    operation: "create",
+    mediaItemId: null,
+    expectedGoogleHash: null,
+    contentSha256: create.contentSha256,
+    payload: create.payload,
+    failureCode: create.failureCode,
+    mutate: async ({ attemptId }) => {
+      const token = await linked.accessToken()
+      let sent = false
+      const checkpoint: CreateCheckpoint = async (phase, dataRef) => {
+        await recordUploadPhase(scope.organisationId, attemptId, phase, dataRef)
+        if (phase === "create_sent") sent = true
+      }
+      let response: GoogleMediaItem
+      try {
+        response = await create.send(token, checkpoint)
+      } catch (error) {
+        if (!sent) throw beforeCreateFailure(error)
+        if (!(error instanceof GoogleMutationAmbiguousError)) throw error
+        // Sent, and Google's answer was lost: the item may exist now.
+        const item = await reconcileUncertainCreate(
+          linked,
+          attemptId,
+          create.intent
+        )
+        adoptedAttemptId = attemptId
+        return item
+      }
+      // A 2xx without the new item's name may still have created it.
+      if (typeof response?.name !== "string") {
+        const item = await reconcileUncertainCreate(
+          linked,
+          attemptId,
+          create.intent
+        )
+        adoptedAttemptId = attemptId
+        return item
+      }
+      return response
+    },
+    readback: {
+      // The created (or adopted) item is read back and stored as
+      // google_response. Verify identifies it -- the name Google gave and
+      // the requested format -- rather than comparing every field: a create
+      // that landed must never settle `failed`, which would invite a
+      // duplicate.
+      read: async ({ response }) =>
+        getGoogleMediaItem(
+          await linked.accessToken(),
+          createdMediaName(response),
+          mediaTransport(linked)
+        ),
+      verify: ({ readback, response }) =>
+        readback.name === response?.name &&
+        readback.mediaFormat === create.intent.mediaFormat,
+      mismatch: {
+        status: 502,
+        code: "media_readback_mismatch",
+        message: "Google did not return the created media item.",
+      },
+    },
+    onSuccess: async (sql) => {
+      if (!adoptedAttemptId) return
+      await sql`
+        update gbp_media_mutation set resolution = 'adopted', resolved_at = now()
+        where id = ${adoptedAttemptId}
+      `
+    },
+    audit: {
+      action: create.auditAction,
+      subjectType: "location",
+      subjectId: scope.locationId,
+      metadata: create.payload,
+    },
+  })
 }
 
 function createdMediaName(response: GoogleMediaItem | undefined): string {
@@ -533,52 +876,9 @@ function createdMediaName(response: GoogleMediaItem | undefined): string {
   return name
 }
 
-/** Shared by URL create and byte upload: create -> read back -> audit. */
-async function createMediaItem(
-  scope: MediaWriteScope,
-  linked: LinkedLocation,
-  create: {
-    payload: Record<string, unknown>
-    failureCode: string
-    auditAction: "media.created" | "media.uploaded"
-    call: (token: string) => Promise<GoogleMediaItem>
-  }
-): Promise<MediaWriteResult> {
-  return runMediaWrite<GoogleMediaItem, GoogleMediaItem>(scope, {
-    operation: "create",
-    mediaItemId: null,
-    expectedGoogleHash: null,
-    payload: create.payload,
-    failureCode: create.failureCode,
-    mutate: async () => {
-      const response = await create.call(await linked.accessToken())
-      // A 2xx without the new item's name may still have created it: that
-      // is uncertain, not failed.
-      if (typeof response?.name !== "string") {
-        throw new GoogleMutationAmbiguousError(
-          "Google did not return the created media name."
-        )
-      }
-      return response
-    },
-    readback: {
-      // The created item is read back and stored as google_response; no
-      // field comparison is made for creates (unchanged behaviour).
-      read: async ({ response }) =>
-        getGoogleMediaItem(
-          await linked.accessToken(),
-          createdMediaName(response),
-          mediaTransport(linked)
-        ),
-      verify: () => true,
-    },
-    audit: {
-      action: create.auditAction,
-      subjectType: "location",
-      subjectId: scope.locationId,
-      metadata: create.payload,
-    },
-  })
+/** The content a URL create is keyed on: the URL Google fetches. */
+function sourceUrlContentSha(sourceUrl: string): string {
+  return sha256(`source_url:${sourceUrl}`)
 }
 
 export async function createMedia(input: {
@@ -588,15 +888,26 @@ export async function createMedia(input: {
   payload: MediaCreateInput
   requestId: string
 }) {
-  const linked = await withTenant(input.organisationId, (sql) =>
-    linkedForWrite(sql, input.session, input.locationId)
-  )
+  const contentSha256 = sourceUrlContentSha(input.payload.sourceUrl)
+  const linked = await withTenant(input.organisationId, async (sql) => {
+    const linked = await linkedForWrite(sql, input.session, input.locationId)
+    await requireNoUnresolvedCreate(sql, input.locationId, contentSha256)
+    return linked
+  })
   return createMediaItem(input, linked, {
     payload: input.payload,
+    intent: {
+      mediaFormat: input.payload.mediaFormat,
+      category: input.payload.category,
+      description: input.payload.description,
+      sourceUrl: input.payload.sourceUrl,
+    },
+    contentSha256,
     failureCode: "media_create_failed",
     auditAction: "media.created",
-    call: (token) =>
-      createGoogleMediaItem(
+    send: async (token, checkpoint) => {
+      await checkpoint("create_sent")
+      return createGoogleMediaItem(
         token,
         {
           ...mediaTarget(linked),
@@ -608,7 +919,8 @@ export async function createMedia(input: {
           },
         },
         mediaTransport(linked)
-      ),
+      )
+    },
   })
 }
 
@@ -657,10 +969,13 @@ export async function uploadMedia(input: {
   file: MediaUploadFile
   requestId: string
 }) {
-  const linked = await withTenant(input.organisationId, (sql) =>
-    linkedForWrite(sql, input.session, input.locationId)
-  )
   requireUploadableFile(input.payload.mediaFormat, input.file)
+  const contentSha256 = sha256(Buffer.from(input.file.bytes))
+  const linked = await withTenant(input.organisationId, async (sql) => {
+    const linked = await linkedForWrite(sql, input.session, input.locationId)
+    await requireNoUnresolvedCreate(sql, input.locationId, contentSha256)
+    return linked
+  })
   const requestedPayload = {
     mediaFormat: input.payload.mediaFormat,
     category: input.payload.category,
@@ -668,27 +983,40 @@ export async function uploadMedia(input: {
     fileName: input.file.name,
     contentType: input.file.type,
     byteLength: input.file.size,
-    sha256: sha256(Buffer.from(input.file.bytes)),
+    sha256: contentSha256,
   }
   return createMediaItem(input, linked, {
     payload: requestedPayload,
+    intent: {
+      mediaFormat: input.payload.mediaFormat,
+      category: input.payload.category,
+      description: input.payload.description,
+    },
+    contentSha256,
     failureCode: "media_upload_failed",
     auditAction: "media.uploaded",
-    // NOTE(gbp-write): the helper has no upload/multipart phase by design —
-    // the byte upload runs inside `mutate` so a failed upload settles the
-    // attempt as failed (as before). Only a resumable-upload phase, which
-    // would record the dataRef between upload and create, would justify
-    // adding one; Google's media API does not offer resumable uploads here.
-    call: async (token) => {
-      const dataRef = await uploadGoogleMediaBytes(
+    // Google's media API has no resumable upload here, so an attempt that
+    // stops before the create starts again from a new reference; the
+    // checkpoints record how far it got, which decides whether it can be
+    // uncertain at all.
+    send: async (token, checkpoint) => {
+      const dataRef = await startGoogleMediaUpload(
+        token,
+        mediaTarget(linked),
+        mediaTransport(linked)
+      )
+      await checkpoint("data_ref_obtained", dataRef.resourceName)
+      await sendGoogleMediaBytes(
         token,
         {
-          ...mediaTarget(linked),
+          resourceName: dataRef.resourceName,
           bytes: input.file.bytes,
           contentType: input.file.type,
         },
         mediaTransport(linked)
       )
+      await checkpoint("bytes_uploaded")
+      await checkpoint("create_sent")
       return createGoogleMediaItem(
         token,
         {
@@ -703,6 +1031,120 @@ export async function uploadMedia(input: {
         mediaTransport(linked)
       )
     },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Resolution of an unconfirmed create (a person's decision)
+// ---------------------------------------------------------------------------
+
+/**
+ * The location's creates that need a person: unresolved per
+ * `unresolvedCreate`, newest first. Shown on the photos tab with the
+ * resolve actions.
+ */
+async function loadUnresolvedCreates(
+  sql: TransactionSql,
+  locationId: string
+): Promise<MediaUnresolvedCreateWire[]> {
+  const rows = await sql<
+    {
+      attemptId: string
+      payload: Record<string, unknown> | null
+      startedAt: Date
+    }[]
+  >`
+    select id::text as "attemptId", requested_payload as payload,
+      started_at as "startedAt"
+    from gbp_media_mutation
+    where location_id = ${locationId} and ${unresolvedCreate(sql)}
+    order by started_at desc
+    limit 20
+  `
+  const text = (value: unknown) => (typeof value === "string" ? value : null)
+  return rows.map((row) => ({
+    attemptId: row.attemptId,
+    mediaFormat: text(row.payload?.mediaFormat),
+    category: text(row.payload?.category),
+    description: text(row.payload?.description),
+    fileName: text(row.payload?.fileName),
+    sourceUrl: text(row.payload?.sourceUrl),
+    startedAt: row.startedAt.toISOString(),
+  }))
+}
+
+/**
+ * Records a person's verdict on an unconfirmed create: `adopted` (it is on
+ * Google) settles the attempt `succeeded`, `abandoned` (it is not) settles it
+ * `failed`, which lets the same content be added again. Nothing is sent to
+ * Google, so neither the media kill switch nor a pause applies; the publish
+ * grant does. The receipts waiting on the attempt settle with it.
+ */
+export async function resolveMediaCreate(input: {
+  organisationId: string
+  session: Session
+  locationId: string
+  attemptId: string
+  resolution: MediaResolution
+  requestId: string
+}): Promise<MediaWriteResult> {
+  return withTenant(input.organisationId, async (sql) => {
+    const linked = await loadLinkedLocation(
+      sql,
+      input.session,
+      input.locationId,
+      { notLinked: NOT_LINKED }
+    )
+    requirePublishGrant(linked, {
+      code: "publish_not_allowed",
+      message: "You cannot publish for this location.",
+    })
+    const [row] = await sql<{ id: string; status: string }[]>`
+      select id::text as id, status
+      from gbp_media_mutation
+      where id = ${input.attemptId}
+        and location_id = ${input.locationId}
+        and ${unresolvedCreate(sql)}
+      for update
+    `
+    if (!row) {
+      throw new ApiError(
+        409,
+        "media_resolution_not_pending",
+        "This upload no longer needs a decision. Refresh the tab."
+      )
+    }
+    const adopted = input.resolution === "adopted"
+    const status = adopted ? "succeeded" : "failed"
+    const errorCode = adopted ? null : "media_resolution_abandoned"
+    await sql`
+      update gbp_media_mutation
+      set status = ${status}, resolution = ${input.resolution},
+        resolved_by_user_id = ${input.session.userId}, resolved_at = now(),
+        last_error_code = ${errorCode}, finished_at = now()
+      where id = ${row.id} and status = ${row.status}
+    `
+    await settleRecoveredOperations(sql, {
+      attemptTable: "gbp_media_mutation",
+      attemptId: row.id,
+      state: adopted ? "confirmed_applied" : "failed",
+      errorCode,
+      receipt: { attemptId: row.id, attemptStatus: status, rawStatus: status },
+    })
+    await writeAudit(sql, {
+      organisationId: input.organisationId,
+      actorUserId: input.session.userId,
+      action: "media.create_resolved",
+      subjectType: "location",
+      subjectId: input.locationId,
+      requestId: input.requestId,
+      metadata: {
+        attemptId: row.id,
+        resolution: input.resolution,
+        previousStatus: row.status,
+      },
+    })
+    return { id: row.id, status, idempotent: false }
   })
 }
 
@@ -808,15 +1250,22 @@ type MediaRecoveryAttempt = RecoveryAttempt & {
   operation: MediaOperation
   requestedPayload: Record<string, unknown> | null
   googleMediaName: string | null
+  uploadPhase: MediaUploadPhase
+  claimedNames: string[]
 }
+
+const settleMediaAttempt = storeSettle(mediaAttempts)
 
 /**
  * Reads an uncertain media write back. An update landed when the item holds
  * the requested category; a delete when Google answers 404 for the item.
- * A create cannot be identified: Google names the new item only in the
- * response that was lost, and a photo's bytes are not searchable, so the
- * receipt is handed to a person (`media_create_unverifiable`). The upload
- * checkpoints that would let it be resolved belong to P03-S5.
+ *
+ * A create is decided by its upload checkpoint (0074). One that stopped
+ * before `create_sent` put nothing on the listing (not landed). One that was
+ * sent is matched against the live media list (lib/domain/media-reconcile.ts):
+ * a single match is adopted, otherwise it is handed to a person as
+ * `needs_resolution`. A create from before the checkpoints existed (phase
+ * `none`) cannot be placed either way and is handed to a person as before.
  */
 export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
   surface: "media",
@@ -826,13 +1275,21 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
       select
         m.id::text as id,
         m.status as "rawStatus",
-        -- gbp_media_mutation has no started_at; created_at is written in the
-        -- statement that opens the attempt (see the retention reaper).
-        m.created_at as "startedAt",
+        m.started_at as "startedAt",
         m.last_error_code as "errorCode",
         m.operation,
         m.requested_payload as "requestedPayload",
-        i.google_media_name as "googleMediaName"
+        m.upload_phase as "uploadPhase",
+        i.google_media_name as "googleMediaName",
+        array(
+          select c.google_response->>'name'
+          from gbp_media_mutation c
+          where c.location_id = m.location_id
+            and c.operation = 'create'
+            and c.status = 'succeeded'
+            and c.id <> m.id
+            and c.google_response ? 'name'
+        ) as "claimedNames"
       from gbp_media_mutation m
       left join gbp_media_item i on i.id = m.media_item_id
       where m.id = ${attemptId}
@@ -841,7 +1298,36 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
   },
   async readback({ attempt, link }) {
     if (attempt.operation === "create") {
-      return { kind: "unverifiable", errorCode: "media_create_unverifiable" }
+      if (attempt.uploadPhase === "none") {
+        return { kind: "unverifiable", errorCode: "media_create_unverifiable" }
+      }
+      if (attempt.uploadPhase !== "create_sent") {
+        return { kind: "not_landed", errorCode: "media_upload_interrupted" }
+      }
+      const payload = attempt.requestedPayload ?? {}
+      const text = (value: unknown) =>
+        typeof value === "string" ? value : null
+      const items = await googleMediaItems(
+        await link.accessToken(),
+        { ...mediaTarget(link), customer: false },
+        mediaTransport(link)
+      )
+      const match = matchCreatedMedia(
+        items,
+        {
+          mediaFormat: text(payload.mediaFormat) ?? "",
+          category: text(payload.category) ?? "",
+          description: text(payload.description),
+          sourceUrl: text(payload.sourceUrl),
+        },
+        {
+          startedAt: attempt.startedAt ?? new Date(0),
+          claimedNames: new Set(attempt.claimedNames),
+        }
+      )
+      return match.kind === "match"
+        ? { kind: "landed", confirmed: true, response: match.item }
+        : { kind: "unverifiable", errorCode: "media_needs_resolution" }
     }
     if (!attempt.googleMediaName) {
       return { kind: "unverifiable", errorCode: "target_changed" }
@@ -882,5 +1368,29 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
       ? { kind: "landed", confirmed: true, response: current }
       : { kind: "not_landed", errorCode: "media_readback_mismatch" }
   },
-  settle: storeSettle(mediaAttempts),
+  async settle(sql, input) {
+    const written = await settleMediaAttempt(sql, input)
+    if (
+      written &&
+      input.attempt.operation === "create" &&
+      input.verdict.kind === "landed"
+    ) {
+      await sql`
+        update gbp_media_mutation set resolution = 'adopted', resolved_at = now()
+        where id = ${input.attempt.id}
+      `
+    }
+    return written
+  },
+  async unverifiable(sql, { attempt, errorCode }) {
+    if (errorCode !== "media_needs_resolution") return
+    await sql`
+      update gbp_media_mutation
+      set status = 'needs_resolution', last_error_code = 'media_needs_resolution',
+        finished_at = coalesce(finished_at, now())
+      where id = ${attempt.id}
+        and status = ${attempt.rawStatus}
+        and status in ('ambiguous', 'started')
+    `
+  },
 }

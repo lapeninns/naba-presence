@@ -79,9 +79,47 @@ export const mediaDeleteRequestSchema = z.object({
 })
 export type MediaDeleteRequest = z.infer<typeof mediaDeleteRequestSchema>
 
+/**
+ * A person's verdict on a create Google never confirmed: `adopted` -- it is
+ * on Google; `abandoned` -- it is not, so it may be added again.
+ */
+export const MEDIA_RESOLUTIONS = ["adopted", "abandoned"] as const
+export type MediaResolution = (typeof MEDIA_RESOLUTIONS)[number]
+
+/** POST `/media/resolutions/[attemptId]` body. */
+export const mediaResolveRequestSchema = z.object({
+  resolution: z.enum(MEDIA_RESOLUTIONS),
+  confirmation: z.literal("resolve_google_media"),
+})
+export type MediaResolveRequest = z.infer<typeof mediaResolveRequestSchema>
+
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
+
+/**
+ * A create whose outcome is unknown and that no single live media item
+ * accounts for (`needs_resolution`, or sent and not yet reconciled). Another
+ * create of the same content is refused (409 `media_needs_resolution`) until
+ * a person resolves it.
+ */
+export const mediaUnresolvedCreateSchema = z.object({
+  attemptId: z.string(),
+  mediaFormat: z.string().nullable(),
+  category: z.string().nullable(),
+  description: z.string().nullable(),
+  /** Set for an upload. */
+  fileName: z.string().nullable(),
+  /** Set for a create from a URL. */
+  sourceUrl: z.string().nullable(),
+  startedAt: z.string(),
+})
+export type MediaUnresolvedCreateWire = z.input<
+  typeof mediaUnresolvedCreateSchema
+>
+export type MediaUnresolvedCreate = z.output<
+  typeof mediaUnresolvedCreateSchema
+>
 
 /**
  * One `gbp_media_item` row. Google leaves customer photos uncategorised; the
@@ -122,6 +160,7 @@ export const mediaStateSchema = z.object({
   pageSize: z.number().int().positive(),
   category: z.string().nullable().optional(),
   ownership: z.enum(MEDIA_OWNERSHIPS).nullable().optional(),
+  unresolvedCreates: z.array(mediaUnresolvedCreateSchema).default([]),
 })
 export type MediaStateWire = z.input<typeof mediaStateSchema>
 export type MediaState = z.output<typeof mediaStateSchema>

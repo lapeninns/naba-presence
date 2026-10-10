@@ -181,7 +181,7 @@ describe("industry and media recovery adapters", () => {
     ).resolves.toEqual({ kind: "unverifiable", errorCode: "target_changed" })
   })
 
-  it("hands a media create to a person", async () => {
+  it("hands a media create from before the upload checkpoints to a person", async () => {
     await expect(
       mediaRecoveryAdapter.readback({
         attempt: {
@@ -189,6 +189,8 @@ describe("industry and media recovery adapters", () => {
           operation: "create",
           requestedPayload: {},
           googleMediaName: null,
+          uploadPhase: "none",
+          claimedNames: [],
         },
         link,
         operation,
@@ -509,6 +511,8 @@ describe("media update recovery", () => {
           operation: "update",
           requestedPayload: { category: "INTERIOR" },
           googleMediaName: "accounts/1/locations/1/media/m1",
+          uploadPhase: "none",
+          claimedNames: [],
         },
         link,
         operation,
