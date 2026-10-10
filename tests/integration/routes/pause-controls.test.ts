@@ -44,7 +44,7 @@ describeDatabase("operator pause controls (0090)", () => {
     google = await startGoogleStub()
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: google.baseUrl,
-      GBP_PLACE_ACTIONS_ENABLED: "true",
+      GBP_MEDIA_ENABLED: "true",
       GBP_POSTS_ENABLED: "true",
       PUBLISH_ENABLED: "true",
     })
@@ -65,6 +65,9 @@ describeDatabase("operator pause controls (0090)", () => {
     await admin.end()
   })
 
+  // Place Action links now go through reviewed change sets, so a direct
+  // listing write that still dispatches through runGbpWrite (a media create
+  // from a URL) carries this check.
   it("refuses a Google write at dispatch while publish is paused, sending and writing nothing", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
@@ -77,90 +80,66 @@ describeDatabase("operator pause controls (0090)", () => {
       googleAccountName: connection.googleAccountName,
     })
     google.reset()
-    google.respond(
-      { method: "GET", pathIncludes: "/placeActionLinks" },
-      () => ({ status: 200, json: { placeActionLinks: [] } })
-    )
-
-    await setPause("publish", true)
-    await settle()
-
-    const response = await fetch(
-      `${server.baseUrl}/api/locations/${linked.locationId}/place-actions`,
-      {
+    const create = (requestId: string) =>
+      fetch(`${server.baseUrl}/api/locations/${linked.locationId}/media`, {
         method: "POST",
         headers: {
           cookie: owner.cookie,
           "content-type": "application/json",
-          "x-request-id": "paused-create",
+          "x-request-id": requestId,
         },
         body: JSON.stringify({
-          confirmation: "create_google_place_action",
-          uri: "https://book.example.com/paused",
-          placeActionType: "DINING_RESERVATION",
-          isPreferred: true,
+          confirmation: "create_google_media",
+          mediaFormat: "PHOTO",
+          category: "FOOD_AND_DRINK",
+          sourceUrl: "https://images.example.com/paused.jpg",
         }),
-      }
-    )
+      })
+
+    await setPause("publish", true)
+    await settle()
+
+    const response = await create("paused-create")
     expect(response.status, await response.clone().text()).toBe(503)
     expect(await response.json()).toMatchObject({
-      error: "place_actions_paused",
+      error: "media_paused",
       details: { pausedScopes: ["publish"], pauseStateUnknown: false },
     })
     expect(google.calls.filter((call) => call.method === "POST")).toEqual([])
     const audits = await admin`
       select 1 from audit_log
       where organisation_id = ${owner.organisationId}
-        and action like 'place_action%'
+        and action like 'media%'
     `
     expect(audits).toHaveLength(0)
+    const attempts = await admin`
+      select 1 from gbp_media_mutation
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(attempts).toHaveLength(0)
 
     // Lifting the pause lets the same request through without a redeploy.
     await setPause("publish", false)
     await settle()
-    google.respond(
-      { method: "POST", pathIncludes: "/placeActionLinks" },
-      (call) => ({
-        status: 200,
-        json: {
-          name: `${linked.googleLocationName}/placeActionLinks/merchant`,
-          providerType: "MERCHANT",
-          isEditable: true,
-          ...(call.body as Record<string, unknown>),
-        },
-      })
-    )
-    google.respond(
-      { method: "GET", pathIncludes: "/placeActionLinks/merchant" },
-      () => ({
-        status: 200,
-        json: {
-          name: `${linked.googleLocationName}/placeActionLinks/merchant`,
-          providerType: "MERCHANT",
-          isEditable: true,
-          uri: "https://book.example.com/paused",
-          placeActionType: "DINING_RESERVATION",
-          isPreferred: true,
-        },
-      })
-    )
-    const resumed = await fetch(
-      `${server.baseUrl}/api/locations/${linked.locationId}/place-actions`,
-      {
-        method: "POST",
-        headers: {
-          cookie: owner.cookie,
-          "content-type": "application/json",
-          "x-request-id": "resumed-create",
-        },
-        body: JSON.stringify({
-          confirmation: "create_google_place_action",
-          uri: "https://book.example.com/paused",
-          placeActionType: "DINING_RESERVATION",
-          isPreferred: true,
-        }),
-      }
-    )
+    const item = {
+      name: `${linked.googleLocationName}/media/paused`,
+      mediaFormat: "PHOTO",
+      locationAssociation: { category: "FOOD_AND_DRINK" },
+      googleUrl: "https://google.example/paused.jpg",
+    }
+    google.respond({ method: "GET", pathIncludes: "/media?" }, () => ({
+      status: 200,
+      json: { mediaItems: [] },
+    }))
+    google.respond({ method: "POST", pathIncludes: "/media" }, (call) => ({
+      status: 200,
+      json: { ...item, ...(call.body as Record<string, unknown>) },
+    }))
+    google.respond({ method: "GET", pathIncludes: "/media/paused" }, () => ({
+      status: 200,
+      json: item,
+    }))
+    const resumed = await create("resumed-create")
     expect(resumed.status, await resumed.clone().text()).toBe(201)
   }, 60_000)
 

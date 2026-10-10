@@ -231,10 +231,11 @@ describeDatabase("content workflow closure", { timeout: 45_000 }, () => {
         },
       }
     })
-    google.respond({ method: "GET", pathIncludes: "/media/m" }, () => ({
+    // The readback names the item it was asked for, as Google does.
+    google.respond({ method: "GET", pathIncludes: "/media/m" }, (call) => ({
       status: 200,
       json: {
-        name: `${t.parent}/media/m1`,
+        name: `${t.parent}/media/${call.path.split("/media/")[1]?.split("?")[0]}`,
         mediaFormat: "PHOTO",
         locationAssociation: { category: "FOOD_AND_DRINK" },
         googleUrl: "https://google.example/m.jpg",

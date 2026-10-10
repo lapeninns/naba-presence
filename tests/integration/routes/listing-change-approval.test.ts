@@ -641,16 +641,23 @@ describeDatabase("listing writes - two-person change approval", () => {
       await send(owner.cookie, "POST", `${base}/media`, createBody())
     ).json()
     // Google holds the create open, so the state while it is in flight --
-    // what an approval killed now would leave -- can be read.
+    // what an approval killed now would leave -- can be read. The readback
+    // then finds the item the create named, so the approval settles applied.
+    const slow = {
+      name: `${parent}/media/merchant-slow`,
+      mediaFormat: "PHOTO",
+      locationAssociation: { category: "INTERIOR" },
+      googleUrl: "https://google.example/merchant-slow.jpg",
+    }
     google.respond({ method: "POST", pathIncludes: "/media" }, (call) => ({
       status: 200,
       delayMs: 2_000,
-      json: {
-        name: `${parent}/media/merchant-slow`,
-        ...(call.body as Record<string, unknown>),
-        googleUrl: "https://google.example/merchant-slow.jpg",
-      },
+      json: { ...slow, ...(call.body as Record<string, unknown>) },
     }))
+    google.respond(
+      { method: "GET", pathIncludes: "/media/merchant-slow" },
+      () => ({ status: 200, json: slow })
+    )
     const approving = send(
       second.cookie,
       "POST",
