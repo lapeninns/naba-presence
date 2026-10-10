@@ -306,6 +306,32 @@ The approved pins are rechecked against fresh provider reads. Google
 read-back hash comparison. Ambiguous writes are read before any retry, and an
 exact repeat of an already successful approval is idempotent.
 
+A publish may carry a `selection` (`lib/contracts/location-hours.ts`) instead
+of replacing the whole schedule: weekdays (all seven is a whole-week
+replacement and needs all seven in the saved schedule), special-hours start
+dates (upserted when the saved schedule has the date, removed when it does
+not) and more-hours service types. `buildGoogleHoursPatch` in
+`lib/domain/hours.ts` merges only those parts of the saved schedule over the
+live Google hours, so every other day, date and service in a written field is
+sent back exactly as Google holds it, and fields with nothing selected are
+left out of the mask. The selection pins each selected part's Google hash
+(`googlePartHashes` on the GET) rather than the whole Google hash, so a Google
+edit to an unselected part does not make the review stale; the approved mask
+must be exactly the fields the changed selected parts write. Readback verifies
+the selected parts and that no unselected part changed; the attempt records
+the parts in `hours_sync_attempt.selection` (migration 0068).
+
+Drift is also classified per part (`classifyHoursPartDrift`) against a
+per-part comparison baseline in
+`presence_resource_reconcile_state.comparison_part_hashes`
+(`lib/server/hours-observations.ts`). A selective publish moves the baseline
+of only the parts it wrote, so the differences it leaves on purpose stay
+`core_dirty` rather than reading as Google changes or conflicts, and the
+overwrite confirmation is asked for only when a part being written changed on
+Google. The listing summary uses the same per-part classification from the
+stored `observed_google_part_hashes`. With no part baseline yet (rows from
+before 0068), the whole-schedule hashes decide as before.
+
 ## Per-surface kill switches
 
 `lib/server/env.ts` declares the global controls `DRAFTS_ENABLED`,

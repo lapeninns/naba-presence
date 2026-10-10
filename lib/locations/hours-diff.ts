@@ -1,8 +1,11 @@
 import type { NormalizedHours } from "@/lib/contracts/location-hours"
+import { hoursPartKey } from "@/lib/domain/hours-vocabulary"
 import { DAY_LABELS } from "@/lib/locations/forms/hours"
 
 export type HoursChangeRow = {
   key: string
+  /** The publishable part this row belongs to (`hoursPartKey`). */
+  part: string
   field: string
   before: string
   after: string
@@ -73,13 +76,20 @@ export function hoursChangeRows(input: {
   }>
 }): HoursChangeRow[] {
   const rows: HoursChangeRow[] = []
-  function add(key: string, field: string, before: string, after: string) {
+  function add(
+    key: string,
+    part: string,
+    field: string,
+    before: string,
+    after: string
+  ) {
     if (before !== after)
-      rows.push({ key, field, before, after, state: "changed" })
+      rows.push({ key, part, field, before, after, state: "changed" })
   }
   for (const [dayOfWeek, label] of DAY_LABELS.entries()) {
     add(
       `regular-${dayOfWeek}`,
+      hoursPartKey.regular(dayOfWeek),
       label,
       describeDay(dayOf(input.google, dayOfWeek)),
       describeDay(dayOf(input.draft, dayOfWeek))
@@ -102,6 +112,7 @@ export function hoursChangeRows(input: {
         .join("; ")
     add(
       `special-${date}`,
+      hoursPartKey.special(date),
       `Special hours · ${date}`,
       describe(input.google),
       describe(input.draft)
@@ -134,6 +145,7 @@ export function hoursChangeRows(input: {
           : "Schedule not listed"
       add(
         `service-${id}`,
+        hoursPartKey.more(id),
         `${label} schedule`,
         describe(before),
         describe(after)
@@ -145,6 +157,7 @@ export function hoursChangeRows(input: {
     for (const [dayOfWeek, dayLabel] of DAY_LABELS.entries()) {
       add(
         `service-${id}-${dayOfWeek}`,
+        hoursPartKey.more(id),
         `${label} · ${dayLabel}`,
         describeDay(beforeWeek[dayOfWeek]),
         describeDay(afterWeek[dayOfWeek])

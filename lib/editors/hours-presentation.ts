@@ -1,10 +1,21 @@
-import type { NormalizedHours } from "@/lib/api/location-hours"
+import type {
+  HoursState,
+  NormalizedHours,
+  PublishHoursInput,
+} from "@/lib/api/location-hours"
+import {
+  hoursPartField,
+  hoursSelectionFromKeys,
+  hoursSelectionKeys,
+  hoursSelectionMask,
+} from "@/lib/domain/hours-vocabulary"
 import { hoursFormSchema, DAY_LABELS } from "@/lib/locations/forms/hours"
 import {
   describeDay,
   clockTime,
   describeSpecialEntry,
   serviceWeek,
+  type HoursChangeRow,
 } from "@/lib/locations/hours-diff"
 
 /**
@@ -379,4 +390,96 @@ export function validateHours(hours: NormalizedHours): HoursIssue[] {
     )
   }
   return issues
+}
+
+// ---------------------------------------------------------------------------
+// Selective publication
+// ---------------------------------------------------------------------------
+
+export type HoursPublishPart = {
+  /** `hoursPartKey`: one weekday, one special start date, or one service. */
+  key: string
+  label: string
+  /** Rows of the review this part covers. */
+  rowCount: number
+}
+
+/** The publishable parts a review touches, in row order, for a checklist. */
+export function hoursPublishParts(
+  rows: ReadonlyArray<Pick<HoursChangeRow, "part">>,
+  supportedHoursTypes?: ReadonlyArray<{
+    hoursTypeId: string
+    displayName: string
+  }>
+): HoursPublishPart[] {
+  const parts = new Map<string, HoursPublishPart>()
+  for (const row of rows) {
+    const existing = parts.get(row.part)
+    if (existing) {
+      existing.rowCount += 1
+      continue
+    }
+    const field = hoursPartField(row.part)
+    const id = row.part.slice(row.part.indexOf(":") + 1)
+    const label =
+      field === "regularHours"
+        ? DAY_LABELS[Number(id)]
+        : field === "specialHours"
+          ? `Special hours · ${formatSpecialDate(id)}`
+          : `${supportedHoursTypes?.find((type) => type.hoursTypeId === id)?.displayName ?? id} schedule`
+    parts.set(row.part, {
+      key: row.part,
+      label: label ?? row.part,
+      rowCount: 1,
+    })
+  }
+  return [...parts.values()]
+}
+
+/**
+ * Marks the rows that would overwrite a Google change. With per-part drift
+ * only the parts Google changed since their baseline are conflicts; without
+ * it, the whole schedule's status decides for every row.
+ */
+export function markHoursConflicts<T extends Pick<HoursChangeRow, "part">>(
+  rows: T[],
+  hours: Pick<HoursState, "status" | "partStatus">
+): Array<T & { state: "changed" | "conflict" }> {
+  const overwrite = (status: string | undefined) =>
+    status === "google_dirty" || status === "conflict"
+  return rows.map((row) => ({
+    ...row,
+    state: (
+      hours.partStatus
+        ? overwrite(hours.partStatus[row.part])
+        : overwrite(hours.status)
+    )
+      ? ("conflict" as const)
+      : ("changed" as const),
+  }))
+}
+
+/**
+ * The publish fields for the chosen parts, each pinned to the Google part
+ * hash this state was read with. Null when the state carries no part hashes
+ * (then only the whole-schedule publish is possible) or nothing is chosen.
+ */
+export function hoursSelectionRequest(
+  hours: Pick<HoursState, "googlePartHashes">,
+  keys: Iterable<string>
+): Pick<PublishHoursInput, "approvedUpdateMask" | "selection"> | null {
+  const hashes = hours.googlePartHashes
+  if (!hashes) return null
+  const selection = hoursSelectionFromKeys(keys)
+  const selected = hoursSelectionKeys(selection)
+  if (selected.length === 0) return null
+  return {
+    approvedUpdateMask: hoursSelectionMask(selection),
+    selection: {
+      ...selection,
+      expectedGoogleParts: Object.fromEntries(
+        selected.map((key) => [key, hashes[key] ?? null])
+      ),
+    },
+  }
 }

@@ -6,17 +6,27 @@ import { ZodError } from "zod"
 import {
   buildGoogleHoursPatch,
   classifyHoursDrift,
+  classifyHoursPartDrift,
   hashHours,
+  hoursPartHashes,
+  hoursSelectionFromKeys,
+  hoursSelectionKeys,
+  selectedHoursMatch,
+  unselectedHoursUnchanged,
   legacyHoursHash,
   hasLegacyHoursBoundaries,
   hoursBoundaryReconciliationRequired,
   supportedHoursTypes,
   normalizeGoogleHours,
   type GoogleLocationHours,
+  type HoursSelection,
   type NormalizedHours,
 } from "@/lib/domain/hours"
 import type { GoogleHoursUpdateMask } from "@/lib/domain/google-contract"
-import type { HoursState } from "@/lib/contracts/location-hours"
+import type {
+  HoursSelectionInput,
+  HoursState,
+} from "@/lib/contracts/location-hours"
 import { writeAudit } from "@/lib/server/audit"
 import {
   ensureCanonicalResource,
@@ -24,7 +34,7 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, withTenant } from "@/lib/server/db"
+import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   attemptStore,
@@ -172,6 +182,8 @@ async function readLiveHours(session: Session, locationId: string) {
   patch.warnings.push(...metadataWarnings)
   const canonicalHash = hashHours(canonical)
   const googleHash = hashHours(google)
+  const canonicalParts = hoursPartHashes(canonical)
+  const googleParts = hoursPartHashes(google)
   const comparisonBaseline =
     boundaryBaseline?.legacyGoogleHash === resource.baselineGoogleHash
       ? boundaryBaseline
@@ -194,8 +206,15 @@ async function readLiveHours(session: Session, locationId: string) {
       baselineGoogleHash:
         comparisonBaseline?.observedGoogleHash ?? resource.baselineGoogleHash,
       blocked: patch.blockingIssues.length > 0,
+      canonicalParts,
+      googleParts,
     })
   )
+  const partStatus = classifyHoursPartDrift({
+    canonicalParts,
+    googleParts,
+    baseline: observation.comparisonParts ?? null,
+  })
   return {
     observation,
     comparisonBaseline,
@@ -207,12 +226,16 @@ async function readLiveHours(session: Session, locationId: string) {
     canonical,
     canonicalHash,
     googleHash,
+    canonicalParts,
+    googleParts,
+    partStatus,
     patch,
     status: classifyHoursDrift({
       canonicalHash,
       googleHash,
       baselineCanonicalHash: observation.comparisonCanonicalHash,
       baselineGoogleHash: observation.comparisonGoogleHash,
+      parts: partStatus,
     }),
   }
 }
@@ -265,6 +288,8 @@ export async function getHoursState(
     canonicalHash: live.canonicalHash,
     googleHash: live.googleHash,
     updateMask: live.patch.updateMask,
+    googlePartHashes: live.googleParts,
+    ...(live.partStatus ? { partStatus: live.partStatus } : {}),
     warnings: live.patch.warnings,
     supportedHoursTypes: supportedHoursTypes(live.googleLocation),
     reconciliationRequired: hoursBoundaryReconciliationRequired(
@@ -387,56 +412,147 @@ type PublishHoursInput = {
   expectedGoogleHash: string
   approvedUpdateMask: GoogleHoursUpdateMask[]
   confirmOverwriteGoogleChanges: boolean
+  /** Absent: publish the whole saved schedule. */
+  selection?: HoursSelectionInput
   requestId: string
+}
+
+type HoursPatch = ReturnType<typeof buildGoogleHoursPatch>
+
+/** What a publish will write: the whole schedule, or the changed selected parts. */
+type PublishPlan = {
+  patch: HoursPatch
+  /** The parts written, or null for a whole-schedule publish. */
+  selection: HoursSelection | null
+}
+
+function snapshotStale(): ApiError {
+  return new ApiError(
+    409,
+    "hours_snapshot_stale",
+    "The schedule changed after review. Refresh first."
+  )
 }
 
 /**
  * The pre-flight snapshot checks, in order: the reviewed snapshot must still
  * match the live one (stale -> 409), an in-sync schedule short-circuits, and
  * overwriting independent Google changes needs an explicit confirmation.
+ *
+ * A selective publish pins the saved schedule by revision and hash and each
+ * selected part's Google hash; unselected parts may have changed on Google
+ * since review, because they are re-read and written back as they are now.
+ * Its approved mask must be exactly the fields its changed parts write, a
+ * subset of the whole-schedule mask; selected parts that already match
+ * Google are left out. The overwrite confirmation is needed when a part it
+ * writes changed on Google (per-part drift), or, with no part baseline yet,
+ * when the whole schedule did.
  */
 function checkPublishSnapshot(
   live: LiveHours,
   input: PublishHoursInput
-): "in_sync" | "proceed" {
+): { kind: "in_sync" } | { kind: "proceed"; plan: PublishPlan } {
   const approvedMask = [...new Set(input.approvedUpdateMask)].sort()
   if (
     live.resource.revision !== input.expectedCanonicalRevision ||
-    live.canonicalHash !== input.expectedCanonicalHash ||
-    live.googleHash !== input.expectedGoogleHash ||
-    approvedMask.join(",") !== [...live.patch.updateMask].sort().join(",")
+    live.canonicalHash !== input.expectedCanonicalHash
   ) {
-    throw new ApiError(
-      409,
-      "hours_snapshot_stale",
-      "The schedule changed after review. Refresh first."
-    )
+    throw snapshotStale()
   }
-  if (live.patch.blockingIssues.length > 0) {
+  const requireConfirmation = (statuses: string[]) => {
+    if (
+      statuses.some((status) => ["google_dirty", "conflict"].includes(status)) &&
+      !input.confirmOverwriteGoogleChanges
+    ) {
+      throw new ApiError(
+        409,
+        "google_hours_overwrite_confirmation_required",
+        "Google changed independently. Confirm that NabaPresence should overwrite it."
+      )
+    }
+  }
+
+  if (!input.selection) {
+    if (
+      live.googleHash !== input.expectedGoogleHash ||
+      approvedMask.join(",") !== [...live.patch.updateMask].sort().join(",")
+    ) {
+      throw snapshotStale()
+    }
+    if (live.patch.blockingIssues.length > 0) {
+      throw new ApiError(
+        409,
+        "hours_reconciliation_required",
+        live.patch.blockingIssues.join(" ")
+      )
+    }
+    if (live.status === "in_sync") return { kind: "in_sync" }
+    requireConfirmation([live.status])
+    return { kind: "proceed", plan: { patch: live.patch, selection: null } }
+  }
+
+  const selectedKeys = hoursSelectionKeys(input.selection)
+  for (const key of selectedKeys) {
+    if (
+      (live.googleParts[key] ?? null) !==
+      (input.selection.expectedGoogleParts[key] ?? null)
+    ) {
+      throw snapshotStale()
+    }
+  }
+  const requested = buildGoogleHoursPatch({
+    canonical: live.canonical,
+    googleLocation: live.googleLocation,
+    selection: input.selection,
+  })
+  if (requested.blockingIssues.length > 0) {
     throw new ApiError(
       409,
       "hours_reconciliation_required",
-      live.patch.blockingIssues.join(" ")
+      requested.blockingIssues.join(" ")
     )
   }
-  if (live.status === "in_sync") return "in_sync"
-  if (
-    ["google_dirty", "conflict"].includes(live.status) &&
-    !input.confirmOverwriteGoogleChanges
-  ) {
+  const changedKeys = selectedKeys.filter(
+    (key) => live.canonicalParts[key] !== live.googleParts[key]
+  )
+  if (changedKeys.length === 0) return { kind: "in_sync" }
+  const selection = hoursSelectionFromKeys(changedKeys)
+  const patch = buildGoogleHoursPatch({
+    canonical: live.canonical,
+    googleLocation: live.googleLocation,
+    selection,
+  })
+  if (patch.blockingIssues.length > 0) {
     throw new ApiError(
       409,
-      "google_hours_overwrite_confirmation_required",
-      "Google changed independently. Confirm that NabaPresence should overwrite it."
+      "hours_reconciliation_required",
+      patch.blockingIssues.join(" ")
     )
   }
-  return "proceed"
+  if (
+    approvedMask.join(",") !== [...patch.updateMask].sort().join(",") ||
+    patch.updateMask.some((field) => !live.patch.updateMask.includes(field))
+  ) {
+    throw snapshotStale()
+  }
+  requireConfirmation(
+    live.partStatus
+      ? changedKeys.map((key) => live.partStatus?.[key] ?? "in_sync")
+      : [live.status]
+  )
+  return { kind: "proceed", plan: { patch, selection } }
 }
 
 /** durable intent -> validateOnly -> PATCH -> readback -> settle + reconcile + audit */
-async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
+async function publishHoursToGoogle(
+  live: LiveHours,
+  input: PublishHoursInput,
+  plan: PublishPlan
+) {
   const { session, locationId } = input
-  const { linked, accessToken, patch } = live
+  const { linked, accessToken } = live
+  const { patch, selection } = plan
+  const selectedKeys = selection ? hoursSelectionKeys(selection) : null
   const payloadHash = sha256(JSON.stringify(patch.payload))
   const key = idempotencyKey([
     session.organisationId,
@@ -445,6 +561,7 @@ async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
     live.resource.revision,
     live.googleHash,
     payloadHash,
+    selectedKeys ? selectedKeys.join(",") : "all",
   ])
   const patchHours = (validateOnly: boolean) =>
     patchGoogleLocationHours(
@@ -474,6 +591,7 @@ async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
       update_mask: patch.updateMask,
       intended_payload: (sql: TransactionSql) => jsonColumn(sql, patch.payload),
       warnings: (sql: TransactionSql) => jsonColumn(sql, patch.warnings),
+      selection: (sql: TransactionSql) => jsonColumnOrNull(sql, selection),
     },
     inProgress: {
       code: "hours_publish_in_progress",
@@ -500,7 +618,21 @@ async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
         normalizeGoogleHours(
           await fetchGoogleHours(linked, accessToken, { maxAttempts: 3 })
         ),
-      verify: ({ readback }) => hashHours(readback) === live.canonicalHash,
+      // A selective publish verifies the parts it wrote and that every
+      // other day, date and service is still what Google held before.
+      verify: ({ readback }) =>
+        selection
+          ? selectedHoursMatch({
+              readback,
+              intended: patch.intended,
+              selection,
+            }) &&
+            unselectedHoursUnchanged({
+              readback,
+              before: live.google,
+              selection,
+            })
+          : hashHours(readback) === live.canonicalHash,
       hash: hashHours,
     },
     onSuccess: async (sql, ctx) => {
@@ -522,13 +654,23 @@ async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
         baselineCanonicalHash: live.canonicalHash,
         baselineGoogleHash: ctx.readbackHash as string,
         blocked: false,
+        canonicalParts: live.canonicalParts,
+        googleParts: ctx.readback
+          ? hoursPartHashes(ctx.readback)
+          : live.googleParts,
+        establish: { keys: selectedKeys ?? "all" },
       })
     },
     audit: (ctx) => ({
       action: "hours.publish.succeeded",
       subjectType: "hours_sync_attempt",
       subjectId: ctx.attemptId,
-      metadata: { locationId, canonicalRevision: live.resource.revision },
+      metadata: {
+        locationId,
+        canonicalRevision: live.resource.revision,
+        updateMask: patch.updateMask,
+        selectedParts: selectedKeys,
+      },
     }),
   })
 }
@@ -544,10 +686,11 @@ export async function publishCanonicalHours(input: PublishHoursInput) {
     code: "publish_permission_required",
     message: "You cannot publish this location.",
   })
-  if (checkPublishSnapshot(live, input) === "in_sync") {
+  const checked = checkPublishSnapshot(live, input)
+  if (checked.kind === "in_sync") {
     return { status: "in_sync" as const, idempotent: true }
   }
-  const result = await publishHoursToGoogle(live, input)
+  const result = await publishHoursToGoogle(live, input, checked.plan)
   return {
     status: "published" as const,
     attemptId: result.attemptId,

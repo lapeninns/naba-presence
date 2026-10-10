@@ -53,6 +53,7 @@ export const POST = route({
       expectedGoogleHash: body.expectedGoogleHash,
       approvedUpdateMask: body.approvedUpdateMask,
       confirmOverwriteGoogleChanges: body.confirmOverwriteGoogleChanges,
+      selection: body.selection,
       requestId,
     })) satisfies PublishHoursResponse,
 })

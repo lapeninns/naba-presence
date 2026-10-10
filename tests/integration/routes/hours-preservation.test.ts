@@ -4,11 +4,14 @@ import {
   hoursStateSchema,
   type HoursState,
 } from "@/lib/contracts/location-hours"
+import { hoursSelectionRequest } from "@/lib/editors/hours-presentation"
 import {
+  hoursSelectionKeys,
   legacyHoursHash,
   normalizeGoogleHours,
   reconcileLegacyHoursBoundaries,
   type GoogleLocationHours,
+  type HoursSelection,
   type NormalizedHours,
 } from "@/lib/domain/hours"
 import { mixedHoursFixture } from "../../fixtures/hours-preservation"
@@ -107,9 +110,11 @@ describeDatabase("hours legacy transition and replacement routes", () => {
           const normalized = normalizeGoogleHours(
             call.body as GoogleLocationHours
           )
-          expect(
-            normalized.moreHours.map((entry) => entry.hoursTypeId)
-          ).toEqual(["BAR", "KITCHEN"])
+          // A selective publish that leaves services out sends none.
+          if ((call.body as GoogleLocationHours).moreHours)
+            expect(
+              normalized.moreHours.map((entry) => entry.hoursTypeId)
+            ).toEqual(["BAR", "KITCHEN"])
           location = { ...location, ...(call.body as GoogleLocationHours) }
         }
         return { status: 200, json: location }
@@ -144,8 +149,186 @@ describeDatabase("hours legacy transition and replacement routes", () => {
           confirmOverwriteGoogleChanges: false,
         }),
       })
-    return { owner, linked, read, save, publish, provider: () => location }
+    const publishParts = (
+      state: HoursState,
+      selection: HoursSelection,
+      options: { confirm?: boolean } = {}
+    ) => {
+      const request = hoursSelectionRequest(
+        state,
+        hoursSelectionKeys(selection)
+      )
+      return fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          confirmation: "publish_nabapresence_hours_to_google",
+          expectedCanonicalRevision: state.canonicalResource.revision,
+          expectedCanonicalHash: state.canonicalHash,
+          expectedGoogleHash: state.googleHash,
+          confirmOverwriteGoogleChanges: options.confirm ?? false,
+          ...request,
+        }),
+      })
+    }
+    const setProvider = (next: GoogleLocationHours) => {
+      location = next
+    }
+    return {
+      owner,
+      linked,
+      read,
+      save,
+      publish,
+      publishParts,
+      setProvider,
+      provider: () => location,
+    }
   }
+
+  it("publishes only the selected parts, keeps the rest as Google holds it, and classifies what is left as local", async () => {
+    const f = await fixture()
+    const initial = await f.read()
+    expect(initial.status).toBe("in_sync")
+    const edited = structuredClone(initial.canonical)
+    edited.regular[1].periods[0].opensAt = "10:00"
+    edited.special.push({
+      effectiveDate: "2026-12-25",
+      endDate: "2026-12-25",
+      isClosed: true,
+      opensAt: null,
+      closesAt: null,
+    })
+    edited.moreHours = edited.moreHours.map((entry) =>
+      entry.hoursTypeId === "KITCHEN"
+        ? {
+            ...entry,
+            periods: entry.periods.map((period) => ({
+              ...period,
+              closesAt: "16:00",
+            })),
+          }
+        : entry
+    )
+    expect((await f.save(initial, edited)).status).toBe(200)
+    const reviewed = await f.read()
+    expect(reviewed.status).toBe("core_dirty")
+    expect(reviewed.partStatus).toEqual({
+      "more:KITCHEN": "core_dirty",
+      "regular:1": "core_dirty",
+      "special:2026-12-25": "core_dirty",
+    })
+
+    // Google changes an unselected day after review: the special-hours
+    // publish is not stale, and that day is written back untouched.
+    const before = structuredClone(f.provider())
+    const tuesday = {
+      openDay: "TUESDAY",
+      closeDay: "TUESDAY",
+      openTime: { hours: 12, minutes: 0 },
+      closeTime: { hours: 13, minutes: 0 },
+    }
+    f.setProvider({
+      ...before,
+      regularHours: {
+        periods: [...(before.regularHours?.periods ?? []), tuesday],
+      },
+    })
+    const changedOnGoogle = structuredClone(f.provider())
+    const patchesBefore = google.calls.length
+    const published = await f.publishParts(reviewed, {
+      specialDates: ["2026-12-25"],
+    })
+    expect(published.status, await published.clone().text()).toBe(200)
+    const patches = google.calls
+      .slice(patchesBefore)
+      .filter(
+        (call) =>
+          call.method === "PATCH" &&
+          call.path.includes(f.linked.googleLocationName)
+      )
+    expect(patches.length).toBeGreaterThan(0)
+    for (const call of patches) {
+      expect(
+        new URL(call.path, google.baseUrl).searchParams.get("updateMask")
+      ).toBe("specialHours")
+      expect(Object.keys(call.body as object)).toEqual(["specialHours"])
+    }
+    const after = f.provider()
+    expect(after.regularHours).toEqual(changedOnGoogle.regularHours)
+    expect(after.moreHours).toEqual(before.moreHours)
+    expect(
+      normalizeGoogleHours(after).special.map((entry) => entry.effectiveDate)
+    ).toEqual(["2026-12-25", "2026-12-31"])
+    const [attempt] =
+      await admin`select status, update_mask, selection from hours_sync_attempt where organisation_id = ${f.owner.organisationId} and location_id = ${f.linked.locationId} order by created_at desc limit 1`
+    expect(attempt).toEqual({
+      status: "succeeded",
+      update_mask: ["specialHours"],
+      selection: { specialDates: ["2026-12-25"] },
+    })
+
+    // What was left out stays a local change; only Google's Tuesday edit
+    // reads as a Google change.
+    const settled = await f.read()
+    expect(settled.partStatus).toEqual({
+      "more:KITCHEN": "core_dirty",
+      "regular:1": "core_dirty",
+      "regular:2": "google_dirty",
+    })
+    expect(settled.status).toBe("conflict")
+
+    // Publishing a local-only part needs no overwrite confirmation even
+    // though the schedule as a whole has a Google change.
+    const kitchen = await f.publishParts(settled, {
+      moreHoursTypes: ["KITCHEN"],
+    })
+    expect(kitchen.status, await kitchen.clone().text()).toBe(200)
+    expect(f.provider().regularHours).toEqual(changedOnGoogle.regularHours)
+
+    // A stale pin on a selected part is refused; the Google-changed part
+    // needs an explicit overwrite confirmation.
+    const current = await f.read()
+    expect(current.partStatus).toEqual({
+      "regular:1": "core_dirty",
+      "regular:2": "google_dirty",
+    })
+    f.setProvider({
+      ...f.provider(),
+      regularHours: {
+        periods: (f.provider().regularHours?.periods ?? []).map((period) =>
+          period.openDay === "TUESDAY" && period.closeDay === "TUESDAY"
+            ? { ...period, closeTime: { hours: 14, minutes: 0 } }
+            : period
+        ),
+      },
+    })
+    const stale = await f.publishParts(
+      current,
+      { regularDays: [2] },
+      { confirm: true }
+    )
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toMatchObject({ error: "hours_snapshot_stale" })
+    const latest = await f.read()
+    expect(latest.partStatus?.["regular:2"]).toBe("google_dirty")
+    const unconfirmed = await f.publishParts(latest, { regularDays: [2] })
+    expect(unconfirmed.status).toBe(409)
+    expect(await unconfirmed.json()).toMatchObject({
+      error: "google_hours_overwrite_confirmation_required",
+    })
+    const confirmed = await f.publishParts(
+      latest,
+      { regularDays: [2] },
+      { confirm: true }
+    )
+    expect(confirmed.status, await confirmed.clone().text()).toBe(200)
+    const final = await f.read()
+    expect(final.partStatus).toEqual({ "regular:1": "core_dirty" })
+    expect(final.status).toBe("core_dirty")
+    expect(final.google.regular[2]).toEqual(final.canonical.regular[2])
+    expect(final.google.regular[1]).toEqual(initial.google.regular[1])
+  }, 30_000)
 
   it("reconciles legacy boundaries explicitly, preserves local edits and old baselines, and rejects old reviews", async () => {
     const f = await fixture()
