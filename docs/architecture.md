@@ -634,7 +634,27 @@ hash), so `verify` compares the provider against exactly the intent the
 stranded row carries. A row with no recorded start time, and a surface with no
 `readback`, keep the plain 409 — there is nothing to compare against.
 
-Recovery needs a request to arrive, so it only ever reaches a row somebody
+Receipts are recovered without a request. A receipt
+(`mutation_operation`) settled `uncertain` is due for the job runner's
+`mutation_recover` kind two minutes later (`RECOVERY_FIRST_DELAY_SECONDS` in
+`lib/server/mutation-operations.ts`; at once when the retention cron aged it).
+`lib/server/mutation-recovery.ts` rechecks the actor with
+`recheckAuthorisation` (read access, same connection; not the credential
+generation, which a reconnect renews), reads Google through the surface's
+adapter in `lib/server/mutation-recovery-registry.ts` and compares it with the
+intent the attempt row recorded before dispatch. Hours compares a whole
+schedule with the pinned canonical hash and a selective publish (0068
+`selection`) with its selected parts only. A landed write settles the attempt
+`succeeded` and the receipt `confirmed_applied` (`awaiting_confirmation` when
+the readback only identifies it, as for a post or place-action create); a
+write that did not land settles both `failed`; nothing is re-sent. Unreadable
+reads back off up to eight counted attempts, reconnect-blocked connections
+park without counting, and a receipt nothing can resolve stays `uncertain`,
+leaves the queue and notifies the owners and admins (`mutation_unconfirmed`).
+Writes made without an intent have no receipt and keep the request-driven
+recovery below.
+
+Request-driven recovery needs a request to arrive, so it only ever reaches a row somebody
 comes back to under the same key, and the usual repair — edit the canonical
 resource and publish again — mints a different one. The retention cron
 (`app/api/cron/retention/route.ts`) reaps the remainder: a row left in any

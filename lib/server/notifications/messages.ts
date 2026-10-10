@@ -13,9 +13,22 @@ export type IncidentKind =
   | "connection_owner_left"
   | "ai_credits_low"
   | "ai_credits_exhausted"
+  | "mutation_unconfirmed"
 
 function text(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback
+}
+
+/** How an unconfirmed change is named, by operation surface. */
+const SURFACE_LABEL: Record<string, string> = {
+  hours: "An opening hours change",
+  profile: "A profile change",
+  food_menus: "A menu change",
+  business_information: "A business information change",
+  industry: "A change to industry details",
+  local_post: "A post",
+  place_action: "A booking or ordering link change",
+  media: "A photo or video change",
 }
 
 const FOOTER =
@@ -115,6 +128,20 @@ export function renderIncidentEmail(
           `All of this month's AI reply credits have been used. Credits reset on ${resets}.`,
           "Until then the Generate button is off, but you can still write and publish replies yourself.",
           `Usage: ${link("/settings")}`,
+          "",
+          FOOTER,
+        ].join("\n"),
+      }
+    }
+    case "mutation_unconfirmed": {
+      const title = text(summary.title, "one of your listings")
+      const what = SURFACE_LABEL[text(summary.surface, "")] ?? "A change"
+      return {
+        subject: `Check Google: a change to ${title} could not be confirmed`,
+        text: [
+          `${what} sent to Google for ${title} may or may not have been applied. Google did not confirm it, and NabaPresence could not find out by reading the listing back.`,
+          "Nothing will be sent again automatically. Check the listing on Google, then make the change again in NabaPresence only if it is missing.",
+          `Listings: ${link("/listings")}`,
           "",
           FOOTER,
         ].join("\n"),

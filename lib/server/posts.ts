@@ -44,6 +44,11 @@ import {
   requireLocationAccess,
   requireLocationAction,
 } from "@/lib/server/permissions"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 // Request/response shapes live in the contract; the old names stay exported
@@ -1662,3 +1667,106 @@ export async function deleteLocalPost(input: {
   }
   return { status: "deleted" as const }
 }
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type LocalPostRecoveryAttempt = RecoveryAttempt & {
+  operation: "create" | "update" | "delete"
+  intendedPayload: Record<string, unknown>
+  postLocationId: string
+  googlePostName: string | null
+  /** Google names other rows of this tenant already hold. */
+  claimedNames: string[]
+}
+
+/**
+ * Reads an uncertain post write back from Google:
+ *
+ *   create   a live post carrying the content sent and claimed by no other
+ *            row is the create (matchLivePost, identified by content, so
+ *            `awaiting_confirmation`); the row adopts its name. None means
+ *            the list has spoken and nothing was published.
+ *   update   the post's content compared with what was sent after Google's
+ *            normalisation (lib/domain/readback/posts.ts); a mismatch is an
+ *            update that did not apply, safe to send again.
+ *   delete   the post is no longer listed.
+ *
+ * The settle is localPostAttempts.settle, so the post row moves exactly as
+ * it does when the publish settles itself.
+ */
+export const localPostRecoveryAdapter: RecoveryAdapter<LocalPostRecoveryAttempt> =
+  {
+    surface: "local_post",
+    attemptTable: "gbp_local_post_attempt",
+    async load(sql, attemptId) {
+      const [row] = await sql<Omit<LocalPostRecoveryAttempt, "claimedNames">[]>`
+        select
+          a.id::text as id,
+          a.status as "rawStatus",
+          a.started_at as "startedAt",
+          a.operation,
+          a.intended_payload as "intendedPayload",
+          p.location_id::text as "postLocationId",
+          p.google_post_name as "googlePostName"
+        from gbp_local_post_attempt a
+        join gbp_local_post p on p.id = a.post_id
+        where a.id = ${attemptId}
+      `
+      if (!row) return null
+      const held = await sql<{ googlePostName: string }[]>`
+        select google_post_name as "googlePostName"
+        from gbp_local_post
+        where google_post_name is not null
+      `
+      return { ...row, claimedNames: held.map((item) => item.googlePostName) }
+    },
+    async readback({ attempt, link }) {
+      if (attempt.postLocationId !== link.locationId) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      if (attempt.operation === "create") {
+        if (attempt.googlePostName) {
+          // Named since by another path: the create is what it named.
+          return {
+            kind: "landed",
+            confirmed: false,
+            response: await getGoogleLocalPost(
+              await link.accessToken(),
+              attempt.googlePostName,
+              { connectionKey: link.googleConnectionId }
+            ),
+          }
+        }
+        const match = matchLivePost(
+          await fetchLiveLocalPosts(link),
+          attempt.intendedPayload,
+          new Set(attempt.claimedNames)
+        )
+        return match
+          ? { kind: "landed", confirmed: false, response: match }
+          : { kind: "not_landed", errorCode: "google_post_not_published" }
+      }
+      if (!attempt.googlePostName) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      if (attempt.operation === "delete") {
+        const listed = (await fetchLiveLocalPosts(link)).some(
+          (item) => stringOrNull(item.name) === attempt.googlePostName
+        )
+        return listed
+          ? { kind: "not_landed", errorCode: "google_post_not_deleted" }
+          : { kind: "landed", confirmed: true }
+      }
+      const current = await getGoogleLocalPost(
+        await link.accessToken(),
+        attempt.googlePostName,
+        { connectionKey: link.googleConnectionId }
+      )
+      return localPostMismatches(current, attempt.intendedPayload).length === 0
+        ? { kind: "landed", confirmed: true, response: current }
+        : { kind: "not_landed", errorCode: "google_post_update_unconfirmed" }
+    },
+    settle: storeSettle(localPostAttempts),
+  }

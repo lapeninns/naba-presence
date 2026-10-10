@@ -39,6 +39,11 @@ import {
 } from "@/lib/server/google"
 import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 const PROFILE_READ_MASK = [
@@ -736,4 +741,76 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
     attemptId: result.attemptId,
     idempotent: result.idempotent,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type ProfileRecoveryAttempt = RecoveryAttempt & {
+  externalLocationId: string
+  direction: string
+  selectedFields: ProfileFieldKey[]
+  updateMask: string[]
+  intendedPayload: GoogleLocationProfile
+}
+
+/** The Google mask entry each publishable field is written under. */
+const PROFILE_FIELD_MASK: Partial<Record<ProfileFieldKey, string>> = {
+  name: "title",
+  description: "profile",
+  phone: "phoneNumbers",
+  website: "websiteUri",
+}
+
+/**
+ * Reads an uncertain profile publish back field by field, as the publish's
+ * own readback does: every selected field the patch wrote must hash equal
+ * to the value the recorded payload carried, after the same normalisation.
+ */
+export const profileRecoveryAdapter: RecoveryAdapter<ProfileRecoveryAttempt> = {
+  surface: "profile",
+  attemptTable: "profile_sync_attempt",
+  async load(sql, attemptId) {
+    const [row] = await sql<ProfileRecoveryAttempt[]>`
+      select
+        id::text as id,
+        status as "rawStatus",
+        started_at as "startedAt",
+        external_location_id::text as "externalLocationId",
+        direction,
+        selected_fields as "selectedFields",
+        update_mask as "updateMask",
+        intended_payload as "intendedPayload"
+      from profile_sync_attempt
+      where id = ${attemptId}
+    `
+    return row ?? null
+  },
+  async readback({ attempt, link }) {
+    const written = attempt.selectedFields.filter((key) => {
+      const mask = PROFILE_FIELD_MASK[key]
+      return mask !== undefined && attempt.updateMask.includes(mask)
+    })
+    if (
+      attempt.direction !== "to_google" ||
+      written.length === 0 ||
+      attempt.externalLocationId !== link.externalLocationId
+    ) {
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    }
+    const readback = normalizeGoogleProfile(
+      await fetchGoogleProfile(link, await link.accessToken(), {
+        maxAttempts: 3,
+      })
+    )
+    const intended = normalizeGoogleProfile(attempt.intendedPayload)
+    const landed = written.every(
+      (key) => hashProfileValue(intended[key]) === hashProfileValue(readback[key])
+    )
+    return landed
+      ? { kind: "landed", confirmed: true, responseHash: hashProfile(readback) }
+      : { kind: "not_landed", errorCode: "google_readback_mismatch" }
+  },
+  settle: storeSettle(profileAttempts),
 }

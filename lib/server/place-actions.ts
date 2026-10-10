@@ -37,6 +37,11 @@ import {
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 // Request/response shapes live in the contract; the old names stay exported
@@ -603,3 +608,110 @@ export async function removePlaceAction(input: {
     }),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type PlaceActionRecoveryAttempt = RecoveryAttempt & {
+  externalLocationId: string
+  operation: PlaceActionOperation
+  requestedPayload: PlaceActionInput | null
+  /** The stored link an update or delete targeted. */
+  googleLinkName: string | null
+}
+
+const settlePlaceActionAttempt = storeSettle(placeActionAttempts)
+
+/**
+ * Reads an uncertain place-action write back from Google's live links:
+ *
+ *   create   a live link with the requested uri and type is the create
+ *            (identified by content, as the create's own recovery does, so
+ *            `awaiting_confirmation`); none means nothing was created
+ *   update   the targeted link carries the requested values
+ *   delete   the targeted link is no longer listed
+ */
+export const placeActionRecoveryAdapter: RecoveryAdapter<PlaceActionRecoveryAttempt> =
+  {
+    surface: "place_action",
+    attemptTable: "place_action_mutation",
+    async load(sql, attemptId) {
+      const [row] = await sql<PlaceActionRecoveryAttempt[]>`
+        select
+          m.id::text as id,
+          m.status as "rawStatus",
+          m.started_at as "startedAt",
+          m.external_location_id::text as "externalLocationId",
+          m.operation,
+          m.requested_payload as "requestedPayload",
+          coalesce(m.google_link_name, l.google_link_name) as "googleLinkName"
+        from place_action_mutation m
+        left join place_action_link l on l.id = m.place_action_link_id
+        where m.id = ${attemptId}
+      `
+      return row ?? null
+    },
+    async readback({ attempt, link }) {
+      if (attempt.externalLocationId !== link.externalLocationId) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      const token = await link.accessToken()
+      const google = { connectionKey: link.googleConnectionId }
+      const payload = attempt.requestedPayload
+      if (attempt.operation === "create") {
+        if (!payload) {
+          return { kind: "unverifiable", errorCode: "recovery_unsupported" }
+        }
+        const live = await listGooglePlaceActionLinks(
+          token,
+          link.googleLocationName,
+          google
+        )
+        const created = live.find((candidate) =>
+          matchesPayload(candidate as GoogleRecord, payload)
+        )
+        return created
+          ? { kind: "landed", confirmed: false, response: created }
+          : { kind: "not_landed", errorCode: "place_action_not_created" }
+      }
+      if (!attempt.googleLinkName) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      if (attempt.operation === "update") {
+        if (!payload) {
+          return { kind: "unverifiable", errorCode: "recovery_unsupported" }
+        }
+        const current = await getGooglePlaceActionLink(
+          token,
+          attempt.googleLinkName,
+          google
+        )
+        return matchesPayload(current, payload)
+          ? { kind: "landed", confirmed: true, response: current }
+          : { kind: "not_landed", errorCode: "place_action_readback_mismatch" }
+      }
+      const live = await listGooglePlaceActionLinks(
+        token,
+        link.googleLocationName,
+        google
+      )
+      return live.some((candidate) => candidate.name === attempt.googleLinkName)
+        ? { kind: "not_landed", errorCode: "place_action_delete_mismatch" }
+        : { kind: "landed", confirmed: true }
+    },
+    async settle(sql, input) {
+      const written = await settlePlaceActionAttempt(sql, input)
+      if (written && input.verdict.kind === "landed") {
+        const name =
+          linkNameOf(input.verdict.response as GoogleRecord | undefined) ??
+          input.attempt.googleLinkName
+        await sql`
+          update place_action_mutation
+          set google_link_name = ${name ?? null}
+          where id = ${input.attempt.id}
+        `
+      }
+      return written
+    },
+  }

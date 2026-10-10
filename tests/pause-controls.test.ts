@@ -162,13 +162,14 @@ describe("createPauseReader", () => {
 
 describe("claimableKinds", () => {
   it("claims every kind when nothing is paused", () => {
-    expect(claimableKinds(env, NO_PAUSES)).toHaveLength(8)
+    expect(claimableKinds(env, NO_PAUSES)).toHaveLength(9)
   })
 
   it("drops the publish kinds for a publish pause in the table", () => {
     const kinds = claimableKinds(env, paused("publish"))
     expect(kinds).not.toContain("recover")
     expect(kinds).not.toContain("retry")
+    expect(kinds).not.toContain("mutation_recover")
     expect(kinds).toContain("webhook")
   })
 
@@ -178,6 +179,7 @@ describe("claimableKinds", () => {
       "retry",
       "performance",
       "keywords",
+      "mutation_recover",
     ])
     expect(claimableKinds(env, paused("keywords"))).not.toContain("keywords")
   })

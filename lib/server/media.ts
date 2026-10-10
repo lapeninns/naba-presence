@@ -41,6 +41,11 @@ import {
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 import { DEFAULT_MEDIA_PAGE_SIZE, MAX_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 
@@ -793,4 +798,78 @@ export async function removeMedia(input: {
       metadata: { googleMediaName: item.googleMediaName },
     },
   })
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type MediaRecoveryAttempt = RecoveryAttempt & {
+  operation: MediaOperation
+  requestedPayload: Record<string, unknown> | null
+  googleMediaName: string | null
+}
+
+/**
+ * Reads an uncertain media write back. An update landed when the item holds
+ * the requested category; a delete when Google answers 404 for the item.
+ * A create cannot be identified: Google names the new item only in the
+ * response that was lost, and a photo's bytes are not searchable, so the
+ * receipt is handed to a person (`media_create_unverifiable`). The upload
+ * checkpoints that would let it be resolved belong to P03-S5.
+ */
+export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
+  surface: "media",
+  attemptTable: "gbp_media_mutation",
+  async load(sql, attemptId) {
+    const [row] = await sql<MediaRecoveryAttempt[]>`
+      select
+        m.id::text as id,
+        m.status as "rawStatus",
+        -- gbp_media_mutation has no started_at; created_at is written in the
+        -- statement that opens the attempt (see the retention reaper).
+        m.created_at as "startedAt",
+        m.operation,
+        m.requested_payload as "requestedPayload",
+        i.google_media_name as "googleMediaName"
+      from gbp_media_mutation m
+      left join gbp_media_item i on i.id = m.media_item_id
+      where m.id = ${attemptId}
+    `
+    return row ?? null
+  },
+  async readback({ attempt, link }) {
+    if (attempt.operation === "create") {
+      return { kind: "unverifiable", errorCode: "media_create_unverifiable" }
+    }
+    if (!attempt.googleMediaName) {
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    }
+    const token = await link.accessToken()
+    if (attempt.operation === "delete") {
+      try {
+        await getGoogleMediaItem(
+          token,
+          attempt.googleMediaName,
+          mediaTransport(link)
+        )
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return { kind: "landed", confirmed: true }
+        }
+        throw error
+      }
+      return { kind: "not_landed", errorCode: "media_delete_mismatch" }
+    }
+    const current = await getGoogleMediaItem(
+      token,
+      attempt.googleMediaName,
+      mediaTransport(link)
+    )
+    const category = attempt.requestedPayload?.category
+    return typeof category === "string" && mediaCategoryOf(current) === category
+      ? { kind: "landed", confirmed: true, response: current }
+      : { kind: "not_landed", errorCode: "media_readback_mismatch" }
+  },
+  settle: storeSettle(mediaAttempts),
 }

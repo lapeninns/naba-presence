@@ -185,7 +185,8 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 row per scope: `jobs`, `publish`, `sync`, `notifications`, `retention`,
 `drafts`, the Google surfaces (`profileWrites`, `posts`, `media`,
 `placeActions`, `foodMenus`, `performance`, `keywords`) and the reserved
-`scheduled_post`, `bulk`, `billing`, `mutation_recover`, `invitation_email`.
+`scheduled_post`, `bulk`, `billing`, `invitation_email`, plus
+`mutation_recover` (the uncertain-write recovery kind).
 A paused row has the same effect as its env flag being off, at the same
 places: the runner's claim, provider dispatch (`runGbpWrite`, the reply
 pipeline, and the post and reply approval routes before any decision is
@@ -379,6 +380,27 @@ nobody observed. The audit row is the operator's handle. Search for
 `review.reply.recovery_exhausted`, `review.reply.reconnect_abandoned` and
 `review.reply.connection_disconnected`, read the live reply on Google, and
 settle the review by hand.
+
+Uncertain listing writes (hours, profile, menus, business information,
+attributes, industry, posts, place actions, media) are recovered the same way
+by the `mutation_recover` kind (`lib/server/mutation-recovery.ts`, claim arm in
+`supabase/migrations/0073_mutation_recovery_jobs.sql`). It claims
+`mutation_operation` receipts in state `uncertain` whose `next_recovery_at` is
+due, rechecks the actor's authorisation, reads Google back through the
+surface's adapter and settles the receipt and its attempt row: `confirmed_applied`
+(or `awaiting_confirmation` for a create identified by content) when the
+write landed, `failed` when it did not. It never sends the write again; a
+`failed` receipt is re-sent by a person from the editor. The same ladder
+applies: an unreadable Google backs off and counts, eight counted failures
+stop it as `recovery_exhausted`, a reconnect-blocked connection parks for 15
+minutes without counting and is abandoned after 14 days
+(`reconnect_abandoned`), and a disconnected location stops at once
+(`connection_disconnected`). A write no readback can identify (a media create)
+stops as `media_create_unverifiable`. A stopped receipt stays `uncertain`
+with `next_recovery_at` null, is audited as `mutation.recovery_abandoned`, and
+opens a `mutation_unconfirmed` notification to the owners and admins asking
+them to check Google. The kind answers to `PUBLISH_ENABLED`, the `publish`
+pause and its own `mutation_recover` pause.
 
 If automatic work is blocked, an engineer may invoke the exported
 `recoverAttempt({ organisationId, attemptId })` escape hatch from

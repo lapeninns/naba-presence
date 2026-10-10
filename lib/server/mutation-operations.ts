@@ -238,6 +238,29 @@ export async function linkOperationAttempt(
 }
 
 /**
+ * How long after a write turns `uncertain` the recovery job (job kind
+ * `mutation_recover`, lib/server/mutation-recovery.ts) first reads Google
+ * back. Not at once: a PATCH that timed out may still be applying, and a
+ * readback taken too early would call a write that is about to land
+ * "not applied".
+ */
+export const RECOVERY_FIRST_DELAY_SECONDS = 120
+
+/**
+ * The `next_recovery_at` an outcome sets: settling into `uncertain` enqueues
+ * the receipt for recovery; any other outcome takes it off the queue.
+ */
+function recoveryDue(
+  sql: TransactionSql,
+  state: OperationOutcome,
+  recoverAfterSeconds = RECOVERY_FIRST_DELAY_SECONDS
+) {
+  return state === "uncertain"
+    ? sql`next_recovery_at = now() + make_interval(secs => ${Math.max(0, recoverAfterSeconds)})`
+    : sql`next_recovery_at = null`
+}
+
+/**
  * Settles every receipt still `sent` for one attempt: this request's own
  * and any that an interrupted earlier request left behind on the same row.
  */
@@ -250,6 +273,8 @@ export async function settleOperationsForAttempt(
     state: OperationOutcome
     errorCode: string | null
     receipt: StoredReceipt
+    /** When an `uncertain` receipt is first read back; see `recoveryDue`. */
+    recoverAfterSeconds?: number
   }
 ): Promise<MutationOperation[]> {
   if (!input.attemptTable) return []
@@ -258,6 +283,7 @@ export async function settleOperationsForAttempt(
     set state = ${input.state},
       error_code = ${input.errorCode},
       receipt = ${jsonColumn(sql, input.receipt)},
+      ${recoveryDue(sql, input.state, input.recoverAfterSeconds)},
       updated_at = now()
     where organisation_id = ${input.organisationId}
       and attempt_table = ${input.attemptTable}
@@ -282,6 +308,8 @@ export async function settleOperationsForAttempts(
     state: OperationOutcome
     attemptStatus: string
     errorCode: string | null
+    /** When an `uncertain` receipt is first read back; see `recoveryDue`. */
+    recoverAfterSeconds?: number
   }
 ): Promise<number> {
   if (input.attemptIds.length === 0) return 0
@@ -294,6 +322,7 @@ export async function settleOperationsForAttempts(
         'attemptStatus', ${input.attemptStatus}::text,
         'rawStatus', ${input.attemptStatus}::text
       ),
+      ${recoveryDue(sql, input.state, input.recoverAfterSeconds)},
       updated_at = now()
     where attempt_table = ${input.attemptTable}
       and attempt_id = any(${input.attemptIds as string[]}::uuid[])
@@ -301,6 +330,134 @@ export async function settleOperationsForAttempts(
     returning id
   `
   return settled.length
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (job kind `mutation_recover`, lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+/** An uncertain receipt as the recovery job reads it. */
+export type RecoveryOperation = {
+  id: string
+  organisationId: string
+  surface: string
+  action: string
+  actorUserId: string | null
+  locationId: string | null
+  targetRef: string | null
+  googleConnectionId: string | null
+  attemptTable: string | null
+  attemptId: string | null
+  recoveryAttempts: number
+  createdAt: Date
+}
+
+/** The receipt, while it is still `uncertain`; null once anything settled it. */
+export async function loadUncertainOperation(
+  sql: TransactionSql,
+  operationId: string
+): Promise<RecoveryOperation | null> {
+  const [row] = await sql<RecoveryOperation[]>`
+    select
+      id::text as id,
+      organisation_id::text as "organisationId",
+      surface,
+      action,
+      actor_user_id::text as "actorUserId",
+      location_id::text as "locationId",
+      target_ref as "targetRef",
+      google_connection_id::text as "googleConnectionId",
+      attempt_table as "attemptTable",
+      attempt_id::text as "attemptId",
+      recovery_attempts as "recoveryAttempts",
+      created_at as "createdAt"
+    from mutation_operation
+    where id = ${operationId}
+      and state = 'uncertain'
+  `
+  return row ?? null
+}
+
+/**
+ * Settles every receipt waiting on one attempt once recovery has read the
+ * provider: `sent` ones (an interrupted request's) and `uncertain` ones
+ * (this job's own and any other intent that joined the row). They share the
+ * attempt, so they share its truth.
+ */
+export async function settleRecoveredOperations(
+  sql: TransactionSql,
+  input: {
+    attemptTable: string
+    attemptId: string
+    state: OperationOutcome
+    errorCode: string | null
+    receipt: StoredReceipt
+  }
+): Promise<number> {
+  const settled = await sql`
+    update mutation_operation
+    set state = ${input.state},
+      error_code = ${input.errorCode},
+      receipt = ${jsonColumn(sql, input.receipt)},
+      next_recovery_at = null,
+      lease_expires_at = null,
+      updated_at = now()
+    where attempt_table = ${input.attemptTable}
+      and attempt_id = ${input.attemptId}
+      and state in ('sent', 'uncertain')
+    returning id
+  `
+  return settled.length
+}
+
+/**
+ * Puts an uncertain receipt back on the queue. `countAttempt` spends one of
+ * its readbacks (an unreadable provider); a park or a row another request
+ * holds does not.
+ */
+export async function rescheduleRecovery(
+  sql: TransactionSql,
+  input: {
+    operationId: string
+    at: Date
+    errorCode: string
+    countAttempt: boolean
+  }
+): Promise<void> {
+  await sql`
+    update mutation_operation
+    set next_recovery_at = ${input.at},
+      lease_expires_at = null,
+      error_code = ${input.errorCode},
+      recovery_attempts = recovery_attempts + ${input.countAttempt ? 1 : 0},
+      updated_at = now()
+    where id = ${input.operationId}
+      and state = 'uncertain'
+  `
+}
+
+/**
+ * Stops recovering a receipt that stays `uncertain`: nothing can establish
+ * what Google holds, so a person has to look. The receipt keeps telling the
+ * truth (`uncertain`), with `errorCode` saying why recovery stopped; a null
+ * next_recovery_at keeps it out of the claim. True when this call stopped it.
+ */
+export async function abandonRecovery(
+  sql: TransactionSql,
+  input: { operationId: string; errorCode: string; countAttempt?: boolean }
+): Promise<boolean> {
+  const stopped = await sql`
+    update mutation_operation
+    set next_recovery_at = null,
+      lease_expires_at = null,
+      error_code = ${input.errorCode},
+      recovery_attempts = recovery_attempts + ${input.countAttempt ? 1 : 0},
+      updated_at = now()
+    where id = ${input.operationId}
+      and state = 'uncertain'
+    returning id
+  `
+  return stopped.length > 0
 }
 
 // ---------------------------------------------------------------------------

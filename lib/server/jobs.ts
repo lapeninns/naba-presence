@@ -59,6 +59,12 @@ import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { syncDueKeywords } from "@/lib/server/keywords"
 import { log } from "@/lib/server/logger"
 import {
+  MUTATION_RECOVER_SCOPES,
+  recoverMutationOperation,
+  settleMutationRecoveryFailure,
+} from "@/lib/server/mutation-recovery"
+import { recoveryDeps } from "@/lib/server/mutation-recovery-registry"
+import {
   gbpIngestionScopes,
   loadPauseSnapshot,
   pausedScopes,
@@ -76,9 +82,10 @@ import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 
 /**
- * What the runner knows how to do. The last three are recurring
- * per-location syncs (0048): their crons only enqueue, and the runner is what
- * reaches every organisation.
+ * What the runner knows how to do. `reconcile`, `performance` and `keywords`
+ * are recurring per-location syncs (0048): their crons only enqueue, and the
+ * runner is what reaches every organisation. `mutation_recover` reads back
+ * uncertain listing writes (0073, lib/server/mutation-recovery.ts).
  */
 const JOB_KINDS = [
   "webhook",
@@ -89,6 +96,7 @@ const JOB_KINDS = [
   "reconcile",
   "performance",
   "keywords",
+  "mutation_recover",
 ] as const
 
 const RECURRING_KINDS = new Set<JobKind>([
@@ -116,6 +124,8 @@ export type JobSummary = {
   dead: number
   /** Recurring reconcile, performance and keyword runs. */
   recurring: number
+  /** Uncertain listing writes read back (`mutation_recover`). */
+  recoveries: number
 }
 
 /** What one tick shares with every item it runs. */
@@ -166,8 +176,10 @@ function recoveryDelayMs(attempts: number) {
 }
 
 /**
- * The scopes each kind answers to. The publish kinds stop with `publish`,
- * the ingestion kinds with their own surface (as their routes do), and every
+ * The scopes each kind answers to. The publish kinds stop with `publish`
+ * (`mutation_recover` also with its own `mutation_recover` scope, so an
+ * operator can hold recovery readbacks alone), the ingestion kinds with
+ * their own surface (as their routes do), and every
  * other kind with `sync`, exactly as the runbook describes them; `jobs`
  * paused claims nothing at all.
  */
@@ -176,6 +188,8 @@ function kindScopes(kind: JobKind): PauseScope[] {
     case "recover":
     case "retry":
       return ["publish"]
+    case "mutation_recover":
+      return [...MUTATION_RECOVER_SCOPES]
     case "performance":
       return gbpIngestionScopes("performance")
     case "keywords":
@@ -822,6 +836,19 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
         return
       }
 
+      case "mutation_recover": {
+        const result = await recoverMutationOperation(
+          {
+            organisationId: job.organisationId,
+            operationId: job.jobId,
+            requestId: tick.requestId,
+          },
+          recoveryDeps()
+        )
+        if (result !== "skipped") tick.summary.recoveries += 1
+        return
+      }
+
       case "recover":
       case "retry": {
         const result =
@@ -843,6 +870,17 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
         await deferRecurring(job, error)
       } else if (job.kind === "checkpoint") {
         await rescheduleCheckpoint(job, error)
+      } else if (job.kind === "mutation_recover") {
+        tick.summary.recoveries += 1
+        await settleMutationRecoveryFailure(
+          {
+            organisationId: job.organisationId,
+            operationId: job.jobId,
+            requestId: tick.requestId,
+          },
+          error,
+          recoveryDeps()
+        )
       } else {
         tick.summary.attempts += 1
         if (job.kind === "recover") {
@@ -890,6 +928,7 @@ export async function runDueJobs(options: {
     attempts: 0,
     dead: 0,
     recurring: 0,
+    recoveries: 0,
   }
 
   const pauses = await loadPauseSnapshot()

@@ -53,6 +53,11 @@ import {
 } from "@/lib/server/google"
 import { recordHoursObservation } from "@/lib/server/hours-observations"
 import { ApiError } from "@/lib/server/http"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 const HOURS_READ_MASK = [
@@ -719,4 +724,69 @@ export async function publishCanonicalHours(input: PublishHoursInput) {
     attemptId: result.attemptId,
     idempotent: result.idempotent,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type HoursRecoveryAttempt = RecoveryAttempt & {
+  externalLocationId: string
+  intendedPayload: GoogleLocationHours
+  pinnedCanonicalHash: string
+  selection: HoursSelection | null
+}
+
+/**
+ * Reads an uncertain hours publish back against the intent its attempt row
+ * pinned. A whole-schedule publish landed when the live schedule hashes to
+ * the pinned canonical hash; a selective publish (0068 `selection`) landed
+ * when every part it selected equals the payload it sent, which for a
+ * selective publish carries exactly the merged selected parts. Parts the
+ * publish did not select are not evidence either way: Google or a person may
+ * have changed them since, and the write never touched them.
+ */
+export const hoursRecoveryAdapter: RecoveryAdapter<HoursRecoveryAttempt> = {
+  surface: "hours",
+  attemptTable: "hours_sync_attempt",
+  async load(sql, attemptId) {
+    const [row] = await sql<HoursRecoveryAttempt[]>`
+      select
+        id::text as id,
+        status as "rawStatus",
+        started_at as "startedAt",
+        external_location_id::text as "externalLocationId",
+        intended_payload as "intendedPayload",
+        pinned_canonical_hash as "pinnedCanonicalHash",
+        selection
+      from hours_sync_attempt
+      where id = ${attemptId}
+    `
+    return row ?? null
+  },
+  async readback({ attempt, link }) {
+    if (attempt.externalLocationId !== link.externalLocationId) {
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    }
+    const readback = normalizeGoogleHours(
+      await fetchGoogleHours(link, await link.accessToken(), {
+        maxAttempts: 3,
+      })
+    )
+    const landed = attempt.selection
+      ? selectedHoursMatch({
+          readback,
+          intended: normalizeGoogleHours(attempt.intendedPayload),
+          selection: attempt.selection,
+        })
+      : hashHours(readback) === attempt.pinnedCanonicalHash
+    return landed
+      ? {
+          kind: "landed",
+          confirmed: true,
+          responseHash: hashHours(readback),
+        }
+      : { kind: "not_landed", errorCode: "google_readback_mismatch" }
+  },
+  settle: storeSettle(hoursAttempts),
 }

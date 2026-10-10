@@ -25,10 +25,12 @@ import {
   cacheGbpSnapshotAfterWrite,
   gbpManagementAttemptStore,
   gbpManagementIdempotencyKey,
+  loadManagementRecoveryAttempt,
   requireFreshMaskedBaseline,
   resolveGbpLocationContext,
   stableGoogleHash,
   type GbpLocationContext,
+  type ManagementRecoveryAttempt,
 } from "@/lib/server/gbp-management"
 import {
   hasGbpAttempt,
@@ -37,6 +39,11 @@ import {
 } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
 import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 async function context(session: Session, locationId: string) {
@@ -365,4 +372,87 @@ export async function mutateIndustryManagement(input: {
     response: result.readback,
     idempotent: false,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads an uncertain lodging or healthcare serviceList PATCH back with the
+ * comparison its own readback uses (lib/domain/readback/industry.ts):
+ * lodging groups whole, serviceList as a contains check. The resource name
+ * the row recorded must still be the location's (industryResourceName).
+ */
+export const industryRecoveryAdapter: RecoveryAdapter<
+  ManagementRecoveryAttempt & RecoveryAttempt
+> = {
+  surface: "industry",
+  attemptTable: "gbp_management_mutation",
+  load: loadManagementRecoveryAttempt,
+  async readback({ attempt, link }) {
+    if (
+      attempt.resourceType !== "lodging" &&
+      attempt.resourceType !== "healthcare_services"
+    ) {
+      return { kind: "unverifiable", errorCode: "recovery_unsupported" }
+    }
+    const lodging = attempt.resourceType === "lodging"
+    // The account name is the first two segments of the recorded
+    // serviceList name, the same one industryResourceName builds.
+    const accountName = lodging
+      ? null
+      : (attempt.targetResourceName ?? "").split("/").slice(0, 2).join("/")
+    const expectedName = lodging
+      ? industryResourceName("lodging", {
+          accountName: "",
+          googleLocationName: link.googleLocationName,
+        })
+      : industryResourceName("healthcare_services", {
+          accountName: accountName ?? "",
+          googleLocationName: link.googleLocationName,
+        })
+    if (!accountName && !lodging) {
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    }
+    if (attempt.targetResourceName !== expectedName) {
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    }
+    const token = await link.accessToken()
+    const options = { connectionKey: link.googleConnectionId }
+    const readback = lodging
+      ? await googleLodgingApi(
+          token,
+          { locationName: link.googleLocationName, operation: "get" },
+          options
+        )
+      : await googleHealthcareApi(
+          token,
+          {
+            accountName: accountName as string,
+            locationName: link.googleLocationName,
+            resource: "serviceList",
+          },
+          options
+        )
+    if (!isRecord(readback)) {
+      throw new GoogleMutationAmbiguousError(
+        "Google did not return the resource on readback."
+      )
+    }
+    return industryMismatches(
+      attempt.updateMask,
+      isRecord(attempt.requestedPayload) ? attempt.requestedPayload : {},
+      readback,
+      { wholeGroups: lodging }
+    ).length === 0
+      ? {
+          kind: "landed",
+          confirmed: true,
+          response: readback,
+          responseHash: stableGoogleHash(readback),
+        }
+      : { kind: "not_landed", errorCode: "industry_readback_mismatch" }
+  },
+  settle: storeSettle(gbpManagementAttemptStore),
 }

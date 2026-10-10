@@ -422,7 +422,11 @@ async function retain({
         `
         // The receipts linked to those rows (lib/server/mutation-operations.ts)
         // settle with them: left `sent`, GET /api/mutations/{id} would keep
-        // reporting a write in flight that is now of unknown outcome.
+        // reporting a write in flight that is now of unknown outcome. Settled
+        // `uncertain`, they are due for recovery at once (job kind
+        // `mutation_recover`, lib/server/mutation-recovery.ts), which reads
+        // Google back and settles the receipt and its row: the aging only
+        // hands the row to recovery, it is no longer where the row ends.
         for (const [attemptTable, rows] of [
           ["hours_sync_attempt", strandedHours],
           ["profile_sync_attempt", strandedProfiles],
@@ -437,6 +441,8 @@ async function retain({
             state: "uncertain",
             attemptStatus: "ambiguous",
             errorCode: "attempt_interrupted",
+            // A day past the start: nothing is still applying.
+            recoverAfterSeconds: 0,
           })
         }
         const counts = {

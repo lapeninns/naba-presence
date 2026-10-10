@@ -354,3 +354,36 @@ export async function auditGbpMutation(input: {
     })
   )
 }
+
+/** A gbp_management_mutation row as the recovery adapters read it. */
+export type ManagementRecoveryAttempt = {
+  id: string
+  rawStatus: string
+  startedAt: Date | null
+  resourceType: string
+  operation: string
+  targetResourceName: string | null
+  updateMask: string[]
+  requestedPayload: unknown
+}
+
+/** Loads the intent a business information, attributes or industry write recorded. */
+export async function loadManagementRecoveryAttempt(
+  sql: TransactionSql,
+  attemptId: string
+): Promise<ManagementRecoveryAttempt | null> {
+  const [row] = await sql<ManagementRecoveryAttempt[]>`
+    select
+      id::text as id,
+      status as "rawStatus",
+      started_at as "startedAt",
+      resource_type as "resourceType",
+      operation,
+      target_resource_name as "targetResourceName",
+      update_mask as "updateMask",
+      requested_payload as "requestedPayload"
+    from gbp_management_mutation
+    where id = ${attemptId}
+  `
+  return row ?? null
+}

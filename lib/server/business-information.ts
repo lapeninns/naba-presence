@@ -34,10 +34,12 @@ import {
   cacheGbpSnapshotAfterWrite,
   gbpManagementAttemptStore,
   gbpManagementIdempotencyKey,
+  loadManagementRecoveryAttempt,
   requireFreshMaskedBaseline,
   resolveGbpLocationContext,
   stableGoogleHash,
   type GbpLocationContext,
+  type ManagementRecoveryAttempt,
 } from "@/lib/server/gbp-management"
 import {
   classifyFailure,
@@ -49,6 +51,11 @@ import {
 } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
 import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 const READ_MASK = [
@@ -518,4 +525,82 @@ export async function searchBusinessInformationMetadata(input: {
     : searchGoogleChains(token, input.query, {
         connectionKey: linked.connectionId,
       })
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads an uncertain Business Information or attributes PATCH back with the
+ * same masked comparison its own readback uses (lib/domain/readback/*),
+ * against the payload the row recorded before dispatch. Read only once the
+ * first recovery delay has passed, by which time a PATCH that timed out has
+ * had time to apply.
+ */
+export const businessInformationRecoveryAdapter: RecoveryAdapter<
+  ManagementRecoveryAttempt & RecoveryAttempt
+> = {
+  surface: "business_information",
+  attemptTable: "gbp_management_mutation",
+  load: loadManagementRecoveryAttempt,
+  async readback({ attempt, link }) {
+    const options = { connectionKey: link.googleConnectionId }
+    const token = await link.accessToken()
+    if (attempt.resourceType === "business_info") {
+      if (attempt.targetResourceName !== link.googleLocationName) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      const readback = await getGoogleLocation(
+        token,
+        link.googleLocationName,
+        [...READ_MASK],
+        options
+      )
+      return businessInfoMismatches(
+        attempt.updateMask,
+        readback,
+        attempt.requestedPayload as BusinessInformationPayload
+      ).length === 0
+        ? {
+            kind: "landed",
+            confirmed: true,
+            response: readback,
+            responseHash: stableGoogleHash(readback),
+          }
+        : {
+            kind: "not_landed",
+            errorCode: "business_information_readback_mismatch",
+          }
+    }
+    if (attempt.resourceType === "attributes") {
+      if (
+        attempt.targetResourceName !== `${link.googleLocationName}/attributes`
+      ) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      const readback = await getGoogleLocationAttributes(
+        token,
+        link.googleLocationName,
+        options
+      )
+      return attributeMismatches(
+        attempt.updateMask,
+        attempt.requestedPayload as GoogleAttribute[],
+        readback
+      ).length === 0
+        ? {
+            kind: "landed",
+            confirmed: true,
+            response: readback,
+            responseHash: stableGoogleHash(readback),
+          }
+        : {
+            kind: "not_landed",
+            errorCode: "business_attributes_readback_mismatch",
+          }
+    }
+    return { kind: "unverifiable", errorCode: "recovery_unsupported" }
+  },
+  settle: storeSettle(gbpManagementAttemptStore),
 }

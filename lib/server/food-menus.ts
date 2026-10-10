@@ -36,6 +36,11 @@ import {
 } from "@/lib/server/google"
 import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 type Menus = FoodMenu[]
@@ -431,3 +436,51 @@ export async function publishFoodMenus(
     idempotent: result.idempotent,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type FoodMenusRecoveryAttempt = RecoveryAttempt & {
+  externalLocationId: string
+  expectedCanonicalHash: string
+}
+
+/**
+ * Reads an uncertain menu replacement back: it landed when Google's menus
+ * hash to the canonical hash the attempt pinned (the publish's own
+ * comparison). Any other menu set is a replacement that did not apply.
+ */
+export const foodMenusRecoveryAdapter: RecoveryAdapter<FoodMenusRecoveryAttempt> =
+  {
+    surface: "food_menus",
+    attemptTable: "food_menus_sync_attempt",
+    async load(sql, attemptId) {
+      const [row] = await sql<FoodMenusRecoveryAttempt[]>`
+        select
+          id::text as id,
+          status as "rawStatus",
+          started_at as "startedAt",
+          external_location_id::text as "externalLocationId",
+          expected_canonical_hash as "expectedCanonicalHash"
+        from food_menus_sync_attempt
+        where id = ${attemptId}
+      `
+      return row ?? null
+    },
+    async readback({ attempt, link }) {
+      if (attempt.externalLocationId !== link.externalLocationId) {
+        return { kind: "unverifiable", errorCode: "target_changed" }
+      }
+      const readback = await getGoogleFoodMenus(
+        await link.accessToken(),
+        googleFoodMenusName(link.googleAccountName, link.googleLocationName),
+        { connectionKey: link.googleConnectionId }
+      )
+      const hash = hashFoodMenus(asMenus(readback.menus))
+      return hash === attempt.expectedCanonicalHash
+        ? { kind: "landed", confirmed: true, response: readback }
+        : { kind: "not_landed", errorCode: "google_readback_mismatch" }
+    },
+    settle: storeSettle(foodMenusAttempts),
+  }
