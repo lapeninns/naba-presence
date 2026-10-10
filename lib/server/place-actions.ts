@@ -36,6 +36,7 @@ import {
   type GooglePlaceActionLink,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
+import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
 import type { Session } from "@/lib/server/session"
 
 // Request/response shapes live in the contract; the old names stay exported
@@ -327,12 +328,11 @@ type PlaceActionWrite<TResponse, TReadback> = {
 
 /**
  * One place-action mutation through the shared pipeline. Keys include the
- * request id, so any existing row for the key is replayed as idempotent --
- * and, because that id is a fresh UUID per HTTP request, no two requests
- * share a key and the replay branch never fires across them: a double-submit
- * of "add booking link" creates the link on Google twice. Re-keying on the
- * content needs a token the client mints per user intent (see the same note
- * in lib/server/media.ts); it sends none yet.
+ * client's intent id (the `Idempotency-Key` header) or, without one, the
+ * request id, so any existing row for the key is replayed as idempotent: a
+ * retry of the same intent replays instead of creating the link twice, while
+ * a request without an intent is a fresh key, as before (see the same note
+ * in lib/server/media.ts).
  */
 async function runPlaceActionWrite<TResponse, TReadback>(
   input: PlaceActionWrite<TResponse, TReadback>
@@ -349,7 +349,7 @@ async function runPlaceActionWrite<TResponse, TReadback>(
       operation,
       linkId ?? null,
       payload ? placeActionHash(payload) : null,
-      input.requestId,
+      requestScopedKeyPart(input.requestId),
     ]),
     intent: {
       location_id: linked.locationId,
@@ -363,6 +363,20 @@ async function runPlaceActionWrite<TResponse, TReadback>(
     },
     onExisting: "replay",
     failureCode: `place_action_${operation}_failed`,
+    operation: {
+      surface: "place_action",
+      action: operation,
+      locationId: linked.locationId,
+      targetType: "place_action_link",
+      targetRef: linkId ?? null,
+      payloadHash: idempotencyKey([
+        operation,
+        linkId ?? null,
+        payload ? placeActionHash(payload) : null,
+        input.expectedGoogleHash ?? null,
+      ]),
+      googleConnectionId: linked.googleConnectionId,
+    },
     validate: input.validate,
     mutate: input.mutate,
     onAmbiguous: "fail",

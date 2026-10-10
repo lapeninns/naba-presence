@@ -380,6 +380,20 @@ export async function publishFoodMenus(
       message: "This menu publish already has an active attempt.",
     },
     failureCode: "food_menus_publish_failed",
+    operation: {
+      surface: "food_menus",
+      action: "publish",
+      locationId: input.locationId,
+      targetType: "location",
+      targetRef: live.name,
+      payloadHash: idempotencyKey([
+        input.expectedCanonicalRevision,
+        input.expectedCanonicalHash,
+        input.expectedGoogleHash,
+      ]),
+      expectedRevision: input.expectedCanonicalRevision,
+      googleConnectionId: live.context.googleConnectionId,
+    },
     mutate: () =>
       patchGoogleFoodMenus(
         live.token,

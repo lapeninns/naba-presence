@@ -1,6 +1,7 @@
 import type { ZodType } from "zod"
 
 import { hardNavigate } from "@/lib/client/hard-navigate"
+import { INTENT_HEADER } from "@/lib/contracts/mutation-operations"
 
 import { stashAllDrafts } from "./draft-stash"
 
@@ -12,6 +13,11 @@ export class ApiClientError extends Error {
   readonly retryable: boolean
   readonly reconnectRequired: boolean
   readonly requestId?: string
+  /**
+   * The intent id the failed mutation was sent under. After an uncertain
+   * failure, `GET /api/mutations/{intentId}` says what became of it.
+   */
+  readonly intentId?: string
 
   constructor(
     status: number,
@@ -23,6 +29,7 @@ export class ApiClientError extends Error {
       retryable?: boolean
       reconnectRequired?: boolean
       requestId?: string
+      intentId?: string
     } = {}
   ) {
     super(message)
@@ -34,6 +41,7 @@ export class ApiClientError extends Error {
     this.retryable = Boolean(extras.retryable)
     this.reconnectRequired = Boolean(extras.reconnectRequired)
     this.requestId = extras.requestId
+    this.intentId = extras.intentId
   }
 }
 
@@ -55,6 +63,22 @@ type ApiFetchOptions<T> = RequestOptions & {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   body?: unknown
   schema?: ZodType<T>
+  /**
+   * The intent this mutation belongs to, sent as `Idempotency-Key`. Pass the
+   * same id when retrying the same user action so the server answers from
+   * its receipt instead of writing twice. Omitted, every mutation gets a
+   * fresh one.
+   */
+  intentId?: string
+}
+
+/** A fresh intent id, or undefined where the browser offers no UUIDs (non-secure origins). */
+export function mintIntentId(): string | undefined {
+  try {
+    return globalThis.crypto?.randomUUID?.()
+  } catch {
+    return undefined
+  }
 }
 
 async function readPayload(response: Response): Promise<{
@@ -120,10 +144,15 @@ export async function apiFetch<T = unknown>(
   options: ApiFetchOptions<T> = {}
 ): Promise<T> {
   const { method = "GET", body, schema, signal, background = false } = options
+  const intentId =
+    method === "GET" ? undefined : (options.intentId ?? mintIntentId())
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers["content-type"] = "application/json"
+  if (intentId) headers[INTENT_HEADER] = intentId
   const response = await fetch(path, {
     method,
     signal,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const payload = await readPayload(response)
@@ -147,6 +176,7 @@ export async function apiFetch<T = unknown>(
         retryable: payload.retryable,
         reconnectRequired: payload.reconnectRequired,
         requestId: payload.requestId,
+        intentId,
       }
     )
   }

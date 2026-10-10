@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query"
 
 import { useToastManager } from "@/components/ui/toast"
+import { mintIntentId } from "@/lib/api/client"
 import {
   successToastFields,
   type SuccessToastCopy,
@@ -17,8 +18,19 @@ import {
   type ActionErrorContext,
 } from "@/lib/errors/action-errors"
 
+/** Handed to `mutationFn` with every call. */
+export type MutationIntent = {
+  /**
+   * One id per `mutate` call: forward it to the lib/api function (its
+   * `intentId` option) and reuse it for any retry of this same action, so
+   * the server answers the retry from its receipt rather than writing
+   * twice. Undefined where the browser offers no UUIDs.
+   */
+  intentId: string | undefined
+}
+
 export type ResourceMutationOptions<TData, TVariables> = {
-  mutationFn: (variables: TVariables) => Promise<TData>
+  mutationFn: (variables: TVariables, intent: MutationIntent) => Promise<TData>
   /**
    * What to refresh after success: query keys from `queryKeys` (each is
    * invalidated, prefix-matched, fire-and-forget) or a custom function for
@@ -76,7 +88,11 @@ export function useResourceMutation<TData = unknown, TVariables = void>(
   } = options
 
   return useMutation<TData, Error, TVariables>({
-    mutationFn,
+    // One intent per call. Mutations run without TanStack retries here, so
+    // a call is one user action; a caller that retries the SAME action
+    // itself keeps the intent it was handed and resends it.
+    mutationFn: (variables: TVariables) =>
+      mutationFn(variables, { intentId: mintIntentId() }),
     onSuccess: (data, variables) => {
       onSuccess?.(data, variables)
       if (typeof invalidate === "function") {

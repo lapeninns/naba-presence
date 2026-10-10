@@ -562,6 +562,16 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
     },
     inProgress: { code: "profile_operation_in_progress", message: "This profile publish is already in progress." },
     failureCode: "google_profile_failed",
+    operation: {
+      surface: "profile",
+      action: "publish",
+      locationId: input.locationId,
+      targetType: "location",
+      targetRef: live.context.googleLocationName,
+      payloadHash: idempotencyKey([selected, sha256(JSON.stringify(patch.payload))]),
+      expectedRevision: live.resource.revision,
+      googleConnectionId: live.context.googleConnectionId,
+    },
     validate: async () => {
       await patchGoogle(true)
     },

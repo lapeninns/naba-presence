@@ -376,13 +376,61 @@ settled `failed` or `ambiguous`, both under the policy in "Ambiguous, failed,
 and interrupted writes" below.
 
 `"replay"` (media, place actions, the post delete, management) treats any
-existing row for the key as idempotent. Those keys embed `ctx.requestId`, which
-is minted per HTTP request, so the replay branch is unreachable across
-requests: a client retry issues a new request id, a new key, and a second
-Google write. Closing that needs an intent token minted by the client — one per
-Publish/Upload/Add-link press, resent unchanged on retry — carried on the
-request and keyed on instead of the request id. Until then these surfaces are
-idempotent within a request and at-least-once across one.
+existing row for the key as idempotent. Media, place actions and the post
+delete key on the request's intent id when it carries one
+(`requestScopedKeyPart` in `lib/server/mutation-operations.ts`), so a retry of
+the same intent derives the same key and replays; without an intent the key
+embeds `ctx.requestId`, which is minted per HTTP request, and a retry is a
+second Google write as before. Management (`gbp-management.ts`) still keys on
+the request id: it replays any row for a key that does not include the
+content, so keying it on the intent without the ledger's conflict check could
+answer a changed request with an earlier result.
+
+## Operation receipts: one per user intent
+
+The client mints an intent id per user action and sends it as the
+`Idempotency-Key` header (`INTENT_HEADER` in
+`lib/contracts/mutation-operations.ts`); `apiFetch` in `lib/api/client.ts`
+sends a fresh one on every mutation unless the caller passes the id of the
+action it is retrying, and `useResourceMutation` hands one to each `mutate`
+call. `route()` parses it into `ctx.intentId` (400 `invalid_intent_id` when it
+is not a UUID) and makes it the handler's ambient intent. `x-request-id` stays
+per-request correlation.
+
+`runGbpWrite` records the intent in `mutation_operation`
+(`supabase/migrations/0067_mutation_operation.sql`) in the same transaction
+that claims the attempt, so the receipt exists before anything is sent: actor,
+surface, action, location and target, payload hash, expected revision, the
+Google connection and its `credential_generation`, and the attempt row it
+rides on. Only a surface that passes an `operation` descriptor and whose store
+names its table takes part (hours, profile, food menus, place actions, media,
+post publish and delete), and only the first such write of a request takes the
+ambient intent. Then:
+
+- same intent, same payload hash, settled — the stored receipt answers: a
+  success returns `idempotent` with the original attempt, a failure re-raises
+  the recorded status and code; nothing is sent to Google;
+- same intent, different payload hash — 409 `intent_conflict`;
+- same intent still `sent` on another attempt row — 409 `intent_in_progress`;
+- no intent — no receipt; the write behaves exactly as before.
+
+Settling an attempt settles every receipt still `sent` on it, so a receipt an
+interrupted request left behind is settled by whichever request recovers the
+row. States are the shared outcome vocabulary: `confirmed_applied` only after
+a verifying readback, `awaiting_confirmation` for a write Google accepted
+without one, `rejected` for Google's own 4xx refusal, `uncertain` for an
+ambiguous write, otherwise `failed`. `GET /api/mutations/{id}`
+(`app/api/mutations/[operationId]/route.ts`) returns the receipt by operation
+id or by intent id, so a client that lost the answer can ask what happened;
+a receipt follows its location's visibility. `approval_ref`,
+`security_version` and the recovery columns are reserved for later slices.
+`recheckAuthorisation` (`lib/server/authz/actor.ts`) takes the recorded
+`connection_generation` and refuses with `generation_changed` when the
+location's connection now holds another credential.
+
+A module's own pre-dispatch checks still run before `runGbpWrite`, so a replay
+after success can be answered by them first (hours and menus answer `in_sync`;
+a stale snapshot answers its 409), never by a second dispatch.
 
 ## Ambiguous, failed, and interrupted writes
 

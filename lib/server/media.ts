@@ -40,6 +40,7 @@ import {
   uploadGoogleMediaBytes,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
+import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
 import type { Session } from "@/lib/server/session"
 import { DEFAULT_MEDIA_PAGE_SIZE, MAX_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 
@@ -437,17 +438,16 @@ async function requireFreshGoogleMedia(
 /**
  * One gbp_media_mutation write through the shared pipeline.
  *
- * - onExisting "replay": the key includes the request id, so any existing row
- *   (whatever its status) is returned as idempotent -- media's behaviour
- *   today. `requestId` is a fresh UUID per HTTP request (lib/server/http.ts),
- *   so no two requests ever share a key and the replay branch cannot fire
- *   across them: a client that retries after a lost response uploads and
- *   creates the item a second time. Closing that needs a key over (org,
- *   location, operation, target, content) plus a token the CLIENT mints per
- *   user intent and resends unchanged. Content alone is not enough -- it
- *   would swallow a deliberate second upload of the same photo, and under
- *   "replay" a settled failure for that key could never be retried. The
- *   client sends no such token yet, so the key stays request-scoped.
+ * - onExisting "replay": the key includes the client's intent id (the
+ *   `Idempotency-Key` header) or, without one, the request id, so any
+ *   existing row (whatever its status) is returned as idempotent. A client
+ *   that retries a lost response under the same intent replays the receipt
+ *   instead of uploading and creating the item a second time, and the same
+ *   intent with different content is a 409 intent_conflict
+ *   (lib/server/mutation-operations.ts). Without an intent every request is
+ *   a fresh key, as before. Content alone is not a key -- it would swallow a
+ *   deliberate second upload of the same photo, and under "replay" a settled
+ *   failure for that key could never be retried.
  * - onAmbiguous "fail": an ambiguous provider call settles `ambiguous` and
  *   rethrows; there is no list-based recovery for media (unchanged). The
  *   caller retries with a fresh request id after refreshing the cache.
@@ -476,7 +476,7 @@ async function runMediaWrite<TResponse, TReadback = never>(
       scope.locationId,
       write.operation,
       write.mediaItemId ?? "new",
-      scope.requestId,
+      requestScopedKeyPart(scope.requestId),
     ]),
     intent: {
       location_id: scope.locationId,
@@ -488,6 +488,19 @@ async function runMediaWrite<TResponse, TReadback = never>(
     },
     onExisting: "replay",
     failureCode: write.failureCode,
+    operation: {
+      surface: "media",
+      action: write.operation,
+      locationId: scope.locationId,
+      targetType: "media_item",
+      targetRef: write.mediaItemId,
+      payloadHash: idempotencyKey([
+        write.operation,
+        write.mediaItemId ?? "new",
+        write.expectedGoogleHash,
+        sha256(JSON.stringify(write.payload ?? null)),
+      ]),
+    },
     validate: write.validate,
     mutate: write.mutate,
     onAmbiguous: "fail",

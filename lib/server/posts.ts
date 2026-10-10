@@ -31,6 +31,7 @@ import {
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
 import {
   requireLocationAccess,
   requireLocationAction,
@@ -783,6 +784,8 @@ async function markPostPublished(
  * `started` and `markPublishing` has nothing to record.
  */
 const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
+  table: "gbp_local_post_attempt",
+
   async find(sql, input) {
     const [row] = await sql<AttemptSelection[]>`
       select id::text as id, status, started_at as "startedAt"
@@ -1230,6 +1233,21 @@ async function publishLocalPost(input: {
     onExisting: "resume",
     inProgress: POST_PUBLISH_IN_PROGRESS,
     failureCode: "google_post_failed",
+    operation: {
+      surface: "local_post",
+      action: operation,
+      locationId: linked.locationId,
+      targetType: "local_post",
+      targetRef: input.postId,
+      payloadHash: idempotencyKey([
+        input.postId,
+        operation,
+        sha256(JSON.stringify(payload)),
+      ]),
+      expectedRevision: post.contentRevision,
+      googleConnectionId: linked.googleConnectionId,
+      approvalRef: input.approval?.id ?? null,
+    },
     mutate: async () => {
       const token = await linked.accessToken()
       return operation === "create"
@@ -1396,7 +1414,13 @@ export async function deleteLocalPost(input: {
       // Still request-scoped, unlike the publish key above: delete takes no
       // payload to derive a key from, and a content-derived key would let an
       // interrupted delete 409 every later delete of the same post forever.
-      key: idempotencyKey([input.postId, "delete", input.requestId]),
+      // Scoped to the client's intent when it sends one, so a retry of the
+      // same delete replays instead of deleting again.
+      key: idempotencyKey([
+        input.postId,
+        "delete",
+        requestScopedKeyPart(input.requestId),
+      ]),
       intent: {
         postId: input.postId,
         operation: "delete",
@@ -1407,6 +1431,15 @@ export async function deleteLocalPost(input: {
       },
       onExisting: "replay",
       failureCode: "google_post_failed",
+      operation: {
+        surface: "local_post",
+        action: "delete",
+        locationId: linked.locationId,
+        targetType: "local_post",
+        targetRef: input.postId,
+        payloadHash: idempotencyKey([input.postId, "delete", googlePostName]),
+        googleConnectionId: linked.googleConnectionId,
+      },
       mutate: async () => {
         await deleteGoogleLocalPost(
           await linked.accessToken(),

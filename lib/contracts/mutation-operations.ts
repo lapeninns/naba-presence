@@ -40,3 +40,45 @@ export const OPERATION_OUTCOMES = [
 
 export const operationOutcomeSchema = z.enum(OPERATION_OUTCOMES)
 export type OperationOutcome = z.infer<typeof operationOutcomeSchema>
+
+/**
+ * The request header that carries a client-minted intent id: one UUID per
+ * thing a person asked for, resent unchanged when the client retries after a
+ * lost answer. It is the stable operation identity; `x-request-id` stays a
+ * per-request correlation id. lib/api/client.ts sends it on every mutation and
+ * lib/server/route.ts parses it (400 `invalid_intent_id` when it is not a
+ * UUID).
+ */
+export const INTENT_HEADER = "Idempotency-Key"
+
+export const intentIdSchema = z.uuid()
+
+/**
+ * `GET /api/mutations/{id}`: the receipt for one intent. `{id}` is either the
+ * operation id or the intent id the client sent, so a client that never saw
+ * the answer can still ask what happened to its intent.
+ */
+export const mutationReceiptSchema = z.object({
+  id: z.string(),
+  intentId: z.string(),
+  surface: z.string(),
+  action: z.string(),
+  locationId: z.string().nullable(),
+  targetType: z.string().nullable(),
+  targetRef: z.string().nullable(),
+  outcome: operationOutcomeSchema,
+  errorCode: z.string().nullable(),
+  attemptId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+export type MutationReceipt = z.infer<typeof mutationReceiptSchema>
+
+export const mutationReceiptResponseSchema = z.object({
+  operation: mutationReceiptSchema,
+})
+export type MutationReceiptResponse = z.infer<
+  typeof mutationReceiptResponseSchema
+>
+
+export const mutationReceiptParamsSchema = z.object({ operationId: z.uuid() })

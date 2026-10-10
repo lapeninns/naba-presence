@@ -20,6 +20,9 @@ import "server-only"
  *   - runGbpWrite          the phase machine (start / validate / publish /
  *                          readback / settle / audit)
  *   - GBP_ATTEMPT_STATUSES the status vocabulary, exported once
+ *   - the operation receipt for the request's intent, when the surface
+ *     describes itself (`operation`) and the request carries an
+ *     `Idempotency-Key` (lib/server/mutation-operations.ts)
  *
  * Each module keeps its own attempt table, mapped onto the canonical status
  * vocabulary by `attemptStore`. The behavioural contract -- ambiguous vs
@@ -48,6 +51,19 @@ import { connectionAccessToken } from "@/lib/server/google/connections"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import {
+  beginOperation,
+  claimAmbientIntent,
+  errorReceipt,
+  failureOutcome,
+  linkOperationAttempt,
+  outcomeForAttemptStatus,
+  receiptError,
+  settleOperationsForAttempt,
+  successOutcome,
+  type MutationOperation,
+  type OperationDescriptor,
+} from "@/lib/server/mutation-operations"
 import {
   canPublishLocation,
   requireLocationAccess,
@@ -365,6 +381,11 @@ export type AttemptSettleInput = {
  * the tenant transaction `runGbpWrite` opens for them.
  */
 export interface AttemptStore<TIntent = IntentColumns> {
+  /**
+   * The attempt table, recorded on operation receipts so settling an attempt
+   * settles the receipts linked to it. A store without one writes no receipts.
+   */
+  readonly table?: string
   find(
     sql: TransactionSql,
     input: { organisationId: string; key: string }
@@ -460,6 +481,8 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
     )
 
   return {
+    table,
+
     async find(sql, input) {
       const startedAt = columns.startedAt
         ? sql`, ${sql(columns.startedAt)} as "startedAt"`
@@ -676,6 +699,17 @@ type GbpWriteBase<TResponse, TReadback, TIntent> = {
   /** Recorded when a thrown error carries no code. */
   failureCode: string
   /**
+   * What this write is, for the operation receipt. Without it the write
+   * records no receipt even when the request carries an intent.
+   */
+  operation?: OperationDescriptor
+  /**
+   * The intent this write belongs to. Defaults to the request's ambient
+   * intent (the `Idempotency-Key` header, via lib/server/route.ts); a worker
+   * re-running a recorded intent passes it. Null records no receipt.
+   */
+  intentId?: string | null
+  /**
    * Optional validateOnly provider call; any failure settles `failed`. The
    * resolved value is ignored, so a provider call that returns something can
    * be passed directly without an `async () => { await ... }` wrapper.
@@ -704,7 +738,7 @@ export type GbpWriteInput<TResponse, TReadback, TIntent> =
       readback?: GbpReadback<TResponse, TReadback>
     })
 
-export type GbpWriteResult<TResponse, TReadback> =
+export type GbpWriteResult<TResponse, TReadback> = (
   | {
       idempotent: true
       attemptId: string
@@ -715,6 +749,10 @@ export type GbpWriteResult<TResponse, TReadback> =
       TResponse,
       TReadback
     >)
+) & {
+  /** The operation receipt this write recorded or replayed, if any. */
+  operationId?: string
+}
 
 /**
  * How long an in-flight attempt is assumed to still be running. Inside the
@@ -777,6 +815,65 @@ export async function runGbpWrite<
     | { kind: "idempotent"; row: AttemptRow }
     | { kind: "in_flight"; row: AttemptRow }
     | { kind: "started"; row: AttemptRow }
+    | { kind: "receipt"; operation: MutationOperation }
+
+  // The operation receipt (lib/server/mutation-operations.ts). Only a surface
+  // that describes itself and names its attempt table takes the request's
+  // intent, so a write that records nothing leaves it for one that does.
+  const attemptTable = input.store.table ?? null
+  const ledger = Boolean(input.operation && attemptTable)
+  const intentId = !ledger
+    ? null
+    : input.intentId !== undefined
+      ? input.intentId
+      : claimAmbientIntent()
+  const readbackVerified = Boolean(input.readback)
+  let operationId: string | undefined
+
+  /**
+   * Records the intent in the claim transaction. Returns the stored receipt
+   * when the intent has already settled, so the caller answers from it and
+   * sends nothing.
+   */
+  const beginIntent = async (
+    sql: TransactionSql
+  ): Promise<MutationOperation | null> => {
+    if (!intentId || !input.operation) return null
+    const { operation } = await beginOperation(sql, {
+      organisationId: input.organisationId,
+      intentId,
+      actorUserId: input.actorUserId,
+      descriptor: input.operation,
+      payloadHash: input.operation.payloadHash ?? input.key,
+      attemptTable,
+    })
+    operationId = operation.id
+    return operation
+  }
+
+  /** Links this request's receipt to `row` and, when `row` is settled, settles it. */
+  const recordOnRow = async (sql: TransactionSql, row: AttemptRow) => {
+    if (!operationId) return
+    await linkOperationAttempt(sql, {
+      operationId,
+      attemptTable,
+      attemptId: row.id,
+    })
+    const state = outcomeForAttemptStatus(row.status, readbackVerified)
+    if (state === "sent") return
+    await settleOperationsForAttempt(sql, {
+      organisationId: input.organisationId,
+      attemptTable,
+      attemptId: row.id,
+      state,
+      errorCode: null,
+      receipt: {
+        attemptId: row.id,
+        attemptStatus: row.status,
+        rawStatus: row.rawStatus,
+      },
+    })
+  }
 
   const decide = (existing: AttemptRow | null): Decision => {
     if (!existing) return { kind: "start", row: null }
@@ -796,7 +893,25 @@ export async function runGbpWrite<
    */
   const claim = (): Promise<Claim> =>
     withTenant(input.organisationId, async (sql) => {
+      const operation = await beginIntent(sql)
+      if (operation && operation.state !== "sent") {
+        return { kind: "receipt" as const, operation }
+      }
       const decided = decide(await input.store.find(sql, scope))
+      // The intent is still in flight on another attempt row (a key that
+      // moved, or a re-armed `retry: "insert"` row). Sending again under the
+      // same intent is exactly what the receipt exists to prevent.
+      if (
+        operation?.attemptId &&
+        (decided.row === null || decided.row.id !== operation.attemptId)
+      ) {
+        throw new ApiError(
+          409,
+          "intent_in_progress",
+          "This change is still being sent. Check its status before retrying."
+        )
+      }
+      if (decided.kind === "idempotent") await recordOnRow(sql, decided.row)
       if (decided.kind !== "start") return decided
       const row = await input.store.start(sql, {
         organisationId: input.organisationId,
@@ -806,12 +921,16 @@ export async function runGbpWrite<
         intent: input.intent,
         existing: decided.row,
       })
-      if (row) return { kind: "started" as const, row }
+      if (row) {
+        await recordOnRow(sql, row)
+        return { kind: "started" as const, row }
+      }
       // The key was claimed between the find and the insert. The winner's
       // transaction has committed (the unique index would otherwise still be
       // blocking ours), so re-read and answer from its row.
       const again = decide(await input.store.find(sql, scope))
       if (again.kind === "start") throw inProgressError()
+      if (again.kind === "idempotent") await recordOnRow(sql, again.row)
       return again
     })
 
@@ -829,6 +948,21 @@ export async function runGbpWrite<
           responseHash: success.readbackHash ?? null,
           httpStatus,
         })
+        // Also without an intent of its own: this may be settling a row an
+        // earlier request's receipt is waiting on.
+        if (ledger)
+          await settleOperationsForAttempt(sql, {
+            organisationId: input.organisationId,
+            attemptTable,
+            attemptId: success.attemptId,
+            state: successOutcome(readbackVerified),
+            errorCode: null,
+            receipt: {
+              attemptId: success.attemptId,
+              attemptStatus: "succeeded",
+              httpStatus: httpStatus ?? null,
+            },
+          })
         if (input.onSuccess) await input.onSuccess(sql, success)
         const audit =
           typeof input.audit === "function" ? input.audit(success) : input.audit
@@ -863,11 +997,21 @@ export async function runGbpWrite<
   const settleFailure = (
     attemptId: string,
     status: Exclude<GbpSettledStatus, "succeeded">,
-    errorCode: string
+    errorCode: string,
+    error?: unknown
   ) =>
-    withTenant(input.organisationId, (sql) =>
-      input.store.settle(sql, { id: attemptId, status, errorCode })
-    )
+    withTenant(input.organisationId, async (sql) => {
+      await input.store.settle(sql, { id: attemptId, status, errorCode })
+      if (!ledger) return
+      await settleOperationsForAttempt(sql, {
+        organisationId: input.organisationId,
+        attemptTable,
+        attemptId,
+        state: failureOutcome(status, error),
+        errorCode,
+        receipt: { attemptId, attemptStatus: status, ...errorReceipt(error) },
+      })
+    })
 
   /**
    * An attempt left in flight by an interrupted request. Returns the settled
@@ -898,7 +1042,8 @@ export async function runGbpWrite<
       await settleFailure(
         row.id,
         "ambiguous",
-        providerErrorCode(error, input.failureCode)
+        providerErrorCode(error, input.failureCode),
+        error
       )
       throw error
     }
@@ -934,24 +1079,49 @@ export async function runGbpWrite<
     return success
   }
 
+  /** Answers a replayed intent from its settled receipt, sending nothing. */
+  const replayReceipt = (
+    operation: MutationOperation
+  ): GbpWriteResult<TResponse, TReadback> => {
+    if (
+      !operation.attemptId ||
+      (operation.state !== "confirmed_applied" &&
+        operation.state !== "awaiting_confirmation")
+    ) {
+      throw receiptError(operation)
+    }
+    return {
+      idempotent: true,
+      attemptId: operation.attemptId,
+      status: "succeeded",
+      rawStatus: operation.receipt?.rawStatus ?? "succeeded",
+      operationId: operation.id,
+    }
+  }
+
   let claimed = await claim()
+  if (claimed.kind === "receipt") return replayReceipt(claimed.operation)
   if (claimed.kind === "in_flight") {
     const recovered = await recoverInFlight(claimed.row)
     if (recovered) {
       // The interrupted write had landed; it is now settled, reconciled and
       // audited, and this request wrote nothing of its own.
-      const settled = await withTenant(input.organisationId, (sql) =>
-        input.store.find(sql, scope)
-      )
+      const settled = await withTenant(input.organisationId, async (sql) => {
+        const row = await input.store.find(sql, scope)
+        if (row) await recordOnRow(sql, row)
+        return row
+      })
       return {
         idempotent: true,
         attemptId: recovered.attemptId,
         status: settled?.status ?? "succeeded",
         rawStatus: settled?.rawStatus ?? "succeeded",
+        operationId,
       }
     }
     // The row is settled `failed` now, so this re-arms it.
     claimed = await claim()
+    if (claimed.kind === "receipt") return replayReceipt(claimed.operation)
     if (claimed.kind === "in_flight") throw inProgressError()
   }
   if (claimed.kind === "idempotent") {
@@ -960,6 +1130,7 @@ export async function runGbpWrite<
       attemptId: claimed.row.id,
       status: claimed.row.status,
       rawStatus: claimed.row.rawStatus,
+      operationId,
     }
   }
   const attemptId = claimed.row.id
@@ -1021,7 +1192,8 @@ export async function runGbpWrite<
     await settleFailure(
       attemptId,
       classifyFailure(phase, error),
-      providerErrorCode(error, input.failureCode)
+      providerErrorCode(error, input.failureCode),
+      error
     )
     throw error
   }
@@ -1035,7 +1207,7 @@ export async function runGbpWrite<
     providerAmbiguous,
   }
   await settleSucceeded(success, 200)
-  return { idempotent: false, status: "succeeded", ...success }
+  return { idempotent: false, status: "succeeded", ...success, operationId }
 }
 
 /** Re-export for modules that only need the jsonb helper type. */

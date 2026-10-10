@@ -480,6 +480,16 @@ async function publishHoursToGoogle(live: LiveHours, input: PublishHoursInput) {
       message: "This publish is already in progress.",
     },
     failureCode: "google_hours_publish_failed",
+    operation: {
+      surface: "hours",
+      action: "publish",
+      locationId,
+      targetType: "location",
+      targetRef: linked.googleLocationName,
+      payloadHash,
+      expectedRevision: live.resource.revision,
+      googleConnectionId: linked.googleConnectionId,
+    },
     validate: async () => {
       await patchHours(true)
     },

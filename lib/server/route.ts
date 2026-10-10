@@ -19,6 +19,10 @@ import {
   serverRequestId,
   withRequestIdHeader,
 } from "@/lib/server/http"
+import {
+  parseIntentHeader,
+  withMutationIntent,
+} from "@/lib/server/mutation-operations"
 import { requireRole, requireSession, type Session } from "@/lib/server/session"
 
 /**
@@ -91,7 +95,15 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      body); any other value becomes `NextResponse.json(value)`;
  *   8. error mapping — everything thrown (ApiError, ZodError, unknown) goes
  *      through `apiError(error, requestId)` unchanged;
- *   9. support attribution — when the session was minted by
+ *   9. the intent — a mutation's `Idempotency-Key` header (a client-minted
+ *      UUID, one per user intent, resent unchanged on a retry) is parsed into
+ *      `ctx.intentId` (400 `invalid_intent_id` when it is not a UUID; null
+ *      when absent or on GET/HEAD/OPTIONS) and, for session routes, made the
+ *      handler's ambient intent, so the first `runGbpWrite` of a surface that
+ *      records receipts files it in the operation ledger
+ *      (lib/server/mutation-operations.ts). Without the header nothing
+ *      changes;
+ *  10. support attribution — when the session was minted by
  *      `POST /api/support/impersonation` the handler runs inside
  *      `withAuditActor`, so every `writeAudit` it reaches records the support
  *      engineer and the stated reason. The session carries the customer's own
@@ -151,6 +163,8 @@ export type RouteContext<
   request: Request
   requestId: string
   clientRequestId: string | null
+  /** The `Idempotency-Key` intent id on a mutation, or null. */
+  intentId: string | null
   params: P
   query: Q
   body: B
@@ -348,10 +362,14 @@ export function route<
       const body = (
         config.body ? config.body.parse(await readJsonBody(request)) : undefined
       ) as B
+      const intentId = SAFE_METHODS.has(request.method.toUpperCase())
+        ? null
+        : parseIntentHeader(request)
       const base = {
         request,
         requestId: rid.id,
         clientRequestId: rid.clientId,
+        intentId,
         params,
         query,
         body,
@@ -373,17 +391,19 @@ export function route<
           ...limit,
         })
       }
-      // Only impersonated sessions pay for the async context; every other
-      // request calls the handler exactly as before.
+      // Only impersonated sessions and requests with an intent pay for an
+      // async context; every other request calls the handler as before.
+      const run = () =>
+        withMutationIntent(session ? intentId : null, () => config.handler(ctx))
       const result = await (session?.supportActor
         ? withAuditActor(
             {
               supportActor: session.supportActor,
               impersonationReason: session.impersonationReason,
             },
-            () => config.handler(ctx)
+            run
           )
-        : config.handler(ctx))
+        : run())
       return withRequestIdHeader(toResponse(result), rid.id)
     } catch (error) {
       return apiError(error, rid.id)
