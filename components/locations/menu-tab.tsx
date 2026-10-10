@@ -144,6 +144,8 @@ function MenuForm({
       {
         key: "publish",
         label: "Replace the food menu on Google",
+        // The Food Menus publish reads Google back and compares it.
+        verified: true,
         run: async () => {
           const fresh = saved.current
           if (!fresh || !reviewed) throw new Error("The menu was not saved.")
@@ -167,7 +169,13 @@ function MenuForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: { outcome: "sent", title: "Menu sent to Google" },
+    successToast: (outcome) => ({
+      outcome,
+      title:
+        outcome === "confirmed_applied"
+          ? "Menu live on Google"
+          : "Menu sent to Google",
+    }),
     onSuccess: () => {
       setReviewOpen(false)
       setServerError(null)

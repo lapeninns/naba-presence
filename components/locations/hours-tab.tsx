@@ -195,6 +195,8 @@ function HoursForm({
     steps.push({
       key: "publish",
       label: "Publish opening hours to Google",
+      // The hours publish reads Google back and compares it before success.
+      verified: true,
       run: async () => {
         const fresh = saved.current ?? snapshot.hours
         // An empty mask means the saved schedule already matches Google —
@@ -221,7 +223,13 @@ function HoursForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: { outcome: "sent", title: "Opening hours sent to Google" },
+    successToast: (outcome) => ({
+      outcome,
+      title:
+        outcome === "confirmed_applied"
+          ? "Opening hours live on Google"
+          : "Opening hours sent to Google",
+    }),
     onSuccess: () => setReviewOpen(false),
   })
 

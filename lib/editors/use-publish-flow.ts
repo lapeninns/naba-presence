@@ -29,6 +29,14 @@ export type PublishStep = {
    * differently, because saving here is not publishing.
    */
   kind?: "local" | "google"
+  /**
+   * True when the endpoint behind this Google step reads Google back and
+   * checks the result matched before it answers success (hours, food menus,
+   * the profile publish, business information). A finished verified step is
+   * `confirmed_applied`; a finished unverified one is only `sent`. Leave it
+   * unset for an endpoint that does not compare a readback.
+   */
+  verified?: boolean
 }
 
 export type PublishStepStatus = "pending" | "running" | "done" | "failed"
@@ -43,6 +51,28 @@ export type PublishStepResult = {
   code?: string
   /** A finished step that sent nothing because nothing differed. */
   noop?: boolean
+  /** Copied from the step: success means Google was read back and matched. */
+  verified?: boolean
+}
+
+/**
+ * The outcome of a publish whose steps all finished, for its toast: `sent`
+ * when any Google write that went out lacks a verified readback, otherwise
+ * `confirmed_applied` (every Google write was read back and matched, or the
+ * step found Google already matched and sent nothing).
+ */
+export function publishOutcome(
+  results: readonly PublishStepResult[]
+): "sent" | "confirmed_applied" {
+  return results.some(
+    (step) =>
+      step.status === "done" &&
+      !step.noop &&
+      step.kind !== "local" &&
+      !step.verified
+  )
+    ? "sent"
+    : "confirmed_applied"
 }
 
 /**
@@ -71,8 +101,14 @@ export function usePublishFlow({
    */
   steps: () => PublishStep[]
   invalidate?: readonly QueryKey[]
-  /** A title, or an outcome message whose toast kind follows the outcome. */
-  successToast?: SuccessToastCopy
+  /**
+   * A title, or an outcome message whose toast kind follows the outcome. A
+   * function receives publishOutcome(results), so a flow that mixes verified
+   * and unverified writes words its toast by what actually happened.
+   */
+  successToast?:
+    | SuccessToastCopy
+    | ((outcome: ReturnType<typeof publishOutcome>) => SuccessToastCopy)
   onSuccess?: () => void
 }) {
   const queryClient = useQueryClient()
@@ -95,6 +131,7 @@ export function usePublishFlow({
       label: step.label,
       status: "pending",
       kind: step.kind ?? "google",
+      verified: step.verified,
     }))
     setResults(running)
 
@@ -142,7 +179,14 @@ export function usePublishFlow({
       toasts.add({ title: failure, type: "error" })
       return false
     }
-    if (successToast) toasts.add(successToastFields(successToast))
+    if (successToast)
+      toasts.add(
+        successToastFields(
+          typeof successToast === "function"
+            ? successToast(publishOutcome(running))
+            : successToast
+        )
+      )
     onSuccess?.()
     return true
   }, [steps, invalidate, queryClient, toasts, successToast, onSuccess])

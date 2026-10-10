@@ -161,6 +161,8 @@ const LODGING_LABELS: Record<string, string> = {
 }
 
 export type LodgingChange = {
+  /** The top-level lodging key the leaf sits under: its update-mask entry. */
+  section: string
   path: string
   field: string
   before: string
@@ -232,6 +234,7 @@ export function lodgingChanges(
       if (JSON.stringify(was.get(path)) === JSON.stringify(now.get(path)))
         continue
       changes.push({
+        section: key,
         path,
         field: LODGING_LABELS[path] ?? humanisePath(path),
         before: lodgingValue(was.get(path)),

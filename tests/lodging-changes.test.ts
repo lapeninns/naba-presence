@@ -15,24 +15,28 @@ describe("lodgingChanges", () => {
     }
     expect(lodgingChanges(before, after)).toEqual([
       {
+        section: "policies",
         path: "policies.checkinTime",
         field: "Check-in time",
         before: "15:00",
         after: "14:30",
       },
       {
+        section: "pets",
         path: "pets.petsAllowed",
         field: "Pets allowed",
         before: "No",
         after: "Yes",
       },
       {
+        section: "connectivity",
         path: "connectivity.freeWifi",
         field: "Free Wi‑Fi",
         before: "Not set",
         after: "Yes",
       },
       {
+        section: "connectivity",
         path: "connectivity.somethingNew",
         field: "Connectivity: something new",
         before: "Not set",
@@ -44,5 +48,14 @@ describe("lodgingChanges", () => {
   it("is empty when nothing changed", () => {
     const record = { pets: { petsAllowed: true } }
     expect(lodgingChanges(record, { pets: { petsAllowed: true } })).toEqual([])
+  })
+
+  it("ignores a section whose keys only changed order", () => {
+    // A Google suggestion applied as-is can reorder a section's keys. The
+    // whole-section string compare sees a change there; the leaves do not,
+    // so the section is neither shown nor put in the publish mask.
+    const before = { parking: { parkingAvailable: true, freeParking: false } }
+    const after = { parking: { freeParking: false, parkingAvailable: true } }
+    expect(lodgingChanges(before, after)).toEqual([])
   })
 })

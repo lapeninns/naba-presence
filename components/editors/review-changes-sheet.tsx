@@ -32,10 +32,11 @@ import type { PublishStepResult } from "@/lib/editors/use-publish-flow"
  * the actual diff rather than a sentence claiming there is one.
  *
  * Step wording follows what the app can prove. A step that saved
- * NabaPresence's copy says "Saved here"; a Google write whose request
- * succeeded says "Sent to Google", never "Live on Google", because the app
- * has no verification evidence at that moment. The editor's own status
- * (refetched afterwards) is what says the listing matches Google.
+ * NabaPresence's copy says "Saved here". A finished Google write says "Live
+ * on Google" only when its step is `verified`: the endpoint read Google back
+ * and the result matched before it answered (hours, food menus, the profile
+ * publish, business information). Any other finished write, such as
+ * attributes or lodging, says "Sent to Google".
  */
 function ReviewChangesSheet({
   open,
@@ -231,13 +232,18 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         detail: "Already matches Google, so no request was made.",
       }
     // The outcome words (lib/editors/outcome.ts) say the rest: a local
-    // save is "Saved here", a Google write whose request succeeded is "Sent
-    // to Google". Neither is "Live on Google": no readback has happened yet.
+    // save is "Saved here"; a Google write is "Live on Google" when its
+    // endpoint read Google back and it matched, and "Sent to Google" when
+    // the endpoint makes no such check.
     if (step.status === "done")
       return {
         id: step.key,
         label: step.label,
-        state: local ? "saved_locally" : "sent",
+        state: local
+          ? "saved_locally"
+          : step.verified
+            ? "confirmed_applied"
+            : "sent",
         detail: local
           ? "NabaPresence’s copy. Not on Google by itself."
           : undefined,

@@ -12,6 +12,7 @@ import { renderWithProviders } from "../helpers/render"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import {
   NOTHING_TO_SEND,
+  publishOutcome,
   usePublishFlow,
   type PublishStep,
 } from "@/lib/editors/use-publish-flow"
@@ -135,6 +136,73 @@ describe("usePublishFlow no-op steps", () => {
   })
 })
 
+describe("publish outcome", () => {
+  it("is live only when every Google write that went out was read back", () => {
+    expect(
+      publishOutcome([
+        { key: "save", label: "Save", status: "done", kind: "local" },
+        {
+          key: "hours",
+          label: "Hours",
+          status: "done",
+          kind: "google",
+          verified: true,
+        },
+      ])
+    ).toBe("confirmed_applied")
+    expect(
+      publishOutcome([
+        {
+          key: "profile",
+          label: "Profile",
+          status: "done",
+          kind: "google",
+          verified: true,
+        },
+        {
+          key: "attributes",
+          label: "Attributes",
+          status: "done",
+          kind: "google",
+        },
+      ])
+    ).toBe("sent")
+    // A step that sent nothing has nothing to verify.
+    expect(
+      publishOutcome([
+        {
+          key: "attributes",
+          label: "Attributes",
+          status: "done",
+          kind: "google",
+          noop: true,
+        },
+      ])
+    ).toBe("confirmed_applied")
+  })
+
+  it("words the success toast by the outcome the steps reached", async () => {
+    const steps: PublishStep[] = [
+      { key: "save", label: "Save", kind: "local", run: async () => {} },
+      { key: "publish", label: "Publish", verified: true, run: async () => {} },
+    ]
+    const { result } = renderHook(
+      () =>
+        usePublishFlow({
+          steps: () => steps,
+          successToast: (outcome) => ({ outcome }),
+        }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    const toasts = screen.getByRole("region", { name: "Notifications" })
+    expect(await within(toasts).findByText("Live on Google")).toBeVisible()
+    expect(within(toasts).queryByText("Sent to Google")).toBeNull()
+  })
+})
+
 describe("ReviewChangesSheet", () => {
   const conflictRows = [
     {
@@ -213,6 +281,44 @@ describe("ReviewChangesSheet", () => {
     expect(
       within(sheet).getByRole("button", { name: "Try again" })
     ).toBeEnabled()
+  })
+
+  it("says live only for a finished step whose endpoint verified it", async () => {
+    renderWithProviders(
+      <ReviewChangesSheet
+        open
+        onOpenChange={() => {}}
+        rows={[{ field: "Phone", before: "1", after: "2" }]}
+        locationName="Old Crown"
+        onPublish={vi.fn()}
+        results={[
+          { key: "save", label: "Save here", status: "done", kind: "local" },
+          {
+            key: "profile",
+            label: "Publish name",
+            status: "done",
+            kind: "google",
+            verified: true,
+          },
+          {
+            key: "attributes",
+            label: "Publish attributes",
+            status: "done",
+            kind: "google",
+          },
+        ]}
+      />
+    )
+    const sheet = await screen.findByRole("dialog")
+    const rows = within(sheet).getAllByRole("listitem")
+    expect(rows.map((row) => row.getAttribute("data-state"))).toEqual([
+      "saved_locally",
+      "confirmed_applied",
+      "sent",
+    ])
+    expect(rows[1]).toHaveTextContent("Live on Google")
+    expect(rows[2]).toHaveTextContent("Sent to Google")
+    expect(rows[2]).not.toHaveTextContent("Live on Google")
   })
 
   it("publishes a plain change without asking for anything", async () => {

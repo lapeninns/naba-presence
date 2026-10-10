@@ -23,7 +23,6 @@ import {
   lodgingChanges,
   lodgingUpdatedPaths,
   timeOfDayToInput,
-  touchedMask,
 } from "@/lib/locations/forms/industry"
 import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
 import { queryKeys } from "@/lib/queries/keys"
@@ -241,10 +240,18 @@ function LodgingSection({
   const wellness = asRecord(draft.wellness)
   const pools = asRecord(draft.pools)
 
-  // Top-level keys the user actually touched (D8: everything else on the
-  // record, including unknown sibling keys of `policies`, is preserved
-  // as-is via the spread in the onChange handlers below).
-  const mask = useMemo(() => touchedMask(loaded, draft), [loaded, draft])
+  // Leaf-level changes, for the review sheet and the mask alike.
+  const changes = useMemo(() => lodgingChanges(loaded, draft), [loaded, draft])
+  // Top-level keys with at least one changed leaf (D8: everything else on
+  // the record, including unknown sibling keys of `policies`, is preserved
+  // as-is via the spread in the onChange handlers below). Derived from the
+  // leaf diff rather than a whole-section string compare, so a section that
+  // only changed key order (a Google suggestion applied as-is) is not sent
+  // and does not enable a review with nothing in it.
+  const mask = useMemo(
+    () => [...new Set(changes.map((change) => change.section))],
+    [changes]
+  )
   const payload = useMemo(
     () => Object.fromEntries(mask.map((key) => [key, draft[key]])),
     [mask, draft]
@@ -257,13 +264,13 @@ function LodgingSection({
   const [publishError, setPublishError] = useState<string | null>(null)
   const rows = useMemo(
     () =>
-      lodgingChanges(loaded, draft).map((change) => ({
+      changes.map((change) => ({
         key: change.path,
         field: change.field,
         before: change.before,
         after: change.after,
       })),
-    [loaded, draft]
+    [changes]
   )
   const publish = useResourceMutation({
     mutationFn: () =>

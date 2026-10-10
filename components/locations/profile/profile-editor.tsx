@@ -363,6 +363,8 @@ function ProfileEditor({
     list.push({
       key: "profile",
       label: "Publish name, description, phone and website",
+      // Reads Google back and compares the selected fields before success.
+      verified: true,
       run: async () => {
         const fresh = saved.current ?? profile
         const fields = fresh.fields
@@ -390,6 +392,8 @@ function ProfileEditor({
       list.push({
         key: "listing",
         label: "Publish categories, address and status",
+        // Business information compares the readback field by field.
+        verified: true,
         run: async () => {
           await publishBusinessInformation(locationId, {
             updateMask: listingUpdate.updateMask,
@@ -408,6 +412,7 @@ function ProfileEditor({
       list.push({
         key: "attributes",
         label: "Publish attributes",
+        // Attributes are read back but not compared, so only "sent".
         run: async () => {
           await publishBusinessAttributes(locationId, {
             attributeMask: attributesUpdate.attributeMask,
@@ -442,10 +447,13 @@ function ProfileEditor({
       queryKeys.locationProfile(locationId),
       queryKeys.locationBusinessInformation(locationId),
     ],
-    successToast: {
-      outcome: "sent",
-      title: "Business profile sent to Google",
-    },
+    successToast: (outcome) => ({
+      outcome,
+      title:
+        outcome === "confirmed_applied"
+          ? "Business profile live on Google"
+          : "Business profile sent to Google",
+    }),
     onSuccess: () => setReviewOpen(false),
   })
 

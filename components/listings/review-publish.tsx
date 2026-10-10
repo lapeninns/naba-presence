@@ -52,6 +52,7 @@ import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { describeOutcome } from "@/lib/editors/outcome"
 import {
   NOTHING_TO_SEND,
+  publishOutcome,
   usePublishFlow,
   type PublishStep,
   type PublishStepResult,
@@ -147,6 +148,8 @@ function useProfileReview(locationId: string, enabled: boolean) {
         ? [
             {
               key: "profile",
+              // The endpoint reads Google back and compares before success.
+              verified: true,
               label: `Business profile · ${rows
                 .map((row) => row.field.toLowerCase())
                 .join(", ")}`,
@@ -205,6 +208,8 @@ function useHoursReview(locationId: string, enabled: boolean) {
           ? [
               {
                 key: "hours",
+                // The endpoint reads Google back and compares before success.
+                verified: true,
                 label: "Opening hours",
                 run: async () => {
                   const result = await publishHours(locationId, {
@@ -245,6 +250,8 @@ function useMenuReview(locationId: string, enabled: boolean) {
           : [
               {
                 key: "menu",
+                // The endpoint reads Google back and compares before success.
+                verified: true,
                 label: "Food menu · replaces the menu on Google",
                 run: async () => {
                   const result = await publishFoodMenus(locationId, {
@@ -453,11 +460,13 @@ function toStepRows(
       return {
         id: step.key,
         label: step.label,
-        // Done means the server's publish read Google back and it matched:
-        // the one state the outcome words may call live.
-        state: "confirmed_applied",
-        detail:
-          "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search.",
+        // A verified step's publish read Google back and it matched: the
+        // one state the outcome words may call live. Every area here is
+        // verified today; an unverified one would only say "sent".
+        state: step.verified ? "confirmed_applied" : "sent",
+        detail: step.verified
+          ? "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search."
+          : "Google accepted the request. It hasn’t been read back yet.",
       }
     if (step.status === "failed")
       return {
@@ -589,7 +598,7 @@ function ReviewPublish({
       queryKeys.locationMenu(locationId),
       queryKeys.locationActivity(locationId),
     ],
-    successToast: { outcome: "confirmed_applied" },
+    successToast: (outcome) => ({ outcome }),
   })
   const done =
     flow.results.length > 0 &&
@@ -710,14 +719,16 @@ function ReviewPublish({
                     nothingSent
                       ? "Nothing needed sending"
                       : done
-                        ? describeOutcome("confirmed_applied").title
+                        ? describeOutcome(publishOutcome(flow.results)).title
                         : "Nothing to publish"
                   }
                   description={
                     nothingSent
                       ? "Every area already matched Google when it was checked, so nothing was sent."
                       : done
-                        ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+                        ? publishOutcome(flow.results) === "confirmed_applied"
+                          ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+                          : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
                         : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
                   }
                   action={

@@ -387,7 +387,9 @@ describe("ProfileTab save and review boundaries", () => {
     expect(await within(review).findByRole("button", { name: "Try again" })).toBeInTheDocument()
     const progress = within(review).getByRole("list", { name: "Publish progress" })
     expect(progress).toHaveTextContent("Publish categories, address and status")
-    expect(progress).toHaveTextContent("Sent to Google")
+    // Business information compares its readback before success, so the
+    // finished step may say live; attributes would only say sent.
+    expect(progress).toHaveTextContent("Live on Google")
     expect(progress).toHaveTextContent("Publish attributes")
     expect(progress).toHaveTextContent("Failed")
     expect(review).toHaveTextContent("Earlier steps were sent to Google.")
