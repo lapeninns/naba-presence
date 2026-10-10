@@ -419,6 +419,188 @@ describeDatabase("Local Posts CRUD", () => {
     expect(createCalls()).toHaveLength(1)
   })
 
+  // The post's key moves with its content, so the attempt-level reconcile
+  // cannot catch an ambiguous post whose payload changed. The publish route
+  // refuses to send until Google's list has settled the post on the server.
+  it("reads the list before publishing an ambiguous post and never creates when it matches", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const name = postName("ambiguous-guarded")
+    google.respond({ method: "POST", pathIncludes: "/localPosts" }, () => ({
+      status: 200,
+      json: { name: postName("duplicate"), state: "LIVE" },
+    }))
+    google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
+      status: 200,
+      json: {
+        localPosts: [
+          {
+            name,
+            topicType: "STANDARD",
+            languageCode: "en-GB",
+            summary: "Quiz night",
+            state: "LIVE",
+          },
+        ],
+      },
+    }))
+    const postId = await createDraft(
+      owner.cookie,
+      linked.locationId,
+      "Quiz night"
+    )
+    // What an unconfirmed create leaves: no Google name, status unknown, and
+    // an ambiguous attempt under a key this publish will not derive (the
+    // content was edited since, say), so only the post-level guard sees it.
+    await admin`
+      update gbp_local_post set status = 'ambiguous' where id = ${postId}
+    `
+    await admin`
+      insert into gbp_local_post_attempt (
+        organisation_id, post_id, actor_user_id, operation, status,
+        idempotency_key, intended_payload, started_at, finished_at
+      ) values (
+        ${owner.organisationId}, ${postId}, ${owner.userId}, 'create',
+        'ambiguous', ${randomUUID()},
+        ${admin.json({
+          topicType: "STANDARD",
+          languageCode: "en-GB",
+          summary: "Quiz night",
+        })},
+        now() - interval '1 minute', now()
+      )
+    `
+
+    const response = await publish(owner.cookie, linked.locationId, postId)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toMatchObject({
+      status: "published",
+      googlePostName: name,
+    })
+    expect(createCalls()).toHaveLength(0)
+    const listCall = google.calls.findIndex(
+      (call) => call.method === "GET" && call.path.includes("/localPosts?")
+    )
+    expect(listCall).toBeGreaterThanOrEqual(0)
+    const rows = await storedPosts(linked.locationId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ status: "published", googlePostName: name })
+    // The list settled the attempt too, so it is not read back again later.
+    const [attempt] = await admin<{ status: string }[]>`
+      select status from gbp_local_post_attempt where post_id = ${postId}
+    `
+    expect(attempt.status).toBe("succeeded")
+  })
+
+  it("publishes an ambiguous post once Google's list shows it never landed", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const name = postName("ambiguous-absent")
+    let live: Record<string, unknown> | null = null
+    google.respond({ method: "POST", pathIncludes: "/localPosts" }, (call) => {
+      live = { name, state: "LIVE", ...(call.body as object) }
+      return { status: 200, json: live }
+    })
+    google.respond(
+      { method: "GET", pathIncludes: "/localPosts/ambiguous-absent" },
+      () => ({ status: 200, json: live ?? {} })
+    )
+    google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
+      status: 200,
+      json: { localPosts: live ? [live] : [] },
+    }))
+    const postId = await createDraft(
+      owner.cookie,
+      linked.locationId,
+      "Never landed"
+    )
+    await admin`
+      update gbp_local_post set status = 'ambiguous' where id = ${postId}
+    `
+    const response = await publish(owner.cookie, linked.locationId, postId)
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toMatchObject({
+      status: "published",
+      googlePostName: name,
+    })
+    expect(createCalls()).toHaveLength(1)
+  })
+
+  it("refuses to publish an ambiguous post while Google's list cannot be read", async () => {
+    const { owner, linked } = await linkedTenant()
+    google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
+      status: 403,
+      json: {},
+    }))
+    const postId = await createDraft(
+      owner.cookie,
+      linked.locationId,
+      "Unreadable"
+    )
+    await admin`
+      update gbp_local_post set status = 'ambiguous' where id = ${postId}
+    `
+    const response = await publish(owner.cookie, linked.locationId, postId)
+    expect(response.status).not.toBe(200)
+    expect(createCalls()).toHaveLength(0)
+    const [row] = await storedPosts(linked.locationId)
+    expect(row.status).toBe("ambiguous")
+  })
+
+  it("settles a delete Google answered with a 5xx by reading the list back", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const gone = postName("delete-landed")
+    const kept = postName("delete-refused")
+    const listed = new Set([gone, kept])
+    google.respond(
+      { method: "DELETE", pathIncludes: "/localPosts/" },
+      (call) => {
+        // Google removes the first post but the answer is lost; the second it
+        // never reaches.
+        if (call.path.includes("delete-landed")) listed.delete(gone)
+        return { status: 503, json: {} }
+      }
+    )
+    google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
+      status: 200,
+      json: {
+        localPosts: [...listed].map((name) => ({
+          name,
+          topicType: "STANDARD",
+          summary: name,
+          state: "LIVE",
+        })),
+      },
+    }))
+    const remove = async (summary: string, name: string) => {
+      const postId = await createDraft(owner.cookie, linked.locationId, summary)
+      await admin`
+        update gbp_local_post
+        set status = 'published', google_post_name = ${name}
+        where id = ${postId}
+      `
+      return fetch(
+        `${server.baseUrl}/api/locations/${linked.locationId}/posts/${postId}`,
+        { method: "DELETE", headers: { cookie: owner.cookie } }
+      )
+    }
+
+    const landed = await remove("Landed", gone)
+    expect(landed.status, await landed.clone().text()).toBe(200)
+    const refused = await remove("Refused", kept)
+    expect(refused.status).toBe(502)
+    expect((await refused.json()).error).toBe("google_post_not_deleted")
+
+    const attempts = await admin<{ status: string; code: string | null }[]>`
+      select status, provider_error_code as code
+      from gbp_local_post_attempt
+      where organisation_id = ${owner.organisationId} and operation = 'delete'
+      order by started_at
+    `
+    expect(attempts).toEqual([
+      { status: "succeeded", code: null },
+      { status: "failed", code: "google_post_not_deleted" },
+    ])
+  })
+
   // A killed instance leaves the row at 'publishing'. Without the lease the
   // `status <> 'publishing'` claim would make that post unpublishable for
   // good, so the reaper and the claim have to work together.

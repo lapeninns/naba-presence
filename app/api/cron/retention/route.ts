@@ -356,8 +356,10 @@ async function retain({
         // write landed, the snapshot moved, and the next publish derives a
         // different key. Twenty-four hours is far past the two-minute
         // in-flight grace, so the readback path still owns every fresh row;
-        // past it a settled 'ambiguous' row re-arms on its next same-key
-        // request rather than blocking it.
+        // past it a settled 'ambiguous' row is read back on its next same-key
+        // request -- settled from what Google holds before anything re-arms
+        // -- and a surface with no readback answers 409 mutation_uncertain
+        // rather than sending the write a second time.
         //
         // All THREE in-flight statuses, not just 'publishing': hours and
         // profile issue a validateOnly call to Google during 'validating',

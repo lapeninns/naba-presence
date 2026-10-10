@@ -576,8 +576,9 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
       await patchGoogle(true)
     },
     mutate: () => patchGoogle(false),
-    // Profile keeps "fail" for now; hours uses "readback" and convergence on "readback" is intended.
-    onAmbiguous: "fail",
+    // An ambiguous PATCH is settled by the field-hash readback below, as hours
+    // does: a match proves it landed, a mismatch that it did not.
+    onAmbiguous: "readback",
     readback: {
       read: async () =>
         normalizeGoogleProfile(await fetchGoogleProfile(live.context, live.accessToken, { maxAttempts: 3 })),

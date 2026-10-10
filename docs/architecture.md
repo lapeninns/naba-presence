@@ -477,9 +477,9 @@ the intent was not achieved, so both are safe to retry from a fresh snapshot.
 Only a readback that itself fails leaves the state unknown. The provider error
 code recorded on the row is `ApiError.code`, else an object's string `code`,
 else the module's `failureCode`. The two `onAmbiguous` modes exist because the
-migrated modules kept their previous behaviour; the intended convergence is
-`"readback"` wherever a readback exists, because ambiguous writes are read
-before any retry.
+migrated modules kept their previous behaviour; `"readback"` is used wherever a
+readback exists (hours, profile, food menus, post publish and post delete),
+because ambiguous writes are read before any retry.
 
 The transport (`lib/server/google/transport.ts`) decides which provider errors
 are ambiguous. In mutation mode it raises `GoogleMutationAmbiguousError` for a
@@ -529,10 +529,31 @@ resource and publish again — mints a different one. The retention cron
 (`app/api/cron/retention/route.ts`) reaps the remainder: a row left in any
 in-flight status for twenty-four hours (measured from `started_at`, or from
 `created_at` on the two tables that lack it) is settled `ambiguous` with
-`attempt_interrupted`, a settled status, so the next request for that key
-re-arms it instead of 409ing on it. The halves are not interchangeable — the
+`attempt_interrupted`, a settled status, which the next request for that key
+reconciles as below instead of 409ing on it as in flight. The halves are not interchangeable — the
 reaper holds no provider credentials and cannot read anything back, and the
 readback path never runs at all for a tenant nobody opens.
+
+A settled `ambiguous` row is never re-armed blindly: the write it carried may
+have landed, and re-sending a create is a duplicate. On a `"resume"` surface
+the next request for that key reads it back first, with no grace window, under
+the same three outcomes as an interrupted row (an unreadable provider leaves
+it `ambiguous`; a match settles it `succeeded` and answers `idempotent`; a
+mismatch settles it `failed` and the request re-arms and publishes). A surface
+with no `readback` answers 409 `mutation_uncertain` instead. Every settle the
+reconcile makes, and every re-arm, is conditional on the status that was read
+(`expectedStatus`, and `start` re-arming only the status `find` saw), so two
+requests reconciling the same row cannot both send. `"replay"` surfaces are
+unchanged: their keys are request- or intent-scoped and a repeat answers from
+the existing row.
+
+Posts add a guard of their own because a post's key moves with its content:
+`requestOrPublishLocalPost` refuses to dispatch a post whose status is
+`ambiguous` until Google's live list has settled it on the server
+(`reconcileLocalPosts`). A listed match adopts the live post and the publish
+answers `published` without a second create; no match settles it `failed` and
+the publish proceeds; a post still `ambiguous` after that answers 409
+`post_publish_uncertain`.
 
 The reply pipeline in `lib/server/publishing/*` deliberately does not use
 `runGbpWrite`; "Three-phase reply mutation and recovery" states what it keeps

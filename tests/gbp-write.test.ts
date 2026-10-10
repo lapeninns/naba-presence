@@ -383,6 +383,133 @@ describe("gbp-write", () => {
     expect(row.provider_error_code).toBe("google_unavailable")
   })
 
+  // --- settled ambiguous attempts --------------------------------------------
+  // An `ambiguous` row may have landed, so the next request for its key reads
+  // Google back before anything re-arms it -- with no grace window, because
+  // the row is settled, not in flight.
+
+  it("an ambiguous attempt whose write landed settles succeeded with no second mutate", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    const result = await run({
+      onSuccess: async (_sql, ctx) => {
+        calls.push(`onSuccess:${ctx.readbackHash}`)
+      },
+    })
+    expect(calls).toEqual(["read", "onSuccess:expected"])
+    expect(result).toEqual({
+      idempotent: true,
+      attemptId: uncertain.id,
+      status: "succeeded",
+      rawStatus: "succeeded",
+    })
+    const all = await rows("write_attempt")
+    expect(all).toHaveLength(1)
+    expect(all[0].status).toBe("succeeded")
+    expect(all[0].provider_response_hash).toBe("expected")
+    expect(await audits()).toHaveLength(1)
+  })
+
+  it("an ambiguous attempt that did not land re-arms and publishes", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    let reads = 0
+    const result = await run({
+      readback: {
+        read: async () => {
+          reads += 1
+          calls.push("read")
+          return { hash: reads === 1 ? "other" : "expected" }
+        },
+        verify: ({ readback }) => readback.hash === "expected",
+        hash: (readback) => readback.hash,
+      },
+    })
+    expect(calls).toEqual(["read", "validate", "mutate", "read"])
+    expect(result.idempotent).toBe(false)
+    expect(result.attemptId).toBe(uncertain.id)
+    const all = await rows("write_attempt")
+    expect(all).toHaveLength(1)
+    expect(all[0].status).toBe("succeeded")
+    expect(all[0].provider_error_code).toBeNull()
+  })
+
+  it("an ambiguous attempt on a surface with no readback is a 409 mutation_uncertain", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    await expect(
+      run({ onAmbiguous: "fail", readback: undefined })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "mutation_uncertain",
+      details: { attemptId: uncertain.id },
+    })
+    expect(calls).toEqual([])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+  })
+
+  it("an ambiguous attempt the provider cannot be read for stays ambiguous and is not re-sent", async () => {
+    await strand(0, "ambiguous")
+    await expect(
+      run({
+        readback: {
+          read: async () => {
+            throw new ApiError(503, "google_unavailable", "down")
+          },
+          verify: () => true,
+        },
+      })
+    ).rejects.toMatchObject({ code: "google_unavailable" })
+    expect(calls).toEqual([])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+    expect(row.provider_error_code).toBe("google_unavailable")
+  })
+
+  it("a reconcile that loses its row to a concurrent re-arm settles nothing and sends nothing", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    await expect(
+      run({
+        readback: {
+          read: async () => {
+            // Another request read the same row, proved it had not landed and
+            // re-armed it while this one was still reading Google.
+            await db.query(
+              "update write_attempt set status = 'publishing' where id = $1",
+              [uncertain.id]
+            )
+            calls.push("read")
+            return { hash: "other" }
+          },
+          verify: ({ readback }) => readback.hash === "expected",
+        },
+      })
+    ).rejects.toMatchObject({ status: 409, code: "hours_publish_in_progress" })
+    expect(calls).toEqual(["read"])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("publishing")
+    expect(row.provider_error_code).toBeNull()
+  })
+
+  it("re-arms a settled row only while it still holds the status find read", async () => {
+    const failed = await strand(0, "failed")
+    const started = await withTenant(ORG, (sql) =>
+      hoursStyle.start(sql, {
+        organisationId: ORG,
+        actorUserId: USER,
+        requestId: "req-2",
+        key: base().key,
+        intent: {},
+        existing: {
+          id: String(failed.id),
+          status: "ambiguous",
+          rawStatus: "ambiguous",
+        },
+      })
+    )
+    expect(started).toBeNull()
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("failed")
+  })
+
   it("an attempt still inside the grace window keeps the module's 409", async () => {
     await strand(1)
     await expect(run()).rejects.toMatchObject({

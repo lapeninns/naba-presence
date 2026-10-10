@@ -263,6 +263,85 @@ describeDatabase("standalone NabaPresence canonical management", () => {
       { resourceType: "profile", revision: "2" },
     ])
   }, 30_000)
+  // Profile used to settle an ambiguous PATCH as `ambiguous` without looking;
+  // it now reads the location back like hours does.
+  it("settles an ambiguous profile publish succeeded when the readback matches", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    let providerLocation: Record<string, unknown> = {
+      name: linked.googleLocationName,
+      title: "Rose and Crown",
+      websiteUri: "https://rose.example",
+    }
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({ status: 200, json: providerLocation })
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: `/v1/${linked.googleLocationName}` },
+      (call) => {
+        const url = new URL(call.path, google.baseUrl)
+        if (url.searchParams.get("validateOnly") === "true") {
+          return { status: 200, json: providerLocation }
+        }
+        // The write lands; the answer is lost.
+        providerLocation = {
+          ...providerLocation,
+          ...(call.body as Record<string, unknown>),
+        }
+        return { status: 504, json: {} }
+      }
+    )
+    const root = `${server.baseUrl}/api/locations/${linked.locationId}`
+    const initial = await getJson(`${root}/profile`, owner.cookie, "profile")
+    const save = await fetch(`${root}/profile`, {
+      method: "PUT",
+      headers: jsonHeaders(owner.cookie, "save-ambiguous-profile"),
+      body: JSON.stringify({
+        expectedCanonicalRevision: initial.canonicalResource.revision,
+        values: { name: "The Rose and Crown" },
+      }),
+    })
+    expect(save.status, await save.clone().text()).toBe(200)
+    const reviewed = await getJson(`${root}/profile`, owner.cookie, "profile")
+    const published = await fetch(`${root}/profile`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "publish-ambiguous-profile"),
+      body: JSON.stringify({
+        direction: "to_google",
+        confirmation: "publish_nabapresence_profile_to_google",
+        selectedFields: ["name"],
+        expectedCanonicalRevision: reviewed.canonicalResource.revision,
+        expectedCanonicalHash: reviewed.canonicalHash,
+        expectedGoogleHash: reviewed.googleHash,
+        confirmOverwriteGoogleChanges: false,
+        confirmOverwriteCanonicalChanges: false,
+      }),
+    })
+    expect(published.status, await published.clone().text()).toBe(200)
+    const attempts = await admin<{ status: string }[]>`
+      select status from profile_sync_attempt
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(attempts.map((row) => row.status)).toEqual(["succeeded"])
+    expect(
+      google.calls.filter(
+        (call) =>
+          call.method === "PATCH" &&
+          call.path.includes(linked.googleLocationName) &&
+          !call.path.includes("validateOnly=true")
+      )
+    ).toHaveLength(1)
+  })
+
   it("persists never-published checks and Google drift, retains edits and success time after failure", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)

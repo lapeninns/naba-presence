@@ -69,6 +69,18 @@ const POSTS_PAUSED = {
  * edit during one, an approval request during one) so the client has one
  * thing to say.
  */
+/**
+ * The post's last publish is still unconfirmed after reading Google's list:
+ * it stays `ambiguous` (the list did not settle it) and is not sent again.
+ */
+function postPublishUncertain() {
+  return new ApiError(
+    409,
+    "post_publish_uncertain",
+    "Google has not confirmed whether this post's last publish went live. Refresh the posts list before publishing again."
+  )
+}
+
 const POST_PUBLISH_IN_PROGRESS = {
   status: 409,
   code: "post_publish_in_progress",
@@ -328,14 +340,18 @@ async function settleStrandedLocalPosts(
     }
     // The attempt row outlives the request that opened it, so settle it here
     // too: left `started` it stays in flight for its whole 180-day retention
-    // and the idempotency gate reads it as a publish still running.
-    if (post.attemptId && post.attemptStatus === "started") {
+    // and the idempotency gate reads it as a publish still running; left
+    // `ambiguous` the next publish of the same content reads Google again.
+    if (
+      post.attemptId &&
+      (post.attemptStatus === "started" || post.attemptStatus === "ambiguous")
+    ) {
       const settled = await sql`
         update gbp_local_post_attempt
         set status = ${name ? "succeeded" : "failed"},
           provider_error_code = ${name ? null : "google_post_not_published"},
           finished_at = now()
-        where id = ${post.attemptId} and status = 'started'
+        where id = ${post.attemptId} and status in ('started', 'ambiguous')
         returning id
       `
       // And the receipt waiting on it (lib/server/mutation-operations.ts).
@@ -846,6 +862,7 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
             provider_error_code = null, provider_http_status = null,
             provider_response = null, finished_at = null, started_at = now()
           where id = ${input.existing.id}
+            and status = ${input.existing.rawStatus}
           returning id::text as id, status, started_at as "startedAt"
         `
       : await sql<AttemptSelection[]>`
@@ -899,9 +916,10 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
         provider_response = ${jsonColumnOrNull(sql, input.response)},
         finished_at = now()
       where id = ${input.id}
+        ${input.expectedStatus === undefined ? sql`` : sql`and status = ${input.expectedStatus}`}
       returning post_id::text as "postId", operation
     `
-    if (!attempt) return
+    if (!attempt) return false
     if (attempt.operation === "delete") {
       if (succeeded) {
         await sql`update gbp_local_post set status = 'deleted', provider_payload = null where id = ${attempt.postId}`
@@ -1061,98 +1079,134 @@ export async function requestOrPublishLocalPost(input: {
   // or the posts kill switch; both are checked only once a publish is due,
   // and before any decision row is written, so a paused or unlinked publish
   // leaves no approval behind claiming otherwise.
-  const decided = await withTenant(input.organisationId, async (sql) => {
-    // A viewer may neither publish nor ask for approval; an approver's
-    // decision needs publication authority, not just an edit grant.
-    const grant = await requireLocationAction(
-      sql,
-      input.session,
-      input.locationId,
-      input.approval ? "decide_approval" : "request_approval"
-    )
-    const post = await loadPost(sql, input.locationId, input.postId, {
-      lock: true,
-    })
-    const publishWith = async (approval: ApprovalRef | null) => {
-      requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
-      const linked = await loadLinkedLocation(
+  //
+  // `reconciled` is the second pass, after an `ambiguous` post was settled
+  // from Google's live list (see below).
+  const decide = (reconciled: boolean) =>
+    withTenant(input.organisationId, async (sql) => {
+      // A viewer may neither publish nor ask for approval; an approver's
+      // decision needs publication authority, not just an edit grant.
+      const grant = await requireLocationAction(
         sql,
         input.session,
         input.locationId,
-        POSTS_NOT_LINKED
+        input.approval ? "decide_approval" : "request_approval"
       )
-      return { kind: "publish" as const, post, linked, approval }
-    }
-
-    if (input.approval) {
-      requirePendingDecision(post, input.expectedRevision, "approve")
-      if (isOwnRequest(post, input.session.userId)) {
-        if (post.requireTwoPersonApproval) {
-          throw new ApiError(
-            403,
-            "second_approver_required",
-            "A different authorised user must approve this post."
-          )
-        }
-        // Without the policy a publisher may publish their own content
-        // directly, so approving their own request is that publish, not a
-        // decision: no approval row claims a second person looked at it.
-        if (post.approvalRequestedBy === input.session.userId) {
-          return publishWith(null)
-        }
-      }
-      const linkedPublish = await publishWith(null)
-      const id = await insertDecision(sql, input, post, "approved")
-      // The decision stands even if the publish below fails (a retry of the
-      // same revision goes out under it), so it is audited in its own right.
-      await writeAudit(sql, {
-        organisationId: input.organisationId,
-        actorUserId: input.session.userId,
-        action: "post.approval.approved",
-        subjectType: "local_post",
-        subjectId: input.postId,
-        requestId: input.requestId,
-        metadata: {
-          locationId: input.locationId,
-          contentRevision: post.contentRevision,
-          decisionId: id,
-        },
+      const post = await loadPost(sql, input.locationId, input.postId, {
+        lock: true,
       })
-      return {
-        ...linkedPublish,
-        approval: { id, decidedBy: input.session.userId },
+      const publishWith = async (approval: ApprovalRef | null) => {
+        requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+        const linked = await loadLinkedLocation(
+          sql,
+          input.session,
+          input.locationId,
+          POSTS_NOT_LINKED
+        )
+        return { kind: "publish" as const, post, linked, approval }
       }
-    }
 
-    if (post.status === "publishing") throw postPublishInProgress()
-    const approval = await qualifyingApproval(sql, post)
-    if (requiresPostApproval(post, grant.canPublish, approval !== null)) {
-      await sql`
+      if (input.approval) {
+        requirePendingDecision(post, input.expectedRevision, "approve")
+        if (isOwnRequest(post, input.session.userId)) {
+          if (post.requireTwoPersonApproval) {
+            throw new ApiError(
+              403,
+              "second_approver_required",
+              "A different authorised user must approve this post."
+            )
+          }
+          // Without the policy a publisher may publish their own content
+          // directly, so approving their own request is that publish, not a
+          // decision: no approval row claims a second person looked at it.
+          if (post.approvalRequestedBy === input.session.userId) {
+            return publishWith(null)
+          }
+        }
+        const linkedPublish = await publishWith(null)
+        const id = await insertDecision(sql, input, post, "approved")
+        // The decision stands even if the publish below fails (a retry of the
+        // same revision goes out under it), so it is audited in its own right.
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          actorUserId: input.session.userId,
+          action: "post.approval.approved",
+          subjectType: "local_post",
+          subjectId: input.postId,
+          requestId: input.requestId,
+          metadata: {
+            locationId: input.locationId,
+            contentRevision: post.contentRevision,
+            decisionId: id,
+          },
+        })
+        return {
+          ...linkedPublish,
+          approval: { id, decidedBy: input.session.userId },
+        }
+      }
+
+      if (post.status === "publishing") throw postPublishInProgress()
+      // An earlier publish whose outcome Google never confirmed. It may have
+      // created the post already, so sending it again -- a create, when the row
+      // holds no Google name -- risks a second live post. Google's list settles
+      // it first, on the server, whatever the client believes the status is.
+      if (post.status === "ambiguous") {
+        if (reconciled) throw postPublishUncertain()
+        return { kind: "reconcile" as const }
+      }
+      // The uncertain publish had landed: the post is live with the content it
+      // was asked to publish, so there is nothing left to send.
+      if (reconciled && post.status === "published") {
+        return { kind: "adopted" as const, post }
+      }
+      const approval = await qualifyingApproval(sql, post)
+      if (requiresPostApproval(post, grant.canPublish, approval !== null)) {
+        await sql`
         update gbp_local_post
         set status = 'awaiting_approval',
           approval_requested_by = ${input.session.userId},
           approval_requested_revision = content_revision
         where id = ${input.postId}
       `
-      await writeAudit(sql, {
-        organisationId: input.organisationId,
-        actorUserId: input.session.userId,
-        action: "post.approval.requested",
-        subjectType: "local_post",
-        subjectId: input.postId,
-        requestId: input.requestId,
-        metadata: {
-          locationId: input.locationId,
-          contentRevision: post.contentRevision,
-          // Why a publisher's own publish parked: the organisation's
-          // two-person policy, not a missing grant.
-          twoPerson: grant.canPublish,
-        },
-      })
-      return { kind: "parked" as const }
+        await writeAudit(sql, {
+          organisationId: input.organisationId,
+          actorUserId: input.session.userId,
+          action: "post.approval.requested",
+          subjectType: "local_post",
+          subjectId: input.postId,
+          requestId: input.requestId,
+          metadata: {
+            locationId: input.locationId,
+            contentRevision: post.contentRevision,
+            // Why a publisher's own publish parked: the organisation's
+            // two-person policy, not a missing grant.
+            twoPerson: grant.canPublish,
+          },
+        })
+        return { kind: "parked" as const }
+      }
+      return publishWith(approval)
+    })
+  let decided = await decide(false)
+  if (decided.kind === "reconcile") {
+    // A provider read, so outside the deciding transaction; the second pass
+    // re-locks the row and decides again from what the list proved.
+    await reconcileLocalPosts(
+      input.organisationId,
+      input.session,
+      input.locationId
+    )
+    decided = await decide(true)
+  }
+  if (decided.kind === "reconcile") throw postPublishUncertain()
+  if (decided.kind === "adopted") {
+    return {
+      status: "published" as const,
+      postId: input.postId,
+      googlePostName: decided.post.googlePostName,
     }
-    return publishWith(approval)
-  })
+  }
   if (decided.kind === "parked") {
     return { status: "awaiting_approval" as const }
   }
@@ -1434,7 +1488,7 @@ export async function deleteLocalPost(input: {
   })
   const googlePostName = post.googlePostName
   try {
-    await runGbpWrite<void, never, LocalPostAttemptIntent>({
+    await runGbpWrite<void, { listed: boolean }, LocalPostAttemptIntent>({
       organisationId: input.organisationId,
       actorUserId: input.session.userId,
       requestId: input.requestId,
@@ -1475,7 +1529,23 @@ export async function deleteLocalPost(input: {
           { connectionKey: linked.googleConnectionId }
         )
       },
-      onAmbiguous: "fail",
+      // A 5xx or timeout on DELETE says nothing about whether the post is
+      // gone. Google's live list does: absent means the delete landed, still
+      // listed means it did not and the row settles failed, safe to retry.
+      onAmbiguous: "readback",
+      readback: {
+        read: async () => ({
+          listed: (await fetchLiveLocalPosts(linked)).some(
+            (item) => stringOrNull(item.name) === googlePostName
+          ),
+        }),
+        verify: ({ readback }) => !readback.listed,
+        mismatch: {
+          status: 502,
+          code: "google_post_not_deleted",
+          message: "Google still lists this post, so it was not deleted.",
+        },
+      },
       audit: (ctx) => ({
         action: "post.deleted",
         subjectType: "local_post",
