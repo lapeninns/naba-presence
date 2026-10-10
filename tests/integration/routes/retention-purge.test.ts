@@ -186,6 +186,46 @@ describeDatabase("retention purge", () => {
     expect(item.payloadExpiresAt).not.toBeNull()
   }, 30_000)
 
+  it("keeps an expired media create that still waits on a person", async () => {
+    const owner = await createTenant()
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const seed = (status: string, resolution: string | null) =>
+      admin<{ id: string }[]>`
+        insert into gbp_media_mutation (
+          organisation_id, location_id, actor_user_id, operation, status,
+          idempotency_key, upload_phase, content_sha256, resolution, expires_at
+        ) values (
+          ${owner.organisationId}, ${linked.locationId}, ${owner.userId},
+          'create', ${status}, ${`key-${randomUUID()}`}, 'create_sent',
+          ${"d".repeat(64)}, ${resolution}, now() - interval '1 day'
+        )
+        returning id::text as id
+      `.then(([row]) => row.id)
+    const pending = await seed("needs_resolution", null)
+    const uncertain = await seed("ambiguous", null)
+    const resolved = await seed("failed", "abandoned")
+
+    const result = await runRetention()
+    expect(
+      result.failures.map((failure) => failure.organisationId)
+    ).not.toContain(owner.organisationId)
+    const left = await admin<{ id: string }[]>`
+      select id::text as id from gbp_media_mutation
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(left.map((row) => row.id).sort()).toEqual(
+      [pending, uncertain].sort()
+    )
+    expect(left.map((row) => row.id)).not.toContain(resolved)
+  }, 30_000)
+
   it("reports zero for every count on a second consecutive run", async () => {
     const owner = await createTenant()
     const connection = await seedGoogleConnection(admin, {

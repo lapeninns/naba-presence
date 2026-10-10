@@ -11,6 +11,13 @@
  * none or several leave the create for a person to resolve, because adopting
  * the wrong photo would hide a duplicate and re-creating could make one.
  *
+ * Nothing in an upload's item ties it to its bytes, so a candidate can also
+ * be another create's photo: one with the same format and category whose
+ * outcome is still open, or that a person adopted without its name. While
+ * such a create overlaps the attempt (`contested`), no candidate is adopted.
+ * An item someone adds in Google directly in the same window cannot be told
+ * apart; the photos tab shows what was adopted.
+ *
  * Pure: lib/server/media.ts lists the media and records the verdict.
  */
 
@@ -39,6 +46,8 @@ export type MediaCreateMatch =
   | { kind: "match"; item: Record<string, unknown> }
   | { kind: "none" }
   | { kind: "several"; count: number }
+  /** Candidates exist, but another open create could account for them. */
+  | { kind: "contested"; count: number }
 
 function categoryOf(item: Record<string, unknown>): string | null {
   const association = item.locationAssociation
@@ -74,6 +83,11 @@ export function matchCreatedMedia(
     startedAt: Date
     /** Items other creates already claimed. */
     claimedNames?: ReadonlySet<string>
+    /**
+     * Another create of the same format and category overlaps the attempt
+     * and has no item name of its own (still open, or adopted by a person).
+     */
+    contested?: boolean
   }
 ): MediaCreateMatch {
   const notBefore = options.startedAt.getTime() - MEDIA_CREATE_TIME_SKEW_MS
@@ -86,7 +100,10 @@ export function matchCreatedMedia(
     if (!Number.isFinite(created) || created < notBefore) return false
     return mediaItemMatchesIntent(item, intent)
   })
-  if (candidates.length === 1) return { kind: "match", item: candidates[0] }
   if (candidates.length === 0) return { kind: "none" }
+  if (options.contested) {
+    return { kind: "contested", count: candidates.length }
+  }
+  if (candidates.length === 1) return { kind: "match", item: candidates[0] }
   return { kind: "several", count: candidates.length }
 }

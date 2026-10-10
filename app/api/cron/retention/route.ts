@@ -236,11 +236,23 @@ async function retain({
             returning id
           `
         )
+        // An uncertain create nobody has resolved yet is kept past its
+        // expiry: it blocks a re-create of the same content and holds what a
+        // person needs to decide (lib/server/media.ts `unresolvedCreate`).
+        // It ages off once resolved, since resolving leaves expires_at as is.
         const mediaMutations = await purge(
           deletesEnabled,
           () => sql`
             delete from gbp_media_mutation
             where expires_at <= now()
+              and not (
+                operation = 'create'
+                and resolution is null
+                and (
+                  status = 'needs_resolution'
+                  or (status = 'ambiguous' and upload_phase = 'create_sent')
+                )
+              )
             returning id
           `
         )

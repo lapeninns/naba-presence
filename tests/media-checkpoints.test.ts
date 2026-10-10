@@ -88,6 +88,18 @@ describe("matchCreatedMedia", () => {
     ).toEqual({ kind: "match", item: item("media/b") })
   })
 
+  it("adopts nothing while another open create could account for the item", () => {
+    expect(
+      matchCreatedMedia([item("media/a")], intent, {
+        startedAt: STARTED,
+        contested: true,
+      })
+    ).toEqual({ kind: "contested", count: 1 })
+    expect(
+      matchCreatedMedia([], intent, { startedAt: STARTED, contested: true })
+    ).toEqual({ kind: "none" })
+  })
+
   it("compares description loosely but format, category and source URL exactly", () => {
     expect(
       mediaItemMatchesIntent(
@@ -134,7 +146,8 @@ describe("media create recovery by checkpoint", () => {
   const attempt = (
     uploadPhase:
       "none" | "data_ref_obtained" | "bytes_uploaded" | "create_sent",
-    claimedNames: string[] = []
+    claimedNames: string[] = [],
+    overrides: { contentSha256?: string | null; contested?: boolean } = {}
   ) => ({
     id: "a1",
     rawStatus: "ambiguous",
@@ -143,7 +156,10 @@ describe("media create recovery by checkpoint", () => {
     requestedPayload: { ...intent, fileName: "dish.jpg" },
     googleMediaName: null,
     uploadPhase,
+    contentSha256: "c".repeat(64),
     claimedNames,
+    contested: false,
+    ...overrides,
   })
 
   beforeEach(() => {
@@ -166,6 +182,44 @@ describe("media create recovery by checkpoint", () => {
       expect(google.googleMediaItems).not.toHaveBeenCalled()
     }
   )
+
+  it("settles a create from 0074 on that never left phase none as not landed", async () => {
+    await expect(
+      mediaRecoveryAdapter.readback({
+        attempt: attempt("none"),
+        link,
+        operation,
+      })
+    ).resolves.toEqual({
+      kind: "not_landed",
+      errorCode: "media_upload_interrupted",
+    })
+    await expect(
+      mediaRecoveryAdapter.readback({
+        attempt: attempt("none", [], { contentSha256: null }),
+        link,
+        operation,
+      })
+    ).resolves.toEqual({
+      kind: "unverifiable",
+      errorCode: "media_create_unverifiable",
+    })
+    expect(google.googleMediaItems).not.toHaveBeenCalled()
+  })
+
+  it("hands a sent create to a person while another open create could own its match", async () => {
+    google.googleMediaItems.mockResolvedValue([item("media/a")])
+    await expect(
+      mediaRecoveryAdapter.readback({
+        attempt: attempt("create_sent", [], { contested: true }),
+        link,
+        operation,
+      })
+    ).resolves.toEqual({
+      kind: "unverifiable",
+      errorCode: "media_needs_resolution",
+    })
+  })
 
   it("adopts the single live match of a create that was sent", async () => {
     google.googleMediaItems.mockResolvedValue([

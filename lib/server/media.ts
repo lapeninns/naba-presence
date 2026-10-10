@@ -19,6 +19,7 @@ import {
   type GoogleMediaCategory,
 } from "@/lib/domain/google-contract"
 import {
+  MEDIA_CREATE_TIME_SKEW_MS,
   matchCreatedMedia,
   type MediaCreateIntent,
   type MediaUploadPhase,
@@ -344,7 +345,7 @@ export async function loadMedia(
  * this module writes), so the in-flight vocabulary maps onto `started`; the
  * table has no validated_at / http-status / response-hash columns.
  */
-const mediaAttempts = attemptStore({
+const mediaAttemptRows = attemptStore({
   table: "gbp_media_mutation",
   statuses: {
     validating: "started",
@@ -357,6 +358,58 @@ const mediaAttempts = attemptStore({
     startedAt: "started_at",
   },
 })
+
+/**
+ * The media attempt store, with two create rules on top of the shared one:
+ *
+ * - start: the unresolved-create guard runs in the transaction that inserts
+ *   the attempt, under a transaction lock on (location, content), so two
+ *   creates of the same content cannot both pass it and both be sent.
+ * - settle: a person's verdict (`resolution`, resolveMediaCreate) is final
+ *   for the request it raced. A failure settles nothing over it; a success
+ *   over `abandoned` is refused with a conflict, because the content is
+ *   already unblocked and Google says the photo is there.
+ */
+const mediaAttempts: typeof mediaAttemptRows = {
+  ...mediaAttemptRows,
+  async start(sql, input) {
+    const {
+      operation,
+      location_id: locationId,
+      content_sha256: content,
+    } = input.intent
+    if (
+      operation === "create" &&
+      typeof locationId === "string" &&
+      typeof content === "string"
+    ) {
+      await sql`
+        select pg_advisory_xact_lock(
+          hashtext(${`gbp_media_create:${locationId}:${content}`})
+        )
+      `
+      await requireNoUnresolvedCreate(sql, locationId, content)
+    }
+    return mediaAttemptRows.start(sql, input)
+  },
+  async settle(sql, input) {
+    const [row] = await sql<{ resolution: string | null }[]>`
+      select resolution from gbp_media_mutation where id = ${input.id} for update
+    `
+    if (row?.resolution && input.expectedStatus === undefined) {
+      if (input.status !== "succeeded") return false
+      if (row.resolution === "abandoned") {
+        throw new ApiError(
+          409,
+          "media_resolution_conflict",
+          "This was marked as not added while it was still being sent, and Google has now added it. Check the listing’s photos before adding it again.",
+          { details: { attemptId: input.id } }
+        )
+      }
+    }
+    return mediaAttemptRows.settle(sql, input)
+  },
+}
 
 type MediaOperation = "create" | "update" | "delete"
 
@@ -622,8 +675,9 @@ function unresolvedCreate(sql: TransactionSql) {
  * Refuses a create while an earlier create of the same content at the same
  * location is unresolved (409 media_needs_resolution) or still being sent
  * (409 media_create_in_progress): sending it again could put the photo on
- * the listing twice. A same-intent retry of a create that settled is not
- * blocked; the pipeline answers it from its receipt.
+ * the listing twice. Runs inside the attempt claim (mediaAttempts.start), so
+ * a same-intent retry is answered from its receipt before it gets here:
+ * settled, or still uncertain while it waits on a person.
  */
 async function requireNoUnresolvedCreate(
   sql: TransactionSql,
@@ -689,22 +743,71 @@ async function markNeedsResolution(organisationId: string, attemptId: string) {
   })
 }
 
-/** Names other creates at the location already adopted, so no two claim one item. */
-async function claimedCreateNames(
+type CreateClaimContext = {
+  startedAt: Date
+  claimedNames: Set<string>
+  contested: boolean
+}
+
+/**
+ * What the other creates at the attempt's location say about the live list
+ * (lib/domain/media-reconcile.ts): the item names they hold, so no two
+ * attempts claim one item, and whether one of the same format and category
+ * overlaps the attempt without a name of its own -- its outcome still open
+ * (sent, or from before the checkpoints), or adopted by a person, who
+ * records no name. Such a create could account for any candidate.
+ */
+async function createClaimContext(
   sql: TransactionSql,
-  locationId: string,
   attemptId: string
-): Promise<Set<string>> {
-  const rows = await sql<{ name: string }[]>`
-    select google_response->>'name' as name
-    from gbp_media_mutation
-    where location_id = ${locationId}
-      and operation = 'create'
-      and status = 'succeeded'
-      and id <> ${attemptId}
-      and google_response ? 'name'
+): Promise<CreateClaimContext | null> {
+  const [row] = await sql<
+    { startedAt: Date; claimedNames: string[]; contested: boolean }[]
+  >`
+    select
+      m.started_at as "startedAt",
+      array(
+        select c.google_response->>'name'
+        from gbp_media_mutation c
+        where c.location_id = m.location_id
+          and c.operation = 'create'
+          and c.id <> m.id
+          and c.google_response ? 'name'
+      ) as "claimedNames",
+      exists (
+        select 1
+        from gbp_media_mutation c
+        where c.location_id = m.location_id
+          and c.operation = 'create'
+          and c.id <> m.id
+          and not coalesce(c.google_response ? 'name', false)
+          and (
+            c.resolution = 'adopted'
+            or (
+              c.resolution is null
+              and c.status in ('started', 'ambiguous', 'needs_resolution')
+              and (
+                c.upload_phase = 'create_sent'
+                or (c.upload_phase = 'none' and c.content_sha256 is null)
+              )
+            )
+          )
+          and coalesce(c.finished_at, now())
+            >= m.started_at - make_interval(secs => ${MEDIA_CREATE_TIME_SKEW_MS / 1000})
+          and c.requested_payload->>'mediaFormat'
+            is not distinct from m.requested_payload->>'mediaFormat'
+          and c.requested_payload->>'category'
+            is not distinct from m.requested_payload->>'category'
+      ) as "contested"
+    from gbp_media_mutation m
+    where m.id = ${attemptId}
   `
-  return new Set(rows.map((row) => row.name))
+  if (!row) return null
+  return {
+    startedAt: row.startedAt,
+    claimedNames: new Set(row.claimedNames),
+    contested: row.contested,
+  }
 }
 
 /**
@@ -727,15 +830,10 @@ async function reconcileUncertainCreate(
   } catch {
     throw new MediaNeedsResolutionError(NEEDS_RESOLUTION_MESSAGE)
   }
-  const context = await withTenant(linked.organisationId, async (sql) => {
-    const [row] = await sql<{ startedAt: Date }[]>`
-      select started_at as "startedAt" from gbp_media_mutation where id = ${attemptId}
-    `
-    return {
-      startedAt: row?.startedAt ?? new Date(),
-      claimedNames: await claimedCreateNames(sql, linked.locationId, attemptId),
-    }
-  })
+  const context = await withTenant(linked.organisationId, (sql) =>
+    createClaimContext(sql, attemptId)
+  )
+  if (!context) throw new MediaNeedsResolutionError(NEEDS_RESOLUTION_MESSAGE)
   const match = matchCreatedMedia(items, intent, context)
   if (match.kind === "match") return match.item
   throw new MediaNeedsResolutionError(NEEDS_RESOLUTION_MESSAGE)
@@ -889,11 +987,9 @@ export async function createMedia(input: {
   requestId: string
 }) {
   const contentSha256 = sourceUrlContentSha(input.payload.sourceUrl)
-  const linked = await withTenant(input.organisationId, async (sql) => {
-    const linked = await linkedForWrite(sql, input.session, input.locationId)
-    await requireNoUnresolvedCreate(sql, input.locationId, contentSha256)
-    return linked
-  })
+  const linked = await withTenant(input.organisationId, (sql) =>
+    linkedForWrite(sql, input.session, input.locationId)
+  )
   return createMediaItem(input, linked, {
     payload: input.payload,
     intent: {
@@ -971,11 +1067,9 @@ export async function uploadMedia(input: {
 }) {
   requireUploadableFile(input.payload.mediaFormat, input.file)
   const contentSha256 = sha256(Buffer.from(input.file.bytes))
-  const linked = await withTenant(input.organisationId, async (sql) => {
-    const linked = await linkedForWrite(sql, input.session, input.locationId)
-    await requireNoUnresolvedCreate(sql, input.locationId, contentSha256)
-    return linked
-  })
+  const linked = await withTenant(input.organisationId, (sql) =>
+    linkedForWrite(sql, input.session, input.locationId)
+  )
   const requestedPayload = {
     mediaFormat: input.payload.mediaFormat,
     category: input.payload.category,
@@ -1251,7 +1345,10 @@ type MediaRecoveryAttempt = RecoveryAttempt & {
   requestedPayload: Record<string, unknown> | null
   googleMediaName: string | null
   uploadPhase: MediaUploadPhase
+  /** Set on every create from 0074 on; null marks one from before. */
+  contentSha256: string | null
   claimedNames: string[]
+  contested: boolean
 }
 
 const settleMediaAttempt = storeSettle(mediaAttempts)
@@ -1265,13 +1362,16 @@ const settleMediaAttempt = storeSettle(mediaAttempts)
  * sent is matched against the live media list (lib/domain/media-reconcile.ts):
  * a single match is adopted, otherwise it is handed to a person as
  * `needs_resolution`. A create from before the checkpoints existed (phase
- * `none`) cannot be placed either way and is handed to a person as before.
+ * `none`, no `content_sha256`) cannot be placed either way and is handed to a
+ * person as before; a later one at `none` stopped before its first call.
  */
 export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
   surface: "media",
   attemptTable: "gbp_media_mutation",
   async load(sql, attemptId) {
-    const [row] = await sql<MediaRecoveryAttempt[]>`
+    const [row] = await sql<
+      Omit<MediaRecoveryAttempt, "claimedNames" | "contested">[]
+    >`
       select
         m.id::text as id,
         m.status as "rawStatus",
@@ -1280,26 +1380,32 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
         m.operation,
         m.requested_payload as "requestedPayload",
         m.upload_phase as "uploadPhase",
-        i.google_media_name as "googleMediaName",
-        array(
-          select c.google_response->>'name'
-          from gbp_media_mutation c
-          where c.location_id = m.location_id
-            and c.operation = 'create'
-            and c.status = 'succeeded'
-            and c.id <> m.id
-            and c.google_response ? 'name'
-        ) as "claimedNames"
+        m.content_sha256 as "contentSha256",
+        i.google_media_name as "googleMediaName"
       from gbp_media_mutation m
       left join gbp_media_item i on i.id = m.media_item_id
       where m.id = ${attemptId}
     `
-    return row ?? null
+    if (!row) return null
+    const claims =
+      row.operation === "create"
+        ? await createClaimContext(sql, attemptId)
+        : null
+    return {
+      ...row,
+      claimedNames: [...(claims?.claimedNames ?? [])],
+      contested: claims?.contested ?? false,
+    }
   },
   async readback({ attempt, link }) {
     if (attempt.operation === "create") {
       if (attempt.uploadPhase === "none") {
-        return { kind: "unverifiable", errorCode: "media_create_unverifiable" }
+        // From 0074 on, every create records its content before the first
+        // provider call, and `none` means it stopped in startUpload: nothing
+        // can be on the listing. Only a create from before cannot be placed.
+        return attempt.contentSha256
+          ? { kind: "not_landed", errorCode: "media_upload_interrupted" }
+          : { kind: "unverifiable", errorCode: "media_create_unverifiable" }
       }
       if (attempt.uploadPhase !== "create_sent") {
         return { kind: "not_landed", errorCode: "media_upload_interrupted" }
@@ -1323,6 +1429,7 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
         {
           startedAt: attempt.startedAt ?? new Date(0),
           claimedNames: new Set(attempt.claimedNames),
+          contested: attempt.contested,
         }
       )
       return match.kind === "match"

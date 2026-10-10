@@ -715,22 +715,35 @@ is keyed on its content (`content_sha256`: the bytes, or the source URL) plus
 the intent. When the create itself is uncertain (a timeout, a 5xx, a 2xx
 without the new item's name), the live merchant media list is matched
 (`lib/domain/media-reconcile.ts`): same format, category, description and
-source URL, created after the attempt started, not already claimed by another
-create. Exactly one match is adopted (`resolution = 'adopted'`) and read back;
-none or several, or a list that cannot be read, leave the attempt
-`needs_resolution` for a person. While a create of the same content at the
-same location is unresolved (or still being sent) another one is refused with
-409 `media_needs_resolution` (`media_create_in_progress`), so it is never
-re-created blindly. The photos tab lists unresolved creates
+source URL, created after the attempt started, not already named by another
+create's `google_response`. Nothing in an upload's item ties it to its bytes,
+so while another create of the same format and category overlaps the attempt
+without a name of its own (sent and unsettled, or adopted by a person) no
+candidate is adopted. Exactly one match is adopted (`resolution = 'adopted'`)
+and read back; none or several, a contested match, or a list that cannot be
+read leave the attempt `needs_resolution` for a person. A photo someone adds
+in Google directly in the same window cannot be told apart. While a create of
+the same content at the same location is unresolved (or still being sent)
+another one is refused with 409 `media_needs_resolution`
+(`media_create_in_progress`), so it is never re-created blindly. The guard
+runs in the transaction that claims the attempt, under a transaction advisory
+lock on (location, content), so two concurrent creates cannot both pass it; a
+retry under the same intent is answered from its receipt first. The photos tab lists unresolved creates
 (`unresolvedCreates`, `components/locations/photos/unresolved-creates.tsx`)
 and `POST /api/locations/[id]/media/resolutions/[attemptId]`
 (`resolveMediaCreate`) records the person's verdict: `adopted` settles the
 attempt `succeeded` and its receipts `confirmed_applied`, `abandoned` settles
-both `failed` and lets the content be added again. Recovery
+both `failed` and lets the content be added again. The verdict is final over a
+request still running: its later failure settles nothing, and its later
+success over `abandoned` answers 409 `media_resolution_conflict`. The
+retention purge keeps an unresolved create past `expires_at`; it ages off once
+resolved. Recovery
 (`mediaRecoveryAdapter`) reads the same checkpoints: a create stopped before
 `create_sent` did not land, a sent one is matched against the list or marked
-`needs_resolution` when recovery stops, and a create from before 0074 (phase
-`none`) is handed to a person as before. A create Google answered with a name
+`needs_resolution` when recovery stops, a later one still at phase `none`
+(it records `content_sha256` from the start) stopped before its first call
+and did not land, and a create from before 0074 (phase `none`, no content) is
+handed to a person as before. A create Google answered with a name
 is verified by that name and its format, not field by field, so a landed
 create is never settled `failed`.
 

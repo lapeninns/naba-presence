@@ -245,6 +245,8 @@ const COPY: Record<string, string> = {
     "The upload to Google did not finish, so nothing was added. Try again.",
   media_resolution_not_pending:
     "That upload no longer needs a decision. Refresh the tab.",
+  media_resolution_conflict:
+    "This was marked as not added while it was still being sent, and Google has now added it. Check the listing’s photos before adding it again.",
 
   // ---- Locations: booking --------------------------------------------------
   place_action_stale:
