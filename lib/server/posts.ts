@@ -12,6 +12,10 @@ import {
   localPostMatches,
   localPostMismatches,
 } from "@/lib/domain/readback/posts"
+import {
+  googlePostStateOutcome,
+  localPostOutcome,
+} from "@/lib/domain/post-outcome"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
@@ -37,6 +41,7 @@ import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import {
+  operationSummary,
   requestScopedKeyPart,
   settleOperationsForAttempts,
 } from "@/lib/server/mutation-operations"
@@ -1491,6 +1496,11 @@ async function publishLocalPost(input: {
               message:
                 "Google did not confirm this change to the post. Publish it again to resend it.",
             },
+      // The post exists at Google either way; its own state says whether
+      // customers see it (LIVE), Google is still reviewing it (PROCESSING)
+      // or Google refused it (REJECTED).
+      outcome: (readback) =>
+        googlePostStateOutcome(stringOrNull(asRecord(readback).state)),
     },
     audit: (ctx) => ({
       action: operation === "create" ? "post.published" : "post.updated.google",
@@ -1531,8 +1541,16 @@ async function publishLocalPost(input: {
     const [stored] = await withTenant(
       input.organisationId,
       (sql) =>
-        sql<{ status: string; googlePostName: string | null }[]>`
-        select status, google_post_name as "googlePostName"
+        sql<
+          {
+            status: string
+            googlePostName: string | null
+            googleState: string | null
+            lastErrorCode: string | null
+          }[]
+        >`
+        select status, google_post_name as "googlePostName",
+          google_state as "googleState", last_error_code as "lastErrorCode"
         from gbp_local_post
         where id = ${input.postId}
       `
@@ -1547,6 +1565,12 @@ async function publishLocalPost(input: {
           : ("published" as const),
       postId: input.postId,
       googlePostName: stored.googlePostName,
+      operation: {
+        operationId: result.operationId ?? null,
+        // The post's own state, which a later list reconcile may have moved
+        // on from what the first answer said.
+        outcome: localPostOutcome(stored) ?? result.outcome,
+      },
     }
   }
   // The read-back, not the mutate response, is what settle stored on the row.
@@ -1557,6 +1581,7 @@ async function publishLocalPost(input: {
       : ("published" as const),
     postId: input.postId,
     googlePostName: stringOrNull(resource.name) ?? googlePostName,
+    operation: operationSummary(result),
   }
 }
 

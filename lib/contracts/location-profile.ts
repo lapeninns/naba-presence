@@ -18,6 +18,7 @@ export {
   type ProfileFieldKey,
   type ProfileFieldPolicy,
 } from "@/lib/domain/profile-vocabulary"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // Vocabularies come from the domain; the schemas only wrap them.
 export const profileFieldKeySchema = z.enum(PROFILE_FIELD_KEYS)
@@ -113,5 +114,6 @@ export const profileOperationResponseSchema = z.object({
   revision: z.string().optional(),
   attemptId: z.string().optional(),
   idempotent: z.boolean().optional(),
+  ...operationSummaryField,
 })
 export type ProfileOperationResponse = z.infer<typeof profileOperationResponseSchema>

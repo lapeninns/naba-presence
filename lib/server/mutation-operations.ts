@@ -9,6 +9,7 @@ import {
   intentIdSchema,
   type MutationReceipt,
   type OperationOutcome,
+  type OperationSummary,
 } from "@/lib/contracts/mutation-operations"
 import { jsonColumn } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
@@ -628,4 +629,16 @@ export async function loadMutationReceipt(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }
+}
+
+/**
+ * The `operation` field a mutation route answers with
+ * (lib/contracts/mutation-operations.ts `operationSummarySchema`), from what
+ * runGbpWrite returned.
+ */
+export function operationSummary(result: {
+  operationId?: string
+  outcome: OperationOutcome
+}): OperationSummary {
+  return { operationId: result.operationId ?? null, outcome: result.outcome }
 }

@@ -38,7 +38,10 @@ import {
   runGbpWrite,
 } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
-import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  operationSummary,
+  requestScopedKeyPart,
+} from "@/lib/server/mutation-operations"
 import {
   storeSettle,
   type RecoveryAdapter,
@@ -357,7 +360,12 @@ export async function mutateIndustryManagement(input: {
     },
   })
   if (result.idempotent)
-    return { id: result.attemptId, status: result.rawStatus, idempotent: true }
+    return {
+      id: result.attemptId,
+      status: result.rawStatus,
+      idempotent: true,
+      operation: operationSummary(result),
+    }
   await cacheGbpSnapshotAfterWrite({
     organisationId,
     locationId: input.locationId,
@@ -371,6 +379,7 @@ export async function mutateIndustryManagement(input: {
     status: "succeeded",
     response: result.readback,
     idempotent: false,
+    operation: operationSummary(result),
   }
 }
 

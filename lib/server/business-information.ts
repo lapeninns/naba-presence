@@ -50,7 +50,10 @@ import {
   type GbpWritePhase,
 } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
-import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  operationSummary,
+  requestScopedKeyPart,
+} from "@/lib/server/mutation-operations"
 import {
   storeSettle,
   type RecoveryAdapter,
@@ -286,6 +289,7 @@ async function runManagementWrite<TResponse>(
         id: result.attemptId,
         status: result.rawStatus,
         idempotent: true,
+        operation: operationSummary(result),
       }
     }
     await cacheGbpSnapshotAfterWrite({
@@ -296,7 +300,12 @@ async function runManagementWrite<TResponse>(
       resourceName: input.targetResourceName,
       payload: result.readback,
     })
-    return { id: result.attemptId, status: "succeeded", idempotent: false }
+    return {
+      id: result.attemptId,
+      status: "succeeded",
+      idempotent: false,
+      operation: operationSummary(result),
+    }
   } catch (error) {
     // An ambiguous outcome otherwise leaves no audit evidence at all: the
     // success audit never runs, so an operator reconciling the mutation table

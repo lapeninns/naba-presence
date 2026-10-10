@@ -36,6 +36,7 @@ import {
 } from "@/lib/server/google"
 import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
+import { operationSummary } from "@/lib/server/mutation-operations"
 import {
   storeSettle,
   type RecoveryAdapter,
@@ -434,6 +435,7 @@ export async function publishFoodMenus(
     status: "published" as const,
     attemptId: result.attemptId,
     idempotent: result.idempotent,
+    operation: operationSummary(result),
   }
 }
 

@@ -18,6 +18,7 @@ export {
   type HoursSelection,
   type NormalizedHours,
 } from "@/lib/domain/hours-vocabulary"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // Vocabularies come from the domain; the schemas only wrap them.
 export const hoursUpdateMaskSchema = z.enum(HOURS_UPDATE_MASKS)
@@ -295,5 +296,6 @@ export const publishHoursResponseSchema = z.object({
   status: z.enum(["in_sync", "selection_in_sync", "published"]),
   attemptId: z.string().optional(),
   idempotent: z.boolean().optional(),
+  ...operationSummaryField,
 })
 export type PublishHoursResponse = z.infer<typeof publishHoursResponseSchema>

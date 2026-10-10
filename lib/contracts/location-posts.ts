@@ -10,6 +10,7 @@
 import { z } from "zod"
 
 import { httpUrl } from "@/lib/contracts/http-url"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 // ---------------------------------------------------------------------------
 // Vocabulary
 // ---------------------------------------------------------------------------
@@ -270,6 +271,7 @@ export const postPublishOutcomeSchema = z.union([
     status: z.enum(["published", "rejected"]),
     postId: z.string(),
     googlePostName: z.string().nullable(),
+    ...operationSummaryField,
   }),
 ])
 export type PostPublishOutcome = z.infer<typeof postPublishOutcomeSchema>

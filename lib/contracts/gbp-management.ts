@@ -1,12 +1,14 @@
 // Wire shapes shared by the GBP management surfaces (business information,
 // industry, administration, booking). Client-safe: zod only.
 import { z } from "zod"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 /** Result of a GBP management mutation: the attempt row plus the idempotent flag. */
 export const gbpMutationResultSchema = z.object({
   id: z.string(),
   status: z.string(),
   idempotent: z.boolean(),
+  ...operationSummaryField,
 })
 export type GbpMutationResult = z.infer<typeof gbpMutationResultSchema>
 

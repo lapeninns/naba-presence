@@ -81,4 +81,41 @@ export type MutationReceiptResponse = z.infer<
   typeof mutationReceiptResponseSchema
 >
 
+/**
+ * What every listing mutation route answers with alongside its own fields
+ * (`operation` on hours, profile, food menus, business information,
+ * industry, media, place actions and post publish): the write's outcome in
+ * the shared vocabulary, and the receipt to poll for it.
+ *
+ * `operationId` is null when the request carried no intent, so no receipt
+ * was recorded; `outcome` is then the server's own judgement of this answer.
+ * Absent when the route sent nothing to Google (an `in_sync` publish, an
+ * import, a post parked for approval).
+ */
+export const operationSummarySchema = z.object({
+  operationId: z.string().nullable(),
+  outcome: operationOutcomeSchema,
+})
+export type OperationSummary = z.infer<typeof operationSummarySchema>
+
+/** The optional `operation` field a mutation response carries. */
+export const operationSummaryField = {
+  operation: operationSummarySchema.optional(),
+}
+
+/**
+ * The outcomes a receipt can still move from on its own: a write that has
+ * not answered yet (`sent`) and one the recovery job will read back
+ * (`uncertain`). A client polls `GET /api/mutations/{id}` while a receipt is
+ * in one of these, and stops once it settles.
+ */
+export const UNSETTLED_OUTCOMES: readonly OperationOutcome[] = [
+  "sent",
+  "uncertain",
+]
+
+export function isUnsettledOutcome(outcome: OperationOutcome): boolean {
+  return UNSETTLED_OUTCOMES.includes(outcome)
+}
+
 export const mutationReceiptParamsSchema = z.object({ operationId: z.uuid() })

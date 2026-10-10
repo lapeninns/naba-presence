@@ -36,6 +36,7 @@ import "server-only"
 
 import type { Parameter, TransactionSql } from "postgres"
 
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import {
@@ -698,7 +699,20 @@ export type GbpReadback<TResponse, TReadback> = {
   hash?: (readback: TReadback) => string
   /** Thrown (and recorded) when verify is false; default 502 google_readback_mismatch. */
   mismatch?: GateError
+  /**
+   * The outcome a verified readback stands for, when Google's own state for
+   * the resource can say less than "applied": a local post Google holds but
+   * is still reviewing (`awaiting_confirmation`) or refused to show
+   * (`rejected`). Default `confirmed_applied`.
+   */
+  outcome?: (readback: TReadback) => GbpSuccessOutcome
 }
+
+/** The outcomes a settled-successful write may stand for. */
+export type GbpSuccessOutcome = Extract<
+  OperationOutcome,
+  "confirmed_applied" | "awaiting_confirmation" | "rejected"
+>
 
 export type GbpWriteSuccess<TResponse, TReadback> = {
   attemptId: string
@@ -798,6 +812,12 @@ export type GbpWriteResult<TResponse, TReadback> = (
 ) & {
   /** The operation receipt this write recorded or replayed, if any. */
   operationId?: string
+  /**
+   * What this answer means in the shared outcome vocabulary
+   * (lib/contracts/mutation-operations.ts): the receipt's state when one was
+   * recorded, otherwise the same judgement the receipt would have made.
+   */
+  outcome: OperationOutcome
 }
 
 /**
@@ -929,6 +949,16 @@ export async function runGbpWrite<
       : claimAmbientIntent()
   const readbackVerified = Boolean(input.readback)
   let operationId: string | undefined
+
+  /** The outcome a settled success stands for (GbpReadback.outcome). */
+  const successState = (
+    success: Pick<GbpWriteSuccess<TResponse, TReadback>, "readback">
+  ): OperationOutcome =>
+    readbackVerified &&
+    input.readback?.outcome &&
+    success.readback !== undefined
+      ? input.readback.outcome(success.readback)
+      : successOutcome(readbackVerified)
 
   /**
    * Records the intent in the claim transaction. Returns the stored receipt
@@ -1091,7 +1121,7 @@ export async function runGbpWrite<
             organisationId: input.organisationId,
             attemptTable,
             attemptId: success.attemptId,
-            state: successOutcome(readbackVerified),
+            state: successState(success),
             errorCode: null,
             receipt: {
               attemptId: success.attemptId,
@@ -1265,6 +1295,7 @@ export async function runGbpWrite<
       status: "succeeded",
       rawStatus: operation.receipt?.rawStatus ?? "succeeded",
       operationId: operation.id,
+      outcome: operation.state,
     }
   }
 
@@ -1324,6 +1355,7 @@ export async function runGbpWrite<
         status: settled?.status ?? "succeeded",
         rawStatus: settled?.rawStatus ?? "succeeded",
         operationId,
+        outcome: successState(recovered),
       }
     }
     // The row is settled `failed` now, so this re-arms it. Anything else
@@ -1341,6 +1373,7 @@ export async function runGbpWrite<
       status: claimed.row.status,
       rawStatus: claimed.row.rawStatus,
       operationId,
+      outcome: outcomeForAttemptStatus(claimed.row.status, readbackVerified),
     }
   }
   const attemptId = claimed.row.id
@@ -1417,7 +1450,13 @@ export async function runGbpWrite<
     providerAmbiguous,
   }
   await settleSucceeded(success, 200)
-  return { idempotent: false, status: "succeeded", ...success, operationId }
+  return {
+    idempotent: false,
+    status: "succeeded",
+    ...success,
+    operationId,
+    outcome: successState(success),
+  }
 }
 
 /** Re-export for modules that only need the jsonb helper type. */

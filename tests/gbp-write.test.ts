@@ -306,6 +306,29 @@ describe("gbp-write", () => {
     expect(audit.actor_user_id).toBe(USER)
   })
 
+  it("answers each write with its outcome: confirmed by readback, or what the readback's own state says", async () => {
+    const confirmed = await run()
+    expect(confirmed.outcome).toBe("confirmed_applied")
+
+    const reviewing = await run({
+      key: idempotencyKey([ORG, EXTERNAL, "hours_publish", "reviewing"]),
+      readback: {
+        read: async () => ({ hash: "expected" }),
+        verify: ({ readback }) => readback.hash === "expected",
+        hash: (readback) => readback.hash,
+        outcome: () => "awaiting_confirmation",
+      },
+    })
+    expect(reviewing.outcome).toBe("awaiting_confirmation")
+
+    const unverified = await run({
+      key: idempotencyKey([ORG, EXTERNAL, "hours_publish", "unverified"]),
+      onAmbiguous: "fail",
+      readback: undefined,
+    })
+    expect(unverified.outcome).toBe("awaiting_confirmation")
+  })
+
   it("an exact repeat of a successful attempt is idempotent and calls no provider", async () => {
     const first = await run()
     calls = []
@@ -315,6 +338,7 @@ describe("gbp-write", () => {
       attemptId: first.attemptId,
       status: "succeeded",
       rawStatus: "succeeded",
+      outcome: "confirmed_applied",
     })
     expect(calls).toEqual([])
     expect(await rows("write_attempt")).toHaveLength(1)
@@ -366,6 +390,7 @@ describe("gbp-write", () => {
       attemptId: stranded.id,
       status: "succeeded",
       rawStatus: "succeeded",
+      outcome: "confirmed_applied",
     })
     const all = await rows("write_attempt")
     expect(all).toHaveLength(1)
@@ -434,6 +459,7 @@ describe("gbp-write", () => {
       attemptId: uncertain.id,
       status: "succeeded",
       rawStatus: "succeeded",
+      outcome: "confirmed_applied",
     })
     const all = await rows("write_attempt")
     expect(all).toHaveLength(1)
@@ -893,6 +919,7 @@ describe("gbp-write", () => {
       attemptId: failed.id,
       status: "failed",
       rawStatus: "failed",
+      outcome: "failed",
     })
     expect(calls).toEqual([])
 

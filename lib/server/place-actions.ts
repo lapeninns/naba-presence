@@ -36,7 +36,10 @@ import {
   type GooglePlaceActionLink,
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
-import { requestScopedKeyPart } from "@/lib/server/mutation-operations"
+import {
+  operationSummary,
+  requestScopedKeyPart,
+} from "@/lib/server/mutation-operations"
 import {
   storeSettle,
   type RecoveryAdapter,
@@ -405,8 +408,18 @@ async function runPlaceActionWrite<TResponse, TReadback>(
     audit: input.audit,
   })
   return result.idempotent
-    ? { id: result.attemptId, status: result.rawStatus, idempotent: true }
-    : { id: result.attemptId, status: "succeeded", idempotent: false }
+    ? {
+        id: result.attemptId,
+        status: result.rawStatus,
+        idempotent: true,
+        operation: operationSummary(result),
+      }
+    : {
+        id: result.attemptId,
+        status: "succeeded",
+        idempotent: false,
+        operation: operationSummary(result),
+      }
 }
 
 export async function createPlaceAction(input: {

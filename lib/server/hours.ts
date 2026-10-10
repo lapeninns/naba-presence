@@ -53,6 +53,7 @@ import {
 } from "@/lib/server/google"
 import { recordHoursObservation } from "@/lib/server/hours-observations"
 import { ApiError } from "@/lib/server/http"
+import { operationSummary } from "@/lib/server/mutation-operations"
 import {
   storeSettle,
   type RecoveryAdapter,
@@ -723,6 +724,7 @@ export async function publishCanonicalHours(input: PublishHoursInput) {
     status: "published" as const,
     attemptId: result.attemptId,
     idempotent: result.idempotent,
+    operation: operationSummary(result),
   }
 }
 

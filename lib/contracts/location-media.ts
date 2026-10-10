@@ -9,6 +9,7 @@ import { z } from "zod"
 
 import { httpUrl } from "@/lib/contracts/http-url"
 import { GOOGLE_MEDIA_CATEGORIES } from "@/lib/domain/google-contract"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -175,5 +176,6 @@ export const mediaMutationOutcomeSchema = z.object({
   id: z.string(),
   status: z.string(),
   idempotent: z.boolean(),
+  ...operationSummaryField,
 })
 export type MediaMutationOutcome = z.infer<typeof mediaMutationOutcomeSchema>

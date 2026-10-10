@@ -50,8 +50,10 @@ import {
   sendGoogleMediaBytes,
   startGoogleMediaUpload,
 } from "@/lib/server/google"
+import type { OperationSummary } from "@/lib/contracts/mutation-operations"
 import { ApiError } from "@/lib/server/http"
 import {
+  operationSummary,
   requestScopedKeyPart,
   settleRecoveredOperations,
 } from "@/lib/server/mutation-operations"
@@ -420,7 +422,12 @@ type MediaWriteScope = {
   requestId: string
 }
 
-type MediaWriteResult = { id: string; status: string; idempotent: boolean }
+type MediaWriteResult = {
+  id: string
+  status: string
+  idempotent: boolean
+  operation?: OperationSummary
+}
 
 const MEDIA_PAUSED = {
   status: 503,
@@ -613,8 +620,18 @@ async function runMediaWrite<TResponse, TReadback = never>(
     throw error
   }
   return result.idempotent
-    ? { id: result.attemptId, status: result.rawStatus, idempotent: true }
-    : { id: result.attemptId, status: "succeeded", idempotent: false }
+    ? {
+        id: result.attemptId,
+        status: result.rawStatus,
+        idempotent: true,
+        operation: operationSummary(result),
+      }
+    : {
+        id: result.attemptId,
+        status: "succeeded",
+        idempotent: false,
+        operation: operationSummary(result),
+      }
 }
 
 // ---------------------------------------------------------------------------
