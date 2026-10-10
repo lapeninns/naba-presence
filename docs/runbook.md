@@ -457,6 +457,32 @@ the other sessions may remain; the person can sign in and retry. None of this
 touches Google connections or background sync. MFA for owners and admins is a
 Supabase Auth feature still to enable.
 
+### Support impersonation
+
+Support impersonation (`POST /api/support/impersonation`) is off by default.
+`SUPPORT_IMPERSONATION_ENABLED=false` (the default) answers 404 even when
+`SUPPORT_IMPERSONATION_SECRET` is set, and stops any outstanding support
+session from resolving: the request is a 401 and the presented
+`app_session` row is deleted. Turning it on takes both the flag and the
+secret, and a decision under D-18.
+
+Turning the flag off does not delete support sessions that are not
+presented. To remove every outstanding one (a release operation that needs
+approval on production), run with the owner/operator connection:
+
+```sh
+DIRECT_DATABASE_URL=... pnpm ops:revoke-support-sessions \
+  --operator you@example.com --reason "Pilot launch: impersonation disabled" --dry-run
+DIRECT_DATABASE_URL=... pnpm ops:revoke-support-sessions \
+  --operator you@example.com --reason "Pilot launch: impersonation disabled"
+```
+
+The script calls `revoke_support_sessions(operator, reason)` (migration
+0065), which deletes every `app_session` row with a `support_actor` and
+writes one `support.sessions_revoked` audit row per affected organisation
+with the operator, reason, session count and support actors. The runtime role
+cannot execute it. `--dry-run` only counts.
+
 ### Pub/Sub delivery failure
 
 Verify the push URL, OIDC audience, issuer and pinned service-account email,

@@ -42,13 +42,20 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
     await sql`
       select set_config('app.session_token_hash', ${tokenHash}, true)
     `
+    const supportEnabled = getServerEnv().SUPPORT_IMPERSONATION_ENABLED
     const [sessionIdentity] = await sql<
-      { sessionId: string; userId: string; organisationId: string }[]
+      {
+        sessionId: string
+        userId: string
+        organisationId: string
+        isSupport: boolean
+      }[]
     >`
       select
         id::text as "sessionId",
         user_id::text as "userId",
-        organisation_id::text as "organisationId"
+        organisation_id::text as "organisationId",
+        support_actor is not null as "isSupport"
       from app_session
       where token_hash = ${tokenHash}
         and expires_at > now()
@@ -56,6 +63,18 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
       limit 1
     `
     if (!sessionIdentity) return null
+    // With support impersonation off (the default), a support session never
+    // resolves, and the row it presented is deleted so it cannot come back
+    // when the flag is turned on again. The policy on app_session lets this
+    // transaction see and delete only the row matching its own token hash.
+    if (sessionIdentity.isSupport && !supportEnabled) {
+      await sql`
+        delete from app_session
+        where token_hash = ${tokenHash}
+          and support_actor is not null
+      `
+      return null
+    }
     await sql`
       select set_config(
         'app.organisation_id',

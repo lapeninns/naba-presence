@@ -150,6 +150,11 @@ export const serverEnvSchema = z.object({
   OAUTH_STATE_ACCEPT_LEGACY: featureFlag(true),
   CRON_SECRET: z.string().min(16),
   SUPPORT_IMPERSONATION_SECRET: optionalSecret(32),
+  // Support impersonation is off unless explicitly enabled: off refuses
+  // issuance (404) and stops any outstanding support session from resolving,
+  // deleting the row it presents (lib/server/session.ts). The secret alone
+  // no longer turns it on.
+  SUPPORT_IMPERSONATION_ENABLED: featureFlag(false),
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
