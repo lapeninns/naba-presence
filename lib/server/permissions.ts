@@ -2,7 +2,10 @@ import "server-only"
 
 import type { Fragment, TransactionSql } from "postgres"
 
+import type { LocationScope } from "@/lib/contracts/members"
+import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import type { Session } from "@/lib/server/session"
 
 // Location visibility and publish grants: THE ONLY implementation.
@@ -52,6 +55,15 @@ import type { Session } from "@/lib/server/session"
 //     anyone holding "Unfiled listings", is not extended.
 //   * Deleting a listing cascades its rows away; a member whose only rows
 //     go with it is back to every location. No route deletes listings today.
+//
+// Explicit scope, shadowed (supabase 0063)
+//   member.location_scope ('all' | 'assigned') is now written with the rows
+//   by every writer, but NOTHING here reads it to decide a grant yet. When
+//   SCOPE_SHADOW_COMPARE is on, grantsFor also fetches it and logs
+//   permissions.scope_shadow_mismatch for any location where the explicit
+//   rule ('all' -> every location; 'assigned' -> exactly the rows, none when
+//   there are none) would answer differently. Readers switch only once that
+//   log stays quiet.
 //
 // How routes use it
 //   * Filtering a SELECT by what the session may see:
@@ -193,21 +205,45 @@ export async function grantsFor(
     return result
   }
 
-  const [scope] = await sql<
-    { hasAssignments: boolean; grants: Record<string, boolean> | null }[]
-  >`
-    select
-      exists (
-        select 1 from location_member
-        where user_id = ${session.userId}
-      ) as "hasAssignments",
-      (
-        select json_object_agg(lm.location_id::text, lm.can_publish)
-        from location_member lm
-        where lm.user_id = ${session.userId}
-          and lm.location_id in ${sql(unique)}
-      ) as grants
-  `
+  type ScopeRow = {
+    hasAssignments: boolean
+    grants: Record<string, boolean> | null
+    locationScope?: LocationScope | null
+  }
+  // Two whole statements rather than an optional fragment: the shadowed one
+  // is today's query plus one column, so the grant it answers is identical.
+  const shadow = scopeShadowCompareEnabled()
+  const [scope] = shadow
+    ? await sql<ScopeRow[]>`
+        select
+          exists (
+            select 1 from location_member
+            where user_id = ${session.userId}
+          ) as "hasAssignments",
+          (
+            select json_object_agg(lm.location_id::text, lm.can_publish)
+            from location_member lm
+            where lm.user_id = ${session.userId}
+              and lm.location_id in ${sql(unique)}
+          ) as grants,
+          (
+            select m.location_scope from member m
+            where m.user_id = ${session.userId}
+          ) as "locationScope"
+      `
+    : await sql<ScopeRow[]>`
+        select
+          exists (
+            select 1 from location_member
+            where user_id = ${session.userId}
+          ) as "hasAssignments",
+          (
+            select json_object_agg(lm.location_id::text, lm.can_publish)
+            from location_member lm
+            where lm.user_id = ${session.userId}
+              and lm.location_id in ${sql(unique)}
+          ) as grants
+      `
   const hasAssignments = scope?.hasAssignments ?? false
   // Postgres renders uuid keys lower-case; the caller's ids arrive as typed
   // (z.uuid() accepts upper-case hex), so compare case-insensitively — the
@@ -231,7 +267,78 @@ export async function grantsFor(
         : session.canPublish
     result.set(id, { visible, canEdit, canPublish })
   }
+  if (shadow && scope?.locationScope) {
+    const mismatched = scopeShadowMismatches({
+      role: session.role,
+      sessionCanPublish: session.canPublish,
+      locationScope: scope.locationScope,
+      assignedPublish,
+      current: result,
+    })
+    if (mismatched.length > 0) {
+      log.warn("permissions.scope_shadow_mismatch", {
+        userId: session.userId,
+        role: session.role,
+        locationScope: scope.locationScope,
+        hasAssignments,
+        mismatched: mismatched.length,
+        sample: mismatched.slice(0, 5),
+      })
+    }
+  }
   return result
+}
+
+/**
+ * Whether grantsFor shadows the explicit scope. Diagnostic only, so a
+ * server env that cannot be read (a unit test without one) means off; the
+ * deployed app has already validated its env at startup.
+ */
+function scopeShadowCompareEnabled(): boolean {
+  try {
+    return getServerEnv().SCOPE_SHADOW_COMPARE === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The ids in `current` (today's row-inferred grants for a member or viewer)
+ * where the explicit-scope rule would grant differently, in `visible` or
+ * `canPublish`. Pure: the explicit rule is
+ *
+ *   'all'      -> visible everywhere; publish is the organisation-level
+ *                 member.can_publish (the session fallback);
+ *   'assigned' -> visible exactly where a row exists, publish from that row,
+ *                 and nothing at all when there are no rows.
+ *
+ * Viewers never publish under either rule. Owners and admins never reach
+ * here: both rules give them every location.
+ */
+export function scopeShadowMismatches(input: {
+  role: Session["role"]
+  sessionCanPublish: boolean
+  locationScope: LocationScope
+  /** Lower-cased location id -> the row's can_publish, for rows that exist. */
+  assignedPublish: ReadonlyMap<string, boolean>
+  current: ReadonlyMap<string, LocationGrant>
+}): string[] {
+  const mismatched: string[] = []
+  for (const [id, grant] of input.current) {
+    const key = id.toLowerCase()
+    const visible =
+      input.locationScope === "all" ? true : input.assignedPublish.has(key)
+    const canPublish =
+      !visible || input.role === "viewer"
+        ? false
+        : input.locationScope === "all"
+          ? input.sessionCanPublish
+          : (input.assignedPublish.get(key) ?? false)
+    if (visible !== grant.visible || canPublish !== grant.canPublish) {
+      mismatched.push(id)
+    }
+  }
+  return mismatched
 }
 
 async function grantFor(

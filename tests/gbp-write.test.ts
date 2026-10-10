@@ -199,6 +199,7 @@ const SCHEMA = `
   create table location_link (location_id uuid not null, external_location_id uuid not null, is_active boolean not null);
   create table google_account (id uuid primary key, google_connection_id uuid not null, google_account_name text not null);
   create table location_member (user_id uuid not null, location_id uuid not null, can_publish boolean not null);
+  create table member (user_id uuid primary key, location_scope text not null default 'all');
 `
 
 const hoursStyle = attemptStore({

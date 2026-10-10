@@ -58,7 +58,20 @@ function fakeTenant(state: { role: string | null; grants: Grant[] }) {
     }
     const text = (first as unknown as string[]).join("?")
     if (text.includes("from member where user_id")) {
-      return Promise.resolve(state.role ? [{ role: state.role }] : [])
+      return Promise.resolve(
+        state.role
+          ? [
+              {
+                role: state.role,
+                locationScope: state.grants.length > 0 ? "assigned" : "all",
+              },
+            ]
+          : []
+      )
+    }
+    if (text.includes("update member set location_scope")) {
+      writes.push({ text, values })
+      return Promise.resolve([])
     }
     if (
       text.includes("from location_member lm") &&
@@ -217,8 +230,14 @@ describe("PUT /api/members/[userId]/client-access", () => {
       writes.map((write) =>
         write.text.trim().split(/\s+/).slice(0, 3).join(" ")
       )
-    ).toEqual(["delete from location_member", "insert into location_member"])
-    const inserted = (writes[1].values[0] as { helperRows: unknown[] })
+    ).toEqual([
+      "update member set",
+      "delete from location_member",
+      "insert into location_member",
+    ])
+    // The scope is written with the rows, in the same transaction.
+    expect(writes[0].values).toEqual(["assigned", TARGET])
+    const inserted = (writes[2].values[0] as { helperRows: unknown[] })
       .helperRows
     expect(inserted).toEqual(
       ["l1", "l2", "l3"].map((locationId) => ({
@@ -236,9 +255,13 @@ describe("PUT /api/members/[userId]/client-access", () => {
         metadata: expect.objectContaining({
           before: {
             allClients: false,
+            locationScope: "assigned",
             grants: [{ locationId: "l6", canPublish: false }],
           },
-          after: expect.objectContaining({ allClients: false }),
+          after: expect.objectContaining({
+            allClients: false,
+            locationScope: "assigned",
+          }),
         }),
       })
     )
@@ -266,13 +289,15 @@ describe("PUT /api/members/[userId]/client-access", () => {
     const response = await put({ allClients: true })
     expect(response.status).toBe(200)
     expect((await response.json()).allClients).toBe(true)
-    expect(writes).toHaveLength(1)
-    expect(writes[0].text).toContain("delete from location_member")
+    expect(writes).toHaveLength(2)
+    expect(writes[0].text).toContain("update member set location_scope")
+    expect(writes[0].values).toEqual(["all", TARGET])
+    expect(writes[1].text).toContain("delete from location_member")
     expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         metadata: expect.objectContaining({
-          after: { allClients: true, grants: [] },
+          after: { allClients: true, locationScope: "all", grants: [] },
         }),
       })
     )

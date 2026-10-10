@@ -325,6 +325,10 @@ export default async function startJourneyBridge(config: FullConfig) {
       insert into location_member (organisation_id, location_id, user_id, can_publish)
       values (${orgId}, ${directReview.locationId}, ${memberAssigned.userId}, true)
     `
+    await admin`
+      update member set location_scope = 'assigned'
+      where organisation_id = ${orgId} and user_id = ${memberAssigned.userId}
+    `
 
     // Location read (profile + hours + food-menu eligibility) — one rich object
     // covering every readMask the wave-1 tabs request. `locationOverrides` is

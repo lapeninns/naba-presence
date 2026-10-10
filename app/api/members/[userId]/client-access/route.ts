@@ -5,7 +5,7 @@ import {
   clientAccessUpdateSchema,
   type ClientAccessResponse,
 } from "@/lib/contracts/client-access"
-import type { MemberRole } from "@/lib/contracts/members"
+import type { LocationScope, MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import { loadClientCatalogue, loadGrants } from "@/lib/server/client-access"
 import { ApiError } from "@/lib/server/http"
@@ -22,20 +22,23 @@ export const runtime = "nodejs"
 /**
  * Which clients one member or viewer can see, edited a client at a time.
  *
- * Stored as location_member rows and nothing else (lib/server/permissions.ts
- * is the only reader). PUT replaces the member's rows in one transaction
- * with exactly the listings of the chosen clients; `listings: "unchanged"`
+ * Stored as location_member rows plus the membership's location_scope
+ * (lib/server/permissions.ts is the only reader). PUT replaces the member's
+ * rows and sets the scope in one transaction, with exactly the listings of
+ * the chosen clients; `listings: "unchanged"`
  * keeps older per-listing grants for a client as they are. Owners and admins
  * are refused: they see every client whatever rows they hold.
  */
 
 async function loadMember(sql: TransactionSql, userId: string, lock: boolean) {
   const [member] = lock
-    ? await sql<{ role: MemberRole }[]>`
-        select role from member where user_id = ${userId} limit 1 for update
+    ? await sql<{ role: MemberRole; locationScope: LocationScope }[]>`
+        select role, location_scope as "locationScope"
+        from member where user_id = ${userId} limit 1 for update
       `
-    : await sql<{ role: MemberRole }[]>`
-        select role from member where user_id = ${userId} limit 1
+    : await sql<{ role: MemberRole; locationScope: LocationScope }[]>`
+        select role, location_scope as "locationScope"
+        from member where user_id = ${userId} limit 1
       `
   if (!member) {
     throw new ApiError(404, "member_not_found", "Member not found.")
@@ -109,6 +112,13 @@ export const PUT = route({
       })
       if (!plan.ok) throw new ApiError(plan.status, plan.code, plan.message)
 
+      // The scope is written with the rows it describes (supabase 0063):
+      // "every client" is `all`, anything narrower is exactly these rows.
+      const locationScope: LocationScope = plan.allClients ? "all" : "assigned"
+      await sql`
+        update member set location_scope = ${locationScope}
+        where user_id = ${params.userId}
+      `
       await sql`delete from location_member where user_id = ${params.userId}`
       if (plan.rows.length > 0) {
         await sql`
@@ -134,6 +144,7 @@ export const PUT = route({
           request: body,
           before: {
             allClients: before.length === 0,
+            locationScope: member.locationScope,
             grants: before.map(({ locationId, canPublish }) => ({
               locationId,
               canPublish,
@@ -141,6 +152,7 @@ export const PUT = route({
           },
           after: {
             allClients: plan.allClients,
+            locationScope,
             grants: plan.rows,
           },
           clientRequestId,

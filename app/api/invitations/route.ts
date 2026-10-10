@@ -6,7 +6,7 @@ import {
   type InvitationCreatedResponse,
   type InvitationsResponse,
 } from "@/lib/contracts/invitations"
-import { type MemberRole } from "@/lib/contracts/members"
+import { type LocationScope, type MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import {
   decryptSecret,
@@ -74,6 +74,47 @@ async function validateClientScope(
   return clientIds
 }
 
+/**
+ * Checks a business invitation's listings before it is stored, and returns
+ * them de-duplicated. Same rules as a client scope: members and viewers only,
+ * and every id must be a listing of this organisation (RLS scopes the
+ * lookup). Business workspaces grant a location at a time, so an agency
+ * workspace is pointed at clients instead, as the Client access dialog is.
+ */
+async function validateLocationScope(
+  sql: TransactionSql,
+  role: MemberRole,
+  workspaceMode: "business" | "agency" | undefined,
+  requested: string[]
+) {
+  if (role === "owner" || role === "admin") {
+    throw new ApiError(
+      409,
+      "role_sees_all_clients",
+      "Owners and admins always see every location. Invite them without choosing locations."
+    )
+  }
+  if (workspaceMode === "agency") {
+    throw new ApiError(
+      409,
+      "wrong_workspace_mode",
+      "Access is granted a client at a time in an agency workspace."
+    )
+  }
+  const locationIds = [...new Set(requested.map((id) => id.toLowerCase()))]
+  const found = await sql<{ id: string }[]>`
+    select id::text as id from location where id in ${sql(locationIds)}
+  `
+  if (found.length !== locationIds.length) {
+    throw new ApiError(
+      404,
+      "location_not_found",
+      "One or more of those locations was not found."
+    )
+  }
+  return locationIds
+}
+
 export const GET = route({
   roles: ["owner", "admin"],
   handler: async ({ tenant }) => {
@@ -85,6 +126,8 @@ export const GET = route({
           role: MemberRole
           canPublish: boolean
           clients: { id: string; name: string }[] | null
+          locations: { id: string; name: string }[] | null
+          locationScope: LocationScope
           tokenCiphertext: Buffer
           expiresAt: Date
           acceptedAt: Date | null
@@ -104,6 +147,15 @@ export const GET = route({
             from client c
             where c.id = any(i.client_ids)
           ) end as clients,
+          case when i.location_ids is null then null else (
+            select coalesce(
+              json_agg(json_build_object('id', l.id::text, 'name', l.name) order by lower(l.name)),
+              '[]'::json
+            )
+            from location l
+            where l.id = any(i.location_ids)
+          ) end as locations,
+          location_scope as "locationScope",
           token_ciphertext as "tokenCiphertext",
           expires_at as "expiresAt",
           accepted_at as "acceptedAt",
@@ -167,12 +219,25 @@ export const POST = route({
         const clientIds = input.clientIds
           ? await validateClientScope(sql, input.role, input.clientIds)
           : null
+        const locationIds = input.locationIds
+          ? await validateLocationScope(
+              sql,
+              input.role,
+              session.workspaceMode,
+              input.locationIds
+            )
+          : null
+        // Written with the ids it describes, in the same row: the 0063 CHECK
+        // refuses a scope that disagrees with them.
+        const locationScope: LocationScope =
+          clientIds || locationIds ? "assigned" : "all"
         const [row] = await sql<
           Array<{
             id: string
             email: string
             role: MemberRole
             canPublish: boolean
+            locationScope: LocationScope
             expiresAt: Date
             createdAt: Date
           }>
@@ -183,6 +248,8 @@ export const POST = route({
             role,
             can_publish,
             client_ids,
+            location_ids,
+            location_scope,
             token_hash,
             token_ciphertext,
             invited_by,
@@ -194,6 +261,8 @@ export const POST = route({
             ${input.role},
             ${input.canPublish},
             ${clientIds ? sql.array(clientIds) : null}::uuid[],
+            ${locationIds ? sql.array(locationIds) : null}::uuid[],
+            ${locationScope},
             ${sha256(token)},
             ${encryptSecret(token)},
             ${session.userId},
@@ -204,6 +273,7 @@ export const POST = route({
             email,
             role,
             can_publish as "canPublish",
+            location_scope as "locationScope",
             expires_at as "expiresAt",
             created_at as "createdAt"
         `
@@ -219,6 +289,8 @@ export const POST = route({
             role: input.role,
             canPublish: input.canPublish,
             clientIds,
+            locationIds,
+            locationScope,
             clientRequestId,
           },
         })
@@ -228,6 +300,13 @@ export const POST = route({
             ? await sql<{ id: string; name: string }[]>`
                 select id::text as id, name from client
                 where id in ${sql(clientIds)}
+                order by lower(name)
+              `.then((rows) => rows.map(({ id, name }) => ({ id, name })))
+            : null,
+          locations: locationIds
+            ? await sql<{ id: string; name: string }[]>`
+                select id::text as id, name from location
+                where id in ${sql(locationIds)}
                 order by lower(name)
               `.then((rows) => rows.map(({ id, name }) => ({ id, name })))
             : null,

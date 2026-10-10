@@ -109,6 +109,21 @@ one query and feeds the capability payloads. There is no inline
 query builders. Every helper expects the tenant transaction, so RLS already
 scopes `location_member` to the organisation before the rule runs.
 
+Membership scope is being made explicit (migration 0063). `member` and
+`invitation` carry `location_scope`: `all` (every location; owners and admins
+always) or `assigned` (exactly the `location_member` rows, none when there are
+none). Every writer sets it in the same transaction as the rows: the
+client-access PUT, the role PATCH (promotion to owner/admin keeps the rows,
+latent, under `all`; demotion makes held rows `assigned`), and invitation
+acceptance, which copies the invitation's scope and refuses with 409
+`invitation_scope_empty` when an assigned invitation's clients or listings are
+all gone. A business workspace can scope an invitation to listings
+(`locationIds`, stored in `invitation.location_ids`). `extendClientHolders`
+extends only `assigned` holders. Reads still use the row rule above; with
+`SCOPE_SHADOW_COMPARE` on (default), `grantsFor` also reads the scope and logs
+`permissions.scope_shadow_mismatch` wherever the explicit rule would grant
+differently, without changing the grant.
+
 Visibility never authorises a write. Every mutation names its action
 (`read`, `edit`, `request_approval`, `triage`, `assign`, `decide_approval`,
 `publish`) and calls `requireLocationAction`, which answers 404 for a hidden
