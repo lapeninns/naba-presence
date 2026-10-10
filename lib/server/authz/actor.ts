@@ -70,11 +70,14 @@ export type AuthorisationRecheck = {
    */
   policy?: ApprovalPolicy | null
   /**
-   * The stable operation/generation id the work was queued under. Reserved
-   * for the intent header and generation ids (P03-S2, P07-S2); until they
-   * exist a supplied value cannot be verified, so the recheck refuses.
+   * The Google credential generation the work was queued under, as the
+   * operation ledger records it (mutation_operation.connection_generation,
+   * from google_connection.credential_generation). When given, the
+   * location's active connection must still hold that generation: a
+   * reconnect or disconnect since means the credential the actor's intent was
+   * prepared against is gone, so the work must not dispatch on its successor.
    */
-  generation?: string | null
+  generation?: number | null
   /**
    * The job kind whose entitlement must still be held. Reserved for
    * deriveAccess (P07-S1); until it exists a supplied value cannot be
@@ -95,7 +98,7 @@ export type RecheckRefusal =
   | "connection_changed"
   | "security_version_unverifiable"
   | "policy_changed"
-  | "generation_unverifiable"
+  | "generation_changed"
   | "entitlement_unverifiable"
 
 export type RecheckResult =
@@ -115,9 +118,6 @@ export async function recheckAuthorisation(
   if (input.securityVersion !== undefined && input.securityVersion !== null) {
     return { ok: false, reason: "security_version_unverifiable" }
   }
-  if (input.generation !== undefined && input.generation !== null) {
-    return { ok: false, reason: "generation_unverifiable" }
-  }
   if (input.entitlement !== undefined && input.entitlement !== null) {
     return { ok: false, reason: "entitlement_unverifiable" }
   }
@@ -135,20 +135,39 @@ export async function recheckAuthorisation(
     return { ok: false, reason: "action_denied" }
   }
 
-  if (input.connectionId !== undefined && input.connectionId !== null) {
-    const [link] = await sql<{ connectionId: string | null }[]>`
-      select e.google_connection_id::text as "connectionId"
+  const checkConnection =
+    input.connectionId !== undefined && input.connectionId !== null
+  const checkGeneration =
+    input.generation !== undefined && input.generation !== null
+  if (checkConnection || checkGeneration) {
+    const [link] = await sql<
+      { connectionId: string | null; generation: number | null }[]
+    >`
+      select
+        e.google_connection_id::text as "connectionId",
+        gc.credential_generation as generation
       from location_link ll
       join external_location e on e.id = ll.external_location_id
+      left join google_connection gc on gc.id = e.google_connection_id
       where ll.location_id = ${input.locationId}
         and ll.is_active = true
       limit 1
     `
     if (
-      !link?.connectionId ||
-      link.connectionId.toLowerCase() !== input.connectionId.toLowerCase()
+      checkConnection &&
+      (!link?.connectionId ||
+        link.connectionId.toLowerCase() !==
+          (input.connectionId as string).toLowerCase())
     ) {
       return { ok: false, reason: "connection_changed" }
+    }
+    if (
+      checkGeneration &&
+      (link?.generation === null ||
+        link?.generation === undefined ||
+        link.generation !== input.generation)
+    ) {
+      return { ok: false, reason: "generation_changed" }
     }
   }
 

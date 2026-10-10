@@ -71,6 +71,8 @@ function scriptedSql(script: {
   grants?: Record<string, boolean> | null
   member?: { role: GrantScope["role"]; canPublish: boolean } | null
   connectionId?: string | null
+  /** The active connection's credential_generation (default 1). */
+  generation?: number | null
   policy?: { approvalRequired: boolean; requireTwoPersonApproval: boolean } | null
 }) {
   const queries: string[] = []
@@ -99,7 +101,13 @@ function scriptedSql(script: {
           rows =
             script.connectionId === undefined
               ? []
-              : [{ connectionId: script.connectionId }]
+              : [
+                  {
+                    connectionId: script.connectionId,
+                    generation:
+                      script.generation === undefined ? 1 : script.generation,
+                  },
+                ]
         } else {
           throw new Error(`scriptedSql: unexpected query -- ${text}`)
         }
@@ -308,12 +316,28 @@ describe("authz/actor -- session-free actor", () => {
     ).resolves.toEqual({ ok: false, reason: "security_version_unverifiable" })
   })
 
-  it("fails closed on a generation or entitlement it cannot verify yet", async () => {
+  it("refuses when the connection's credential generation moved on", async () => {
+    const owner = { role: "owner" as const, canPublish: false }
+    await expect(
+      recheck(
+        { member: owner, connectionId: CONNECTION, generation: 3 },
+        { connectionId: CONNECTION, generation: 2 }
+      )
+    ).resolves.toEqual({ ok: false, reason: "generation_changed" })
+    // No active link at all: the generation cannot be proven.
+    await expect(
+      recheck({ member: owner }, { generation: 2 })
+    ).resolves.toEqual({ ok: false, reason: "generation_changed" })
+    await expect(
+      recheck(
+        { member: owner, connectionId: CONNECTION, generation: 2 },
+        { connectionId: CONNECTION, generation: 2 }
+      )
+    ).resolves.toMatchObject({ ok: true })
+  })
+
+  it("fails closed on an entitlement it cannot verify yet", async () => {
     const owner = { member: { role: "owner" as const, canPublish: false } }
-    await expect(recheck(owner, { generation: "gen-1" })).resolves.toEqual({
-      ok: false,
-      reason: "generation_unverifiable",
-    })
     await expect(
       recheck(owner, { entitlement: "scheduled_post" })
     ).resolves.toEqual({ ok: false, reason: "entitlement_unverifiable" })
