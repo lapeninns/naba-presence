@@ -1,6 +1,10 @@
 "use client"
 
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query"
 import { LogOut, Monitor, Moon, MoreHorizontal, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import * as React from "react"
@@ -29,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
 import { signedOutHereOnly, signOut } from "@/lib/api/auth"
 import { ApiClientError, apiFetch } from "@/lib/api/client"
-import { clearAllStashedDrafts } from "@/lib/api/draft-stash"
+import { abandonAllDrafts, clearAllStashedDrafts } from "@/lib/api/draft-stash"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
@@ -51,7 +55,10 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Viewer",
 }
 
-function roleExplanation(role: string, mode: WorkspaceMode): string | undefined {
+function roleExplanation(
+  role: string,
+  mode: WorkspaceMode
+): string | undefined {
   const terms = workspaceTerms(mode)
   const explanations: Record<string, string> = {
     owner: `Full access, including the ${terms.orgLower}’s settings and team`,
@@ -83,9 +90,12 @@ function initialsFor(name: string) {
  * Forgets everything this browser holds for the session that just ended: the
  * query cache (the full reload drops it too, but a back-forward cache restore
  * would not) and every stashed draft, which would otherwise be offered to the
- * next person who signs in on this tab.
+ * next person who signs in on this tab. Open editors' drafts are abandoned
+ * first, so no Leave prompt can hold the person on a signed-out page and no
+ * later 401 or unmount can stash their text again.
  */
 function purgeClientState(queryClient: QueryClient) {
+  abandonAllDrafts()
   queryClient.clear()
   clearAllStashedDrafts()
 }
@@ -172,11 +182,14 @@ function AccountMenu({
       setSigningOut(false)
       setConfirmEverywhere(false)
       toast.add({
-        title: everywhere ? "Couldn’t sign out everywhere" : "Couldn’t sign out",
-        // A server answer means nothing changed; a lost request may or may
-        // not have reached it.
+        title: everywhere
+          ? "Couldn’t sign out everywhere"
+          : "Couldn’t sign out",
+        // The route's own refusal means nothing changed. A lost request, or
+        // a bare gateway answer (a 502 or a function timeout, which carries
+        // no route error code), may have reached it and done its work.
         description: `${describeActionError(error)} ${
-          error instanceof ApiClientError
+          error instanceof ApiClientError && error.code !== "http_error"
             ? "You’re still signed in."
             : "You may still be signed in."
         }`,

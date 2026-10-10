@@ -1,10 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import type { ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AccountMenu } from "@/components/app-shell/account-menu"
 import { Toaster } from "@/components/ui/toast"
+import { apiFetch } from "@/lib/api/client"
+import {
+  __resetDraftSources,
+  registerDraftSource,
+  stashDraft,
+} from "@/lib/api/draft-stash"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
 // Sign-out is truthful: the menu leaves only when the server confirmed it,
 // purges this browser's query cache and stashed drafts when it does, keeps
@@ -40,6 +48,12 @@ function stubApi(signOutAnswers: SignOutAnswer[]) {
       if (url === "/api/organisations") {
         return Response.json({ items: [] })
       }
+      if (url === "/api/after-sign-out") {
+        return Response.json(
+          { error: "authentication_required", message: "Sign in again." },
+          { status: 401 }
+        )
+      }
       throw new Error(`unexpected request ${url}`)
     }
   )
@@ -53,6 +67,8 @@ const serverError = () =>
     { error: "internal_error", message: "The request could not be completed." },
     { status: 500 }
   )
+const gatewayTimeout = () =>
+  new Response("An error occurred with your deployment", { status: 504 })
 const everywhereFailed = () =>
   Response.json(
     {
@@ -68,6 +84,7 @@ beforeEach(() => {
   assign = vi.fn()
   vi.stubGlobal("location", { ...window.location, assign })
   sessionStorage.clear()
+  __resetDraftSources()
 })
 
 afterEach(() => {
@@ -76,7 +93,17 @@ afterEach(() => {
   sessionStorage.clear()
 })
 
-function renderMenu() {
+// A dirty editor, as the hours, menu, profile and reply editors register one.
+function DirtyEditor() {
+  useDirtyGuard({
+    key: "reply-7",
+    isDirty: true,
+    snapshot: () => "unsent text",
+  })
+  return null
+}
+
+function renderMenu(extra?: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -85,6 +112,7 @@ function renderMenu() {
     <QueryClientProvider client={queryClient}>
       <Toaster>
         <AccountMenu session={session} />
+        {extra}
       </Toaster>
     </QueryClientProvider>
   )
@@ -127,6 +155,44 @@ describe("account menu sign-out", () => {
     expect(sessionStorage.getItem("naba:draft:reply-1")).toBeNull()
     expect(sessionStorage.getItem("naba:draft:location-hours-9")).toBeNull()
     expect(sessionStorage.getItem("unrelated")).toBe("kept")
+  })
+
+  it("abandons open editors' drafts so nothing is re-stashed or held by a Leave prompt", async () => {
+    const user = userEvent.setup()
+    stubApi([noContent])
+    registerDraftSource("composer-3", () => "another unsent reply")
+    renderMenu(<DirtyEditor />)
+
+    await chooseSignOut(user)
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(`${window.location.origin}/sign-in`)
+    )
+
+    // The dirty editor no longer asks "Leave site?": staying would strand the
+    // person on a signed-out page.
+    const leaving = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(leaving)
+    expect(leaving.defaultPrevented).toBe(false)
+
+    // A later foreground 401 or an unmount cannot write the text back.
+    await expect(apiFetch("/api/after-sign-out")).rejects.toThrow()
+    stashDraft("reply-7", "unsent text")
+    const stashed = Object.keys(sessionStorage).filter((key) =>
+      key.startsWith("naba:draft:")
+    )
+    expect(stashed).toEqual([])
+  })
+
+  it("does not claim the session survived a bare gateway failure", async () => {
+    const user = userEvent.setup()
+    stubApi([gatewayTimeout])
+    renderMenu()
+
+    await chooseSignOut(user)
+
+    expect(await screen.findByText("Couldn’t sign out")).toBeInTheDocument()
+    expect(screen.getByText(/You may still be signed in\./)).toBeInTheDocument()
+    expect(assign).not.toHaveBeenCalled()
   })
 
   it("stays on the page with a Retry when the server refuses, and retries", async () => {

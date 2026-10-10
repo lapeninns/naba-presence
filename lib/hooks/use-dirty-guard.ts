@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react"
 
 import {
+  draftsAbandoned,
   registerDraftSource,
   stashDraft,
   takeStashedDraft,
@@ -84,6 +85,9 @@ export function useDirtyGuard({
       // Already agreed to lose these edits (the leave prompt): a full-page
       // navigation that follows must not ask a second time.
       if (discarded.current) return
+      // The session these edits belonged to has ended (sign-out): leaving
+      // is the only way forward, so don't offer "Stay".
+      if (draftsAbandoned()) return
       event.preventDefault()
       event.returnValue = ""
     }

@@ -1,5 +1,11 @@
 const PREFIX = "naba:draft:"
 const sources = new Map<string, () => string | null>()
+// Set once the session that owns every registered draft has ended (a
+// confirmed sign-out). From then on nothing may be written back to the
+// stash: a late 401 or an unmount would otherwise re-stash the text that
+// clearAllStashedDrafts just removed, for the next person on this tab.
+// The full-page navigation that follows a sign-out resets it.
+let abandoned = false
 
 export function registerDraftSource(
   key: string,
@@ -12,6 +18,7 @@ export function registerDraftSource(
 }
 
 export function stashAllDrafts(): void {
+  if (abandoned) return
   for (const [key, snapshot] of sources) {
     // A misbehaving source's snapshot() must not abort the whole loop, and
     // callers (the 401 handler) must still redirect even if stashing a
@@ -34,7 +41,7 @@ export function stashAllDrafts(): void {
  * so the next mount can `takeStashedDraft` it back.
  */
 export function stashDraft(key: string, value: string): void {
-  if (value === "") return
+  if (abandoned || value === "") return
   try {
     sessionStorage.setItem(PREFIX + key, value)
   } catch {
@@ -83,10 +90,29 @@ export function clearAllStashedDrafts(): void {
 }
 
 /**
+ * Gives up every registered draft for good: forgets the sources, refuses any
+ * later stash, and tells dirty editors not to raise the browser's Leave
+ * prompt (`draftsAbandoned`). Called on a confirmed sign-out before the
+ * stash is cleared and the page navigates: answering "Stay" at a Leave
+ * prompt would strand the person on a page whose session is gone, and the
+ * next 401 there would stash their text again.
+ */
+export function abandonAllDrafts(): void {
+  abandoned = true
+  sources.clear()
+}
+
+/** Whether `abandonAllDrafts` has run in this page. */
+export function draftsAbandoned(): boolean {
+  return abandoned
+}
+
+/**
  * Test-only: clears every registered draft source. Not for production use —
  * intended for a top-level `beforeEach` so registrations from one test don't
  * leak into the next.
  */
 export function __resetDraftSources(): void {
   sources.clear()
+  abandoned = false
 }
