@@ -102,7 +102,7 @@ describeDatabase("content workflow closure", { timeout: 45_000 }, () => {
     const post = await t.draft()
     const early = await t.api(`/posts/${post}/approval`, {
       method: "POST",
-      body: JSON.stringify({ decision: "approve" }),
+      body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
     })
     expect(early.status).toBe(409)
     expect(await early.json()).toMatchObject({ error: "approval_not_pending" })
@@ -115,7 +115,7 @@ describeDatabase("content workflow closure", { timeout: 45_000 }, () => {
     expect(await publish.json()).toEqual({ status: "awaiting_approval" })
     const self = await t.api(`/posts/${post}/approval`, {
       method: "POST",
-      body: JSON.stringify({ decision: "approve" }),
+      body: JSON.stringify({ decision: "approve", expectedRevision: 1 }),
     })
     expect(self.status).toBe(403)
     expect(await self.json()).toMatchObject({
@@ -146,7 +146,7 @@ describeDatabase("content workflow closure", { timeout: 45_000 }, () => {
     )
     const approved = await t.api(
       `/posts/${post}/approval`,
-      { method: "POST", body: JSON.stringify({ decision: "approve" }) },
+      { method: "POST", body: JSON.stringify({ decision: "approve", expectedRevision: 1 }) },
       manager.cookie
     )
     expect(approved.status, await approved.clone().text()).toBe(200)

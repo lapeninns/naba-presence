@@ -12,6 +12,7 @@ import {
   NO_GRANT,
   publishPredicate,
   requireLocationAccess,
+  requireLocationActionForAll,
   visibilityPredicate,
 } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
@@ -427,6 +428,59 @@ describe("grantsFor -- explicit scope, never absence-means-all", () => {
       canEdit: true,
       canPublish: false,
     })
+    expect(grants.get(LOCATION_B)).toEqual({
+      visible: true,
+      canEdit: true,
+      canPublish: false,
+    })
+  })
+})
+
+describe("requireLocationActionForAll", () => {
+  const BULK = { code: "bulk_targets_unavailable", message: "Not available." }
+
+  it("answers one 404 when any target is hidden, without naming it", async () => {
+    const { sql, calls } = fakeSql({
+      locationScope: "assigned",
+      grants: { [LOCATION_A]: true },
+    })
+    const refused = await requireLocationActionForAll(
+      sql,
+      makeSession({ canPublish: true }),
+      [LOCATION_A, LOCATION_B],
+      "request_approval",
+      BULK
+    ).catch((error: unknown) => error)
+    expect(refused).toBeInstanceOf(ApiError)
+    expect(refused).toMatchObject({ status: 404, code: BULK.code })
+    expect(calls).toHaveLength(1)
+  })
+
+  it("refuses a viewer who can see every target with a 403", async () => {
+    const { sql } = fakeSql({ locationScope: "all", grants: null })
+    await expect(
+      requireLocationActionForAll(
+        sql,
+        makeSession({ role: "viewer" }),
+        [LOCATION_A, LOCATION_B],
+        "request_approval",
+        BULK
+      )
+    ).rejects.toMatchObject({ status: 403, code: "permission_denied" })
+  })
+
+  it("returns every grant when the action is allowed everywhere", async () => {
+    const { sql } = fakeSql({
+      locationScope: "assigned",
+      grants: { [LOCATION_A]: true, [LOCATION_B]: false },
+    })
+    const grants = await requireLocationActionForAll(
+      sql,
+      makeSession({ canPublish: true }),
+      [LOCATION_A, LOCATION_B],
+      "request_approval"
+    )
+    expect(grants.get(LOCATION_A)?.canPublish).toBe(true)
     expect(grants.get(LOCATION_B)).toEqual({
       visible: true,
       canEdit: true,
