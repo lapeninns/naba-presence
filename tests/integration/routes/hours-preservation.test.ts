@@ -252,7 +252,10 @@ describeDatabase("hours legacy transition and replacement routes", () => {
       expect(
         new URL(call.path, google.baseUrl).searchParams.get("updateMask")
       ).toBe("specialHours")
-      expect(Object.keys(call.body as object)).toEqual(["specialHours"])
+      // The request names the location; the only hours field is the selected one.
+      expect(
+        Object.keys(call.body as object).filter((key) => key !== "name")
+      ).toEqual(["specialHours"])
     }
     const after = f.provider()
     expect(after.regularHours).toEqual(changedOnGoogle.regularHours)
