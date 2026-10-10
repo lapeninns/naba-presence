@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -74,9 +74,10 @@ describe("IndustrySections", () => {
       providerAttributes: available({ attributes: [] }), insuranceNetworks: available({}),
     } })
     renderWithProviders(<IndustrySections locationId="loc-1" />)
-    expect(await screen.findByRole("button", { name: /save lodging/i })).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: /review lodging changes/i })).toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: "Calls" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /save calls/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /save lodging/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/business calls/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/provider attributes/i)).not.toBeInTheDocument()
   })
@@ -85,7 +86,13 @@ describe("IndustrySections", () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<IndustrySections locationId="loc-1" />)
     await userEvent.click(await screen.findByLabelText("Pets allowed"))
-    await userEvent.click(screen.getByRole("button", { name: /save lodging/i }))
+    await userEvent.click(screen.getByRole("button", { name: /review lodging changes/i }))
+    // The sheet shows the leaf diff in the switch's own words before anything
+    // is sent, and the only way on is "Publish to Google".
+    const sheet = await screen.findByRole("dialog")
+    expect(within(sheet).getByText("Pets allowed")).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false)
+    await userEvent.click(within(sheet).getByRole("button", { name: "Publish to Google" }))
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
       const body = JSON.parse((patch![1] as RequestInit).body as string)

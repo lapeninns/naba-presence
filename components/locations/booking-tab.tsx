@@ -161,7 +161,7 @@ function BookingLinks({
         expectedGoogleHash: link.googleHash,
       }),
     invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Preferred link sent to Google",
+    successToast: { outcome: "sent", title: "Preferred link sent to Google" },
     onSuccess: () => setPreferTarget(null),
     onError: (_error, message) => setConfirmFailure(message),
   })
@@ -550,7 +550,7 @@ function AddLinkForm({
         isPreferred: preferred,
       }),
     invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Booking link added",
+    successToast: { outcome: "sent", title: "Booking link sent to Google" },
     onSuccess: () => {
       setUri("")
       setPreferred(false)
@@ -585,7 +585,7 @@ function AddLinkForm({
           Add a booking link
         </h2>
         <p className="text-ui text-ink-muted">
-          The link goes to Google as soon as you add it.
+          The link goes to Google as soon as you publish it.
         </p>
       </div>
       <div className="grid gap-4 @[560px]/booking:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] @[560px]/booking:items-start">
@@ -647,7 +647,7 @@ function AddLinkForm({
           pending={add.isPending}
           pendingLabel="Sending to Google…"
         >
-          Add booking link
+          Publish link to Google
         </Button>
       </div>
     </form>
@@ -689,7 +689,7 @@ function EditLinkDialog({
       })
     },
     invalidate: [queryKeys.locationBooking(locationId)],
-    successToast: "Booking link sent to Google",
+    successToast: { outcome: "sent", title: "Booking link sent to Google" },
     onSuccess: onClose,
     // The toast goes away; the dialog keeps the link and says what happened.
     onError: (_error, message) => setFailure(message),
@@ -758,7 +758,7 @@ function EditLinkDialog({
               pendingLabel="Sending to Google…"
               disabled={!link || uri.trim() === link.uri}
             >
-              Save to Google
+              Publish to Google
             </Button>
           </DialogFooter>
         </form>

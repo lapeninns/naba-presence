@@ -32,6 +32,7 @@ import {
 } from "@/lib/api/location-posts"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
 import { resourceDisabledReason } from "@/lib/locations/gating"
+import type { OutcomeMessage } from "@/lib/editors/outcome"
 import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
 import {
   DEFAULT_TIMEZONE,
@@ -41,12 +42,17 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
 
-function publishOutcomeTitle(status: string) {
-  if (status === "awaiting_approval") return "Post submitted for approval."
-  // A rejected post is on Google and invisible to everyone, so the success
-  // toast must not say it was published.
-  if (status === "rejected") return "Google rejected this post."
-  return "Post published to Google"
+function publishOutcome(status: string): OutcomeMessage {
+  // Waiting for an approver: nothing has gone to Google yet.
+  if (status === "awaiting_approval")
+    return { outcome: "saved_locally", title: "Post submitted for approval." }
+  // A rejected post is on Google and invisible to everyone, so the toast
+  // must not say it was published.
+  if (status === "rejected")
+    return { outcome: "rejected", title: "Google rejected this post." }
+  // "published" means Google took the post and did not reject it; it may
+  // still be processing, so this is "sent", not "live".
+  return { outcome: "sent", title: "Post sent to Google" }
 }
 
 // What the Check Google round-trip found. `reconciliationError` is the only
@@ -83,7 +89,7 @@ export function PostsActionBar({
   const publish = useResourceMutation({
     mutationFn: () => publishPost(locationId, post.id),
     invalidate,
-    successToast: (result) => publishOutcomeTitle(result.status),
+    successToast: (result) => publishOutcome(result.status),
     errorContext: "post",
     onSuccess: () => setPublishOpen(false),
     onError: () => setPublishOpen(false),
@@ -95,7 +101,7 @@ export function PostsActionBar({
     successToast: (result, decision) =>
       decision === "reject"
         ? "Sent back to draft"
-        : publishOutcomeTitle(result.status),
+        : publishOutcome(result.status),
     errorContext: "post",
   })
   const remove = useResourceMutation({

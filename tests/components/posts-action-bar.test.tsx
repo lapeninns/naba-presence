@@ -62,7 +62,7 @@ describe("PostsActionBar", () => {
     expect(within(confirm).getByText("Open late tonight")).toBeInTheDocument()
     await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
 
-    expect(await screen.findByText("Post published to Google")).toBeInTheDocument()
+    expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
     expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
   })
@@ -111,7 +111,7 @@ describe("PostsActionBar", () => {
     const client = renderBar({ post: post({ status: "awaiting_approval" }) })
 
     await userEvent.click(screen.getByRole("button", { name: "Approve" }))
-    expect(await screen.findByText("Post published to Google")).toBeInTheDocument()
+    expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
     expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve")
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
 

@@ -404,10 +404,10 @@ test.describe("listings", () => {
         new URL(r.url()).pathname ===
           `/api/locations/${state.primaryLocationId}/place-actions`
     )
-    await page.getByRole("button", { name: "Add booking link" }).click()
+    await page.getByRole("button", { name: "Publish link to Google" }).click()
     expect((await created).status()).toBe(201)
     await expect(
-      page.getByText("Booking link added", { exact: true })
+      page.getByText("Booking link sent to Google", { exact: true })
     ).toBeVisible()
   })
 
@@ -464,10 +464,15 @@ test.describe("listings", () => {
         new URL(r.url()).pathname ===
           `/api/locations/${state.primaryLocationId}/industry`
     )
-    await page.getByRole("button", { name: "Save lodging" }).click()
+    // Lodging is a Google write, so it goes through the review sheet.
+    await page.getByRole("button", { name: "Review lodging changes" }).click()
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Publish to Google" })
+      .click()
     expect((await published).status()).toBe(200)
     await expect(
-      page.getByText("Lodging details published to Google", { exact: true })
+      page.getByText("Lodging details sent to Google", { exact: true })
     ).toBeVisible()
   })
 

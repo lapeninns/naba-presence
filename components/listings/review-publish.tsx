@@ -49,6 +49,7 @@ import {
   type ProfileFieldKey,
 } from "@/lib/api/location-profile"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
+import { describeOutcome } from "@/lib/editors/outcome"
 import {
   NOTHING_TO_SEND,
   usePublishFlow,
@@ -452,9 +453,9 @@ function toStepRows(
       return {
         id: step.key,
         label: step.label,
-        // Done means the server's publish read Google back and it matched.
-        state: "live",
-        stateLabel: "Accepted by Google",
+        // Done means the server's publish read Google back and it matched:
+        // the one state the outcome words may call live.
+        state: "confirmed_applied",
         detail:
           "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search.",
       }
@@ -588,7 +589,7 @@ function ReviewPublish({
       queryKeys.locationMenu(locationId),
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Published to Google",
+    successToast: { outcome: "confirmed_applied" },
   })
   const done =
     flow.results.length > 0 &&
@@ -709,7 +710,7 @@ function ReviewPublish({
                     nothingSent
                       ? "Nothing needed sending"
                       : done
-                        ? "Published to Google"
+                        ? describeOutcome("confirmed_applied").title
                         : "Nothing to publish"
                   }
                   description={

@@ -167,7 +167,7 @@ function MenuForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Menu published to Google",
+    successToast: { outcome: "sent", title: "Menu sent to Google" },
     onSuccess: () => {
       setReviewOpen(false)
       setServerError(null)
@@ -190,7 +190,7 @@ function MenuForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Saved here. Not on Google until you publish.",
+    successToast: { outcome: "saved_locally" },
     onSuccess: () => {
       expectSave()
       setServerError(null)

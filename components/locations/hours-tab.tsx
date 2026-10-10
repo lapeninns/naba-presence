@@ -221,7 +221,7 @@ function HoursForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Opening hours sent to Google",
+    successToast: { outcome: "sent", title: "Opening hours sent to Google" },
     onSuccess: () => setReviewOpen(false),
   })
 
@@ -241,7 +241,7 @@ function HoursForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Saved here. Not on Google until you publish.",
+    successToast: { outcome: "saved_locally" },
     onSuccess: () => setFormError(null),
     onError: (_error, message) => setFormError(message),
   })

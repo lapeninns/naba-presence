@@ -1,7 +1,8 @@
 "use client"
 
-import { useId, useMemo } from "react"
+import { useId, useMemo, useState } from "react"
 
+import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { SectionPanel } from "@/components/locations/section-panel"
 import { TabError } from "@/components/locations/tab-states"
 import { GateNote } from "@/components/locations/publish-gate"
@@ -19,6 +20,7 @@ import {
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import {
   inputToTimeOfDay,
+  lodgingChanges,
   lodgingUpdatedPaths,
   timeOfDayToInput,
   touchedMask,
@@ -248,7 +250,22 @@ function LodgingSection({
     [mask, draft]
   )
 
-  const save = useResourceMutation({
+  // Lodging has no copy here: every change is a Google write, so it goes
+  // through the same review sheet as the other areas and is worded as a
+  // publish, never as a save.
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const rows = useMemo(
+    () =>
+      lodgingChanges(loaded, draft).map((change) => ({
+        key: change.path,
+        field: change.field,
+        before: change.before,
+        after: change.after,
+      })),
+    [loaded, draft]
+  )
+  const publish = useResourceMutation({
     mutationFn: () =>
       publishIndustry(locationId, {
         operation: "update_lodging",
@@ -256,7 +273,12 @@ function LodgingSection({
         payload,
       }),
     invalidate: [queryKeys.locationIndustry(locationId)],
-    successToast: "Lodging details published to Google",
+    successToast: { outcome: "sent", title: "Lodging details sent to Google" },
+    onSuccess: () => {
+      setPublishError(null)
+      setReviewOpen(false)
+    },
+    onError: (_error, message) => setPublishError(message),
   })
 
   const checkinId = useId()
@@ -294,7 +316,8 @@ function LodgingSection({
       return next
     })
     toasts.add({
-      title: "Suggested lodging values applied to the form — review and save",
+      title:
+        "Suggested lodging values applied to the form — review and publish",
       type: "success",
     })
   }
@@ -312,7 +335,7 @@ function LodgingSection({
             <span>
               Google suggests changes to{" "}
               {suggestedPaths.map((path) => path.replace(/_/g, " ")).join(", ")}
-              . Apply them into this form, review, then save to publish.
+              . Apply them into this form, then review and publish.
             </span>
             <Button
               size="sm"
@@ -494,18 +517,26 @@ function LodgingSection({
 
       <div>
         <Button
-          onClick={() => save.mutate()}
-          disabled={
-            disabled ||
-            Boolean(publishReason) ||
-            mask.length === 0 ||
-            save.isPending
-          }
+          onClick={() => {
+            setPublishError(null)
+            setReviewOpen(true)
+          }}
+          disabled={disabled || Boolean(publishReason) || mask.length === 0}
         >
-          {save.isPending ? "Saving…" : "Save lodging"}
+          Review lodging changes
         </Button>
       </div>
       <GateNote reason={disabled ? null : publishReason} />
+      <ReviewChangesSheet
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        rows={rows}
+        locationName="this listing"
+        onPublish={() => publish.mutate()}
+        publishing={publish.isPending}
+        error={publishError}
+        publishDisabledReason={publishReason}
+      />
     </div>
   )
 }

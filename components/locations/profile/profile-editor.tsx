@@ -442,7 +442,10 @@ function ProfileEditor({
       queryKeys.locationProfile(locationId),
       queryKeys.locationBusinessInformation(locationId),
     ],
-    successToast: "Business profile published to Google",
+    successToast: {
+      outcome: "sent",
+      title: "Business profile sent to Google",
+    },
     onSuccess: () => setReviewOpen(false),
   })
 
@@ -463,9 +466,14 @@ function ProfileEditor({
     },
     invalidate: [queryKeys.locationProfile(locationId)],
     onSuccess: () => expectValuesSave(),
-    successToast: listingDirty || attributesDirty
-      ? "Name, description, phone and website saved here. Other profile edits still need review and publication."
-      : "Name, description, phone and website saved here. Not on Google until you publish.",
+    successToast: {
+      outcome: "saved_locally",
+      title: "Name, description, phone and website saved here",
+      description:
+        listingDirty || attributesDirty
+          ? "Other profile edits still need review and publication."
+          : "Not on Google until you publish.",
+    },
     onError: (cause) => {
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)
