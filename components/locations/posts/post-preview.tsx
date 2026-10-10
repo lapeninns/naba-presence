@@ -34,6 +34,7 @@ export function PostPreview({
   schedule = null,
   actionLabel = "",
   recurrence = "",
+  imageUrl = null,
 }: {
   topicType: "STANDARD" | "EVENT" | "OFFER"
   summary: string
@@ -42,6 +43,8 @@ export function PostPreview({
   actionLabel?: string
   /** "Repeats weekly on Fri", or "" for a one-off. */
   recurrence?: string
+  /** The post's first photo, as Google will show it. */
+  imageUrl?: string | null
 }) {
   const Icon = topicType === "OFFER" ? Tag : CalendarDays
   const when = schedule
@@ -57,6 +60,10 @@ export function PostPreview({
       <figcaption className="border-b border-line bg-surface-alt px-3 py-2 font-mono text-caption tracking-[0.06em] text-ink-muted uppercase">
         Preview
       </figcaption>
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a remote Google/merchant URL shown as-is
+        <img src={imageUrl} alt="The post's photo" className="aspect-[4/3] w-full bg-surface-alt object-cover" />
+      ) : null}
       <div className="flex flex-col gap-2 p-4">
         {topicType !== "STANDARD" ? (
           <div className="flex flex-col gap-0.5">

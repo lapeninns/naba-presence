@@ -1,50 +1,24 @@
+import { notificationListQuerySchema } from "@/lib/contracts/operational-notifications"
+import { listNotifications } from "@/lib/server/notifications/inbox"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 
-type IncidentRow = {
-  id: string
-  kind: string
-  subjectType: string
-  subjectId: string
-  status: "open" | "resolved"
-  summary: Record<string, unknown>
-  openedAt: Date
-  resolvedAt: Date | null
-}
-
 /**
- * The organisation's operational incidents (0050): everything open, and
- * what resolved in the last week. Owners and admins only -- these name
- * connected logins and listings -- and read through RLS, so another
- * tenant's incidents are invisible whatever the request says.
+ * This viewer's operational notifications, newest first, with their own read
+ * state. Owners and admins see account incidents; everyone else sees only
+ * incidents for locations they can see. RLS keeps other tenants out.
+ * `incidents` keeps the earlier response shape for existing callers.
  */
 export const GET = route({
-  roles: ["owner", "admin"],
-  handler: async ({ tenant }) => {
-    const rows = await tenant(
-      (sql) => sql<IncidentRow[]>`
-        select
-          id::text as id,
-          kind,
-          subject_type as "subjectType",
-          subject_id as "subjectId",
-          status,
-          summary,
-          opened_at as "openedAt",
-          resolved_at as "resolvedAt"
-        from notification_incident
-        where status = 'open'
-           or opened_at >= now() - interval '7 days'
-        order by status = 'open' desc, opened_at desc
-        limit 200
-      `
-    )
+  query: notificationListQuerySchema,
+  handler: async ({ session, query }) => {
+    const page = await listNotifications(session, query)
     return {
-      incidents: rows.map((row) => ({
-        ...row,
-        openedAt: row.openedAt.toISOString(),
-        resolvedAt: row.resolvedAt?.toISOString() ?? null,
+      ...page,
+      incidents: page.items.map((item) => ({
+        id: item.id, kind: item.kind, subjectType: item.subjectType, subjectId: item.subjectId,
+        status: item.status, summary: item.summary, openedAt: item.openedAt, resolvedAt: item.resolvedAt,
       })),
     }
   },

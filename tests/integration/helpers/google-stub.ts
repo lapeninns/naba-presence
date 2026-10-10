@@ -5,6 +5,7 @@ export type GoogleStubCall = {
   method: string
   path: string
   body: unknown
+  headers?: Record<string, string | string[] | undefined>
 }
 
 export type GoogleStubResponse = {
@@ -13,7 +14,7 @@ export type GoogleStubResponse = {
   delayMs?: number
 }
 
-type Handler = (call: GoogleStubCall) => GoogleStubResponse
+type Handler = (call: GoogleStubCall) => GoogleStubResponse | Promise<GoogleStubResponse>
 type Matcher =
   | { method: string; pathIncludes: string; pathEndsWith?: undefined }
   | { method: string; pathIncludes?: undefined; pathEndsWith: string }
@@ -36,7 +37,14 @@ export type GoogleStub = {
   stop(): Promise<void>
 }
 
-export async function startGoogleStub(): Promise<GoogleStub> {
+/**
+ * `port` overrides GOOGLE_STUB_PORT. Playwright's global setup exports that
+ * variable for its shared stub, and workers inherit it, so a spec that needs
+ * its own private stub passes `{ port: 0 }` to get a free port instead.
+ */
+export async function startGoogleStub(
+  options: { port?: number } = {}
+): Promise<GoogleStub> {
   const calls: GoogleStubCall[] = []
   const rules: Rule[] = []
   const server: Server = createServer(async (request, response) => {
@@ -46,6 +54,7 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     const call: GoogleStubCall = {
       method: request.method ?? "GET",
       path: request.url ?? "/",
+      headers: request.headers,
       body: raw
         ? contentType.includes("application/json")
           ? JSON.parse(raw)
@@ -62,7 +71,7 @@ export async function startGoogleStub(): Promise<GoogleStub> {
           ? call.path.endsWith(candidate.pathEndsWith)
           : call.path.includes(candidate.pathIncludes))
     )
-    const result = rule ? rule.handler(call) : defaultResponse(call)
+    const result = rule ? await rule.handler(call) : defaultResponse(call)
     if (result.delayMs) {
       await Promise.race([
         new Promise((resolve) => setTimeout(resolve, result.delayMs)),
@@ -76,7 +85,9 @@ export async function startGoogleStub(): Promise<GoogleStub> {
     response.end(JSON.stringify(result.json ?? {}))
   })
   const configuredPort = process.env.GOOGLE_STUB_PORT
-  const port = configuredPort ? Number.parseInt(configuredPort, 10) : 0
+  const port =
+    options.port ??
+    (configuredPort ? Number.parseInt(configuredPort, 10) : 0)
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new Error("GOOGLE_STUB_PORT must be a valid TCP port.")
   }

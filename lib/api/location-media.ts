@@ -44,9 +44,10 @@ export function fetchMedia(
   }).then((r) => r.media)
 }
 
-export function createMediaFromUrl(id: string, input: MediaCreateInput) {
+export function createMediaFromUrl(id: string, input: MediaCreateInput, idempotencyKey?: string) {
   return apiFetch(`/api/locations/${id}/media`, {
     method: "POST",
+    idempotencyKey,
     body: { ...input, confirmation: "create_google_media" },
     schema: mediaMutationOutcomeSchema,
   })
@@ -59,12 +60,14 @@ export function createMediaFromUrl(id: string, input: MediaCreateInput) {
 export function uploadMediaFile(
   id: string,
   form: FormData,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  idempotencyKey?: string
 ): Promise<MediaMutationResult> {
   form.set("confirmation", "create_google_media")
   return new Promise<MediaMutationResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open("POST", `/api/locations/${id}/media`)
+    if (idempotencyKey) xhr.setRequestHeader("idempotency-key", idempotencyKey)
     if (onProgress && xhr.upload) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onProgress(event.loaded / event.total)

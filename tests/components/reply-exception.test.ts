@@ -80,3 +80,17 @@ describe("describeException: rejected by the approver", () => {
     expect(exception?.title).toBe("Approval required")
   })
 })
+
+describe("describeException: Google moderation", () => {
+  const reply = (googleReplyState: string | null, publishStatus = "published") => ({
+    id: "reply-1", body: "Thank you", publishStatus, googleReplyState, googlePolicyViolation: null, googleReplyUpdatedAt: null, lastErrorCode: null,
+  })
+  it("says Google is still reviewing a published reply", () => {
+    const exception = describeException(review({ workflowStatus: "published", reply: reply("PENDING") }), submit, "connected")
+    expect(exception?.title).toBe("Google is reviewing this reply")
+    expect(exception?.description).toContain("don’t see it until Google approves it")
+  })
+  it("shows nothing once Google has approved it", () => {
+    expect(describeException(review({ workflowStatus: "published", reply: reply("APPROVED") }), submit, "connected")?.title).not.toBe("Google is reviewing this reply")
+  })
+})

@@ -1,5 +1,6 @@
 const sensitiveKey =
   /(authorization|cookie|secret|token|password|credential|api[-_]?key)/i
+const verificationPinKey = /^(?:verification[-_]?)?pin(?:[-_]?code)?$/i
 const bearerPattern = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi
 const jwtPattern = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
 
@@ -34,7 +35,9 @@ export function redactForLog(value: unknown, depth = 0): unknown {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, item]) => [
         key,
-        sensitiveKey.test(key) ? "[REDACTED]" : redactForLog(item, depth + 1),
+        sensitiveKey.test(key) || verificationPinKey.test(key)
+          ? "[REDACTED]"
+          : redactForLog(item, depth + 1),
       ])
     )
   }

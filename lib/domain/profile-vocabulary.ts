@@ -46,7 +46,7 @@ export type ProfileDriftStatus = (typeof PROFILE_DRIFT_STATUSES)[number]
 
 export type GoogleProfileUpdateMask =
   | "title"
-  | "profile"
+  | "profile.description"
   | "phoneNumbers"
   | "websiteUri"
 

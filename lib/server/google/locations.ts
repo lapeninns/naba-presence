@@ -6,6 +6,7 @@ import {
   googleAttributeMetadataRequest,
   googleAccountsRequest,
   googleCategoriesRequest,
+  googleCategoriesBatchRequest,
   googleChainsSearchRequest,
   googleLocationAttributesPatchRequest,
   googleLocationAttributesRequest,
@@ -188,6 +189,11 @@ export function searchGoogleChains(
     request.init,
     options
   )
+}
+
+export function batchGetGoogleCategories(accessToken: string, input: { names: readonly string[]; languageCode: string; regionCode: string }, options: { connectionKey?: string } = {}) {
+  const request = googleCategoriesBatchRequest(input)
+  return googleRequest<unknown>(request.url, accessToken, request.init, options)
 }
 
 export function createGoogleLocation(

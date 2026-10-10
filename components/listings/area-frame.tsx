@@ -76,6 +76,7 @@ const MODEL_ICON: Record<
   canonical: ShieldCheckIcon,
   google_direct: GlobeIcon,
   lifecycle: SendIcon,
+  reviewed: ShieldCheckIcon,
   inbound: DownloadIcon,
 }
 
@@ -485,7 +486,7 @@ function AreaFrameBody({
   const pill =
     status !== undefined ? (
       status
-    ) : editorPill ? (
+    ) : areaKey === "verification" ? null : editorPill ? (
       <StatusPill tone={editorPill.tone} data-slot="area-editor-status">
         {editorPill.label}
       </StatusPill>

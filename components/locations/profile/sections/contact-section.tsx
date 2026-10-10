@@ -42,6 +42,8 @@ import { openStatusLabel } from "@/lib/locations/console-labels"
 import type { ProfileFormValues } from "@/lib/locations/forms/profile"
 import type { BusinessInformationDraft } from "@/lib/locations/google-values"
 import { cn } from "@/lib/utils"
+import { OpeningDateFields } from "./opening-date-fields"
+import { AddressDetailsFields } from "./address-details-fields"
 
 type ValuesProps = {
   values: ProfileFormValues
@@ -120,17 +122,19 @@ function addressLinesOf(raw: string): string[] {
 
 /** Where customers find the business. Moving the map pin happens in Google. */
 export function AddressSection({
+  location,
   draft,
   setDraft,
   issues,
   disabled,
   changed,
 }: {
+  location?: unknown
   draft: BusinessInformationDraft
   setDraft: Dispatch<SetStateAction<BusinessInformationDraft>>
   issues: PayloadFieldErrors
   disabled: boolean
-  changed: { lines: boolean; locality: boolean; postalCode: boolean }
+  changed: { lines: boolean; locality: boolean; postalCode: boolean; administrativeArea?: boolean; sublocality?: boolean; addressDetails?: boolean }
 }) {
   // The textarea keeps what the operator typed (a trailing space, a new empty
   // line) while the draft keeps only the clean lines. Rendering the cleaned
@@ -146,7 +150,7 @@ export function AddressSection({
       model="google"
       title="Address"
       description="Where customers find the business. Moving the map pin happens in Google."
-      changed={changed.lines || changed.locality || changed.postalCode}
+      changed={changed.lines || changed.locality || changed.postalCode || changed.administrativeArea || changed.sublocality || changed.addressDetails}
     >
       <div className="grid grid-cols-1 gap-4 @[600px]/profile-body:grid-cols-2">
         <Field
@@ -201,7 +205,26 @@ export function AddressSection({
             }
           />
         </Field>
+        <Field error={issues.sublocality}>
+          <LabelRow changed={changed.sublocality}>
+            <FieldLabel htmlFor="profile-sublocality">District or neighbourhood (optional)</FieldLabel>
+          </LabelRow>
+          <Input id="profile-sublocality" value={draft.sublocality ?? ""} maxLength={100} disabled={disabled} autoComplete="address-level3"
+            onChange={(event) => setDraft((current) => ({ ...current, sublocality: event.target.value }))} />
+          <FieldDescription>Use only when it is part of your postal address. Leave blank to remove an existing value.</FieldDescription>
+          <FieldError />
+        </Field>
+        <Field error={issues.administrativeArea}>
+          <LabelRow changed={changed.administrativeArea}>
+            <FieldLabel htmlFor="profile-administrative-area">County or region (optional)</FieldLabel>
+          </LabelRow>
+          <Input id="profile-administrative-area" value={draft.administrativeArea ?? ""} maxLength={100} disabled={disabled} autoComplete="address-level1"
+            onChange={(event) => setDraft((current) => ({ ...current, administrativeArea: event.target.value }))} />
+          <FieldDescription>Not required for a UK postal address. Preserve the existing value unless you intend to change it.</FieldDescription>
+          <FieldError />
+        </Field>
       </div>
+      <AddressDetailsFields draft={draft} setDraft={setDraft} location={location} disabled={disabled} error={issues.addressDetails} />
     </SectionCard>
   )
 }
@@ -272,6 +295,7 @@ export function OpeningSection({
   issues,
   disabled,
   changed,
+  statusChanged,
 }: {
   locationId: string
   draft: BusinessInformationDraft
@@ -279,6 +303,7 @@ export function OpeningSection({
   issues: PayloadFieldErrors
   disabled: boolean
   changed: boolean
+  statusChanged: boolean
 }) {
   const [confirming, setConfirming] = useState(false)
   const [ack, setAck] = useState(false)
@@ -307,8 +332,8 @@ export function OpeningSection({
     >
       {/* A Field like every other control on this page, so the Select's
           trigger takes the Field's label, invalid state and error wiring. */}
-      <Field error={issues.title}>
-        <LabelRow changed={changed}>
+      <Field>
+        <LabelRow changed={statusChanged}>
           <FieldLabel>Open status</FieldLabel>
         </LabelRow>
         <Select
@@ -342,6 +367,7 @@ export function OpeningSection({
         <FieldError />
       </Field>
 
+      <OpeningDateFields draft={draft} setDraft={setDraft} disabled={disabled} error={issues.openingDate} />
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent finalFocus={triggerRef}>
           <AlertDialogTitle>Mark as permanently closed?</AlertDialogTitle>

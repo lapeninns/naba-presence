@@ -5,6 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { ProfileTab } from "@/components/locations/profile/profile-editor"
+import { locationFieldCapabilities } from "@/lib/domain/google-capabilities"
+import { businessInformationPreviewSchema } from "@/lib/contracts/location-business-information"
+import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
+import { emptyListingSummary } from "@/lib/contracts/location-summary"
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -93,8 +97,11 @@ const BUSINESS = {
 }
 
 function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailure?: boolean }) {
+  let reviewed: GbpChangeSet | null = null
   const fetchMock = vi.fn(async (...args: [RequestInfo, RequestInit?]) => {
     const url = String(args[0])
+    if (url.includes("/industry") && url.includes("type=workflows"))
+      return jsonResponse({ items: [], nextCursor: null })
     if (url.includes("/capabilities"))
       return jsonResponse({
         capabilities: overrides?.caps ?? {
@@ -102,6 +109,38 @@ function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailur
           canPublish: true,
         },
       })
+    if (url.includes("/business-information") && args[1]?.method === "PUT") {
+      const body = businessInformationPreviewSchema.parse(
+        JSON.parse(String(args[1].body))
+      )
+      reviewed = {
+        id: "00000000-0000-4000-8000-000000000013",
+        locationName: "Camden Hotel",
+        payloadHash: "e".repeat(64),
+        baselineHash: body.expectedGoogleHash,
+        payload: body.payload,
+        baseline: BUSINESS.businessInformation.location,
+        updateMask: body.updateMask,
+        requestedBy: "owner",
+        approvedBy: null,
+        requiresSecondApprover: false,
+        canApprove: true,
+        expiresAt: "2027-01-01T00:00:00Z",
+      }
+      return jsonResponse({ changeSet: reviewed })
+    }
+    if (url.includes("/business-information") && args[1]?.method === "POST")
+      return jsonResponse({ changeSet: { ...reviewed, approvedBy: "owner" } })
+    if (url.includes("/business-information") && args[1]?.method === "PATCH")
+      return jsonResponse({
+        id: "attempt",
+        status: "succeeded",
+        idempotent: false,
+        confirmationState: "confirmed",
+        executionState: "accepted",
+      })
+    if (url.includes("type=reviews"))
+      return jsonResponse({ changeSets: reviewed ? [reviewed] : [] })
     if (url.includes("/business-information"))
       return jsonResponse(overrides?.business ?? BUSINESS)
     if (url.includes("/profile") && args[1]?.method === "PUT" && overrides?.saveFailure) return jsonResponse({ error: "http_error" }, 503)
@@ -114,12 +153,382 @@ function stubRoutes(overrides?: { caps?: unknown; business?: unknown; saveFailur
   return fetchMock
 }
 
+/**
+ * The saved-review routes a custom fetch stub needs so "Review changes" can
+ * freeze a change set and publishing can approve it before the Google write.
+ */
+function reviewRoute(url: string, init: RequestInit | undefined, state: { reviewed: GbpChangeSet | null; attributes?: GbpChangeSet | null }) {
+  if (url.includes("/industry") && url.includes("type=workflows")) return jsonResponse({ items: [], nextCursor: null })
+  if (url.includes("type=reviews")) return jsonResponse({ changeSets: state.reviewed ? [state.reviewed] : [] })
+  if (url.includes("type=attribute_reviews")) return jsonResponse({ changeSets: state.attributes ? [state.attributes] : [] })
+  if (!url.includes("/business-information")) return null
+  const raw = init?.body ? JSON.parse(String(init.body)) : {}
+  if (init?.method === "PUT" && raw.operation === "update_attributes") {
+    state.attributes = {
+      id: "00000000-0000-4000-8000-000000000014",
+      locationName: "Camden Hotel",
+      payloadHash: "d".repeat(64),
+      baselineHash: raw.expectedGoogleHash,
+      payload: { attributes: raw.attributes },
+      baseline: { attributes: [] },
+      updateMask: raw.attributeMask,
+      requestedBy: "owner",
+      approvedBy: null,
+      requiresSecondApprover: false,
+      canApprove: true,
+      expiresAt: "2027-01-01T00:00:00Z",
+    }
+    return jsonResponse({ changeSet: state.attributes })
+  }
+  if (init?.method === "POST" && raw.resourceType === "attributes")
+    return jsonResponse({ changeSet: { ...state.attributes, approvedBy: "owner" } })
+  if (init?.method === "PUT") {
+    const body = businessInformationPreviewSchema.parse(JSON.parse(String(init.body)))
+    state.reviewed = {
+      id: "00000000-0000-4000-8000-000000000013",
+      locationName: "Camden Hotel",
+      payloadHash: "e".repeat(64),
+      baselineHash: body.expectedGoogleHash,
+      payload: body.payload,
+      baseline: BUSINESS.businessInformation.location,
+      updateMask: body.updateMask,
+      requestedBy: "owner",
+      approvedBy: null,
+      requiresSecondApprover: false,
+      canApprove: true,
+      expiresAt: "2027-01-01T00:00:00Z",
+    }
+    return jsonResponse({ changeSet: state.reviewed })
+  }
+  if (init?.method === "POST") return jsonResponse({ changeSet: { ...state.reviewed, approvedBy: "owner" } })
+  return null
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe("ProfileTab", () => {
+  it("counts lodging edits in shared status and discards them without a provider write", async () => {
+    const fetchMock = stubRoutes({
+      business: {
+        businessInformation: {
+          ...BUSINESS.businessInformation,
+          location: {
+            ...BUSINESS.businessInformation.location,
+            metadata: { canOperateLodgingData: true },
+          },
+        },
+      },
+    })
+    const original = fetchMock.getMockImplementation()
+    if (!original) throw new Error("Profile fixture missing")
+    fetchMock.mockImplementation(async (...args) =>
+      String(args[0]).includes("/industry") &&
+      !String(args[0]).includes("type=workflows")
+        ? jsonResponse({
+            industry: {
+              lodging: { data: { pets: { petsAllowed: false } }, error: null },
+              lodgingUpdated: { data: null, error: null },
+              healthcareServices: { data: null, error: null },
+              calls: { data: null, error: null },
+              callInsights: { data: null, error: null },
+              providerAttributes: { data: null, error: null },
+              insuranceNetworks: { data: null, error: null },
+              canManage: true,
+              writesEnabled: true,
+              lodgingHash: "a".repeat(64),
+              lodgingChangeSets: [],
+            },
+          })
+        : original(...args)
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const lodging = await screen.findByRole("region", {
+      name: "Lodging details",
+    })
+    await userEvent.click(
+      within(lodging).getByRole("searchbox", { name: "Find a lodging detail" })
+    )
+    await userEvent.paste("Pets allowed")
+    await userEvent.click(
+      within(lodging).getByRole("combobox", { name: "Pets allowed" })
+    )
+    await userEvent.click(await screen.findByRole("option", { name: "Yes" }))
+    const footer = screen.getByRole("region", { name: "Editor actions" })
+    expect(
+      await within(footer).findByText("1 change not on Google")
+    ).toBeInTheDocument()
+    expect(
+      within(footer).getByRole("button", { name: "Save here" })
+    ).toBeDisabled()
+    expect(
+      within(footer).getByRole("button", { name: "Review lodging draft" })
+    ).toBeEnabled()
+    await userEvent.click(
+      within(footer).getByRole("button", { name: "Discard" })
+    )
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Discard changes" })
+    )
+    await waitFor(() =>
+      expect(
+        within(lodging).getByRole("combobox", { name: "Pets allowed" })
+      ).toHaveTextContent("No")
+    )
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => !init?.method || init.method === "GET"
+      )
+    ).toBe(true)
+  })
+
+  it("keeps saved lodging outcomes available when the profile cannot load after disconnection", async () => {
+    const changeSet = {
+      id: "11111111-1111-4111-8111-111111111111",
+      locationName: "Disconnected hotel",
+      targetResourceName: "locations/hotel",
+      payloadHash: "b".repeat(64),
+      baselineHash: "a".repeat(64),
+      payload: { pets: { petsAllowed: true } },
+      baseline: { pets: { petsAllowed: false } },
+      updateMask: ["pets.petsAllowed"],
+      requestedBy: "owner",
+      approvedBy: "owner",
+      requiresSecondApprover: false,
+      canApprove: true,
+      expiresAt: "2020-01-01T12:00:00Z",
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (url) => {
+        if (String(url).includes("/capabilities"))
+          return jsonResponse({
+            capabilities: { canEditCanonical: true, canPublish: false },
+          })
+        if (String(url).includes("type=workflows"))
+          return jsonResponse({
+            items: [
+              { changeSet, attemptId: "22222222-2222-4222-8222-222222222222" },
+            ],
+            nextCursor: null,
+          })
+        return jsonResponse(
+          {
+            error: {
+              code: "google_connection_not_found",
+              message: "That connection is no longer available.",
+            },
+          },
+          404
+        )
+      })
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    expect(
+      await screen.findByRole("button", { name: "Open lodging outcome" })
+    ).toBeEnabled()
+    expect(
+      screen.queryByRole("button", { name: "Send approved lodging changes" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("explains a Google connection it can't reach instead of loading skeletons", async () => {
+    const summary = {
+      ...emptyListingSummary({
+        locationId: "loc-1",
+        linked: true,
+        verified: true,
+      }),
+      connection: {
+        status: "expired",
+        reconnectRequired: true,
+        googleEmail: null,
+      },
+      freshness: {
+        state: "action_needed",
+        reason: "reconnect_required",
+        lastCheckedAt: null,
+      },
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (url) => {
+        const path = String(url)
+        if (path.includes("/summary")) return jsonResponse({ summary })
+        if (path.includes("/capabilities"))
+          return jsonResponse({
+            capabilities: { canEditCanonical: true, canPublish: true },
+          })
+        if (path.includes("type=workflows"))
+          return jsonResponse({ items: [], nextCursor: null })
+        // The live profile read never answers while Google is unreachable.
+        if (path.includes("/profile")) return new Promise<Response>(() => {})
+        return jsonResponse({ items: [], nextCursor: null })
+      })
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const state = await screen.findByText(
+      "Google can’t be reached for this listing"
+    )
+    expect(
+      state.closest('[data-slot="profile-unreachable"]')
+    ).toHaveTextContent(/needs reconnecting/)
+    expect(
+      screen.queryByText(/Reading the business profile from Google/)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Reconnect in Settings" })
+    ).toHaveAttribute("href", "/settings/connections")
+    expect(
+      screen.getByRole("link", { name: "See saved work" })
+    ).toHaveAttribute("href", "#profile-saved-work")
+    expect(document.getElementById("profile-saved-work")).toContainElement(
+      screen.getByRole("region", { name: "Saved lodging work" })
+    )
+  })
+
+  it("keeps eligible services read-only when the profile permission denies editing", async () => {
+    const location = {
+      ...BUSINESS.businessInformation.location,
+      metadata: { canModifyServiceList: true },
+      serviceItems: [
+        {
+          structuredServiceItem: {
+            serviceTypeId: "job_type_id:repair",
+            description: "Repairs",
+          },
+        },
+      ],
+    }
+    const fetchMock = stubRoutes({
+      caps: { canEditCanonical: false, canPublish: false },
+      business: {
+        businessInformation: {
+          ...BUSINESS.businessInformation,
+          location,
+          capabilityDetails: locationFieldCapabilities({
+            location,
+            canPublish: true,
+            writesEnabled: true,
+            observedAt: "2026-09-29T12:00:00.000Z",
+          }),
+        },
+      },
+    })
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    expect(await screen.findByDisplayValue("Repairs")).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Review service changes" })
+    ).toBeDisabled()
+    expect(
+      fetchMock.mock.calls.some(([url]) => String(url).includes("type=reviews"))
+    ).toBe(false)
+  })
+  it("uses the general Services editor for an eligible healthcare listing without a second industry request", async () => {
+    const location = {
+      ...BUSINESS.businessInformation.location,
+      metadata: { canModifyServiceList: true, canOperateHealthData: true },
+      categories: {
+        primaryCategory: {
+          name: "categories/gcid:doctor",
+          displayName: "Doctor",
+        },
+      },
+      serviceItems: [
+        {
+          freeFormServiceItem: {
+            category: "gcid:doctor",
+            label: {
+              displayName: "Consultation",
+              description: "Initial appointment",
+            },
+          },
+        },
+      ],
+    }
+    const fetchMock = stubRoutes({
+      business: {
+        businessInformation: {
+          ...BUSINESS.businessInformation,
+          location,
+          capabilityDetails: locationFieldCapabilities({
+            location,
+            canPublish: true,
+            writesEnabled: true,
+            observedAt: "2026-09-30T12:00:00.000Z",
+          }),
+        },
+      },
+    })
+    const original = fetchMock.getMockImplementation()
+    if (!original) throw new Error("Healthcare fixture missing")
+    fetchMock.mockImplementation(async (...args) =>
+      String(args[0]).includes("type=services")
+        ? jsonResponse({
+            serviceMetadata: {
+              categories: [
+                {
+                  name: "categories/gcid:doctor",
+                  displayName: "Doctor",
+                  serviceTypes: [],
+                },
+              ],
+              regionCode: "GB",
+              languageCode: "en",
+              observedAt: "2026-09-30T12:00:00Z",
+              locationHash: "a".repeat(64),
+            },
+          })
+        : original(...args)
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    expect(
+      await screen.findByRole("textbox", { name: "Service name" })
+    ).toHaveValue("Consultation")
+    expect(
+      await screen.findByRole("button", {
+        name: "Add custom service for Doctor",
+      })
+    ).toBeEnabled()
+    expect(
+      screen.queryByText("Healthcare services", { exact: true })
+    ).not.toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(
+        ([url]) =>
+          String(url).includes("/industry") &&
+          !String(url).includes("type=workflows")
+      )
+    ).toBe(false)
+  })
+
+  it("shows unknown service eligibility separately from confirmed ineligibility", async () => {
+    stubRoutes({
+      business: {
+        businessInformation: {
+          ...BUSINESS.businessInformation,
+          capabilityDetails: locationFieldCapabilities({
+            location: BUSINESS.businessInformation.location,
+            canPublish: true,
+            writesEnabled: true,
+            observedAt: "2026-09-29T12:00:00.000Z",
+          }),
+        },
+      },
+    })
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    expect(
+      await screen.findByText(
+        /Services: Google eligibility has not been confirmed/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/Google does not support this action/)
+    ).not.toBeInTheDocument()
+  })
+
   it("shows the name once, with one primary action instead of two save models", async () => {
     stubRoutes()
     renderWithProviders(<ProfileTab locationId="loc-1" />)
@@ -228,6 +637,7 @@ describe("ProfileTab", () => {
       expect(body.updateMask).toEqual(["storeCode"])
       expect(body.payload).toEqual({ storeCode: "CAMDEN-2" })
       expect(body.expectedGoogleHash).toBe("a".repeat(64))
+      expect(body.changeSetId).toBe("00000000-0000-4000-8000-000000000013")
     })
   })
 })
@@ -247,8 +657,10 @@ describe("ProfileTab save here", () => {
     // Each section says where its edits go.
     expect(screen.getAllByText("Saved here first").length).toBeGreaterThan(0)
     expect(
-      screen.getAllByText("Published after review").length
+      screen.getAllByText("No draft · reviewed, then sent to Google").length
     ).toBeGreaterThan(0)
+    // Nothing on the profile claims an unreviewed write to Google.
+    expect(screen.queryByText(/straight to Google/)).toBeNull()
 
     await userEvent.click(screen.getByRole("button", { name: "Save here" }))
     await waitFor(() => {
@@ -323,15 +735,16 @@ describe("ProfileTab while Google's half is still loading", () => {
   })
 
   it("never asks Google for industry data a listing cannot have", async () => {
-    // Seven paced Google calls, ~3.4s, every one of which fails for an
-    // ordinary business. Google omits canOperateLodgingData/canOperateHealthData
-    // for exactly those listings, and the fixture's metadata omits both.
     const fetchMock = stubRoutes()
     renderWithProviders(<ProfileTab locationId="loc-1" />)
     await screen.findByDisplayValue("CAMDEN-1")
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.some(([url]) => String(url).includes("/industry"))
+        fetchMock.mock.calls.some(
+          ([url]) =>
+            String(url).includes("/industry") &&
+            !String(url).includes("type=workflows")
+        )
       ).toBe(false)
     )
   })
@@ -349,13 +762,14 @@ describe("ProfileTab save and review boundaries", () => {
     const save = screen.getByRole("button", { name: "Save here" })
     expect(save).toBeDisabled()
     expect(save).toHaveAccessibleDescription(/name, description, phone and website/i)
-    expect(screen.getAllByText("Published after review").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("No draft · reviewed, then sent to Google").length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
     const review = await screen.findByRole("dialog")
-    expect(within(review).getByText("CAMDEN-2")).toBeInTheDocument()
+    expect(await within(review).findByText("CAMDEN-2")).toBeInTheDocument()
     await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
     expect(screen.getByDisplayValue("CAMDEN-2")).toBeInTheDocument()
-    expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === "GET")).toBe(true)
+    // Preparing a review saves it here; nothing is written to Google.
+    expect(fetcher.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
     const beforeUnload = new Event("beforeunload", { cancelable: true })
     window.dispatchEvent(beforeUnload)
     expect(beforeUnload.defaultPrevented).toBe(true)
@@ -363,9 +777,12 @@ describe("ProfileTab save and review boundaries", () => {
 
   it("reports the exact successful and failed steps after partial publication", async () => {
     sessionStorage.clear()
+    const reviews = { reviewed: null as GbpChangeSet | null }
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
       if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      const review = reviewRoute(url, init, reviews)
+      if (review) return review
       if (url.includes("/business-information") && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body))
         return body.operation === "update_attributes" ? jsonResponse({ error: "PERMISSION_DENIED" }, 403) : jsonResponse({ id: "m1", status: "succeeded", idempotent: false })
@@ -383,10 +800,10 @@ describe("ProfileTab save and review boundaries", () => {
     await userEvent.click(screen.getByRole("switch", { name: /Wi-Fi/ }))
     await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
     const review = await screen.findByRole("dialog")
-    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+    await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
     expect(await within(review).findByRole("button", { name: "Try again" })).toBeInTheDocument()
     const progress = within(review).getByRole("list", { name: "Publish progress" })
-    expect(progress).toHaveTextContent("Publish categories, address and status")
+    expect(progress).toHaveTextContent("Publish Google profile fields")
     expect(progress).toHaveTextContent("Sent to Google")
     expect(progress).toHaveTextContent("Publish attributes")
     expect(progress).toHaveTextContent("Failed")
@@ -476,7 +893,7 @@ it.each(["save", "review"])("preserves dirty name after failed %s and colleague 
   } else {
     await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
     const review = await screen.findByRole("dialog")
-    await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+    await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
     await within(review).findByRole("button", { name: "Try again" })
     await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
   }
@@ -493,9 +910,12 @@ it.each(["listing", "attributes"])("preserves failed %s edits after partial flow
   sessionStorage.clear()
   let external = false
   let listingSent = false
+  const reviews = { reviewed: null as GbpChangeSet | null }
   vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input)
     if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    const review = reviewRoute(url, init, reviews)
+    if (review) return review
     if (url.includes("/business-information") && init?.method === "PATCH") {
       const body = JSON.parse(String(init.body))
       if (failedStep === "listing" || body.operation === "update_attributes") return jsonResponse({ error: "PERMISSION_DENIED" }, 403)
@@ -514,7 +934,7 @@ it.each(["listing", "attributes"])("preserves failed %s edits after partial flow
   await userEvent.click(screen.getByRole("switch", { name: /Wi-Fi/ }))
   await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
   const review = await screen.findByRole("dialog")
-  await userEvent.click(within(review).getByRole("button", { name: "Publish to Google" }))
+  await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
   await within(review).findByRole("button", { name: "Try again" })
   await userEvent.click(within(review).getByRole("button", { name: "Keep editing" }))
   external = true

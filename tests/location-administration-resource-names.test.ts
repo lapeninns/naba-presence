@@ -43,6 +43,9 @@ import {
   administrationMutationSchema,
   type AdministrationNamedOperation,
 } from "@/lib/contracts/location-administration"
+import { administrationAccessRequestSchema } from "@/lib/contracts/google-administration-review"
+import { administrationAccessTarget } from "@/lib/domain/google-administration"
+import { prepareVerificationCompletion } from "@/lib/server/google-verification-transient"
 import { ApiError } from "@/lib/server/http"
 import {
   mutateLocationAdministration,
@@ -207,76 +210,100 @@ describe("administration resource names: server scope", () => {
     expect(mocks.verification).not.toHaveBeenCalled()
   })
 
-  it("sends a scoped location admin name unchanged", async () => {
-    await mutateLocationAdministration({
+  // The legacy endpoint no longer sends name-bearing operations: after the
+  // scope check they are refused in favour of the reviewed workflows, which
+  // apply their own scoping (below).
+  it.each(
+    operations.flatMap((operation) =>
+      valid[operation].map((name) => [operation, name] as const)
+    )
+  )("%s with the scoped name %s goes to its reviewed workflow without a Google call", async (operation, name) => {
+    const error = await mutateLocationAdministration({
       session,
       locationId: "l1",
-      operation: "update_admin",
-      payload: { name: "locations/111/admins/1", role: "MANAGER" },
+      operation,
+      payload: { name, role: "MANAGER", pin: "12345" },
       requestId: "r1",
+    }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({
+      status: 409,
+      code:
+        operation === "complete_verification"
+          ? "verification_review_required"
+          : "administration_review_required",
     })
-    expect(mocks.start).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: "location_admin",
-        targetResourceName: "locations/111/admins/1",
-      })
+    expect(mocks.token).not.toHaveBeenCalled()
+    expect(mocks.start).not.toHaveBeenCalled()
+    expect(mocks.account).not.toHaveBeenCalled()
+    expect(mocks.verification).not.toHaveBeenCalled()
+  })
+})
+
+describe("administration resource names: reviewed workflows", () => {
+  const adminOperations = ["update_admin", "delete_admin", "accept_invitation", "decline_invitation"] as const
+  const request = (operation: (typeof adminOperations)[number], name: unknown) =>
+    administrationAccessRequestSchema.safeParse({
+      operation,
+      payload: operation === "update_admin" ? { name, role: "MANAGER" } : { name },
+    })
+
+  it.each(
+    adminOperations.flatMap((operation) =>
+      hostile[operation].map(([label, name]) => [operation, label, name] as const)
     )
-    expect(mocks.account).toHaveBeenCalledWith(
-      "synthetic-token",
-      expect.objectContaining({
-        path: "locations/111/admins/1",
-        method: "PATCH",
-        payload: { name: "locations/111/admins/1", role: "MANAGER" },
-      }),
-      expect.anything()
-    )
+  )("%s never targets %s", (operation, _label, name) => {
+    const parsed = request(operation, name)
+    if (!parsed.success) return
+    // Well-formed but outside the linked location/account.
+    expect(() => administrationAccessTarget(parsed.data, linked)).toThrow(RangeError)
   })
 
-  it("records an account admin by its validated name, not payload.scope", async () => {
-    await mutateLocationAdministration({
-      session,
-      locationId: "l1",
-      operation: "delete_admin",
-      payload: { name: "accounts/222/admins/2", scope: "location" },
-      requestId: "r1",
+  it("sends a scoped location admin name unchanged", () => {
+    const parsed = request("update_admin", "locations/111/admins/1")
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(administrationAccessTarget(parsed.data, linked)).toMatchObject({
+      resourceType: "location_admin",
+      target: "locations/111/admins/1",
     })
-    expect(mocks.start).toHaveBeenCalledWith(
-      expect.objectContaining({ resourceType: "account_admin" })
-    )
-    expect(mocks.account).toHaveBeenCalledWith(
-      "synthetic-token",
-      { path: "accounts/222/admins/2", method: "DELETE" },
-      expect.anything()
-    )
   })
 
-  it("completes a verification and answers an invitation on scoped names", async () => {
-    await mutateLocationAdministration({
-      session,
-      locationId: "l1",
-      operation: "complete_verification",
-      payload: { name: "locations/111/verifications/v1", pin: "12345" },
-      requestId: "r1",
+  it("records an account admin by its validated name", () => {
+    const parsed = request("delete_admin", "accounts/222/admins/2")
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(administrationAccessTarget(parsed.data, linked)).toMatchObject({
+      resourceType: "account_admin",
+      target: "accounts/222/admins/2",
     })
-    expect(mocks.verification).toHaveBeenCalledWith(
-      "synthetic-token",
-      expect.objectContaining({
-        path: "locations/111/verifications/v1:complete",
-        payload: { pin: "12345" },
-      }),
-      expect.anything()
-    )
-    await mutateLocationAdministration({
-      session,
-      locationId: "l1",
-      operation: "decline_invitation",
-      payload: { name: "accounts/222/invitations/7" },
-      requestId: "r2",
+  })
+
+  it("answers an invitation on its scoped name", () => {
+    const parsed = request("decline_invitation", "accounts/222/invitations/7")
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    expect(administrationAccessTarget(parsed.data, linked)).toMatchObject({
+      resourceType: "invitation",
+      target: "accounts/222/invitations/7",
     })
-    expect(mocks.account).toHaveBeenCalledWith(
-      "synthetic-token",
-      expect.objectContaining({ path: "accounts/222/invitations/7:decline" }),
-      expect.anything()
-    )
+  })
+
+  it.each(hostile.complete_verification)(
+    "verification completion rejects %s",
+    (_label, name) => {
+      expect(() =>
+        prepareVerificationCompletion({ name, pin: "12345" }, linked.googleLocationName)
+      ).toThrow(ApiError)
+    }
+  )
+
+  it("verification completion keeps a scoped name", () => {
+    expect(
+      prepareVerificationCompletion(
+        { name: "locations/111/verifications/v1", pin: "12345" },
+        linked.googleLocationName
+      )
+    ).toEqual({ name: "locations/111/verifications/v1", pin: "12345" })
   })
 })
