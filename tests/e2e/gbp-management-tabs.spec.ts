@@ -432,7 +432,13 @@ test("Service areas support keyboard-only initial setup without inventing a coun
   await type.focus()
   await page.keyboard.press("Enter")
   await expect(page.getByRole("listbox")).toBeVisible()
-  await page.keyboard.press("End")
+  // The popup takes keys only once it has settled; wait for End to land on
+  // the last option before choosing it, or Enter can close it unchanged.
+  const last = page.getByRole("option", { name: "Customer locations only", exact: true })
+  await expect(async () => {
+    await page.keyboard.press("End")
+    await expect(last).toHaveAttribute("data-highlighted", "", { timeout: 500 })
+  }).toPass()
   await page.keyboard.press("Enter")
   await expect(type).toHaveText("Customer locations only")
   await expect(type).toBeFocused()
