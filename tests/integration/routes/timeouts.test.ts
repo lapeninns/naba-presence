@@ -32,23 +32,27 @@ describeDatabase("provider request timeouts", () => {
       connectionId: connection.connectionId,
       googleAccountName: connection.googleAccountName,
     })
+    stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+      status: 200,
+      json: { reviews: [] },
+      delayMs: 20_000,
+    }))
     stub.respond(
-      { method: "GET", pathIncludes: "/reviews" },
-      () => ({
-        status: 200,
-        json: { reviews: [] },
-        delayMs: 20_000,
-      })
-    )
-    stub.respond(
-      { method: "POST", pathIncludes: "/v1/responses" },
+      { method: "POST", pathIncludes: "/ai/v1/chat/completions" },
       () => ({
         status: 200,
         json: {
-          output_text: JSON.stringify({
-            reply: "Thank you for your review.",
-            language: "en",
-          }),
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  reply: "Thank you for your review.",
+                  language: "en",
+                }),
+              },
+            },
+          ],
         },
         delayMs: 20_000,
       })
@@ -56,9 +60,10 @@ describeDatabase("provider request timeouts", () => {
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
       GOOGLE_TIMEOUT_MS: "1500",
-      OPENAI_API_KEY: "route-harness-dummy-openai-key",
-      OPENAI_BASE_URL: stub.baseUrl,
-      OPENAI_TIMEOUT_MS: "1000",
+      WORKERS_AI_API_TOKEN: "route-harness-dummy-workers-ai-token",
+      WORKERS_AI_ACCOUNT_ID: "a".repeat(32),
+      WORKERS_AI_BASE_URL: stub.baseUrl,
+      WORKERS_AI_TIMEOUT_MS: "1000",
     })
   })
 
@@ -102,8 +107,8 @@ describeDatabase("provider request timeouts", () => {
   // Drafts contract (lib/api/drafts.ts, app/api/reviews/[id]/drafts/route.ts):
   // omitting `body` asks the server to generate. The seeded review has text,
   // so this is the AI path, not the rating-only template.
-  it("attempts AI generation when body is omitted and fails a stalled OpenAI call within the route budget", async () => {
-    const callsBefore = openAiCalls()
+  it("attempts AI generation when body is omitted and fails a stalled Workers AI call within the route budget", async () => {
+    const callsBefore = workersAiCalls()
     const startedAt = performance.now()
     const response = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
@@ -122,18 +127,17 @@ describeDatabase("provider request timeouts", () => {
     expect(response.status, JSON.stringify(body)).toBe(502)
     expect(body.error).toBe("ai_timeout")
     expect(elapsedMs).toBeLessThan(10_000)
-    expect(openAiCalls()).toBe(callsBefore + 1)
+    expect(workersAiCalls()).toBe(callsBefore + 1)
   }, 30_000)
 
-  it("returns 503 ai_not_configured without calling OpenAI when body is omitted and no key is set", async () => {
-    // OPENAI_API_KEY is deliberately left at the harness default ("") while
-    // OPENAI_BASE_URL still points at the stub, so any leaked call is recorded.
+  it("returns 503 ai_not_configured without calling Workers AI when body is omitted and no token is set", async () => {
+    // Credentials retain the keyless harness defaults; leaked calls hit the stub.
     const unconfigured = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
-      OPENAI_BASE_URL: stub.baseUrl,
+      WORKERS_AI_BASE_URL: stub.baseUrl,
     })
     try {
-      const callsBefore = openAiCalls()
+      const callsBefore = workersAiCalls()
       const response = await fetch(
         `${unconfigured.baseUrl}/api/reviews/${review.reviewId}/drafts`,
         {
@@ -149,15 +153,76 @@ describeDatabase("provider request timeouts", () => {
 
       expect(response.status, JSON.stringify(body)).toBe(503)
       expect(body.error).toBe("ai_not_configured")
-      expect(openAiCalls()).toBe(callsBefore)
+      expect(workersAiCalls()).toBe(callsBefore)
     } finally {
       await unconfigured.stop()
     }
   }, 60_000)
 
-  function openAiCalls(): number {
+  function workersAiCalls(): number {
     return stub.calls.filter(
-      (call) => call.method === "POST" && call.path.includes("/v1/responses")
+      (call) =>
+        call.method === "POST" && call.path.includes("/ai/v1/chat/completions")
     ).length
   }
+
+  it("generates and verifies through GLM and records the Cloudflare model", async () => {
+    const draft = {
+      reply:
+        "Thank you for your kind review. We hope to welcome you back soon.",
+      language: "en",
+    }
+    stub.respond(
+      { method: "POST", pathIncludes: "/ai/v1/chat/completions" },
+      (call) => {
+        const isVerification = JSON.stringify(call.body).includes(
+          "review_reply_verification"
+        )
+        return {
+          status: 200,
+          json: {
+            choices: [
+              {
+                finish_reason: "stop",
+                message: {
+                  content: JSON.stringify(
+                    isVerification
+                      ? {
+                          unsupportedClaims: [],
+                          unsafeEscalation: false,
+                          toneMismatch: false,
+                        }
+                      : draft
+                  ),
+                },
+              },
+            ],
+          },
+        }
+      }
+    )
+    const callsBefore = workersAiCalls()
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
+      {
+        method: "POST",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({ tone: "warm_professional" }),
+      }
+    )
+    expect(response.status, await response.clone().text()).toBe(201)
+    expect(workersAiCalls()).toBe(callsBefore + 2)
+    const [stored] = await admin<
+      { model_name: string; body: string; verification_status: string }[]
+    >`
+      select model_name, body, verification_status from draft
+      where organisation_id = ${owner.organisationId} and review_id = ${review.reviewId}
+      order by created_at desc limit 1
+    `
+    expect(stored).toMatchObject({
+      model_name: "@cf/zai-org/glm-5.3-flash",
+      body: draft.reply,
+    })
+    expect(stored?.verification_status).toMatch(/^(pass|warn)$/)
+  })
 })

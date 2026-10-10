@@ -9,6 +9,7 @@ import {
 } from "@/lib/editors/outcome"
 import { describePublishStepError } from "@/lib/errors/action-errors"
 import { ApiClientError } from "@/lib/api/client"
+import { gbpMutationResultSchema } from "@/lib/contracts/gbp-management"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 
 /**
@@ -141,6 +142,10 @@ export function usePublishFlow({
       setResults([...running])
       try {
         const outcome = await step.run()
+        const recorded = gbpMutationResultSchema.safeParse(outcome)
+        if (recorded.success && (recorded.data.status !== "succeeded" || (recorded.data.confirmationState !== undefined && recorded.data.confirmationState !== "confirmed" && recorded.data.confirmationState !== "unrecorded"))) {
+          throw new ApiClientError(409, "google_confirmation_required", "Check the recorded outcome in Activity before publishing again.", { mutationId: recorded.data.id })
+        }
         running[index] = {
           ...running[index],
           status: "done",

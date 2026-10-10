@@ -6,6 +6,7 @@ import { createHash } from "node:crypto"
 import {
   PROFILE_FIELD_POLICIES,
   type GoogleProfileUpdateMask,
+  type GoogleLocationProfile,
   type NormalizedProfile,
   type ProfileFieldKey,
 } from "@/lib/domain/profile-vocabulary"
@@ -33,9 +34,14 @@ export function hashProfile(profile: NormalizedProfile): string {
   return createHash("sha256").update(canonicalJson(profile)).digest("hex")
 }
 
+export function hashGoogleProfile(location: GoogleLocationProfile, profile: NormalizedProfile): string {
+  return createHash("sha256").update(canonicalJson({ profile, additionalPhones: [...(location.phoneNumbers?.additionalPhones ?? [])].sort() })).digest("hex")
+}
+
 export function buildGoogleProfilePatch(input: {
   canonical: NormalizedProfile
   selectedFields: ProfileFieldKey[]
+  googlePhoneNumbers?: GoogleLocationProfile["phoneNumbers"]
 }): {
   payload: Record<string, unknown>
   updateMask: GoogleProfileUpdateMask[]
@@ -52,11 +58,13 @@ export function buildGoogleProfilePatch(input: {
       payload.profile = input.canonical.description
         ? { description: input.canonical.description }
         : {}
-      updateMask.push("profile")
+      updateMask.push("profile.description")
     } else if (field === "phone") {
-      payload.phoneNumbers = input.canonical.phone
-        ? { primaryPhone: input.canonical.phone }
-        : {}
+      if (!input.canonical.phone) throw new Error("Google requires a primary phone number when updating phone numbers.")
+      payload.phoneNumbers = {
+        primaryPhone: input.canonical.phone,
+        additionalPhones: [...(input.googlePhoneNumbers?.additionalPhones ?? [])],
+      }
       updateMask.push("phoneNumbers")
     } else if (field === "website") {
       payload.websiteUri = input.canonical.website ?? ""

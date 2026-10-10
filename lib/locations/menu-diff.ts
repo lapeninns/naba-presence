@@ -1,4 +1,5 @@
 import type { MenuPrice } from "@/lib/domain/food-menu-import"
+import { readPrice } from "@/lib/locations/forms/menu-editor"
 
 type MenuNode = Record<string, unknown>
 
@@ -21,14 +22,12 @@ export type MenuReplacementComparison = {
 
 export function formatMenuPrice(price: MenuPrice | null): string {
   if (!price) return ""
-  const units = Number.parseInt(price.units, 10)
-  const amount =
-    (Number.isFinite(units) ? units : 0) + price.nanos / 1_000_000_000
-  const symbol =
-    price.currencyCode === "GBP" || !price.currencyCode
-      ? "£"
-      : `${price.currencyCode} `
-  return `${symbol}${amount.toFixed(2)}`
+  const code = price.currencyCode || "GBP"
+  const symbol = code === "GBP" ? "£" : `${code} `
+  // The confirmation must show the same exact amount as the editor.
+  // Converting int64 units to Number or rounding nanos to two places could
+  // conceal a real price change (12.499 and 12.50 both read "12.50").
+  return `${symbol}${readPrice({ attributes: { price } })}`
 }
 
 function isNode(value: unknown): value is MenuNode {

@@ -443,6 +443,38 @@ export async function requireLocationAction(
 }
 
 /**
+ * `requireLocationAction` for a set of locations in one grant read, for
+ * requests that name many (bulk listing previews). Any hidden location fails
+ * the whole request with one 404 that does not say which; any visible one the
+ * scope may not act on is a 403. Returns every location's grant.
+ */
+export async function requireLocationActionForAll(
+  sql: TransactionSql,
+  scope: GrantScope,
+  locationIds: readonly string[],
+  action: LocationAction,
+  notFound: LocationNotFound = {}
+): Promise<Map<string, LocationGrant>> {
+  const grants = await grantsFor(sql, scope, locationIds)
+  const values = [...grants.values()]
+  if (values.some((grant) => !grant.visible)) {
+    throw new ApiError(
+      404,
+      notFound.code ?? "review_not_found",
+      notFound.message ?? "The requested review was not found."
+    )
+  }
+  if (values.some((grant) => !actionAllowed(scope.role, grant, action))) {
+    throw new ApiError(
+      403,
+      "permission_denied",
+      "You do not have permission to do that for this location."
+    )
+  }
+  return grants
+}
+
+/**
  * SQL fragment that is true when the session may see the client whose id is
  * `clientColumn` (e.g. sql`c.id`). Owner/admin: `true`.
  *

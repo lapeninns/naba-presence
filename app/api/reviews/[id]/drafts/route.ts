@@ -153,7 +153,7 @@ export const POST = route({
         const reservation = needsModel
           ? await reserveDraftCredit(sql, {
               organisationId: session.organisationId,
-              model: getServerEnv().OPENAI_MODEL_DRAFT,
+              model: getServerEnv().WORKERS_AI_MODEL,
               reviewId: id,
               draftId,
               requestId: correlationId,
@@ -301,7 +301,7 @@ export const POST = route({
           ${language},
           ${input.businessContext},
           ${DRAFT_POLICY_VERSION},
-          ${source === "ai" ? getServerEnv().OPENAI_MODEL_DRAFT : null},
+          ${source === "ai" ? getServerEnv().WORKERS_AI_MODEL : null},
           'pending',
           ${session.userId}
         )

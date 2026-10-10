@@ -9,33 +9,18 @@ import { ApiError } from "@/lib/server/http"
 
 type JsonSchema = Record<string, unknown>
 
-function responseText(response: Record<string, unknown>): string {
-  if (typeof response.output_text === "string") return response.output_text
-  const output = Array.isArray(response.output) ? response.output : []
-  for (const item of output) {
-    if (!item || typeof item !== "object") continue
-    const content = Array.isArray((item as { content?: unknown }).content)
-      ? ((item as { content: unknown[] }).content ?? [])
-      : []
-    for (const block of content) {
-      if (
-        block &&
-        typeof block === "object" &&
-        (block as { type?: unknown }).type === "output_text" &&
-        typeof (block as { text?: unknown }).text === "string"
-      ) {
-        return (block as { text: string }).text
-      }
-    }
-  }
-  throw new ApiError(
-    502,
-    "ai_empty_response",
-    "The AI provider returned no text."
-  )
-}
+const completionSchema = z.object({
+  choices: z
+    .array(
+      z.object({
+        finish_reason: z.string(),
+        message: z.object({ content: z.string().nullable() }),
+      })
+    )
+    .min(1),
+})
 
-/** Token counts from a Responses API payload; null when the provider sent none. */
+/** Token counts from a provider payload; null when the provider sent none. */
 export type AiUsage = {
   inputTokens: number | null
   outputTokens: number | null
@@ -50,12 +35,18 @@ export class AiOutputError extends ApiError {
   constructor(
     message: string,
     readonly usage: AiUsage,
-    public model?: string
+    public model?: string,
+    code = "ai_invalid_output"
   ) {
-    super(502, "ai_invalid_output", message)
+    super(502, code, message)
   }
 }
 
+/**
+ * Token counts from either usage shape: the Responses API's
+ * `input_tokens`/`output_tokens`, or the chat completions
+ * `prompt_tokens`/`completion_tokens` that Workers AI returns.
+ */
 export function extractUsage(payload: Record<string, unknown>): AiUsage {
   const usage =
     payload.usage && typeof payload.usage === "object"
@@ -66,66 +57,81 @@ export function extractUsage(payload: Record<string, unknown>): AiUsage {
       ? Math.trunc(value)
       : null
   return {
-    inputTokens: count(usage.input_tokens),
-    outputTokens: count(usage.output_tokens),
+    inputTokens: count(usage.input_tokens) ?? count(usage.prompt_tokens),
+    outputTokens: count(usage.output_tokens) ?? count(usage.completion_tokens),
   }
 }
 
-async function openAiStructured<T>(
+async function workersAiStructured<T>(
   model: string,
   name: string,
   schema: JsonSchema,
-  input: unknown,
-  validator: z.ZodType<T>,
-  options: {
-    reasoningEffort?: "none" | "low" | "medium" | "high"
-    unavailableMessage?: string
-  } = {}
+  input: string,
+  validator: z.ZodType<T>
 ): Promise<{ value: T; usage: AiUsage }> {
   const env = getServerEnv()
-  if (!env.OPENAI_API_KEY) {
+  if (!env.WORKERS_AI_API_TOKEN || !env.WORKERS_AI_ACCOUNT_ID) {
     throw new ApiError(
       503,
       "ai_not_configured",
-      options.unavailableMessage ?? "AI features are not configured."
+      "AI features are not configured."
     )
   }
-  let response: Response
+  let payload: unknown
   try {
-    response = await fetch(new URL("/v1/responses", env.OPENAI_BASE_URL), {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        "content-type": "application/json",
-        ...(env.OPENAI_ORG_ID
-          ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
-          : {}),
-      },
-      body: JSON.stringify({
-        model,
-        input,
-        store: false,
-        ...(options.reasoningEffort
-          ? { reasoning: { effort: options.reasoningEffort } }
-          : {}),
-        text: {
-          format: {
-            type: "json_schema",
-            name,
-            strict: true,
-            schema,
-          },
+    const response = await fetch(
+      new URL(
+        `/client/v4/accounts/${env.WORKERS_AI_ACCOUNT_ID}/ai/v1/chat/completions`,
+        env.WORKERS_AI_BASE_URL
+      ),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.WORKERS_AI_API_TOKEN}`,
+          "content-type": "application/json",
         },
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS),
-    })
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: input }],
+          store: false,
+          stream: false,
+          reasoning_effort: "low",
+          max_completion_tokens: 4096,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name,
+              strict: true,
+              schema,
+            },
+          },
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(env.WORKERS_AI_TIMEOUT_MS),
+      }
+    )
+    if (!response.ok) {
+      throw new ApiError(
+        response.status === 429 ? 429 : 502,
+        "ai_provider_error",
+        "Cloudflare Workers AI rejected the request."
+      )
+    }
+    payload = await response.json()
   } catch (error) {
+    if (error instanceof ApiError) throw error
     if (
       error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
       throw new ApiError(502, "ai_timeout", "The AI provider timed out.")
+    }
+    if (error instanceof SyntaxError) {
+      throw new ApiError(
+        502,
+        "ai_invalid_response",
+        "The AI provider returned an invalid response."
+      )
     }
     // Everything else out of `fetch` is a transport failure (DNS, TLS, reset)
     // during a provider outage. Left raw it is neither an ApiError nor a
@@ -138,29 +144,53 @@ async function openAiStructured<T>(
       "The AI provider could not be reached."
     )
   }
-  const payload = (await response.json()) as Record<string, unknown>
-  if (!response.ok) {
-    const error =
-      payload.error && typeof payload.error === "object"
-        ? (payload.error as Record<string, unknown>)
-        : {}
-    throw new ApiError(
-      response.status,
-      String(error.code ?? "ai_provider_error"),
-      String(error.message ?? "The AI provider rejected the request.")
+  // From here the provider answered 200 and billed the call: every failure
+  // carries the usage so the caller can record it.
+  const usage =
+    payload && typeof payload === "object"
+      ? extractUsage(payload as Record<string, unknown>)
+      : { inputTokens: null, outputTokens: null }
+  const envelope = completionSchema.safeParse(payload)
+  if (!envelope.success) {
+    throw new AiOutputError(
+      "The AI provider returned an invalid response.",
+      usage,
+      model,
+      "ai_invalid_response"
     )
   }
-  const usage = extractUsage(payload)
+  const completion = envelope.data.choices[0]
+  if (!completion?.message.content) {
+    throw new AiOutputError(
+      "The AI provider returned no text.",
+      usage,
+      model,
+      "ai_empty_response"
+    )
+  }
+  if (completion.finish_reason !== "stop") {
+    throw new AiOutputError(
+      "The AI provider did not complete the response.",
+      usage,
+      model,
+      "ai_incomplete_response"
+    )
+  }
   try {
-    return { value: validator.parse(JSON.parse(responseText(payload))), usage }
+    return {
+      value: validator.parse(JSON.parse(completion.message.content)),
+      usage,
+    }
   } catch {
     throw new AiOutputError(
-      "The AI provider returned a reply we could not read.",
+      "The AI provider returned an invalid response.",
       usage,
-      model
+      model,
+      "ai_invalid_response"
     )
   }
 }
+
 
 const draftResultSchema = z.object({
   reply: z.string().trim().min(1).max(4096),
@@ -176,8 +206,8 @@ export async function generateReply(input: {
   tone: DraftTone
   businessContext?: string | null
 }) {
-  const model = getServerEnv().OPENAI_MODEL_DRAFT
-  const { value, usage } = await openAiStructured(
+  const model = getServerEnv().WORKERS_AI_MODEL
+  const { value, usage } = await workersAiStructured(
     model,
     "google_review_reply",
     {
@@ -254,8 +284,8 @@ export type SemanticVerificationResult = {
  *
  * `ran: false` means the pass was deliberately not attempted: the
  * `SEMANTIC_VERIFY_ENABLED` kill switch is off (the degraded mode
- * docs/runbook.md prescribes for an OpenAI incident) or this install has no
- * `OPENAI_API_KEY` (`optionalText` - a keyless deployment is supported, and
+ * docs/runbook.md prescribes for a provider incident) or this install has no
+ * Workers AI credentials (a keyless deployment is supported, and
  * the integration harness is one). The caller must not then record a
  * checks_version claiming this layer ran.
  *
@@ -267,11 +297,15 @@ export async function semanticVerification(
   input: SemanticInput
 ): Promise<SemanticVerificationResult> {
   const env = getServerEnv()
-  if (!env.SEMANTIC_VERIFY_ENABLED || !env.OPENAI_API_KEY) {
+  if (
+    !env.SEMANTIC_VERIFY_ENABLED ||
+    !env.WORKERS_AI_API_TOKEN ||
+    !env.WORKERS_AI_ACCOUNT_ID
+  ) {
     return { ran: false, reasons: [] }
   }
-  const { value: result, usage } = await openAiStructured(
-    env.OPENAI_MODEL_VERIFY,
+  const { value: result, usage } = await workersAiStructured(
+    env.WORKERS_AI_MODEL,
     "review_reply_verification",
     {
       type: "object",
@@ -293,7 +327,7 @@ export async function semanticVerification(
   return {
     ran: true,
     usage,
-    model: env.OPENAI_MODEL_VERIFY,
+    model: env.WORKERS_AI_MODEL,
     reasons: [
       ...result.unsupportedClaims.map((claim) => ({
         code: "unsupported_claim",

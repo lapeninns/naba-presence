@@ -1,6 +1,7 @@
 "use client"
 
 import { ImportCard } from "@/components/settings/import-card"
+import { OnboardingDrafts } from "./onboarding-drafts"
 
 /**
  * Link this client's Google listings.
@@ -14,12 +15,14 @@ function StepLocations({
   clientName,
   business,
   connectionId,
+  onDirtyChange,
 }: {
   clientId: string
   clientName: string
   business: boolean
   /** The login this client's setup attached. */
   connectionId: string | null
+  onDirtyChange: (dirty: boolean) => void
 }) {
   return (
     <>
@@ -29,6 +32,7 @@ function StepLocations({
           : `Listings you link here belong to ${clientName}. A listing already linked to another client keeps its review history when you move it.`}
       </p>
       <ImportCard clientId={clientId} connectionId={connectionId} />
+      <OnboardingDrafts clientId={clientId} connectionId={connectionId} onDirtyChange={onDirtyChange} />
     </>
   )
 }

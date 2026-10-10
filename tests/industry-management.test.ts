@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   snapshot: vi.fn(),
   mutate: vi.fn(),
-  settle: vi.fn(),
 }))
 vi.mock("@/lib/server/db", () => ({
   getDatabase: () => ({}),
@@ -24,8 +23,9 @@ vi.mock("@/lib/server/gbp-management", () => ({
     canPublish: true,
   }),
   cacheGbpSnapshot: mocks.snapshot,
+  stableGoogleHash: () => "h".repeat(64),
   startGbpMutation: mocks.mutate,
-  settleGbpMutation: mocks.settle,
+  settleGbpMutation: vi.fn(),
   auditGbpMutation: vi.fn(),
 }))
 // The real request builders and API wrappers, with only the HTTP call
@@ -45,6 +45,11 @@ vi.mock("@/lib/server/google", async () => {
     googleApiRetiredError: transport.googleApiRetiredError,
   }
 })
+// The reviewed lodging workflow reads saved reviews from the database.
+vi.mock("@/lib/server/gbp-change-sets", () => ({
+  approvedLodgingChange: vi.fn(),
+  listLodgingChangeSets: async () => [],
+}))
 vi.mock("@/lib/server/route", () => ({
   route: (config: unknown) => config,
 }))
@@ -52,7 +57,6 @@ vi.mock("@/lib/server/route", () => ({
 import { industryMutationSchema } from "@/lib/contracts/location-industry"
 import { retiredGoogleApi } from "@/lib/domain/google-retired-apis"
 import { ApiError } from "@/lib/server/http"
-import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
 import {
   loadIndustryManagement,
   mutateIndustryManagement,
@@ -81,12 +85,13 @@ describe("industry editor load", () => {
     const state = await loadIndustryManagement(session, "l1")
 
     const urls = mocks.request.mock.calls.map(([url]) => String(url))
-    expect(urls).toHaveLength(3)
+    // Healthcare services are reviewed in the general Services editor, so
+    // this editor reads lodging only.
+    expect(urls).toHaveLength(2)
     for (const url of urls) expect(retiredGoogleApi(url)).toBeNull()
     expect(urls.map((url) => new URL(url).pathname).sort()).toEqual([
       "/v1/locations/l1/lodging",
       "/v1/locations/l1/lodging:getGoogleUpdated",
-      "/v4/accounts/a1/locations/l1/serviceList",
     ])
     expect(urls.join(" ")).not.toMatch(
       /businesscalls|healthProviderAttributes|insuranceNetworks/
@@ -96,12 +101,15 @@ describe("industry editor load", () => {
       "canManage",
       "healthcareServices",
       "lodging",
+      "lodgingChangeSets",
+      "lodgingHash",
       "lodgingUpdated",
       "writesEnabled",
     ])
+    expect(state.healthcareServices).toEqual({ data: null, error: null })
     expect(
       mocks.snapshot.mock.calls.map(([input]) => input.resourceType)
-    ).toEqual(["lodging", "healthcare_services"])
+    ).toEqual(["lodging"])
   })
 })
 
@@ -145,33 +153,26 @@ describe("industry route retired operations", () => {
   )
 })
 
-describe("industry mutation answers", () => {
-  it.each([
-    ["no body", null],
-    ["a body that is not the resource", "<html>ok</html>"],
-  ])(
-    "settles a 2xx with %s as ambiguous and caches nothing",
-    async (_name, answer) => {
-      // Given: Google accepts the PATCH but does not return the resource.
-      mocks.mutate.mockResolvedValue({ id: "m1", idempotent: false })
-      mocks.request.mockResolvedValue(answer)
+describe("industry direct writes", () => {
+  it("refuses an unreviewed lodging write before it reaches Google", async () => {
+    // Given: a lodging update with no approved change set behind it.
+    const write = mutateIndustryManagement({
+      session,
+      locationId: "l1",
+      operation: "update_lodging",
+      payload: { property: {} },
+      updateMask: ["property"],
+      requestId: "r1",
+    })
 
-      // When: the lodging update is sent.
-      const write = mutateIndustryManagement({
-        session,
-        locationId: "l1",
-        operation: "update_lodging",
-        payload: { property: {} },
-        updateMask: ["property"],
-        requestId: "r1",
-      })
-
-      // Then: it is uncertain, and no guess is cached as the live state.
-      await expect(write).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
-      expect(mocks.settle).toHaveBeenCalledWith(
-        expect.objectContaining({ mutationId: "m1", status: "ambiguous" })
-      )
-      expect(mocks.snapshot).not.toHaveBeenCalled()
-    }
-  )
+    // Then: it is refused, nothing is recorded, sent or cached. Whether a
+    // reviewed write's answer is uncertain is tested in gbp-confirmation.
+    await expect(write).rejects.toMatchObject({
+      status: 409,
+      code: "approval_required",
+    })
+    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(mocks.snapshot).not.toHaveBeenCalled()
+  })
 })

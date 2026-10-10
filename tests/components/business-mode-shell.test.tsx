@@ -73,17 +73,19 @@ describe("navigation registry per mode", () => {
     expect(navItemsFor("business").map((item) => item.label)).toEqual([
       "Inbox",
       "Listings",
+      "Calendar",
       "Reports",
     ])
     expect(navItemsFor("agency").map((item) => item.label)).toEqual([
       "Inbox",
       "Listings",
       "Clients",
+      "Calendar",
       "Reports",
     ])
   })
 
-  it("renders Inbox, Listings, Reports, Team and Settings and nothing about clients", async () => {
+  it("renders Inbox, Listings, Calendar, Reports, Team and Settings and nothing about clients", async () => {
     const { container } = render(
       <Nav role="owner" mode="business" clients={clients} scopeClientId="c1" />
     )
@@ -92,6 +94,7 @@ describe("navigation registry per mode", () => {
     expect(links.map((link) => link.textContent)).toEqual([
       "Inbox",
       "Listings",
+      "Calendar",
       "Reports",
       "Team",
       "Settings",
@@ -101,6 +104,7 @@ describe("navigation registry per mode", () => {
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/inbox",
       "/listings",
+      "/calendar",
       "/reports",
       "/team",
       "/settings",

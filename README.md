@@ -14,7 +14,8 @@ analytics.
   reporting, Google connection management, team access, and compliance tools
 - Google OAuth with PKCE, encrypted refresh/access tokens, account and location
   discovery, location linking, backfill, reconciliation, and Pub/Sub ingestion
-- AI reply drafting through the OpenAI Responses API with strict JSON Schema
+- AI reply drafting through Cloudflare Workers AI (chat completions) with strict
+  JSON Schema output and per-organisation monthly credits
 - Deterministic and semantic verification; failed drafts cannot publish
 - Idempotent Google reply update/delete workflow with moderation state and audit
 - Pooled PostgreSQL schema with forced row-level tenant isolation and encrypted

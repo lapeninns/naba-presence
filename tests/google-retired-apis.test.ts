@@ -48,6 +48,22 @@ describe("retiredGoogleApi", () => {
       "https://mybusiness.googleapis.com/v4/accounts/1/locations:associate",
       "location_association",
     ],
+    [
+      "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:associate",
+      "location_association",
+    ],
+    [
+      "https://mybusinessbusinessinformation.googleapis.com/v1/locations/1:clearLocationAssociation",
+      "location_association",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations:reportInsights",
+      "location_insights",
+    ],
+    [
+      "https://mybusiness.googleapis.com/v4/accounts/1/locations/2/localPosts:reportInsights",
+      "local_post_insights",
+    ],
   ])("recognises %s as retired (%s)", (url, api) => {
     expect(retiredGoogleApi(url)).toBe(api)
   })

@@ -4,6 +4,7 @@ import { registerSchema, type RegisterResponse } from "@/lib/contracts/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { getServerEnv } from "@/lib/server/env"
 import { signUpWithPassword } from "@/lib/server/password-auth"
+import { requireRegistrationInvitation } from "@/lib/server/registration"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -14,6 +15,7 @@ export const POST = route({
   body: registerSchema,
   limits: ({ body }) => ({ scope: "register", email: body.email }),
   handler: async ({ request, body, requestId, clientRequestId }) => {
+    await requireRegistrationInvitation(body.email, body.inviteToken)
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     const confirmationUrl = new URL("/auth/confirm", baseUrl)
     confirmationUrl.searchParams.set("flow", "signup")

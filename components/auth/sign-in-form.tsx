@@ -94,6 +94,7 @@ function SignInForm({
   invitedEmail,
   nextPath,
   statusMessage,
+  registrationAllowed = true,
 }: {
   initialMode?: SignInMode
   mode?: SignInMode
@@ -102,6 +103,7 @@ function SignInForm({
   invitedEmail?: string
   nextPath?: string | null
   statusMessage?: AuthMessage
+  registrationAllowed?: boolean
 }) {
   const [uncontrolledMode, setUncontrolledMode] = useState<SignInMode>(
     initialMode ?? "sign-in"
@@ -277,34 +279,36 @@ function SignInForm({
           form with two shapes, not two panels, and `aria-pressed` is what
           tests and assistive tech read. Drawn as the reference's full-width
           segmented control. */}
-      <div
-        role="group"
-        aria-label="Account action"
-        className="grid grid-cols-2 gap-0.5 rounded-[10px] bg-fill p-[3px]"
-      >
-        {(
-          [
-            ["sign-in", "Sign in", "Switch to sign in"],
-            ["create-account", "Create account", "Switch to create account"],
-          ] as const
-        ).map(([value, label, name]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={mode === value}
-            aria-label={name}
-            onClick={() => switchMode(value)}
-            className={cn(
-              "inline-flex h-[30px] items-center justify-center rounded-[7px] px-3 text-ui font-medium whitespace-nowrap focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none pointer-coarse:h-10",
-              mode === value
-                ? "bg-surface text-ink shadow-np-raised"
-                : "text-ink-secondary hover:bg-surface/50 hover:text-ink"
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {registrationAllowed ? (
+        <div
+          role="group"
+          aria-label="Account action"
+          className="grid grid-cols-2 gap-0.5 rounded-[10px] bg-fill p-[3px]"
+        >
+          {(
+            [
+              ["sign-in", "Sign in", "Switch to sign in"],
+              ["create-account", "Create account", "Switch to create account"],
+            ] as const
+          ).map(([value, label, name]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={mode === value}
+              aria-label={name}
+              onClick={() => switchMode(value)}
+              className={cn(
+                "inline-flex h-[30px] items-center justify-center rounded-[7px] px-3 text-ui font-medium whitespace-nowrap focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none pointer-coarse:h-10",
+                mode === value
+                  ? "bg-surface text-ink shadow-np-raised"
+                  : "text-ink-secondary hover:bg-surface/50 hover:text-ink"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {mode === "create-account" ? (
         <Field error={fieldErrors.displayName}>
