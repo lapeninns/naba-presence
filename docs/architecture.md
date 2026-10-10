@@ -144,7 +144,11 @@ request. `requestOrPublishLocalPost` (`lib/server/posts.ts`) applies
 `requiresPostApproval` to POST `/publish` and to a PATCH of a live post alike:
 in two-person mode a publisher's publish parks unless
 `post_approval_decision` holds an approval of the current revision and payload
-hash by someone other than the publisher and the author. An approval names
+hash by someone other than the author that no later rejection of that revision
+overturned (the approver may retry a publish they approved). Rejecting a parked
+edit of a live post returns the row to `draft` with the rejected text while
+Google keeps serving the last approved version; restoring the published
+content on reject is an open LST-01 follow-up. An approval names
 the `expectedRevision` the approver read (409 `approval_post_changed`
 otherwise), needs the post to be `awaiting_approval`, and the publish claim
 refuses a row whose revision moved after the decision. The attempt row records

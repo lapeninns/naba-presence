@@ -55,7 +55,10 @@ describeDatabase("bulk review actions", () => {
    * owner's inbox would list it: the draft on screen and the review's
    * update time when it was shown.
    */
-  async function awaitingApproval(owner?: Awaited<ReturnType<typeof fixture>>) {
+  async function awaitingApproval(
+    owner?: Awaited<ReturnType<typeof fixture>>,
+    options: { draftedByOwner?: boolean } = {}
+  ) {
     const tenant = owner ?? (await fixture())
     const connection = await seedGoogleConnection(admin, {
       organisationId: tenant.organisationId,
@@ -72,7 +75,7 @@ describeDatabase("bulk review actions", () => {
     })
     const draft = await saveHumanDraft(
       server.baseUrl,
-      requester.cookie,
+      options.draftedByOwner ? tenant.cookie : requester.cookie,
       review.reviewId,
       "Thank you for sharing your experience."
     )
@@ -259,6 +262,34 @@ describeDatabase("bulk review actions", () => {
         { reviewId: good.reviewId, status: "ok" },
       ],
     })
+  })
+
+  // Two-person means the approver is neither the requester nor the draft's
+  // author, on the bulk path as on the single approval route.
+  it("skips a row whose draft the approver wrote in two-person mode", async () => {
+    stub.reset()
+    const owner = await fixture()
+    const parked = await awaitingApproval(owner, { draftedByOwner: true })
+    await admin`
+      update organisation set require_two_person_approval = true
+      where id = ${owner.organisationId}
+    `
+    const response = await post(owner.cookie, {
+      action: "approve",
+      approvals: [parked.shown],
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      results: [
+        {
+          reviewId: parked.reviewId,
+          status: "skipped",
+          code: "second_approver_required",
+        },
+      ],
+    })
+    expect(await decisions(parked.reviewId)).toBe(0)
+    expect(puts()).toBe(0)
   })
 
   it("refuses the old id-only approve shape", async () => {

@@ -918,28 +918,40 @@ export function postContentHash(post: LocalPost): string {
 type ApprovalRef = { id: string; decidedBy: string }
 
 /**
- * An approval that lets `actorUserId` publish this row as it stands: an
- * approved decision on the current revision and payload hash by somebody who
- * is neither the actor nor the content's author. This is how a publish that
- * failed after its approval can be retried without asking again, and it is
- * the only way a publisher gets past the two-person rule.
+ * An approval that lets anyone with publish authority publish this row as it
+ * stands: an approved decision on the current revision and payload hash by
+ * somebody other than the content's author, which no later rejection of the
+ * same revision has overturned. This is how a publish that failed after its
+ * approval can be retried without asking again, and it is the only way a
+ * publisher gets past the two-person rule.
+ *
+ * The approver may retry their own approval: the author is the first person
+ * and the approver the second, so excluding the author is what keeps two
+ * people on every publish. A rejection is the newer word on that revision, so
+ * an older approval of identical text does not survive it.
  */
 async function qualifyingApproval(
   sql: TransactionSql,
-  post: LocalPost,
-  actorUserId: string
+  post: LocalPost
 ): Promise<ApprovalRef | null> {
   const [approval] = await sql<ApprovalRef[]>`
-    select id::text as id, decided_by::text as "decidedBy"
-    from post_approval_decision
-    where post_id = ${post.id}
-      and decision = 'approved'
-      and content_revision = ${post.contentRevision}
-      and content_hash = ${postContentHash(post)}
-      and decided_by is not null
-      and decided_by <> ${actorUserId}
-      and decided_by is distinct from ${post.authorId}::uuid
-    order by created_at desc
+    select d.id::text as id, d.decided_by::text as "decidedBy"
+    from post_approval_decision d
+    where d.post_id = ${post.id}
+      and d.decision = 'approved'
+      and d.content_revision = ${post.contentRevision}
+      and d.content_hash = ${postContentHash(post)}
+      and d.decided_by is not null
+      and d.decided_by is distinct from ${post.authorId}::uuid
+      and not exists (
+        select 1 from post_approval_decision r
+        where r.post_id = d.post_id
+          and r.content_revision = d.content_revision
+          and r.decision = 'rejected'
+          and r.created_at >= d.created_at
+          and r.id <> d.id
+      )
+    order by d.created_at desc
     limit 1
   `
   return approval ?? null
@@ -1082,7 +1094,7 @@ export async function requestOrPublishLocalPost(input: {
     }
 
     if (post.status === "publishing") throw postPublishInProgress()
-    const approval = await qualifyingApproval(sql, post, input.session.userId)
+    const approval = await qualifyingApproval(sql, post)
     if (requiresPostApproval(post, grant.canPublish, approval !== null)) {
       await sql`
         update gbp_local_post
@@ -1286,9 +1298,9 @@ async function publishLocalPost(input: {
         locationId: linked.locationId,
         attemptId: ctx.attemptId,
         googlePostName: stringOrNull(asRecord(ctx.readback).name),
-        // The approval this publish went out under (the approval flow, or a
-        // retry of an approved revision); there is no separate approve audit
-        // because this row carries it.
+        // The decision this publish went out under (the approval flow, or a
+        // retry of an approved revision). The decision itself is audited
+        // separately as post.approval.approved when it is recorded.
         approvedBy: input.approval?.decidedBy ?? null,
         approvalDecisionId: input.approval?.id ?? null,
         contentRevision: post.contentRevision,
