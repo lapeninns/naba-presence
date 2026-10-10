@@ -269,6 +269,13 @@ const migration = readFileSync(
   join(process.cwd(), "supabase/migrations/0071_pause_controls.sql"),
   "utf8"
 )
+const noTruncate = readFileSync(
+  join(
+    process.cwd(),
+    "supabase/migrations/0072_ops_pause_event_no_truncate.sql"
+  ),
+  "utf8"
+)
 const ORG = "00000000-0000-4000-8000-00000000000a"
 const OTHER = "00000000-0000-4000-8000-00000000000b"
 
@@ -303,6 +310,7 @@ describe("0071 pause controls migration", () => {
 
   it("is listed in the required-migrations manifest", () => {
     expect(REQUIRED_MIGRATIONS).toContain("0071_pause_controls")
+    expect(REQUIRED_MIGRATIONS).toContain("0072_ops_pause_event_no_truncate")
   })
 
   describe("against PGlite", () => {
@@ -317,6 +325,7 @@ describe("0071 pause controls migration", () => {
         insert into organisation values ('${ORG}'), ('${OTHER}');
       `)
       await db.exec(migration)
+      await db.exec(noTruncate)
     })
 
     afterAll(async () => {
@@ -359,6 +368,9 @@ describe("0071 pause controls migration", () => {
         db.query("update ops_pause_event set paused = true")
       ).rejects.toThrow(/append-only/)
       await expect(db.query("delete from ops_pause_event")).rejects.toThrow(
+        /append-only/
+      )
+      await expect(db.query("truncate ops_pause_event")).rejects.toThrow(
         /append-only/
       )
     })

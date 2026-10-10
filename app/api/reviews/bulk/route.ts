@@ -7,9 +7,10 @@ import {
 } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { recheckAuthorisation } from "@/lib/server/authz/actor"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAction } from "@/lib/server/permissions"
+import { REPLY_PUBLISHING_PAUSED } from "@/lib/server/publishing"
 import {
   type ApprovalDecision,
   completeApproval,
@@ -51,8 +52,8 @@ export const POST = route({
   roles: ["owner", "admin", "member"],
   body: bulkReviewActionSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
-    if (body.action === "approve" && !getServerEnv().PUBLISH_ENABLED) {
-      throw new ApiError(503, "publishing_paused", "Publishing is temporarily paused.")
+    if (body.action === "approve") {
+      await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
     }
 
     const results: Row[] = []

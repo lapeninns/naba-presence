@@ -35,6 +35,7 @@ import {
 } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import {
   requestScopedKeyPart,
   settleOperationsForAttempts,
@@ -1139,7 +1140,10 @@ export async function requestOrPublishLocalPost(input: {
         lock: true,
       })
       const publishWith = async (approval: ApprovalRef | null) => {
-        requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+        // The dispatch gate itself (env and operator pause table), not just
+        // the env flag: a table pause must refuse here, before a decision
+        // row or its audit is written, as well as at runGbpWrite.
+        await requireGbpDispatch("posts", POSTS_PAUSED)
         const linked = await loadLinkedLocation(
           sql,
           input.session,

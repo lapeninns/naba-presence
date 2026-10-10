@@ -36,6 +36,12 @@ import { describeDatabaseTarget } from "./migration-rules.mjs"
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 nextEnv.loadEnvConfig(root)
 
+// Node >= 22.18 strips TypeScript syntax on import; the module is
+// dependency-free, so the script and the app share one feature list.
+const { ORG_FEATURES } = await import(
+  new URL("../lib/contracts/org-features.ts", import.meta.url).href
+)
+
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
@@ -70,6 +76,24 @@ if (
   throw new Error("--reason is required (at least 10 characters).")
 }
 
+const organisation = values.organisation?.trim()
+const feature = values.feature?.trim()
+if (command === "feature") {
+  if (values.enable === values.disable) {
+    throw new Error("Pass exactly one of --enable or --disable.")
+  }
+  if (!organisation || !feature) {
+    throw new Error("--organisation and --feature are required.")
+  }
+  // The table checks only the name's format, so a typo would be recorded
+  // as "enabled" for a feature nothing reads.
+  if (!ORG_FEATURES.includes(feature)) {
+    throw new Error(
+      `Unknown feature ${feature}: one of ${ORG_FEATURES.join(" | ")}.`
+    )
+  }
+}
+
 const url = process.env.DIRECT_DATABASE_URL
 if (!url) throw new Error("DIRECT_DATABASE_URL is required.")
 
@@ -89,14 +113,6 @@ try {
         : `${row.scope}: ${row.paused ? "paused" : "resumed"}.`
     )
   } else if (command === "feature") {
-    if (values.enable === values.disable) {
-      throw new Error("Pass exactly one of --enable or --disable.")
-    }
-    const organisation = values.organisation?.trim()
-    const feature = values.feature?.trim()
-    if (!organisation || !feature) {
-      throw new Error("--organisation and --feature are required.")
-    }
     // organisation_feature forces RLS, so even the owner writes it inside
     // the organisation's tenant setting.
     await sql.begin(async (tx) => {

@@ -80,5 +80,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0069_gbp_management_started_at",
   "0070_ops_tick_runs",
   "0071_pause_controls",
+  "0072_ops_pause_event_no_truncate",
   "20260729000400_remove_local_demo_data",
 ]

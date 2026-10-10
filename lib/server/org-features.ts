@@ -2,6 +2,8 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import type { OrgFeature } from "@/lib/contracts/org-features"
+
 /**
  * Per-organisation product flags (organisation_feature, migration 0071).
  *
@@ -11,18 +13,10 @@ import type { TransactionSql } from "postgres"
  * its pause scope (lib/server/pause-controls.ts), and a paused scope stops
  * the work even for an organisation that has the feature on.
  *
- * Known features are listed here so a typo is a type error rather than a
- * feature that is silently never on; the table accepts any snake_case name,
- * so a slice adding a feature adds it here only.
+ * Known features live in lib/contracts/org-features.ts, so a typo is a type
+ * error here and a refusal in scripts/ops-pause.mjs.
  */
-export const ORG_FEATURES = [
-  // One-time scheduled posts (plan P08).
-  "post_scheduling",
-  // Bulk listing and review actions (plan P09).
-  "bulk_actions",
-] as const
-
-export type OrgFeature = (typeof ORG_FEATURES)[number]
+export { ORG_FEATURES, type OrgFeature } from "@/lib/contracts/org-features"
 
 /**
  * Whether `feature` is on for the organisation. Runs inside that

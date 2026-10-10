@@ -9,14 +9,16 @@ import {
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   googlePerformanceMetrics,
   type GooglePerformancePoint,
 } from "@/lib/server/google"
-import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import {
+  gbpIngestionScopes,
+  requireScopesEnabled,
+} from "@/lib/server/pause-controls"
 
 const performanceTracer = trace.getTracer("nabapresence.performance")
 const performanceMeter = metrics.getMeter("nabapresence.performance")
@@ -327,11 +329,13 @@ export async function syncDuePerformance(
     deadline?: number
   }
 ): Promise<{ outcomes: PerformanceSyncOutcome[]; truncated: boolean }> {
-  // Ingestion boundary: GBP_PERFORMANCE_ENABLED pauses provider reads and
+  // Ingestion boundary: GBP_PERFORMANCE_ENABLED, or an operator pause of
+  // `performance` (lib/server/pause-controls.ts), pauses provider reads and
   // checkpoint creation; stored metrics stay readable.
-  if (!gbpIngestionEnabled(getServerEnv(), "performance")) {
-    throw new ApiError(503, "sync_paused", "Performance ingestion is paused.")
-  }
+  await requireScopesEnabled(gbpIngestionScopes("performance"), {
+    code: "sync_paused",
+    message: "Performance ingestion is paused.",
+  })
   await ensurePerformanceCheckpoints(organisationId)
   const outcomes: PerformanceSyncOutcome[] = []
   const maxLocations = Math.min(50, Math.max(1, options.maxLocations ?? 25))

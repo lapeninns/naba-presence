@@ -65,15 +65,16 @@ const SCHEDULER_STALE_AFTER_SECONDS = TICK_STALE_AFTER_SECONDS.jobs
  * not to complete -- retention and the review sync ticks answer 503, the
  * health tick evaluates nothing -- so it is reported as paused rather than
  * stale, and is not alerted on. presence-resources has no scope: nothing
- * pauses it, so its absence is always a fault.
+ * pauses it, so its absence is always a fault. Neither do performance and
+ * keywords: their cron GETs only enqueue checkpoints, and a pause of those
+ * scopes holds the runner's claim, not the tick, so the tick keeps
+ * completing and its absence is still a fault.
  */
 export const TICK_PAUSE_SCOPES: Record<string, readonly PauseScope[]> = {
   jobs: ["jobs"],
   reconcile: ["sync"],
   sweep: ["sync"],
   retention: ["retention"],
-  performance: ["performance"],
-  keywords: ["keywords"],
   health: ["notifications"],
 }
 

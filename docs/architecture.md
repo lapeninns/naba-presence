@@ -402,10 +402,18 @@ but never lift one. The checks sit where work starts:
   checks `publish` in `executePublish`, `executeReplyDelete` and, for an item
   the runner claimed just before a pause, `retryPublishAttempt` (which then
   skips and leaves the row `retryable`);
+- approval decisions: `lib/server/posts.ts` (`requireGbpDispatch("posts")`
+  in the approve path) and `app/api/reviews/[id]/approval/route.ts` and
+  `app/api/reviews/bulk/route.ts` (`publish`) refuse before a decision row
+  or its audit is written;
+- ingestion boundaries: `syncDuePerformance` and `syncDueKeywords`
+  (`performance`, `keywords`), for the runner and the session POSTs alike;
 - whole-tick routes: `app/api/cron/retention/route.ts`,
   `app/api/cron/health/route.ts` (`notifications`), and the review sync ticks
   `app/api/sync/reconcile/route.ts` and `app/api/sync/sweep/route.ts`
-  (`sync`), plus the drafts route (`drafts`).
+  (`sync`), plus the drafts route (`drafts`) and the owner-triggered
+  `app/api/sync/backfill/route.ts` and
+  `app/api/webhooks/google/pubsub/replay/route.ts` (`sync`).
 
 A paused answer carries `details.pausedScopes`, so it is distinguishable
 from a failure. An unreadable pause table fails closed for anything that

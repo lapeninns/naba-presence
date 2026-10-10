@@ -188,7 +188,12 @@ row per scope: `jobs`, `publish`, `sync`, `notifications`, `retention`,
 `scheduled_post`, `bulk`, `billing`, `mutation_recover`, `invitation_email`.
 A paused row has the same effect as its env flag being off, at the same
 places: the runner's claim, provider dispatch (`runGbpWrite`, the reply
-pipeline) and the retention, health, reconcile, sweep and drafts routes.
+pipeline, and the post and reply approval routes before any decision is
+recorded), the performance and keyword ingestion boundaries (session POSTs
+included), and the retention, health, reconcile, sweep, backfill, webhook
+replay and drafts routes. The Pub/Sub push endpoint still answers to
+`WEBHOOKS_ENABLED`/`SYNC_ENABLED` alone: under a table pause it records the
+notification and the runner's `sync` claim holds the work.
 Every instance picks a change up within the five-second pause cache.
 
 ```sh
@@ -211,12 +216,14 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   be read, claims and Google writes stop (fail closed) and the answer says
   `pauseStateUnknown: true`; the liveness report keeps alerting (fail open).
 - A tick held by its scope (`jobs`, `sync` for reconcile and sweep,
-  `retention`, `performance`, `keywords`, `notifications` for health) reports
-  `paused: true` in `schedulerTicks` and raises no stale or never-completed
-  alert while paused. A wedged lease is still alerted.
+  `retention`, `notifications` for health) reports `paused: true` in
+  `schedulerTicks` and raises no stale or never-completed alert while paused.
+  A wedged lease is still alerted. The performance and keywords ticks only
+  enqueue, keep completing under a pause of their scope, and stay alerted.
 - Per-organisation product flags live in `organisation_feature` (off without
   a row): `pnpm ops:pause feature --organisation <uuid> --feature
-  post_scheduling --enable --operator you@example.com`.
+  post_scheduling --enable --operator you@example.com`. The script refuses a
+  feature name not listed in `lib/contracts/org-features.ts`.
 
 ## Scheduled work
 
