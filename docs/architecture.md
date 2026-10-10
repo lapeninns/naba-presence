@@ -323,6 +323,11 @@ request was dispatched and accepted, so the write may have landed
 with an unreadable body is still classified by its status, so a 4xx stays
 `failed`. A caller that checks the success shape itself (a create without the
 new resource's `name`) raises the same error rather than a plain failure.
+The reviewed change-set paths (`lib/server/gbp-confirmation.ts` for business
+information, attributes and lodging; `lib/server/place-action-execution.ts`
+for action links) record such an answer, or a create answered without its
+`name`, as execution state `unknown` and never store it as Google's response:
+only the independent readback can move the attempt to `confirmed`.
 
 An interrupted request strands a row rather than failing it. The intent is
 committed in its own transaction and every later phase runs outside it, so a

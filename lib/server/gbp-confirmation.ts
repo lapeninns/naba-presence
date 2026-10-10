@@ -36,7 +36,12 @@ export async function executeAndConfirmGbpMutation(input: {
   let response: Record<string, unknown> | undefined
   let executionState: "accepted" | "unknown" = "accepted"
   try {
-    response = await input.execute()
+    const answer: unknown = await input.execute()
+    // A 2xx whose body is not the resource (empty, HTML, an array) says
+    // nothing about whether the write landed: record the execution as
+    // unknown and let the readback alone decide, never store the answer.
+    if (answer && typeof answer === "object" && !Array.isArray(answer)) response = answer as Record<string, unknown>
+    else executionState = "unknown"
   } catch (error) {
     if (error instanceof ApiError && !(error instanceof GoogleMutationAmbiguousError)) {
       await withTenant(input.organisationId, (sql) => sql`
