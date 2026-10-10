@@ -345,9 +345,12 @@ The script refuses, before deploying anything, unless every gate holds
   `.env*` or `.dev.vars` file that `vercel deploy` would upload.
 - `HEAD` equals `origin/main` after a fetch.
 - On that SHA, the latest `CI result`, `Analyze (javascript-typescript)` and
-  `Analyze (actions)` check runs are completed with conclusion `success`
-  (`gh api repos/lapeninns/naba-presence/commits/<sha>/check-runs`).
-  Pending, skipped, neutral, cancelled or missing all refuse.
+  `Analyze (actions)` check runs from GitHub Actions (app id 15368, the
+  ruleset's `integration_id`) are completed with conclusion `success`
+  (`gh api repos/lapeninns/naba-presence/commits/<sha>/check-runs`). Check
+  runs from any other app are ignored, so a same-named run posted by another
+  integration cannot satisfy the gate. Pending, skipped, neutral, cancelled
+  or missing all refuse.
 - `db:status --expect-current` against `DIRECT_DATABASE_URL` reports no
   pending migration (it prints the target; confirm it is production).
   `DIRECT_DATABASE_URL` must be set explicitly, so a local `.env` can never
@@ -356,8 +359,11 @@ The script refuses, before deploying anything, unless every gate holds
 While hosted CI cannot run (§3), `--exception <reference>` replaces the check
 gate, and only that gate, with a recorded local-evidence exception: the
 reference names where it is recorded (a ledger row, decision ID or URL), and
-the receipt carries it in place of a CI run URL. It never excuses a dirty
-worktree, a commit other than `origin/main`, or pending migrations.
+the receipt carries it in place of a CI run URL. It stands in only for checks
+that gave no verdict: missing, queued, in progress, `cancelled` or
+`startup_failure`. A check that completed `failure`, `timed_out`,
+`action_required`, `skipped` or `neutral` still refuses. It never excuses a
+dirty worktree, a commit other than `origin/main`, or pending migrations.
 
 It then runs
 `vercel deploy --prod --yes --format json --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha> --meta releaseSha=<sha>`
@@ -373,7 +379,10 @@ and writes `docs/release/receipts/<UTC time>-<sha12>.json`:
 
 The script refuses to write a receipt in which any value would be changed by
 `lib/domain/redaction.ts`, or a configuration entry that is not a variable
-name. Commit the receipt through a docs-only PR.
+name. It validates a provisional receipt before deploying, so those refusals
+happen before production changes, and prints the deployment ID and URL as soon
+as the deploy returns. If the receipt write still fails after that, roll back
+or write the receipt by hand from the printed values. Commit the receipt through a docs-only PR.
 
 Smoke check: `GET /api/operations/health?scope=platform` with the cron
 bearer returns `release.sha` (equal to the receipt's `sha`, with `source`

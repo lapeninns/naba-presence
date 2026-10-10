@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import {
+  GITHUB_ACTIONS_APP_ID,
   REQUIRED_CHECKS,
   buildReceipt,
   checkCandidate,
@@ -26,6 +27,7 @@ type Run = {
   status: string
   conclusion: string | null
   html_url?: string | null
+  app?: number | null
 }
 
 const green = (): Run[] =>
@@ -36,6 +38,7 @@ const green = (): Run[] =>
     conclusion: "success",
     html_url:
       name === "CI result" ? CI_URL : `https://example.test/check/${index}`,
+    app: GITHUB_ACTIONS_APP_ID,
   }))
 
 const candidate = (overrides: Partial<Parameters<typeof checkCandidate>[0]>) =>
@@ -148,7 +151,13 @@ describe("release:promote checkCandidate", () => {
   it("judges only the latest attempt of a re-run check", () => {
     const rerunGreen = [
       ...green(),
-      { id: 1, name: "CI result", status: "completed", conclusion: "failure" },
+      {
+        id: 1,
+        name: "CI result",
+        status: "completed",
+        conclusion: "failure",
+        app: GITHUB_ACTIONS_APP_ID,
+      },
     ]
     expect(candidate({ checkRuns: rerunGreen }).ok).toBe(true)
     const rerunRed = [
@@ -158,13 +167,78 @@ describe("release:promote checkCandidate", () => {
         name: "CI result",
         status: "completed",
         conclusion: "failure",
+        app: GITHUB_ACTIONS_APP_ID,
       },
     ]
     expect(candidate({ checkRuns: rerunRed }).ok).toBe(false)
   })
 
+  it("counts only GitHub Actions check runs", () => {
+    const spoofed = [
+      ...withCheck("CI result", { conclusion: "failure" }),
+      {
+        id: 999,
+        name: "CI result",
+        status: "completed",
+        conclusion: "success",
+        html_url: "https://example.test/spoof",
+        app: 424242,
+      },
+    ]
+    const result = candidate({ checkRuns: spoofed })
+    expect(result.ok).toBe(false)
+    expect(result.problems).toContain('check "CI result" concluded failure')
+
+    const foreignOnly = green().map((run) => ({ ...run, app: 424242 }))
+    expect(candidate({ checkRuns: foreignOnly }).problems).toContain(
+      'check "CI result" has not run on this commit'
+    )
+    const unattributed = green().map((run) => ({ ...run, app: undefined }))
+    expect(candidate({ checkRuns: unattributed }).ok).toBe(false)
+  })
+
+  it("refuses an exception for a check that completed red", () => {
+    for (const conclusion of [
+      "failure",
+      "timed_out",
+      "action_required",
+      "skipped",
+      "neutral",
+    ]) {
+      const result = candidate({
+        checkRuns: withCheck("CI result", { conclusion }),
+        exception: { ref: "D-36" },
+      })
+      expect(result.ok).toBe(false)
+      expect(result.evidence).toBeNull()
+      expect(result.problems).toContain(
+        `check "CI result" concluded ${conclusion}`
+      )
+    }
+    const codeqlRed = candidate({
+      checkRuns: withCheck("Analyze (actions)", { conclusion: "failure" }),
+      exception: { ref: "D-36" },
+    })
+    expect(codeqlRed.ok).toBe(false)
+  })
+
+  it("lets an exception stand in for checks hosted CI could not run", () => {
+    const noVerdict: Run[][] = [
+      green().filter((run) => run.name !== "CI result"),
+      withCheck("CI result", { status: "queued", conclusion: null }),
+      withCheck("CI result", { status: "in_progress", conclusion: null }),
+      withCheck("CI result", { conclusion: "cancelled" }),
+      withCheck("CI result", { conclusion: "startup_failure" }),
+    ]
+    for (const checkRuns of noVerdict) {
+      expect(
+        candidate({ checkRuns, exception: { ref: "D-36" } })
+      ).toMatchObject({ ok: true, evidence: { exceptionRef: "D-36" } })
+    }
+  })
+
   it("accepts the exception path only with a reference", () => {
-    const redChecks = withCheck("CI result", { conclusion: "failure" })
+    const redChecks = withCheck("CI result", { conclusion: "cancelled" })
     const accepted = candidate({
       checkRuns: redChecks,
       exception: { ref: "docs/release/ledger.md#CI-01" },
@@ -177,7 +251,7 @@ describe("release:promote checkCandidate", () => {
       accepted.checks.find(
         (check: { name: string }) => check.name === "CI result"
       )
-    ).toMatchObject({ conclusion: "failure" })
+    ).toMatchObject({ conclusion: "cancelled" })
 
     for (const ref of ["", "  ", "x", "two words"]) {
       const refused = candidate({ checkRuns: redChecks, exception: { ref } })
@@ -190,7 +264,7 @@ describe("release:promote checkCandidate", () => {
 
   it("never lets the exception excuse the worktree, branch or schema", () => {
     const exception = { ref: "D-36" }
-    const red = withCheck("CI result", { conclusion: "failure" })
+    const red = withCheck("CI result", { conclusion: "cancelled" })
     expect(
       candidate({ checkRuns: red, exception, worktreeClean: false }).ok
     ).toBe(false)

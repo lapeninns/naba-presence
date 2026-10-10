@@ -1,6 +1,7 @@
 # Release receipts
 
-One JSON file per production promotion, written by `pnpm release:promote`
+One JSON file per production promotion (the build, migration and
+configuration receipts together, as field groups; decision D-38), written by `pnpm release:promote`
 (`scripts/release/promote.mjs`, procedure in `docs/ci.md` §7) and committed
 through a docs-only PR. File name: `<UTC time>-<first 12 of the SHA>.json`.
 

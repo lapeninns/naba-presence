@@ -10,9 +10,12 @@
 //   - the worktree has no changes, untracked files or ignored env files
 //     (`vercel deploy` uploads the directory, not the commit),
 //   - HEAD is exactly origin/main after a fetch,
-//   - GitHub reports `CI result` and both CodeQL analyses as completed and
-//     successful on that SHA, or the operator passes `--exception` with a
-//     reference to the recorded local-evidence exception (docs/ci.md §3),
+//   - GitHub Actions reports `CI result` and both CodeQL analyses as
+//     completed and successful on that SHA, or, when hosted CI could not
+//     produce a verdict (missing, queued, in progress, cancelled or failed
+//     to start), the operator passes `--exception` with a reference to the
+//     recorded local-evidence exception (docs/ci.md §3). A completed red
+//     verdict is never excused,
 //   - `pnpm db:status --expect-current` against the operator's admin URL
 //     reports no pending migration.
 // Then it deploys with NABA_RELEASE_SHA stamped into the build and runtime
@@ -46,25 +49,42 @@ export const REQUIRED_CHECKS = [
   "Analyze (actions)",
 ]
 
+/**
+ * GitHub Actions' app id. Only its check runs count: any app with
+ * checks:write could otherwise post a "CI result" success on the SHA. The
+ * branch ruleset pins the same `integration_id`.
+ */
+export const GITHUB_ACTIONS_APP_ID = 15368
+
+/**
+ * Completed conclusions that mean hosted CI produced no verdict, so a
+ * recorded exception may stand in for them. Everything else that is not
+ * `success` (failure, timed_out, action_required, skipped, neutral, stale)
+ * is a verdict or an unexplained state, and always refuses.
+ */
+const NO_VERDICT_CONCLUSIONS = new Set(["cancelled", "startup_failure"])
+
 const SHA_PATTERN = /^[0-9a-f]{40}$/
 const CONFIG_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
  * @typedef {{ id?: number, name: string, status: string,
- *   conclusion: string | null, html_url?: string | null }} CheckRun
+ *   conclusion: string | null, html_url?: string | null,
+ *   app?: number | null }} CheckRun
  * @typedef {"current" | "pending" | "unknown"} SchemaStatus
  */
 
 /**
- * The latest run of each check name: a re-run is a new check run with a
- * higher id, and only the latest attempt counts.
+ * The latest GitHub Actions run of each check name: a re-run is a new check
+ * run with a higher id, and only the latest attempt counts. Runs from any
+ * other app are ignored.
  * @param {CheckRun[]} checkRuns
  * @param {string} name
  * @returns {CheckRun | undefined}
  */
 export function latestCheckRun(checkRuns, name) {
   return checkRuns
-    .filter((run) => run.name === name)
+    .filter((run) => run.name === name && run.app === GITHUB_ACTIONS_APP_ID)
     .reduce(
       (latest, run) =>
         latest === undefined || (run.id ?? 0) > (latest.id ?? 0) ? run : latest,
@@ -73,19 +93,32 @@ export function latestCheckRun(checkRuns, name) {
 }
 
 /**
- * Problems with the required checks, in REQUIRED_CHECKS order.
+ * Problems with the required checks, in REQUIRED_CHECKS order. `waivable`
+ * problems are ones where hosted CI gave no verdict (missing, not completed,
+ * cancelled, failed to start); a recorded exception may stand in for those
+ * and nothing else.
  * @param {CheckRun[]} checkRuns
+ * @returns {{ message: string, waivable: boolean }[]}
  */
 export function checkProblems(checkRuns) {
   const problems = []
   for (const name of REQUIRED_CHECKS) {
     const run = latestCheckRun(checkRuns, name)
     if (!run) {
-      problems.push(`check "${name}" has not run on this commit`)
+      problems.push({
+        message: `check "${name}" has not run on this commit`,
+        waivable: true,
+      })
     } else if (run.status !== "completed") {
-      problems.push(`check "${name}" is ${run.status}, not completed`)
+      problems.push({
+        message: `check "${name}" is ${run.status}, not completed`,
+        waivable: true,
+      })
     } else if (run.conclusion !== "success") {
-      problems.push(`check "${name}" concluded ${run.conclusion ?? "nothing"}`)
+      problems.push({
+        message: `check "${name}" concluded ${run.conclusion ?? "nothing"}`,
+        waivable: NO_VERDICT_CONCLUSIONS.has(run.conclusion ?? ""),
+      })
     }
   }
   return problems
@@ -111,9 +144,10 @@ export function isExceptionReference(reference) {
 /**
  * Whether `sha` may be promoted. Pure: the caller gathers the facts.
  *
- * The exception only stands in for the GitHub checks (hosted CI unavailable,
- * docs/ci.md §3). It never excuses a dirty worktree, a commit that is not
- * origin/main, or pending migrations.
+ * The exception only stands in for GitHub checks that gave no verdict
+ * (hosted CI unavailable, docs/ci.md §3). It never excuses a check that
+ * completed red, a dirty worktree, a commit that is not origin/main, or
+ * pending migrations.
  *
  * @param {{
  *   sha: string,
@@ -170,16 +204,22 @@ export function checkCandidate({
       problems.push('check "CI result" has no run URL')
     }
   } else if (exception != null) {
-    if (isExceptionReference(exception.ref)) {
+    const verdicts = failedChecks.filter((problem) => !problem.waivable)
+    if (verdicts.length > 0) {
+      problems.push(
+        "--exception covers only checks hosted CI could not run, not a completed red check"
+      )
+      problems.push(...verdicts.map((problem) => problem.message))
+    } else if (isExceptionReference(exception.ref)) {
       evidence = { exceptionRef: exception.ref.trim() }
     } else {
       problems.push(
         "--exception needs a reference to where the exception is recorded"
       )
-      problems.push(...failedChecks)
+      problems.push(...failedChecks.map((problem) => problem.message))
     }
   } else {
-    problems.push(...failedChecks)
+    problems.push(...failedChecks.map((problem) => problem.message))
   }
 
   return { ok: problems.length === 0, problems, evidence, checks }
@@ -378,7 +418,7 @@ function readCheckRuns(sha) {
     "--paginate",
     `repos/${REPOSITORY}/commits/${sha}/check-runs`,
     "--jq",
-    ".check_runs[] | {id, name, status, conclusion, html_url}",
+    ".check_runs[] | {id, name, status, conclusion, html_url, app: .app.id}",
   ])
   return output
     .split("\n")
@@ -479,6 +519,23 @@ async function main() {
   )
   const operator = run("gh", ["api", "user", "--jq", ".login"])
 
+  // Validate the receipt before deploying, with placeholder deployment
+  // fields, so a configuration name or operator that would make buildReceipt
+  // throw refuses here rather than after production has changed.
+  const receiptInput = {
+    sha,
+    evidence: evaluation.evidence,
+    checks: evaluation.checks,
+    migrations,
+    configNames,
+    operator,
+  }
+  buildReceipt({
+    ...receiptInput,
+    deployment: { id: "dpl_pending", url: "https://pending.invalid" },
+    timestamp: new Date().toISOString(),
+  })
+
   const deployArgs = [
     "deploy",
     "--prod",
@@ -501,14 +558,12 @@ async function main() {
   }
 
   const deployment = parseDeployOutput(run("vercel", deployArgs, { cwd: root }))
+  // Production has changed: print what the operator needs to roll back or
+  // write the receipt by hand before anything else can fail.
+  console.log(`Deployed ${deployment.url} (${deployment.id}) at ${sha}`)
   const receipt = buildReceipt({
-    sha,
+    ...receiptInput,
     deployment,
-    evidence: evaluation.evidence,
-    checks: evaluation.checks,
-    migrations,
-    configNames,
-    operator,
     timestamp: new Date().toISOString(),
   })
   const receiptsDir = resolve(
@@ -518,7 +573,6 @@ async function main() {
   mkdirSync(receiptsDir, { recursive: true })
   const receiptPath = join(receiptsDir, receiptFileName(receipt))
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
-  console.log(`Deployed ${deployment.url} (${deployment.id}) at ${sha}`)
   console.log(`Receipt: ${relative(root, receiptPath)}`)
   console.log(
     "Next: smoke-check GET /api/operations/health?scope=platform (release.sha must match), then commit the receipt through a docs-only PR."
