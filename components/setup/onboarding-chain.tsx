@@ -29,8 +29,10 @@ export function OnboardingChain({ draft, value, onChange }: {
   const ready = current && search.isSuccess && !search.isFetching && !search.error
   const choices = ready ? search.data?.choices ?? [] : []
   const selected = choices.find((choice) => choice.name === value?.parentChain)
+  // Only a repeat of the in-flight query is ignored; a new query replaces it.
+  const pendingRepeat = search.isFetching && query.trim() === searched
   const runSearch = () => {
-    if (!query.trim() || search.isFetching) return
+    if (!query.trim() || pendingRepeat) return
     if (searched === query.trim()) void search.refetch()
     else setSearched(query.trim())
   }
@@ -44,7 +46,7 @@ export function OnboardingChain({ draft, value, onChange }: {
       <FieldLabel htmlFor="onboarding-chain-search">Search Google chains</FieldLabel>
       <div className="flex items-center gap-3">
         <Input className="min-w-0 flex-1" id="onboarding-chain-search" value={query} maxLength={100} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runSearch() } }} />
-        <Button type="button" variant="outline" disabled={!query.trim() || search.isFetching} onClick={runSearch}>Search chains</Button>
+        <Button type="button" variant="outline" disabled={!query.trim() || pendingRepeat} onClick={runSearch}>Search chains</Button>
       </div>
       <FieldDescription>Choose an exact chain returned by Google. Search results do not confirm affiliation; Google validates the saved proposal before approval.</FieldDescription>
     </Field>

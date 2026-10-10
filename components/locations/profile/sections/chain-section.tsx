@@ -28,8 +28,10 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
   const current = draft.relationshipData?.parentChain
   const selectedName = choices?.find((choice) => choice.name === current)?.label
   const choose = (name: string) => setDraft((value) => ({ ...value, relationshipData: { ...value.relationshipData, parentChain: name } }))
+  // Only a repeat of the in-flight query is ignored; a new query replaces it.
+  const pendingRepeat = search.isFetching && query.trim() === searched
   const runSearch = () => {
-    if (blocked || !query.trim() || search.isFetching) return
+    if (blocked || !query.trim() || pendingRepeat) return
     if (searched === query.trim()) void search.refetch()
     else setSearched(query.trim())
   }
@@ -45,7 +47,7 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
           onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); runSearch() }
           }} />
-        <Button type="button" variant="outline" disabled={blocked || !query.trim() || search.isFetching} onClick={runSearch}>Search</Button>
+        <Button type="button" variant="outline" disabled={blocked || !query.trim() || pendingRepeat} onClick={runSearch}>Search</Button>
       </div>
       <FieldDescription>Choose the exact chain from Google&apos;s results. Search results do not confirm this location&apos;s affiliation; review and publish to request the change.</FieldDescription>
       <FieldError />
