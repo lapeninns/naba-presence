@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto"
 
 import { z } from "zod"
 
+import { clientIpFromRequest, takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -22,7 +23,7 @@ const inputSchema = z.object({
 const reasonSchema = z.string().trim().min(10).max(500)
 const actorSchema = z.email()
 
-function authenticateSupport(request: Request) {
+async function authenticateSupport(request: Request) {
   const env = getServerEnv()
   const expected = env.SUPPORT_IMPERSONATION_SECRET
   // Off by default: a configured secret alone does not issue sessions. The
@@ -35,6 +36,11 @@ function authenticateSupport(request: Request) {
       "Support impersonation is disabled."
     )
   }
+  // Counted before the secret is compared, so guessing it is throttled per
+  // client IP whether each guess is right or wrong.
+  await takeAbuseBudget("support_impersonation", {
+    ip: clientIpFromRequest(request),
+  })
   const provided = request.headers.get("authorization")?.replace(/^Bearer /, "")
   const left = Buffer.from(provided ?? "")
   const right = Buffer.from(expected)
@@ -59,7 +65,7 @@ export const POST = route({
   auth: "public",
   origin: "any",
   handler: async ({ request, requestId, clientRequestId }) => {
-    const support = authenticateSupport(request)
+    const support = await authenticateSupport(request)
     const input = inputSchema.parse(await request.json())
     // The tenant is the impersonation target named in the body, not a
     // session organisation, so withTenant is called directly.

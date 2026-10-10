@@ -76,6 +76,18 @@ export function apiError(error: unknown, requestId?: string) {
   return requestId ? withRequestIdHeader(response, requestId) : response
 }
 
+/** `details.retryAfter` (seconds) on a 429, as the Retry-After header. */
+function retryAfterHeaders(error: ApiError): HeadersInit | undefined {
+  if (error.status !== 429) return undefined
+  const retryAfter = (error.details as { retryAfter?: unknown } | undefined)
+    ?.retryAfter
+  return typeof retryAfter === "number" &&
+    Number.isFinite(retryAfter) &&
+    retryAfter > 0
+    ? { "retry-after": String(Math.ceil(retryAfter)) }
+    : undefined
+}
+
 function mapError(error: unknown, requestId?: string) {
   if (error instanceof ApiError) {
     return NextResponse.json(
@@ -88,7 +100,7 @@ function mapError(error: unknown, requestId?: string) {
         details: error.details,
         requestId: error.requestId ?? requestId,
       }),
-      { status: error.status }
+      { status: error.status, headers: retryAfterHeaders(error) }
     )
   }
   if (error instanceof ZodError) {

@@ -142,6 +142,7 @@ deliberately.
 | `RETENTION_DELETES_ENABLED` | Retention keeps redacting expired provider content but performs no irreversible delete. Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
 | `NOTIFICATIONS_ENABLED`     | The health tick returns 503 `notifications_paused`: no incidents are evaluated and no alert email is sent. |
 | `GOOGLE_RATE_BUDGET_ENABLED` | Google calls stop drawing from the shared Postgres budget and fall back to per-process pacing only. For a suspected budget fault, not a quota incident. |
+| `ABUSE_LIMITS_ENABLED`      | Sign-in, registration, recovery, invitation, shared-report, support-impersonation and AI-draft requests stop counting against the Postgres abuse limits, so none answers 429 `auth_rate_limited` / `draft_rate_limited`. For a suspected limiter fault, not an attack. |
 | `RISC_ENABLED`              | The RISC receiver answers 404. Revocations are then detected only at the next refresh or API call. |
 
 Pause the narrowest switch that covers the failure. A paused flag is not a fix:

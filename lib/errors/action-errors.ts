@@ -63,6 +63,10 @@ const COPY: Record<string, string> = {
   publishing_paused:
     "Publishing to Google is temporarily paused. Try again shortly.",
   drafts_paused: "Draft saving is temporarily paused. Try again shortly.",
+  // Our own burst limit (lib/server/abuse-limits.ts), not the monthly
+  // allowance: waiting is enough.
+  draft_rate_limited:
+    "Too many drafts were requested in a short time. Wait a moment and try again.",
   google_writes_paused: "Publishing to Google is currently unavailable.",
   // A Business Profile API Google has switched off for good (Business Calls,
   // provider attributes, insurance networks, Q&A). No retry will help.

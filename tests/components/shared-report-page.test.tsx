@@ -9,6 +9,7 @@ import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
+import { checkAbuseBudget } from "@/lib/server/abuse-limits"
 import { withTenant } from "@/lib/server/db"
 import {
   recordReportShareView,
@@ -16,6 +17,18 @@ import {
 } from "@/lib/server/report-shares"
 import { loadSharedClientReport } from "@/lib/server/shared-report"
 
+vi.mock("next/headers", () => ({
+  headers: async () =>
+    new Headers({ "x-vercel-forwarded-for": "203.0.113.7" }),
+}))
+vi.mock("@/lib/server/abuse-limits", () => ({
+  checkAbuseBudget: vi.fn(async () => ({
+    allowed: true,
+    retryAfterSeconds: 0,
+  })),
+  clientIpFromHeaders: (headers: Headers) =>
+    headers.get("x-vercel-forwarded-for"),
+}))
 vi.mock("@/lib/server/report-shares", () => ({
   resolveReportShare: vi.fn(),
   recordReportShareView: vi.fn(),
@@ -136,6 +149,29 @@ describe("/share/report/[token]", () => {
     // Nothing is read for a dead link, and nothing is counted.
     expect(withTenant).not.toHaveBeenCalled()
     expect(loadSharedClientReport).not.toHaveBeenCalled()
+    expect(afterCallbacks).toHaveLength(0)
+  })
+
+  it("counts the lookup against the client IP before resolving the token", async () => {
+    vi.mocked(resolveReportShare).mockResolvedValue(SHARE)
+    vi.mocked(loadSharedClientReport).mockResolvedValue(REPORT)
+    await call(TOKEN)
+    expect(checkAbuseBudget).toHaveBeenCalledWith("report_share", {
+      ip: "203.0.113.7",
+    })
+  })
+
+  it("is the same 404, resolving nothing, for an address over its limit", async () => {
+    vi.mocked(checkAbuseBudget).mockResolvedValueOnce({
+      allowed: false,
+      retryAfterSeconds: 120,
+    })
+    vi.mocked(resolveReportShare).mockResolvedValue(SHARE)
+    await expect(call(TOKEN)).rejects.toMatchObject({
+      digest: expect.stringMatching(/404/),
+    })
+    expect(resolveReportShare).not.toHaveBeenCalled()
+    expect(withTenant).not.toHaveBeenCalled()
     expect(afterCallbacks).toHaveLength(0)
   })
 

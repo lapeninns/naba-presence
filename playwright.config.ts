@@ -39,6 +39,11 @@ export default defineConfig({
       GBP_PLACE_ACTIONS_ENABLED: "true",
       GBP_PERFORMANCE_ENABLED: "true",
       GBP_KEYWORDS_ENABLED: "true",
+      // The specs sign in and draft far faster than any person, and the
+      // counters outlive a run in the shared database, so back-to-back runs
+      // would trip them. tests/integration/routes/abuse-limits.test.ts owns
+      // the limiter's behaviour.
+      ABUSE_LIMITS_ENABLED: "false",
       // `pnpm start` is a production build, so the route defaults off. The
       // accessibility and axe specs measure it, so turn it on here - this
       // object is merged last into the served app's environment.

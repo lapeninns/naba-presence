@@ -74,5 +74,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0063_membership_scope",
   "0064_membership_scope_invariant",
   "0065_revoke_support_sessions",
+  "0066_abuse_rate_limit",
   "20260729000400_remove_local_demo_data",
 ]

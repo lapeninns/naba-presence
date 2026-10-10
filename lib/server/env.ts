@@ -100,7 +100,10 @@ const originList = z
     for (const entry of entries) {
       const url = URL.parse(entry)
       if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
-        context.addIssue({ code: "custom", message: `Invalid origin: ${entry}` })
+        context.addIssue({
+          code: "custom",
+          message: `Invalid origin: ${entry}`,
+        })
         continue
       }
       origins.push(url.origin)
@@ -185,6 +188,23 @@ export const serverEnvSchema = z.object({
   // per minute per API and 10 edits per minute per profile; the defaults
   // leave headroom under both.
   GOOGLE_RATE_BUDGET_ENABLED: featureFlag(true),
+  // Application abuse limits (lib/server/abuse-limits.ts): fixed windows per
+  // hashed client IP, email, user or token, counted in Postgres so every
+  // instance shares them. Off stops counting entirely; for a suspected
+  // limiter fault, not an attack.
+  ABUSE_LIMITS_ENABLED: featureFlag(true),
+  // The request header carrying the client IP, trusted only because the
+  // platform in front of the app overwrites it. Unset means
+  // x-vercel-forwarded-for on Vercel and no IP limits anywhere else (a
+  // self-hosted build behind its own proxy names that proxy's header).
+  CLIENT_IP_HEADER: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[A-Za-z0-9-]{1,64}$/)
+      .transform((value) => value.toLowerCase())
+      .optional()
+  ),
   GOOGLE_API_REQUESTS_PER_MINUTE: z.coerce
     .number()
     .int()
@@ -211,11 +231,7 @@ export const serverEnvSchema = z.object({
   // organisation.ai_monthly_draft_credits override wins. The token backstop is
   // a runaway-loop guard across draft and verify calls, not a product limit.
   AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
-  AI_MONTHLY_TOKEN_BACKSTOP: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .default(20_000_000),
+  AI_MONTHLY_TOKEN_BACKSTOP: z.coerce.number().int().min(0).default(20_000_000),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),

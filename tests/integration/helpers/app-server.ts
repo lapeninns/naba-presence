@@ -41,6 +41,10 @@ function serverEnv(
     // Retry-After. It is switched on, with real limits, only by the suites
     // that test it (rate-budget, fleet-scale).
     GOOGLE_RATE_BUDGET_ENABLED: "false",
+    // Abuse-limit counters are shared the same way, and suites sign in and
+    // draft far faster than any person. Only abuse-limits.test.ts turns them
+    // on.
+    ABUSE_LIMITS_ENABLED: "false",
     ...overrides,
   }
 }

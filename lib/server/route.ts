@@ -4,6 +4,11 @@ import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 import type { ZodType } from "zod"
 
+import {
+  clientIpFromRequest,
+  takeAbuseBudget,
+  type AbuseLimit,
+} from "@/lib/server/abuse-limits"
 import { withAuditActor } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
@@ -68,7 +73,14 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      `application/json` (or `+json`) is refused with 415
  *      `unsupported_media_type`, so a cross-site `text/plain` form post can
  *      never reach a schema). Zod failures map to 400 `invalid_request` with
- *      `fieldErrors`, exactly as `apiError` always did;
+ *      `fieldErrors`, exactly as `apiError` always did. Then abuse limits:
+ *      `limits` (a function of the parsed context) names a scope in
+ *      `lib/server/abuse-limits.ts` and the keys to count it against (email,
+ *      user, token, organisation); the wrapper adds the client IP from the
+ *      trusted platform header. Any key over its limit answers 429 with
+ *      `details.retryAfter` and a Retry-After header, before the handler
+ *      runs. Requests refused earlier (origin, auth, validation) are not
+ *      counted;
  *   6. the tenant transaction — `ctx.tenant(fn)` is
  *      `withTenant(session.organisationId, fn)` and is only present when
  *      `auth` is `"session"`. Cron/public handlers import `withTenant` /
@@ -173,6 +185,11 @@ export type RouteConfig<
   query?: ZodType<Q> | ((searchParams: URLSearchParams) => Q)
   /** Validates the JSON body; missing/invalid JSON becomes `{}` first. */
   body?: ZodType<B>
+  /**
+   * The abuse limit this request counts against, from the parsed context;
+   * null counts nothing. The client IP is added by the wrapper.
+   */
+  limits?: (ctx: RouteContext<A, P, Q, B>) => AbuseLimit | null
   handler: (ctx: RouteContext<A, P, Q, B>) => RouteResult | Promise<RouteResult>
 }
 
@@ -349,6 +366,13 @@ export function route<
             }
           : { ...base, session: null }
       ) as unknown as RouteContext<A, P, Q, B>
+      const limit = config.limits?.(ctx)
+      if (limit) {
+        await takeAbuseBudget(limit.scope, {
+          ip: clientIpFromRequest(request),
+          ...limit,
+        })
+      }
       // Only impersonated sessions pay for the async context; every other
       // request calls the handler exactly as before.
       const result = await (session?.supportActor

@@ -72,11 +72,28 @@ inside the handler and answered with 403 `permission_denied`; parsing of
 `params`, `query` and `body` through zod, where a non-empty body not sent as
 `application/json` (or a `+json` type) is a 415 `unsupported_media_type`, a
 missing or unparsable body becomes `{}` before validation and any zod failure is a 400 `invalid_request`
-with `fieldErrors`; the tenant transaction, exposed to session routes as
+with `fieldErrors`; abuse limits, where a route's `limits` hook names a
+scope in `lib/server/abuse-limits.ts` and the keys to count (the wrapper adds
+the client IP) and any key over its fixed window answers 429 with
+`details.retryAfter` and a `Retry-After` header; the tenant transaction, exposed to session routes as
 `ctx.tenant(fn)`, which is `withTenant(session.organisationId, fn)`; and error
 mapping, where everything thrown passes through `apiError(error, requestId)`.
 The error body is `{ error: <code>, message, requestId }` plus `fieldErrors`,
 `retryable`, `reconnectRequired` and `details` when set.
+
+Abuse limits (migration 0066, ledger SEC-07/SEC-08) are fixed windows in the
+platform-level `abuse_rate_bucket` table, reached only through the SECURITY
+DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
+instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
+never plaintext. They cover password login, registration, confirmation resend,
+reset request and completion, invitation lookup and acceptance, AI draft
+generation, support impersonation attempts (counted before the secret is
+compared) and `/share/report/[token]` lookups (which answer the same 404 as
+an unknown token when limited). The client IP comes only from the header named
+by `CLIENT_IP_HEADER`, defaulting to `x-vercel-forwarded-for` on Vercel and to
+none elsewhere; `x-forwarded-for` is never trusted by default. The retention
+cron purges ended windows once per sweep. `ABUSE_LIMITS_ENABLED` switches the
+counting off.
 
 The wrapper's altitude is the organisation. Location-level access is
 deliberately not its concern: handlers call `requireLocationAccess`,

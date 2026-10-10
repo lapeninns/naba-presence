@@ -1,3 +1,4 @@
+import { purgeAbuseRateBuckets } from "@/lib/server/abuse-limits"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -70,6 +71,17 @@ async function retain({
     order by organisation_id
     limit ${batchSize}
   `
+  // Ended abuse-limit windows (0066) are platform-level, not per tenant, so
+  // they are purged once per sweep, on its first page. A failure here is
+  // logged and the tenant walk goes on: a stale counter only costs space.
+  let abuseRateBuckets: number | null = null
+  if (cursor === null && deletesEnabled) {
+    try {
+      abuseRateBuckets = await purgeAbuseRateBuckets()
+    } catch (error) {
+      log.error("retention.abuse_buckets_failed", { requestId, error })
+    }
+  }
   const results = []
   const failures: RetentionFailure[] = []
   let processed = 0
@@ -482,6 +494,7 @@ async function retain({
   return {
     organisations: results,
     failures,
+    abuseRateBuckets,
     nextCursor:
       budgetExhausted || organisations.length === batchSize
         ? lastProcessedOrganisationId

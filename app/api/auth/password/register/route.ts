@@ -12,6 +12,7 @@ export const POST = route({
   auth: "public",
   origin: "same",
   body: registerSchema,
+  limits: ({ body }) => ({ scope: "register", email: body.email }),
   handler: async ({ request, body, requestId, clientRequestId }) => {
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     const confirmationUrl = new URL("/auth/confirm", baseUrl)

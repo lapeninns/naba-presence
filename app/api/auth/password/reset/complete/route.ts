@@ -15,6 +15,7 @@ export const POST = route({
   auth: "public",
   origin: "same",
   body: resetPasswordSchema,
+  limits: ({ body }) => ({ scope: "reset_complete", token: body.tokenHash }),
   handler: async ({ body, requestId, clientRequestId }) => {
     const verified = await verifyEmailToken({
       tokenHash: body.tokenHash,

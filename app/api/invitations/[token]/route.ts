@@ -19,6 +19,7 @@ export const runtime = "nodejs"
 export const GET = route({
   auth: "public",
   params: invitationLookupParamsSchema,
+  limits: () => ({ scope: "invitation_lookup" }),
   handler: async ({ params }) => {
     // Cross-tenant by design: the invitee has no session yet, so the token
     // is resolved via lookup_invitation() outside withTenant.
@@ -60,6 +61,7 @@ export const GET = route({
  */
 export const POST = route({
   params: invitationLookupParamsSchema,
+  limits: ({ session }) => ({ scope: "invitation_accept", user: session.userId }),
   handler: async ({ session, params, requestId }) => {
     const accepted = await acceptInvitationForSessionUser(
       session,

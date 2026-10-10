@@ -9,6 +9,7 @@ export const POST = route({
   auth: "public",
   origin: "same",
   body: loginSchema,
+  limits: ({ body }) => ({ scope: "login", email: body.email }),
   handler: async ({ body, requestId, clientRequestId }) => {
     const identity = await signInWithPassword(body.email, body.password)
     await completeEmailAuthentication({
