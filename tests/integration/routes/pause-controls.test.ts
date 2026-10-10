@@ -23,7 +23,7 @@ const settle = () =>
 
 const CRON = { authorization: "Bearer route-harness-cron-secret" }
 
-describeDatabase("operator pause controls (0071)", () => {
+describeDatabase("operator pause controls (0090)", () => {
   let admin: ReturnType<typeof postgres>
   let google: GoogleStub
   let server: Awaited<ReturnType<typeof startAppServer>>

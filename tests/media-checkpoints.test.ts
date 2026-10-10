@@ -183,7 +183,7 @@ describe("media create recovery by checkpoint", () => {
     }
   )
 
-  it("settles a create from 0074 on that never left phase none as not landed", async () => {
+  it("settles a create from 0093 on that never left phase none as not landed", async () => {
     await expect(
       mediaRecoveryAdapter.readback({
         attempt: attempt("none"),

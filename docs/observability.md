@@ -90,7 +90,7 @@ without bypassing RLS. It contains:
 - `schedulerTicks`, one entry per tick (`jobs`, `reconcile`, `retention`,
   `performance`, `keywords`, `presence-resources`, `sweep`, `health`) with
   `lastCompletedAt`, `staleAfterSeconds` and `stale`, and the run ledger
-  (0070): `neverCompleted`, `registeredAt`, `lastStartedAt`, `lastSkippedAt`,
+  (0089): `neverCompleted`, `registeredAt`, `lastStartedAt`, `lastSkippedAt`,
   `consecutiveSkips`, `lockWedged`, `lastFailedAt`, `lastErrorCode`,
   `lastManualCompletedAt`, and for ticks that run in cycles (retention)
   `lastCycleCompletedAt`, `cycleStaleAfterSeconds` and `cycleStale`
@@ -123,7 +123,7 @@ is served by the endpoint rather than hard-coded in the monitor, so an interval
 change moves the threshold with it. Since migration 0046 the sweep's fleet
 enqueue takes `naba:sweep`, so `sweep` is listed like the other ticks.
 
-Since migration 0070 each row is also the tick's run ledger
+Since migration 0089 each row is also the tick's run ledger
 (`lib/server/leases.ts`). A scheduled run records when it took the lease
 (`lastStartedAt`), a lock skip records `lastSkippedAt` and lengthens
 `consecutiveSkips` (taking the lease resets it), and a throw records

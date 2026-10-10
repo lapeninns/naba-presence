@@ -343,7 +343,7 @@ export async function loadMedia(
 
 /**
  * gbp_media_mutation as an AttemptStore. Its CHECK constraint only knows
- * started/succeeded/failed/ambiguous (plus needs_resolution, 0074, which only
+ * started/succeeded/failed/ambiguous (plus needs_resolution, 0093, which only
  * this module writes), so the in-flight vocabulary maps onto `started`; the
  * table has no validated_at / http-status / response-hash columns.
  */
@@ -1362,7 +1362,7 @@ type MediaRecoveryAttempt = RecoveryAttempt & {
   requestedPayload: Record<string, unknown> | null
   googleMediaName: string | null
   uploadPhase: MediaUploadPhase
-  /** Set on every create from 0074 on; null marks one from before. */
+  /** Set on every create from 0093 on; null marks one from before. */
   contentSha256: string | null
   claimedNames: string[]
   contested: boolean
@@ -1374,7 +1374,7 @@ const settleMediaAttempt = storeSettle(mediaAttempts)
  * Reads an uncertain media write back. An update landed when the item holds
  * the requested category; a delete when Google answers 404 for the item.
  *
- * A create is decided by its upload checkpoint (0074). One that stopped
+ * A create is decided by its upload checkpoint (0093). One that stopped
  * before `create_sent` put nothing on the listing (not landed). One that was
  * sent is matched against the live media list (lib/domain/media-reconcile.ts):
  * a single match is adopted, otherwise it is handed to a person as
@@ -1417,7 +1417,7 @@ export const mediaRecoveryAdapter: RecoveryAdapter<MediaRecoveryAttempt> = {
   async readback({ attempt, link }) {
     if (attempt.operation === "create") {
       if (attempt.uploadPhase === "none") {
-        // From 0074 on, every create records its content before the first
+        // From 0093 on, every create records its content before the first
         // provider call, and `none` means it stopped in startUpload: nothing
         // can be on the listing. Only a create from before cannot be placed.
         return attempt.contentSha256

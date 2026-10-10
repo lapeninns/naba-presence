@@ -216,7 +216,7 @@ links) call `submitListingChange` (`lib/server/listing-change-registry.ts`)
 instead of the surface function. For a publisher, `parkListingChange`
 (`lib/server/listing-changes.ts`) sends nothing: it records a change request
 as a `mutation_operation` receipt in the outcome state `awaiting_approval`
-(`supabase/migrations/0075_listing_change_approval.sql`) holding the frozen,
+(`supabase/migrations/0094_listing_change_approval.sql`) holding the frozen,
 validated body (`change_request`), its payload hash, the fields it writes
 (`field_mask`), the baseline it was edited against (`expected_revision`) and
 its author, and answers 202. A same-intent retry gets the same request
@@ -365,7 +365,7 @@ selected parts write; when every selected part already matches Google nothing
 is sent and the response is `selection_in_sync` (`in_sync` only when the whole
 schedule matches). Readback verifies the selected parts and that no
 unselected part changed; the attempt records the parts in
-`hours_sync_attempt.selection` (migration 0068).
+`hours_sync_attempt.selection` (migration 0087).
 
 Drift is also classified per part (`classifyHoursPartDrift`) against a
 per-part comparison baseline in
@@ -376,7 +376,7 @@ of only the parts it wrote, so the differences it leaves on purpose stay
 overwrite confirmation is asked for only when a part being written changed on
 Google. The listing summary uses the same per-part classification from the
 stored `observed_google_part_hashes`. With no part baseline yet (rows from
-before 0068), the whole-schedule hashes decide as before. The first selective
+before 0087), the whole-schedule hashes decide as before. The first selective
 publish from there starts a complete part baseline and seeds each differing
 part it did not write with the whole-schedule verdict from before the publish
 (`HOURS_PART_UNKNOWN` marks the side that changed), so an unpublished Google
@@ -429,7 +429,7 @@ can distinguish "no data" from "writes intentionally disabled".
 ### Operator pause controls
 
 The env flags above are read once per process, so on their own they take a
-redeploy. `ops_pause_control` (migration 0071) is the hot layer on top:
+redeploy. `ops_pause_control` (migration 0090) is the hot layer on top:
 one row per scope (the env switches' own names, plus `scheduled_post`,
 `bulk`, `billing`, `mutation_recover` and `invitation_email` reserved for work
 that lands later), read through `lib/server/pause-controls.ts` with a
@@ -533,7 +533,7 @@ and makes it the handler's ambient intent. `x-request-id` stays per-request
 correlation.
 
 `runGbpWrite` records the intent in `mutation_operation`
-(`supabase/migrations/0067_mutation_operation.sql`) in the same transaction
+(`supabase/migrations/0086_mutation_operation.sql`) in the same transaction
 that claims the attempt, so the receipt exists before anything is sent: actor,
 surface, action, location and target, payload hash, expected revision, the
 Google connection and its `credential_generation`, and the attempt row it
@@ -720,7 +720,7 @@ Receipts are recovered without a request. A receipt
 generation, which a reconnect renews), reads Google through the surface's
 adapter in `lib/server/mutation-recovery-registry.ts` and compares it with the
 intent the attempt row recorded before dispatch. Hours compares a whole
-schedule with the pinned canonical hash and a selective publish (0068
+schedule with the pinned canonical hash and a selective publish (0087
 `selection`) with its selected parts only. A landed write settles the attempt
 `succeeded` and the receipt `confirmed_applied` (`awaiting_confirmation` when
 the readback only identifies it, as for a post or place-action create); a
@@ -740,7 +740,7 @@ comes back to under the same key, and the usual repair — edit the canonical
 resource and publish again — mints a different one. The retention cron
 (`app/api/cron/retention/route.ts`) reaps the remainder: a row left in any
 in-flight status for twenty-four hours (measured from `started_at`, which
-every GBP attempt table now carries; media gained it in 0074) is settled
+every GBP attempt table now carries; media gained it in 0093) is settled
 `ambiguous` with
 `attempt_interrupted`, a settled status, which the next request for that key
 reconciles as below instead of 409ing on it as in flight. The halves are not interchangeable — the
@@ -780,7 +780,7 @@ Post deletes read the live list only when the DELETE itself was ambiguous; a
 clean 2xx is taken as Google's answer.
 
 Media creates add upload checkpoints
-(`supabase/migrations/0074_media_mutation_checkpoints.sql`). An upload is
+(`supabase/migrations/0093_media_mutation_checkpoints.sql`). An upload is
 three provider calls -- `media:startUpload`, the byte upload, then the create
 naming the reserved `dataRef` -- and only the create can put anything on the
 listing. `lib/server/media.ts` records `upload_phase` (`data_ref_obtained`
@@ -819,7 +819,7 @@ resolved. Recovery
 `create_sent` did not land, a sent one is matched against the list or marked
 `needs_resolution` when recovery stops, a later one still at phase `none`
 (it records `content_sha256` from the start) stopped before its first call
-and did not land, and a create from before 0074 (phase `none`, no content) is
+and did not land, and a create from before 0093 (phase `none`, no content) is
 handed to a person as before. A create Google answered with a name
 is verified by that name and its format, not field by field, so a landed
 create is never settled `failed`.
@@ -945,7 +945,7 @@ runs the older seven for local and non-Vercel deployments.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and records
 each run in that loop's `ops_heartbeat` row (start, skip streak, failure and
-completion; 0070) so the lock namespace and the liveness names cannot drift. A
+completion; 0089) so the lock namespace and the liveness names cannot drift. A
 session-driven refresh under the same lease is recorded as manual and never
 moves the cron heartbeat.
 

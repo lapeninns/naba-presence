@@ -100,7 +100,7 @@ create policy tenant_isolation on mutation_operation
 
 grant select, insert, update on mutation_operation to naba_app_runtime;
 
-insert into schema_migration (version) values ('0067_mutation_operation')
+insert into schema_migration (version) values ('0086_mutation_operation')
 on conflict (version) do nothing;
 
 commit;

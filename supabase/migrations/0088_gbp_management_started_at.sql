@@ -20,7 +20,7 @@ begin;
 alter table gbp_management_mutation
   add column started_at timestamptz not null default now();
 
-insert into schema_migration (version) values ('0069_gbp_management_started_at')
+insert into schema_migration (version) values ('0088_gbp_management_started_at')
 on conflict (version) do nothing;
 
 commit;

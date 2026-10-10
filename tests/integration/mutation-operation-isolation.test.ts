@@ -9,7 +9,7 @@ import { createTestTenant, destroyTenants } from "./helpers/tenant"
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
-// Receipts (0067_mutation_operation.sql) belong to one organisation: tenant B
+// Receipts (0086_mutation_operation.sql) belong to one organisation: tenant B
 // cannot read tenant A's receipt through GET /api/mutations/{id} (by
 // operation id or by intent id) or through SQL as the runtime role.
 describeDatabase("mutation operation tenant isolation", () => {

@@ -18,7 +18,7 @@ const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
 /**
- * The `mutation_recover` job kind end to end (0073 claim arm, the runner,
+ * The `mutation_recover` job kind end to end (0092 claim arm, the runner,
  * lib/server/mutation-recovery.ts and the food menus and posts adapters): an
  * uncertain receipt is read back and settled, and never re-sent.
  */

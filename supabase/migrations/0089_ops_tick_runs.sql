@@ -76,7 +76,7 @@ alter table platform_incident
 grant select, insert, update on ops_heartbeat to naba_app_runtime;
 
 insert into schema_migration (version)
-values ('0070_ops_tick_runs')
+values ('0089_ops_tick_runs')
 on conflict (version) do nothing;
 
 commit;

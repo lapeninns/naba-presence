@@ -8,12 +8,12 @@ begin;
 -- information, attributes, industry, food menus, media and place-action
 -- links -- went straight to Google whoever sent them. With the policy on and
 -- the organisation's `listing_change_approvals` feature switched on
--- (organisation_feature, 0071), a publisher's listing write is no longer sent:
+-- (organisation_feature, 0090), a publisher's listing write is no longer sent:
 -- it is frozen as a change request and a different publisher approves that
 -- exact request, which then dispatches it through runGbpWrite
 -- (lib/server/listing-changes.ts).
 --
--- A change request IS a mutation_operation receipt (0067), so the client
+-- A change request IS a mutation_operation receipt (0086), so the client
 -- that sent it can poll GET /api/mutations/{id} like any other write:
 --
 --   state 'awaiting_approval'  new: parked, nothing sent. Approval moves it
@@ -115,7 +115,7 @@ create policy tenant_isolation on mutation_approval_decision
 grant select, insert on mutation_approval_decision to naba_app_runtime;
 
 insert into schema_migration (version)
-values ('0075_listing_change_approval')
+values ('0094_listing_change_approval')
 on conflict (version) do nothing;
 
 commit;

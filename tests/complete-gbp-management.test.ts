@@ -88,10 +88,10 @@ describe("complete GBP management persistence", () => {
   })
 })
 
-describe("gbp_management_mutation.started_at (0069)", () => {
+describe("gbp_management_mutation.started_at (0088)", () => {
   const migration = readFileSync(
     new URL(
-      "../supabase/migrations/0069_gbp_management_started_at.sql",
+      "../supabase/migrations/0088_gbp_management_started_at.sql",
       import.meta.url
     ),
     "utf8"
@@ -105,7 +105,7 @@ describe("gbp_management_mutation.started_at (0069)", () => {
     expect(migration).toMatch(
       /alter table gbp_management_mutation\s+add column started_at timestamptz not null default now\(\)/
     )
-    expect(migration).toContain("'0069_gbp_management_started_at'")
+    expect(migration).toContain("'0088_gbp_management_started_at'")
     expect(migration).not.toMatch(/\bupdate\s+gbp_management_mutation\b/)
   })
 

@@ -16,7 +16,7 @@ import { describeDatabaseTarget } from "./migration-rules.mjs"
 //   DIRECT_DATABASE_URL=... pnpm ops:pause feature --organisation <uuid> \
 //     --feature post_scheduling --enable|--disable --operator you@example.com
 //
-// Hot pause controls (migration 0071, lib/server/pause-controls.ts). `pause`
+// Hot pause controls (migration 0090, lib/server/pause-controls.ts). `pause`
 // and `resume` call set_ops_pause, which updates ops_pause_control and
 // appends one ops_pause_event row naming the operator and the reason. Every
 // instance picks the change up within the pause cache TTL (5 seconds); no

@@ -56,7 +56,7 @@ function errorCodeOf(error: unknown): string {
 }
 
 /**
- * Writes one event of a tick's run into its `ops_heartbeat` row (0070).
+ * Writes one event of a tick's run into its `ops_heartbeat` row (0089).
  *
  * `beat_at` still means "a scheduled run under this lease completed": it is
  * written only on a completed cron run. A lock skip proves nothing about the

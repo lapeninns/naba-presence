@@ -24,7 +24,7 @@
 /** Google's `createTime` may run behind the server clock by this much. */
 export const MEDIA_CREATE_TIME_SKEW_MS = 2 * 60 * 1000
 
-/** The upload checkpoints on gbp_media_mutation (0074), in order. */
+/** The upload checkpoints on gbp_media_mutation (0093), in order. */
 export const MEDIA_UPLOAD_PHASES = [
   "none",
   "data_ref_obtained",

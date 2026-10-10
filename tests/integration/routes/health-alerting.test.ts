@@ -354,7 +354,7 @@ describeDatabase("operations health alerting", () => {
       lastCompletedAt: expect.any(String),
       stale: false,
       staleAfterSeconds: 300,
-      // The run ledger (0070): the same run started under the lease, and
+      // The run ledger (0089): the same run started under the lease, and
       // the seeded row gives every tick a registration to measure from.
       neverCompleted: false,
       lastStartedAt: expect.any(String),

@@ -3,7 +3,7 @@ import "server-only"
 /**
  * Recovery of uncertain listing writes: the job runner's `mutation_recover`
  * kind (lib/server/jobs.ts, claim arm in
- * supabase/migrations/0073_mutation_recovery_jobs.sql).
+ * supabase/migrations/0092_mutation_recovery_jobs.sql).
  *
  * A receipt (mutation_operation) is `uncertain` when Google never said
  * whether its write landed. The job reads Google back through the surface's
@@ -72,7 +72,7 @@ import { isScopeEnabled, type PauseScope } from "@/lib/server/pause-controls"
 
 /**
  * Readbacks an uncertain receipt gets. Mirrored by `recovery_attempts < 8`
- * in the claim arm (0073), so the ceiling holds even if a settle is lost.
+ * in the claim arm (0092), so the ceiling holds even if a settle is lost.
  */
 export const MAX_MUTATION_RECOVERY_ATTEMPTS = 8
 

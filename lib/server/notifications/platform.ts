@@ -43,7 +43,7 @@ export type PlatformEvaluation = {
  *
  * Tick findings come from the run ledger (ops-liveness.ts tickFindings): a
  * tick that used to complete and stopped, one that has never completed past
- * the grace from its registration (0070), a lease wedged by repeated lock
+ * the grace from its registration (0089), a lease wedged by repeated lock
  * skips, and a multi-run tick that has not finished a cycle in its window.
  * Only scheduled runs count; a manual refresh under the same lease does not.
  */

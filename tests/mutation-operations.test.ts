@@ -40,7 +40,7 @@ import { pgliteSql } from "./helpers/pglite-tx"
 // without one, so dispatch is open unless a test says otherwise.
 const dispatchOpen = async () => {}
 
-// The operation ledger (0067_mutation_operation.sql) through runGbpWrite on
+// The operation ledger (0086_mutation_operation.sql) through runGbpWrite on
 // PGlite: the real migration over the slice of the schema it references, a
 // generic attempt table, and fake providers that count their calls.
 
@@ -57,7 +57,7 @@ const INTENT = "9b2f6a3e-4c1d-4e8f-9a7b-2c3d4e5f6a7b"
 const OTHER_INTENT = "1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
 
 const migration = readFileSync(
-  join(process.cwd(), "supabase/migrations/0067_mutation_operation.sql"),
+  join(process.cwd(), "supabase/migrations/0086_mutation_operation.sql"),
   "utf8"
 )
 

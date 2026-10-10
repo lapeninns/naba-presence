@@ -204,7 +204,7 @@ create policy tenant_isolation on organisation_feature
 revoke all on organisation_feature from public;
 grant select on organisation_feature to naba_app_runtime;
 
-insert into schema_migration (version) values ('0071_pause_controls')
+insert into schema_migration (version) values ('0090_pause_controls')
 on conflict (version) do nothing;
 
 commit;

@@ -3,7 +3,7 @@ begin;
 -- ---------------------------------------------------------------------------
 -- Uncertain listing writes are recovered by the job runner (plan P03-S6).
 --
--- A receipt (mutation_operation, 0067) is `uncertain` when Google never said
+-- A receipt (mutation_operation, 0086) is `uncertain` when Google never said
 -- whether its write landed: an ambiguous provider call, an unreadable
 -- readback, or an attempt the retention cron found stranded in flight. Until
 -- now nothing went back to look unless somebody repeated the same request.
@@ -155,7 +155,7 @@ begin
             )
        )
     union all
-    -- Uncertain listing writes (0073). A null next_recovery_at is NOT due:
+    -- Uncertain listing writes (0092). A null next_recovery_at is NOT due:
     -- the runner nulls it when it gives up on a receipt, which keeps it
     -- uncertain (the truth) without claiming it again. The ceiling mirrors
     -- MAX_MUTATION_RECOVERY_ATTEMPTS for the same reason as 'recover' above.
@@ -368,7 +368,7 @@ revoke all on function release_job_lease(text, uuid, uuid) from public;
 grant execute on function release_job_lease(text, uuid, uuid)
   to naba_app_runtime;
 
-insert into schema_migration (version) values ('0073_mutation_recovery_jobs')
+insert into schema_migration (version) values ('0092_mutation_recovery_jobs')
 on conflict (version) do nothing;
 
 commit;

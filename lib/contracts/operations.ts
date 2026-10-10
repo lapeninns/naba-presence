@@ -52,7 +52,7 @@ const rejectionRowSchema = z.object({
  * which the absence of a run is worth acting on. A tick that has never
  * completed reports `null` and `stale: true`.
  *
- * The run ledger (0070) fields carry a `.default(...)` so a monitor or panel
+ * The run ledger (0089) fields carry a `.default(...)` so a monitor or panel
  * reading a response from a build without them still parses it:
  * - `lastStartedAt` / `lastSkippedAt` / `lastFailedAt` / `lastErrorCode` are
  *   the scheduled runs' attempts, lock skips and failures;
@@ -66,7 +66,7 @@ const rejectionRowSchema = z.object({
  *   for ticks whose work spans several runs (the retention walk); the window
  *   is null for every other tick.
  * - `paused` is a tick a pause scope holds (an env flag off or an operator
- *   pause, migration 0071), and `pausedScopes` which; a paused tick that is
+ *   pause, migration 0090), and `pausedScopes` which; a paused tick that is
  *   also `stale` is paused, not dead, and is not alerted on.
  */
 export const schedulerTickSchema = z.object({

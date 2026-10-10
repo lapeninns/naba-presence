@@ -10,8 +10,8 @@ import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
 const read = (name: string) =>
   readFileSync(join(process.cwd(), "supabase/migrations", name), "utf8")
 
-const ledger = read("0067_mutation_operation.sql")
-const migration = read("0075_listing_change_approval.sql")
+const ledger = read("0086_mutation_operation.sql")
+const migration = read("0094_listing_change_approval.sql")
 
 const ORG_A = "00000000-0000-4000-8000-00000000000a"
 const ORG_B = "00000000-0000-4000-8000-00000000000b"
@@ -19,7 +19,7 @@ const AUTHOR = "00000000-0000-4000-8000-0000000000a1"
 const APPROVER = "00000000-0000-4000-8000-0000000000a2"
 const HASH = "a".repeat(64)
 
-describe("0075 listing change approval migration", () => {
+describe("0094 listing change approval migration", () => {
   it("adds awaiting_approval to the shared outcome vocabulary", () => {
     for (const outcome of OPERATION_OUTCOMES) {
       expect(migration).toContain(`'${outcome}'`)
@@ -47,7 +47,7 @@ describe("0075 listing change approval migration", () => {
   })
 
   it("is listed in the required-migrations manifest", () => {
-    expect(REQUIRED_MIGRATIONS).toContain("0075_listing_change_approval")
+    expect(REQUIRED_MIGRATIONS).toContain("0094_listing_change_approval")
   })
 
   describe("against PGlite", () => {

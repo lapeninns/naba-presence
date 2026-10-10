@@ -11,7 +11,7 @@ import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 
 /**
- * Operator pause controls (ledger OPS-06; migration 0071).
+ * Operator pause controls (ledger OPS-06; migration 0090).
  *
  * Two layers decide whether a scope's work may run:
  *

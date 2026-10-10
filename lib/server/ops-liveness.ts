@@ -118,7 +118,7 @@ const secondsSince = (value: Date | null | undefined, now: Date) =>
 /**
  * Per-tick liveness from the run ledger, one entry per scheduled tick in
  * report order. A tick with no row reads as never completed and never
- * registered (so no grace anchor), which is what a database without 0070's
+ * registered (so no grace anchor), which is what a database without 0089's
  * seed rows looks like. `paused` names the ticks a pause scope holds and
  * which scopes (pausedTicks).
  */

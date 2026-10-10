@@ -8,7 +8,7 @@ import { OPERATION_OUTCOMES } from "@/lib/contracts/mutation-operations"
 import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
 
 const migration = readFileSync(
-  join(process.cwd(), "supabase/migrations/0067_mutation_operation.sql"),
+  join(process.cwd(), "supabase/migrations/0086_mutation_operation.sql"),
   "utf8"
 )
 
@@ -16,7 +16,7 @@ const ORG = "00000000-0000-4000-8000-00000000000a"
 const INTENT = "9b2f6a3e-4c1d-4e8f-9a7b-2c3d4e5f6a7b"
 const HASH = "a".repeat(64)
 
-describe("0067 mutation_operation migration", () => {
+describe("0086 mutation_operation migration", () => {
   it("isolates tenants with forced RLS and grants no delete", () => {
     expect(migration).toContain("create table mutation_operation")
     expect(migration).toContain(
@@ -53,7 +53,7 @@ describe("0067 mutation_operation migration", () => {
 
   it("allows exactly the shared outcome vocabulary", () => {
     // `awaiting_approval` arrived later, with the listing change approvals
-    // of 0075 (tests/listing-change-approval-migration.test.ts).
+    // of 0094 (tests/listing-change-approval-migration.test.ts).
     for (const outcome of OPERATION_OUTCOMES) {
       if (outcome === "awaiting_approval") continue
       expect(migration).toContain(`'${outcome}'`)
@@ -61,7 +61,7 @@ describe("0067 mutation_operation migration", () => {
   })
 
   it("is listed in the required-migrations manifest", () => {
-    expect(REQUIRED_MIGRATIONS).toContain("0067_mutation_operation")
+    expect(REQUIRED_MIGRATIONS).toContain("0086_mutation_operation")
   })
 
   describe("against PGlite", () => {

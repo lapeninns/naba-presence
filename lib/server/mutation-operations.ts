@@ -19,7 +19,7 @@ import {
 } from "@/lib/server/permissions"
 
 /**
- * The mutation operation ledger (supabase/migrations/0067_mutation_operation.sql):
+ * The mutation operation ledger (supabase/migrations/0086_mutation_operation.sql):
  * one receipt per user intent, keyed by the intent id the client mints and
  * sends as the `Idempotency-Key` header.
  *

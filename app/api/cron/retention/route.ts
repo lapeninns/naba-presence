@@ -407,7 +407,7 @@ async function retain({
         // The remaining three surfaces map every in-flight phase onto
         // 'started' (their CHECK admits no finer vocabulary; gbp_management
         // also has 'validated'). All three carry started_at (place actions
-        // from the start, gbp_management from 0069, media from 0074), which
+        // from the start, gbp_management from 0088, media from 0093), which
         // a re-arm resets. A media create aged here keeps its upload_phase:
         // recovery fails one that never reached create_sent and matches one
         // that did against the live list, or hands it to a person.

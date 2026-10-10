@@ -742,7 +742,7 @@ type HoursRecoveryAttempt = RecoveryAttempt & {
 /**
  * Reads an uncertain hours publish back against the intent its attempt row
  * pinned. A whole-schedule publish landed when the live schedule hashes to
- * the pinned canonical hash; a selective publish (0068 `selection`) landed
+ * the pinned canonical hash; a selective publish (0087 `selection`) landed
  * when every part it selected equals the payload it sent, which for a
  * selective publish carries exactly the merged selected parts. Parts the
  * publish did not select are not evidence either way: Google or a person may

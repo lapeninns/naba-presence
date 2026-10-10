@@ -16,7 +16,7 @@ const read = (file: string) =>
   readFileSync(join(process.cwd(), "supabase/migrations", file), "utf8")
 
 const previous = read("0048_fleet_queue.sql")
-const latest = read("0073_mutation_recovery_jobs.sql")
+const latest = read("0092_mutation_recovery_jobs.sql")
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim()
 
@@ -50,7 +50,7 @@ function claims(sql: string): Map<string, string> {
   return found
 }
 
-describe("claim_due_jobs contract (0048 -> 0073)", () => {
+describe("claim_due_jobs contract (0048 -> 0092)", () => {
   it("keeps every 0048 due arm verbatim", () => {
     const arms = dueArms(previous)
     expect(arms).toHaveLength(6)
@@ -99,7 +99,7 @@ describe("claim_due_jobs contract (0048 -> 0073)", () => {
     expect(latest).toMatch(
       /grant execute on function release_job_lease\(text, uuid, uuid\)\s+to naba_app_runtime/
     )
-    expect(REQUIRED_MIGRATIONS).toContain("0073_mutation_recovery_jobs")
+    expect(REQUIRED_MIGRATIONS).toContain("0092_mutation_recovery_jobs")
   })
 
   describe("against PGlite", () => {
@@ -147,7 +147,7 @@ describe("claim_due_jobs contract (0048 -> 0073)", () => {
         insert into external_location values ('${EXTERNAL}', '${CONNECTION}');
         insert into location_link values ('${EXTERNAL}', true);
       `)
-      await db.exec(read("0067_mutation_operation.sql"))
+      await db.exec(read("0086_mutation_operation.sql"))
       await db.exec(latest)
       const past = "now() - interval '1 minute'"
       await db.exec(`

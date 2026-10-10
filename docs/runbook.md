@@ -181,7 +181,7 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 
 ### Operator pauses
 
-`ops_pause_control` (migration 0071, `lib/server/pause-controls.ts`) holds one
+`ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one
 row per scope: `jobs`, `publish`, `sync`, `notifications`, `retention`,
 `drafts`, the Google surfaces (`profileWrites`, `posts`, `media`,
 `placeActions`, `foodMenus`, `performance`, `keywords`) and the reserved
@@ -398,7 +398,7 @@ settle the review by hand.
 Uncertain listing writes (hours, profile, menus, business information,
 attributes, industry, posts, place actions, media) are recovered the same way
 by the `mutation_recover` kind (`lib/server/mutation-recovery.ts`, claim arm in
-`supabase/migrations/0073_mutation_recovery_jobs.sql`). It claims
+`supabase/migrations/0092_mutation_recovery_jobs.sql`). It claims
 `mutation_operation` receipts in state `uncertain` whose `next_recovery_at` is
 due, rechecks the actor's authorisation, reads Google back through the
 surface's adapter and settles the receipt and its attempt row: `confirmed_applied`
@@ -413,7 +413,7 @@ minutes without counting and is abandoned after 14 days
 stops as `media_create_unverifiable`; an update whose target Google no longer
 holds (a 404 on the link or media item) stops as `target_changed`, and a
 receipt with no attempt row recorded, or a surface with no adapter, as
-`recovery_unsupported`. The first tick after 0073 is deployed also reads back
+`recovery_unsupported`. The first tick after 0092 is deployed also reads back
 every receipt that was already `uncertain`; those without an attempt row stop
 at once and each sends one `mutation_unconfirmed` email, so expect a short
 burst on that deploy. A stopped receipt stays `uncertain`
@@ -527,7 +527,7 @@ so re-running the tick never double-emails.
 
 The health tick emails `OPS_ALERT_EMAILS` and opens a `platform_incident`
 for four tick findings, read from each tick's `ops_heartbeat` run ledger
-(0070) and shown in `schedulerTicks` on the platform health endpoint:
+(0089) and shown in `schedulerTicks` on the platform health endpoint:
 
 - `stale_heartbeat`: the tick used to complete and has not for
   `staleAfterSeconds`. Check `lastFailedAt`/`lastErrorCode` first: a tick that

@@ -19,9 +19,9 @@ describe("Media migration", () => {
   })
 })
 
-describe("Media upload checkpoints migration (0074)", () => {
+describe("Media upload checkpoints migration (0093)", () => {
   const migration = readFileSync(
-    join(process.cwd(), "supabase/migrations/0074_media_mutation_checkpoints.sql"),
+    join(process.cwd(), "supabase/migrations/0093_media_mutation_checkpoints.sql"),
     "utf8"
   )
   const sql = migration.replace(/--.*$/gm, "")
@@ -49,6 +49,6 @@ describe("Media upload checkpoints migration (0074)", () => {
   it("is expand-only and records itself", () => {
     expect(sql).not.toMatch(/\bdrop (table|column)\b/i)
     expect(sql).not.toMatch(/\bupdate gbp_media_mutation\b/i)
-    expect(sql).toContain("('0074_media_mutation_checkpoints')")
+    expect(sql).toContain("('0093_media_mutation_checkpoints')")
   })
 })

@@ -5,7 +5,7 @@ import type { TransactionSql } from "postgres"
 import type { OrgFeature } from "@/lib/contracts/org-features"
 
 /**
- * Per-organisation product flags (organisation_feature, migration 0071).
+ * Per-organisation product flags (organisation_feature, migration 0090).
  *
  * A feature an organisation has no row for is off: new work ships dark and
  * is switched on per organisation from the operator connection. This is a

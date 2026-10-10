@@ -40,7 +40,7 @@ import type { Session } from "@/lib/server/session"
 
 /**
  * Two-person approval for direct listing writes (plan P02-S2b;
- * supabase/migrations/0075_listing_change_approval.sql).
+ * supabase/migrations/0094_listing_change_approval.sql).
  *
  * With the organisation's `require_two_person_approval` on AND its
  * `listing_change_approvals` feature switched on (organisation_feature), a

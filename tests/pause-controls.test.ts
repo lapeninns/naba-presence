@@ -268,20 +268,20 @@ describe("paused ticks", () => {
 })
 
 const migration = readFileSync(
-  join(process.cwd(), "supabase/migrations/0071_pause_controls.sql"),
+  join(process.cwd(), "supabase/migrations/0090_pause_controls.sql"),
   "utf8"
 )
 const noTruncate = readFileSync(
   join(
     process.cwd(),
-    "supabase/migrations/0072_ops_pause_event_no_truncate.sql"
+    "supabase/migrations/0091_ops_pause_event_no_truncate.sql"
   ),
   "utf8"
 )
 const ORG = "00000000-0000-4000-8000-00000000000a"
 const OTHER = "00000000-0000-4000-8000-00000000000b"
 
-describe("0071 pause controls migration", () => {
+describe("0090 pause controls migration", () => {
   it("lets the runtime read and never write", () => {
     for (const table of [
       "ops_pause_control",
@@ -311,8 +311,8 @@ describe("0071 pause controls migration", () => {
   })
 
   it("is listed in the required-migrations manifest", () => {
-    expect(REQUIRED_MIGRATIONS).toContain("0071_pause_controls")
-    expect(REQUIRED_MIGRATIONS).toContain("0072_ops_pause_event_no_truncate")
+    expect(REQUIRED_MIGRATIONS).toContain("0090_pause_controls")
+    expect(REQUIRED_MIGRATIONS).toContain("0091_ops_pause_event_no_truncate")
   })
 
   describe("against PGlite", () => {

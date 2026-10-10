@@ -1,6 +1,6 @@
 /**
  * Known per-organisation product flags (organisation_feature, migration
- * 0071). Dependency-free so scripts/ops-pause.mjs can import it through
+ * 0090). Dependency-free so scripts/ops-pause.mjs can import it through
  * Node's type stripping and refuse a name nothing reads: the table accepts
  * any snake_case name, so a slice adding a feature adds it here only.
  */

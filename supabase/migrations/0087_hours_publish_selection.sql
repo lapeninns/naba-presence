@@ -40,7 +40,7 @@ alter table presence_resource_reconcile_state
       or jsonb_typeof(comparison_part_hashes) = 'object'
     );
 
-insert into schema_migration (version) values ('0068_hours_publish_selection')
+insert into schema_migration (version) values ('0087_hours_publish_selection')
 on conflict (version) do nothing;
 
 commit;

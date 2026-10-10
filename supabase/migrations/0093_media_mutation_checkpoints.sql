@@ -55,7 +55,7 @@ create index gbp_media_mutation_content_idx
   on gbp_media_mutation (organisation_id, location_id, content_sha256)
   where operation = 'create' and content_sha256 is not null;
 
-insert into schema_migration (version) values ('0074_media_mutation_checkpoints')
+insert into schema_migration (version) values ('0093_media_mutation_checkpoints')
 on conflict (version) do nothing;
 
 commit;
