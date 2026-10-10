@@ -4,9 +4,10 @@ begin;
 -- Two-person approval for direct listing writes (plan P02-S2b).
 --
 -- Posts and replies already honour organisation.require_two_person_approval
--- (0039, 0062). Direct listing writes -- hours, profile, business
--- information, attributes, industry, food menus, media and place-action
--- links -- went straight to Google whoever sent them. With the policy on and
+-- (0039, 0081). Direct listing writes -- hours, profile, food menus and
+-- media -- went straight to Google whoever sent them. (Business
+-- information, attributes, lodging and place-action links are reviewed
+-- change sets, 0063-0065 and 0077, whose approval applies the policy.) With the policy on and
 -- the organisation's `listing_change_approvals` feature switched on
 -- (organisation_feature, 0090), a publisher's listing write is no longer sent:
 -- it is frozen as a change request and a different publisher approves that
@@ -35,7 +36,7 @@ begin;
 --                              refuses a dispatch whose baseline moved.
 --   approval_ref               (existing) the approving decision's id.
 --
--- mutation_approval_decision mirrors post_approval_decision (0062): one row
+-- mutation_approval_decision mirrors post_approval_decision (0081): one row
 -- per decision on a change request, naming the payload hash it covered, the
 -- requester and the decider. The CHECK makes self-approval unrepresentable
 -- rather than merely refused. Reusable by later approval flows (bulk listing

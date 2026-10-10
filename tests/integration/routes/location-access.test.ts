@@ -268,7 +268,7 @@ describeDatabase("explicit scope: removing the last assignment", () => {
     expect(await status(owner.cookie, assigned.reviewId)).toBe(200)
   })
 
-  it("a row inserted under scope all narrows the member to it (0064)", async () => {
+  it("a row inserted under scope all narrows the member to it (0083)", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
     const first = await seedReview(admin, {
@@ -281,7 +281,7 @@ describeDatabase("explicit scope: removing the last assignment", () => {
       organisationId: owner.organisationId,
     })
     expect(await status(member.cookie, second.reviewId)).toBe(200)
-    // An acceptance written by code older than 0063: a row, scope untouched.
+    // An acceptance written by code older than 0082: a row, scope untouched.
     await admin`
       insert into location_member (organisation_id, location_id, user_id)
       values (${owner.organisationId}, ${first.locationId}, ${member.userId})

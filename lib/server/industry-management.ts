@@ -1,52 +1,28 @@
 import "server-only"
-
-import type { TransactionSql } from "postgres"
+import { z } from "zod"
+import { approvedLodgingChange, listLodgingChangeSets } from "@/lib/server/gbp-change-sets"
 
 import type {
   IndustryMutationResult,
   IndustryOperation,
   IndustryState,
 } from "@/lib/contracts/location-industry"
-import {
-  industryMismatches,
-  maskedFieldBaseline,
-} from "@/lib/domain/readback/industry"
-import { isRecord } from "@/lib/domain/readback/compare"
-import { getDatabase, jsonColumn, withTenant } from "@/lib/server/db"
+import { executeAndConfirmGbpMutation, observeAndConfirmGbpMutation } from "@/lib/server/gbp-confirmation"
+import { getDatabase, withTenant, withSessionConnection } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
-  googleHealthcareApi,
   googleLodgingApi,
-  GoogleMutationAmbiguousError,
 } from "@/lib/server/google"
 import {
+  auditGbpMutation,
   cacheGbpSnapshot,
-  cacheGbpSnapshotAfterWrite,
-  gbpManagementAttemptStore,
-  gbpManagementIdempotencyKey,
-  loadManagementRecoveryAttempt,
-  requireFreshMaskedBaseline,
   resolveGbpLocationContext,
+  startGbpMutation,
   stableGoogleHash,
   type GbpLocationContext,
-  type ManagementRecoveryAttempt,
 } from "@/lib/server/gbp-management"
-import {
-  hasGbpAttempt,
-  idempotencyKey,
-  runGbpWrite,
-} from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
-import {
-  operationSummary,
-  requestScopedKeyPart,
-} from "@/lib/server/mutation-operations"
-import {
-  storeSettle,
-  type RecoveryAdapter,
-  type RecoveryAttempt,
-} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 async function context(session: Session, locationId: string) {
@@ -56,412 +32,111 @@ async function context(session: Session, locationId: string) {
 }
 
 async function safe<T>(operation: () => Promise<T>) {
-  try {
-    return { data: await operation(), error: null }
-  } catch (error) {
-    return {
-      data: null,
-      error: error instanceof Error ? error.message : "Google request failed.",
-    }
-  }
+  try { return { data: await operation(), error: null } }
+  catch (error) { return { data: null, error: error instanceof Error ? error.message : "Google request failed." } }
 }
 
-type IndustryResourceType = "lodging" | "healthcare_services"
-
-/**
- * The one resource name each industry resource is cached and recorded
- * under. Load and write must agree: the healthcare snapshot used to be cached
- * as `{account}/{location}/serviceList` on load but `{location}/healthcare_services`
- * after a write, so the write never refreshed the snapshot the load reads.
- */
-export function industryResourceName(
-  resourceType: IndustryResourceType,
-  linked: Pick<GbpLocationContext, "accountName" | "googleLocationName">
-): string {
-  return resourceType === "lodging"
-    ? `${linked.googleLocationName}/lodging`
-    : `${linked.accountName}/${linked.googleLocationName}/serviceList`
-}
-
-export async function loadIndustryManagement(
-  session: Session,
-  locationId: string
-): Promise<IndustryState> {
+export async function loadIndustryManagement(session: Session, locationId: string): Promise<IndustryState> {
   const linked = await context(session, locationId)
-  const token = await connectionAccessToken(
-    getDatabase(),
-    session.organisationId,
-    linked.connectionId
-  )
+  const token = await connectionAccessToken(getDatabase(), session.organisationId, linked.connectionId)
   const options = { connectionKey: linked.connectionId }
   // Only APIs Google still serves. Business Calls (retired 2023-05-30) and
   // healthProviderAttributes/insuranceNetworks (retired 2024-07-01) are no
   // longer asked; snapshots cached from them before then are never read and
-  // age out with the retention purge.
-  const [lodging, lodgingUpdated, healthcareServices] = await Promise.all([
-    safe(() =>
-      googleLodgingApi(
-        token,
-        { locationName: linked.googleLocationName, operation: "get" },
-        options
-      )
-    ),
-    safe(() =>
-      googleLodgingApi(
-        token,
-        {
-          locationName: linked.googleLocationName,
-          operation: "getGoogleUpdated",
-        },
-        options
-      )
-    ),
-    safe(() =>
-      googleHealthcareApi(
-        token,
-        {
-          accountName: linked.accountName,
-          locationName: linked.googleLocationName,
-          resource: "serviceList",
-        },
-        options
-      )
-    ),
+  // age out with the retention purge. Healthcare services are reviewed and
+  // published through the general Services editor, so this editor no longer
+  // reads the serviceList either.
+  const healthcareServices = { data: null, error: null }
+  const [lodging, lodgingUpdated] = await Promise.all([
+    safe(() => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, options)),
+    safe(() => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "getGoogleUpdated" }, options)),
   ])
-  let lodgingHash: string | null = null
-  for (const [resourceType, result] of [
-    ["lodging", lodging],
-    ["healthcare_services", healthcareServices],
+  for (const [resourceType, resourceName, result] of [
+    ["lodging", `${linked.googleLocationName}/lodging`, lodging],
   ] as const) {
-    if (!result.data) continue
-    const hash = await cacheGbpSnapshot({
-      organisationId: session.organisationId,
-      locationId,
-      googleAccountId: linked.googleAccountId,
-      resourceType,
-      resourceName: industryResourceName(resourceType, linked),
-      payload: result.data,
-    })
-    if (resourceType === "lodging") lodgingHash = hash
+    if (result.data) await cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType, resourceName, payload: result.data })
   }
-  return {
-    lodging,
-    lodgingUpdated,
-    healthcareServices,
-    lodgingHash,
-    canManage: linked.canPublish,
-    writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
-  }
+  return { lodging, lodgingUpdated, healthcareServices, canManage: linked.canPublish, writesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"), ...(lodging.data ? { lodgingHash: stableGoogleHash(lodging.data) } : {}), lodgingChangeSets: await listLodgingChangeSets(session, linked) }
 }
 
 export type { IndustryOperation }
 
-/**
- * A lodging or healthcare serviceList PATCH through the shared pipeline
- * (runGbpWrite over gbp_management_mutation; see business-information.ts
- * runManagementWrite for the key and replay rules). The resource is read
- * again after the write and every updateMask path compared with the payload
- * (lib/domain/readback/industry.ts): a difference settles `failed`
- * (`industry_readback_mismatch`), an unreadable readback `ambiguous`, and a
- * confirmed write `succeeded` with the readback cached. A write that landed
- * is never settled `failed` by anything after it: the snapshot cache runs
- * once the row has settled and only logs its own failure.
- *
- * A lodging update is checked against the baseline the editor loaded over
- * the groups it writes (requireFreshMaskedBaseline). Healthcare serviceList
- * stays freeform and unpinned pending decision D-24.
- */
+export async function confirmIndustryManagement(session: Session, locationId: string, mutationId: string, requestId: string): Promise<IndustryMutationResult> {
+  const linked = await context(session, locationId)
+  if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this location.")
+  return withSessionConnection((connection) => connection.begin(async (sql) => {
+    await sql`select set_config('app.organisation_id', ${session.organisationId}, true)`
+    await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${locationId}:lodging`}, 0))`
+    const [attempt] = await sql<{ status: string; execution_state: string; confirmation_state: string; requested_payload: unknown; update_mask: string[]; google_response: unknown; target_resource_name: string | null; google_account_id: string | null; recovery_ready: boolean }[]>`
+      select status, execution_state, confirmation_state, requested_payload, update_mask, google_response, target_resource_name, google_account_id,
+        (status = 'ambiguous' or (status in ('started', 'validated') and created_at < now() - interval '5 minutes')) as recovery_ready
+      from gbp_management_mutation where id = ${mutationId} and location_id = ${locationId} and resource_type = 'lodging'
+    `
+    if (!attempt) throw new ApiError(404, "mutation_not_found", "The lodging change was not found.")
+    if (attempt.target_resource_name !== linked.googleLocationName || attempt.google_account_id !== linked.googleAccountId) {
+      throw new ApiError(409, "google_target_changed", "This location is linked to a different Google target. The earlier change cannot be confirmed here.")
+    }
+    if (attempt.status === "succeeded" && attempt.confirmation_state === "confirmed") {
+      return { id: mutationId, status: "succeeded", idempotent: true, confirmationState: "confirmed" }
+    }
+    if (!attempt.recovery_ready) throw new ApiError(409, "mutation_not_ready", "This lodging change cannot be checked yet. An interrupted request can be checked after five minutes.")
+    const token = await connectionAccessToken(getDatabase(), session.organisationId, linked.connectionId)
+    const result = await observeAndConfirmGbpMutation({
+      organisationId: session.organisationId,
+      mutationId,
+      payload: z.record(z.string(), z.unknown()).parse(attempt.requested_payload),
+      updateMask: attempt.update_mask,
+      executionState: attempt.execution_state === "accepted" ? "accepted" : "unknown",
+      response: attempt.google_response == null ? undefined : z.record(z.string(), z.unknown()).parse(attempt.google_response),
+      observe: () => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, { connectionKey: linked.connectionId }),
+      onObserved: (response) => cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType: "lodging", resourceName: `${linked.googleLocationName}/lodging`, payload: response }),
+    })
+    await auditGbpMutation({ organisationId: session.organisationId, session, action: "google.confirm_lodging", subjectType: "location", subjectId: locationId, requestId, metadata: { mutationId, executionState: result.executionState, confirmationState: result.confirmationState } })
+    return result
+  }))
+}
+
 export async function mutateIndustryManagement(input: {
   session: Session
   locationId: string
   operation: IndustryOperation
   payload: Record<string, unknown>
   updateMask: string[]
-  /** Required for update_lodging (the contract enforces it). */
-  expectedGoogleHash?: string
   requestId: string
+  changeSetId?: string
 }): Promise<IndustryMutationResult> {
+  if (input.operation === "update_healthcare_services") throw new ApiError(409, "service_review_required", "Use the general Services editor to review and approve the exact service changes before sending.")
   const linked = await context(input.session, input.locationId)
-  if (!linked.canPublish)
-    throw new ApiError(
-      403,
-      "publish_not_allowed",
-      "You cannot publish for this location."
-    )
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites"))
-    throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
-  const organisationId = input.session.organisationId
-  const token = await connectionAccessToken(
-    getDatabase(),
-    organisationId,
-    linked.connectionId
-  )
-  const options = { connectionKey: linked.connectionId }
-  const lodging = input.operation === "update_lodging"
-  const resourceType: IndustryResourceType = lodging
-    ? "lodging"
-    : "healthcare_services"
-  const resourceName = industryResourceName(resourceType, linked)
-  const read = () =>
-    lodging
-      ? googleLodgingApi(
-          token,
-          { locationName: linked.googleLocationName, operation: "get" },
-          options
-        )
-      : googleHealthcareApi(
-          token,
-          {
-            accountName: linked.accountName,
-            locationName: linked.googleLocationName,
-            resource: "serviceList",
-          },
-          options
-        )
-
-  const key = gbpManagementIdempotencyKey({
-    resourceType,
-    operation: input.operation,
-    targetResourceName: resourceName,
-    requestId: requestScopedKeyPart(input.requestId),
-  })
-  if (lodging) {
-    if (!input.expectedGoogleHash)
-      throw new ApiError(
-        400,
-        "lodging_baseline_required",
-        "Refresh the lodging details before publishing."
-      )
-    // A retry of an intent that already has a row replays it: after a write
-    // that landed, the live groups are this write's own change and no longer
-    // match the baseline the retry carries.
-    if (
-      !(await hasGbpAttempt(gbpManagementAttemptStore, { organisationId, key }))
-    ) {
-      await requireFreshMaskedBaseline({
-        organisationId,
-        resourceType,
-        resourceName,
-        expectedGoogleHash: input.expectedGoogleHash,
-        current: await read(),
-        scope: (resource) =>
-          maskedFieldBaseline(
-            input.updateMask,
-            isRecord(resource) ? resource : {}
-          ),
-        stale: new ApiError(
-          409,
-          "lodging_stale",
-          "Google changed these lodging details. Refresh before publishing."
-        ),
-      })
-    }
-  }
-
-  const result = await runGbpWrite<
-    Record<string, unknown>,
-    Record<string, unknown>
-  >({
-    surface: "profileWrites",
-    organisationId,
-    actorUserId: input.session.userId,
-    requestId: input.requestId,
-    store: gbpManagementAttemptStore,
-    key,
-    intent: {
-      location_id: input.locationId,
-      google_account_id: linked.googleAccountId,
-      resource_type: resourceType,
-      operation: input.operation,
-      target_resource_name: resourceName,
-      expected_google_hash: input.expectedGoogleHash ?? null,
-      update_mask: input.updateMask,
-      requested_payload: (sql: TransactionSql) =>
-        jsonColumn(sql, input.payload),
-    },
-    onExisting: "replay",
-    failureCode: `${input.operation}_failed`,
-    operation: {
-      surface: "industry",
-      action: input.operation,
-      locationId: input.locationId,
-      targetType: resourceType,
-      targetRef: resourceName,
-      payloadHash: idempotencyKey([
-        input.operation,
-        [...input.updateMask].sort().join(","),
-        stableGoogleHash(input.payload),
-        input.expectedGoogleHash ?? null,
-      ]),
-      googleConnectionId: linked.connectionId,
-    },
-    mutate: async () => {
-      const response = lodging
-        ? await googleLodgingApi(
-            token,
-            {
-              locationName: linked.googleLocationName,
-              operation: "patch",
-              updateMask: input.updateMask,
-              payload: input.payload,
-            },
-            options
-          )
-        : await googleHealthcareApi(
-            token,
-            {
-              accountName: linked.accountName,
-              locationName: linked.googleLocationName,
-              resource: "serviceList",
-              method: "PATCH",
-              updateMask: input.updateMask,
-              payload: input.payload,
-            },
-            options
-          )
-      // A 2xx that is not the updated resource may still have written: settle
-      // it uncertain instead of reading it back as though it had answered.
-      if (!isRecord(response))
-        throw new GoogleMutationAmbiguousError(
-          "Google did not return the updated resource."
-        )
-      return response
-    },
-    // An ambiguous PATCH may still be applying, so it settles `ambiguous`
-    // without a readback rather than `failed` on a read taken too early.
-    onAmbiguous: "fail",
-    readback: {
-      read: async () => {
-        const readback = await read()
-        if (!isRecord(readback))
-          throw new GoogleMutationAmbiguousError(
-            "Google did not return the resource on readback."
-          )
-        return readback
-      },
-      // Lodging groups are written whole, so a leaf the payload leaves out
-      // must read back unset; healthcare serviceList stays a contains check.
-      verify: ({ readback }) =>
-        industryMismatches(input.updateMask, input.payload, readback, {
-          wholeGroups: lodging,
-        }).length === 0,
-      hash: (readback) => stableGoogleHash(readback),
-      mismatch: {
-        status: 502,
-        code: "industry_readback_mismatch",
-        message: "Google did not confirm the published industry details.",
-      },
-    },
-    audit: {
-      action: `google.${input.operation}`,
-      subjectType: "location",
-      subjectId: input.locationId,
-      metadata: { updateMask: input.updateMask },
-    },
-  })
-  if (result.idempotent)
-    return {
-      id: result.attemptId,
-      status: result.rawStatus,
-      idempotent: true,
-      operation: operationSummary(result),
-    }
-  await cacheGbpSnapshotAfterWrite({
-    organisationId,
-    locationId: input.locationId,
-    googleAccountId: linked.googleAccountId,
-    resourceType,
-    resourceName,
-    payload: result.readback,
-  })
-  return {
-    id: result.attemptId,
-    status: "succeeded",
-    response: result.readback,
-    idempotent: false,
-    operation: operationSummary(result),
-  }
+  if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
+  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  return publishReviewedLodging(input, linked)
 }
 
-// ---------------------------------------------------------------------------
-// Recovery (lib/server/mutation-recovery.ts)
-// ---------------------------------------------------------------------------
-
-/**
- * Reads an uncertain lodging or healthcare serviceList PATCH back with the
- * comparison its own readback uses (lib/domain/readback/industry.ts):
- * lodging groups whole, serviceList as a contains check. The resource name
- * the row recorded must still be the location's (industryResourceName).
- */
-export const industryRecoveryAdapter: RecoveryAdapter<
-  ManagementRecoveryAttempt & RecoveryAttempt
-> = {
-  surface: "industry",
-  attemptTable: "gbp_management_mutation",
-  load: loadManagementRecoveryAttempt,
-  async readback({ attempt, link }) {
-    if (
-      attempt.resourceType !== "lodging" &&
-      attempt.resourceType !== "healthcare_services"
-    ) {
-      return { kind: "unverifiable", errorCode: "recovery_unsupported" }
-    }
-    const lodging = attempt.resourceType === "lodging"
-    // The account name is the first two segments of the recorded
-    // serviceList name, the same one industryResourceName builds.
-    const accountName = lodging
-      ? null
-      : (attempt.targetResourceName ?? "").split("/").slice(0, 2).join("/")
-    const expectedName = lodging
-      ? industryResourceName("lodging", {
-          accountName: "",
-          googleLocationName: link.googleLocationName,
-        })
-      : industryResourceName("healthcare_services", {
-          accountName: accountName ?? "",
-          googleLocationName: link.googleLocationName,
-        })
-    if (!accountName && !lodging) {
-      return { kind: "unverifiable", errorCode: "target_changed" }
-    }
-    if (attempt.targetResourceName !== expectedName) {
-      return { kind: "unverifiable", errorCode: "target_changed" }
-    }
-    const token = await link.accessToken()
-    const options = { connectionKey: link.googleConnectionId }
-    const readback = lodging
-      ? await googleLodgingApi(
-          token,
-          { locationName: link.googleLocationName, operation: "get" },
-          options
-        )
-      : await googleHealthcareApi(
-          token,
-          {
-            accountName: accountName as string,
-            locationName: link.googleLocationName,
-            resource: "serviceList",
-          },
-          options
-        )
-    if (!isRecord(readback)) {
-      throw new GoogleMutationAmbiguousError(
-        "Google did not return the resource on readback."
-      )
-    }
-    return industryMismatches(
-      attempt.updateMask,
-      isRecord(attempt.requestedPayload) ? attempt.requestedPayload : {},
-      readback,
-      { wholeGroups: lodging }
-    ).length === 0
-      ? {
-          kind: "landed",
-          confirmed: true,
-          response: readback,
-          responseHash: stableGoogleHash(readback),
-        }
-      : { kind: "not_landed", errorCode: "industry_readback_mismatch" }
-  },
-  settle: storeSettle(gbpManagementAttemptStore),
+async function publishReviewedLodging(input: Parameters<typeof mutateIndustryManagement>[0], initial: GbpLocationContext): Promise<IndustryMutationResult> {
+  const changeSetId = input.changeSetId
+  if (!changeSetId) throw new ApiError(409, "approval_required", "Review and approve the exact lodging change before publishing.")
+  return withSessionConnection((connection) => connection.begin(async (lock) => {
+    await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:lodging`}, 0))`
+    const linked = await context(input.session, input.locationId)
+    if (!linked.canPublish || linked.connectionId !== initial.connectionId) throw new ApiError(409, "google_target_changed", "Location access or its connection changed. Refresh the review.")
+    const change = await approvedLodgingChange(input.session, linked, changeSetId, input.payload, input.updateMask)
+    const [existing] = await withTenant(input.session.organisationId, (sql) => sql<{ id: string; status: string; executionState: IndustryMutationResult["executionState"]; confirmationState: IndustryMutationResult["confirmationState"] }[]>`
+      select id, status, execution_state as "executionState", confirmation_state as "confirmationState" from gbp_management_mutation where change_set_id = ${changeSetId}
+    `)
+    if (existing) return { ...existing, idempotent: true }
+    const token = await linked.accessToken()
+    const baseline = await googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, { connectionKey: linked.connectionId })
+    if (stableGoogleHash(baseline) !== change.baseline_hash) throw new ApiError(409, "google_baseline_stale", "Google changed after review. Generate and approve a new preview.")
+    await approvedLodgingChange(input.session, await context(input.session, input.locationId), changeSetId, input.payload, input.updateMask)
+    const attempt = await startGbpMutation({ organisationId: input.session.organisationId, session: input.session, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType: "lodging", operation: "update_lodging", targetResourceName: linked.googleLocationName, requestId: changeSetId, expectedGoogleHash: change.baseline_hash, updateMask: change.update_mask, payload: change.payload, changeSetId, blockUnresolved: true, lockHeld: true })
+    if (attempt.idempotent) return attempt
+    const result = await executeAndConfirmGbpMutation({
+      organisationId: input.session.organisationId, mutationId: attempt.id, payload: change.payload, updateMask: change.update_mask,
+      execute: () => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "patch", updateMask: change.update_mask, payload: change.payload }, { connectionKey: linked.connectionId }),
+      observe: () => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, { connectionKey: linked.connectionId }),
+      onObserved: (response) => cacheGbpSnapshot({ organisationId: input.session.organisationId, locationId: input.locationId, googleAccountId: linked.googleAccountId, resourceType: "lodging", resourceName: `${linked.googleLocationName}/lodging`, payload: response }),
+    })
+    await auditGbpMutation({ organisationId: input.session.organisationId, session: input.session, action: "google.update_lodging", subjectType: "location", subjectId: input.locationId, requestId: input.requestId, metadata: { changeSetId, approvedBy: change.approved_by, requestedBy: change.requested_by, executionState: result.executionState, confirmationState: result.confirmationState } })
+    return result
+  }))
 }

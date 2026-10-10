@@ -74,7 +74,7 @@ async function retain({
     order by organisation_id
     limit ${batchSize}
   `
-  // Ended abuse-limit windows (0066) are platform-level, not per tenant, so
+  // Ended abuse-limit windows (0085) are platform-level, not per tenant, so
   // they are purged once per sweep, on its first page. They hold no tenant
   // data, so RETENTION_DELETES_ENABLED (the switch for tenant deletes) does
   // not stop this; leaving them would only grow the table. A failure here is
@@ -263,6 +263,21 @@ async function retain({
             delete from gbp_management_mutation
             where expires_at <= now()
             returning id
+          `
+        )
+        const onboardingDrafts = await purge(
+          deletesEnabled,
+          () => sql`delete from google_onboarding_draft where expires_at <= now() returning id`
+        )
+        // A reviewed Place Action attempt outlives its review (it is written
+        // later) and restricts deletion, so the review waits for it.
+        const managementChangeSets = await purge(
+          deletesEnabled,
+          () => sql`
+            delete from gbp_change_set c
+            where c.expires_at <= now()
+              and not exists (select 1 from place_action_mutation m where m.change_set_id = c.id)
+            returning c.id
           `
         )
         // The snapshot is a cache keyed per resource and rebuilt on the next
@@ -480,6 +495,8 @@ async function retain({
           placeActionMutations,
           mediaMutations,
           managementMutations,
+          managementChangeSets,
+          onboardingDrafts,
           resourceSnapshots,
           profileSnapshots: profileSnapshots.count,
           profileAttempts,

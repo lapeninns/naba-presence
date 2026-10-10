@@ -182,7 +182,10 @@ describeDatabase("Local Posts CRUD", () => {
     })
     google.respond(
       { method: "GET", pathIncludes: "/localPosts/post-1" },
-      () => ({ status: 200, json: providerPost })
+      // Like Google: a deleted post reads as not found.
+      () => providerVisible
+        ? { status: 200, json: providerPost }
+        : { status: 404, json: { error: { status: "NOT_FOUND" } } }
     )
     google.respond(
       { method: "PATCH", pathIncludes: "/localPosts/post-1" },

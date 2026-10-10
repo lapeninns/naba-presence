@@ -6,11 +6,8 @@ import type { RecoveryOperation } from "@/lib/server/mutation-operations"
 
 const google = vi.hoisted(() => ({
   getGoogleLocation: vi.fn(),
-  getGoogleLocationAttributes: vi.fn(),
   getGoogleLocalPost: vi.fn(),
   googleLocalPosts: vi.fn(),
-  getGooglePlaceActionLink: vi.fn(),
-  listGooglePlaceActionLinks: vi.fn(),
   getGoogleMediaItem: vi.fn(),
 }))
 vi.mock("@/lib/server/google", async (importOriginal) => ({
@@ -18,12 +15,9 @@ vi.mock("@/lib/server/google", async (importOriginal) => ({
   ...google,
 }))
 
-import { businessInformationRecoveryAdapter } from "@/lib/server/business-information"
 import { hoursRecoveryAdapter } from "@/lib/server/hours"
-import { industryRecoveryAdapter } from "@/lib/server/industry-management"
 import { ApiError } from "@/lib/server/http"
 import { mediaRecoveryAdapter } from "@/lib/server/media"
-import { placeActionRecoveryAdapter } from "@/lib/server/place-actions"
 import { localPostRecoveryAdapter } from "@/lib/server/posts"
 import { profileRecoveryAdapter } from "@/lib/server/profile"
 
@@ -132,55 +126,7 @@ describe("hours recovery adapter", () => {
   })
 })
 
-describe("business information recovery adapter", () => {
-  const attempt = {
-    ...base,
-    resourceType: "business_info",
-    operation: "patch",
-    targetResourceName: "locations/1",
-    updateMask: ["title"],
-    requestedPayload: { title: "The Bell Inn" },
-  }
-
-  it("compares the masked fields with the recorded payload", async () => {
-    google.getGoogleLocation.mockResolvedValue({
-      name: "locations/1",
-      title: "The Bell Inn",
-    })
-    await expect(
-      businessInformationRecoveryAdapter.readback({ attempt, link, operation })
-    ).resolves.toMatchObject({ kind: "landed", confirmed: true })
-    google.getGoogleLocation.mockResolvedValue({
-      name: "locations/1",
-      title: "The Bell",
-    })
-    await expect(
-      businessInformationRecoveryAdapter.readback({ attempt, link, operation })
-    ).resolves.toEqual({
-      kind: "not_landed",
-      errorCode: "business_information_readback_mismatch",
-    })
-  })
-})
-
-describe("industry and media recovery adapters", () => {
-  it("refuses an industry row recorded for another location", async () => {
-    await expect(
-      industryRecoveryAdapter.readback({
-        attempt: {
-          ...base,
-          resourceType: "lodging",
-          operation: "update_lodging",
-          targetResourceName: "locations/2/lodging",
-          updateMask: [],
-          requestedPayload: {},
-        },
-        link,
-        operation,
-      })
-    ).resolves.toEqual({ kind: "unverifiable", errorCode: "target_changed" })
-  })
-
+describe("media recovery adapter", () => {
   it("hands a media create from before the upload checkpoints to a person", async () => {
     await expect(
       mediaRecoveryAdapter.readback({
@@ -309,133 +255,6 @@ describe("post recovery adapter", () => {
       })
     ).resolves.toEqual({ kind: "unverifiable", errorCode: "target_changed" })
     expect(google.googleLocalPosts).not.toHaveBeenCalled()
-  })
-})
-
-describe("place action recovery adapter", () => {
-  const payload = {
-    uri: "https://book.example.test/bell",
-    placeActionType: "DINING_RESERVATION" as const,
-    isPreferred: false,
-  }
-  const live = (name: string, uri = payload.uri) => ({
-    name,
-    uri,
-    placeActionType: payload.placeActionType,
-    isPreferred: false,
-  })
-  const attempt = {
-    ...base,
-    externalLocationId: "ext-1",
-    operation: "create" as const,
-    requestedPayload: payload,
-    googleLinkName: null,
-  }
-
-  it("identifies a create by its uri and type", async () => {
-    google.listGooglePlaceActionLinks.mockResolvedValue([
-      live("locations/1/placeActionLinks/a"),
-    ])
-    await expect(
-      placeActionRecoveryAdapter.readback({ attempt, link, operation })
-    ).resolves.toMatchObject({ kind: "landed", confirmed: false })
-    google.listGooglePlaceActionLinks.mockResolvedValue([
-      live("locations/1/placeActionLinks/a", "https://other.example.test"),
-    ])
-    await expect(
-      placeActionRecoveryAdapter.readback({ attempt, link, operation })
-    ).resolves.toEqual({
-      kind: "not_landed",
-      errorCode: "place_action_not_created",
-    })
-  })
-
-  it("compares an update with the targeted link", async () => {
-    const update = {
-      ...attempt,
-      operation: "update" as const,
-      googleLinkName: "locations/1/placeActionLinks/a",
-    }
-    google.getGooglePlaceActionLink.mockResolvedValue(
-      live("locations/1/placeActionLinks/a")
-    )
-    await expect(
-      placeActionRecoveryAdapter.readback({ attempt: update, link, operation })
-    ).resolves.toMatchObject({ kind: "landed", confirmed: true })
-    google.getGooglePlaceActionLink.mockResolvedValue(
-      live("locations/1/placeActionLinks/a", "https://old.example.test")
-    )
-    await expect(
-      placeActionRecoveryAdapter.readback({ attempt: update, link, operation })
-    ).resolves.toEqual({
-      kind: "not_landed",
-      errorCode: "place_action_readback_mismatch",
-    })
-  })
-
-  it("hands an update of a link Google no longer holds to a person", async () => {
-    google.getGooglePlaceActionLink.mockRejectedValue(
-      new ApiError(404, "google_not_found", "Not found.")
-    )
-    await expect(
-      placeActionRecoveryAdapter.readback({
-        attempt: {
-          ...attempt,
-          operation: "update",
-          googleLinkName: "locations/1/placeActionLinks/a",
-        },
-        link,
-        operation,
-      })
-    ).resolves.toEqual({ kind: "unverifiable", errorCode: "target_changed" })
-  })
-
-  it("confirms a delete once the link is no longer listed", async () => {
-    const remove = {
-      ...attempt,
-      operation: "delete" as const,
-      googleLinkName: "locations/1/placeActionLinks/a",
-    }
-    google.listGooglePlaceActionLinks.mockResolvedValue([
-      live("locations/1/placeActionLinks/a"),
-    ])
-    await expect(
-      placeActionRecoveryAdapter.readback({ attempt: remove, link, operation })
-    ).resolves.toEqual({
-      kind: "not_landed",
-      errorCode: "place_action_delete_mismatch",
-    })
-    google.listGooglePlaceActionLinks.mockResolvedValue([])
-    await expect(
-      placeActionRecoveryAdapter.readback({ attempt: remove, link, operation })
-    ).resolves.toEqual({ kind: "landed", confirmed: true })
-  })
-
-  it("records the created link's name when the settle writes", async () => {
-    const calls: string[] = []
-    // A stand-in for postgres.js: records each statement's text, answers
-    // every statement with one row, and passes identifiers and json through.
-    const sql = Object.assign(
-      (first: unknown) => {
-        if (!Array.isArray(first)) return first
-        calls.push(first.join("?"))
-        return Promise.resolve([{ id: "a1" }])
-      },
-      { json: (value: unknown) => value }
-    )
-    const written = await placeActionRecoveryAdapter.settle(sql as never, {
-      attempt,
-      verdict: {
-        kind: "landed",
-        confirmed: false,
-        response: live("locations/1/placeActionLinks/new"),
-      },
-      link,
-    })
-    expect(written).toBe(true)
-    expect(calls.some((text) => text.includes("set google_link_name"))).toBe(
-      true
-    )
   })
 })
 

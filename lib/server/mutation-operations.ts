@@ -109,11 +109,10 @@ export function claimAmbientIntent(): string | null {
 }
 
 /**
- * The per-request part of a request-scoped idempotency key (media, place
- * actions, post deletes, business information). With an intent it is the
- * intent, so a retry of the same intent derives the same attempt key and
- * replays it instead of writing again; without one it is the request id, as
- * before.
+ * The per-request part of a request-scoped idempotency key (media and post
+ * deletes). With an intent it is the intent, so a retry of the same intent
+ * derives the same attempt key and replays it instead of writing again;
+ * without one it is the request id, as before.
  */
 export function requestScopedKeyPart(requestId: string): string {
   const intentId = currentIntentId()

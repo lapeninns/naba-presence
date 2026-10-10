@@ -66,6 +66,8 @@ const COPY: Record<string, string> = {
     "The saved content changed after this request, so it was not sent. Make the change again.",
   approval_dispatch_interrupted:
     "This approval was interrupted before anything was sent to Google. Make the change again.",
+  google_confirmation_required:
+    "Google has not confirmed this change. Check the recorded outcome in Activity before publishing again.",
   // ---- Session / permissions (shared) -------------------------------------
   authentication_required:
     "Your session has expired. Sign in again to continue.",
@@ -598,6 +600,9 @@ const UNCERTAIN_CODES = new Set([
   "publish_outcome_unknown",
   "media_needs_resolution",
   "network_error",
+  // A reviewed change-set write was sent and Google has not confirmed it
+  // (lib/editors/use-publish-flow.ts).
+  "google_confirmation_required",
 ])
 
 /**

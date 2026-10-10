@@ -2,39 +2,21 @@ import "server-only"
 
 import { NextResponse } from "next/server"
 
-import {
-  businessInformationPatchSchema,
-  type BusinessInformationPatchBody,
-} from "@/lib/contracts/location-business-information"
 import { publishFoodMenusSchema } from "@/lib/contracts/location-food-menus"
 import { publishHoursBodySchema } from "@/lib/contracts/location-hours"
-import {
-  industryMutationSchema,
-  type SupportedIndustryMutation,
-} from "@/lib/contracts/location-industry"
 import {
   mediaCreateRequestSchema,
   mediaDeleteRequestSchema,
   mediaUpdateRequestSchema,
 } from "@/lib/contracts/location-media"
-import {
-  placeActionCreateRequestSchema,
-  placeActionDeleteRequestSchema,
-  placeActionUpdateRequestSchema,
-} from "@/lib/contracts/location-place-actions"
 import { profileOperationBodySchema } from "@/lib/contracts/location-profile"
 import type {
   ListingChangeDecisionResponse,
   ListingChangeKind,
 } from "@/lib/contracts/listing-changes"
-import {
-  updateBusinessAttributes,
-  updateBusinessInformation,
-} from "@/lib/server/business-information"
 import { publishFoodMenus } from "@/lib/server/food-menus"
 import { publishCanonicalHours } from "@/lib/server/hours"
 import { ApiError } from "@/lib/server/http"
-import { mutateIndustryManagement } from "@/lib/server/industry-management"
 import {
   approveListingChange,
   parkListingChange,
@@ -44,17 +26,14 @@ import {
   type ListingChangeSubmit,
 } from "@/lib/server/listing-changes"
 import { createMedia, removeMedia, updateMedia } from "@/lib/server/media"
-import {
-  createPlaceAction,
-  removePlaceAction,
-  updatePlaceAction,
-} from "@/lib/server/place-actions"
 import { publishProfileToGoogle } from "@/lib/server/profile"
 import { withTenant } from "@/lib/server/db"
 
 /**
  * Every listing write that parks for approval in two-person mode
- * (lib/server/listing-changes.ts), and the surface call that sends it. The
+ * (lib/server/listing-changes.ts), and the surface call that sends it.
+ * Business information, attributes, lodging and Place Action links are
+ * reviewed change sets instead (lib/contracts/listing-changes.ts). The
  * routes call `submitListingChange` instead of the surface function, so the
  * request a person makes and the request an approver later sends go through
  * the same code; an approval dispatches the frozen body through the same
@@ -77,11 +56,6 @@ function requireTarget(target: string | null): string {
   }
   return target
 }
-
-type AttributesUpdate = Extract<
-  BusinessInformationPatchBody,
-  { operation: "update_attributes" }
->
 
 export const LISTING_CHANGE_ENTRIES = {
   hours_publish: entry({
@@ -129,100 +103,6 @@ export const LISTING_CHANGE_ENTRIES = {
         expectedCanonicalHash: body.expectedCanonicalHash,
         expectedGoogleHash: body.expectedGoogleHash,
         confirmOverwriteGoogleChanges: body.confirmOverwriteGoogleChanges,
-        requestId,
-      })
-    },
-  }),
-  business_information_update: entry({
-    kind: "business_information_update",
-    surface: "business_information",
-    gbpSurface: "profileWrites",
-    action: () => "update_location",
-    body: businessInformationPatchSchema,
-    fieldMask: (body) =>
-      body.operation === "update_location" ? [...body.updateMask] : [],
-    expectedRevision: (body) => `google:${body.expectedGoogleHash}`,
-    dispatch: ({ session, locationId, body, requestId }) => {
-      if (body.operation !== "update_location") {
-        throw new ApiError(
-          409,
-          "change_request_invalid",
-          "Make the change again."
-        )
-      }
-      return updateBusinessInformation({
-        session,
-        locationId,
-        payload: body.payload,
-        updateMask: body.updateMask,
-        expectedGoogleHash: body.expectedGoogleHash,
-        requestId,
-      })
-    },
-  }),
-  business_attributes_update: entry({
-    kind: "business_attributes_update",
-    surface: "business_information",
-    gbpSurface: "profileWrites",
-    action: () => "update_attributes",
-    body: businessInformationPatchSchema,
-    fieldMask: (body) =>
-      body.operation === "update_attributes"
-        ? [...(body as AttributesUpdate).attributeMask]
-        : [],
-    expectedRevision: (body) => `google:${body.expectedGoogleHash}`,
-    dispatch: ({ session, locationId, body, requestId }) => {
-      if (body.operation !== "update_attributes") {
-        throw new ApiError(
-          409,
-          "change_request_invalid",
-          "Make the change again."
-        )
-      }
-      return updateBusinessAttributes({
-        session,
-        locationId,
-        attributes: body.attributes,
-        attributeMask: body.attributeMask,
-        expectedGoogleHash: body.expectedGoogleHash,
-        requestId,
-      })
-    },
-  }),
-  industry_update: entry({
-    kind: "industry_update",
-    surface: "industry",
-    gbpSurface: "profileWrites",
-    action: (body) => body.operation,
-    body: industryMutationSchema,
-    fieldMask: (body) =>
-      "updateMask" in body ? [...(body.updateMask as readonly string[])] : [],
-    expectedRevision: (body) =>
-      body.operation === "update_lodging"
-        ? `google:${body.expectedGoogleHash}`
-        : null,
-    dispatch: ({ session, locationId, body, requestId }) => {
-      if (
-        body.operation !== "update_lodging" &&
-        body.operation !== "update_healthcare_services"
-      ) {
-        throw new ApiError(
-          409,
-          "change_request_invalid",
-          "Make the change again."
-        )
-      }
-      const supported = body as SupportedIndustryMutation
-      return mutateIndustryManagement({
-        session,
-        locationId,
-        operation: supported.operation,
-        payload: supported.payload as Record<string, unknown>,
-        updateMask: [...supported.updateMask],
-        expectedGoogleHash:
-          supported.operation === "update_lodging"
-            ? supported.expectedGoogleHash
-            : undefined,
         requestId,
       })
     },
@@ -306,69 +186,6 @@ export const LISTING_CHANGE_ENTRIES = {
         session,
         locationId,
         mediaId: requireTarget(target),
-        expectedGoogleHash: body.expectedGoogleHash,
-        requestId,
-      }),
-  }),
-  place_action_create: entry({
-    kind: "place_action_create",
-    creates: true,
-    surface: "place_action",
-    gbpSurface: "placeActions",
-    action: () => "create",
-    body: placeActionCreateRequestSchema,
-    fieldMask: () => ["uri", "placeActionType", "isPreferred"],
-    expectedRevision: () => null,
-    dispatch: ({ session, locationId, body, requestId }) =>
-      createPlaceAction({
-        organisationId: session.organisationId,
-        session,
-        locationId,
-        payload: {
-          uri: body.uri,
-          placeActionType: body.placeActionType,
-          isPreferred: body.isPreferred,
-        },
-        requestId,
-      }),
-  }),
-  place_action_update: entry({
-    kind: "place_action_update",
-    surface: "place_action",
-    gbpSurface: "placeActions",
-    action: () => "update",
-    body: placeActionUpdateRequestSchema,
-    fieldMask: () => ["uri", "placeActionType", "isPreferred"],
-    expectedRevision: (body) => `google:${body.expectedGoogleHash}`,
-    dispatch: ({ session, locationId, target, body, requestId }) =>
-      updatePlaceAction({
-        organisationId: session.organisationId,
-        session,
-        locationId,
-        linkId: requireTarget(target),
-        payload: {
-          uri: body.uri,
-          placeActionType: body.placeActionType,
-          isPreferred: body.isPreferred,
-        },
-        expectedGoogleHash: body.expectedGoogleHash,
-        requestId,
-      }),
-  }),
-  place_action_delete: entry({
-    kind: "place_action_delete",
-    surface: "place_action",
-    gbpSurface: "placeActions",
-    action: () => "delete",
-    body: placeActionDeleteRequestSchema,
-    fieldMask: () => ["placeActionLink"],
-    expectedRevision: (body) => `google:${body.expectedGoogleHash}`,
-    dispatch: ({ session, locationId, target, body, requestId }) =>
-      removePlaceAction({
-        organisationId: session.organisationId,
-        session,
-        locationId,
-        linkId: requireTarget(target),
         expectedGoogleHash: body.expectedGoogleHash,
         requestId,
       }),

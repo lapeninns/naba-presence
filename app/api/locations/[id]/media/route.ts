@@ -41,6 +41,8 @@ export const GET = route({
 export const POST = route({
   params: paramsSchema,
   handler: async ({ request, session, params, requestId }) => {
+    const intent = request.headers.get("idempotency-key")
+    const intentId = intent && /^[0-9a-f-]{36}$/i.test(intent) ? intent : null
     if (request.headers.get("content-type")?.includes("multipart/form-data")) {
       const form = await request.formData()
       const file = form.get("file")
@@ -84,6 +86,7 @@ export const POST = route({
             bytes: await file.arrayBuffer(),
           },
           requestId,
+          intentId,
         })) satisfies MediaMutationOutcome,
         { status: 201 }
       )

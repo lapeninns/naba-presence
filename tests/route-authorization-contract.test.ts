@@ -19,7 +19,8 @@ import { describe, expect, it } from "vitest"
  *      guard from one function (say createLocalPostDraft) fails here even
  *      though the module still guards others.
  * The few session mutations with no location at all are listed in
- * NO_LOCATION with the reason. A new handler that does none of these fails
+ * NO_LOCATION with the reason, and handlers that only refuse (the write
+ * moved to a reviewed route) in REFUSES, whose shape is checked. A new handler that does none of these fails
  * here, and so does a stale allowlist entry.
  *
  * A static scan proves a guard call is present, not that it is the right
@@ -36,7 +37,7 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url))
  * answers a boolean, so it only counts in its refusing form.
  */
 const ACTION_GUARD =
-  /\b(requireLocationAction|requirePublishGrant)\(|if \(!\(await canPublishLocation\(/
+  /\b(requireLocationAction|requireLocationActionForAll|requirePublishGrant)\(|if \(!\(await canPublishLocation\(/
 
 /**
  * "module#function" links, from the function the route calls to the guard.
@@ -104,26 +105,14 @@ const DELEGATED: Record<string, readonly Chain[]> = {
       "lib/server/media.ts#requireMediaWrite",
     ],
   ],
-  "POST app/api/locations/[id]/place-actions/route.ts": [
-    [
-      "registry:place_action_create",
-      "lib/server/place-actions.ts#createPlaceAction",
-      "lib/server/place-actions.ts#linkedForWrite",
-    ],
+  "POST app/api/locations/[id]/post-schedules/route.ts": [
+    ["lib/server/publication-schedules.ts#createPublicationSchedule"],
   ],
-  "PATCH app/api/locations/[id]/place-actions/[linkId]/route.ts": [
-    [
-      "registry:place_action_update",
-      "lib/server/place-actions.ts#updatePlaceAction",
-      "lib/server/place-actions.ts#linkedForWrite",
-    ],
+  "PUT app/api/locations/[id]/post-schedules/[scheduleId]/route.ts": [
+    ["lib/server/publication-schedules.ts#revisePublicationSchedule"],
   ],
-  "DELETE app/api/locations/[id]/place-actions/[linkId]/route.ts": [
-    [
-      "registry:place_action_delete",
-      "lib/server/place-actions.ts#removePlaceAction",
-      "lib/server/place-actions.ts#linkedForWrite",
-    ],
+  "POST app/api/listings/bulk/preview/route.ts": [
+    ["lib/server/bulk-listings.ts#previewBulkOperation"],
   ],
   // Approving dispatches the frozen write through its surface function,
   // whose own guard (the chains above) runs again as the approver.
@@ -254,6 +243,31 @@ const NO_LOCATION: Record<string, string> = {
     "switches the caller's own active organisation; membership is checked",
   "DELETE app/api/support/impersonation/route.ts":
     "ends the caller's own support session",
+  "POST app/api/notifications/read/route.ts":
+    "the caller's own read state, only for incidents they can already see",
+  "PUT app/api/notifications/preferences/route.ts":
+    "the caller's own notification preferences",
+}
+
+/**
+ * Handlers kept only to refuse: the write moved behind a reviewed change set
+ * (an owner or admin's exact, approved request), and the handler throws
+ * before reading anything. Checked by shape, not just listed.
+ */
+const REFUSES: Record<string, string> = {
+  "POST app/api/locations/[id]/place-actions/route.ts":
+    "place action links are written through reviewed change sets",
+  "PATCH app/api/locations/[id]/place-actions/[linkId]/route.ts":
+    "place action links are written through reviewed change sets",
+  "DELETE app/api/locations/[id]/place-actions/[linkId]/route.ts":
+    "place action links are written through reviewed change sets",
+}
+
+/** The handler takes nothing and its whole body is one `throw new ApiError(`. */
+function onlyRefuses(config: string): boolean {
+  return /\bhandler:\s*\(\)\s*=>\s*\{\s*throw new ApiError\([^;{}]*\)\s*\}/.test(
+    config
+  )
 }
 
 type Handler = { key: string; file: string; config: string }
@@ -316,6 +330,10 @@ describe("route authorisation contract", () => {
     (_key, handler) => {
       if (declaresNonViewerRoles(handler.config)) return
       if (ACTION_GUARD.test(handler.config)) return
+      if (REFUSES[handler.key]) {
+        expect(onlyRefuses(handler.config), handler.key).toBe(true)
+        return
+      }
       const chains = DELEGATED[handler.key]
       if (chains) {
         for (const chain of chains) {
@@ -348,6 +366,24 @@ describe("route authorisation contract", () => {
     expect(declaresNonViewerRoles('roles: ["owner", "admin"],')).toBe(true)
   })
 
+  it("does not take a handler that reads its input as a refusal", () => {
+    expect(
+      onlyRefuses(
+        'handler: () => { throw new ApiError(409, "x", "Use the review.") },'
+      )
+    ).toBe(true)
+    expect(
+      onlyRefuses(
+        "handler: async ({ session }) => { throw new ApiError(409, session.userId) },"
+      )
+    ).toBe(false)
+    expect(
+      onlyRefuses(
+        'handler: () => { await write(); throw new ApiError(409, "x", "y") },'
+      )
+    ).toBe(false)
+  })
+
   it("reports a handler that does not call its delegated function", () => {
     expect(
       chainGap("export const POST = route({ handler: async () => ok() })", [
@@ -358,13 +394,15 @@ describe("route authorisation contract", () => {
 
   it("follows a listing write through its registry entry to the surface guard", () => {
     const chain = [
-      "registry:place_action_create",
-      "lib/server/place-actions.ts#createPlaceAction",
-      "lib/server/place-actions.ts#linkedForWrite",
+      "registry:media_update",
+      "lib/server/media.ts#updateMedia",
+      "lib/server/media.ts#mutableMediaItem",
+      "lib/server/media.ts#linkedForWrite",
+      "lib/server/media.ts#requireMediaWrite",
     ]
     expect(
       chainGap(
-        'route({ handler: () => submitListingChange("place_action_create", {}) })',
+        'route({ handler: () => submitListingChange("media_update", {}) })',
         chain
       )
     ).toBeNull()
@@ -373,13 +411,13 @@ describe("route authorisation contract", () => {
         'route({ handler: () => submitListingChange("media_create", {}) })',
         chain
       )
-    ).toBe("the handler does not submit place_action_create")
+    ).toBe("the handler does not submit media_update")
     expect(
       chainGap(
-        'route({ handler: () => submitListingChange("place_action_create", {}) })',
-        ["registry:place_action_create", "lib/server/media.ts#createMedia"]
+        'route({ handler: () => submitListingChange("media_update", {}) })',
+        ["registry:media_update", "lib/server/media.ts#createMedia"]
       )
-    ).toBe("the place_action_create registry entry does not call createMedia")
+    ).toBe("the media_update registry entry does not call createMedia")
   })
 
   it("keeps no stale allowlist entries", () => {
@@ -395,6 +433,7 @@ describe("route authorisation contract", () => {
     const stale = [
       ...Object.keys(DELEGATED),
       ...Object.keys(NO_LOCATION),
+      ...Object.keys(REFUSES),
     ].filter((key) => !keys.has(key))
     expect(stale).toEqual([])
   })

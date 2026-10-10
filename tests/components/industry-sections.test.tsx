@@ -10,17 +10,16 @@ function jsonResponse(body: unknown, status = 200) {
 }
 const available = (data: unknown) => ({ data, error: null })
 const INDUSTRY = { industry: {
+  lodgingHash: "a".repeat(64),
   lodging: available({
     policies: { checkinTime: { hours: 15, minutes: 0 } },
     pets: { petsAllowed: false },
   }),
   lodgingUpdated: available({
     diffMask: "pets,connectivity",
-    pets: { petsAllowed: true },
-    connectivity: { freeWifi: true },
+    lodging: { pets: { petsAllowed: true }, connectivity: { freeWifi: true } },
   }),
   healthcareServices: { data: null, error: "Google 500 boom" },
-  lodgingHash: "a".repeat(64),
   canManage: true, writesEnabled: true,
 } }
 
@@ -50,20 +49,69 @@ describe("IndustrySections", () => {
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/industry"))).toBe(false)
   })
 
-  it("shows the honest section error, never the raw Google message", async () => {
+  it("does not render a second healthcare services panel from a legacy response", async () => {
     stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<IndustrySections locationId="loc-1" />)
-    expect(await screen.findByText(/couldn't load healthcare/i)).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "Lodging details" })).toBeInTheDocument()
+    expect(screen.queryByText(/couldn't load healthcare/i)).not.toBeInTheDocument()
+    expect(screen.queryByText("Healthcare services", { exact: true })).not.toBeInTheDocument()
     expect(screen.queryByText(/boom/)).not.toBeInTheDocument()
   })
 
   it("applies Google suggested lodging values into the form", async () => {
     stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<IndustrySections locationId="loc-1" />)
-    expect(await screen.findByText(/google suggests changes/i)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: /apply suggested values/i }))
-    expect(screen.getByLabelText("Pets allowed")).toBeChecked()
-    expect(screen.getByLabelText("Free Wi‑Fi")).toBeChecked()
+    expect(await screen.findByRole("region", { name: "Suggested lodging changes" })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Apply suggested pets allowed to draft" }))
+    await userEvent.click(screen.getByRole("button", { name: "Apply suggested free wi-fi to draft" }))
+    await userEvent.click(screen.getByRole("searchbox"))
+    await userEvent.paste("Pets allowed")
+    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+    await userEvent.clear(screen.getByRole("searchbox"))
+    await userEvent.paste("Free wifi")
+    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Free Wi-Fi" })).toHaveTextContent("Yes")
+  })
+
+  it("omits retired controls even when an old response contains their data", async () => {
+    const fetchMock = stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<IndustrySections locationId="loc-1" />)
+    expect(await screen.findByRole("region", { name: "Suggested lodging changes" })).toBeInTheDocument()
+    expect(screen.queryByRole("combobox", { name: "Calls" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /save calls/i })).not.toBeInTheDocument()
+    expect(screen.queryByText("Provider attributes", { exact: true })).not.toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
+  })
+
+  it("does not report publication success when Google confirmation is unresolved", async () => {
+    const changeSet = { id: "11111111-1111-4111-8111-111111111111", locationName: "Hotel", targetResourceName: "locations/hotel", payloadHash: "b".repeat(64), baselineHash: "a".repeat(64), payload: { pets: { petsAllowed: true } }, baseline: { pets: { petsAllowed: false } }, updateMask: ["pets"], requestedBy: "owner", approvedBy: null, requiresSecondApprover: false, canApprove: true, expiresAt: new Date(Date.now() + 24 * 60 * 60_000).toISOString() }
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (init?.method === "PUT") return jsonResponse({ changeSet })
+      if (init?.method === "POST") return jsonResponse({ changeSet: { ...changeSet, approvedBy: "owner" } })
+      if (init?.method === "PATCH") return jsonResponse({ id: "m", status: "ambiguous", idempotent: false, executionState: "accepted", confirmationState: "unresolved" })
+      return jsonResponse(INDUSTRY)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    renderWithProviders(<IndustrySections locationId="loc-1" />)
+    await userEvent.type(await screen.findByRole("searchbox"), "Pets allowed")
+    await userEvent.click(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" }))
+    await userEvent.click(await screen.findByRole("option", { name: "Yes" }))
+    await userEvent.click(screen.getByRole("button", { name: "Review lodging changes" }))
+    expect(await screen.findByRole("dialog", { name: "Review changes" })).toBeInTheDocument()
+    const dialog = within(screen.getByRole("dialog", { name: "Review changes" }))
+    expect(dialog.getByText("No", { exact: true })).toBeInTheDocument()
+    expect(dialog.getByText("Yes", { exact: true })).toBeInTheDocument()
+    await userEvent.click(dialog.getByRole("button", { name: "Approve lodging changes" }))
+    await userEvent.click(await dialog.findByRole("checkbox", { name: "Send these exact approved lodging changes to Google." }))
+    await userEvent.click(dialog.getByRole("button", { name: "Send approved lodging changes" }))
+    expect(await screen.findByText(/Google confirmation is unresolved/)).toBeInTheDocument()
+    expect(screen.queryByText("Lodging details confirmed by Google")).not.toBeInTheDocument()
+    // Only the supported lodging operation is ever sent.
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")
+    const body = JSON.parse(String(patch?.[1]?.body))
+    expect(body.operation).toBe("update_lodging")
+    expect(body.updateMask).toEqual(["pets"])
+    expect(body.confirmation).toBe("publish_industry_data_to_google")
   })
 
   it("offers no Business Calls or provider-attribute controls, even for a response that still carries them", async () => {
@@ -75,33 +123,11 @@ describe("IndustrySections", () => {
       providerAttributes: available({ attributes: [] }), insuranceNetworks: available({}),
     } })
     renderWithProviders(<IndustrySections locationId="loc-1" />)
-    expect(await screen.findByRole("button", { name: /review lodging changes/i })).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "Lodging details" })).toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: "Calls" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /save calls/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /save lodging/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/business calls/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/provider attributes/i)).not.toBeInTheDocument()
-  })
-
-  it("lodging publish sends only supported operations", async () => {
-    const fetchMock = stub({ canEditCanonical: true, canPublish: true })
-    renderWithProviders(<IndustrySections locationId="loc-1" />)
-    await userEvent.click(await screen.findByLabelText("Pets allowed"))
-    await userEvent.click(screen.getByRole("button", { name: /review lodging changes/i }))
-    // The sheet shows the leaf diff in the switch's own words before anything
-    // is sent, and the only way on is "Publish to Google".
-    const sheet = await screen.findByRole("dialog")
-    expect(within(sheet).getByText("Pets allowed")).toBeInTheDocument()
-    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit)?.method === "PATCH")).toBe(false)
-    await userEvent.click(within(sheet).getByRole("button", { name: "Publish to Google" }))
-    await waitFor(() => {
-      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit)?.method === "PATCH")
-      const body = JSON.parse((patch![1] as RequestInit).body as string)
-      expect(body.operation).toBe("update_lodging")
-      expect(body.updateMask).toEqual(["pets"])
-      // The loaded lodging's hash goes back as the expected baseline.
-      expect(body.expectedGoogleHash).toBe("a".repeat(64))
-      expect(body.confirmation).toBe("publish_industry_data_to_google")
-    })
   })
 })

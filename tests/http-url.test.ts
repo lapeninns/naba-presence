@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { httpUrl } from "@/lib/contracts/http-url"
 import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
+import { bulkOperationInputSchema } from "@/lib/domain/bulk-merge"
 import { businessInformationPayloadSchema } from "@/lib/domain/business-information"
+import { googleAttributeWriteSchema } from "@/lib/domain/google-attributes"
 
 const schema = httpUrl()
 
@@ -68,6 +70,30 @@ describe("httpUrl()", () => {
         websiteUri: "data:text/html,hi",
       }).success
     ).toBe(false)
+  })
+
+  it("is what bulk action links and URL attributes use", () => {
+    const bulkLink = (uri: string) =>
+      bulkOperationInputSchema.safeParse({
+        operation: "place_action",
+        action: "upsert",
+        placeActionType: "DINING_RESERVATION",
+        uri,
+      }).success
+    const urlAttribute = (uri: string) =>
+      googleAttributeWriteSchema.safeParse({
+        name: "attributes/url_menu",
+        uriValues: [{ uri }],
+      }).success
+    expect(bulkLink("https://example.test/book")).toBe(true)
+    expect(urlAttribute("https://example.test/menu")).toBe(true)
+    for (const unsafe of [
+      "javascript:alert(1)",
+      "https://user:secret@example.test/",
+    ]) {
+      expect(bulkLink(unsafe)).toBe(false)
+      expect(urlAttribute(unsafe)).toBe(false)
+    }
   })
 
   describe("in a browser without the static URL.parse (Safari 17, Chrome < 126)", () => {

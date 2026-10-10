@@ -96,27 +96,29 @@ describe("ListingChangeRequests", () => {
     vi.spyOn(listingChangesApi, "fetchListingChangeRequests").mockResolvedValue(
       [
         change({
-          kind: "place_action_create",
-          label: "Add a booking link",
-          fieldMask: ["uri", "placeActionType", "isPreferred"],
+          kind: "media_create",
+          label: "Add a photo or video",
+          fieldMask: ["sourceUrl", "category"],
           details: [
-            { label: "Web address", value: "https://book.example.com/table" },
-            { label: "Link type", value: "DINING_RESERVATION" },
-            { label: "Preferred link", value: "No" },
+            {
+              label: "Source web address",
+              value: "https://cdn.example.com/bar.jpg",
+            },
+            { label: "Category", value: "INTERIOR" },
           ],
         }),
       ]
     )
     renderWithProviders(
-      <ListingChangeRequests locationId={LOCATION} editor="booking" />
+      <ListingChangeRequests locationId={LOCATION} editor="photos" />
     )
 
     const list = await screen.findByLabelText(
-      "What this change sends: Add a booking link"
+      "What this change sends: Add a photo or video"
     )
-    expect(list).toHaveTextContent("Web address")
-    expect(list).toHaveTextContent("https://book.example.com/table")
-    expect(list).toHaveTextContent("DINING_RESERVATION")
+    expect(list).toHaveTextContent("Source web address")
+    expect(list).toHaveTextContent("https://cdn.example.com/bar.jpg")
+    expect(list).toHaveTextContent("INTERIOR")
     expect(
       screen.getByRole("button", { name: "Approve and send" })
     ).toBeInTheDocument()

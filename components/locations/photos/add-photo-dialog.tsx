@@ -54,6 +54,8 @@ type UploadStatus =
 
 type UploadEntry = {
   key: string
+  /** Sent as Idempotency-Key; kept after a lost response so a retry cannot upload twice. */
+  intent: string
   file: File
   status: UploadStatus
   progress: number
@@ -211,6 +213,7 @@ export function AddPhotoDialog({
       const error = checkFile(file)
       return {
         key: `${Date.now()}-${index}-${file.name}`,
+        intent: crypto.randomUUID(),
         file,
         status: error ? "invalid" : "ready",
         progress: 0,
@@ -235,7 +238,7 @@ export function AddPhotoDialog({
       form.set("category", category)
       try {
         const result = await uploadMediaFile(locationId, form, (fraction) =>
-          patch(entry.key, { progress: fraction })
+          patch(entry.key, { progress: fraction }), { intentId: entry.intent }
         )
         succeeded += 1
         patch(entry.key, {
@@ -248,6 +251,10 @@ export function AddPhotoDialog({
         if (maybeSent) unconfirmed += 1
         else failed += 1
         patch(entry.key, {
+          // An unconfirmed upload keeps its token so a retry finds the
+          // first upload; a definite answer frees the next attempt to be a
+          // new upload.
+          ...(maybeSent ? {} : { intent: crypto.randomUUID() }),
           status: maybeSent ? "unconfirmed" : "failed",
           error: describeActionError(error),
           code: error instanceof ApiClientError ? error.code : undefined,

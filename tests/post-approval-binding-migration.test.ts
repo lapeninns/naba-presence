@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const read = (file: string) =>
   readFileSync(join(process.cwd(), "supabase/migrations", file), "utf8")
 
-const migration = read("0062_post_approval_binding.sql")
+const migration = read("0081_post_approval_binding.sql")
 
 const ORG_A = "00000000-0000-4000-8000-00000000000a"
 const ORG_B = "00000000-0000-4000-8000-00000000000b"
@@ -22,7 +22,7 @@ const DRAFT = "40000000-0000-4000-8000-000000000002"
 const OTHER_ORG_POST = "40000000-0000-4000-8000-000000000003"
 const HASH = "a".repeat(64)
 
-describe("0062 post approval binding", () => {
+describe("0081 post approval binding", () => {
   it("adds the revision, the request revision and an append-only decision table", () => {
     expect(migration).toContain(
       "add column content_revision bigint not null default 1"
@@ -42,7 +42,7 @@ describe("0062 post approval binding", () => {
     expect(migration.replace(/--.*$/gm, "")).not.toMatch(/security definer/i)
     expect(migration.trim().startsWith("begin;")).toBe(true)
     expect(migration.trim().endsWith("commit;")).toBe(true)
-    expect(migration).toContain("values ('0062_post_approval_binding')")
+    expect(migration).toContain("values ('0081_post_approval_binding')")
   })
 
   describe("against PGlite", () => {
@@ -67,7 +67,7 @@ describe("0062 post approval binding", () => {
       `)
       await db.exec(read("0015_local_posts.sql"))
       await db.exec(read("0037_local_post_lifecycle.sql"))
-      // A request parked before 0062 has no revision yet.
+      // A request parked before 0081 has no revision yet.
       await db.exec(`
         insert into gbp_local_post
           (id, organisation_id, location_id, external_location_id, topic_type,

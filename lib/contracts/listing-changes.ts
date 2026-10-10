@@ -18,20 +18,20 @@ import {
   operationSummarySchema,
 } from "@/lib/contracts/mutation-operations"
 
-/** Every listing write that parks for approval in two-person mode. */
+/**
+ * Every listing write that parks for approval in two-person mode. Business
+ * information, attributes, lodging and Place Action links are not here:
+ * every one of those writes already goes through a reviewed change set
+ * (lib/server/gbp-change-sets.ts, lib/server/place-action-reviews.ts) whose
+ * approval applies the organisation's two-person policy itself.
+ */
 export const LISTING_CHANGE_KINDS = [
   "hours_publish",
   "profile_publish",
-  "business_information_update",
-  "business_attributes_update",
-  "industry_update",
   "food_menus_publish",
   "media_create",
   "media_update",
   "media_delete",
-  "place_action_create",
-  "place_action_update",
-  "place_action_delete",
 ] as const
 
 export const listingChangeKindSchema = z.enum(LISTING_CHANGE_KINDS)
@@ -43,7 +43,6 @@ export const LISTING_CHANGE_EDITORS = [
   "profile",
   "menus",
   "photos",
-  "booking",
 ] as const
 export type ListingChangeEditor = (typeof LISTING_CHANGE_EDITORS)[number]
 
@@ -53,32 +52,20 @@ export const LISTING_CHANGE_EDITOR: Record<
 > = {
   hours_publish: "hours",
   profile_publish: "profile",
-  business_information_update: "profile",
-  business_attributes_update: "profile",
-  industry_update: "profile",
   food_menus_publish: "menus",
   media_create: "photos",
   media_update: "photos",
   media_delete: "photos",
-  place_action_create: "booking",
-  place_action_update: "booking",
-  place_action_delete: "booking",
 }
 
 /** What the approver is asked about, in sentence case. */
 export const LISTING_CHANGE_LABEL: Record<ListingChangeKind, string> = {
   hours_publish: "Publish opening hours",
   profile_publish: "Publish profile fields",
-  business_information_update: "Update business information",
-  business_attributes_update: "Update attributes",
-  industry_update: "Update industry details",
   food_menus_publish: "Publish food menus",
   media_create: "Add a photo or video",
   media_update: "Change a photo's category",
   media_delete: "Delete a photo or video",
-  place_action_create: "Add a booking link",
-  place_action_update: "Change a booking link",
-  place_action_delete: "Delete a booking link",
 }
 
 /**
@@ -91,7 +78,7 @@ export const LISTING_CHANGE_AWAITING_APPROVAL =
 
 /**
  * One value the approver reads before deciding: a content field of the
- * frozen request, or what its target (a photo, a booking link) holds now
+ * frozen request, or what its target (a photo) holds now
  * (lib/domain/listing-change-details.ts).
  */
 export const listingChangeDetailSchema = z.object({
@@ -107,7 +94,7 @@ export const listingChangeRequestSchema = z.object({
   kind: listingChangeKindSchema,
   label: z.string(),
   locationId: z.string().nullable(),
-  /** The media item or booking link the change is about, if any. */
+  /** The media item the change is about, if any. */
   target: z.string().nullable(),
   /** The fields the change writes. */
   fieldMask: z.array(z.string()),

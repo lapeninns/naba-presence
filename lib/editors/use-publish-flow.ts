@@ -24,6 +24,7 @@ import {
 } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
+import { gbpMutationResultSchema } from "@/lib/contracts/gbp-management"
 import { useQueryClient, type QueryKey } from "@tanstack/react-query"
 
 /**
@@ -218,6 +219,13 @@ export function usePublishFlow({
       try {
         const answer = await step.run(intent)
         unconfirmed.current.delete(step.key)
+        // A reviewed change-set write (business information, attributes,
+        // lodging) answers its attempt row: anything short of a confirmed
+        // success is not finished, whatever HTTP status carried it.
+        const recorded = gbpMutationResultSchema.safeParse(answer)
+        if (recorded.success && (recorded.data.status !== "succeeded" || (recorded.data.confirmationState !== undefined && recorded.data.confirmationState !== "confirmed" && recorded.data.confirmationState !== "unrecorded"))) {
+          throw new ApiClientError(409, "google_confirmation_required", "Check the recorded outcome in Activity before publishing again.", { mutationId: recorded.data.id })
+        }
         running[index] = {
           ...running[index],
           status: "done",

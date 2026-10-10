@@ -1,9 +1,7 @@
 import "server-only"
 
-import { businessInformationRecoveryAdapter } from "@/lib/server/business-information"
 import { foodMenusRecoveryAdapter } from "@/lib/server/food-menus"
 import { hoursRecoveryAdapter } from "@/lib/server/hours"
-import { industryRecoveryAdapter } from "@/lib/server/industry-management"
 import { mediaRecoveryAdapter } from "@/lib/server/media"
 import {
   createRecoveryRegistry,
@@ -11,7 +9,6 @@ import {
   type RecoveryAdapter,
   type RecoveryDeps,
 } from "@/lib/server/mutation-recovery"
-import { placeActionRecoveryAdapter } from "@/lib/server/place-actions"
 import { localPostRecoveryAdapter } from "@/lib/server/posts"
 import { profileRecoveryAdapter } from "@/lib/server/profile"
 
@@ -21,15 +18,16 @@ import { profileRecoveryAdapter } from "@/lib/server/profile"
  * `recovery_unsupported` and handed to a person rather than retried, so a
  * new surface that writes receipts must add its adapter
  * (tests/mutation-recovery.test.ts checks the list against the surfaces).
+ * Business information, attributes, lodging and Place Action links record
+ * no receipts: their reviewed change sets keep their own execution and
+ * confirmation states (lib/server/gbp-confirmation.ts,
+ * lib/server/place-action-execution.ts).
  */
 export const RECOVERY_ADAPTERS = [
   hoursRecoveryAdapter,
   profileRecoveryAdapter,
   foodMenusRecoveryAdapter,
-  businessInformationRecoveryAdapter,
-  industryRecoveryAdapter,
   localPostRecoveryAdapter,
-  placeActionRecoveryAdapter,
   mediaRecoveryAdapter,
 ] as unknown as ReadonlyArray<RecoveryAdapter<never>>
 

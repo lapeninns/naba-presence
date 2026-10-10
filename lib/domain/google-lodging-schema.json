@@ -1,0 +1,3702 @@
+{
+  "source": "https://mybusinesslodging.googleapis.com/$discovery/rest?version=v1",
+  "documentationCheckedAt": "2026-09-29",
+  "revision": "20260928",
+  "schemas": {
+    "Accessibility": {
+      "properties": {
+        "mobilityAccessible": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleElevator": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleElevatorException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessibleException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessibleParking": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleParkingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessiblePool": {
+          "type": "boolean"
+        },
+        "mobilityAccessiblePoolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Activities": {
+      "properties": {
+        "beachAccess": {
+          "type": "boolean"
+        },
+        "beachAccessException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "beachFront": {
+          "type": "boolean"
+        },
+        "beachFrontException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "bicycleRental": {
+          "type": "boolean"
+        },
+        "bicycleRentalException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "boutiqueStores": {
+          "type": "boolean"
+        },
+        "boutiqueStoresException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "casino": {
+          "type": "boolean"
+        },
+        "casinoException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeBicycleRental": {
+          "type": "boolean"
+        },
+        "freeBicycleRentalException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeWatercraftRental": {
+          "type": "boolean"
+        },
+        "freeWatercraftRentalException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "gameRoom": {
+          "type": "boolean"
+        },
+        "gameRoomException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "golf": {
+          "type": "boolean"
+        },
+        "golfException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "horsebackRiding": {
+          "type": "boolean"
+        },
+        "horsebackRidingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "nightclub": {
+          "type": "boolean"
+        },
+        "nightclubException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "privateBeach": {
+          "type": "boolean"
+        },
+        "privateBeachException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "scuba": {
+          "type": "boolean"
+        },
+        "scubaException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "snorkeling": {
+          "type": "boolean"
+        },
+        "snorkelingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "tennis": {
+          "type": "boolean"
+        },
+        "tennisException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterSkiing": {
+          "type": "boolean"
+        },
+        "waterSkiingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "watercraftRental": {
+          "type": "boolean"
+        },
+        "watercraftRentalException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Business": {
+      "properties": {
+        "businessCenter": {
+          "type": "boolean"
+        },
+        "businessCenterException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "meetingRooms": {
+          "type": "boolean"
+        },
+        "meetingRoomsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "meetingRoomsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "meetingRoomsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Connectivity": {
+      "properties": {
+        "freeWifi": {
+          "type": "boolean"
+        },
+        "freeWifiException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "publicAreaWifiAvailable": {
+          "type": "boolean"
+        },
+        "publicAreaWifiAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "publicInternetTerminal": {
+          "type": "boolean"
+        },
+        "publicInternetTerminalException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "wifiAvailable": {
+          "type": "boolean"
+        },
+        "wifiAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EcoCertification": {
+      "properties": {
+        "awarded": {
+          "type": "boolean"
+        },
+        "awardedException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "ecoCertificate": {
+          "enum": [
+            "ECO_CERTIFICATE_UNSPECIFIED",
+            "ISO14001",
+            "ISO50001",
+            "ASIAN_ECOTOURISM",
+            "BIOSPHERE_RESPOSNIBLE_TOURISM",
+            "BUREAU_VERITAS",
+            "CONTROL_UNION",
+            "EARTHCHECK",
+            "ECO_CERTIFICATION_MALTA",
+            "ECOTOURISM_AUSTRALIAS_ECO",
+            "GREAT_GREEN_DEAL",
+            "GREEN_GLOBE",
+            "GREEN_GROWTH2050",
+            "GREEN_KEY",
+            "GREEN_KEY_ECO_RATING",
+            "GREEN_SEAL",
+            "GREEN_STAR",
+            "GREEN_TOURISM_ACTIVE",
+            "HILTON_LIGHTSTAY",
+            "HOSTELLING_INTERNATIONALS_QUALITY_AND_SUSTAINABILITY",
+            "HOTELES_MAS_VERDES",
+            "NORDIC_SWAN_ECOLABEL",
+            "PREFERRED_BY_NATURE_SUSTAINABLE_TOURISM",
+            "SUSTAINABLE_TRAVEL_IRELAND",
+            "TOF_TIGERS_INITITIVES_PUG",
+            "TRAVELIFE",
+            "UNITED_CERTIFICATION_SYSTEMS_LIMITED",
+            "VIREO_SRL"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EnergyEfficiency": {
+      "properties": {
+        "carbonFreeEnergySources": {
+          "type": "boolean"
+        },
+        "carbonFreeEnergySourcesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "energyConservationProgram": {
+          "type": "boolean"
+        },
+        "energyConservationProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "energyEfficientHeatingAndCoolingSystems": {
+          "type": "boolean"
+        },
+        "energyEfficientHeatingAndCoolingSystemsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "energyEfficientLighting": {
+          "type": "boolean"
+        },
+        "energyEfficientLightingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "energySavingThermostats": {
+          "type": "boolean"
+        },
+        "energySavingThermostatsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "greenBuildingDesign": {
+          "readOnly": true,
+          "type": "boolean"
+        },
+        "greenBuildingDesignException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "readOnly": true,
+          "type": "string"
+        },
+        "independentOrganizationAuditsEnergyUse": {
+          "type": "boolean"
+        },
+        "independentOrganizationAuditsEnergyUseException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EnhancedCleaning": {
+      "properties": {
+        "commercialGradeDisinfectantCleaning": {
+          "type": "boolean"
+        },
+        "commercialGradeDisinfectantCleaningException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "commonAreasEnhancedCleaning": {
+          "type": "boolean"
+        },
+        "commonAreasEnhancedCleaningException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "employeesTrainedCleaningProcedures": {
+          "type": "boolean"
+        },
+        "employeesTrainedCleaningProceduresException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "employeesTrainedThoroughHandWashing": {
+          "type": "boolean"
+        },
+        "employeesTrainedThoroughHandWashingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "employeesWearProtectiveEquipment": {
+          "type": "boolean"
+        },
+        "employeesWearProtectiveEquipmentException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "guestRoomsEnhancedCleaning": {
+          "type": "boolean"
+        },
+        "guestRoomsEnhancedCleaningException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Families": {
+      "properties": {
+        "babysitting": {
+          "type": "boolean"
+        },
+        "babysittingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kidsActivities": {
+          "type": "boolean"
+        },
+        "kidsActivitiesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kidsClub": {
+          "type": "boolean"
+        },
+        "kidsClubException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kidsFriendly": {
+          "type": "boolean"
+        },
+        "kidsFriendlyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FoodAndDrink": {
+      "properties": {
+        "bar": {
+          "type": "boolean"
+        },
+        "barException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "breakfastAvailable": {
+          "type": "boolean"
+        },
+        "breakfastAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "breakfastBuffet": {
+          "type": "boolean"
+        },
+        "breakfastBuffetException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "buffet": {
+          "type": "boolean"
+        },
+        "buffetException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "dinnerBuffet": {
+          "type": "boolean"
+        },
+        "dinnerBuffetException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeBreakfast": {
+          "type": "boolean"
+        },
+        "freeBreakfastException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "restaurant": {
+          "type": "boolean"
+        },
+        "restaurantException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "restaurantsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "restaurantsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "roomService": {
+          "type": "boolean"
+        },
+        "roomServiceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "tableService": {
+          "type": "boolean"
+        },
+        "tableServiceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "twentyFourHourRoomService": {
+          "type": "boolean"
+        },
+        "twentyFourHourRoomServiceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "vendingMachine": {
+          "type": "boolean"
+        },
+        "vendingMachineException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "GetGoogleUpdatedLodgingResponse": {
+      "properties": {
+        "diffMask": {
+          "format": "google-fieldmask",
+          "type": "string"
+        },
+        "lodging": {
+          "$ref": "Lodging"
+        }
+      },
+      "type": "object"
+    },
+    "GuestUnitFeatures": {
+      "properties": {
+        "bungalowOrVilla": {
+          "type": "boolean"
+        },
+        "bungalowOrVillaException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "connectingUnitAvailable": {
+          "type": "boolean"
+        },
+        "connectingUnitAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "executiveFloor": {
+          "type": "boolean"
+        },
+        "executiveFloorException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "maxAdultOccupantsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "maxAdultOccupantsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "maxChildOccupantsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "maxChildOccupantsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "maxOccupantsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "maxOccupantsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "privateHome": {
+          "type": "boolean"
+        },
+        "privateHomeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "suite": {
+          "type": "boolean"
+        },
+        "suiteException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "UNIT_TIER_UNSPECIFIED",
+            "STANDARD_UNIT",
+            "DELUXE_UNIT"
+          ],
+          "type": "string"
+        },
+        "tierException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "totalLivingAreas": {
+          "$ref": "LivingArea"
+        },
+        "views": {
+          "$ref": "ViewsFromUnit"
+        }
+      },
+      "type": "object"
+    },
+    "GuestUnitType": {
+      "properties": {
+        "codes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "features": {
+          "$ref": "GuestUnitFeatures"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HealthAndSafety": {
+      "properties": {
+        "enhancedCleaning": {
+          "$ref": "EnhancedCleaning"
+        },
+        "increasedFoodSafety": {
+          "$ref": "IncreasedFoodSafety"
+        },
+        "minimizedContact": {
+          "$ref": "MinimizedContact"
+        },
+        "personalProtection": {
+          "$ref": "PersonalProtection"
+        },
+        "physicalDistancing": {
+          "$ref": "PhysicalDistancing"
+        }
+      },
+      "type": "object"
+    },
+    "Housekeeping": {
+      "properties": {
+        "dailyHousekeeping": {
+          "type": "boolean"
+        },
+        "dailyHousekeepingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "housekeepingAvailable": {
+          "type": "boolean"
+        },
+        "housekeepingAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "turndownService": {
+          "type": "boolean"
+        },
+        "turndownServiceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "IncreasedFoodSafety": {
+      "properties": {
+        "diningAreasAdditionalSanitation": {
+          "type": "boolean"
+        },
+        "diningAreasAdditionalSanitationException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "disposableFlatware": {
+          "type": "boolean"
+        },
+        "disposableFlatwareException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "foodPreparationAndServingAdditionalSafety": {
+          "type": "boolean"
+        },
+        "foodPreparationAndServingAdditionalSafetyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "individualPackagedMeals": {
+          "type": "boolean"
+        },
+        "individualPackagedMealsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "singleUseFoodMenus": {
+          "type": "boolean"
+        },
+        "singleUseFoodMenusException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LanguageSpoken": {
+      "properties": {
+        "languageCode": {
+          "type": "string"
+        },
+        "spoken": {
+          "type": "boolean"
+        },
+        "spokenException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LivingArea": {
+      "properties": {
+        "accessibility": {
+          "$ref": "LivingAreaAccessibility"
+        },
+        "eating": {
+          "$ref": "LivingAreaEating"
+        },
+        "features": {
+          "$ref": "LivingAreaFeatures"
+        },
+        "layout": {
+          "$ref": "LivingAreaLayout"
+        },
+        "sleeping": {
+          "$ref": "LivingAreaSleeping"
+        }
+      },
+      "type": "object"
+    },
+    "LivingAreaAccessibility": {
+      "properties": {
+        "adaCompliantUnit": {
+          "type": "boolean"
+        },
+        "adaCompliantUnitException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "hearingAccessibleDoorbell": {
+          "type": "boolean"
+        },
+        "hearingAccessibleDoorbellException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "hearingAccessibleFireAlarm": {
+          "type": "boolean"
+        },
+        "hearingAccessibleFireAlarmException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "hearingAccessibleUnit": {
+          "type": "boolean"
+        },
+        "hearingAccessibleUnitException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessibleBathtub": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleBathtubException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessibleShower": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleShowerException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessibleToilet": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleToiletException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobilityAccessibleUnit": {
+          "type": "boolean"
+        },
+        "mobilityAccessibleUnitException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LivingAreaEating": {
+      "properties": {
+        "coffeeMaker": {
+          "type": "boolean"
+        },
+        "coffeeMakerException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "cookware": {
+          "type": "boolean"
+        },
+        "cookwareException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "dishwasher": {
+          "type": "boolean"
+        },
+        "dishwasherException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "indoorGrill": {
+          "type": "boolean"
+        },
+        "indoorGrillException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kettle": {
+          "type": "boolean"
+        },
+        "kettleException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kitchenAvailable": {
+          "type": "boolean"
+        },
+        "kitchenAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "microwave": {
+          "type": "boolean"
+        },
+        "microwaveException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "minibar": {
+          "type": "boolean"
+        },
+        "minibarException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "outdoorGrill": {
+          "type": "boolean"
+        },
+        "outdoorGrillException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "oven": {
+          "type": "boolean"
+        },
+        "ovenException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "refrigerator": {
+          "type": "boolean"
+        },
+        "refrigeratorException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "sink": {
+          "type": "boolean"
+        },
+        "sinkException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "snackbar": {
+          "type": "boolean"
+        },
+        "snackbarException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "stove": {
+          "type": "boolean"
+        },
+        "stoveException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "teaStation": {
+          "type": "boolean"
+        },
+        "teaStationException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "toaster": {
+          "type": "boolean"
+        },
+        "toasterException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LivingAreaFeatures": {
+      "properties": {
+        "airConditioning": {
+          "type": "boolean"
+        },
+        "airConditioningException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "bathtub": {
+          "type": "boolean"
+        },
+        "bathtubException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "bidet": {
+          "type": "boolean"
+        },
+        "bidetException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "dryer": {
+          "type": "boolean"
+        },
+        "dryerException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "electronicRoomKey": {
+          "type": "boolean"
+        },
+        "electronicRoomKeyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "fireplace": {
+          "type": "boolean"
+        },
+        "fireplaceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "hairdryer": {
+          "type": "boolean"
+        },
+        "hairdryerException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "heating": {
+          "type": "boolean"
+        },
+        "heatingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "inunitSafe": {
+          "type": "boolean"
+        },
+        "inunitSafeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "inunitWifiAvailable": {
+          "type": "boolean"
+        },
+        "inunitWifiAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "ironingEquipment": {
+          "type": "boolean"
+        },
+        "ironingEquipmentException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "payPerViewMovies": {
+          "type": "boolean"
+        },
+        "payPerViewMoviesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "privateBathroom": {
+          "type": "boolean"
+        },
+        "privateBathroomException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "shower": {
+          "type": "boolean"
+        },
+        "showerException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "toilet": {
+          "type": "boolean"
+        },
+        "toiletException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "tv": {
+          "type": "boolean"
+        },
+        "tvCasting": {
+          "type": "boolean"
+        },
+        "tvCastingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "tvException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "tvStreaming": {
+          "type": "boolean"
+        },
+        "tvStreamingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "universalPowerAdapters": {
+          "type": "boolean"
+        },
+        "universalPowerAdaptersException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "washer": {
+          "type": "boolean"
+        },
+        "washerException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LivingAreaLayout": {
+      "properties": {
+        "balcony": {
+          "type": "boolean"
+        },
+        "balconyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "livingAreaSqMeters": {
+          "format": "float",
+          "type": "number"
+        },
+        "livingAreaSqMetersException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "loft": {
+          "type": "boolean"
+        },
+        "loftException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "nonSmoking": {
+          "type": "boolean"
+        },
+        "nonSmokingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "patio": {
+          "type": "boolean"
+        },
+        "patioException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "stairs": {
+          "type": "boolean"
+        },
+        "stairsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LivingAreaSleeping": {
+      "properties": {
+        "bedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "bedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "bunkBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "bunkBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "cribsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "cribsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "doubleBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "doubleBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "featherPillows": {
+          "type": "boolean"
+        },
+        "featherPillowsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "hypoallergenicBedding": {
+          "type": "boolean"
+        },
+        "hypoallergenicBeddingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kingBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "kingBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "memoryFoamPillows": {
+          "type": "boolean"
+        },
+        "memoryFoamPillowsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "otherBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "otherBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "queenBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "queenBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "rollAwayBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "rollAwayBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "singleOrTwinBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "singleOrTwinBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "sofaBedsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "sofaBedsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "syntheticPillows": {
+          "type": "boolean"
+        },
+        "syntheticPillowsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Lodging": {
+      "properties": {
+        "accessibility": {
+          "$ref": "Accessibility"
+        },
+        "activities": {
+          "$ref": "Activities"
+        },
+        "allUnits": {
+          "$ref": "GuestUnitFeatures",
+          "readOnly": true
+        },
+        "business": {
+          "$ref": "Business"
+        },
+        "commonLivingArea": {
+          "$ref": "LivingArea"
+        },
+        "connectivity": {
+          "$ref": "Connectivity"
+        },
+        "families": {
+          "$ref": "Families"
+        },
+        "foodAndDrink": {
+          "$ref": "FoodAndDrink"
+        },
+        "guestUnits": {
+          "items": {
+            "$ref": "GuestUnitType"
+          },
+          "type": "array"
+        },
+        "healthAndSafety": {
+          "$ref": "HealthAndSafety"
+        },
+        "housekeeping": {
+          "$ref": "Housekeeping"
+        },
+        "metadata": {
+          "$ref": "LodgingMetadata"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parking": {
+          "$ref": "Parking"
+        },
+        "pets": {
+          "$ref": "Pets"
+        },
+        "policies": {
+          "$ref": "Policies"
+        },
+        "pools": {
+          "$ref": "Pools"
+        },
+        "property": {
+          "$ref": "Property"
+        },
+        "services": {
+          "$ref": "Services"
+        },
+        "someUnits": {
+          "$ref": "GuestUnitFeatures",
+          "readOnly": true
+        },
+        "sustainability": {
+          "$ref": "Sustainability"
+        },
+        "transportation": {
+          "$ref": "Transportation"
+        },
+        "wellness": {
+          "$ref": "Wellness"
+        }
+      },
+      "type": "object"
+    },
+    "LodgingMetadata": {
+      "properties": {
+        "updateTime": {
+          "format": "google-datetime",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "MinimizedContact": {
+      "properties": {
+        "contactlessCheckinCheckout": {
+          "type": "boolean"
+        },
+        "contactlessCheckinCheckoutException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "digitalGuestRoomKeys": {
+          "type": "boolean"
+        },
+        "digitalGuestRoomKeysException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "housekeepingScheduledRequestOnly": {
+          "type": "boolean"
+        },
+        "housekeepingScheduledRequestOnlyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "noHighTouchItemsCommonAreas": {
+          "type": "boolean"
+        },
+        "noHighTouchItemsCommonAreasException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "noHighTouchItemsGuestRooms": {
+          "type": "boolean"
+        },
+        "noHighTouchItemsGuestRoomsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "plasticKeycardsDisinfected": {
+          "type": "boolean"
+        },
+        "plasticKeycardsDisinfectedException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "roomBookingsBuffer": {
+          "type": "boolean"
+        },
+        "roomBookingsBufferException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Parking": {
+      "properties": {
+        "electricCarChargingStations": {
+          "type": "boolean"
+        },
+        "electricCarChargingStationsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeParking": {
+          "type": "boolean"
+        },
+        "freeParkingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeSelfParking": {
+          "type": "boolean"
+        },
+        "freeSelfParkingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeValetParking": {
+          "type": "boolean"
+        },
+        "freeValetParkingException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "parkingAvailable": {
+          "type": "boolean"
+        },
+        "parkingAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "selfParkingAvailable": {
+          "type": "boolean"
+        },
+        "selfParkingAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "valetParkingAvailable": {
+          "type": "boolean"
+        },
+        "valetParkingAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PaymentOptions": {
+      "properties": {
+        "cash": {
+          "type": "boolean"
+        },
+        "cashException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "cheque": {
+          "type": "boolean"
+        },
+        "chequeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "creditCard": {
+          "type": "boolean"
+        },
+        "creditCardException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "debitCard": {
+          "type": "boolean"
+        },
+        "debitCardException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "mobileNfc": {
+          "type": "boolean"
+        },
+        "mobileNfcException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PersonalProtection": {
+      "properties": {
+        "commonAreasOfferSanitizingItems": {
+          "type": "boolean"
+        },
+        "commonAreasOfferSanitizingItemsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "faceMaskRequired": {
+          "type": "boolean"
+        },
+        "faceMaskRequiredException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "guestRoomHygieneKitsAvailable": {
+          "type": "boolean"
+        },
+        "guestRoomHygieneKitsAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "protectiveEquipmentAvailable": {
+          "type": "boolean"
+        },
+        "protectiveEquipmentAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Pets": {
+      "properties": {
+        "catsAllowed": {
+          "type": "boolean"
+        },
+        "catsAllowedException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "dogsAllowed": {
+          "type": "boolean"
+        },
+        "dogsAllowedException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "petsAllowed": {
+          "type": "boolean"
+        },
+        "petsAllowedException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "petsAllowedFree": {
+          "type": "boolean"
+        },
+        "petsAllowedFreeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PhysicalDistancing": {
+      "properties": {
+        "commonAreasPhysicalDistancingArranged": {
+          "type": "boolean"
+        },
+        "commonAreasPhysicalDistancingArrangedException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "physicalDistancingRequired": {
+          "type": "boolean"
+        },
+        "physicalDistancingRequiredException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "safetyDividers": {
+          "type": "boolean"
+        },
+        "safetyDividersException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "sharedAreasLimitedOccupancy": {
+          "type": "boolean"
+        },
+        "sharedAreasLimitedOccupancyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "wellnessAreasHavePrivateSpaces": {
+          "type": "boolean"
+        },
+        "wellnessAreasHavePrivateSpacesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Policies": {
+      "properties": {
+        "allInclusiveAvailable": {
+          "type": "boolean"
+        },
+        "allInclusiveAvailableException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "allInclusiveOnly": {
+          "type": "boolean"
+        },
+        "allInclusiveOnlyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "checkinTime": {
+          "$ref": "TimeOfDay"
+        },
+        "checkinTimeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "checkoutTime": {
+          "$ref": "TimeOfDay"
+        },
+        "checkoutTimeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "kidsStayFree": {
+          "type": "boolean"
+        },
+        "kidsStayFreeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "maxChildAge": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "maxChildAgeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "maxKidsStayFreeCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "maxKidsStayFreeCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "paymentOptions": {
+          "$ref": "PaymentOptions"
+        },
+        "smokeFreeProperty": {
+          "type": "boolean"
+        },
+        "smokeFreePropertyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Pools": {
+      "properties": {
+        "adultPool": {
+          "type": "boolean"
+        },
+        "adultPoolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "hotTub": {
+          "type": "boolean"
+        },
+        "hotTubException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "indoorPool": {
+          "type": "boolean"
+        },
+        "indoorPoolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "indoorPoolsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "indoorPoolsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "lazyRiver": {
+          "type": "boolean"
+        },
+        "lazyRiverException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "lifeguard": {
+          "type": "boolean"
+        },
+        "lifeguardException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "outdoorPool": {
+          "type": "boolean"
+        },
+        "outdoorPoolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "outdoorPoolsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "outdoorPoolsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "pool": {
+          "type": "boolean"
+        },
+        "poolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "poolsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "poolsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "wadingPool": {
+          "type": "boolean"
+        },
+        "wadingPoolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterPark": {
+          "type": "boolean"
+        },
+        "waterParkException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterslide": {
+          "type": "boolean"
+        },
+        "waterslideException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "wavePool": {
+          "type": "boolean"
+        },
+        "wavePoolException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Property": {
+      "properties": {
+        "builtYear": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "builtYearException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "floorsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "floorsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "lastRenovatedYear": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "lastRenovatedYearException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "roomsCount": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "roomsCountException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Services": {
+      "properties": {
+        "baggageStorage": {
+          "type": "boolean"
+        },
+        "baggageStorageException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "concierge": {
+          "type": "boolean"
+        },
+        "conciergeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "convenienceStore": {
+          "type": "boolean"
+        },
+        "convenienceStoreException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "currencyExchange": {
+          "type": "boolean"
+        },
+        "currencyExchangeException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "elevator": {
+          "type": "boolean"
+        },
+        "elevatorException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "frontDesk": {
+          "type": "boolean"
+        },
+        "frontDeskException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "fullServiceLaundry": {
+          "type": "boolean"
+        },
+        "fullServiceLaundryException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "giftShop": {
+          "type": "boolean"
+        },
+        "giftShopException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "languagesSpoken": {
+          "items": {
+            "$ref": "LanguageSpoken"
+          },
+          "type": "array"
+        },
+        "selfServiceLaundry": {
+          "type": "boolean"
+        },
+        "selfServiceLaundryException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "socialHour": {
+          "type": "boolean"
+        },
+        "socialHourException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "twentyFourHourFrontDesk": {
+          "type": "boolean"
+        },
+        "twentyFourHourFrontDeskException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "wakeUpCalls": {
+          "type": "boolean"
+        },
+        "wakeUpCallsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Sustainability": {
+      "properties": {
+        "energyEfficiency": {
+          "$ref": "EnergyEfficiency"
+        },
+        "sustainabilityCertifications": {
+          "$ref": "SustainabilityCertifications"
+        },
+        "sustainableSourcing": {
+          "$ref": "SustainableSourcing"
+        },
+        "wasteReduction": {
+          "$ref": "WasteReduction"
+        },
+        "waterConservation": {
+          "$ref": "WaterConservation"
+        }
+      },
+      "type": "object"
+    },
+    "SustainabilityCertifications": {
+      "properties": {
+        "breeamCertification": {
+          "enum": [
+            "BREEAM_CERTIFICATION_UNSPECIFIED",
+            "NO_BREEAM_CERTIFICATION",
+            "BREEAM_PASS",
+            "BREEAM_GOOD",
+            "BREEAM_VERY_GOOD",
+            "BREEAM_EXCELLENT",
+            "BREEAM_OUTSTANDING"
+          ],
+          "type": "string"
+        },
+        "breeamCertificationException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "ecoCertifications": {
+          "items": {
+            "$ref": "EcoCertification"
+          },
+          "type": "array"
+        },
+        "leedCertification": {
+          "enum": [
+            "LEED_CERTIFICATION_UNSPECIFIED",
+            "NO_LEED_CERTIFICATION",
+            "LEED_CERTIFIED",
+            "LEED_SILVER",
+            "LEED_GOLD",
+            "LEED_PLATINUM"
+          ],
+          "type": "string"
+        },
+        "leedCertificationException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SustainableSourcing": {
+      "properties": {
+        "ecoFriendlyToiletries": {
+          "type": "boolean"
+        },
+        "ecoFriendlyToiletriesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "locallySourcedFoodAndBeverages": {
+          "type": "boolean"
+        },
+        "locallySourcedFoodAndBeveragesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "organicCageFreeEggs": {
+          "type": "boolean"
+        },
+        "organicCageFreeEggsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "organicFoodAndBeverages": {
+          "type": "boolean"
+        },
+        "organicFoodAndBeveragesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "responsiblePurchasingPolicy": {
+          "type": "boolean"
+        },
+        "responsiblePurchasingPolicyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "responsiblySourcesSeafood": {
+          "type": "boolean"
+        },
+        "responsiblySourcesSeafoodException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "veganMeals": {
+          "type": "boolean"
+        },
+        "veganMealsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "vegetarianMeals": {
+          "type": "boolean"
+        },
+        "vegetarianMealsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "TimeOfDay": {
+      "properties": {
+        "hours": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "minutes": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "nanos": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "seconds": {
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Transportation": {
+      "properties": {
+        "airportShuttle": {
+          "type": "boolean"
+        },
+        "airportShuttleException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "carRentalOnProperty": {
+          "type": "boolean"
+        },
+        "carRentalOnPropertyException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeAirportShuttle": {
+          "type": "boolean"
+        },
+        "freeAirportShuttleException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freePrivateCarService": {
+          "type": "boolean"
+        },
+        "freePrivateCarServiceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "localShuttle": {
+          "type": "boolean"
+        },
+        "localShuttleException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "privateCarService": {
+          "type": "boolean"
+        },
+        "privateCarServiceException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "transfer": {
+          "type": "boolean"
+        },
+        "transferException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ViewsFromUnit": {
+      "properties": {
+        "beachView": {
+          "type": "boolean"
+        },
+        "beachViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "cityView": {
+          "type": "boolean"
+        },
+        "cityViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "gardenView": {
+          "type": "boolean"
+        },
+        "gardenViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "lakeView": {
+          "type": "boolean"
+        },
+        "lakeViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "landmarkView": {
+          "type": "boolean"
+        },
+        "landmarkViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "oceanView": {
+          "type": "boolean"
+        },
+        "oceanViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "poolView": {
+          "type": "boolean"
+        },
+        "poolViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "valleyView": {
+          "type": "boolean"
+        },
+        "valleyViewException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "WasteReduction": {
+      "properties": {
+        "compostableFoodContainersAndCutlery": {
+          "type": "boolean"
+        },
+        "compostableFoodContainersAndCutleryException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "compostsExcessFood": {
+          "type": "boolean"
+        },
+        "compostsExcessFoodException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "donatesExcessFood": {
+          "type": "boolean"
+        },
+        "donatesExcessFoodException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "foodWasteReductionProgram": {
+          "type": "boolean"
+        },
+        "foodWasteReductionProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "noSingleUsePlasticStraws": {
+          "type": "boolean"
+        },
+        "noSingleUsePlasticStrawsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "noSingleUsePlasticWaterBottles": {
+          "type": "boolean"
+        },
+        "noSingleUsePlasticWaterBottlesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "noStyrofoamFoodContainers": {
+          "type": "boolean"
+        },
+        "noStyrofoamFoodContainersException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "recyclingProgram": {
+          "type": "boolean"
+        },
+        "recyclingProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "refillableToiletryContainers": {
+          "type": "boolean"
+        },
+        "refillableToiletryContainersException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "safelyDisposesBatteries": {
+          "type": "boolean"
+        },
+        "safelyDisposesBatteriesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "safelyDisposesElectronics": {
+          "type": "boolean"
+        },
+        "safelyDisposesElectronicsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "safelyDisposesLightbulbs": {
+          "type": "boolean"
+        },
+        "safelyDisposesLightbulbsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "safelyHandlesHazardousSubstances": {
+          "type": "boolean"
+        },
+        "safelyHandlesHazardousSubstancesException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "soapDonationProgram": {
+          "type": "boolean"
+        },
+        "soapDonationProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "toiletryDonationProgram": {
+          "type": "boolean"
+        },
+        "toiletryDonationProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterBottleFillingStations": {
+          "type": "boolean"
+        },
+        "waterBottleFillingStationsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "WaterConservation": {
+      "properties": {
+        "independentOrganizationAuditsWaterUse": {
+          "type": "boolean"
+        },
+        "independentOrganizationAuditsWaterUseException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "linenReuseProgram": {
+          "type": "boolean"
+        },
+        "linenReuseProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "towelReuseProgram": {
+          "type": "boolean"
+        },
+        "towelReuseProgramException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterSavingShowers": {
+          "type": "boolean"
+        },
+        "waterSavingShowersException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterSavingSinks": {
+          "type": "boolean"
+        },
+        "waterSavingSinksException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "waterSavingToilets": {
+          "type": "boolean"
+        },
+        "waterSavingToiletsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Wellness": {
+      "properties": {
+        "doctorOnCall": {
+          "type": "boolean"
+        },
+        "doctorOnCallException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "ellipticalMachine": {
+          "type": "boolean"
+        },
+        "ellipticalMachineException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "fitnessCenter": {
+          "type": "boolean"
+        },
+        "fitnessCenterException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeFitnessCenter": {
+          "type": "boolean"
+        },
+        "freeFitnessCenterException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "freeWeights": {
+          "type": "boolean"
+        },
+        "freeWeightsException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "massage": {
+          "type": "boolean"
+        },
+        "massageException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "salon": {
+          "type": "boolean"
+        },
+        "salonException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "sauna": {
+          "type": "boolean"
+        },
+        "saunaException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "spa": {
+          "type": "boolean"
+        },
+        "spaException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "treadmill": {
+          "type": "boolean"
+        },
+        "treadmillException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        },
+        "weightMachine": {
+          "type": "boolean"
+        },
+        "weightMachineException": {
+          "enum": [
+            "EXCEPTION_UNSPECIFIED",
+            "UNDER_CONSTRUCTION",
+            "DEPENDENT_ON_SEASON",
+            "DEPENDENT_ON_DAY_OF_WEEK"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  }
+}

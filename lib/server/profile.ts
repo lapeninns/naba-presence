@@ -1,9 +1,11 @@
 import "server-only"
 
 import type { TransactionSql } from "postgres"
+import { additionalPhonesMatch } from "@/lib/domain/business-information"
 
 import {
   buildGoogleProfilePatch,
+  hashGoogleProfile,
   classifyProfileField,
   hashProfile,
   hashProfileValue,
@@ -231,7 +233,7 @@ async function readLiveProfile(session: Session, locationId: string) {
     resource,
     canonical,
     canonicalHash: hashProfile(canonical),
-    googleHash: hashProfile(google),
+    googleHash: hashGoogleProfile(googleLocation, google),
   }
 }
 
@@ -618,16 +620,11 @@ async function prepareProfilePublish(input: PublishProfileInput) {
       message: "Google changed independently. Confirm the selected overwrite.",
     },
   })
-  const patch = buildGoogleProfilePatch({
-    canonical: live.canonical,
-    selectedFields: selected,
-  })
-  if (!patch.updateMask.length)
-    throw new ApiError(
-      409,
-      "profile_patch_empty",
-      "The selected fields do not produce a Google patch."
-    )
+  if (selected.includes("phone") && !live.canonical.phone) {
+    throw new ApiError(422, "primary_phone_required", "Google requires a primary phone number. Set a primary number before publishing phone changes.")
+  }
+  const patch = buildGoogleProfilePatch({ canonical: live.canonical, selectedFields: selected, googlePhoneNumbers: live.googleLocation.phoneNumbers })
+  if (!patch.updateMask.length) throw new ApiError(409, "profile_patch_empty", "The selected fields do not produce a Google patch.")
   return { selected, live, patch }
 }
 
@@ -699,33 +696,27 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
     // does: a match proves it landed, a mismatch that it did not.
     onAmbiguous: "readback",
     readback: {
-      read: async () =>
-        normalizeGoogleProfile(
-          await fetchGoogleProfile(live.context, live.accessToken, {
-            maxAttempts: 3,
-          })
-        ),
-      verify: ({ readback }) =>
-        selected.every(
-          (key) =>
-            hashProfileValue(live.canonical[key]) ===
-            hashProfileValue(readback[key])
-        ),
-      hash: hashProfile,
-      mismatch: {
-        code: "google_readback_mismatch",
-        message: "Google accepted the patch but read-back did not match.",
+      read: async () => {
+        const location = await fetchGoogleProfile(live.context, live.accessToken, { maxAttempts: 3 })
+        return { location, profile: normalizeGoogleProfile(location) }
       },
+      verify: ({ readback }) =>
+        selected.every((key) => hashProfileValue(live.canonical[key]) === hashProfileValue(readback.profile[key])) &&
+        (!selected.includes("phone") || additionalPhonesMatch(readback.location.phoneNumbers?.additionalPhones, live.googleLocation.phoneNumbers?.additionalPhones ?? [])),
+      hash: (readback) => hashGoogleProfile(readback.location, readback.profile),
+      mismatch: { code: "google_readback_mismatch", message: "Google accepted the patch but read-back did not match." },
     },
-    onSuccess: (sql, ctx) =>
-      markFieldsPublished(sql, {
+    onSuccess: (sql, ctx) => {
+      if (!ctx.readback) throw new Error("Profile publication requires independent readback.")
+      return markFieldsPublished(sql, {
         organisationId,
         locationId: input.locationId,
         live,
         selected,
-        readback: ctx.readback as NormalizedProfile,
+        readback: ctx.readback.profile,
         readbackHash: ctx.readbackHash as string,
-      }),
+      })
+    },
     audit: (ctx) => ({
       action: "profile.publish.succeeded",
       subjectType: "profile_sync_attempt",
@@ -803,18 +794,29 @@ export const profileRecoveryAdapter: RecoveryAdapter<ProfileRecoveryAttempt> = {
     if (attempt.externalLocationId !== link.externalLocationId) {
       return { kind: "unverifiable", errorCode: "target_changed" }
     }
-    const readback = normalizeGoogleProfile(
-      await fetchGoogleProfile(link, await link.accessToken(), {
-        maxAttempts: 3,
-      })
-    )
+    const location = await fetchGoogleProfile(link, await link.accessToken(), {
+      maxAttempts: 3,
+    })
+    const readback = normalizeGoogleProfile(location)
     const intended = normalizeGoogleProfile(attempt.intendedPayload)
-    const landed = written.every(
-      (key) =>
-        hashProfileValue(intended[key]) === hashProfileValue(readback[key])
-    )
+    // As the publish's own readback: a phone write also carries the
+    // additional numbers it preserved, which must read back unchanged.
+    const landed =
+      written.every(
+        (key) =>
+          hashProfileValue(intended[key]) === hashProfileValue(readback[key])
+      ) &&
+      (!written.includes("phone") ||
+        additionalPhonesMatch(
+          location.phoneNumbers?.additionalPhones,
+          attempt.intendedPayload.phoneNumbers?.additionalPhones ?? []
+        ))
     return landed
-      ? { kind: "landed", confirmed: true, responseHash: hashProfile(readback) }
+      ? {
+          kind: "landed",
+          confirmed: true,
+          responseHash: hashGoogleProfile(location, readback),
+        }
       : { kind: "not_landed", errorCode: "google_readback_mismatch" }
   },
   settle: storeSettle(profileAttempts),

@@ -29,7 +29,7 @@ export const invitationCreateSchema = z
     clientIds: z.array(z.uuid()).min(1).max(200).optional(),
     /**
      * Business workspaces grant a location at a time: scope a member or
-     * viewer to exactly these listings (supabase 0043 `location_ids`, 0063
+     * viewer to exactly these listings (supabase 0043 `location_ids`, 0082
      * scope). Mutually exclusive with `clientIds`.
      */
     locationIds: z.array(z.uuid()).min(1).max(500).optional(),
@@ -65,7 +65,7 @@ export const invitationSchema = z.object({
     .array(z.object({ id: z.string(), name: z.string() }))
     .nullable()
     .optional(),
-  /** `assigned` when clients or locations are named (supabase 0063). */
+  /** `assigned` when clients or locations are named (supabase 0082). */
   locationScope: locationScopeSchema.optional(),
   expiresAt: z.string(),
   acceptedAt: z.string().nullable().optional(),

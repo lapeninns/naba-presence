@@ -66,19 +66,9 @@ describe("listing change registry", () => {
     const routes: Record<string, string[]> = {
       "hours/route.ts": ['"hours_publish"'],
       "profile/route.ts": ['"profile_publish"'],
-      "business-information/route.ts": [
-        '"business_information_update"',
-        '"business_attributes_update"',
-      ],
-      "industry/route.ts": ['"industry_update"'],
       "food-menus/route.ts": ['"food_menus_publish"'],
       "media/route.ts": ['"media_create"', "refuseUploadWhenApprovalRequired("],
       "media/[mediaId]/route.ts": ['"media_update"', '"media_delete"'],
-      "place-actions/route.ts": ['"place_action_create"'],
-      "place-actions/[linkId]/route.ts": [
-        '"place_action_update"',
-        '"place_action_delete"',
-      ],
     }
     for (const [file, needles] of Object.entries(routes)) {
       const source = readFileSync(
@@ -86,6 +76,25 @@ describe("listing change registry", () => {
         "utf8"
       )
       for (const needle of needles) expect(source, file).toContain(needle)
+    }
+  })
+
+  it("leaves the reviewed change-set writes to their own approval", () => {
+    // Business information, attributes and lodging need an approved change
+    // set; Place Action links only accept reviews. Neither parks here.
+    const routes: Record<string, string> = {
+      "business-information/route.ts": "approveGbpChange(",
+      "industry/route.ts": "approveLodgingChange(",
+      "place-actions/route.ts": "place_action_review_required",
+      "place-actions/[linkId]/route.ts": "place_action_review_required",
+    }
+    for (const [file, needle] of Object.entries(routes)) {
+      const source = readFileSync(
+        join(process.cwd(), "app/api/locations/[id]", file),
+        "utf8"
+      )
+      expect(source, file).toContain(needle)
+      expect(source, file).not.toContain("submitListingChange(")
     }
   })
 })
@@ -96,13 +105,9 @@ describe("deciding a listing change", () => {
     const files = [
       "hours/route.ts",
       "profile/route.ts",
-      "business-information/route.ts",
-      "industry/route.ts",
       "food-menus/route.ts",
       "media/route.ts",
       "media/[mediaId]/route.ts",
-      "place-actions/route.ts",
-      "place-actions/[linkId]/route.ts",
     ]
     for (const file of files) {
       const source = readFileSync(
@@ -140,39 +145,36 @@ describe("deciding a listing change", () => {
 
   it("shows the approver every content value of the frozen body", () => {
     const details = describeListingChange({
-      kind: "place_action_create",
+      kind: "media_create",
       target: null,
       body: {
-        confirmation: "create_google_place_action",
-        uri: "https://phish.example.com/book",
-        placeActionType: "DINING_RESERVATION",
-        isPreferred: true,
+        confirmation: "create_google_media",
+        mediaFormat: "PHOTO",
+        category: "INTERIOR",
+        sourceUrl: "https://phish.example.com/bar.jpg",
+        description: "The snug",
       },
     })
     expect(details).toEqual([
-      { label: "Web address", value: "https://phish.example.com/book" },
-      { label: "Link type", value: "DINING_RESERVATION" },
-      { label: "Preferred link", value: "Yes" },
+      { label: "Media format", value: "PHOTO" },
+      { label: "Category", value: "INTERIOR" },
+      { label: "Source web address", value: "https://phish.example.com/bar.jpg" },
+      { label: "Description", value: "The snug" },
     ])
 
-    const info = describeListingChange({
-      kind: "business_information_update",
+    const update = describeListingChange({
+      kind: "media_update",
       target: null,
       body: {
-        operation: "update_location",
-        payload: { title: "The Bell", phoneNumbers: { primaryPhone: "01234" } },
-        updateMask: ["title", "phoneNumbers"],
+        confirmation: "update_google_media",
+        category: "EXTERIOR",
         expectedGoogleHash: "a".repeat(64),
       },
     })
-    expect(info).toContainEqual({ label: "Title", value: "The Bell" })
-    expect(info).toContainEqual({
-      label: "Phone numbers › Primary phone",
-      value: "01234",
-    })
+    expect(update).toContainEqual({ label: "Category", value: "EXTERIOR" })
     // Bookkeeping is not content: masks are shown as fieldMask, hashes are
     // checked at dispatch.
-    expect(info.map((row) => row.label).join()).not.toMatch(/mask|hash/i)
+    expect(update.map((row) => row.label).join()).not.toMatch(/mask|hash/i)
   })
 
   it("names the photo a delete removes and what it is now", () => {

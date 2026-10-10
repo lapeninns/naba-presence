@@ -35,6 +35,26 @@ function isGooglePlaceActionType(
   return knownTypes.includes(value)
 }
 
+/** A well-formed provider link whose action type this release does not model. Read-only; managed in Google. */
+export type GoogleUnsupportedPlaceActionLink = {
+  name: string
+  providerType: string
+  uri: string
+  placeActionType: string
+}
+
+export type GooglePlaceActionCollection = {
+  links: GooglePlaceActionLink[]
+  unsupportedLinks: GoogleUnsupportedPlaceActionLink[]
+}
+
+function unsupportedGooglePlaceActionLink(value: unknown): GoogleUnsupportedPlaceActionLink | null {
+  if (!isRecord(value)) return null
+  const { name, uri, placeActionType, providerType } = value
+  if (typeof name !== "string" || typeof uri !== "string" || !uri || typeof placeActionType !== "string" || !placeActionType || isGooglePlaceActionType(placeActionType)) return null
+  return { name, uri, placeActionType, providerType: typeof providerType === "string" ? providerType : "PROVIDER_TYPE_UNSPECIFIED" }
+}
+
 export function normalizeGooglePlaceActionLink(
   value: unknown
 ): GooglePlaceActionLink | null {
@@ -73,8 +93,10 @@ export async function listGooglePlaceActionLinks(
   accessToken: string,
   locationName: string,
   options: { readonly connectionKey?: string } = {}
-): Promise<GooglePlaceActionLink[]> {
+): Promise<GooglePlaceActionCollection> {
   const links: GooglePlaceActionLink[] = []
+  const unsupportedLinks: GoogleUnsupportedPlaceActionLink[] = []
+  const seenTokens = new Set<string>(), seenNames = new Set<string>()
   let pageToken: string | undefined
   for (let page = 0; page < 100; page += 1) {
     const request = googlePlaceActionLinksListRequest({
@@ -87,19 +109,30 @@ export async function listGooglePlaceActionLinks(
       request.init,
       options
     )
+    if (!isRecord(response) || Object.hasOwn(response, "placeActionLinks") && !Array.isArray(response["placeActionLinks"])) throw new ApiError(502, "place_action_observation_unreadable", "Google returned an unreadable action link collection.")
     const rawLinks = Array.isArray(response["placeActionLinks"])
       ? response["placeActionLinks"]
       : []
     for (const rawLink of rawLinks) {
+      // A well-formed link of a future action type is kept as a read-only row;
+      // malformed, duplicate or unrelated rows still reject the whole collection.
       const link = normalizeGooglePlaceActionLink(rawLink)
+      const unsupported = link ? null : unsupportedGooglePlaceActionLink(rawLink)
+      const name = link?.name ?? unsupported?.name
+      if (!name || !name.startsWith(`${locationName}/placeActionLinks/`) || seenNames.has(name)) throw new ApiError(502, "place_action_observation_unreadable", "Google returned an unreadable, duplicate or unrelated action link. Continue in Google or refresh before reviewing a change.")
+      seenNames.add(name)
       if (link) links.push(link)
+      else if (unsupported) unsupportedLinks.push(unsupported)
     }
     const nextPageToken = response["nextPageToken"]
+    if (nextPageToken !== undefined && typeof nextPageToken !== "string") throw new ApiError(502, "place_action_observation_unreadable", "Google returned an unreadable action link page token.")
     pageToken =
       typeof nextPageToken === "string" && nextPageToken
         ? nextPageToken
         : undefined
-    if (!pageToken) return links
+    if (!pageToken) return { links, unsupportedLinks }
+    if (seenTokens.has(pageToken)) throw new ApiError(502, "google_place_action_page_limit", "Google repeated an action link page token. No partial collection was accepted.")
+    seenTokens.add(pageToken)
   }
   throw new ApiError(
     502,

@@ -420,6 +420,13 @@ type MediaWriteScope = {
   session: Session
   locationId: string
   requestId: string
+  /**
+   * A token the client mints per user intent and resends unchanged when a
+   * response is lost (the `Idempotency-Key` header). With it, a retry finds
+   * the first attempt instead of uploading again; a deliberate second upload
+   * carries a new token.
+   */
+  intentId?: string | null
 }
 
 type MediaWriteResult = {
@@ -576,7 +583,10 @@ async function runMediaWrite<TResponse, TReadback = never>(
         write.operation,
         write.mediaItemId ?? "new",
         ...(write.contentSha256 ? [write.contentSha256] : []),
-        requestScopedKeyPart(scope.requestId),
+        // The caller's explicit intent, else the route's Idempotency-Key.
+        scope.intentId
+          ? `intent:${scope.intentId}`
+          : requestScopedKeyPart(scope.requestId),
       ]),
       intent: {
         location_id: scope.locationId,
@@ -1002,6 +1012,7 @@ export async function createMedia(input: {
   locationId: string
   payload: MediaCreateInput
   requestId: string
+  intentId?: string | null
 }) {
   const contentSha256 = sourceUrlContentSha(input.payload.sourceUrl)
   const linked = await withTenant(input.organisationId, (sql) =>
@@ -1081,6 +1092,7 @@ export async function uploadMedia(input: {
   payload: MediaUploadFields
   file: MediaUploadFile
   requestId: string
+  intentId?: string | null
 }) {
   requireUploadableFile(input.payload.mediaFormat, input.file)
   const contentSha256 = sha256(Buffer.from(input.file.bytes))

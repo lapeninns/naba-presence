@@ -320,7 +320,7 @@ describeDatabase("organisation invitations", () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Location scope (supabase 0063): a business workspace can invite a member
+  // Location scope (supabase 0082): a business workspace can invite a member
   // or viewer for named listings, and the scope travels with the invitation
   // onto the membership, in the acceptance transaction.
   // ---------------------------------------------------------------------------
@@ -368,7 +368,7 @@ describeDatabase("organisation invitations", () => {
   }
 
   it("accepts a client-scoped invitation written without a scope, as the deployed code writes it", async () => {
-    // 0063 runs before the release that writes location_scope is deployed;
+    // 0082 runs before the release that writes location_scope is deployed;
     // the older POST sets client_ids and leaves the scope to the default.
     const owner = await fixture()
     const email = `old-writer-${randomUUID()}@example.test`

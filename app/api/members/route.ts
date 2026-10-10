@@ -143,7 +143,7 @@ export const PATCH = route({
       if (current.role === "owner" && input.role !== "owner") {
         await assertAnotherOwnerRemains(sql)
       }
-      // The scope moves with the role (supabase 0063) so the change grants
+      // The scope moves with the role (supabase 0082) so the change grants
       // exactly what it granted before the scope existed:
       //   to owner/admin               -> 'all'; their rows stay, latent, so
       //                                   a later demotion restores them.

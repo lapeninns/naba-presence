@@ -83,7 +83,7 @@ describe("0094 listing change approval migration", () => {
         `insert into mutation_operation
            (organisation_id, intent_id, actor_user_id, surface, action,
             payload_hash, state, change_request, field_mask)
-         values ($1, $2, $3, 'place_action', 'create', $4, $5, $6, $7)
+         values ($1, $2, $3, 'media', 'create', $4, $5, $6, $7)
          returning id`,
         [
           input.org ?? ORG_A,
@@ -92,9 +92,9 @@ describe("0094 listing change approval migration", () => {
           HASH,
           input.state,
           input.changeRequest === undefined
-            ? { kind: "place_action_create", target: null, body: {} }
+            ? { kind: "media_create", target: null, body: {} }
             : input.changeRequest,
-          ["uri"],
+          ["sourceUrl"],
         ]
       )
       return result.rows[0]!.id

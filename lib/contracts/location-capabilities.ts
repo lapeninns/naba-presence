@@ -9,6 +9,7 @@
  * evaluators in `lib/locations/gating.ts`.
  */
 import { z } from "zod"
+import { googleResourceActionsSchema } from "./google-resource-actions"
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -86,6 +87,7 @@ export const locationCapabilitiesSchema = z.object({
    * single-location capabilities answer carries it.
    */
   listingChangeApprovals: z.boolean().optional(),
+  resourceActions: googleResourceActionsSchema.optional(),
 })
 export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>
 

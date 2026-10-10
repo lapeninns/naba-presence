@@ -5,7 +5,7 @@ import { PGlite } from "@electric-sql/pglite"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const migration = readFileSync(
-  join(process.cwd(), "supabase/migrations/0063_membership_scope.sql"),
+  join(process.cwd(), "supabase/migrations/0082_membership_scope.sql"),
   "utf8"
 )
 
@@ -20,7 +20,7 @@ const MEMBER_NO_ROWS = "30000000-0000-4000-8000-000000000004"
 const VIEWER_WITH_ROWS = "30000000-0000-4000-8000-000000000005"
 const VIEWER_NO_ROWS = "30000000-0000-4000-8000-000000000006"
 
-describe("0063 membership scope", () => {
+describe("0082 membership scope", () => {
   it("adds the scope without a rewrite and proves NOT NULL before setting it", () => {
     expect(migration).toContain(
       "add column if not exists location_scope text default 'all'"
@@ -35,7 +35,7 @@ describe("0063 membership scope", () => {
     expect(migration).not.toMatch(/create table/i)
     expect(migration.trim().startsWith("begin;")).toBe(true)
     expect(migration.trim().endsWith("commit;")).toBe(true)
-    expect(migration).toContain("values ('0063_membership_scope')")
+    expect(migration).toContain("values ('0082_membership_scope')")
   })
 
   describe("against PGlite", () => {
@@ -148,7 +148,7 @@ describe("0063 membership scope", () => {
       await db.exec(migration)
       expect([await memberScopes(), await invitationScopes()]).toEqual(before)
       const versions = await db.query<{ count: number }>(
-        "select count(*)::int as count from schema_migration where version = '0063_membership_scope'"
+        "select count(*)::int as count from schema_migration where version = '0082_membership_scope'"
       )
       expect(versions.rows[0].count).toBe(1)
     })

@@ -18,7 +18,7 @@ const describeDatabase = run ? describe : describe.skip
 
 /**
  * Two-person approval for direct listing writes (plan P02-S2b), exercised on
- * booking links: with the organisation's policy and feature on, a
+ * photos added by web address: with the organisation's policy and feature on, a
  * publisher's write parks as a frozen change request and nothing reaches
  * Google until a different publisher approves that exact request; policy or
  * feature off, the write goes straight out as before.
@@ -34,7 +34,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     google = await startGoogleStub()
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: google.baseUrl,
-      GBP_PLACE_ACTIONS_ENABLED: "true",
+      GBP_MEDIA_ENABLED: "true",
       PUBLISH_ENABLED: "true",
     })
   })
@@ -75,45 +75,37 @@ describeDatabase("listing writes - two-person change approval", () => {
       role: "member",
       canPublish: true,
     })
-    const links: Array<Record<string, unknown>> = []
-    google.respond(
-      { method: "GET", pathIncludes: "/placeActionLinks/" },
-      (call) => ({
-        status: 200,
-        json: links.find((link) => call.path.endsWith(String(link.name))) ?? {},
-      })
-    )
-    google.respond(
-      { method: "GET", pathIncludes: "/placeActionLinks" },
-      () => ({
-        status: 200,
-        json: { placeActionLinks: links },
-      })
-    )
-    google.respond(
-      { method: "POST", pathIncludes: "/placeActionLinks" },
-      (call) => {
-        const created = {
-          name: `${linked.googleLocationName}/placeActionLinks/merchant-${links.length}`,
-          providerType: "MERCHANT",
-          isEditable: true,
-          ...(call.body as Record<string, unknown>),
-          createTime: "2026-10-10T10:00:00Z",
-          updateTime: "2026-10-10T10:00:00Z",
-        }
-        links.push(created)
-        return { status: 200, json: created }
+    const parent = `${connection.googleAccountName}/${linked.googleLocationName}`
+    const items: Array<Record<string, unknown>> = []
+    google.respond({ method: "GET", pathIncludes: "/media?" }, () => ({
+      status: 200,
+      json: { mediaItems: items },
+    }))
+    google.respond({ method: "GET", pathIncludes: "/media/merchant-" }, (call) => ({
+      status: 200,
+      json: items.find((item) => call.path.endsWith(String(item.name))) ?? {},
+    }))
+    google.respond({ method: "POST", pathIncludes: "/media" }, (call) => {
+      const created = {
+        name: `${parent}/media/merchant-${items.length}`,
+        ...(call.body as Record<string, unknown>),
+        googleUrl: `https://google.example/merchant-${items.length}.jpg`,
+        createTime: "2026-10-10T10:00:00Z",
       }
-    )
+      items.push(created)
+      return { status: 200, json: created }
+    })
     const base = `${server.baseUrl}/api/locations/${linked.locationId}`
-    return { owner, second, linked, base }
+    return { owner, second, linked, base, parent }
   }
 
-  const createBody = (uri = "https://book.example.com/two-person") => ({
-    confirmation: "create_google_place_action",
-    uri,
-    placeActionType: "DINING_RESERVATION",
-    isPreferred: false,
+  const createBody = (
+    sourceUrl = "https://images.example.com/two-person.jpg"
+  ) => ({
+    confirmation: "create_google_media",
+    mediaFormat: "PHOTO",
+    category: "INTERIOR",
+    sourceUrl,
   })
 
   function send(
@@ -136,7 +128,7 @@ describeDatabase("listing writes - two-person change approval", () => {
 
   const googleWrites = () =>
     google.calls.filter(
-      (call) => call.method !== "GET" && call.path.includes("placeActionLinks")
+      (call) => call.method !== "GET" && call.path.includes("/media")
     )
 
   async function stored(id: string) {
@@ -165,7 +157,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     const parked = await send(
       owner.cookie,
       "POST",
-      `${base}/place-actions`,
+      `${base}/media`,
       createBody(),
       intentId
     )
@@ -174,7 +166,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     expect(parkedBody).toMatchObject({
       status: "awaiting_approval",
       changeRequest: {
-        kind: "place_action_create",
+        kind: "media_create",
         isOwn: true,
         outcome: "awaiting_approval",
       },
@@ -188,7 +180,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     const replay = await send(
       owner.cookie,
       "POST",
-      `${base}/place-actions`,
+      `${base}/media`,
       createBody(),
       intentId
     )
@@ -197,8 +189,8 @@ describeDatabase("listing writes - two-person change approval", () => {
     const conflict = await send(
       owner.cookie,
       "POST",
-      `${base}/place-actions`,
-      createBody("https://book.example.com/other"),
+      `${base}/media`,
+      createBody("https://images.example.com/other.jpg"),
       intentId
     )
     expect(conflict.status).toBe(409)
@@ -272,7 +264,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     )
     expect(googleWrites()).toHaveLength(1)
     expect(googleWrites()[0]?.body).toMatchObject({
-      uri: "https://book.example.com/two-person",
+      sourceUrl: "https://images.example.com/two-person.jpg",
     })
 
     const row = await stored(changeId)
@@ -312,7 +304,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     })
 
     const first = await (
-      await send(owner.cookie, "POST", `${base}/place-actions`, createBody())
+      await send(owner.cookie, "POST", `${base}/media`, createBody())
     ).json()
     const rejected = await send(
       second.cookie,
@@ -330,7 +322,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     })
 
     const mine = await (
-      await send(owner.cookie, "POST", `${base}/place-actions`, createBody())
+      await send(owner.cookie, "POST", `${base}/media`, createBody())
     ).json()
     const withdrawn = await send(
       owner.cookie,
@@ -347,21 +339,21 @@ describeDatabase("listing writes - two-person change approval", () => {
       errorCode: "approval_withdrawn",
     })
 
-    // Two different creates are two links: both stay pending.
+    // Two different creates are two photos: both stay pending.
     const bookA = await (
       await send(
         owner.cookie,
         "POST",
-        `${base}/place-actions`,
-        createBody("https://book.example.com/a")
+        `${base}/media`,
+        createBody("https://images.example.com/a.jpg")
       )
     ).json()
     const bookB = await (
       await send(
         owner.cookie,
         "POST",
-        `${base}/place-actions`,
-        createBody("https://book.example.com/b")
+        `${base}/media`,
+        createBody("https://images.example.com/b.jpg")
       )
     ).json()
     expect(await stored(bookA.changeRequest.id)).toMatchObject({
@@ -375,37 +367,35 @@ describeDatabase("listing writes - two-person change approval", () => {
       await send(
         owner.cookie,
         "POST",
-        `${base}/place-actions`,
-        createBody("https://book.example.com/a")
+        `${base}/media`,
+        createBody("https://images.example.com/a.jpg")
       )
     ).json()
     expect(await stored(bookA.changeRequest.id)).toMatchObject({
       state: "failed",
       errorCode: "approval_superseded",
     })
-    // A newer change to the same link supersedes the older one.
-    const linkId = randomUUID()
-    const updateBody = (uri: string) => ({
-      confirmation: "update_google_place_action",
-      uri,
-      placeActionType: "DINING_RESERVATION",
-      isPreferred: false,
+    // A newer change to the same photo supersedes the older one.
+    const mediaId = randomUUID()
+    const updateBody = (category: string) => ({
+      confirmation: "update_google_media",
+      category,
       expectedGoogleHash: "0".repeat(64),
     })
     const olderUpdate = await (
       await send(
         owner.cookie,
         "PATCH",
-        `${base}/place-actions/${linkId}`,
-        updateBody("https://book.example.com/c")
+        `${base}/media/${mediaId}`,
+        updateBody("EXTERIOR")
       )
     ).json()
     const newerUpdate = await (
       await send(
         owner.cookie,
         "PATCH",
-        `${base}/place-actions/${linkId}`,
-        updateBody("https://book.example.com/d")
+        `${base}/media/${mediaId}`,
+        updateBody("FOOD_AND_DRINK")
       )
     ).json()
     expect(await stored(olderUpdate.changeRequest.id)).toMatchObject({
@@ -434,8 +424,8 @@ describeDatabase("listing writes - two-person change approval", () => {
       (change: { id: string }) => change.id === bookB.changeRequest.id
     )
     expect(shown.details).toContainEqual({
-      label: "Web address",
-      value: "https://book.example.com/b",
+      label: "Source web address",
+      value: "https://images.example.com/b.jpg",
     })
 
     // A retry of a decided intent says how it ended, never "sent for approval".
@@ -444,8 +434,8 @@ describeDatabase("listing writes - two-person change approval", () => {
       await send(
         owner.cookie,
         "POST",
-        `${base}/place-actions`,
-        createBody("https://book.example.com/e"),
+        `${base}/media`,
+        createBody("https://images.example.com/e.jpg"),
         intentId
       )
     ).json()
@@ -458,8 +448,8 @@ describeDatabase("listing writes - two-person change approval", () => {
     const retried = await send(
       owner.cookie,
       "POST",
-      `${base}/place-actions`,
-      createBody("https://book.example.com/e"),
+      `${base}/media`,
+      createBody("https://images.example.com/e.jpg"),
       intentId
     )
     expect(retried.status).toBe(409)
@@ -478,31 +468,26 @@ describeDatabase("listing writes - two-person change approval", () => {
       twoPerson: true,
       feature: true,
     })
-    // The author's update names a link and a Google hash that no longer hold.
-    google.respond(
-      { method: "PATCH", pathIncludes: "/placeActionLinks/" },
-      () => ({
-        status: 200,
-        json: {},
-      })
-    )
+    // The author's update names a photo and a Google hash that no longer hold.
+    google.respond({ method: "PATCH", pathIncludes: "/media/" }, () => ({
+      status: 200,
+      json: {},
+    }))
     const seededId = randomUUID()
     const parked = await send(
       owner.cookie,
       "PATCH",
-      `${base}/place-actions/${seededId}`,
+      `${base}/media/${seededId}`,
       {
-        confirmation: "update_google_place_action",
-        uri: "https://book.example.com/stale",
-        placeActionType: "DINING_RESERVATION",
-        isPreferred: false,
+        confirmation: "update_google_media",
+        category: "EXTERIOR",
         expectedGoogleHash: "0".repeat(64),
       }
     )
     expect(parked.status, await parked.clone().text()).toBe(202)
     const change = (await parked.json()).changeRequest
     expect(change).toMatchObject({
-      kind: "place_action_update",
+      kind: "media_update",
       target: seededId,
     })
 
@@ -535,7 +520,7 @@ describeDatabase("listing writes - two-person change approval", () => {
       const created = await send(
         owner.cookie,
         "POST",
-        `${base}/place-actions`,
+        `${base}/media`,
         createBody()
       )
       expect(created.status, await created.clone().text()).toBe(201)
@@ -556,23 +541,20 @@ describeDatabase("listing writes - two-person change approval", () => {
       twoPerson: true,
       feature: true,
     })
-    const parked = await send(
-      owner.cookie,
-      "PATCH",
-      `${base}/business-information`,
-      {
-        operation: "update_location",
-        confirmation: "publish_business_information_to_google",
-        expectedGoogleHash: "0".repeat(64),
-        updateMask: ["title"],
-        payload: { title: "The Two Person Arms" },
-      }
-    )
+    // A profile publish is an owner/admin write (its route's roles).
+    const parked = await send(owner.cookie, "POST", `${base}/profile`, {
+      direction: "to_google",
+      confirmation: "publish_nabapresence_profile_to_google",
+      selectedFields: ["name"],
+      expectedCanonicalRevision: "1",
+      expectedCanonicalHash: "0".repeat(64),
+      expectedGoogleHash: "0".repeat(64),
+    })
     expect(parked.status, await parked.clone().text()).toBe(202)
     const change = (await parked.json()).changeRequest
     expect(change.details).toContainEqual({
-      label: "Title",
-      value: "The Two Person Arms",
+      label: "Saved version",
+      value: "1",
     })
 
     // A member publisher may not make this write, so may not approve it.
@@ -631,7 +613,7 @@ describeDatabase("listing writes - two-person change approval", () => {
       feature: true,
     })
     const parked = await (
-      await send(owner.cookie, "POST", `${base}/place-actions`, createBody())
+      await send(owner.cookie, "POST", `${base}/media`, createBody())
     ).json()
     // What a killed approval leaves: decided and `sent`, nothing linked.
     await admin`
@@ -651,28 +633,24 @@ describeDatabase("listing writes - two-person change approval", () => {
   }, 60_000)
 
   it("links the request to its dispatch attempt before anything is sent", async () => {
-    const { owner, second, base, linked } = await tenant({
+    const { owner, second, base, parent } = await tenant({
       twoPerson: true,
       feature: true,
     })
     const parked = await (
-      await send(owner.cookie, "POST", `${base}/place-actions`, createBody())
+      await send(owner.cookie, "POST", `${base}/media`, createBody())
     ).json()
     // Google holds the create open, so the state while it is in flight --
     // what an approval killed now would leave -- can be read.
-    google.respond(
-      { method: "POST", pathIncludes: "/placeActionLinks" },
-      (call) => ({
-        status: 200,
-        delayMs: 2_000,
-        json: {
-          name: `${linked.googleLocationName}/placeActionLinks/merchant-slow`,
-          providerType: "MERCHANT",
-          isEditable: true,
-          ...(call.body as Record<string, unknown>),
-        },
-      })
-    )
+    google.respond({ method: "POST", pathIncludes: "/media" }, (call) => ({
+      status: 200,
+      delayMs: 2_000,
+      json: {
+        name: `${parent}/media/merchant-slow`,
+        ...(call.body as Record<string, unknown>),
+        googleUrl: "https://google.example/merchant-slow.jpg",
+      },
+    }))
     const approving = send(
       second.cookie,
       "POST",
@@ -712,7 +690,7 @@ describeDatabase("listing writes - two-person change approval", () => {
     })
     const paused = await startAppServer({
       GOOGLE_API_PROXY_BASE: google.baseUrl,
-      GBP_PLACE_ACTIONS_ENABLED: "false",
+      GBP_MEDIA_ENABLED: "false",
       PUBLISH_ENABLED: "true",
     })
     try {
@@ -721,7 +699,7 @@ describeDatabase("listing writes - two-person change approval", () => {
         await send(
           owner.cookie,
           "POST",
-          `${pausedBase}/place-actions`,
+          `${pausedBase}/media`,
           createBody()
         )
       ).json()

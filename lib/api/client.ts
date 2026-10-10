@@ -72,6 +72,12 @@ export class ApiClientError extends Error {
 export type RequestOptions = {
   signal?: AbortSignal
   background?: boolean
+  /**
+   * One token per user intent, resent unchanged after a lost response; the
+   * same `Idempotency-Key` an `intentId` sends (`intentId` wins when both
+   * are given).
+   */
+  idempotencyKey?: string
 }
 
 type ApiFetchOptions<T> = RequestOptions & {
@@ -196,7 +202,9 @@ export async function apiFetch<T = unknown>(
 ): Promise<T> {
   const { method = "GET", body, schema, signal, background = false } = options
   const intentId =
-    method === "GET" ? undefined : (options.intentId ?? mintIntentId())
+    method === "GET"
+      ? undefined
+      : (options.intentId ?? options.idempotencyKey ?? mintIntentId())
   const headers: Record<string, string> = {}
   if (body !== undefined) headers["content-type"] = "application/json"
   if (intentId) headers[INTENT_HEADER] = intentId

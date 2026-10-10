@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { PGlite } from "@electric-sql/pglite"
@@ -51,6 +51,22 @@ function claims(sql: string): Map<string, string> {
 }
 
 describe("claim_due_jobs contract (0048 -> 0092)", () => {
+  it("compares the two latest definitions in the migration history", () => {
+    // A later migration that rewrites claim_due_jobs (origin/main's 0079
+    // and 0080 add their own claim functions instead) must become `latest`
+    // here, and keep every arm of the one it replaces.
+    const defining = readdirSync(join(process.cwd(), "supabase/migrations"))
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+      .filter((file) =>
+        /create (or replace )?function claim_due_jobs\s*\(/i.test(read(file))
+      )
+    expect(defining.slice(-2)).toEqual([
+      "0048_fleet_queue.sql",
+      "0092_mutation_recovery_jobs.sql",
+    ])
+  })
+
   it("keeps every 0048 due arm verbatim", () => {
     const arms = dueArms(previous)
     expect(arms).toHaveLength(6)

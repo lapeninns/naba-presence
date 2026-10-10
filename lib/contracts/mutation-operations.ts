@@ -88,9 +88,8 @@ export type MutationReceiptResponse = z.infer<
 
 /**
  * What every listing mutation route answers with alongside its own fields
- * (`operation` on hours, profile, food menus, business information,
- * industry, media, place actions and post publish): the write's outcome in
- * the shared vocabulary, and the receipt to poll for it.
+ * (`operation` on hours, profile, food menus, media and post publish): the
+ * write's outcome in the shared vocabulary, and the receipt to poll for it.
  *
  * `operationId` is null when the request carried no intent, so no receipt
  * was recorded; `outcome` is then the server's own judgement of this answer.

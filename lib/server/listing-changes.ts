@@ -87,9 +87,6 @@ export const LISTING_CHANGE_DECIDER_ROLES: Partial<
   Record<ListingChangeKind, readonly Session["role"][]>
 > = {
   profile_publish: ["owner", "admin"],
-  business_information_update: ["owner", "admin"],
-  business_attributes_update: ["owner", "admin"],
-  industry_update: ["owner", "admin"],
 }
 
 /** One kind of listing write that can park, and how to send it later. */
@@ -106,7 +103,7 @@ export type ListingChangeEntry<TBody = unknown, TResult = unknown> = {
   /** The fields the change writes, shown to the approver. */
   fieldMask: (body: TBody) => string[]
   /**
-   * True for a write that adds a new item (a photo, a booking link): it
+   * True for a write that adds a new item (a photo): it
    * names no target, so a newer request does not replace it.
    */
   creates?: boolean
@@ -119,7 +116,7 @@ export type ListingChangeEntry<TBody = unknown, TResult = unknown> = {
 export type ListingChangeDispatch<TBody> = {
   session: Session
   locationId: string
-  /** The media item or booking link the change is about. */
+  /** The media item the change is about. */
   target: string | null
   body: TBody
   requestId: string
@@ -220,7 +217,7 @@ type ChangeRow = {
   actorUserId: string | null
   authorName: string | null
   approvalRef: string | null
-  /** What the change's photo or booking link holds now, if it names one. */
+  /** What the change's photo holds now, if it names one. */
   targetNow: ListingChangeTargetNow
   createdAt: Date
   updatedAt: Date
@@ -252,17 +249,6 @@ const changeColumns = (sql: TransactionSql) => sql`
       where m.id::text = o.target_ref
         and m.location_id = o.location_id
         and m.deleted_at is null
-    )
-    when o.surface = 'place_action' then (
-      select jsonb_build_object(
-        'uri', p.uri,
-        'placeActionType', p.place_action_type,
-        'isPreferred', p.is_preferred
-      )
-      from place_action_link p
-      where p.id::text = o.target_ref
-        and p.location_id = o.location_id
-        and p.deleted_at is null
     )
   end as "targetNow",
   o.created_at as "createdAt",
@@ -455,7 +441,7 @@ export async function parkListingChange<TBody>(
     // The newer request is the one people mean now -- when it replaces the
     // older one: the same change to the same thing (kind, operation and
     // target). A create names no target, and two creates are two things (a
-    // second photo, a second booking link), so a create supersedes only an
+    // second photo), so a create supersedes only an
     // identical pending create, never a different one.
     const replaces = entry.creates
       ? sql`and payload_hash = ${payloadHash}`

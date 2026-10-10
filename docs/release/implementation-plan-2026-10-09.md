@@ -153,7 +153,7 @@ Membership/invitation scope (legacy compat); mutation `intentId` + expected revi
 
 ## 4. Migration and verification
 
-1. Baseline. 2. Append-only schema. 3. Dual-write scope. 4. Backfill + shadow compare (any assignment → `assigned`, none → `all`; keep latent grants). 5. Switch readers (precondition: only scope-aware writers live, shadow compare clean; 0064 runs the now narrowing-only `reconcile_member_location_scope()` and adds triggers so older writers cannot leave a member holding rows on `all`); never return to absence-means-all. 6. Durable single-resource commands/readback before scheduling/bulk. 7. AI linkage migration without extra grant. 8. Org-level feature flags. 9. Paid access activated separately.
+1. Baseline. 2. Append-only schema. 3. Dual-write scope. 4. Backfill + shadow compare (any assignment → `assigned`, none → `all`; keep latent grants). 5. Switch readers (precondition: only scope-aware writers live, shadow compare clean; 0083 runs the now narrowing-only `reconcile_member_location_scope()` and adds triggers so older writers cannot leave a member holding rows on `all`); never return to absence-means-all. 6. Durable single-resource commands/readback before scheduling/bulk. 7. AI linkage migration without extra grant. 8. Org-level feature flags. 9. Paid access activated separately.
    Legacy schedule values → needs review, not jobs. Composite tenant-parent FKs with low-lock validation; rollback preserves receipts.
 
 Verification: typecheck, lint, unit, webpack build, fresh/upgrade/no-op/concurrent migrations, integration, audit, secret scan, CodeQL, plus access, MFA, mutation, retention, billing, scheduling, bulk, UI and operations matrices (see package criteria).

@@ -1,80 +1,16 @@
 import "server-only"
-
 import type { TransactionSql } from "postgres"
-
-import {
-  placeActionInputSchema,
-  type PlaceActionInput,
-  type PlaceActionLink,
-} from "@/lib/contracts/location-place-actions"
-import {
-  GOOGLE_PLACE_ACTION_TYPES,
-  type GooglePlaceActionType,
-} from "@/lib/domain/google-contract"
+import type { PlaceActionInput, PlaceActionLink } from "@/lib/contracts/location-place-actions"
+import type { GooglePlaceActionType } from "@/lib/domain/google-contract"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, withTenant } from "@/lib/server/db"
+import { withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
-import {
-  attemptStore,
-  idempotencyKey,
-  loadLinkedLocation,
-  requireGbpWrite,
-  requirePublishGrant,
-  runGbpWrite,
-  type GbpAuditSpec,
-  type GbpReadback,
-  type GbpWriteSuccess,
-  type LinkedLocation,
-} from "@/lib/server/gbp-write"
-import {
-  createGooglePlaceActionLink,
-  deleteGooglePlaceActionLink,
-  getGooglePlaceActionLink,
-  GoogleMutationAmbiguousError,
-  listGooglePlaceActionLinks,
-  patchGooglePlaceActionLink,
-  type GooglePlaceActionLink,
-} from "@/lib/server/google"
-import { ApiError } from "@/lib/server/http"
-import {
-  operationSummary,
-  requestScopedKeyPart,
-} from "@/lib/server/mutation-operations"
-import {
-  storeSettle,
-  type RecoveryAdapter,
-  type RecoveryAttempt,
-} from "@/lib/server/mutation-recovery"
+import { loadLinkedLocation, type LinkedLocation } from "@/lib/server/gbp-write"
+import { listGooglePlaceActionLinks, type GooglePlaceActionLink } from "@/lib/server/google"
+import { listGooglePlaceActionMetadata } from "@/lib/server/google/place-action-metadata"
 import type { Session } from "@/lib/server/session"
 
-// Request/response shapes live in the contract; the old names stay exported
-// from here for one sprint so existing imports keep working.
-export { placeActionInputSchema, type PlaceActionInput }
-
-type PlaceActionOperation = "create" | "update" | "delete"
-
-type GoogleRecord = Record<string, unknown>
-
-/** A `PlaceActionLink` row before `observedAt` is serialised to ISO. */
-type StoredLink = Omit<PlaceActionLink, "placeActionType" | "observedAt"> & {
-  placeActionType: GooglePlaceActionType
-  observedAt: Date
-}
-
-/**
- * place_action_mutation as an AttemptStore. Its CHECK constraint only knows
- * started/succeeded/failed/ambiguous, so every in-flight status maps to
- * `started`.
- */
-const placeActionAttempts = attemptStore({
-  table: "place_action_mutation",
-  statuses: {
-    validating: "started",
-    validated: "started",
-    publishing: "started",
-  },
-  columns: { errorCode: "last_error_code", response: "google_response" },
-})
+type StoredLink = Omit<PlaceActionLink, "placeActionType" | "observedAt"> & { placeActionType: GooglePlaceActionType; observedAt: Date }
 
 function placeActionHash(input: PlaceActionInput) {
   return sha256(
@@ -86,25 +22,6 @@ function placeActionHash(input: PlaceActionInput) {
   )
 }
 
-function inputFromGoogle(value: GoogleRecord): PlaceActionInput | null {
-  const parsed = placeActionInputSchema.safeParse({
-    uri: value.uri,
-    placeActionType: value.placeActionType,
-    isPreferred: value.isPreferred === true,
-  })
-  return parsed.success ? parsed.data : null
-}
-
-/** True when a Google link record carries exactly the approved values. */
-function matchesPayload(value: GoogleRecord, payload: PlaceActionInput) {
-  const parsed = inputFromGoogle(value)
-  return parsed !== null && placeActionHash(parsed) === placeActionHash(payload)
-}
-
-function linkNameOf(value: GoogleRecord | undefined) {
-  return typeof value?.name === "string" ? value.name : undefined
-}
-
 function linkedLocation(session: Session, locationId: string) {
   return withTenant(session.organisationId, (sql) =>
     loadLinkedLocation(sql, session, locationId, {
@@ -113,23 +30,6 @@ function linkedLocation(session: Session, locationId: string) {
       },
     })
   )
-}
-
-const PLACE_ACTIONS_PAUSED = {
-  status: 503,
-  code: "place_actions_paused",
-  message: "Place Action writes are paused.",
-}
-
-/** Linked location plus the write gates (kill switch, then publish grant). */
-async function linkedForWrite(session: Session, locationId: string) {
-  const linked = await linkedLocation(session, locationId)
-  requireGbpWrite(getServerEnv(), "placeActions", PLACE_ACTIONS_PAUSED)
-  requirePublishGrant(linked, {
-    code: "publish_not_allowed",
-    message: "You cannot publish for this location.",
-  })
-  return linked
 }
 
 async function persistLiveLinks(
@@ -195,14 +95,15 @@ async function persistLiveLinks(
 
 /** Lists the live Google links and refreshes the local cache from them. */
 async function readLiveLinks(organisationId: string, linked: LinkedLocation) {
-  const links = await listGooglePlaceActionLinks(
+  const { links, unsupportedLinks } = await listGooglePlaceActionLinks(
     await linked.accessToken(),
     linked.googleLocationName,
     { connectionKey: linked.googleConnectionId }
   )
-  return withTenant(organisationId, (sql) =>
+  const stored = await withTenant(organisationId, (sql) =>
     persistLiveLinks(sql, organisationId, linked, links)
   )
+  return { stored, unsupportedLinks }
 }
 
 export async function loadPlaceActions(
@@ -211,7 +112,8 @@ export async function loadPlaceActions(
   locationId: string
 ) {
   const linked = await linkedLocation(session, locationId)
-  const stored = await readLiveLinks(organisationId, linked)
+  const metadata = await listGooglePlaceActionMetadata(await linked.accessToken(), linked.googleLocationName, { connectionKey: linked.googleConnectionId })
+  const { stored, unsupportedLinks } = await readLiveLinks(organisationId, linked)
   const [latestMutation] = await withTenant(
     organisationId,
     (sql) => sql<
@@ -240,11 +142,14 @@ export async function loadPlaceActions(
     locationId,
     canPublish: linked.canPublish,
     writesEnabled: gbpWritesEnabled(env, "placeActions"),
-    supportedTypes: GOOGLE_PLACE_ACTION_TYPES,
+    supportedTypes: metadata.supportedTypes,
+    unsupportedTypes: metadata.unsupportedTypes,
+    metadataObservedAt: metadata.observedAt,
     links: stored.map((link) => ({
       ...link,
       observedAt: link.observedAt.toISOString(),
     })),
+    unsupportedLinks,
     latestMutation: latestMutation
       ? {
           ...latestMutation,
@@ -254,490 +159,3 @@ export async function loadPlaceActions(
       : null,
   }
 }
-
-async function storedLink(
-  organisationId: string,
-  locationId: string,
-  linkId: string
-) {
-  const [link] = await withTenant(
-    organisationId,
-    (sql) => sql<StoredLink[]>`
-    select
-      id::text as id,
-      google_link_name as "googleLinkName",
-      provider_type as "providerType",
-      is_editable as "isEditable",
-      uri,
-      place_action_type as "placeActionType",
-      is_preferred as "isPreferred",
-      google_hash as "googleHash",
-      observed_at as "observedAt"
-    from place_action_link
-    where id = ${linkId}
-      and location_id = ${locationId}
-      and deleted_at is null
-    limit 1
-  `
-  )
-  if (!link)
-    throw new ApiError(
-      404,
-      "place_action_not_found",
-      "Place Action link not found."
-    )
-  // Aggregator-owned links are immutable on Google's side; this is a module
-  // pre-flight check (like the stale-hash check), not a pipeline concern.
-  if (!link.isEditable) {
-    throw new ApiError(
-      409,
-      "place_action_not_editable",
-      "Google reports that this provider link cannot be edited by the merchant."
-    )
-  }
-  return link
-}
-
-/** Pre-flight for update/delete: Google must still hold the reviewed values. */
-async function requireGoogleUnchanged(
-  read: () => Promise<GoogleRecord>,
-  expectedGoogleHash: string
-) {
-  const current = inputFromGoogle(await read())
-  if (!current || placeActionHash(current) !== expectedGoogleHash) {
-    throw new ApiError(
-      409,
-      "place_action_stale",
-      "Google changed this link. Refresh and review it again."
-    )
-  }
-}
-
-type PlaceActionWrite<TResponse, TReadback> = {
-  organisationId: string
-  session: Session
-  requestId: string
-  linked: LinkedLocation
-  operation: PlaceActionOperation
-  linkId?: string
-  expectedGoogleHash?: string
-  payload?: PlaceActionInput
-  validate?: () => Promise<void>
-  mutate: () => Promise<TResponse>
-  readback?: GbpReadback<TResponse, TReadback>
-  /** Stored in place_action_mutation.google_link_name on success. */
-  googleLinkName: (
-    ctx: GbpWriteSuccess<TResponse, TReadback>
-  ) => string | undefined
-  onSuccess?: (
-    sql: TransactionSql,
-    ctx: GbpWriteSuccess<TResponse, TReadback>
-  ) => Promise<void>
-  audit: (ctx: GbpWriteSuccess<TResponse, TReadback>) => GbpAuditSpec
-}
-
-/**
- * One place-action mutation through the shared pipeline. Keys include the
- * client's intent id (the `Idempotency-Key` header) or, without one, the
- * request id, so any existing row for the key is replayed as idempotent: a
- * retry of the same intent replays instead of creating the link twice, while
- * a request without an intent is a fresh key, as before (see the same note
- * in lib/server/media.ts).
- */
-async function runPlaceActionWrite<TResponse, TReadback>(
-  input: PlaceActionWrite<TResponse, TReadback>
-) {
-  const { organisationId, linked, operation, linkId, payload } = input
-  const result = await runGbpWrite<TResponse, TReadback>({
-    surface: "placeActions",
-    paused: PLACE_ACTIONS_PAUSED,
-    organisationId,
-    actorUserId: input.session.userId,
-    requestId: input.requestId,
-    store: placeActionAttempts,
-    key: idempotencyKey([
-      organisationId,
-      linked.locationId,
-      operation,
-      linkId ?? null,
-      payload ? placeActionHash(payload) : null,
-      requestScopedKeyPart(input.requestId),
-    ]),
-    intent: {
-      location_id: linked.locationId,
-      external_location_id: linked.externalLocationId,
-      place_action_link_id: linkId ?? null,
-      operation,
-      expected_google_hash: input.expectedGoogleHash ?? null,
-      requested_payload: payload
-        ? (sql: TransactionSql) => jsonColumn(sql, payload)
-        : null,
-    },
-    onExisting: "replay",
-    failureCode: `place_action_${operation}_failed`,
-    operation: {
-      surface: "place_action",
-      action: operation,
-      locationId: linked.locationId,
-      targetType: "place_action_link",
-      targetRef: linkId ?? null,
-      payloadHash: idempotencyKey([
-        operation,
-        linkId ?? null,
-        payload ? placeActionHash(payload) : null,
-        input.expectedGoogleHash ?? null,
-      ]),
-      googleConnectionId: linked.googleConnectionId,
-    },
-    validate: input.validate,
-    mutate: input.mutate,
-    onAmbiguous: "fail",
-    readback: input.readback,
-    onSuccess: async (sql, ctx) => {
-      // NOTE(gbp-write): attemptStore deliberately has no per-module success
-      // column (each module's settled row shape differs), so the link name is
-      // written here, inside the helper's settle transaction, where it is
-      // atomic with the attempt's succeeded status.
-      await sql`
-        update place_action_mutation
-        set google_link_name = ${input.googleLinkName(ctx) ?? null}
-        where id = ${ctx.attemptId}
-      `
-      if (input.onSuccess) await input.onSuccess(sql, ctx)
-    },
-    audit: input.audit,
-  })
-  return result.idempotent
-    ? {
-        id: result.attemptId,
-        status: result.rawStatus,
-        idempotent: true,
-        operation: operationSummary(result),
-      }
-    : {
-        id: result.attemptId,
-        status: "succeeded",
-        idempotent: false,
-        operation: operationSummary(result),
-      }
-}
-
-export async function createPlaceAction(input: {
-  organisationId: string
-  session: Session
-  locationId: string
-  payload: PlaceActionInput
-  requestId: string
-}) {
-  const linked = await linkedForWrite(input.session, input.locationId)
-  const { payload } = input
-  const google = { connectionKey: linked.googleConnectionId }
-  const result = await runPlaceActionWrite<GoogleRecord, GoogleRecord>({
-    ...input,
-    linked,
-    operation: "create",
-    mutate: async () => {
-      const accessToken = await linked.accessToken()
-      try {
-        const created = await createGooglePlaceActionLink(
-          accessToken,
-          { locationName: linked.googleLocationName, payload },
-          google
-        )
-        // A 2xx without the new link's name may still have created it.
-        if (!linkNameOf(created)) {
-          throw new GoogleMutationAmbiguousError(
-            "Google did not return the created Place Action link name."
-          )
-        }
-        return created
-      } catch (error) {
-        // An ambiguous create may have applied: recover it from the list, or
-        // hand the original ambiguity back to the pipeline.
-        if (!(error instanceof GoogleMutationAmbiguousError)) throw error
-        const live = await listGooglePlaceActionLinks(
-          accessToken,
-          linked.googleLocationName,
-          google
-        )
-        const recovered = live.find(
-          (link) =>
-            link.uri === payload.uri &&
-            link.placeActionType === payload.placeActionType
-        )
-        if (!recovered) throw error
-        return recovered
-      }
-    },
-    // The create response is Google's echo of the new link; it is verified
-    // as the readback (no further read).
-    readback: {
-      read: async ({ response }) => response ?? {},
-      verify: ({ readback }) => matchesPayload(readback, payload),
-      mismatch: {
-        code: "place_action_readback_mismatch",
-        message: "Google did not return the approved Place Action values.",
-      },
-    },
-    googleLinkName: ({ response }) => linkNameOf(response),
-    audit: ({ response }) => ({
-      action: "place_action.created",
-      subjectType: "location",
-      subjectId: input.locationId,
-      metadata: { googleLinkName: linkNameOf(response), ...payload },
-    }),
-  })
-  if (!result.idempotent) await readLiveLinks(input.organisationId, linked)
-  return result
-}
-
-export async function updatePlaceAction(input: {
-  organisationId: string
-  session: Session
-  locationId: string
-  linkId: string
-  payload: PlaceActionInput
-  expectedGoogleHash: string
-  requestId: string
-}) {
-  const linked = await linkedForWrite(input.session, input.locationId)
-  const link = await storedLink(
-    input.organisationId,
-    input.locationId,
-    input.linkId
-  )
-  if (link.googleHash !== input.expectedGoogleHash) {
-    throw new ApiError(
-      409,
-      "place_action_stale",
-      "Refresh before overwriting newer Google changes."
-    )
-  }
-  const { payload } = input
-  const google = { connectionKey: linked.googleConnectionId }
-  const readLink = async () =>
-    getGooglePlaceActionLink(
-      await linked.accessToken(),
-      link.googleLinkName,
-      google
-    )
-  const result = await runPlaceActionWrite<GoogleRecord, GoogleRecord>({
-    ...input,
-    linked,
-    operation: "update",
-    validate: () => requireGoogleUnchanged(readLink, input.expectedGoogleHash),
-    mutate: async () =>
-      patchGooglePlaceActionLink(
-        await linked.accessToken(),
-        { name: link.googleLinkName, payload },
-        google
-      ),
-    readback: {
-      read: readLink,
-      verify: ({ readback }) => matchesPayload(readback, payload),
-      mismatch: {
-        code: "place_action_readback_mismatch",
-        message: "Google did not apply the approved link values.",
-      },
-    },
-    googleLinkName: () => link.googleLinkName,
-    audit: () => ({
-      action: "place_action.updated",
-      subjectType: "place_action_link",
-      subjectId: input.linkId,
-      metadata: payload,
-    }),
-  })
-  if (!result.idempotent) await readLiveLinks(input.organisationId, linked)
-  return result
-}
-
-export async function removePlaceAction(input: {
-  organisationId: string
-  session: Session
-  locationId: string
-  linkId: string
-  expectedGoogleHash: string
-  requestId: string
-}) {
-  const linked = await linkedForWrite(input.session, input.locationId)
-  const link = await storedLink(
-    input.organisationId,
-    input.locationId,
-    input.linkId
-  )
-  if (link.googleHash !== input.expectedGoogleHash) {
-    throw new ApiError(
-      409,
-      "place_action_stale",
-      "Refresh before deleting a changed Google link."
-    )
-  }
-  const google = { connectionKey: linked.googleConnectionId }
-  const readLink = async () =>
-    getGooglePlaceActionLink(
-      await linked.accessToken(),
-      link.googleLinkName,
-      google
-    )
-  return runPlaceActionWrite<null, GooglePlaceActionLink[]>({
-    ...input,
-    linked,
-    operation: "delete",
-    validate: () => requireGoogleUnchanged(readLink, input.expectedGoogleHash),
-    mutate: async () =>
-      deleteGooglePlaceActionLink(
-        await linked.accessToken(),
-        link.googleLinkName,
-        google
-      ),
-    readback: {
-      read: async () =>
-        listGooglePlaceActionLinks(
-          await linked.accessToken(),
-          linked.googleLocationName,
-          google
-        ),
-      verify: ({ readback }) =>
-        !readback.some((candidate) => candidate.name === link.googleLinkName),
-      mismatch: {
-        code: "place_action_delete_mismatch",
-        message: "Google still returns the deleted link.",
-      },
-    },
-    googleLinkName: () => link.googleLinkName,
-    // The delete readback is the full live list, so the cache refresh rides
-    // in the settle transaction.
-    onSuccess: async (sql, ctx) => {
-      if (ctx.readback) {
-        await persistLiveLinks(sql, input.organisationId, linked, ctx.readback)
-      }
-    },
-    audit: () => ({
-      action: "place_action.deleted",
-      subjectType: "place_action_link",
-      subjectId: input.linkId,
-      metadata: { googleLinkName: link.googleLinkName },
-    }),
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Recovery (lib/server/mutation-recovery.ts)
-// ---------------------------------------------------------------------------
-
-type PlaceActionRecoveryAttempt = RecoveryAttempt & {
-  externalLocationId: string
-  operation: PlaceActionOperation
-  requestedPayload: PlaceActionInput | null
-  /** The stored link an update or delete targeted. */
-  googleLinkName: string | null
-}
-
-const settlePlaceActionAttempt = storeSettle(placeActionAttempts)
-
-/**
- * Reads an uncertain place-action write back from Google's live links:
- *
- *   create   a live link with the requested uri and type is the create
- *            (identified by content, as the create's own recovery does, so
- *            `awaiting_confirmation`); none means nothing was created
- *   update   the targeted link carries the requested values (a link
- *            Google no longer holds is `target_changed`, for a person)
- *   delete   the targeted link is no longer listed
- */
-export const placeActionRecoveryAdapter: RecoveryAdapter<PlaceActionRecoveryAttempt> =
-  {
-    surface: "place_action",
-    attemptTable: "place_action_mutation",
-    async load(sql, attemptId) {
-      const [row] = await sql<PlaceActionRecoveryAttempt[]>`
-        select
-          m.id::text as id,
-          m.status as "rawStatus",
-          m.started_at as "startedAt",
-          m.last_error_code as "errorCode",
-          m.external_location_id::text as "externalLocationId",
-          m.operation,
-          m.requested_payload as "requestedPayload",
-          coalesce(m.google_link_name, l.google_link_name) as "googleLinkName"
-        from place_action_mutation m
-        left join place_action_link l on l.id = m.place_action_link_id
-        where m.id = ${attemptId}
-      `
-      return row ?? null
-    },
-    async readback({ attempt, link }) {
-      if (attempt.externalLocationId !== link.externalLocationId) {
-        return { kind: "unverifiable", errorCode: "target_changed" }
-      }
-      const token = await link.accessToken()
-      const google = { connectionKey: link.googleConnectionId }
-      const payload = attempt.requestedPayload
-      if (attempt.operation === "create") {
-        if (!payload) {
-          return { kind: "unverifiable", errorCode: "recovery_unsupported" }
-        }
-        const live = await listGooglePlaceActionLinks(
-          token,
-          link.googleLocationName,
-          google
-        )
-        const created = live.find((candidate) =>
-          matchesPayload(candidate as GoogleRecord, payload)
-        )
-        return created
-          ? { kind: "landed", confirmed: false, response: created }
-          : { kind: "not_landed", errorCode: "place_action_not_created" }
-      }
-      if (!attempt.googleLinkName) {
-        return { kind: "unverifiable", errorCode: "target_changed" }
-      }
-      if (attempt.operation === "update") {
-        if (!payload) {
-          return { kind: "unverifiable", errorCode: "recovery_unsupported" }
-        }
-        let current: Awaited<ReturnType<typeof getGooglePlaceActionLink>>
-        try {
-          current = await getGooglePlaceActionLink(
-            token,
-            attempt.googleLinkName,
-            google
-          )
-        } catch (error) {
-          // The link is gone at Google: no later read will say whether the
-          // update landed first, so it goes to a person now rather than
-          // spending the readback ladder on a deterministic answer.
-          if (error instanceof ApiError && error.status === 404) {
-            return { kind: "unverifiable", errorCode: "target_changed" }
-          }
-          throw error
-        }
-        return matchesPayload(current, payload)
-          ? { kind: "landed", confirmed: true, response: current }
-          : { kind: "not_landed", errorCode: "place_action_readback_mismatch" }
-      }
-      const live = await listGooglePlaceActionLinks(
-        token,
-        link.googleLocationName,
-        google
-      )
-      return live.some((candidate) => candidate.name === attempt.googleLinkName)
-        ? { kind: "not_landed", errorCode: "place_action_delete_mismatch" }
-        : { kind: "landed", confirmed: true }
-    },
-    async settle(sql, input) {
-      const written = await settlePlaceActionAttempt(sql, input)
-      if (written && input.verdict.kind === "landed") {
-        const name =
-          linkNameOf(input.verdict.response as GoogleRecord | undefined) ??
-          input.attempt.googleLinkName
-        await sql`
-          update place_action_mutation
-          set google_link_name = ${name ?? null}
-          where id = ${input.attempt.id}
-        `
-      }
-      return written
-    },
-  }

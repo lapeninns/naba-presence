@@ -228,7 +228,7 @@ export const POST = route({
               input.locationIds
             )
           : null
-        // Written with the ids it describes, in the same row: the 0063 CHECK
+        // Written with the ids it describes, in the same row: the 0082 CHECK
         // refuses a scope that disagrees with them.
         const locationScope: LocationScope =
           clientIds || locationIds ? "assigned" : "all"

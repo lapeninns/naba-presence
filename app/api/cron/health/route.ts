@@ -2,6 +2,7 @@ import { getDatabase } from "@/lib/server/db"
 import { withAdvisoryLock } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
 import {
+  buildDigests,
   deliverPending,
   evaluateOrganisation,
 } from "@/lib/server/notifications/evaluate"
@@ -48,6 +49,7 @@ async function runHealthTick(requestId: string) {
       opened: 0,
       resolved: 0,
       deliveriesQueued: 0,
+      digests: 0,
       sent: 0,
       suppressed: 0,
       failed: 0,
@@ -57,6 +59,8 @@ async function runHealthTick(requestId: string) {
       if (Date.now() >= deadline) break
       try {
         const evaluation = await evaluateOrganisation(organisation.id)
+        // Once per recipient per local day; later ticks find it built.
+        totals.digests += await buildDigests(organisation.id)
         const delivery = await deliverPending(organisation.id)
         totals.organisations += 1
         totals.opened += evaluation.opened

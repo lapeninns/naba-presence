@@ -521,13 +521,10 @@ describe("recovery registry", () => {
       ).sort()
     ).toEqual(
       [
-        "business_information:gbp_management_mutation",
         "food_menus:food_menus_sync_attempt",
         "hours:hours_sync_attempt",
-        "industry:gbp_management_mutation",
         "local_post:gbp_local_post_attempt",
         "media:gbp_media_mutation",
-        "place_action:place_action_mutation",
         "profile:profile_sync_attempt",
       ].sort()
     )

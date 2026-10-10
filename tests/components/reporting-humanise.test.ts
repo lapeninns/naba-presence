@@ -15,7 +15,8 @@ describe("metricLabel", () => {
       expect(label).not.toBe(metric)
       expect(label.length).toBeGreaterThan(0)
     }
-    expect(metricLabel("CALL_CLICKS")).toBe("Calls")
+    expect(metricLabel("CALL_CLICKS")).toBe("Call button taps")
+    expect(metricLabel("BUSINESS_BOOKINGS")).toBe("Booking button clicks")
     expect(metricLabel("WEBSITE_CLICKS")).toBe("Website clicks")
     expect(IMPRESSION_METRICS).toHaveLength(4)
   })

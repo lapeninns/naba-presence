@@ -1,11 +1,9 @@
 // Contract for /api/locations/[id]/industry. Client-safe: zod only.
 import { z } from "zod"
 
-import {
-  lodgingMaskCoversPayload,
-  lodgingUpdateMaskSchema,
-  lodgingUpdatePayloadSchema,
-} from "@/lib/domain/lodging"
+import { GOOGLE_LODGING_UPDATE_PATHS } from "@/lib/domain/google-lodging"
+import { lodgingSchema } from "./google-lodging"
+import { gbpChangeSetSchema } from "./gbp-change-set"
 
 import { gbpMutationWithResponseResultSchema, sectionResultSchema } from "./gbp-management"
 
@@ -17,13 +15,10 @@ export const industryStateSchema = z.object({
   lodging: sectionResultSchema,
   lodgingUpdated: sectionResultSchema,
   healthcareServices: sectionResultSchema,
-  /**
-   * stableGoogleHash of the lodging resource as loaded (null when it could
-   * not be). A lodging update sends it back as its expected baseline.
-   */
-  lodgingHash: z.string().length(64).nullable().default(null),
   canManage: z.boolean(),
   writesEnabled: z.boolean(),
+  lodgingHash: z.string().optional(),
+  lodgingChangeSets: z.array(gbpChangeSetSchema).optional(),
 })
 export type IndustryState = z.infer<typeof industryStateSchema>
 
@@ -57,35 +52,14 @@ export const INDUSTRY_CONFIRMATION = "publish_industry_data_to_google" as const
 const freeformMask = z.array(z.string().trim().min(1)).min(1)
 const freeformPayload = z.record(z.string(), z.unknown())
 
-/**
- * A lodging update: allowlisted groups only (lib/domain/lodging.ts), the
- * mask and payload naming the same groups, and the hash of the lodging the
- * editor loaded. The server refuses it as stale when a group it writes has
- * changed on Google since; changes to other groups do not block it.
- */
-export const lodgingMutationSchema = z
-  .object({
+export const industryMutationSchema = z.discriminatedUnion("operation", [
+  z.object({
     operation: z.literal("update_lodging"),
     confirmation: z.literal(INDUSTRY_CONFIRMATION),
-    updateMask: lodgingUpdateMaskSchema,
-    payload: lodgingUpdatePayloadSchema,
-    expectedGoogleHash: z.string().length(64),
-  })
-  .refine(
-    (body) =>
-      lodgingMaskCoversPayload(
-        body.updateMask,
-        body.payload as Record<string, unknown>
-      ),
-    {
-      message: "The lodging changes and the fields they update do not match.",
-      path: ["updateMask"],
-    }
-  )
-
-// Healthcare serviceList stays freeform pending decision D-24.
-export const industryMutationSchema = z.discriminatedUnion("operation", [
-  lodgingMutationSchema,
+    updateMask: z.array(z.string().refine((path) => GOOGLE_LODGING_UPDATE_PATHS.has(path), "Select a supported writable lodging field.")).min(1),
+    payload: lodgingSchema,
+    changeSetId: z.uuid().optional(),
+  }),
   z.object({
     operation: z.literal("update_healthcare_services"),
     confirmation: z.literal(INDUSTRY_CONFIRMATION),
@@ -105,3 +79,5 @@ export type SupportedIndustryMutation = Extract<
 
 export const industryMutationResultSchema = gbpMutationWithResponseResultSchema
 export type IndustryMutationResult = z.infer<typeof industryMutationResultSchema>
+
+export const industryConfirmationRequestSchema = z.object({ mutationId: z.uuid() })

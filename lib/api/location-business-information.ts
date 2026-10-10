@@ -2,6 +2,7 @@ import {
   businessInformationMetadataResponseSchema,
   businessInformationMutationResultSchema,
   businessInformationResponseSchema,
+  serviceMetadataResponseSchema,
   type BusinessInformationAttributeUpdate,
   type BusinessInformationLocationUpdate,
   type BusinessInformationMetadataQuery,
@@ -10,6 +11,21 @@ import {
 } from "@/lib/contracts/location-business-information"
 
 import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
+import { gbpChangeSetResponseSchema, gbpChangeSetsResponseSchema } from "@/lib/contracts/gbp-change-set"
+import { serviceAttemptResponseSchema } from "@/lib/contracts/service-attempt"
+import { serviceWorkflowsResponseSchema } from "@/lib/contracts/service-workflows"
+
+export function fetchServiceWorkflows(id: string, cursor?: string, options?: RequestOptions) {
+  const query = new URLSearchParams({ type: "service_workflows" })
+  if (cursor) query.set("cursor", cursor)
+  return apiFetch(`/api/locations/${id}/business-information?${query}`, { schema: serviceWorkflowsResponseSchema, ...options })
+}
+
+export function fetchServiceAttempt(id: string, reviewId: string, options?: RequestOptions) {
+  return apiFetch(`/api/locations/${id}/business-information?type=service_attempt&changeSetId=${encodeURIComponent(reviewId)}`, {
+    schema: serviceAttemptResponseSchema, ...options,
+  }).then((result) => result.attempt)
+}
 
 export type {
   AttributeMetadata,
@@ -25,9 +41,27 @@ export function fetchBusinessInformation(id: string, options?: RequestOptions): 
   }).then((r) => r.businessInformation)
 }
 
+export function confirmBusinessInformation(id: string, mutationId: string) {
+  return apiFetch(`/api/locations/${id}/business-information`, {
+    method: "POST", body: { mutationId }, schema: businessInformationMutationResultSchema,
+  })
+}
+
+export function fetchServiceMetadata(id: string, options?: RequestOptions) {
+  return apiFetch(`/api/locations/${id}/business-information?type=services`, {
+    schema: serviceMetadataResponseSchema, ...options,
+  }).then((result) => result.serviceMetadata)
+}
+
+export function fetchBusinessInformationReviews(id: string, options?: RequestOptions) {
+  return apiFetch(`/api/locations/${id}/business-information?type=reviews`, {
+    schema: gbpChangeSetsResponseSchema, ...options,
+  }).then((result) => result.changeSets)
+}
+
 export function publishBusinessInformation(
   id: string,
-  input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash">,
+  input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash" | "changeSetId">,
   options: MutationOptions = {}
 ) {
   const body: BusinessInformationLocationUpdate = {
@@ -36,6 +70,7 @@ export function publishBusinessInformation(
     expectedGoogleHash: input.expectedGoogleHash,
     updateMask: input.updateMask,
     payload: input.payload,
+    changeSetId: input.changeSetId,
   }
   return apiFetch(`/api/locations/${id}/business-information`, {
     method: "PATCH",
@@ -45,9 +80,21 @@ export function publishBusinessInformation(
   })
 }
 
+export function previewBusinessInformation(id: string, input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash">) {
+  return apiFetch(`/api/locations/${id}/business-information`, {
+    method: "PUT", body: input, schema: gbpChangeSetResponseSchema,
+  }).then((result) => result.changeSet)
+}
+
+export function approveBusinessInformation(id: string, changeSetId: string, expectedPayloadHash: string) {
+  return apiFetch(`/api/locations/${id}/business-information`, {
+    method: "POST", body: { changeSetId, expectedPayloadHash }, schema: gbpChangeSetResponseSchema,
+  }).then((result) => result.changeSet)
+}
+
 export function publishBusinessAttributes(
   id: string,
-  input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash">,
+  input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash" | "changeSetId">,
   options: MutationOptions = {}
 ) {
   const body: BusinessInformationAttributeUpdate = {
@@ -56,6 +103,7 @@ export function publishBusinessAttributes(
     expectedGoogleHash: input.expectedGoogleHash,
     attributeMask: input.attributeMask,
     attributes: input.attributes,
+    changeSetId: input.changeSetId,
   }
   return apiFetch(`/api/locations/${id}/business-information`, {
     method: "PATCH",
@@ -63,6 +111,24 @@ export function publishBusinessAttributes(
     schema: businessInformationMutationResultSchema,
     intentId: options.intentId,
   })
+}
+
+export function previewBusinessAttributes(id: string, input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash">) {
+  return apiFetch(`/api/locations/${id}/business-information`, {
+    method: "PUT", body: { ...input, operation: "update_attributes" }, schema: gbpChangeSetResponseSchema,
+  }).then((result) => result.changeSet)
+}
+
+export function approveBusinessAttributes(id: string, changeSetId: string, expectedPayloadHash: string) {
+  return apiFetch(`/api/locations/${id}/business-information`, {
+    method: "POST", body: { changeSetId, expectedPayloadHash, resourceType: "attributes" }, schema: gbpChangeSetResponseSchema,
+  }).then((result) => result.changeSet)
+}
+
+export function fetchBusinessAttributeReviews(id: string, options?: RequestOptions) {
+  return apiFetch(`/api/locations/${id}/business-information?type=attribute_reviews`, {
+    schema: gbpChangeSetsResponseSchema, ...options,
+  }).then((result) => result.changeSets)
 }
 
 export function fetchBusinessInformationMetadata(

@@ -44,7 +44,7 @@ import {
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import type { OutcomeMessage } from "@/lib/editors/outcome"
 import { errorOutcome } from "@/lib/errors/action-errors"
-import { POST_ACTION_LABEL } from "@/lib/locations/post-display"
+import { POST_ACTION_LABEL, postImageUrl } from "@/lib/locations/post-display"
 import {
   DEFAULT_TIMEZONE,
   postRecurrence,
@@ -114,6 +114,8 @@ export function PostsActionBar({
   const queryClient = useQueryClient()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
+  // Approving publishes, so the approver sees exactly what goes to Google.
+  const [approveOpen, setApproveOpen] = useState(false)
   const invalidate = [queryKeys.locationPosts(locationId)]
 
   const publish = useResourceMutation({
@@ -205,6 +207,25 @@ export function PostsActionBar({
   // the recovery job settles it, then re-read the post.
   const receiptId = unconfirmedReceiptId(publish.error)
 
+  const previewNode = (
+    <PostPreview
+            topicType={preview.topicType}
+            summary={preview.summary}
+            eventTitle={preview.eventTitle}
+            schedule={
+              preview.topicType !== "STANDARD" &&
+              preview.startDate &&
+              preview.endDate
+                ? preview
+                : null
+            }
+            actionLabel={
+              preview.action ? POST_ACTION_LABEL[preview.action] : ""
+            }
+            recurrence={postRecurrence(post.event, timezone)}
+      imageUrl={postImageUrl(post)}
+          />
+  )
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {editable ? (
@@ -259,7 +280,7 @@ export function PostsActionBar({
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => decide.mutate("approve")}
+            onClick={() => setApproveOpen(true)}
             disabled={Boolean(approveReason) || decide.isPending}
             pending={decide.isPending && decide.variables === "approve"}
           >
@@ -327,22 +348,7 @@ export function PostsActionBar({
             Customers see it on the listing as soon as Google accepts it. To
             change it afterwards, edit it here and it is sent again.
           </AlertDialogDescription>
-          <PostPreview
-            topicType={preview.topicType}
-            summary={preview.summary}
-            eventTitle={preview.eventTitle}
-            schedule={
-              preview.topicType !== "STANDARD" &&
-              preview.startDate &&
-              preview.endDate
-                ? preview
-                : null
-            }
-            actionLabel={
-              preview.action ? POST_ACTION_LABEL[preview.action] : ""
-            }
-            recurrence={postRecurrence(post.event, timezone)}
-          />
+          {previewNode}
           <AlertDialogFooter>
             <AlertDialogClose
               render={<Button variant="ghost">Not yet</Button>}
@@ -354,6 +360,31 @@ export function PostsActionBar({
             >
               <UploadIcon aria-hidden />
               Publish to Google
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={approveOpen}
+        onOpenChange={(open) => {
+          if (!decide.isPending) setApproveOpen(open)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Approve and publish this post?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Approving sends exactly this post to Google. Customers see it once Google accepts it.
+          </AlertDialogDescription>
+          {previewNode}
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="ghost">Not yet</Button>} />
+            <Button
+              onClick={() => decide.mutate("approve", { onSettled: () => setApproveOpen(false) })}
+              pending={decide.isPending && decide.variables === "approve"}
+              pendingLabel="Publishing…"
+            >
+              <UploadIcon aria-hidden />
+              Approve and publish
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

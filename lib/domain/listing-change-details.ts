@@ -1,8 +1,8 @@
 /**
  * What an approver reads before approving a listing change request (plan
  * P02-S2b, lib/server/listing-changes.ts): every value the frozen request
- * will send, and -- for a change about one photo or booking link -- what
- * that item holds now. The rows are derived from the stored body alone, the
+ * will send, and -- for a change about one photo -- what that item holds
+ * now. The rows are derived from the stored body alone, the
  * same body the request's payload hash covers, so what is shown is what the
  * approval sends.
  *
@@ -41,10 +41,7 @@ const LABELS: Record<string, string> = {
   confirmOverwriteGoogleChanges: "Overwrite changes made on Google",
   confirmOverwriteCanonicalChanges: "Overwrite saved changes",
   confirmFullReplacement: "Replace everything on Google",
-  uri: "Web address",
   sourceUrl: "Source web address",
-  placeActionType: "Link type",
-  isPreferred: "Preferred link",
 }
 
 function humanise(key: string): string {
@@ -115,7 +112,7 @@ function flatten(
   rows.push({ label: path.join(" › ") || "Value", value: scalar(value) })
 }
 
-/** What the change's target (a photo or a booking link) holds now. */
+/** What the change's target (a photo) holds now. */
 export type ListingChangeTargetNow = Record<string, unknown> | null
 
 /**
@@ -132,8 +129,6 @@ const PUBLISHES_SAVED_COPY = new Set<ListingChangeKind>([
 const TARGET_LABEL: Partial<Record<ListingChangeKind, string>> = {
   media_update: "Photo",
   media_delete: "Photo",
-  place_action_update: "Booking link",
-  place_action_delete: "Booking link",
 }
 
 /**

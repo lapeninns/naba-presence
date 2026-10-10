@@ -231,7 +231,7 @@ describeDatabase("member removal, location grants and the last owner", () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Explicit location scope (supabase 0063): written with the rows, never
+  // Explicit location scope (supabase 0082): written with the rows, never
   // apart from them. Reads still come from the rows; these pin the dual
   // write the readers will switch to.
   // ---------------------------------------------------------------------------

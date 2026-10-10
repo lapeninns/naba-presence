@@ -23,7 +23,9 @@ begin;
 --   notification kind   'mutation_unconfirmed': a receipt recovery gave up
 --                       on (ceiling, a connection that is gone, a write no
 --                       readback can identify) tells the owners and admins
---                       to check Google.
+--                       to check Google. The check is rewritten with every
+--                       kind 0078_operational_notifications allows, plus
+--                       this one.
 --
 -- `claim_due_jobs` is rewritten whole from 0048 (see 0034 on why partial
 -- rewrites are a hazard); every 0048 arm is unchanged, which
@@ -44,6 +46,14 @@ alter table notification_incident
       'connection_owner_left',
       'ai_credits_low',
       'ai_credits_exhausted',
+      'publication_failed',
+      'publication_unresolved',
+      'schedule_missed',
+      'schedule_blocked',
+      'bulk_completed_with_failures',
+      'verification_changed',
+      'suggestions_available',
+      'resource_stale',
       'mutation_unconfirmed'
     )
   );

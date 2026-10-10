@@ -124,9 +124,23 @@ export type AnalyticsOverview = z.infer<typeof analyticsOverviewSchema>
 
 const reportLocationSchema = z.object({ id: z.string(), name: z.string() })
 
+/** Null means Google returned no rows for that metric in the window: missing, not zero. */
 const metricTotalsSchema = z.object(
-  Object.fromEntries(GOOGLE_PERFORMANCE_METRICS.map((m) => [m, z.number()]))
-) as z.ZodType<Record<(typeof GOOGLE_PERFORMANCE_METRICS)[number], number>>
+  Object.fromEntries(GOOGLE_PERFORMANCE_METRICS.map((m) => [m, z.number().nullable()]))
+) as z.ZodType<Record<(typeof GOOGLE_PERFORMANCE_METRICS)[number], number | null>>
+
+/**
+ * How many in-scope locations each reporting state covers. A location can be
+ * both reporting and stale; eligible is every linked location in scope.
+ */
+export const presenceCoverageSchema = z.object({
+  eligible: z.number().int().nonnegative(),
+  reporting: z.number().int().nonnegative(),
+  unavailable: z.number().int().nonnegative(),
+  stale: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+})
+export type PresenceCoverage = z.infer<typeof presenceCoverageSchema>
 
 const metricPartialSchema = z.record(z.string(), z.number())
 
@@ -143,6 +157,18 @@ export const presenceResponseSchema = z.object({
   unavailableReasons: z.array(z.string()),
   keywordsEnabled: z.boolean(),
   ingestionEnabled: z.boolean(),
+  /** The equal-length window immediately before `from`; null when there is nothing to compare. */
+  previous: z
+    .object({ from: z.string(), to: z.string(), totals: metricTotalsSchema })
+    .nullable()
+    .optional(),
+  /** When our last successful Google fetches finished, separate from the data-through date. */
+  fetchedAt: z
+    .object({ oldest: z.string().nullable(), newest: z.string().nullable() })
+    .optional(),
+  coverage: presenceCoverageSchema.optional(),
+  /** Google's daily metric dates, reported as Google dates them; never shifted into another zone. */
+  dateBasis: z.literal("google_daily").optional(),
 })
 export type PresenceResponse = z.infer<typeof presenceResponseSchema>
 

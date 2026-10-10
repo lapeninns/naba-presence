@@ -12,6 +12,9 @@ import type {
   GoogleAttribute,
 } from "@/lib/contracts/location-business-information"
 import { businessInformationPayloadSchema } from "@/lib/domain/business-information"
+import { openingDateDraft, openingDatePayload } from "./forms/opening-date"
+import { googleServiceAreaSchema } from "@/lib/domain/google-service-area"
+import { editableRelationships, RELATIONSHIP_FIELDS, relationshipFieldMatches } from "@/lib/domain/google-relationships"
 
 import {
   asRecord,
@@ -34,8 +37,6 @@ export const OPEN_STATUS_OPTIONS = [
 export const UNSUPPORTED_LEAVES: ReadonlyArray<{ key: string; label: string }> =
   [
     { key: "serviceItems", label: "Service items" },
-    { key: "serviceArea", label: "Service area" },
-    { key: "relationshipData", label: "Related businesses" },
     { key: "moreHours", label: "Extra opening hours" },
   ]
 
@@ -53,15 +54,22 @@ export function draftFromLocation(location: unknown): BusinessInformationDraft {
   const openInfo = asRecord(record.openInfo)
   const storefrontAddress = asRecord(record.storefrontAddress)
   const categories = asRecord(record.categories)
+  const serviceArea = googleServiceAreaSchema.safeParse(record.serviceArea)
+  const relationshipData = editableRelationships(record.relationshipData)
   const additionalCategoriesRaw = Array.isArray(categories.additionalCategories)
     ? categories.additionalCategories
     : []
   return {
     title: asString(record.title),
+    ...(serviceArea.success ? { serviceArea: serviceArea.data } : {}),
+    ...(relationshipData ? { relationshipData } : {}),
     description: asString(profile.description),
     primaryPhone: asString(phoneNumbers.primaryPhone),
+    ...(typeof asRecord(record.adWordsLocationExtensions).adPhone === "string" ? { adPhone: asString(asRecord(record.adWordsLocationExtensions).adPhone) } : {}),
+    ...(Array.isArray(phoneNumbers.additionalPhones) ? { additionalPhones: asStringArray(phoneNumbers.additionalPhones) } : {}),
     websiteUri: asString(record.websiteUri),
     openStatus: asString(openInfo.status) || "OPEN",
+    ...(openInfo.openingDate ? { openingDate: openingDateDraft(openInfo.openingDate) } : {}),
     storeCode: asString(record.storeCode),
     labels: asStringArray(record.labels),
     primaryCategory: toCategoryRef(categories.primaryCategory),
@@ -72,6 +80,12 @@ export function draftFromLocation(location: unknown): BusinessInformationDraft {
     locality: asString(storefrontAddress.locality),
     postalCode: asString(storefrontAddress.postalCode),
     regionCode: asString(storefrontAddress.regionCode) || "GB",
+    ...(typeof storefrontAddress.administrativeArea === "string" ? { administrativeArea: storefrontAddress.administrativeArea } : {}),
+    ...(typeof storefrontAddress.sublocality === "string" ? { sublocality: storefrontAddress.sublocality } : {}),
+    ...(typeof storefrontAddress.languageCode === "string" ? { addressLanguageCode: storefrontAddress.languageCode } : {}),
+    ...(typeof storefrontAddress.organization === "string" ? { addressOrganization: storefrontAddress.organization } : {}),
+    ...(typeof storefrontAddress.sortingCode === "string" ? { addressSortingCode: storefrontAddress.sortingCode } : {}),
+    ...(Array.isArray(storefrontAddress.recipients) ? { addressRecipients: asStringArray(storefrontAddress.recipients) } : {}),
   }
 }
 
@@ -96,17 +110,25 @@ export function buildLocationUpdate(
     payload.profile = { description: draft.description }
     mask.push("profile")
   }
-  if (draft.primaryPhone !== initial.primaryPhone) {
-    payload.phoneNumbers = { primaryPhone: draft.primaryPhone }
+  if (draft.primaryPhone !== initial.primaryPhone || JSON.stringify(draft.additionalPhones ?? []) !== JSON.stringify(initial.additionalPhones ?? [])) {
+    payload.phoneNumbers = { primaryPhone: draft.primaryPhone, additionalPhones: draft.additionalPhones ?? [] }
     mask.push("phoneNumbers")
   }
   if (draft.websiteUri !== initial.websiteUri) {
     payload.websiteUri = draft.websiteUri
     mask.push("websiteUri")
   }
+  if (draft.adPhone !== undefined && draft.adPhone.trim() !== (initial.adPhone ?? "").trim()) {
+    payload.adWordsLocationExtensions = draft.adPhone.trim() ? { adPhone: draft.adPhone.trim() } : {}
+    mask.push("adWordsLocationExtensions")
+  }
   if (draft.openStatus !== initial.openStatus) {
     payload.openInfo = { status: draft.openStatus }
-    mask.push("openInfo")
+    mask.push("openInfo.status")
+  }
+  if (JSON.stringify(draft.openingDate ?? null) !== JSON.stringify(initial.openingDate ?? null)) {
+    payload.openInfo = { status: draft.openStatus, ...(draft.openingDate ? { openingDate: openingDatePayload(draft.openingDate) } : {}) }
+    mask.push("openInfo.openingDate")
   }
   if (draft.storeCode !== initial.storeCode) {
     payload.storeCode = draft.storeCode
@@ -139,15 +161,57 @@ export function buildLocationUpdate(
   if (
     draft.addressLines.join("\n") !== initial.addressLines.join("\n") ||
     draft.locality !== initial.locality ||
-    draft.postalCode !== initial.postalCode
+    draft.postalCode !== initial.postalCode || draft.regionCode !== initial.regionCode ||
+    (draft.administrativeArea ?? "") !== (initial.administrativeArea ?? "") ||
+    (draft.sublocality ?? "") !== (initial.sublocality ?? "")
   ) {
     payload.storefrontAddress = {
       regionCode: draft.regionCode,
       addressLines: draft.addressLines,
       locality: draft.locality,
       postalCode: draft.postalCode,
+      ...(draft.administrativeArea !== undefined ? { administrativeArea: draft.administrativeArea } : {}),
+      ...(draft.sublocality !== undefined ? { sublocality: draft.sublocality } : {}),
     }
-    mask.push("storefrontAddress")
+    if (draft.addressLines.join("\n") !== initial.addressLines.join("\n")) mask.push("storefrontAddress.addressLines")
+    if (draft.locality !== initial.locality) mask.push("storefrontAddress.locality")
+    if (draft.postalCode !== initial.postalCode) mask.push("storefrontAddress.postalCode")
+    if (draft.regionCode !== initial.regionCode) mask.push("storefrontAddress.regionCode")
+    if ((draft.administrativeArea ?? "") !== (initial.administrativeArea ?? "")) {
+      payload.storefrontAddress = { ...asRecord(payload.storefrontAddress), administrativeArea: draft.administrativeArea ?? "" }
+      mask.push("storefrontAddress.administrativeArea")
+    }
+    if ((draft.sublocality ?? "") !== (initial.sublocality ?? "")) {
+      payload.storefrontAddress = { ...asRecord(payload.storefrontAddress), sublocality: draft.sublocality ?? "" }
+      mask.push("storefrontAddress.sublocality")
+    }
+  }
+  if (draft.serviceArea && JSON.stringify(draft.serviceArea) !== JSON.stringify(initial.serviceArea)) {
+    payload.serviceArea = draft.serviceArea
+    mask.push("serviceArea")
+  }
+  for (const [key, field] of [["addressLanguageCode", "languageCode"], ["addressOrganization", "organization"], ["addressSortingCode", "sortingCode"]] as const) {
+    if ((draft[key] ?? "") !== (initial[key] ?? "")) {
+      payload.storefrontAddress = { regionCode: draft.regionCode, addressLines: draft.addressLines, ...asRecord(payload.storefrontAddress), [field]: draft[key] ?? "" }
+      mask.push(`storefrontAddress.${field}`)
+    }
+  }
+  if (JSON.stringify(draft.addressRecipients ?? []) !== JSON.stringify(initial.addressRecipients ?? [])) {
+    payload.storefrontAddress = { regionCode: draft.regionCode, addressLines: draft.addressLines, ...asRecord(payload.storefrontAddress), recipients: draft.addressRecipients ?? [] }
+    mask.push("storefrontAddress.recipients")
+  }
+  const relationshipUpdates: Record<string, unknown> = {}
+  for (const field of RELATIONSHIP_FIELDS) {
+    const next = draft.relationshipData?.[field]
+    if (next !== undefined && !relationshipFieldMatches(initial.relationshipData, draft.relationshipData ?? {}, field)) {
+      relationshipUpdates[field] = next
+      mask.push(`relationshipData.${field}`)
+    }
+  }
+  if (Object.keys(relationshipUpdates).length) payload.relationshipData = relationshipUpdates
+  if (draft.clearStorefrontAddress) {
+    payload.storefrontAddress = {}
+    return { updateMask: [...mask.filter((field) => !field.startsWith("storefrontAddress.")), "storefrontAddress"], payload }
   }
   return { updateMask: mask, payload }
 }
@@ -175,14 +239,18 @@ export function buildAttributesUpdate(
 }
 
 export type PayloadFieldKey =
-  "title" | "description" | "primaryPhone" | "websiteUri" | "addressLines"
+  "title" | "description" | "primaryPhone" | "additionalPhones" | "adPhone" | "websiteUri" | "addressLines" | "administrativeArea" | "sublocality" | "addressDetails" | "openingDate" | "serviceArea" | "relationshipData"
 
 const PAYLOAD_KEY_TO_FIELD: Record<string, PayloadFieldKey> = {
   title: "title",
   profile: "description",
   phoneNumbers: "primaryPhone",
+  adWordsLocationExtensions: "adPhone",
   websiteUri: "websiteUri",
   storefrontAddress: "addressLines",
+  openInfo: "openingDate",
+  serviceArea: "serviceArea",
+  relationshipData: "relationshipData",
 }
 
 export type PayloadFieldErrors = Partial<Record<PayloadFieldKey, string>>
@@ -199,7 +267,10 @@ export function fieldErrorsFromPayload(
   if (parsed.success) return {}
   const errors: PayloadFieldErrors = {}
   for (const issue of parsed.error.issues) {
-    const field = PAYLOAD_KEY_TO_FIELD[String(issue.path[0] ?? "")]
+    const field = issue.path[0] === "phoneNumbers" && issue.path[1] === "additionalPhones" ? "additionalPhones"
+      : issue.path[0] === "storefrontAddress" && ["languageCode", "organization", "recipients", "sortingCode"].includes(String(issue.path[1])) ? "addressDetails"
+      : issue.path[0] === "storefrontAddress" && (issue.path[1] === "administrativeArea" || issue.path[1] === "sublocality") ? issue.path[1]
+      : PAYLOAD_KEY_TO_FIELD[String(issue.path[0] ?? "")]
     if (field && !(field in errors)) errors[field] = issue.message
   }
   return errors

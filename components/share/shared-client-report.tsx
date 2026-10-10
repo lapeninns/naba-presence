@@ -2,6 +2,7 @@
 
 import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
 import { PresenceFigures } from "@/components/performance/presence-figures"
+import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import { ReplyLocationsTable } from "@/components/performance/reply-locations-table"
 import { kpiDelta } from "@/components/reporting/delta-badge"
 import {
@@ -19,7 +20,6 @@ import {
   type SharedClientReport,
 } from "@/lib/contracts/report-shares"
 import {
-  formatDate,
   formatDateTime,
   formatDuration,
   formatNumber,
@@ -99,6 +99,10 @@ export function SharedClientReportView({
         unavailableReasons: [],
         keywordsEnabled: false,
         ingestionEnabled: true,
+        previous: google.previous ?? null,
+        fetchedAt: google.fetchedAt,
+        coverage: google.coverage,
+        dateBasis: "google_daily",
       }
     : null
 
@@ -328,10 +332,8 @@ export function SharedClientReportView({
             </h2>
             <p className="text-caption text-ink-muted">
               {formatPeriod(presence, "UTC")}
-              {presence.freshThrough
-                ? ` · Google figures as at ${formatDate(presence.freshThrough, "UTC")}`
-                : ""}
             </p>
+            <PresenceProvenance data={presence} />
           </div>
           <PresenceFigures data={presence} />
         </section>

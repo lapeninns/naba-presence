@@ -13,7 +13,7 @@ import type { Session } from "@/lib/server/session"
 // from location_member ...)` in route files, capabilities, or query
 // builders) -- compose one of the exports below instead.
 //
-// The rule (member.location_scope, supabase 0063/0064)
+// The rule (member.location_scope, supabase 0082/0083)
 //   owner / admin  -> every location is visible, editable and publishable.
 //   viewer, member -> scope 'all': every location in the organisation.
 //                     scope 'assigned': exactly the location_member rows,
@@ -38,11 +38,11 @@ import type { Session } from "@/lib/server/session"
 //                     it reads, it never edits or publishes.
 //
 // Absence never means "all"
-//   Before 0063 a member or viewer with no rows saw every location, so
+//   Before 0082 a member or viewer with no rows saw every location, so
 //   deleting someone's last listing widened them to everything. The scope is
 //   now named, and there is no fallback to that rule anywhere: zero rows on
 //   'assigned' is no access. The database keeps "a member or viewer holding
-//   a row is 'assigned'" (0064 triggers), so 'all' plus rows only happens for
+//   a row is 'assigned'" (0083 triggers), so 'all' plus rows only happens for
 //   owners and admins, whose rows are latent; if it ever did happen to a
 //   member, 'all' wins and the rows are ignored.
 //
@@ -440,6 +440,38 @@ export async function requireLocationAction(
     )
   }
   return grant
+}
+
+/**
+ * `requireLocationAction` for a set of locations in one grant read, for
+ * requests that name many (bulk listing previews). Any hidden location fails
+ * the whole request with one 404 that does not say which; any visible one the
+ * scope may not act on is a 403. Returns every location's grant.
+ */
+export async function requireLocationActionForAll(
+  sql: TransactionSql,
+  scope: GrantScope,
+  locationIds: readonly string[],
+  action: LocationAction,
+  notFound: LocationNotFound = {}
+): Promise<Map<string, LocationGrant>> {
+  const grants = await grantsFor(sql, scope, locationIds)
+  const values = [...grants.values()]
+  if (values.some((grant) => !grant.visible)) {
+    throw new ApiError(
+      404,
+      notFound.code ?? "review_not_found",
+      notFound.message ?? "The requested review was not found."
+    )
+  }
+  if (values.some((grant) => !actionAllowed(scope.role, grant, action))) {
+    throw new ApiError(
+      403,
+      "permission_denied",
+      "You do not have permission to do that for this location."
+    )
+  }
+  return grants
 }
 
 /**

@@ -54,9 +54,11 @@ export const PAUSE_SCOPES = [
   "foodMenus",
   "performance",
   "keywords",
-  // Reserved for work that lands later: one-time scheduled posts (P08),
-  // bulk actions (P09), billing processing (P07), mutation recovery (P03-S6)
-  // and invitation email delivery (P06-6). No env flag guards them yet.
+  // Scopes with no env flag of their own. `scheduled_post` and `bulk` hold
+  // off the job tick's publication-schedule and bulk-listing runners
+  // (lib/server/jobs.ts runDueJobs); `mutation_recover` the recovery kind.
+  // Reserved for work that lands later: billing processing (P07) and
+  // invitation email delivery (P06-6).
   "scheduled_post",
   "bulk",
   "billing",

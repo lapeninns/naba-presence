@@ -12,7 +12,6 @@ import {
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
-import { log } from "@/lib/server/logger"
 import type { Session } from "@/lib/server/session"
 
 // Thin façade over lib/server/gbp-write.ts for the "complete GBP management"
@@ -176,77 +175,6 @@ export async function cacheGbpSnapshot(input: {
   return hash
 }
 
-/** The cached snapshot of one resource, as the last load or write left it. */
-export async function loadGbpSnapshot(input: {
-  organisationId: string
-  resourceType: string
-  resourceName: string
-}): Promise<{ payload: unknown; googleHash: string } | null> {
-  const [row] = await withTenant(
-    input.organisationId,
-    (sql) => sql<{ payload: unknown; googleHash: string }[]>`
-      select payload, google_hash as "googleHash"
-      from gbp_resource_snapshot
-      where organisation_id = ${input.organisationId}
-        and resource_type = ${input.resourceType}
-        and resource_name = ${input.resourceName}
-      limit 1
-    `
-  )
-  return row ?? null
-}
-
-/**
- * Field-scoped staleness for a masked write. `expectedGoogleHash` is the
- * whole-resource hash the editor loaded; when Google's resource still hashes
- * to it the write is fresh. When it does not, the write is still fresh if
- * the only changes are outside the fields it writes: the snapshot cached at
- * that load (gbp_resource_snapshot, keyed by the same hash) is compared with
- * the live resource over `scope` alone. Without that snapshot -- another load
- * has replaced it since -- nothing proves which fields moved, so the write is
- * stale, exactly as the whole-resource check was.
- */
-export async function requireFreshMaskedBaseline(input: {
-  organisationId: string
-  resourceType: string
-  resourceName: string
-  expectedGoogleHash: string
-  current: unknown
-  /** The masked projection of a resource (e.g. maskedAttributeBaseline). */
-  scope: (resource: unknown) => unknown
-  stale: ApiError
-}): Promise<void> {
-  if (stableGoogleHash(input.current) === input.expectedGoogleHash) return
-  const snapshot = await loadGbpSnapshot(input)
-  if (
-    snapshot?.googleHash === input.expectedGoogleHash &&
-    stableGoogleHash(input.scope(snapshot.payload)) ===
-      stableGoogleHash(input.scope(input.current))
-  ) {
-    return
-  }
-  throw input.stale
-}
-
-/**
- * Caches a readback after a write that has already settled. The write landed
- * and is recorded, so a cache that fails to write must not turn it into a
- * failure: it is logged, and the next load rebuilds the snapshot.
- */
-export async function cacheGbpSnapshotAfterWrite(
-  input: Parameters<typeof cacheGbpSnapshot>[0]
-): Promise<void> {
-  try {
-    await cacheGbpSnapshot(input)
-  } catch (error) {
-    log.warn("gbp_management.snapshot_cache_failed", {
-      organisationId: input.organisationId,
-      resourceType: input.resourceType,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-}
-
 export async function startGbpMutation(input: {
   organisationId: string
   session: Session
@@ -259,15 +187,32 @@ export async function startGbpMutation(input: {
   expectedGoogleHash?: string
   updateMask?: string[]
   payload?: unknown
+  blockUnresolved?: boolean
+  unresolvedScope?: { readonly operation: string; readonly targetResourceName: string }
+  lockHeld?: boolean
+  changeSetId?: string
 }) {
   const key = gbpManagementIdempotencyKey(input)
   return withTenant(input.organisationId, async (sql) => {
+    if (input.blockUnresolved && !input.lockHeld) {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`${input.organisationId}:${input.locationId}:${input.resourceType}`}, 0))`
+    }
     const existing = await gbpManagementAttemptStore.find(sql, {
       organisationId: input.organisationId,
       key,
     })
     if (existing) {
       return { id: existing.id, status: existing.rawStatus, idempotent: true }
+    }
+    if (input.blockUnresolved) {
+      const [unresolved] = await sql<{ id: string }[]>`
+        select id from gbp_management_mutation
+        where location_id = ${input.locationId ?? null} and resource_type = ${input.resourceType}
+          and (${input.unresolvedScope === undefined} or (operation = ${input.unresolvedScope?.operation ?? null} and target_resource_name = ${input.unresolvedScope?.targetResourceName ?? null}))
+          and (status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved'))
+        limit 1
+      `
+      if (unresolved) throw new ApiError(409, "google_confirmation_unresolved", "An earlier change is awaiting Google confirmation. Resolve it before publishing another change.")
     }
     const created = await gbpManagementAttemptStore.start(sql, {
       organisationId: input.organisationId,
@@ -276,6 +221,7 @@ export async function startGbpMutation(input: {
       key,
       existing: null,
       intent: {
+        change_set_id: input.changeSetId ?? null,
         location_id: input.locationId ?? null,
         google_account_id: input.googleAccountId ?? null,
         resource_type: input.resourceType,
@@ -353,39 +299,4 @@ export async function auditGbpMutation(input: {
       metadata: input.metadata,
     })
   )
-}
-
-/** A gbp_management_mutation row as the recovery adapters read it. */
-export type ManagementRecoveryAttempt = {
-  id: string
-  rawStatus: string
-  startedAt: Date | null
-  errorCode?: string | null
-  resourceType: string
-  operation: string
-  targetResourceName: string | null
-  updateMask: string[]
-  requestedPayload: unknown
-}
-
-/** Loads the intent a business information, attributes or industry write recorded. */
-export async function loadManagementRecoveryAttempt(
-  sql: TransactionSql,
-  attemptId: string
-): Promise<ManagementRecoveryAttempt | null> {
-  const [row] = await sql<ManagementRecoveryAttempt[]>`
-    select
-      id::text as id,
-      status as "rawStatus",
-      started_at as "startedAt",
-      last_error_code as "errorCode",
-      resource_type as "resourceType",
-      operation,
-      target_resource_name as "targetResourceName",
-      update_mask as "updateMask",
-      requested_payload as "requestedPayload"
-    from gbp_management_mutation
-    where id = ${attemptId}
-  `
-  return row ?? null
 }

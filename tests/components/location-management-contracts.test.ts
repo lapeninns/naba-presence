@@ -51,7 +51,7 @@ describe("location management contracts: client bodies parse under the route sch
   })
 
   it("industry", async () => {
-    const body = await sentBody(() => publishIndustry("loc", { operation: "update_lodging", updateMask: ["pets"], payload: { pets: { petsAllowed: true } }, expectedGoogleHash: "a".repeat(64) }))
+    const body = await sentBody(() => publishIndustry("loc", { operation: "update_lodging", updateMask: ["pets"], payload: { pets: { petsAllowed: true } } }))
     expect(industryMutationSchema.parse(body)).toMatchObject({ operation: "update_lodging", confirmation: "publish_industry_data_to_google" })
   })
 

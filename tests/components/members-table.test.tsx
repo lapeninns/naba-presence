@@ -17,7 +17,7 @@ function member(overrides: Partial<Member>): Member {
     displayName: "User",
     role: "member",
     canPublish: false,
-    // The database names a member or viewer holding rows 'assigned' (0064).
+    // The database names a member or viewer holding rows 'assigned' (0083).
     locationScope:
       (overrides.locations?.length ?? 0) > 0 &&
       overrides.role !== "owner" &&

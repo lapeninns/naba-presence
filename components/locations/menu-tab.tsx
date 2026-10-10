@@ -286,8 +286,10 @@ function MenuForm({
       }
       description={
         <>
-          Publishing replaces the whole food menu on Google, not only what you
-          changed.{" "}
+          Publishing replaces the whole food menu on Google, every menu, not
+          only what you changed.{" "}
+          <span className="font-mono tabular-nums">{draftCounts.menus}</span>{" "}
+          {draftCounts.menus === 1 ? "menu" : "menus"},{" "}
           <span className="font-mono tabular-nums">{draftCounts.sections}</span>{" "}
           {draftCounts.sections === 1 ? "section" : "sections"},{" "}
           <span className="font-mono tabular-nums">{draftCounts.items}</span>{" "}
@@ -382,7 +384,9 @@ function MenuForm({
             setFocusProblems(false)
             setDraft(next)
           }}
-          disabled={disabled}
+          // Locked while a publish is running: the steps send the reviewed
+          // menu, and an edit made meanwhile would silently miss Google.
+          disabled={disabled || flow.isPublishing}
           problems={problems}
           validationAttempt={attempt}
           changedPaths={rows.flatMap((row) =>

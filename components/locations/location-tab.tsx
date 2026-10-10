@@ -267,5 +267,4 @@ const APPROVAL_EDITOR: Record<string, ListingChangeEditor | undefined> = {
   businessInformation: "profile",
   menu: "menus",
   photos: "photos",
-  booking: "booking",
 }

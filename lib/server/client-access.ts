@@ -173,12 +173,12 @@ export type ExtendedGrant = {
  * a member publishes to the new listing when they publish to most of the
  * client's others (a tie is Drafts only).
  *
- * Only memberships whose scope is `assigned` (supabase 0063) are extended:
+ * Only memberships whose scope is `assigned` (supabase 0082) are extended:
  * an owner or admin, or anyone whose scope is `all`, already sees every
  * listing, and rows they hold are latent, not a promise to keep current.
  * So an admin later demoted gets back their rows as they were at promotion:
  * a listing filed under one of their clients while they were an admin is
- * not among them (before 0063 it would have been). That narrows, never
+ * not among them (before 0082 it would have been). That narrows, never
  * widens, and the owner can re-grant the client from Client access.
  *
  * `locationIds` are the listings just filed; they are left out of "the
