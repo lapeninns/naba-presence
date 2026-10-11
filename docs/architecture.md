@@ -1026,7 +1026,18 @@ period still open (`aiUsageInClosedPeriod`, where settled credit periods plug
 in). An owner-approved legal hold from `app/api/legal-holds/route.ts` blocks
 purge and erasure only for its selected review.
 `app/api/privacy/requests/route.ts` implements attributable access,
-rectification, erasure, and restriction fulfilment;
+rectification, erasure, and restriction fulfilment; the erasure halves (local
+scrub, reply withdrawal at Google, settlement) live in
+`lib/server/privacy/fulfil.ts`. An erasure whose reply Google will not drop is
+parked `in_progress` and retried by the job tick
+(`lib/server/privacy/withdrawals.ts`, claimed through
+`claim_due_privacy_withdrawals`, migration 0101) with backoff for up to 12
+rounds, as the owner who fulfilled it: that owner's grant is re-derived from
+membership at dispatch (`lib/server/authz/actor.ts`), so a removed or demoted
+owner stops the retries (`actor_revoked`). A publish pause defers a round
+without spending its budget; entitlements do not gate it. A request with no
+retry coming is listed first and flagged `withdrawalStalled` and `overdue`;
+an owner fulfilling it again takes it over and restarts the budget.
 `app/api/privacy/export/route.ts` exports only still-retained content, in
 keyset pages (`create_time desc, id desc`, both immutable, at most 1000
 reviews each) so any match size completes: each page returns `nextCursor`

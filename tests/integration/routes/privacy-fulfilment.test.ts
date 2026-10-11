@@ -933,6 +933,318 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     stub.reset()
   })
 
+  // ---------------------------------------------------------------------
+  // Background-resumable withdrawals (plan P04-5)
+  // ---------------------------------------------------------------------
+
+  /** One job tick; the privacy runner shares it (lib/server/jobs.ts). */
+  async function runJobsTick(baseUrl = server.baseUrl) {
+    const response = await fetch(`${baseUrl}/api/jobs/run`, {
+      method: "POST",
+      headers: { authorization: "Bearer route-harness-cron-secret" },
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    return (await response.json()) as {
+      privacy?: Record<string, number>
+    }
+  }
+
+  type RetryState = {
+    status: string
+    withdrawalAttempts: number
+    nextAttemptAt: Date | null
+    lastErrorCode: string | null
+    pendingReviewIds: string[]
+    resolvedBy: string | null
+  }
+
+  async function retryState(id: string): Promise<RetryState> {
+    const [row] = await admin<RetryState[]>`
+      select
+        status,
+        withdrawal_attempts as "withdrawalAttempts",
+        next_attempt_at as "nextAttemptAt",
+        last_error_code as "lastErrorCode",
+        pending_review_ids::text[] as "pendingReviewIds",
+        resolved_by::text as "resolvedBy"
+      from privacy_request
+      where id = ${id}
+    `
+    return row
+  }
+
+  /** Make a parked request due now, as if its backoff had elapsed. */
+  async function makeDue(id: string) {
+    await admin`
+      update privacy_request
+      set next_attempt_at = now() - interval '1 second',
+          withdrawal_lease_expires_at = null
+      where id = ${id}
+    `
+  }
+
+  /** An erasure whose live reply Google refuses to drop with `status`. */
+  async function parkedErasure(failStatus: number, label: string) {
+    stub.reset()
+    stub.respond({ method: "DELETE", pathEndsWith: "/reply" }, () => ({
+      status: failStatus,
+      json: {
+        error: {
+          status: failStatus === 403 ? "PERMISSION_DENIED" : "INTERNAL",
+        },
+      },
+    }))
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const seed = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+      replyState: "APPROVED",
+    })
+    const reviewerName = `${label} reviewer ${randomUUID()}`
+    await admin`
+      update review
+      set reviewer_display_name = ${reviewerName}
+      where id = ${seed.reviewId}
+    `
+    const request = await createRequest(owner.cookie, "erasure", reviewerName)
+    const response = await fulfil(owner.cookie, request.id)
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body.error).toBe("privacy_reply_withdraw_failed")
+    return { owner, seed, request }
+  }
+
+  it("retries a parked withdrawal on the job tick and completes it with an audit", async () => {
+    const { owner, seed, request } = await parkedErasure(500, "Background")
+
+    const parked = await retryState(request.id)
+    expect(parked.status).toBe("in_progress")
+    expect(parked.withdrawalAttempts).toBe(1)
+    expect(parked.lastErrorCode).toBe("google_mutation_ambiguous")
+    // Backoff: the next round is scheduled, not immediate.
+    expect(parked.nextAttemptAt).toBeInstanceOf(Date)
+    expect(parked.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now())
+
+    // Not due yet: a tick leaves it alone.
+    await runJobsTick()
+    expect((await retryState(request.id)).status).toBe("in_progress")
+
+    // Google recovers and the backoff elapses: the tick finishes the erasure
+    // as the owner who fulfilled it, with no one re-fulfilling by hand.
+    stub.reset()
+    await makeDue(request.id)
+    const tick = await runJobsTick()
+    expect(tick.privacy?.claimed).toBeGreaterThanOrEqual(1)
+
+    const settled = await retryState(request.id)
+    expect(settled).toMatchObject({
+      status: "completed",
+      pendingReviewIds: [],
+      nextAttemptAt: null,
+      lastErrorCode: null,
+      resolvedBy: owner.userId,
+    })
+    const [reply] = await admin<{ publishStatus: string }[]>`
+      select publish_status as "publishStatus"
+      from review_reply
+      where review_id = ${seed.reviewId}
+    `
+    expect(reply.publishStatus).toBe("deleted")
+    const audits = await admin<
+      { action: string; metadata: { source?: string; pending?: unknown[] } }[]
+    >`
+      select action, metadata
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.replies_withdrawn'
+      order by created_at
+    `
+    expect(audits.map(({ metadata }) => metadata.source)).toEqual([
+      "fulfil",
+      "background",
+    ])
+    expect(audits[1]!.metadata.pending).toEqual([])
+    stub.reset()
+  })
+
+  it("keeps a withdrawal pending, at no cost to its budget, while publishing is off", async () => {
+    const paused = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      PUBLISH_ENABLED: "false",
+    })
+    try {
+      stub.reset()
+      const owner = await createTestTenant(admin)
+      organisations.push(owner.organisationId)
+      const connection = await seedGoogleConnection(admin, {
+        organisationId: owner.organisationId,
+      })
+      const seed = await seedLinkedReview(admin, {
+        organisationId: owner.organisationId,
+        connectionId: connection.connectionId,
+        googleAccountName: connection.googleAccountName,
+        replyState: "APPROVED",
+      })
+      const reviewerName = `Paused reviewer ${randomUUID()}`
+      await admin`
+        update review
+        set reviewer_display_name = ${reviewerName}
+        where id = ${seed.reviewId}
+      `
+      const request = await createRequest(owner.cookie, "erasure", reviewerName)
+      const response = await fetch(`${paused.baseUrl}/api/privacy/requests`, {
+        method: "PATCH",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: request.id,
+          action: "fulfil",
+          resolutionNote: "Fulfilled.",
+        }),
+      })
+      expect(response.status).toBe(409)
+      expect((await retryState(request.id)).lastErrorCode).toBe(
+        "publishing_paused"
+      )
+
+      await makeDue(request.id)
+      await runJobsTick(paused.baseUrl)
+      const state = await retryState(request.id)
+      expect(state).toMatchObject({
+        status: "in_progress",
+        withdrawalAttempts: 0,
+        lastErrorCode: "publishing_paused",
+        pendingReviewIds: [seed.reviewId],
+      })
+      // Deferred, not abandoned: it comes round again.
+      expect(state.nextAttemptAt).toBeInstanceOf(Date)
+      expect(
+        stub.calls.some(
+          (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+        )
+      ).toBe(false)
+    } finally {
+      await paused.stop()
+    }
+  })
+
+  it("stops retrying as an owner who lost the owner role, and surfaces it", async () => {
+    const { owner, request } = await parkedErasure(500, "Revoked")
+    // An organisation keeps at least one owner, so another takes over before
+    // the fulfilling owner is demoted.
+    const successor = randomUUID()
+    await admin`
+      insert into app_user (id, email, display_name, default_organisation_id)
+      values (
+        ${successor},
+        ${`successor-${successor.slice(0, 8)}@nabapresence.test`},
+        'Successor owner',
+        ${owner.organisationId}
+      )
+    `
+    await admin`
+      insert into member (organisation_id, user_id, role, can_publish)
+      values (${owner.organisationId}, ${successor}, 'owner', true)
+    `
+    await admin`
+      update member
+      set role = 'admin'
+      where organisation_id = ${owner.organisationId}
+        and user_id = ${owner.userId}
+    `
+    stub.reset()
+    await makeDue(request.id)
+    await runJobsTick()
+
+    const state = await retryState(request.id)
+    expect(state).toMatchObject({
+      status: "in_progress",
+      lastErrorCode: "actor_revoked",
+      nextAttemptAt: null,
+      withdrawalAttempts: 1,
+    })
+    expect(
+      stub.calls.some(
+        (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+      )
+    ).toBe(false)
+    const [held] = await admin<{ metadata: { reason: string } }[]>`
+      select metadata
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.withdrawal_held'
+    `
+    expect(held.metadata.reason).toBe("role_changed")
+
+    // The console (admins can read it) shows it as needing a person.
+    const listed = await fetch(`${server.baseUrl}/api/privacy/requests`, {
+      headers: { cookie: owner.cookie },
+    })
+    expect(listed.status).toBe(200)
+    const { requests } = (await listed.json()) as {
+      requests: {
+        id: string
+        overdue: boolean
+        withdrawalStalled: boolean
+        lastErrorCode: string | null
+      }[]
+    }
+    expect(requests[0]).toMatchObject({
+      id: request.id,
+      overdue: true,
+      withdrawalStalled: true,
+      lastErrorCode: "actor_revoked",
+    })
+  })
+
+  it("surfaces a withdrawal as overdue once its retry budget is spent", async () => {
+    const { owner, request } = await parkedErasure(403, "Exhausted")
+    await admin`
+      update privacy_request
+      set withdrawal_attempts = 11
+      where id = ${request.id}
+    `
+    await makeDue(request.id)
+    await runJobsTick()
+
+    const state = await retryState(request.id)
+    expect(state).toMatchObject({
+      status: "in_progress",
+      withdrawalAttempts: 12,
+      nextAttemptAt: null,
+    })
+    expect(state.lastErrorCode).not.toBeNull()
+    const [exhausted] = await admin<{ action: string }[]>`
+      select action
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.withdrawal_exhausted'
+    `
+    expect(exhausted).toBeDefined()
+
+    // Exhausted rows are not claimed again.
+    const before = await retryState(request.id)
+    await runJobsTick()
+    expect(await retryState(request.id)).toEqual(before)
+
+    const listed = await fetch(`${server.baseUrl}/api/privacy/requests`, {
+      headers: { cookie: owner.cookie },
+    })
+    const { requests } = (await listed.json()) as {
+      requests: { id: string; overdue: boolean; withdrawalStalled: boolean }[]
+    }
+    expect(requests[0]).toMatchObject({
+      id: request.id,
+      overdue: true,
+      withdrawalStalled: true,
+    })
+    stub.reset()
+  })
+
   it("will not fulfil a rejected request, nor reopen a completed one", async () => {
     const fixture = await createFixture()
     const rejected = await createRequest(
@@ -1249,11 +1561,12 @@ describeDatabase("privacy fulfilment and audit retention", () => {
       500, 500, 200, 200,
     ])
     expect(audits.map((row) => row.metadata.complete)).toEqual([
-      false, false, true, true,
+      false,
+      false,
+      true,
+      true,
     ])
-    expect(audits.every((row) => row.metadata.totalMatched === 1200)).toBe(
-      true
-    )
+    expect(audits.every((row) => row.metadata.totalMatched === 1200)).toBe(true)
   })
 
   it("rejects a malformed cursor and one minted for another subject", async () => {

@@ -83,7 +83,14 @@ export type PublishInput = {
 
 export type ReplyDeleteInput = {
   organisationId: string
-  session: Session
+  /**
+   * Who deletes, as the permission checks see them (GrantScope): the live
+   * Session in a route, or the scope a background worker re-derived from
+   * membership at dispatch (lib/server/authz/actor.ts), as the privacy
+   * withdrawal tick does. Either way prepareDelete re-checks location
+   * visibility and publish permission against it.
+   */
+  session: Pick<Session, "role" | "userId" | "canPublish">
   reviewId: string
   requestId: string
 }

@@ -109,5 +109,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0098_retention_cycle_failure_alert",
   "0099_retention_batches",
   "0100_ai_usage_retention",
+  "0101_privacy_request_retry",
   "20260729000400_remove_local_demo_data",
 ]

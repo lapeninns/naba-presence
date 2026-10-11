@@ -82,6 +82,10 @@ import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
 import { runDueSchedules, type ScheduleTickSummary } from "@/lib/server/publication-schedule-runner"
 import { runDueBulkChildren, type BulkTickSummary } from "@/lib/server/bulk-listing-runner"
+import {
+  runDuePrivacyWithdrawals,
+  type PrivacyWithdrawalTickSummary,
+} from "@/lib/server/privacy/withdrawals"
 
 /**
  * What the runner knows how to do. `reconcile`, `performance` and `keywords`
@@ -132,6 +136,8 @@ export type JobSummary = {
   schedules?: ScheduleTickSummary
   /** Bulk listing children, when publishing is on. */
   bulk?: BulkTickSummary
+  /** Parked privacy erasures retried in the background (plan P04-5). */
+  privacy?: PrivacyWithdrawalTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -1000,6 +1006,18 @@ export async function runDueJobs(options: {
   }
   if (scopesEnabled(env, pauses, ["jobs", "publish", "scheduled_post"])) {
     summary.schedules = await runDueSchedules({
+      budgetMs: Math.max(0, deadline - Date.now()),
+      requestId: options.requestId,
+    })
+  }
+
+  // Parked privacy erasures. Held by the runner's own switch only: an
+  // erasure is a legal obligation, so neither an unrelated pause nor a
+  // read-only organisation stops it. A publish pause still holds the reply
+  // delete itself, which defers the round without spending its budget
+  // (lib/server/privacy/fulfil.ts settleWithdrawal).
+  if (scopesEnabled(env, pauses, ["jobs"])) {
+    summary.privacy = await runDuePrivacyWithdrawals({
       budgetMs: Math.max(0, deadline - Date.now()),
       requestId: options.requestId,
     })
