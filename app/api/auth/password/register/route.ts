@@ -26,7 +26,13 @@ export const POST = route({
       email: body.email,
       password: body.password,
       displayName: body.displayName,
-      workspaceMode: body.inviteToken ? undefined : body.workspaceMode,
+      // An invited person joins as the organisation is; without the
+      // registration choice every new owner gets a business.
+      workspaceMode:
+        body.inviteToken ||
+        !getServerEnv().REGISTRATION_WORKSPACE_CHOICE_ENABLED
+          ? undefined
+          : body.workspaceMode,
       redirectTo: confirmationUrl.toString(),
     })
     if (result.identity) {

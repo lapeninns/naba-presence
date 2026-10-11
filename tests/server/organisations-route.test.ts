@@ -139,6 +139,28 @@ describe("PATCH /api/organisations { workspaceMode }", () => {
     )
   })
 
+  it("passes the owner's report-share confirmation through", async () => {
+    signedIn(owner)
+    vi.mocked(isOrgFeatureEnabled).mockResolvedValue(true)
+    vi.mocked(changeWorkspaceMode).mockResolvedValue({
+      workspaceMode: "business",
+      changed: true,
+      refiledLocations: 2,
+    })
+    const response = await patch({
+      workspaceMode: "business",
+      confirmReportShares: true,
+    })
+    expect(response.status).toBe(200)
+    expect(vi.mocked(changeWorkspaceMode)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        workspaceMode: "business",
+        confirmReportShares: true,
+      })
+    )
+  })
+
   it("refuses while the organisation's feature is off", async () => {
     signedIn(owner)
     vi.mocked(isOrgFeatureEnabled).mockResolvedValue(false)

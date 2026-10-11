@@ -41,7 +41,8 @@ export const GET = route({
  * Mode change ({ workspaceMode }): ships dark behind the organisation's
  * `workspace_mode_change` feature. The rules live in
  * lib/server/workspace-mode.ts; a refused agency-to-business change (more
- * than one active client) is a 409 that names the count.
+ * than one active client) is a 409 that names the count, and so is one that
+ * would widen live report share links until `confirmReportShares` is sent.
  */
 export const PATCH = route({
   roles: ["owner"],
@@ -66,6 +67,7 @@ export const PATCH = route({
           organisationId: session.organisationId,
           actorUserId: session.userId,
           workspaceMode: body.workspaceMode,
+          confirmReportShares: body.confirmReportShares,
           requestId,
           clientRequestId,
         })

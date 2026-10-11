@@ -30,12 +30,15 @@ function SignInPanel({
   nextPath,
   statusMessage,
   registrationAllowed = true,
+  workspaceChoice = false,
 }: {
   initialMode?: SignInMode
   inviteToken?: string
   nextPath?: string | null
   statusMessage?: AuthMessage
   registrationAllowed?: boolean
+  /** REGISTRATION_WORKSPACE_CHOICE_ENABLED: offer business or agency. */
+  workspaceChoice?: boolean
 }) {
   const [mode, setMode] = useState<SignInMode>(
     registrationAllowed ? initialMode : "sign-in"
@@ -48,7 +51,12 @@ function SignInPanel({
           ...COPY[mode],
           description: "Create an account with the invited email address.",
         }
-      : COPY[mode]
+      : mode === "create-account" && !workspaceChoice
+        ? {
+            ...COPY[mode],
+            description: "Set it up for your business, then connect Google.",
+          }
+        : COPY[mode]
 
   return (
     <AuthCard
@@ -81,6 +89,7 @@ function SignInPanel({
         nextPath={nextPath}
         statusMessage={statusMessage}
         registrationAllowed={registrationAllowed}
+        workspaceChoice={workspaceChoice}
       />
     </AuthCard>
   )

@@ -97,6 +97,12 @@ export type OrganisationRenameInput = z.input<typeof organisationRenameSchema>
  */
 export const organisationModeSchema = z.object({
   workspaceMode: workspaceModeSchema,
+  /**
+   * Agency to business: go ahead although refiling puts locations under a
+   * client with live report share links (otherwise a 409
+   * `workspace_mode_report_shares` with the counts).
+   */
+  confirmReportShares: z.boolean().optional(),
 })
 export type OrganisationModeInput = z.input<typeof organisationModeSchema>
 

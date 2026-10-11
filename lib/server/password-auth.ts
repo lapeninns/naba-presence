@@ -120,9 +120,12 @@ function identityFromUser(userValue: unknown): PasswordIdentity {
     user.email.split("@")[0] ||
     "NabaPresence user"
   // Metadata is user-writable at the provider, so it only ever chooses
-  // between the two modes a new owner may pick anyway; anything else is
-  // ignored and provisioning falls back to business.
-  const workspaceMode = workspaceModeSchema.safeParse(metadata.workspace_mode)
+  // between the two modes a new owner may pick anyway, and only while the
+  // registration choice is on; anything else is ignored and provisioning
+  // falls back to business.
+  const workspaceMode = getServerEnv().REGISTRATION_WORKSPACE_CHOICE_ENABLED
+    ? workspaceModeSchema.safeParse(metadata.workspace_mode)
+    : ({ success: false } as const)
   return {
     provider: "supabase",
     subject: user.id,

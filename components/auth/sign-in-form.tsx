@@ -99,6 +99,7 @@ function SignInForm({
   nextPath,
   statusMessage,
   registrationAllowed = true,
+  workspaceChoice = false,
 }: {
   initialMode?: SignInMode
   mode?: SignInMode
@@ -108,6 +109,12 @@ function SignInForm({
   nextPath?: string | null
   statusMessage?: AuthMessage
   registrationAllowed?: boolean
+  /**
+   * Offer a new owner the business or agency choice
+   * (REGISTRATION_WORKSPACE_CHOICE_ENABLED, off by default). Off: no choice
+   * is shown or sent, and the account is a business.
+   */
+  workspaceChoice?: boolean
 }) {
   const [uncontrolledMode, setUncontrolledMode] = useState<SignInMode>(
     initialMode ?? "sign-in"
@@ -117,8 +124,10 @@ function SignInForm({
   const [email, setEmail] = useState(invitedEmail ?? "")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
-  // Only a new owner chooses; an invited person joins the inviting
-  // organisation as it is, so the choice is never shown with a token.
+  // Only a new owner chooses, and only while the choice is switched on; an
+  // invited person joins the inviting organisation as it is, so the choice
+  // is never shown with a token.
+  const offersWorkspaceChoice = workspaceChoice && !inviteToken
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("business")
   const workspaceLabelId = useId()
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -188,7 +197,7 @@ function SignInForm({
       email,
       password,
       inviteToken,
-      ...(inviteToken ? {} : { workspaceMode }),
+      ...(offersWorkspaceChoice ? { workspaceMode } : {}),
     })
     if (!parsed.success) {
       const errors = friendlyFieldErrors(
@@ -319,7 +328,7 @@ function SignInForm({
         </div>
       ) : null}
 
-      {mode === "create-account" && !inviteToken ? (
+      {mode === "create-account" && offersWorkspaceChoice ? (
         <div className="flex flex-col gap-2">
           <span
             id={workspaceLabelId}

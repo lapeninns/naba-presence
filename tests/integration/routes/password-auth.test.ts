@@ -24,21 +24,30 @@ describeDatabase("email and password authentication", () => {
   let admin: ReturnType<typeof postgres>
   let auth: Awaited<ReturnType<typeof startAuthProviderStub>>
   let server: Awaited<ReturnType<typeof startAppServer>>
+  // The same app with REGISTRATION_WORKSPACE_CHOICE_ENABLED left at its
+  // default (off).
+  let choiceOff: Awaited<ReturnType<typeof startAppServer>>
   const organisations: string[] = []
   const emails: string[] = []
 
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
     auth = await startAuthProviderStub()
-    server = await startAppServer({
+    const passwordAuth = {
       PASSWORD_AUTH_ENABLED: "true",
       SUPABASE_URL: auth.baseUrl,
       SUPABASE_PUBLISHABLE_KEY: "stub-publishable-key",
+    }
+    server = await startAppServer({
+      ...passwordAuth,
+      REGISTRATION_WORKSPACE_CHOICE_ENABLED: "true",
     })
+    choiceOff = await startAppServer(passwordAuth)
   })
 
   afterAll(async () => {
     await server.stop()
+    await choiceOff.stop()
     await auth.stop()
     await destroyTenants(admin, organisations)
     if (emails.length > 0) {
@@ -197,10 +206,13 @@ describeDatabase("email and password authentication", () => {
 
   async function registerAndConfirm(
     email: string,
-    extra: Record<string, unknown>
+    extra: Record<string, unknown>,
+    servers: { register?: string; confirm?: string } = {}
   ) {
+    const registerUrl = servers.register ?? server.baseUrl
+    const confirmUrl = servers.confirm ?? server.baseUrl
     const registration = await fetch(
-      `${server.baseUrl}/api/auth/password/register`,
+      `${registerUrl}/api/auth/password/register`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -215,12 +227,12 @@ describeDatabase("email and password authentication", () => {
     expect(registration.status).toBe(202)
     const tokenHash = auth.confirmationToken(email)
     const confirmation = await fetch(
-      `${server.baseUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`,
+      `${confirmUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`,
       { redirect: "manual" }
     )
     const cookie = sessionCookie(confirmation)
     const session = (await (
-      await fetch(`${server.baseUrl}/api/session`, { headers: { cookie } })
+      await fetch(`${confirmUrl}/api/session`, { headers: { cookie } })
     ).json()) as {
       session: { organisationId: string; workspaceMode: string }
     }
@@ -259,6 +271,40 @@ describeDatabase("email and password authentication", () => {
     })
     expect(session.workspaceMode).toBe("agency")
     expect(shape).toEqual({ mode: "agency", homeClients: 0, clients: 0 })
+  })
+
+  it("makes every new owner a business while the registration choice is off", async () => {
+    const asked = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(asked)
+    const plain = await registerAndConfirm(
+      asked,
+      { workspaceMode: "agency" },
+      { register: choiceOff.baseUrl, confirm: choiceOff.baseUrl }
+    )
+    expect(auth.users.get(asked)?.metadata).not.toHaveProperty(
+      "workspace_mode"
+    )
+    expect(plain.session.workspaceMode).toBe("business")
+    expect(plain.shape).toEqual({ mode: "business", homeClients: 1, clients: 1 })
+
+    // Provider metadata is user-writable, so an agency mode stored there
+    // (here by a server with the choice on) is ignored once it is off.
+    const stored = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(stored)
+    const tampered = await registerAndConfirm(
+      stored,
+      { workspaceMode: "agency" },
+      { register: server.baseUrl, confirm: choiceOff.baseUrl }
+    )
+    expect(auth.users.get(stored)?.metadata).toMatchObject({
+      workspace_mode: "agency",
+    })
+    expect(tampered.session.workspaceMode).toBe("business")
+    expect(tampered.shape).toEqual({
+      mode: "business",
+      homeClients: 1,
+      clients: 1,
+    })
   })
 
   it("refuses an unknown workspace mode at registration", async () => {

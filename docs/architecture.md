@@ -1036,9 +1036,12 @@ create an unrelated tenant. `app/api/session/switch/route.ts` verifies
 membership, rotates the session, updates the default organisation, and audits
 organisation switching.
 
-Workspace mode (plan P06-5). Registration offers a business (the default) or
-an agency workspace while admission is open (`lib/domain/auth.ts`
-`registerSchema.workspaceMode`); an invited sign-up never chooses. The choice
+Workspace mode (plan P06-5). Registration can offer a business (the default)
+or an agency workspace while admission is open (`lib/domain/auth.ts`
+`registerSchema.workspaceMode`), but only with
+`REGISTRATION_WORKSPACE_CHOICE_ENABLED` on (default off; `lib/server/env.ts`);
+while it is off the choice is hidden, the register route ignores it and
+stored provider metadata cannot pick agency. An invited sign-up never chooses. The choice
 travels in the auth provider's user metadata (`workspace_mode`, set by
 `lib/server/password-auth.ts`), so it survives the email confirmation round
 trip, and `provisionAuthenticatedOwner` creates the hidden home client only
@@ -1049,12 +1052,18 @@ organisation feature with the Settings card
 `components/settings/workspace-mode-card.tsx`. Business to agency demotes the
 home client to an ordinary visible client; agency to business is refused with
 more than one active client, promotes the sole active client (or creates a
-home client) and refiles every other location under it. Each change is
-audited as `organisation.mode.changed`. Migration 0102's
-`client_guard_business_single` trigger refuses an active non-home client in a
-business workspace and takes FOR SHARE on the organisation row, which the
-switch holds FOR UPDATE, so a concurrent client create cannot slip past the
-count.
+home client) and refiles every other location under it. Report shares are
+scoped by `location.client_id` when read (`lib/server/shared-report.ts`), so
+when the refile would put locations under a client with live share links the
+switch is refused (409 `workspace_mode_report_shares`, with the counts) until
+the owner confirms with `confirmReportShares`. Each change is audited as
+`organisation.mode.changed`, with the refiled count and those share ids.
+Migration 0102's `client_guard_business_single` trigger refuses an active
+non-home client in a business workspace, and migration 0103's
+`location_require_business_home` trigger files a business location with no
+client under the home client and refuses any other client. Both take FOR
+SHARE on the organisation row, which the switch holds FOR UPDATE, so neither a
+concurrent client create nor a concurrent location write can slip past it.
 
 Google source payloads, review text, reviewer display names and profile photo
 links, addresses, and media links carry an expiry no later than the

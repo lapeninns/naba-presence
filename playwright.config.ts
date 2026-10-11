@@ -49,6 +49,8 @@ export default defineConfig({
       // accessibility and axe specs measure it, so turn it on here - this
       // object is merged last into the served app's environment.
       DESIGN_SYSTEM_EVIDENCE_ENABLED: "true",
+      // Off by default (P06-5); auth.spec.ts covers the choice itself.
+      REGISTRATION_WORKSPACE_CHOICE_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,

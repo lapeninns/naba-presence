@@ -31,10 +31,16 @@ export async function renameOrganisation(name: string) {
  * Switches the session's organisation between business and agency mode
  * (owner only, behind the `workspace_mode_change` feature).
  */
-export function changeWorkspaceMode(workspaceMode: WorkspaceMode) {
+export function changeWorkspaceMode(
+  workspaceMode: WorkspaceMode,
+  options: { confirmReportShares?: boolean } = {}
+) {
   return apiFetch("/api/organisations", {
     method: "PATCH",
-    body: { workspaceMode },
+    body: {
+      workspaceMode,
+      ...(options.confirmReportShares ? { confirmReportShares: true } : {}),
+    },
     schema: organisationModeChangedResponseSchema,
   })
 }

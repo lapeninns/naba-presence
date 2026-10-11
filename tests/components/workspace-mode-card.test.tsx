@@ -103,4 +103,63 @@ describe("WorkspaceModeCard", () => {
     ).toBeInTheDocument()
     expect(hardNavigate).not.toHaveBeenCalled()
   })
+
+  it("asks again with the counts when live report shares would widen, then confirms", async () => {
+    const user = userEvent.setup()
+    const spy = vi
+      .spyOn(sessionApi, "changeWorkspaceMode")
+      .mockRejectedValueOnce(
+        new ApiClientError(
+          409,
+          "workspace_mode_report_shares",
+          "Refused.",
+          { locationsToRefile: 2, activeReportShares: 1 }
+        )
+      )
+      .mockResolvedValueOnce({
+        organisation: { organisationId: "o1", workspaceMode: "business" },
+        changed: true,
+        refiledLocations: 2,
+      })
+    renderCard("agency")
+    await user.click(
+      screen.getByRole("button", { name: "Switch to a business workspace" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent(/archived client/)
+    expect(dialog).toHaveTextContent(/Report share links/)
+    await user.click(
+      screen
+        .getAllByRole("button", { name: "Switch to a business workspace" })
+        .find((button) => dialog.contains(button))!
+    )
+    expect(
+      await screen.findByText(
+        /2 locations will be filed under a client with 1 live report share link\./
+      )
+    ).toBeInTheDocument()
+    expect(hardNavigate).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenLastCalledWith("business")
+    await user.click(
+      screen.getByRole("button", { name: "Switch and share them" })
+    )
+    await waitFor(() =>
+      expect(spy).toHaveBeenLastCalledWith("business", {
+        confirmReportShares: true,
+      })
+    )
+    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("/settings"))
+  })
+
+  it("renders nothing until the session has loaded", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, enabled: false } },
+    })
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <WorkspaceModeCard />
+      </QueryClientProvider>
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
 })

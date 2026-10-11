@@ -159,6 +159,12 @@ export const serverEnvSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.enum(["open", "invite_only"]).default("open")
   ),
+  // Lets a new owner choose a business or an agency workspace at
+  // registration (plan P06-5). Off: the choice is hidden, the register route
+  // ignores it and provider metadata cannot pick agency, so every new
+  // organisation is a business. Product approval of agency self-sign-up is
+  // outstanding (ledger D-13).
+  REGISTRATION_WORKSPACE_CHOICE_ENABLED: featureFlag(false),
   WORKERS_AI_API_TOKEN: optionalText,
   WORKERS_AI_ACCOUNT_ID: z.preprocess(
     (value) => (value === "" ? undefined : value),

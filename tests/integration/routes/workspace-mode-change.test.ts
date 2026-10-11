@@ -312,42 +312,192 @@ describeDatabase("workspace mode change", () => {
     expect(await modeAudits(owner.organisationId)).toEqual([])
   })
 
-  it("serialises a client create against a concurrent switch to business", async () => {
+  async function seedReportShare(
+    organisationId: string,
+    clientId: string,
+    state: "live" | "revoked" | "expired" = "live"
+  ) {
+    const id = randomUUID()
+    const tokenHash = randomUUID().replace(/-/g, "").padEnd(64, "0")
+    await admin`
+      insert into report_share (
+        id, organisation_id, client_id, token_hash, created_at, expires_at,
+        revoked_at
+      )
+      values (
+        ${id},
+        ${organisationId},
+        ${clientId},
+        ${tokenHash},
+        now() - interval '2 days',
+        ${state === "expired" ? admin`now() - interval '1 day'` : admin`now() + interval '30 days'`},
+        ${state === "revoked" ? new Date() : null}
+      )
+    `
+    return id
+  }
+
+  it("refuses to widen live report shares until the owner confirms, and records them", async () => {
     const owner = await fixture()
-    await seedClient(owner.organisationId, "Crown")
-    // Hold the organisation row the way the switch does, then race a client
-    // insert against it: the insert's FOR SHARE waits, and once the switch
-    // commits it sees business mode and is refused.
+    const sole = await seedClient(owner.organisationId, "Crown")
+    const live = await seedReportShare(owner.organisationId, sole)
+    await seedReportShare(owner.organisationId, sole, "revoked")
+    await seedReportShare(owner.organisationId, sole, "expired")
+    const archived = await seedClient(owner.organisationId, "Former", true)
+    const loose = await seedLocation(owner.organisationId, "Loose")
+    const stranded = await seedLocation(
+      owner.organisationId,
+      "Stranded",
+      archived
+    )
+
+    const refused = await changeMode(owner.cookie, "business")
+    expect(refused.status).toBe(409)
+    expect(await refused.json()).toMatchObject({
+      error: "workspace_mode_report_shares",
+      details: { locationsToRefile: 2, activeReportShares: 1 },
+    })
+    expect(await shape(owner.organisationId)).toMatchObject({
+      mode: "agency",
+      homeId: null,
+    })
+    const untouched = await admin<{ clientId: string | null }[]>`
+      select client_id::text as "clientId" from location
+      where id in ${admin([loose, stranded])}
+      order by name
+    `
+    expect(untouched.map((row) => row.clientId)).toEqual([null, archived])
+    expect(await modeAudits(owner.organisationId)).toEqual([])
+
+    const confirmed = await request("/api/organisations", owner.cookie, {
+      method: "PATCH",
+      body: JSON.stringify({
+        workspaceMode: "business",
+        confirmReportShares: true,
+      }),
+    })
+    expect(confirmed.status).toBe(200)
+    expect(await confirmed.json()).toMatchObject({
+      changed: true,
+      refiledLocations: 2,
+    })
+    expect((await modeAudits(owner.organisationId))[0]?.metadata).toMatchObject(
+      {
+        workspaceMode: "business",
+        homeClientId: sole,
+        refiledLocations: 2,
+        reportShareIds: [live],
+      }
+    )
+  })
+
+  it("does not ask about report shares when nothing would be refiled", async () => {
+    const owner = await fixture()
+    const sole = await seedClient(owner.organisationId, "Crown")
+    await seedReportShare(owner.organisationId, sole)
+    await seedLocation(owner.organisationId, "Filed", sole)
+    const response = await changeMode(owner.cookie, "business")
+    expect(response.status).toBe(200)
+    expect((await modeAudits(owner.organisationId))[0]?.metadata).toMatchObject(
+      { refiledLocations: 0, reportShareIds: [] }
+    )
+  })
+
+  /**
+   * Holds the sole client's row so the real switch (PATCH, runtime role)
+   * stops after taking the organisation FOR UPDATE, runs `compete` while it
+   * waits, and lets it finish once the competing write is queued behind it.
+   */
+  async function raceTheSwitch(
+    owner: { organisationId: string; cookie: string },
+    sole: string,
+    compete: () => Promise<unknown>
+  ) {
     const blocker = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+    const waitingOn = async (pid: number) => {
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const [row] = await admin<{ pid: number | null }[]>`
+          select min(pid) as pid from pg_stat_activity
+          where ${pid}::int = any(pg_blocking_pids(pid))
+        `
+        if (row?.pid) return row.pid
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      throw new Error(`nothing queued behind backend ${pid}`)
+    }
     try {
-      let insert: Promise<unknown> | undefined
+      let switched: Promise<Response> | undefined
+      let competing: Promise<unknown> | undefined
       await blocker.begin(async (sql) => {
-        await sql`
-          select 1 from organisation where id = ${owner.organisationId} for update
+        const [{ pid }] = await sql<{ pid: number }[]>`
+          select pg_backend_pid() as pid
         `
-        insert = seedClient(owner.organisationId, "Racer").then(
-          () => "inserted",
-          (error: { code?: string }) => error.code
-        )
-        await new Promise((resolve) => setTimeout(resolve, 200))
-        const sole = await sql<{ id: string }[]>`
-          select id::text as id from client
-          where organisation_id = ${owner.organisationId} and archived_at is null
-        `
-        expect(sole).toHaveLength(1)
-        await sql`update client set is_home = true where id = ${sole[0].id}`
-        await sql`
-          update organisation set workspace_mode = 'business'
-          where id = ${owner.organisationId}
-        `
+        await sql`select 1 from client where id = ${sole} for update`
+        switched = changeMode(owner.cookie, "business")
+        const switchPid = await waitingOn(pid)
+        competing = compete()
+        await waitingOn(switchPid)
       })
-      expect(await insert).toBe("23514")
+      return { switched: await switched!, competing: await competing }
     } finally {
       await blocker.end()
     }
-    expect(await shape(owner.organisationId)).toMatchObject({
+  }
+
+  it("serialises a client create through the route against the real switch to business", async () => {
+    const owner = await fixture()
+    const sole = await seedClient(owner.organisationId, "Crown")
+    const { switched, competing } = await raceTheSwitch(owner, sole, () =>
+      request("/api/clients", owner.cookie, {
+        method: "POST",
+        body: JSON.stringify({ name: "Racer" }),
+      })
+    )
+    expect(switched.status).toBe(200)
+    const created = competing as Response
+    expect(created.status).toBe(409)
+    expect(await created.json()).toMatchObject({
+      error: "business_mode_single_client",
+    })
+    expect(await shape(owner.organisationId)).toEqual({
       mode: "business",
+      homeId: sole,
       activeClients: 1,
     })
+  })
+
+  it("files a location inserted during the switch under the home client", async () => {
+    const owner = await fixture()
+    const sole = await seedClient(owner.organisationId, "Crown")
+    const racer = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+    const id = randomUUID()
+    try {
+      // postgres.js queries are lazy; execute() sends it now.
+      const { switched } = await raceTheSwitch(owner, sole, () =>
+        racer`
+          insert into location (id, organisation_id, name)
+          values (${id}, ${owner.organisationId}, 'Racer')
+        `.execute()
+      )
+      expect(switched.status).toBe(200)
+    } finally {
+      await racer.end()
+    }
+    const [row] = await admin<{ clientId: string | null }[]>`
+      select client_id::text as "clientId" from location where id = ${id}
+    `
+    expect(row.clientId).toBe(sole)
+
+    // Afterwards every write is held to the home client: no client means
+    // the home one, and any other client is refused.
+    const later = await seedLocation(owner.organisationId, "Later")
+    const [filed] = await admin<{ clientId: string }[]>`
+      select client_id::text as "clientId" from location where id = ${later}
+    `
+    expect(filed.clientId).toBe(sole)
+    const archived = await seedClient(owner.organisationId, "Old", true)
+    await expect(
+      seedLocation(owner.organisationId, "Elsewhere", archived)
+    ).rejects.toMatchObject({ code: "23514" })
   })
 })

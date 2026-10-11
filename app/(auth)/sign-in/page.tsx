@@ -30,6 +30,7 @@ export default async function SignInPage({
       registrationAllowed={
         getServerEnv().REGISTRATION_MODE === "open" || Boolean(params.invite)
       }
+      workspaceChoice={getServerEnv().REGISTRATION_WORKSPACE_CHOICE_ENABLED}
       inviteToken={params.invite}
       nextPath={nextPath}
       statusMessage={

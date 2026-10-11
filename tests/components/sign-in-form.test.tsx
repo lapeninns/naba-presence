@@ -263,7 +263,7 @@ describe("create-account mode", () => {
     const registerSpy = vi
       .spyOn(authApi, "register")
       .mockResolvedValue({ authenticated: false, confirmationRequired: true })
-    render(<SignInForm initialMode="create-account" />)
+    render(<SignInForm initialMode="create-account" workspaceChoice />)
     const group = screen.getByRole("radiogroup", {
       name: "What are you setting up?",
     })
@@ -286,7 +286,7 @@ describe("create-account mode", () => {
     const registerSpy = vi
       .spyOn(authApi, "register")
       .mockResolvedValue({ authenticated: false, confirmationRequired: true })
-    render(<SignInForm initialMode="create-account" />)
+    render(<SignInForm initialMode="create-account" workspaceChoice />)
     await user.click(screen.getByRole("radio", { name: "An agency" }))
     await fillValidAccount(user)
     await user.click(screen.getByRole("button", { name: "Create account" }))
@@ -296,10 +296,27 @@ describe("create-account mode", () => {
     })
   })
 
+  it("hides the workspace choice and registers a business while it is switched off", async () => {
+    const user = userEvent.setup()
+    const registerSpy = vi
+      .spyOn(authApi, "register")
+      .mockResolvedValue({ authenticated: false, confirmationRequired: true })
+    render(<SignInPanel registrationAllowed initialMode="create-account" />)
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
+    expect(screen.queryByText(/agency/i)).not.toBeInTheDocument()
+    await fillValidAccount(user)
+    await user.click(screen.getByRole("button", { name: "Create account" }))
+    await waitFor(() => expect(registerSpy).toHaveBeenCalledTimes(1))
+    expect(registerSpy.mock.calls[0]?.[0]).not.toMatchObject({
+      workspaceMode: "agency",
+    })
+  })
+
   it("does not offer the workspace choice to an invited person", () => {
     render(
       <SignInPanel
         registrationAllowed
+        workspaceChoice
         inviteToken="invitation-token"
         initialMode="create-account"
       />
@@ -312,7 +329,11 @@ describe("create-account mode", () => {
 
   it("speaks to a business as much as to an agency", () => {
     const { container } = render(
-      <SignInPanel registrationAllowed initialMode="create-account" />
+      <SignInPanel
+        registrationAllowed
+        workspaceChoice
+        initialMode="create-account"
+      />
     )
     expect(
       screen.getByRole("heading", {
