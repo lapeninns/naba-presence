@@ -662,4 +662,73 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     ])
     expect(patches(name2)).toHaveLength(1)
   })
+
+  it("blocks a child whose listing was relinked to another Google connection, without writing", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await execute(t, op)
+    // The same Google location, now reached through someone else's
+    // connection: the frozen connection no longer backs the link.
+    const other = await seedGoogleConnection(admin, {
+      organisationId: t.owner.organisationId,
+    })
+    await admin`update external_location set google_connection_id = ${other.connectionId}, google_account_name = ${other.googleAccountName}
+      where id = ${t.linked[0].externalLocationId}`
+    await tick()
+    expect(await childRows(op.id)).toEqual([
+      { status: "failed", result_code: "google_target_changed" },
+    ])
+    expect(patches()).toHaveLength(0)
+  })
+
+  it("needs a second approver under two-person approval, in the route and in the table, and rechecks both people before sending", async () => {
+    const t = await tenant(2)
+    await admin`update organisation set require_two_person_approval = true where id = ${t.owner.organisationId}`
+    const manager = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+      canPublish: true,
+    })
+    await admin`update member set role = 'admin' where user_id = ${manager.userId}`
+    // The admin prepares the batch; only the owner may approve it.
+    const op = await t.preview(undefined, manager.cookie)
+    expect(op.requiresSecondApprover).toBe(true)
+    expect(op.canApprove).toBe(false)
+    const self = await t.approve(op, false, manager.cookie)
+    expect(self.status).toBe(409)
+    expect(await self.json()).toMatchObject({
+      error: "second_approver_required",
+    })
+    // No writer can record a self-approval either (0261).
+    await expect(
+      admin`update bulk_listing_operation set status = 'approved', approved_by = requested_by, approved_at = now()
+        where id = ${op.id}`
+    ).rejects.toMatchObject({
+      constraint_name: "bulk_listing_operation_second_approver",
+    })
+    await expect(
+      admin`update bulk_listing_operation set legacy_self_approved = true where id = ${op.id}`
+    ).rejects.toMatchObject({ code: "23514" })
+    await execute(t, op)
+    // The requester lost the right to ask for listing changes after the
+    // approval: nothing they prepared is sent.
+    await admin`update member set role = 'viewer' where user_id = ${manager.userId}`
+    await tick()
+    expect(await childRows(op.id)).toEqual([
+      { status: "failed", result_code: "permission_revoked" },
+      { status: "failed", result_code: "permission_revoked" },
+    ])
+    expect(patches()).toHaveLength(0)
+    await admin`update member set role = 'admin' where user_id = ${manager.userId}`
+
+    // An approver security version the recheck cannot verify yet (stream A
+    // records it) fails closed instead of being ignored.
+    const second = await t.preview([t.linked[0].locationId], manager.cookie)
+    await execute(t, second)
+    await admin`update bulk_listing_operation set approver_aal = 'aal2', authorised_security_version = 1 where id = ${second.id}`
+    await tick()
+    expect(await childRows(second.id)).toEqual([
+      { status: "failed", result_code: "security_version_unverifiable" },
+    ])
+    expect(patches()).toHaveLength(0)
+  })
 })

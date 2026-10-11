@@ -21,9 +21,17 @@ import {
 /**
  * Every listing write that parks for approval in two-person mode. Business
  * information, attributes, lodging and Place Action links are not here:
- * every one of those writes already goes through a reviewed change set
- * (lib/server/gbp-change-sets.ts, lib/server/place-action-reviews.ts) whose
- * approval applies the organisation's two-person policy itself.
+ * they never park, because each of them is sent only through a reviewed
+ * change set (lib/server/gbp-change-sets.ts,
+ * lib/server/place-action-reviews.ts) whose approval applies the
+ * organisation's two-person policy (lib/server/authz/approval-policy.ts).
+ * For business information that holds whatever the policy:
+ * `updateBusinessInformation` refuses an update without an approved change
+ * set before Google is read. The one other business-information write,
+ * accepting Google's suggested update (lib/server/location-administration.ts),
+ * has no review step, so it is refused while two-person approval is on.
+ * Profile fields published from the profile editor (`profile_publish`) are a
+ * canonical-editor write and park here instead.
  */
 export const LISTING_CHANGE_KINDS = [
   "hours_publish",

@@ -194,7 +194,11 @@ export async function previewBusinessInformation(input: Omit<BusinessInformation
 
 export async function updateBusinessInformation(input: BusinessInformationWrite): Promise<BusinessInformationMutationResult> {
   if (input.updateMask.includes("serviceItems") && !input.changeSetId) throw new ApiError(409, "service_review_required", "Review and approve these exact service changes before sending them to Google.")
-  if (!input.changeSetId) return executeBusinessInformation(input)
+  // Every business-information update is a reviewed change set, whatever
+  // the organisation's policy: the change set's approval applies the
+  // two-person rule (lib/server/gbp-change-sets.ts). Refused before Google
+  // is read, so an unreviewed update never reaches the provider.
+  if (!input.changeSetId) throw new ApiError(409, "approval_required", "Review and approve the exact profile change before publishing.")
   const changeSetId = input.changeSetId
   return withSessionConnection((connection) => connection.begin(async (lock) => {
     await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:business_info`}, 0))`
@@ -302,7 +306,7 @@ async function executeBusinessInformation(input: BusinessInformationWrite): Prom
   }
   await validateServiceChange(input, current, token, linked.connectionId)
   if (!input.changeSetId) throw new ApiError(409, "approval_required", "Review and approve the exact profile change before publishing.")
-  if (input.changeSetId) await approvedGbpChange({ session: input.session, linked: await loadedContext(input.session, input.locationId), changeSetId: input.changeSetId, payload: input.payload, updateMask: input.updateMask, resourceType: "business_info" })
+  await approvedGbpChange({ session: input.session, linked: await loadedContext(input.session, input.locationId), changeSetId: input.changeSetId, payload: input.payload, updateMask: input.updateMask, resourceType: "business_info" })
   const attempt = await startGbpMutation({
     organisationId: input.session.organisationId,
     session: input.session,

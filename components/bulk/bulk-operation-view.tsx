@@ -61,6 +61,11 @@ const REASON: Record<string, string> = {
     "Changed on Google after the preview; prepare a new preview",
   permission_revoked: "Approval no longer valid: access changed",
   approval_policy_changed: "The approval policy changed",
+  second_approver_required:
+    "Not sent: two-person approval needs a different approver",
+  security_version_unverifiable:
+    "Not sent: the approver’s sign-in couldn’t be verified",
+  entitlement_unverifiable: "Not sent: the plan couldn’t be verified",
   execution_interrupted:
     "Interrupted; retry reads Google before anything is sent again",
   response_ambiguous: "Google’s response was lost; retry reads Google first",

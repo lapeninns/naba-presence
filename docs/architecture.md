@@ -223,7 +223,16 @@ create/patch/delete) call `submitListingChange`
 Business information, attributes, lodging and Place Action links do not:
 every one of their writes already needs a reviewed change set whose
 approval applies the two-person policy itself (see "Management execution
-and confirmation evidence" and "Reviewed Place Actions" below). For a
+and confirmation evidence" and "Reviewed Place Actions" below).
+`updateBusinessInformation` refuses any update without an approved change
+set (409 `approval_required`) before Google is read, and accepting Google's
+suggested update (`lib/server/location-administration.ts`), which has no
+review step, is refused with 409 `business_info_review_required` while
+two-person approval is on. Change sets, bulk batches and the bulk runner
+share one approval-policy helper (`lib/server/authz/approval-policy.ts`):
+the organisation's current policy and manager read by organisation and
+user, the second-approver rule, and `recheckApprovedWork`, which a worker
+calls before dispatch. For a
 publisher, `parkListingChange` (`lib/server/listing-changes.ts`) sends
 nothing: it records a change request
 as a `mutation_operation` receipt in the outcome state `awaiting_approval`
@@ -1526,7 +1535,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1562,8 +1571,22 @@ batch it expires and audits it once (`bulk_listing.expired`, stage `preview`
 or `dispatch`); a running batch is finished by the runner. Only 0260 marks a
 pre-existing batch over the cap `legacy_over_cap`: a trigger refuses the flag
 on any new row or later change, and a grandfathered batch cannot gain
-targets. Each child rechecks the approver's grant and the policy, reads
-Google, succeeds without writing when the change is already there, writes once
+targets. Under two-person approval the requester can never approve their
+own batch: the approve route refuses it and the table's CHECK
+(`bulk_listing_operation_second_approver`, 0261) refuses any writer
+recording it; a pre-existing self-approved batch is flagged
+`legacy_self_approved` by 0261 only and the runner sends none of it. Before
+dispatch each child calls `recheckApprovedWork`
+(`lib/server/authz/approval-policy.ts`): the frozen two-person flag still
+holds with two different people, the requester may still
+`request_approval` at the listing, the approver may still `publish` there
+as an owner or admin (`recheckAuthorisation`), and the listing is still
+linked through the frozen connection and credential generation. A lost
+right fails the child `permission_revoked`, a relink or reconnect
+`google_target_changed`, and an approver security version
+(`authorised_security_version`, reserved with `approver_aal` for the MFA
+stream) that cannot be verified yet `security_version_unverifiable`. Then
+the child reads Google, succeeds without writing when the change is already there, writes once
 when the baseline is unchanged, and otherwise records a conflict needing a new
 preview. Readback confirms; interrupted children become ambiguous and a retry
 re-reads before any write, so succeeded children are never replayed. Cancelling

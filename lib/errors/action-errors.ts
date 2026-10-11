@@ -49,6 +49,11 @@ const COPY: Record<string, string> = {
     "Uploads can’t be sent for approval yet. Add the photo by its web address instead.",
   listing_second_approver_required:
     "A different publisher must approve this change.",
+  // Two-person mode: business information only changes through a reviewed
+  // change set (P09-R2), so Google's suggested update can't be accepted in
+  // one step.
+  business_info_review_required:
+    "Two-person approval is on. Review Google’s suggested changes in Business information so a second person can approve them.",
   change_request_not_pending: "This change is no longer waiting for approval.",
   change_request_changed:
     "This is not the change you were shown. Reload and review it again.",

@@ -6,6 +6,10 @@ import {
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
 import {
+  recheckApprovedWork,
+  type ApprovedWorkResult,
+} from "@/lib/server/authz/approval-policy"
+import {
   applyTarget,
   comparisonHash,
   currentFor,
@@ -32,7 +36,6 @@ import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { gbpWriteScopes, isScopeEnabled } from "@/lib/server/pause-controls"
-import { canPublishLocation } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
 type Child = {
@@ -54,6 +57,7 @@ type Child = {
   connectionId: string | null
   credentialGeneration: number | null
   googleLocationName: string | null
+  authorisedSecurityVersion: number | null
 }
 export type BulkTickSummary = {
   children: number
@@ -96,6 +100,30 @@ async function settle(
   )
 }
 
+/**
+ * The code a refused child settles with. The UI already explains these
+ * (components/bulk/bulk-operation-view.tsx): a person's lost right is
+ * `permission_revoked`, a moved Google target is `google_target_changed`.
+ */
+function recheckCode(
+  refusal: Extract<ApprovedWorkResult, { ok: false }>
+): string {
+  switch (refusal.reason) {
+    case "approval_policy_changed":
+    case "second_approver_required":
+    case "security_version_unverifiable":
+    case "entitlement_unverifiable":
+      return refusal.reason
+    case "connection_changed":
+    case "generation_changed":
+      return "google_target_changed"
+    case "policy_changed":
+      return "approval_policy_changed"
+    default:
+      return "permission_revoked"
+  }
+}
+
 /** One claimed child: at most one provider write, then independent readback. */
 export async function processBulkChild(
   organisationId: string,
@@ -109,7 +137,8 @@ export async function processBulkChild(
         c.baseline_hash as "baselineHash", c.current_value as current, c.proposed_value as proposed, o.input, o.approved_by::text as "approvedBy",
         o.requested_by::text as "requestedBy", o.require_two_person_approval as "requireTwoPersonApproval", o.status as "operationStatus",
         o.execute_requested_at as "executeRequestedAt", o.dispatch_expires_at as "dispatchExpiresAt", c.resource_key as "resourceKey",
-        c.connection_id::text as "connectionId", c.credential_generation as "credentialGeneration", c.google_location_name as "googleLocationName"
+        c.connection_id::text as "connectionId", c.credential_generation as "credentialGeneration", c.google_location_name as "googleLocationName",
+        o.authorised_security_version as "authorisedSecurityVersion"
       from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id where c.id = ${childId}`
     return row
   })
@@ -134,8 +163,8 @@ export async function processBulkChild(
     if (summary) summary.expired += 1
   }
   if (dispatchClosed()) return expire()
-  // Deferred execution rechecks: the org feature, the approval, the
-  // approver's current grant for this listing, the policy, the frozen Google
+  // Deferred execution rechecks: the org feature, the approval, both
+  // people's current grants for this listing, the policy, the frozen Google
   // target and the provider kill switch.
   const gate = await withTenant(organisationId, async (sql) => {
     // The claim already skips organisations without the feature; this
@@ -145,25 +174,32 @@ export async function processBulkChild(
     if (child.operationStatus !== "running" || !child.approvedBy)
       return { code: "approval_invalid" }
     if (!child.executeRequestedAt) return { code: "approval_expired" }
-    const [policy] = await sql<
-      { required: boolean }[]
-    >`select require_two_person_approval as required from organisation limit 1`
-    if ((policy?.required ?? false) !== child.requireTwoPersonApproval)
-      return { code: "approval_policy_changed" }
-    const [requester] =
-      await sql`select 1 from member where user_id = ${child.requestedBy}`
+    // The requester may still ask for this change at the listing, the
+    // approver may still publish it there as an owner or admin, the frozen
+    // two-person flag still holds with two different people, and the
+    // listing is still linked through the frozen connection and credential
+    // generation (lib/server/authz/approval-policy.ts).
+    const recheck = await recheckApprovedWork(sql, {
+      organisationId,
+      locationId: child.locationId,
+      requestedBy: child.requestedBy,
+      approvedBy: child.approvedBy,
+      requireTwoPersonApproval: child.requireTwoPersonApproval,
+      connectionId: child.connectionId,
+      generation: child.credentialGeneration,
+      approverSecurityVersion: child.authorisedSecurityVersion,
+    })
+    if (!recheck.ok) return { code: recheckCode(recheck) }
     const [approver] = await sql<
       {
-        role: Session["role"]
-        canPublish: boolean
         email: string
         displayName: string
         workspaceMode: Session["workspaceMode"]
       }[]
     >`
-      select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.workspace_mode as "workspaceMode" from member m join app_user u on u.id = m.user_id cross join organisation o where m.user_id = ${child.approvedBy}`
-    if (!requester || !approver || !["owner", "admin"].includes(approver.role))
-      return { code: "permission_revoked" }
+      select u.email, coalesce(u.display_name, '') as "displayName", o.workspace_mode as "workspaceMode"
+      from app_user u cross join organisation o where u.id = ${child.approvedBy} and o.id = ${organisationId}`
+    if (!approver) return { code: "permission_revoked" }
     const session: Session = {
       sessionId: `bulk:${child.operationId}`,
       userId: child.approvedBy,
@@ -171,12 +207,10 @@ export async function processBulkChild(
       organisationName: "",
       displayName: approver.displayName,
       email: approver.email,
-      role: approver.role,
-      canPublish: approver.canPublish,
+      role: recheck.approver.role,
+      canPublish: recheck.approver.canPublish,
       workspaceMode: approver.workspaceMode,
     }
-    if (!(await canPublishLocation(sql, session, child.locationId)))
-      return { code: "permission_revoked" }
     let linked: Awaited<ReturnType<typeof resolveGbpLocationContext>>
     try {
       linked = await resolveGbpLocationContext(sql, session, child.locationId)
@@ -185,15 +219,11 @@ export async function processBulkChild(
         code: error instanceof ApiError ? error.code : "connection_unavailable",
       }
     }
-    // INTEGRATION: P09-R2 moves this into recheckAuthorisation with the
-    // frozen connection, generation and policy (lib/server/authz/approval-policy.ts).
-    const [connection] = await sql<{ generation: number }[]>`
-      select credential_generation as generation from google_connection where id = ${linked.connectionId}`
+    // The recheck proved the connection and generation; the Google
+    // location behind the link must be the one previewed too.
     if (
       child.connectionId !== linked.connectionId ||
-      child.googleLocationName !== linked.googleLocationName ||
-      child.credentialGeneration === null ||
-      connection?.generation !== child.credentialGeneration
+      child.googleLocationName !== linked.googleLocationName
     )
       return { code: "google_target_changed" }
     // INTEGRATION: deriveAccess (stream B, lib/domain/entitlements.ts) gates

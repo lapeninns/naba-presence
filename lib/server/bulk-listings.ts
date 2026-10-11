@@ -22,6 +22,14 @@ import {
   resolveGbpLocationContext,
   stableGoogleHash,
 } from "@/lib/server/gbp-management"
+import { actorScopeFromMembership } from "@/lib/server/authz/actor"
+import {
+  currentApprovalPolicy,
+  requireCurrentManager,
+  requireSecondApprover,
+  requireUnchangedTwoPersonPolicy,
+  secondApproverSatisfied,
+} from "@/lib/server/authz/approval-policy"
 import { ApiError } from "@/lib/server/http"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import {
@@ -271,16 +279,14 @@ export async function previewBulkOperation(
     ),
   })
   return withTenant(session.organisationId, async (sql) => {
-    const [policy] = await sql<
-      { required: boolean }[]
-    >`select require_two_person_approval as required from organisation limit 1`
+    const policy = await currentApprovalPolicy(sql, session.organisationId)
     const readSecondsAgo = Math.max(
       0,
       (performance.now() - readsStartedAt) / 1000
     )
     const [operation] = await sql<{ id: string }[]>`
       insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval, preview_expires_at)
-      values (${session.organisationId}, ${input.operation}, ${jsonColumn(sql, input)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy?.required ?? false},
+      values (${session.organisationId}, ${input.operation}, ${jsonColumn(sql, input)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy.requireTwoPersonApproval},
         clock_timestamp() - make_interval(secs => ${readSecondsAgo}::float8) + make_interval(secs => ${BULK_PREVIEW_TTL_MS / 1000}::float8))
       returning id::text as id`
     const resourceKey = bulkResourceKey(input.operation)
@@ -347,8 +353,11 @@ async function project(
     canApprove:
       isManagerialRole(session.role) &&
       operation.status === "previewed" &&
-      (!operation.requiresSecondApprover ||
-        operation.requestedBy !== session.userId),
+      secondApproverSatisfied(
+        operation.requiresSecondApprover,
+        operation.requestedBy,
+        session.userId
+      ),
     counts,
     children: children.map((child) => ({
       ...child,
@@ -414,7 +423,11 @@ export async function listBulkOperations(session: Session) {
         canApprove:
           isManagerialRole(session.role) &&
           row.status === "previewed" &&
-          (!row.requiresSecondApprover || row.requestedBy !== session.userId),
+          secondApproverSatisfied(
+            row.requiresSecondApprover,
+            row.requestedBy,
+            session.userId
+          ),
       })),
     })
   })
@@ -456,24 +469,28 @@ export async function approveBulkOperation(
         "approval_stale",
         "The preview changed. Review it again."
       )
-    const [policy] = await sql<
-      { required: boolean }[]
-    >`select require_two_person_approval as required from organisation limit 1`
-    if ((policy?.required ?? false) !== row.requireTwoPersonApproval)
-      throw new ApiError(
-        409,
-        "approval_policy_changed",
-        "The approval policy changed. Prepare a new preview."
-      )
-    if (row.requireTwoPersonApproval && row.requestedBy === session.userId)
-      throw new ApiError(
-        409,
-        "second_approver_required",
-        "A different authorised user must approve this bulk change."
-      )
-    const [requester] =
-      await sql`select 1 from member where user_id = ${row.requestedBy}`
-    if (!requester)
+    await requireUnchangedTwoPersonPolicy(
+      sql,
+      session.organisationId,
+      row.requireTwoPersonApproval,
+      "The approval policy changed. Prepare a new preview."
+    )
+    // Under two-person approval the requester is never the approver; the
+    // table enforces the same rule (bulk_listing_operation_second_approver).
+    requireSecondApprover(
+      row.requireTwoPersonApproval,
+      row.requestedBy,
+      session.userId,
+      "A different authorised user must approve this bulk change."
+    )
+    await requireCurrentManager(sql, session.organisationId, session.userId)
+    if (
+      !(await actorScopeFromMembership(
+        sql,
+        session.organisationId,
+        row.requestedBy
+      ))
+    )
       throw new ApiError(
         409,
         "approval_actor_access_changed",
@@ -509,6 +526,10 @@ export async function approveBulkOperation(
         "You cannot publish to every listing in this change."
       )
     // Dispatch is open for 24 hours from this approval, per child.
+    // INTEGRATION: stream A (MFA, P02-S9) records the approver's verified
+    // assurance here (approver_aal, authorised_security_version, reserved in
+    // 0261); the runner already passes the stored version to
+    // recheckAuthorisation.
     await sql`update bulk_listing_operation set status = 'approved', approved_by = ${session.userId}, approved_at = now(), skipped_acknowledged = ${skipped > 0},
       dispatch_expires_at = now() + interval '24 hours', approval_expires_at = now() + interval '24 hours', updated_at = now() where id = ${operationId}`
     await writeAudit(sql, {

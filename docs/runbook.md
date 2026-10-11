@@ -1634,7 +1634,17 @@ claims for that organisation; queued listings wait and expire when their
 (`dispatch_expired`, or `preview_expired` for a preview nobody approved
 within 15 minutes) or `google_target_changed` was never sent: prepare a new
 preview. `resource_busy` means another change to the same listing resource was
-running; the listing is retried a minute later.
+running; the listing is retried a minute later. `permission_revoked` (the
+person who prepared or approved the batch lost access to that listing, or the
+approver is no longer an owner or admin), `approval_policy_changed`,
+`second_approver_required` and `security_version_unverifiable` (an approver
+security version the MFA stream records but this build cannot verify) were
+never sent either: fix access or the policy, then prepare a new preview.
+
+Two-person approval and business information: every business-information
+update needs a reviewed change set, and accepting Google's suggested update in
+one step is refused (`business_info_review_required`) while two-person
+approval is on; review the suggested fields in Business information instead.
 
 A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and
