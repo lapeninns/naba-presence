@@ -360,6 +360,20 @@ session so a real scope change resets the rest at once. Unsaved edits held in
 memory when the signed-in identity changes are never stashed under the new
 identity (`lib/hooks/use-dirty-guard.ts`), and `useEditorDraft` reseeds them.
 
+Every editor that holds unsaved edits keeps them through a refetch and asks
+before they are lost. `useEditorDraft` (`lib/editors/use-editor-draft.ts`)
+seeds the draft from the server value and, when a newer revision arrives
+while the draft is dirty, keeps the edits and offers "Load theirs" / "Keep
+mine" (the profile, hours, menu, services, lodging, post composer and new
+action link editors). `useLeaveGuard` (`lib/editors/use-leave-guard.ts`)
+holds an in-app link click, the browser's back button (a sentinel history
+entry above a dirty page) and programmatic navigation through
+`useGuardedRouter` / `guardNavigation` (the command palette and client
+switcher). `useCloseGuard` (`lib/editors/use-close-guard.ts`) asks before a
+sheet or dialog with unsaved edits closes (the post composer and the action
+link edit dialog). `components/editors/draft-notices.tsx` renders the stash,
+incoming-version and leave prompts for an editor.
+
 ## Standalone canonical resources and Google publication
 
 NabaPresence is the sole owner of canonical profile, Hours, and Food Menus

@@ -19,6 +19,8 @@ import Link from "next/link"
 import { useId, useRef, useState } from "react"
 
 import { CapabilityBanner } from "@/components/editors/capability-banner"
+import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { usePlaceActionReview } from "@/components/locations/place-actions/use-place-action-review"
@@ -61,6 +63,11 @@ import {
   humaniseActionType,
 } from "@/lib/editors/booking-presentation"
 import { editorGate } from "@/lib/editors/gate"
+import { useCloseGuard } from "@/lib/editors/use-close-guard"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
+import { useEditorDraft } from "@/lib/editors/use-editor-draft"
+import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
 import { cn } from "@/lib/utils"
@@ -354,6 +361,7 @@ function BookingLinks({
           <GoogleManagedLinks links={state.unsupportedLinks ?? []} />
 
           <AddLinkForm
+            locationId={locationId}
             state={state}
             disabled={disabled}
             workflow={workflow}
@@ -415,6 +423,7 @@ function BookingLinks({
       </OverwriteConfirmDialog>
 
       <EditLinkDialog
+        locationId={locationId}
         link={editTarget}
         others={state.links}
         workflow={workflow}
@@ -553,11 +562,28 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
   )
 }
 
+type NewLink = { type: PlaceActionType; uri: string; preferred: boolean }
+
+/** A new link's untouched form: the type picker alone is not an edit. */
+function sameNewLink(a: NewLink, b: NewLink): boolean {
+  return a.uri.trim() === b.uri.trim() && a.preferred === b.preferred
+}
+
+function parseNewLink(value: unknown): NewLink | null {
+  if (!value || typeof value !== "object") return null
+  const { type, uri, preferred } = value as Record<string, unknown>
+  return typeof type === "string" && typeof uri === "string" && typeof preferred === "boolean"
+    ? { type: type as PlaceActionType, uri, preferred }
+    : null
+}
+
 function AddLinkForm({
+  locationId,
   state,
   disabled,
   workflow,
 }: {
+  locationId: string
   state: PlaceActionsState
   disabled: boolean
   workflow: ReturnType<typeof usePlaceActionReview>
@@ -565,17 +591,28 @@ function AddLinkForm({
   const headingId = useId()
   const uriId = useId()
   const uriRef = useRef<HTMLInputElement>(null)
-  const [type, setType] = useState<PlaceActionType>(
-    // A table reservation is the button most listings here want first.
-    state.supportedTypes.includes("DINING_RESERVATION")
-      ? "DINING_RESERVATION"
-      : ((state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION")
-  )
-  const [uri, setUri] = useState("")
-  const [preferred, setPreferred] = useState(false)
+  // A typed link survives a refetch, asks before the page is left, and is
+  // offered back after a forced sign-out or an unmount.
+  const editor = useEditorDraft<NewLink>({
+    initial: {
+      // A table reservation is the button most listings here want first.
+      type: state.supportedTypes.includes("DINING_RESERVATION")
+        ? "DINING_RESERVATION"
+        : ((state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION"),
+      uri: "",
+      preferred: false,
+    },
+    revision: "new",
+    scope: { resource: "location-place-action-new", resourceId: locationId, schemaVersion: 1 },
+    parseStashed: parseNewLink,
+    isEqual: sameNewLink,
+  })
+  const { type, uri, preferred } = editor.draft
+  const setType = (next: PlaceActionType) => editor.setDraft((current) => ({ ...current, type: next }))
+  const setUri = (next: string) => editor.setDraft((current) => ({ ...current, uri: next }))
+  const setPreferred = (next: boolean) => editor.setDraft((current) => ({ ...current, preferred: next }))
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-
 
   const sameType = state.links.filter((link) => link.placeActionType === type)
 
@@ -588,7 +625,9 @@ function AddLinkForm({
       return
     }
     setFailure(null)
-    if (!disabled) void workflow.preview({ operation: "create", payload: { uri: uri.trim(), placeActionType: type, isPreferred: preferred } }).then((result) => { if (!result.ok) setFailure(result.error) })
+    // Once the review is prepared the request is saved with it, so the form
+    // empties rather than holding a copy that would ask before leaving.
+    if (!disabled) void workflow.preview({ operation: "create", payload: { uri: uri.trim(), placeActionType: type, isPreferred: preferred } }).then((result) => { if (result.ok) editor.discard(); else setFailure(result.error) })
   }
 
   if (state.supportedTypes.length === 0) return null
@@ -600,6 +639,7 @@ function AddLinkForm({
       aria-labelledby={headingId}
       className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-5"
     >
+      <DraftNotices drafts={[editor]} noun="this action link" />
       <div className="flex flex-col gap-0.5">
         <h2 id={headingId} className="text-title font-semibold text-ink">
           Add an action link
@@ -676,12 +716,14 @@ function AddLinkForm({
 }
 
 function EditLinkDialog({
+  locationId,
   link,
   others,
   onClose,
   workflow,
   disabled,
 }: {
+  locationId: string
   link: PlaceActionLink | null
   others: PlaceActionLink[]
   onClose: () => void
@@ -700,7 +742,28 @@ function EditLinkDialog({
     setError(null)
     setFailure(null)
   }
+  const isDirty = link !== null && uri.trim() !== link.uri
 
+  // Warns on a reload and keeps the edit through a forced sign-out; closing
+  // the dialog or leaving the page with it asks first.
+  const draftKey = useDraftKey({
+    resource: "location-place-action-edit",
+    resourceId: `${locationId}/${link?.id ?? ""}`,
+    schemaVersion: 1,
+  })
+  const { markDiscarded } = useDirtyGuard({
+    key: draftKey,
+    isDirty,
+    snapshot: () => JSON.stringify({ uri }),
+  })
+  const close = useCloseGuard({
+    isDirty,
+    onOpenChange: (open) => {
+      if (!open) onClose()
+    },
+    onDiscard: markDiscarded,
+  })
+  const leave = useLeaveGuard({ when: isDirty, onLeave: markDiscarded })
 
   const sameType = link
     ? others.filter(
@@ -710,7 +773,7 @@ function EditLinkDialog({
     : []
 
   return (
-    <Dialog open={link !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={link !== null} onOpenChange={close.onOpenChange}>
       <DialogContent>
         <form
           noValidate
@@ -725,7 +788,7 @@ function EditLinkDialog({
               return
             }
             if (link && !disabled) void workflow.preview({ operation: "update", name: link.googleLinkName,
-              payload: placeActionInputSchema.parse({ uri: uri.trim(), placeActionType: link.placeActionType, isPreferred: link.isPreferred }) }).then((result) => { if (result.ok) onClose(); else setFailure(result.error) })
+              payload: placeActionInputSchema.parse({ uri: uri.trim(), placeActionType: link.placeActionType, isPreferred: link.isPreferred }) }).then((result) => { if (result.ok) { markDiscarded(); onClose() } else setFailure(result.error) })
           }}
         >
           <DialogHeader>
@@ -757,7 +820,7 @@ function EditLinkDialog({
             {failure ? <FailureNote message={failure} /> : null}
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={close.requestClose}>
               Cancel
             </Button>
             <Button
@@ -770,6 +833,20 @@ function EditLinkDialog({
             </Button>
           </DialogFooter>
         </form>
+        <DiscardDialog
+          {...close.prompt}
+          title="Close without saving?"
+          confirmLabel="Close and discard"
+          announce={false}
+          description="Your edit to this link isn’t saved. Closing throws it away. Google is not affected."
+        />
+        <DiscardDialog
+          {...leave}
+          title="Leave without saving?"
+          confirmLabel="Leave and discard"
+          announce={false}
+          description="Your edit to this link isn’t saved. Leaving throws it away. Google is not affected."
+        />
       </DialogContent>
     </Dialog>
   )

@@ -1,9 +1,11 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
+import { Toaster } from "@/components/ui/toast"
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -70,6 +72,57 @@ describe("IndustrySections", () => {
     await userEvent.clear(screen.getByRole("searchbox"))
     await userEvent.paste("Free wifi")
     expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Free Wi-Fi" })).toHaveTextContent("Yes")
+  })
+
+  it("keeps unsaved lodging edits when a refetch brings a newer version, and offers it", async () => {
+    let current: unknown = INDUSTRY
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/industry")) return jsonResponse(current)
+      return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
+    }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><Toaster><IndustrySections locationId="loc-1" /></Toaster></QueryClientProvider>)
+    expect(await screen.findByRole("region", { name: "Suggested lodging changes" })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Apply suggested pets allowed to draft" }))
+    const details = screen.getByRole("region", { name: "Lodging details" })
+    await userEvent.click(screen.getByRole("searchbox"))
+    await userEvent.paste("Pets allowed")
+    expect(within(details).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+
+    // Someone else changed the lodging in Google: a new hash and new content.
+    current = { industry: { ...INDUSTRY.industry, lodgingHash: "b".repeat(64), lodging: available({
+      policies: { checkinTime: { hours: 16, minutes: 0 } },
+      pets: { petsAllowed: false },
+    }) } }
+    await act(() => client.invalidateQueries())
+
+    expect(await screen.findByText("Someone else saved these lodging details while you were editing")).toBeInTheDocument()
+    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+
+    // Loading theirs replaces the edits with the newer version.
+    await userEvent.click(screen.getByRole("button", { name: "Load theirs" }))
+    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("No")
+  })
+
+  it("follows a refetch silently while the lodging draft is clean", async () => {
+    let current: unknown = INDUSTRY
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/industry")) return jsonResponse(current)
+      return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
+    }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><Toaster><IndustrySections locationId="loc-1" /></Toaster></QueryClientProvider>)
+    expect(await screen.findByRole("region", { name: "Suggested lodging changes" })).toBeInTheDocument()
+    current = { industry: { ...INDUSTRY.industry, lodgingHash: "b".repeat(64), lodging: available({ pets: { petsAllowed: true } }) } }
+    await act(() => client.invalidateQueries())
+    await userEvent.click(screen.getByRole("searchbox"))
+    await userEvent.paste("Pets allowed")
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes"))
+    expect(screen.queryByText(/Someone else saved/)).not.toBeInTheDocument()
   })
 
   it("omits retired controls even when an old response contains their data", async () => {

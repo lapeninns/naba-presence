@@ -906,6 +906,35 @@ test("Business profile editor renders live Google data with humanised fields", a
   await expect(page.getByText(/Services: Google eligibility has not been confirmed/)).toBeVisible()
 })
 
+test("The browser's back button asks before throwing away unsaved profile edits", async ({ page }) => {
+  await mockShell(page)
+  await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => {
+    if (new URL(route.request().url()).searchParams.get("type") === "reviews") return route.fulfill({ json: { changeSets: [] } })
+    return route.fulfill({ json: { businessInformation: { capabilityDetails: locationFieldCapabilities({ location: {}, canPublish: true, writesEnabled: true, observedAt: "2026-09-29T12:00:00.000Z" }), location: { title: "Camden Hotel", categories: { primaryCategory: { name: "categories/gcid:hotel" } } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } })
+  })
+  // A page before the editor, so "back" has somewhere to go.
+  await page.goto("about:blank")
+  await page.goto("/listings/location-management/profile")
+  const name = page.getByRole("textbox", { name: "Business name" })
+  await expect(name).toHaveValue("Camden Hotel")
+  await name.fill("Camden Hotel & Bar")
+
+  // Back lands on the sentinel's entry beneath: still this page, asking.
+  await page.evaluate(() => window.history.back())
+  const prompt = page.getByRole("alertdialog", { name: "Leave without saving?" })
+  await expect(prompt).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe("/listings/location-management/profile")
+  await prompt.getByRole("button", { name: "Keep editing" }).click()
+  await expect(prompt).toBeHidden()
+  await expect(name).toHaveValue("Camden Hotel & Bar")
+
+  // Staying re-arms the guard: back asks again, and leaving goes back.
+  await page.evaluate(() => window.history.back())
+  await expect(prompt).toBeVisible()
+  await prompt.getByRole("button", { name: "Leave and discard" }).click()
+  await expect.poll(() => page.url()).toBe("about:blank")
+})
+
 for (const width of [375, 1280]) test(`Attribute metadata controls and enum clear at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 })
   await mockShell(page)

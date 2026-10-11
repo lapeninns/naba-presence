@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react"
 import { GateNote } from "@/components/locations/publish-gate"
 import type { IndustryState } from "@/lib/api/location-industry"
 import { buildLodgingProposal } from "@/lib/locations/forms/lodging-draft"
-import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
+import { DraftNotices } from "@/components/editors/draft-notices"
+import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { LodgingEditor } from "./lodging-editor"
 import { LodgingReview } from "./lodging-review"
 import { LodgingSuggestions } from "./lodging-suggestions"
@@ -15,7 +16,17 @@ export function CompleteLodgingSection({ locationId, loaded, suggested, suggeste
   readonly suggestedError: string | null; readonly disabled: boolean; readonly publishReason: string | null
   readonly googleHash?: string; readonly savedReviews: NonNullable<IndustryState["lodgingChangeSets"]>
 }) {
-  const [draft, setDraft] = useResetOnRevision(loaded, googleHash ?? JSON.stringify(loaded))
+  // The revision is Google's lodging hash, or the content itself when there
+  // is none: a refetch that returns the same lodging is not a new version,
+  // and one that returns different lodging never overwrites unsaved edits
+  // (DraftNotices offers "Load theirs" / "Keep mine").
+  const editor = useEditorDraft({
+    initial: loaded,
+    revision: googleHash ?? JSON.stringify(loaded),
+    scope: { resource: "location-lodging", resourceId: locationId, schemaVersion: 1 },
+    parseStashed: plainRecord,
+  })
+  const { draft, setDraft, discard } = editor
   const [locked, setLocked] = useState(false)
   const workspace = useLodgingWorkspace(), unavailable = disabled || locked || Boolean(workspace?.busy || workspace?.unresolved)
   const proposal = useMemo(() => buildLodgingProposal(loaded, draft), [loaded, draft])
@@ -25,15 +36,20 @@ export function CompleteLodgingSection({ locationId, loaded, suggested, suggeste
   useEffect(() => {
     reportDraft?.({ dirty: proposal.updateMask.length > 0, blocked }, {
       review: () => { if (!blocked && googleHash) preview?.(proposal.payload, proposal.updateMask, googleHash) },
-      discard: () => setDraft(loaded),
+      discard,
     })
-  }, [reportDraft, preview, proposal, blocked, googleHash, loaded, setDraft])
+  }, [reportDraft, preview, proposal, blocked, googleHash, discard])
   useEffect(() => () => reportDraft?.({ dirty: false, blocked: null }, null), [reportDraft])
   return <div className="flex min-w-0 flex-col gap-5">
+    <DraftNotices drafts={[editor]} noun="these lodging details" />
     <LodgingSuggestions value={draft} response={suggested} error={suggestedError} disabled={unavailable} onChange={setDraft} />
     <LodgingEditor value={draft} baseline={loaded} disabled={unavailable} errors={proposal.fieldErrors} onChange={setDraft} />
     {!proposal.valid ? <p role="alert" className="text-ui text-danger-ink">Correct the highlighted lodging details before preparing a review. Unsupported values in a changed list must be reviewed in Google.</p> : null}
     <LodgingReview locationId={locationId} payload={proposal.payload} updateMask={proposal.updateMask} googleHash={googleHash} saved={savedReviews} disabled={disabled || Boolean(publishReason)} previewDisabled={!proposal.valid} onLock={setLocked} />
     <GateNote reason={disabled ? null : publishReason} />
   </div>
+}
+
+function plainRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null
 }

@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { BookingTab } from "@/components/locations/booking-tab"
@@ -74,5 +75,56 @@ describe("BookingTab", () => {
     renderTab()
     expect(screen.getByRole("button", { name: "Review action link" })).toBeDisabled()
     expect(screen.getByText("You do not have permission to publish this location to Google.")).toBeInTheDocument()
+  })
+
+  it("asks before closing the edit dialog with an unsaved link", async () => {
+    const user = userEvent.setup()
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Edit the Reserve a table link" }))
+    let dialog = await screen.findByRole("dialog")
+    // Clean: Cancel closes at once.
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: "Edit the Reserve a table link" }))
+    dialog = await screen.findByRole("dialog")
+    const link = within(dialog).getByRole("textbox", { name: "Link" })
+    await user.clear(link)
+    await user.type(link, "https://book.test/new")
+    await user.keyboard("{Escape}")
+    const prompt = await screen.findByRole("alertdialog", { name: "Close without saving?" })
+    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }))
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Link" })).toHaveValue("https://book.test/new")
+
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }))
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Close and discard" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  })
+
+  it("asks before an in-app link leaves a typed new action link behind", async () => {
+    const user = userEvent.setup()
+    useBookingMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          {/* The sidebar's plain in-app link, outside the tab. */}
+          <a href="/inbox">Inbox</a>
+          <BookingTab locationId="loc-1" />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await user.type(screen.getByRole("textbox", { name: "Link" }), "https://order.test")
+    const away = vi.fn((event: MouseEvent) => event.preventDefault())
+    const inbox = screen.getByRole("link", { name: "Inbox" })
+    inbox.addEventListener("click", away)
+    await user.click(inbox)
+    expect(away).not.toHaveBeenCalled()
+    expect(await screen.findByRole("alertdialog", { name: "Leave without saving?" })).toBeInTheDocument()
   })
 })

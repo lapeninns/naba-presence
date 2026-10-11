@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -90,6 +90,54 @@ describe("PostsTab", () => {
     await user.click(within(group).getByRole("button", { name: "Sat" }))
     expect(within(sheet).getAllByText("Repeats weekly on Fri, Sat").length).toBeGreaterThan(0)
     expect(within(sheet).getByRole("button", { name: "Save changes" })).toBeEnabled()
+  })
+
+  it("asks before closing a composer with unsaved text, and keeps it when the operator stays", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "New post" }))
+    const sheet = await screen.findByRole("dialog")
+    await user.type(within(sheet).getByRole("textbox", { name: "Post summary" }), "Late opening")
+
+    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    const prompt = await screen.findByRole("alertdialog", { name: "Close without saving?" })
+    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }))
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Post summary" })).toHaveValue("Late opening")
+
+    await user.keyboard("{Escape}")
+    const again = await screen.findByRole("alertdialog", { name: "Close without saving?" })
+    await user.click(within(again).getByRole("button", { name: "Close and discard" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+
+    // Reopening starts from an empty post: the discarded text is gone.
+    await user.click(screen.getByRole("button", { name: "New post" }))
+    expect(within(await screen.findByRole("dialog")).getByRole("textbox", { name: "Post summary" })).toHaveValue("")
+  })
+
+  it("closes a clean edit at once, and keeps edits to a saved post across a close that was declined", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    let sheet = await screen.findByRole("dialog")
+    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+
+    await user.click(screen.getByRole("button", { name: "Edit" }))
+    sheet = await screen.findByRole("dialog")
+    const summary = within(sheet).getByRole("textbox", { name: "Post summary" })
+    await user.clear(summary)
+    await user.type(summary, "Closed for refit")
+    await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
+    const prompt = await screen.findByRole("alertdialog", { name: "Close without saving?" })
+    expect(prompt).toHaveTextContent("keeps the saved draft")
+    await user.click(within(prompt).getByRole("button", { name: "Keep editing" }))
+    expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Post summary" })).toHaveValue("Closed for refit")
   })
 
   it("shows a paused notice and blocks composing when posts are paused", async () => {

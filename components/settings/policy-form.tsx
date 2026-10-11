@@ -52,7 +52,9 @@ import { editSettingsDisabledReason } from "@/lib/settings/gating"
 import { settingsPolicyFormSchema } from "@/lib/settings/forms/settings-policy"
 import { languageLabel, languageOptionsFor } from "@/lib/settings/languages"
 import { TimezonePicker } from "@/components/settings/timezone-picker"
+import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
+import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
 type FormState = {
@@ -208,14 +210,15 @@ export function PolicyForm({ role }: { role: string | null }) {
   }, [current, initial])
   const isDirty = changed.length > 0
 
-  // Called for its effects only — arms beforeunload while dirty (spec §6). Do NOT
-  // bind the return value; the repo lints unused vars as errors.
+  // Arms beforeunload while dirty (spec §6) and keeps the edits through a
+  // forced sign-out; an in-app link or the back button asks first.
   const draftKey = useDraftKey({ resource: "settings-policy", schemaVersion: 1 })
-  useDirtyGuard({
+  const { markDiscarded } = useDirtyGuard({
     key: draftKey,
     isDirty,
     snapshot: () => JSON.stringify(current ?? {}),
   })
+  const leave = useLeaveGuard({ when: isDirty, onLeave: markDiscarded })
 
   const mutation = useMutation({
     mutationFn: (input: SettingsPatchInput) => saveSettings(input),
@@ -602,6 +605,13 @@ export function PolicyForm({ role }: { role: string | null }) {
             </>
           )
         }
+      />
+      <DiscardDialog
+        {...leave}
+        title="Leave without saving?"
+        confirmLabel="Leave and discard"
+        announce={false}
+        description="Your changes to the reply policy aren’t saved. Leaving throws them away; the current policy stays in force."
       />
     </form>
   )

@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
+import { guardNavigation } from "@/lib/editors/use-leave-guard"
 import {
   Command,
   CommandEmpty,
@@ -91,10 +92,17 @@ function useClientSwitch() {
         current,
         next,
       })
-      setRemembered(next)
-      if (!target) return
-      if (target.mode === "push") router.push(target.href)
-      else router.replace(target.href, { scroll: false })
+      if (!target) {
+        setRemembered(next)
+        return
+      }
+      // Leaving an editor with unsaved edits asks first; staying keeps the
+      // client as it was.
+      guardNavigation(() => {
+        setRemembered(next)
+        if (target.mode === "push") router.push(target.href)
+        else router.replace(target.href, { scroll: false })
+      })
     },
     [current, pageHandler, pathname, router, searchParams, setRemembered]
   )
