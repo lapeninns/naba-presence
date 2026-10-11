@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import postgres from "postgres"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
 import {
@@ -13,6 +13,10 @@ import {
 } from "../helpers/tenant"
 
 import { runRetentionCycle } from "@/lib/server/retention/cycle"
+import {
+  purgeOrganisation,
+  type OrganisationPurgeCounts,
+} from "@/lib/server/retention/purge"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -282,6 +286,205 @@ describeDatabase("retention purge", () => {
     )
     expect(left.map((row) => row.id)).not.toContain(resolved)
   }, 30_000)
+
+  describe("in bounded batches", () => {
+    const batchRows = process.env.RETENTION_BATCH_ROWS
+    const budget = process.env.RETENTION_BUDGET_MS
+
+    afterEach(() => {
+      if (batchRows === undefined) delete process.env.RETENTION_BATCH_ROWS
+      else process.env.RETENTION_BATCH_ROWS = batchRows
+      if (budget === undefined) delete process.env.RETENTION_BUDGET_MS
+      else process.env.RETENTION_BUDGET_MS = budget
+    })
+
+    async function backloggedTenant(items: number) {
+      const owner = await createTenant()
+      const connection = await seedGoogleConnection(admin, {
+        organisationId: owner.organisationId,
+      })
+      const linked = await seedLinkedLocation(admin, {
+        organisationId: owner.organisationId,
+        connectionId: connection.connectionId,
+        googleAccountName: connection.googleAccountName,
+      })
+      const seed = async (count: number) => {
+        for (let index = 0; index < count; index += 1) {
+          await seedExpiredMediaItem({
+            organisationId: owner.organisationId,
+            locationId: linked.locationId,
+            externalLocationId: linked.externalLocationId,
+          })
+        }
+      }
+      await seed(items)
+      return { organisationId: owner.organisationId, seed }
+    }
+
+    async function unredacted(organisationId: string) {
+      const [row] = await admin<{ count: number }[]>`
+        select count(*)::int as count
+        from gbp_media_item
+        where organisation_id = ${organisationId}
+          and source_url is not null
+      `
+      return row.count
+    }
+
+    async function completionAudits(organisationId: string) {
+      return admin<{ requestId: string; metadata: Record<string, unknown> }[]>`
+        select request_id as "requestId", metadata
+        from audit_log
+        where organisation_id = ${organisationId}
+          and action = 'retention.purge.completed'
+        order by created_at
+      `
+    }
+
+    it("changes at most the batch per statement and resumes across runs", async () => {
+      process.env.RETENTION_BATCH_ROWS = "2"
+      const tenant = await backloggedTenant(7)
+      const committed: OrganisationPurgeCounts = {}
+      const runs = []
+      for (let index = 0; index < 10; index += 1) {
+        const prior = { ...committed }
+        // A deadline already past: every run stops after its first round.
+        const result = await purgeOrganisation({
+          organisationId: tenant.organisationId,
+          requestId: `retention-batches-${index}`,
+          clientRequestId: null,
+          deletesEnabled: true,
+          deadline: 0,
+          priorCounts: prior,
+          onProgress: async (counts) => {
+            for (const [key, value] of Object.entries(counts)) {
+              committed[key] = (committed[key] ?? 0) + value
+            }
+          },
+        })
+        runs.push(result)
+        if (result.complete) break
+        // What a stopped run committed stays committed.
+        expect(await unredacted(tenant.organisationId)).toBe(7 - 2 * runs.length)
+      }
+      expect(
+        runs.map((run) => [run.complete, run.rounds, run.counts.googleMediaPayloads])
+      ).toEqual([
+        [false, 1, 2],
+        [false, 1, 2],
+        [false, 1, 2],
+        [true, 1, 1],
+      ])
+      expect(await unredacted(tenant.organisationId)).toBe(0)
+      expect(committed.googleMediaPayloads).toBe(7)
+
+      // One audit, from the run that caught up, with the totals across runs.
+      const audits = await completionAudits(tenant.organisationId)
+      expect(audits).toHaveLength(1)
+      expect(audits[0].requestId).toBe(
+        `retention-batches-3:${tenant.organisationId}`
+      )
+      expect(audits[0].metadata).toMatchObject({
+        googleMediaPayloads: 7,
+        batchRows: 2,
+        deletesEnabled: true,
+      })
+
+      // With time to spare, one run loops its rounds until it catches up.
+      await tenant.seed(5)
+      const looped = await purgeOrganisation({
+        organisationId: tenant.organisationId,
+        requestId: "retention-batches-looped",
+        clientRequestId: null,
+        deletesEnabled: true,
+        deadline: Date.now() + 60_000,
+      })
+      expect(looped).toMatchObject({ complete: true, rounds: 3 })
+      expect(looped.counts.googleMediaPayloads).toBe(5)
+
+      // Caught up: a further run reports zero everywhere, in one round, and
+      // writes no audit.
+      const again = await purgeOrganisation({
+        organisationId: tenant.organisationId,
+        requestId: "retention-batches-again",
+        clientRequestId: null,
+        deletesEnabled: true,
+        deadline: 0,
+      })
+      expect(again.complete).toBe(true)
+      expect(again.rounds).toBe(1)
+      expect(
+        Object.entries(again.counts).filter(([, value]) => value !== 0)
+      ).toEqual([])
+      expect(await completionAudits(tenant.organisationId)).toHaveLength(2)
+    }, 60_000)
+
+    it("leaves a backlogged organisation pending across dispatcher fires until it catches up", async () => {
+      process.env.RETENTION_BATCH_ROWS = "2"
+      process.env.RETENTION_BUDGET_MS = "0"
+      const tenant = await backloggedTenant(7)
+      await admin`delete from retention_cycle`
+      try {
+        // A running cycle that has enumerated only this organisation, so the
+        // dispatcher works on it alone.
+        const [cycle] = await admin<{ id: string }[]>`
+          insert into retention_cycle (
+            cycle_date, enumerated, enumeration_completed_at
+          )
+          values ('2026-03-01', 1, now())
+          returning id::text as id
+        `
+        await admin`
+          insert into retention_cycle_org (cycle_id, organisation_id)
+          values (${cycle.id}, ${tenant.organisationId})
+        `
+        const fire = (index: number) =>
+          runRetentionCycle({
+            requestId: `retention-batches-fire-${index}`,
+            clientRequestId: null,
+            now: new Date("2026-03-01T03:00:00Z"),
+          })
+        const fires = []
+        for (let index = 0; index < 10; index += 1) {
+          const result = await fire(index)
+          fires.push(result)
+          if (result.completed) break
+          expect(result.partial).toHaveLength(1)
+          expect(result.organisations).toEqual([])
+        }
+        expect(fires.map((result) => result.completed)).toEqual([
+          false,
+          false,
+          false,
+          true,
+        ])
+        const [row] = await admin<
+          {
+            status: string
+            attempts: number
+            resumes: number
+            counts: Record<string, number>
+          }[]
+        >`
+          select status, attempts, resumes, counts
+          from retention_cycle_org
+          where cycle_id = ${cycle.id}
+        `
+        expect(row).toMatchObject({
+          status: "succeeded",
+          attempts: 1,
+          resumes: 3,
+        })
+        expect(row.counts.googleMediaPayloads).toBe(7)
+        expect(await unredacted(tenant.organisationId)).toBe(0)
+        const audits = await completionAudits(tenant.organisationId)
+        expect(audits).toHaveLength(1)
+        expect(audits[0].metadata).toMatchObject({ googleMediaPayloads: 7 })
+      } finally {
+        await admin`delete from retention_cycle`
+      }
+    }, 60_000)
+  })
 
   it("reports zero for every count on a second consecutive run", async () => {
     const owner = await createTenant()
@@ -594,7 +797,7 @@ describeDatabase("retention purge", () => {
     })
     expect(entryFor(result, healthy.organisationId).googleMediaPayloads).toBe(1)
 
-    // The poisoned tenant's transaction rolled back whole.
+    // The poisoned tenant's round rolled back whole.
     const [stalled] = await admin<{ sourceUrl: string | null }[]>`
       select source_url as "sourceUrl"
       from gbp_media_item

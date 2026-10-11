@@ -376,6 +376,23 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   with the cron bearer. A hand page (any `cursor`, empty for the head) never
   moves the cycle and is recorded as a manual run. Completed cycles older
   than 35 days are pruned when a new one opens.
+- Retention batches. Each organisation is purged in rounds
+  (`lib/server/retention/purge.ts`): one tenant transaction per round, in
+  which every dataset still behind changes at most `RETENTION_BATCH_ROWS`
+  rows (500 by default, 1-10000). Rounds repeat until every dataset has
+  caught up or `RETENTION_BUDGET_MS` passes; a run always commits at least
+  one round. A run the budget stopped is reported under `partial` (with what
+  it committed), logged as `retention.organisation_partial`, and leaves the
+  organisation `pending` in its cycle with `resumes` incremented and the run
+  handed back rather than counted as an attempt (up to 48 times, then each
+  stopped run uses an attempt). `retention_cycle_org.counts` sums what each
+  committed round changed, and the single `retention.purge.completed` audit,
+  written by the round that catches up, reports those totals with
+  `batchRows`. A hand page that stops inside an organisation answers a
+  `nextCursor` just before it (the nil UUID at the head of the fleet), so
+  following the cursor resumes it. A large backlog after an outage or a raised
+  window drains over successive fires; watch
+  `select organisation_id, resumes, counts from retention_cycle_org where status = 'pending' and resumes > 0`.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
   are the session and scheduler POST paths of reconcile, performance and

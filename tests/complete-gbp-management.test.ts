@@ -111,7 +111,11 @@ describe("gbp_management_mutation.started_at (0088)", () => {
 
   it("ages stranded management attempts off started_at", () => {
     expect(retention).toMatch(
-      /update gbp_management_mutation[\s\S]*?where status in \('started', 'validated'\)\s+and started_at <= now\(\) - interval '24 hours'/
+      /strandedStep\("strandedManagement", "gbp_management_mutation", \{\s+inFlight: \["started", "validated"\]/
+    )
+    // Every stranded step ages its rows off started_at.
+    expect(retention).toMatch(
+      /function strandedStep[\s\S]*?status in \$\{sql\(inFlight as string\[\]\)\}\s+and started_at <= now\(\) - interval '24 hours'/
     )
   })
 })

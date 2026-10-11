@@ -262,6 +262,7 @@ describe(".env.example", () => {
     const routeBudgets = new Set([
       "RECONCILE_BUDGET_MS",
       "RETENTION_BUDGET_MS",
+      "RETENTION_BATCH_ROWS",
       "PERFORMANCE_BUDGET_MS",
       "KEYWORDS_BUDGET_MS",
       "PRESENCE_RESOURCE_BUDGET_MS",

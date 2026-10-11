@@ -14,6 +14,7 @@ import { createTestTenant, destroyTenants } from "../helpers/tenant"
 import { ApiError } from "@/lib/server/http"
 import {
   RETENTION_ORG_MAX_ATTEMPTS,
+  RETENTION_ORG_MAX_RESUMES,
   claimOrganisation,
   nextOrganisations,
   openOrResumeCycle,
@@ -123,7 +124,7 @@ describeDatabase("retention cycle dispatcher", () => {
       if (failing(organisationId)) {
         throw new ApiError(500, "test_failure", "Injected retention failure.")
       }
-      return { reviews: 0 }
+      return { complete: true, counts: { reviews: 0 }, rounds: 1 }
     }
     return { calls, purge }
   }
@@ -356,6 +357,108 @@ describeDatabase("retention cycle dispatcher", () => {
       status: "failed",
       attempts: RETENTION_ORG_MAX_ATTEMPTS,
       lastErrorCode: "attempt_interrupted",
+    })
+  })
+
+  it("hands back a run the budget stopped part-way and resumes it on later fires", async () => {
+    const fleet = await fleetSize()
+    const [backlogged] = organisations
+    // The backlogged tenant needs three runs to catch up; each run commits
+    // one round of five reviews before it stops.
+    let runsLeft = 3
+    const priors: Array<Record<string, number> | undefined> = []
+    const calls: string[] = []
+    const purge = async ({
+      organisationId,
+      priorCounts,
+      onProgress,
+    }: OrganisationPurgeInput) => {
+      calls.push(organisationId)
+      if (organisationId !== backlogged) {
+        return { complete: true, counts: { reviews: 0 }, rounds: 1 }
+      }
+      priors.push(priorCounts)
+      runsLeft -= 1
+      await onProgress?.({ reviews: 5 })
+      return { complete: runsLeft === 0, counts: { reviews: 5 }, rounds: 1 }
+    }
+
+    const first = await fire("2026-01-15T03:00:00Z", purge, 100)
+    expect(first.completed).toBe(false)
+    expect(first.partial).toEqual([
+      { organisationId: backlogged, reviews: 5 },
+    ])
+    let [cycle] = await cycles()
+    // Partial is neither succeeded nor failed.
+    expect(cycle).toMatchObject({ status: "running", failed: 0 })
+    const stopped = await admin<
+      { status: string; attempts: number; resumes: number; counts: unknown }[]
+    >`
+      select status, attempts, resumes, counts
+      from retention_cycle_org
+      where cycle_id = ${cycle.id} and organisation_id = ${backlogged}
+    `
+    expect(stopped).toEqual([
+      { status: "pending", attempts: 0, resumes: 1, counts: { reviews: 5 } },
+    ])
+
+    let last = first
+    for (let index = 0; index < 10 && !last.completed; index += 1) {
+      last = await fire("2026-01-15T03:05:00Z", purge, 100)
+    }
+    expect(last.completed).toBe(true)
+    ;[cycle] = await cycles()
+    expect(cycle).toMatchObject({
+      status: "completed",
+      enumerated: fleet,
+      succeeded: fleet,
+      failed: 0,
+    })
+    const [settled] = await admin<
+      { status: string; attempts: number; resumes: number; counts: unknown }[]
+    >`
+      select status, attempts, resumes, counts
+      from retention_cycle_org
+      where cycle_id = ${cycle.id} and organisation_id = ${backlogged}
+    `
+    // Two stopped runs handed back, the third counted: one attempt in all.
+    expect(settled).toEqual({
+      status: "succeeded",
+      attempts: 1,
+      resumes: 2,
+      counts: { reviews: 15 },
+    })
+    // Each run is told what the earlier ones committed.
+    expect(priors).toEqual([{}, { reviews: 5 }, { reviews: 10 }])
+    // Every other organisation still ran exactly once.
+    expect(calls.filter((id) => id !== backlogged)).toHaveLength(fleet - 1)
+  })
+
+  it("counts stopped runs as attempts once the resumes are spent", async () => {
+    const [backlogged] = organisations
+    const opened = await openOrResumeCycle(new Date("2026-01-16T03:00:00Z"))
+    const cycleId = opened!.cycle.id
+    await nextOrganisations(cycleId, { limit: 100 })
+    await admin`
+      update retention_cycle_org
+      set resumes = ${RETENTION_ORG_MAX_RESUMES}
+      where cycle_id = ${cycleId} and organisation_id = ${backlogged}
+    `
+    const purge = async ({ organisationId }: OrganisationPurgeInput) => ({
+      complete: organisationId !== backlogged,
+      counts: { reviews: 1 },
+      rounds: 1,
+    })
+    let last = await fire("2026-01-16T03:05:00Z", purge, 100)
+    for (let index = 0; index < 10 && !last.completed; index += 1) {
+      last = await fire("2026-01-16T03:10:00Z", purge, 100)
+    }
+    expect(last.completed).toBe(true)
+    const rows = await orgRows(cycleId)
+    expect(rows.get(backlogged)).toMatchObject({
+      status: "failed",
+      attempts: RETENTION_ORG_MAX_ATTEMPTS,
+      lastErrorCode: "attempts_exhausted",
     })
   })
 

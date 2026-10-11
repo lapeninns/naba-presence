@@ -10,8 +10,13 @@ import {
 import {
   RETENTION_CYCLE_START_HOUR_UTC,
   RETENTION_ORG_MAX_ATTEMPTS,
+  RETENTION_ORG_MAX_RESUMES,
   retentionCycleDate,
 } from "@/lib/server/retention/cycle"
+import {
+  RETENTION_BATCH_ROWS_DEFAULT,
+  retentionBatchRows,
+} from "@/lib/server/retention/purge"
 
 describe("retentionCycleDate", () => {
   it("opens no cycle before 03:00 UTC", () => {
@@ -136,5 +141,65 @@ describe("tick_cycle_failures alert", () => {
       organisations: [],
     })
     expect(email.text).not.toContain("cycle before")
+  })
+})
+
+describe("retention batches", () => {
+  it("reads RETENTION_BATCH_ROWS within 1-10000 and falls back otherwise", () => {
+    const saved = process.env.RETENTION_BATCH_ROWS
+    try {
+      delete process.env.RETENTION_BATCH_ROWS
+      expect(retentionBatchRows()).toBe(RETENTION_BATCH_ROWS_DEFAULT)
+      process.env.RETENTION_BATCH_ROWS = "2"
+      expect(retentionBatchRows()).toBe(2)
+      for (const invalid of ["0", "-5", "10001", "2.5", "many", ""]) {
+        process.env.RETENTION_BATCH_ROWS = invalid
+        expect(retentionBatchRows()).toBe(RETENTION_BATCH_ROWS_DEFAULT)
+      }
+    } finally {
+      if (saved === undefined) delete process.env.RETENTION_BATCH_ROWS
+      else process.env.RETENTION_BATCH_ROWS = saved
+    }
+  })
+
+  it("hands back a bounded number of stopped runs", () => {
+    expect(RETENTION_ORG_MAX_RESUMES).toBeGreaterThan(0)
+    expect(RETENTION_ORG_MAX_RESUMES).toBeLessThanOrEqual(288)
+  })
+
+  it("0099 records per-organisation counts and resumes and indexes the repeated scans", () => {
+    const migration = readFileSync(
+      new URL(
+        "../supabase/migrations/0099_retention_batches.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    expect(migration).toMatch(
+      /add column counts jsonb not null default '\{\}'::jsonb/
+    )
+    expect(migration).toMatch(
+      /add column resumes integer not null default 0 check \(resumes >= 0\)/
+    )
+    expect(migration).toMatch(/on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null/)
+    expect(migration).toContain("on review_media_item (review_id)")
+    expect(migration).toContain("on hours_sync_attempt (organisation_id, expires_at)")
+    expect(migration).not.toMatch(/create index concurrently/i)
+    expect(migration).toContain("'0099_retention_batches'")
+  })
+})
+
+describe("retention purge statements", () => {
+  const purge = readFileSync(
+    new URL("../lib/server/retention/purge.ts", import.meta.url),
+    "utf8"
+  )
+
+  it("bounds every dataset statement by the batch", () => {
+    // Every delete and update the purge issues goes through boundedRows,
+    // apart from the two in-flight reapers it calls once per run.
+    expect(purge.match(/delete from /g)).toHaveLength(1)
+    expect(purge.match(/\bupdate \$\{target\}/g)).toHaveLength(1)
+    expect(purge).toMatch(/select id from \$\{target\} where \$\{where\(\)\} limit \$\{limit\}/)
   })
 })

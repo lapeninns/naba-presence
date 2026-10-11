@@ -1011,7 +1011,10 @@ content while retaining minimal derived operational metrics. It is a
 five-minute dispatcher over one retention cycle per UTC day, opened at or after
 03:00 (`lib/server/retention/cycle.ts`, migration 0097): each fire resumes the
 running cycle from its persisted enumeration cursor, retains each organisation
-in its own tenant transaction (`lib/server/retention/purge.ts`), records its
+in bounded rounds (`lib/server/retention/purge.ts`, migration 0099: one tenant
+transaction per round, at most `RETENTION_BATCH_ROWS` rows per dataset
+statement), leaves an organisation the budget stopped part-way pending for the
+next fire with its committed counts, records its
 success or failure per organisation, retries a failed organisation on later
 fires up to three runs, and completes the cycle -- reported to the tick ledger
 through `recordTickCycleCompleted` -- once every organisation has succeeded or

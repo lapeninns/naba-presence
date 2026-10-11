@@ -1,5 +1,7 @@
 import "server-only"
 
+import type { Fragment, TransactionSql } from "postgres"
+
 import { purgeAbuseRateBuckets } from "@/lib/server/abuse-limits"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
@@ -11,34 +13,546 @@ import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { reapStrandedLocalPosts } from "@/lib/server/posts"
 
-type CountedStatement = { count: number }
+/** Rows one dataset statement may change in one transaction, by default. */
+export const RETENTION_BATCH_ROWS_DEFAULT = 500
 
 /**
- * Runs a destructive statement only while deletion is enabled. The
- * irreversible half of retention answers to its own kill switch, so an
- * operator can stop deleting during an incident while redaction of expired
- * provider content keeps running for the obligation it exists to meet.
+ * The per-statement row bound, from RETENTION_BATCH_ROWS (read straight from
+ * process.env like RETENTION_BUDGET_MS). Each dataset statement changes at
+ * most this many rows per transaction, so one transaction touches at most
+ * this many rows per dataset however far behind a tenant is.
  */
-async function purge(
-  enabled: boolean,
-  statement: () => Promise<CountedStatement>
-): Promise<number> {
-  return enabled ? (await statement()).count : 0
+export function retentionBatchRows(): number {
+  const configured = Number(process.env.RETENTION_BATCH_ROWS)
+  return Number.isInteger(configured) && configured >= 1 && configured <= 10_000
+    ? configured
+    : RETENTION_BATCH_ROWS_DEFAULT
 }
+
+/**
+ * One dataset of the purge. `run` changes at most `limit` rows and returns
+ * how many it changed; a step that changed fewer than `limit` has caught up
+ * and does not run again in this purge. A `destructive` step answers to
+ * RETENTION_DELETES_ENABLED: the irreversible half of retention has its own
+ * kill switch, so an operator can stop deleting during an incident while
+ * redaction of expired provider content keeps running for the obligation it
+ * exists to meet. A `once` step runs a single time per purge: it reaps
+ * in-flight state, which is bounded by live work rather than by history.
+ */
+type PurgeStep = {
+  key: string
+  destructive?: boolean
+  once?: boolean
+  run: (sql: TransactionSql, limit: number) => Promise<number>
+}
+
+/**
+ * Deletes, or updates with `set`, at most `limit` rows of `table` matching
+ * `where`, and returns their ids. The candidate rows are chosen first and the
+ * predicate is checked again on the statement itself, so a row a concurrent
+ * write moved out of scope in between (a review re-ingested with a fresh
+ * expiry, say) is left alone: under READ COMMITTED the outer predicate is
+ * re-evaluated against the row's latest version. No row locks are taken:
+ * `for update` needs UPDATE on append-only audit_log, and retention is the
+ * single writer of its own predicates under the `naba:retention` lease.
+ */
+async function boundedRows(
+  sql: TransactionSql,
+  {
+    table,
+    where,
+    set,
+    limit,
+  }: {
+    table: string
+    where: () => Fragment
+    set?: () => Fragment
+    limit: number
+  }
+): Promise<string[]> {
+  const target = sql(table)
+  const rows = set
+    ? await sql<{ id: string }[]>`
+        with doomed as (
+          select id from ${target} where ${where()} limit ${limit}
+        )
+        update ${target} set ${set()}
+        where id in (select id from doomed) and ${where()}
+        returning id::text as id
+      `
+    : await sql<{ id: string }[]>`
+        with doomed as (
+          select id from ${target} where ${where()} limit ${limit}
+        )
+        delete from ${target}
+        where id in (select id from doomed) and ${where()}
+        returning id::text as id
+      `
+  return rows.map((row) => row.id)
+}
+
+/** A bounded statement as a step that reports its row count. */
+function rowsStep(
+  key: string,
+  options: {
+    table: string
+    where: (sql: TransactionSql) => Fragment
+    set?: (sql: TransactionSql) => Fragment
+    destructive?: boolean
+  }
+): PurgeStep {
+  return {
+    key,
+    destructive: options.destructive,
+    run: async (sql, limit) =>
+      (
+        await boundedRows(sql, {
+          table: options.table,
+          where: () => options.where(sql),
+          set: options.set ? () => options.set!(sql) : undefined,
+          limit,
+        })
+      ).length,
+  }
+}
+
+type StrandedAttemptTable =
+  | "hours_sync_attempt"
+  | "profile_sync_attempt"
+  | "food_menus_sync_attempt"
+  | "gbp_media_mutation"
+  | "place_action_mutation"
+  | "gbp_management_mutation"
+
+/**
+ * Ages an attempt row a request left in flight to 'ambiguous' and, in the
+ * same transaction, settles the receipts linked to it
+ * (lib/server/mutation-operations.ts): left `sent`, GET /api/mutations/{id}
+ * would keep reporting a write in flight that is now of unknown outcome.
+ * Settled `uncertain`, they are due for recovery at once (job kind
+ * `mutation_recover`, lib/server/mutation-recovery.ts), which reads Google
+ * back and settles the receipt and its row: the aging only hands the row to
+ * recovery, it is no longer where the row ends.
+ */
+function strandedStep(
+  key: string,
+  attemptTable: StrandedAttemptTable,
+  {
+    inFlight,
+    errorColumn,
+  }: { inFlight: readonly string[]; errorColumn: string }
+): PurgeStep {
+  return {
+    key,
+    run: async (sql, limit) => {
+      const ids = await boundedRows(sql, {
+        table: attemptTable,
+        where: () => sql`
+          status in ${sql(inFlight as string[])}
+          and started_at <= now() - interval '24 hours'
+        `,
+        set: () => sql`
+          status = 'ambiguous', ${sql(errorColumn)} = 'attempt_interrupted',
+          finished_at = now()
+        `,
+        limit,
+      })
+      await settleOperationsForAttempts(sql, {
+        attemptTable,
+        attemptIds: ids,
+        state: "uncertain",
+        attemptStatus: "ambiguous",
+        errorCode: "attempt_interrupted",
+        // A day past the start: nothing is still applying.
+        recoverAfterSeconds: 0,
+      })
+      return ids.length
+    },
+  }
+}
+
+/**
+ * Every dataset the purge retains, in the order each round runs them. The
+ * predicates are the retention rules; each runs bounded (see boundedRows).
+ */
+function purgeSteps(organisationId: string): PurgeStep[] {
+  return [
+    rowsStep("auditLogs", {
+      destructive: true,
+      table: "audit_log",
+      where: (sql) => sql`
+        created_at < now() - make_interval(
+          days => (
+            select audit_retention_days
+            from organisation
+            where id = ${organisationId}
+          )
+        )
+      `,
+    }),
+    rowsStep("media", {
+      destructive: true,
+      table: "review_media_item",
+      where: (sql) => sql`
+        exists (
+          select 1 from review r
+          where r.id = review_media_item.review_id
+            and r.raw_content_expires_at <= now()
+            and not exists (
+              select 1 from legal_hold h
+              where h.review_id = r.id
+                and h.released_at is null
+            )
+        )
+      `,
+    }),
+    rowsStep("reviews", {
+      table: "review",
+      where: (sql) => sql`
+        raw_content_expires_at <= now()
+        and not exists (
+          select 1 from legal_hold h
+          where h.review_id = review.id
+            and h.released_at is null
+        )
+        and (
+          review_text is not null
+          or reviewer_display_name is not null
+          or raw_payload is not null
+        )
+      `,
+      set: (sql) => sql`
+        review_text = null,
+        reviewer_display_name = null,
+        raw_payload = null
+      `,
+    }),
+    rowsStep("accounts", {
+      table: "google_account",
+      where: (sql) => sql`
+        raw_content_expires_at <= now()
+        and raw_payload is not null
+      `,
+      set: (sql) => sql`raw_payload = null`,
+    }),
+    rowsStep("locations", {
+      table: "external_location",
+      where: (sql) => sql`
+        raw_content_expires_at <= now()
+        and (raw_payload is not null or address_json is not null)
+      `,
+      set: (sql) => sql`raw_payload = null, address_json = null`,
+    }),
+    // review -> external_location and legal_hold -> review are both ON
+    // DELETE CASCADE (0001), so without the hold predicate the purge would
+    // destroy held reviews and the holds protecting them in one statement.
+    rowsStep("disconnectedLocations", {
+      destructive: true,
+      table: "external_location",
+      where: (sql) => sql`
+        google_connection_id in (
+          select id from google_connection
+          where status = 'disconnected'
+            and purge_due_at <= now()
+        )
+        and not exists (
+          select 1 from review r
+          join legal_hold h
+            on h.review_id = r.id and h.released_at is null
+          where r.external_location_id = external_location.id
+        )
+      `,
+    }),
+    // A one-time reaper, not an ongoing obligation: the Pub/Sub route no
+    // longer writes `payload` or `payload_expires_at`, so this only ages out
+    // rows written before that change. It can be deleted once the oldest of
+    // them has passed its 30-day expiry.
+    rowsStep("webhookPayloads", {
+      table: "processed_webhook_event",
+      where: (sql) => sql`
+        payload_expires_at <= now()
+        and payload is not null
+      `,
+      set: (sql) => sql`payload = null`,
+    }),
+    rowsStep("hoursAttempts", {
+      destructive: true,
+      table: "hours_sync_attempt",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    rowsStep("keywordHistory", {
+      destructive: true,
+      table: "performance_search_keyword_monthly",
+      where: (sql) => sql`
+        metric_month < date_trunc('month', now()) - interval '18 months'
+      `,
+    }),
+    rowsStep("placeActionMutations", {
+      destructive: true,
+      table: "place_action_mutation",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    // An uncertain create nobody has resolved yet is kept past its expiry:
+    // it blocks a re-create of the same content and holds what a person
+    // needs to decide (lib/server/media.ts `unresolvedCreate`). It ages off
+    // once resolved, since resolving leaves expires_at as is.
+    rowsStep("mediaMutations", {
+      destructive: true,
+      table: "gbp_media_mutation",
+      where: (sql) => sql`
+        expires_at <= now()
+        and not (
+          operation = 'create'
+          and resolution is null
+          and (
+            status = 'needs_resolution'
+            or (status = 'ambiguous' and upload_phase = 'create_sent')
+          )
+        )
+      `,
+    }),
+    rowsStep("managementMutations", {
+      destructive: true,
+      table: "gbp_management_mutation",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    rowsStep("onboardingDrafts", {
+      destructive: true,
+      table: "google_onboarding_draft",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    // A reviewed Place Action attempt outlives its review (it is written
+    // later) and restricts deletion, so the review waits for it.
+    rowsStep("managementChangeSets", {
+      destructive: true,
+      table: "gbp_change_set",
+      where: (sql) => sql`
+        expires_at <= now()
+        and not exists (
+          select 1 from place_action_mutation m
+          where m.change_set_id = gbp_change_set.id
+        )
+      `,
+    }),
+    // The snapshot is a cache keyed per resource and rebuilt on the next
+    // read, and payload is jsonb NOT NULL, so it is deleted rather than
+    // nulled out the way the sibling payload columns are.
+    rowsStep("resourceSnapshots", {
+      destructive: true,
+      table: "gbp_resource_snapshot",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    // snapshot_expires_at is NOT NULL (0016) and is reset on every
+    // observation, so leave it in place; the value guard keeps the purge
+    // idempotent for rows that have already been cleared.
+    rowsStep("profileSnapshots", {
+      table: "profile_field_state",
+      where: (sql) => sql`
+        snapshot_expires_at <= now()
+        and (canonical_value is not null or google_value is not null)
+      `,
+      set: (sql) => sql`canonical_value = null, google_value = null`,
+    }),
+    rowsStep("profileAttempts", {
+      destructive: true,
+      table: "profile_sync_attempt",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    rowsStep("postPayloads", {
+      table: "gbp_local_post",
+      where: (sql) => sql`
+        provider_payload_expires_at <= now()
+        and provider_payload is not null
+      `,
+      set: (sql) => sql`
+        provider_payload = null, provider_payload_expires_at = null
+      `,
+    }),
+    rowsStep("postAttempts", {
+      destructive: true,
+      table: "gbp_local_post_attempt",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    // payload_expires_at is NOT NULL (0022) and is reset on every
+    // observation, so leave it in place exactly as profile_field_state above
+    // does; the value guard keeps the purge idempotent.
+    rowsStep("googleMediaPayloads", {
+      table: "gbp_media_item",
+      where: (sql) => sql`
+        payload_expires_at <= now()
+        and (
+          source_url is not null
+          or google_url is not null
+          or thumbnail_url is not null
+          or description is not null
+          or attribution is not null
+          or dimensions is not null
+          or insights is not null
+        )
+      `,
+      set: (sql) => sql`
+        source_url = null, google_url = null, thumbnail_url = null,
+        description = null, attribution = null, dimensions = null,
+        insights = null
+      `,
+    }),
+    rowsStep("foodMenuStates", {
+      destructive: true,
+      table: "food_menus_state",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    rowsStep("foodMenuAttempts", {
+      destructive: true,
+      table: "food_menus_sync_attempt",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    rowsStep("importProposals", {
+      destructive: true,
+      table: "presence_import_proposal",
+      where: (sql) => sql`expires_at <= now()`,
+    }),
+    // Sign-out and organisation switch are the only other deleters, so
+    // without this a dead session row (with its token hash and any
+    // impersonation reason) outlives the audit trail above it. RLS scopes
+    // the statement to this tenant via session_isolation (0001).
+    rowsStep("appSessions", {
+      destructive: true,
+      table: "app_session",
+      where: (sql) => sql`expires_at < now() - interval '7 days'`,
+    }),
+    // Rows an interrupted publish left claiming to be publishing. The reaper
+    // is here rather than in the module because every user-facing path
+    // already reclaims the location's rows before listing; this is for the
+    // tenant nobody opens.
+    {
+      key: "strandedPosts",
+      once: true,
+      run: async (sql) => (await reapStrandedLocalPosts(sql)).count,
+    },
+    // The same shape one level up, for the GBP write surfaces. runGbpWrite
+    // recovers an in-flight row by readback on the next request for the
+    // SAME key, so this only reaches rows nothing will ever revisit: the
+    // write landed, the snapshot moved, and the next publish derives a
+    // different key. Twenty-four hours is far past the two-minute in-flight
+    // grace, so the readback path still owns every fresh row; past it a
+    // settled 'ambiguous' row is read back on its next same-key request --
+    // settled from what Google holds before anything re-arms -- and a
+    // surface with no readback answers 409 mutation_uncertain rather than
+    // sending the write a second time.
+    //
+    // All THREE in-flight statuses, not just 'publishing': hours and profile
+    // issue a validateOnly call to Google during 'validating', outside any
+    // transaction, so an interrupted request strands there just as readily.
+    // ('validated' never occurs on food menus -- its CHECK omits the value
+    // -- so the predicate simply does not match.)
+    strandedStep("strandedHours", "hours_sync_attempt", {
+      inFlight: ["validating", "validated", "publishing"],
+      errorColumn: "provider_error_code",
+    }),
+    strandedStep("strandedProfiles", "profile_sync_attempt", {
+      inFlight: ["validating", "validated", "publishing"],
+      errorColumn: "provider_error_code",
+    }),
+    strandedStep("strandedFoodMenus", "food_menus_sync_attempt", {
+      inFlight: ["validating", "validated", "publishing"],
+      errorColumn: "last_error_code",
+    }),
+    // The remaining three surfaces map every in-flight phase onto 'started'
+    // (their CHECK admits no finer vocabulary; gbp_management also has
+    // 'validated'). All three carry started_at (place actions from the
+    // start, gbp_management from 0088, media from 0093), which a re-arm
+    // resets. A media create aged here keeps its upload_phase: recovery
+    // fails one that never reached create_sent and matches one that did
+    // against the live list, or hands it to a person.
+    strandedStep("strandedMedia", "gbp_media_mutation", {
+      inFlight: ["started"],
+      errorColumn: "last_error_code",
+    }),
+    strandedStep("strandedPlaceActions", "place_action_mutation", {
+      inFlight: ["started"],
+      errorColumn: "last_error_code",
+    }),
+    strandedStep("strandedManagement", "gbp_management_mutation", {
+      inFlight: ["started", "validated"],
+      errorColumn: "last_error_code",
+    }),
+    // Approved listing change requests whose dispatch never claimed an
+    // attempt (lib/server/listing-changes.ts): nothing was sent for them,
+    // and left `sent` they would read as in flight for good.
+    {
+      key: "interruptedApprovals",
+      once: true,
+      run: (sql) => settleInterruptedListingChanges(sql, { organisationId }),
+    },
+  ]
+}
+
+export type OrganisationPurgeCounts = Record<string, number>
 
 export type OrganisationPurgeInput = {
   organisationId: string
   requestId: string
   clientRequestId: string | null
   deletesEnabled: boolean
+  /**
+   * When this run must stop. The purge always finishes at least one round,
+   * so every run makes progress, and stops between rounds once it has passed.
+   */
+  deadline: number
+  /**
+   * What earlier runs of this organisation in the same cycle already
+   * committed. The completion audit reports the organisation's totals.
+   */
+  priorCounts?: OrganisationPurgeCounts
+  /** Called after each committed round with that round's nonzero counts. */
+  onProgress?: (counts: OrganisationPurgeCounts) => Promise<void>
 }
 
-export type OrganisationPurgeCounts = Record<string, number>
+export type OrganisationPurgeResult = {
+  /**
+   * False when the deadline stopped the purge with rows still due: what it
+   * committed stays committed, and the next run carries on from there.
+   */
+  complete: boolean
+  /** Rows this run changed, per dataset, plus heldLocationsSkipped. */
+  counts: OrganisationPurgeCounts
+  /** Transactions this run committed. */
+  rounds: number
+}
+
+function addCounts(
+  into: OrganisationPurgeCounts,
+  ...from: readonly OrganisationPurgeCounts[]
+): OrganisationPurgeCounts {
+  for (const counts of from) {
+    for (const [key, value] of Object.entries(counts)) {
+      into[key] = (into[key] ?? 0) + value
+    }
+  }
+  return into
+}
+
+function nonzero(counts: OrganisationPurgeCounts): OrganisationPurgeCounts {
+  return Object.fromEntries(
+    Object.entries(counts).filter(([, value]) => value !== 0)
+  )
+}
 
 /**
- * Retains one organisation: every redaction, deletion and stranded-attempt
- * reaper, in ONE tenant transaction, with its `retention.purge.completed`
- * audit when anything changed. Both the cycle dispatcher
+ * Retains one organisation in bounded rounds (plan P04-2). Each round is one
+ * tenant transaction that runs every dataset still behind, each changing at
+ * most RETENTION_BATCH_ROWS rows; a dataset that changed fewer has caught
+ * up. Rounds repeat until every dataset has caught up or the deadline passes,
+ * so a tenant with a backlog no longer runs one unbounded transaction that a
+ * time limit rolls back whole and that then fails identically every day.
+ * Every statement's predicate excludes the rows it already handled, so a
+ * later run (the next dispatcher fire, or a hand page) resumes simply by
+ * running again.
+ *
+ * The round that finds everything caught up also counts locations held back
+ * from a disconnected purge and writes the `retention.purge.completed` audit,
+ * with the organisation's totals across the cycle (`priorCounts` plus this
+ * run), when anything changed. Both the cycle dispatcher
  * (lib/server/retention/cycle.ts) and a hand-run page (`retainPage`) call it,
  * so the two can never retain differently.
  *
@@ -50,454 +564,105 @@ export async function purgeOrganisation({
   requestId,
   clientRequestId,
   deletesEnabled,
-}: OrganisationPurgeInput): Promise<OrganisationPurgeCounts> {
-  const purged = await withTenant(organisationId, async (sql) => {
-    await sql`
-      select set_config('app.retention_run', 'true', true)
-    `
-    const auditLogs = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from audit_log
-        where created_at < now() - make_interval(
-          days => (
-            select audit_retention_days
-            from organisation
-            where id = ${organisationId}
-          )
-        )
-        returning id
+  deadline,
+  priorCounts = {},
+  onProgress,
+}: OrganisationPurgeInput): Promise<OrganisationPurgeResult> {
+  const limit = retentionBatchRows()
+  const steps = purgeSteps(organisationId)
+  const counts: OrganisationPurgeCounts = Object.fromEntries(
+    steps.map((step) => [step.key, 0])
+  )
+  let pending = steps.filter((step) => deletesEnabled || !step.destructive)
+  let rounds = 0
+  let heldLocationsSkipped = 0
+  for (;;) {
+    const round = await withTenant(organisationId, async (sql) => {
+      await sql`
+        select set_config('app.retention_run', 'true', true)
       `
-    )
-    const media = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from review_media_item m
-        using review r
-        where m.review_id = r.id
-          and r.raw_content_expires_at <= now()
-          and not exists (
-            select 1 from legal_hold h
-            where h.review_id = r.id
-              and h.released_at is null
-          )
-        returning m.id
-      `
-    )
-    const reviews = await sql`
-      update review
-      set
-        review_text = null,
-        reviewer_display_name = null,
-        raw_payload = null
-      where raw_content_expires_at <= now()
-        and not exists (
-          select 1 from legal_hold h
-          where h.review_id = review.id
-            and h.released_at is null
-        )
-        and (
-          review_text is not null
-          or reviewer_display_name is not null
-          or raw_payload is not null
-        )
-      returning id
-    `
-    const accounts = await sql`
-      update google_account
-      set raw_payload = null
-      where raw_content_expires_at <= now()
-        and raw_payload is not null
-      returning id
-    `
-    const locations = await sql`
-      update external_location
-      set raw_payload = null, address_json = null
-      where raw_content_expires_at <= now()
-        and (raw_payload is not null or address_json is not null)
-      returning id
-    `
-    // review -> external_location and legal_hold -> review are both ON
-    // DELETE CASCADE (0001), so without this predicate the purge would
-    // destroy held reviews and the holds protecting them in one statement.
-    const disconnected = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from external_location
-        where google_connection_id in (
+      const changed: OrganisationPurgeCounts = {}
+      const behind: PurgeStep[] = []
+      for (const step of pending) {
+        const rows = await step.run(sql, limit)
+        changed[step.key] = rows
+        if (!step.once && rows >= limit) behind.push(step)
+      }
+      if (behind.length) return { changed, behind, held: 0 }
+      // A held location keeps its connection past the seven-day promise
+      // forever, so report it rather than letting the purge stall silently.
+      const [held] = await sql<{ count: number }[]>`
+        select count(*)::int as count
+        from external_location l
+        where l.google_connection_id in (
           select id from google_connection
           where status = 'disconnected'
             and purge_due_at <= now()
         )
-          and not exists (
+          and exists (
             select 1 from review r
             join legal_hold h
               on h.review_id = r.id and h.released_at is null
-            where r.external_location_id = external_location.id
+            where r.external_location_id = l.id
           )
-        returning id
       `
-    )
-    // A held location keeps its connection past the seven-day promise
-    // forever, so report it rather than letting the purge stall silently.
-    const [held] = await sql<{ count: number }[]>`
-      select count(*)::int as count
-      from external_location l
-      where l.google_connection_id in (
-        select id from google_connection
-        where status = 'disconnected'
-          and purge_due_at <= now()
+      const heldCount = held?.count ?? 0
+      const totals = addCounts(
+        Object.fromEntries(steps.map((step) => [step.key, 0])),
+        priorCounts,
+        counts,
+        changed
       )
-        and exists (
-          select 1 from review r
-          join legal_hold h
-            on h.review_id = r.id and h.released_at is null
-          where r.external_location_id = l.id
-        )
-    `
-    // A one-time reaper, not an ongoing obligation: the Pub/Sub route no
-    // longer writes `payload` or `payload_expires_at`, so this only ages
-    // out rows written before that change. It can be deleted once the
-    // oldest of them has passed its 30-day expiry.
-    const webhookPayloads = await sql`
-      update processed_webhook_event
-      set payload = null
-      where payload_expires_at <= now()
-        and payload is not null
-      returning id
-    `
-    const hoursAttempts = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from hours_sync_attempt
-        where expires_at <= now()
-        returning id
-      `
-    )
-    const keywordHistory = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from performance_search_keyword_monthly
-        where metric_month < date_trunc('month', now()) - interval '18 months'
-        returning id
-      `
-    )
-    const placeActionMutations = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from place_action_mutation
-        where expires_at <= now()
-        returning id
-      `
-    )
-    // An uncertain create nobody has resolved yet is kept past its
-    // expiry: it blocks a re-create of the same content and holds what a
-    // person needs to decide (lib/server/media.ts `unresolvedCreate`).
-    // It ages off once resolved, since resolving leaves expires_at as is.
-    const mediaMutations = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from gbp_media_mutation
-        where expires_at <= now()
-          and not (
-            operation = 'create'
-            and resolution is null
-            and (
-              status = 'needs_resolution'
-              or (status = 'ambiguous' and upload_phase = 'create_sent')
-            )
-          )
-        returning id
-      `
-    )
-    const managementMutations = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from gbp_management_mutation
-        where expires_at <= now()
-        returning id
-      `
-    )
-    const onboardingDrafts = await purge(
-      deletesEnabled,
-      () => sql`delete from google_onboarding_draft where expires_at <= now() returning id`
-    )
-    // A reviewed Place Action attempt outlives its review (it is written
-    // later) and restricts deletion, so the review waits for it.
-    const managementChangeSets = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from gbp_change_set c
-        where c.expires_at <= now()
-          and not exists (select 1 from place_action_mutation m where m.change_set_id = c.id)
-        returning c.id
-      `
-    )
-    // The snapshot is a cache keyed per resource and rebuilt on the next
-    // read, and payload is jsonb NOT NULL, so it is deleted rather than
-    // nulled out the way the sibling payload columns are.
-    const resourceSnapshots = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from gbp_resource_snapshot
-        where expires_at <= now()
-        returning id
-      `
-    )
-    // snapshot_expires_at is NOT NULL (0016) and is reset on every
-    // observation, so leave it in place; the value guard below keeps
-    // the purge idempotent for rows that have already been cleared.
-    const profileSnapshots = await sql`
-      update profile_field_state
-      set canonical_value = null, google_value = null
-      where snapshot_expires_at <= now()
-        and (canonical_value is not null or google_value is not null)
-      returning id
-    `
-    const profileAttempts = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from profile_sync_attempt where expires_at <= now()
-        returning id
-      `
-    )
-    const postPayloads = await sql`
-      update gbp_local_post
-      set provider_payload = null, provider_payload_expires_at = null
-      where provider_payload_expires_at <= now() and provider_payload is not null
-      returning id
-    `
-    const postAttempts = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from gbp_local_post_attempt where expires_at <= now()
-        returning id
-      `
-    )
-    // payload_expires_at is NOT NULL (0022) and is reset on every
-    // observation, so leave it in place exactly as profile_field_state
-    // above does; the value guard keeps the purge idempotent.
-    const googleMediaPayloads = await sql`
-      update gbp_media_item
-      set source_url = null, google_url = null, thumbnail_url = null,
-        description = null, attribution = null, dimensions = null,
-        insights = null
-      where payload_expires_at <= now()
-        and (
-          source_url is not null
-          or google_url is not null
-          or thumbnail_url is not null
-          or description is not null
-          or attribution is not null
-          or dimensions is not null
-          or insights is not null
-        )
-      returning id
-    `
-    const foodMenuStates = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from food_menus_state where expires_at <= now()
-        returning id
-      `
-    )
-    const foodMenuAttempts = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from food_menus_sync_attempt where expires_at <= now()
-        returning id
-      `
-    )
-    const importProposals = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from presence_import_proposal where expires_at <= now()
-        returning id
-      `
-    )
-    // Sign-out and organisation switch are the only other deleters, so
-    // without this a dead session row (with its token hash and any
-    // impersonation reason) outlives the audit trail above it. RLS scopes
-    // the statement to this tenant via session_isolation (0001).
-    const appSessions = await purge(
-      deletesEnabled,
-      () => sql`
-        delete from app_session
-        where expires_at < now() - interval '7 days'
-        returning id
-      `
-    )
-    // Rows an interrupted publish left claiming to be publishing. The
-    // reaper is here rather than in the module because every user-facing
-    // path already reclaims the location's rows before listing; this is
-    // for the tenant nobody opens.
-    const strandedPosts = await reapStrandedLocalPosts(sql)
-    // The same shape one level up, for the GBP write surfaces. runGbpWrite
-    // recovers an in-flight row by readback on the next request for the
-    // SAME key, so this only reaches rows nothing will ever revisit: the
-    // write landed, the snapshot moved, and the next publish derives a
-    // different key. Twenty-four hours is far past the two-minute
-    // in-flight grace, so the readback path still owns every fresh row;
-    // past it a settled 'ambiguous' row is read back on its next same-key
-    // request -- settled from what Google holds before anything re-arms
-    // -- and a surface with no readback answers 409 mutation_uncertain
-    // rather than sending the write a second time.
-    //
-    // All THREE in-flight statuses, not just 'publishing': hours and
-    // profile issue a validateOnly call to Google during 'validating',
-    // outside any transaction, so an interrupted request strands there
-    // just as readily. ('validated' never occurs on food menus -- its
-    // CHECK omits the value -- so the predicate simply does not match.)
-    const strandedHours = await sql`
-      update hours_sync_attempt
-      set status = 'ambiguous', provider_error_code = 'attempt_interrupted',
-        finished_at = now()
-      where status in ('validating', 'validated', 'publishing')
-        and started_at <= now() - interval '24 hours'
-      returning id
-    `
-    const strandedProfiles = await sql`
-      update profile_sync_attempt
-      set status = 'ambiguous', provider_error_code = 'attempt_interrupted',
-        finished_at = now()
-      where status in ('validating', 'validated', 'publishing')
-        and started_at <= now() - interval '24 hours'
-      returning id
-    `
-    const strandedFoodMenus = await sql`
-      update food_menus_sync_attempt
-      set status = 'ambiguous', last_error_code = 'attempt_interrupted',
-        finished_at = now()
-      where status in ('validating', 'validated', 'publishing')
-        and started_at <= now() - interval '24 hours'
-      returning id
-    `
-    // The remaining three surfaces map every in-flight phase onto
-    // 'started' (their CHECK admits no finer vocabulary; gbp_management
-    // also has 'validated'). All three carry started_at (place actions
-    // from the start, gbp_management from 0088, media from 0093), which
-    // a re-arm resets. A media create aged here keeps its upload_phase:
-    // recovery fails one that never reached create_sent and matches one
-    // that did against the live list, or hands it to a person.
-    const strandedMedia = await sql`
-      update gbp_media_mutation
-      set status = 'ambiguous', last_error_code = 'attempt_interrupted',
-        finished_at = now()
-      where status = 'started'
-        and started_at <= now() - interval '24 hours'
-      returning id
-    `
-    const strandedPlaceActions = await sql`
-      update place_action_mutation
-      set status = 'ambiguous', last_error_code = 'attempt_interrupted',
-        finished_at = now()
-      where status = 'started'
-        and started_at <= now() - interval '24 hours'
-      returning id
-    `
-    const strandedManagement = await sql`
-      update gbp_management_mutation
-      set status = 'ambiguous', last_error_code = 'attempt_interrupted',
-        finished_at = now()
-      where status in ('started', 'validated')
-        and started_at <= now() - interval '24 hours'
-      returning id
-    `
-    // The receipts linked to those rows (lib/server/mutation-operations.ts)
-    // settle with them: left `sent`, GET /api/mutations/{id} would keep
-    // reporting a write in flight that is now of unknown outcome. Settled
-    // `uncertain`, they are due for recovery at once (job kind
-    // `mutation_recover`, lib/server/mutation-recovery.ts), which reads
-    // Google back and settles the receipt and its row: the aging only
-    // hands the row to recovery, it is no longer where the row ends.
-    for (const [attemptTable, rows] of [
-      ["hours_sync_attempt", strandedHours],
-      ["profile_sync_attempt", strandedProfiles],
-      ["food_menus_sync_attempt", strandedFoodMenus],
-      ["gbp_media_mutation", strandedMedia],
-      ["place_action_mutation", strandedPlaceActions],
-      ["gbp_management_mutation", strandedManagement],
-    ] as const) {
-      await settleOperationsForAttempts(sql, {
-        attemptTable,
-        attemptIds: rows.map((row) => String(row.id)),
-        state: "uncertain",
-        attemptStatus: "ambiguous",
-        errorCode: "attempt_interrupted",
-        // A day past the start: nothing is still applying.
-        recoverAfterSeconds: 0,
-      })
+      if (
+        Object.values(totals).some((count) => count > 0) ||
+        heldCount > 0
+      ) {
+        await writeAudit(sql, {
+          organisationId,
+          action: "retention.purge.completed",
+          subjectType: "organisation",
+          subjectId: organisationId,
+          requestId: `${requestId}:${organisationId}`,
+          metadata: {
+            ...totals,
+            heldLocationsSkipped: heldCount,
+            deletesEnabled,
+            batchRows: limit,
+            clientRequestId,
+          },
+        })
+      }
+      return { changed, behind, held: heldCount }
+    })
+    // Counted only once the round has committed, so a rolled-back round
+    // never reports rows it did not keep.
+    rounds += 1
+    addCounts(counts, round.changed)
+    pending = round.behind
+    heldLocationsSkipped = round.held
+    const progressed = nonzero(round.changed)
+    if (onProgress && Object.keys(progressed).length) {
+      await onProgress(progressed)
     }
-    // Approved listing change requests whose dispatch never claimed an
-    // attempt (lib/server/listing-changes.ts): nothing was sent for
-    // them, and left `sent` they would read as in flight for good.
-    const interruptedApprovals = await settleInterruptedListingChanges(
-      sql,
-      { organisationId: organisationId }
-    )
-    const counts = {
-      auditLogs,
-      media,
-      reviews: reviews.count,
-      accounts: accounts.count,
-      locations: locations.count,
-      disconnectedLocations: disconnected,
-      webhookPayloads: webhookPayloads.count,
-      hoursAttempts,
-      keywordHistory,
-      placeActionMutations,
-      mediaMutations,
-      managementMutations,
-      managementChangeSets,
-      onboardingDrafts,
-      resourceSnapshots,
-      profileSnapshots: profileSnapshots.count,
-      profileAttempts,
-      postPayloads: postPayloads.count,
-      postAttempts,
-      googleMediaPayloads: googleMediaPayloads.count,
-      foodMenuStates,
-      foodMenuAttempts,
-      importProposals,
-      appSessions,
-      strandedPosts: strandedPosts.count,
-      strandedHours: strandedHours.count,
-      strandedProfiles: strandedProfiles.count,
-      strandedFoodMenus: strandedFoodMenus.count,
-      strandedMedia: strandedMedia.count,
-      strandedPlaceActions: strandedPlaceActions.count,
-      strandedManagement: strandedManagement.count,
-      interruptedApprovals,
+    if (!pending.length || Date.now() >= deadline) break
+  }
+  const complete = pending.length === 0
+  log.info(
+    complete ? "retention.organisation_purged" : "retention.organisation_partial",
+    {
+      requestId,
+      organisationId,
+      rounds,
+      behind: pending.map((step) => step.key),
+      ...counts,
+      heldLocationsSkipped,
     }
-    const heldLocationsSkipped = held?.count ?? 0
-    if (
-      Object.values(counts).some((count) => count > 0) ||
-      heldLocationsSkipped > 0
-    ) {
-      await writeAudit(sql, {
-        organisationId,
-        action: "retention.purge.completed",
-        subjectType: "organisation",
-        subjectId: organisationId,
-        requestId: `${requestId}:${organisationId}`,
-        metadata: {
-          ...counts,
-          heldLocationsSkipped,
-          deletesEnabled,
-          clientRequestId,
-        },
-      })
-    }
-    return { ...counts, heldLocationsSkipped }
-  })
-  // Logged outside the transaction so a rolled-back purge never reports
-  // counts it did not keep.
-  log.info("retention.organisation_purged", {
-    requestId,
-    organisationId,
-    ...purged,
-  })
-  return purged
+  )
+  return {
+    complete,
+    counts: { ...counts, heldLocationsSkipped },
+    rounds,
+  }
 }
 
 export type RetentionFailure = {
@@ -568,12 +733,25 @@ export type RetentionPageInput = {
 }
 
 /**
+ * The cursor that restarts a hand-run walk at the head of the fleet. The nil
+ * UUID sorts before every organisation id (all are gen_random_uuid), so a
+ * page that ran out of budget inside the first organisation can still name a
+ * cursor that resumes it; an empty cursor would also purge the ended
+ * abuse-limit windows again.
+ */
+export const RETENTION_HEAD_CURSOR = "00000000-0000-0000-0000-000000000000"
+
+/**
  * One hand-run page of the retention walk: up to `batchSize` organisations
  * after `cursor`, in organisation order. This is the operator's tool for
  * retaining a slice of the fleet now; the scheduled walk is the cycle
  * dispatcher (lib/server/retention/cycle.ts), and a page neither reads nor
  * moves its progress. A page that starts at the head also purges the ended
  * abuse-limit windows, as the cycle does when it opens.
+ *
+ * An organisation the budget stopped part-way is listed in `partial`, with
+ * what it committed, and `nextCursor` points just before it so the next page
+ * resumes it.
  */
 export async function retainPage({
   requestId,
@@ -595,6 +773,7 @@ export async function retainPage({
   `
   const abuseRateBuckets = cursor ? null : await purgeEndedAbuseBuckets(requestId)
   const results = []
+  const partial = []
   const failures: RetentionFailure[] = []
   let processed = 0
   let budgetExhausted = false
@@ -610,8 +789,14 @@ export async function retainPage({
         requestId,
         clientRequestId,
         deletesEnabled,
+        deadline,
       })
-      results.push({ organisationId: organisation.id, ...purged })
+      if (!purged.complete) {
+        partial.push({ organisationId: organisation.id, ...purged.counts })
+        budgetExhausted = true
+        break
+      }
+      results.push({ organisationId: organisation.id, ...purged.counts })
     } catch (error) {
       // One tenant's failure must not starve every organisation ordered
       // after it on the page.
@@ -629,10 +814,12 @@ export async function retainPage({
   }
   return {
     organisations: results,
+    partial,
     failures,
     abuseRateBuckets,
-    nextCursor:
-      budgetExhausted || organisations.length === batchSize
+    nextCursor: partial.length
+      ? (lastProcessedOrganisationId ?? cursor ?? RETENTION_HEAD_CURSOR)
+      : budgetExhausted || organisations.length === batchSize
         ? lastProcessedOrganisationId
         : null,
   }

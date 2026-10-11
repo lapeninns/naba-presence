@@ -14,6 +14,7 @@ import {
   retentionErrorCode,
   type OrganisationPurgeCounts,
   type OrganisationPurgeInput,
+  type OrganisationPurgeResult,
   type RetentionFailure,
 } from "@/lib/server/retention/purge"
 
@@ -32,6 +33,12 @@ import {
  *      fire and have attempts left, so a failing tenant is retried a few
  *      times without ever being retried ahead of an organisation that has
  *      not had its first run.
+ *
+ * An organisation whose purge the time budget stopped part-way (plan P04-2:
+ * the purge runs in bounded rounds) stays pending with what it committed, and
+ * a later fire resumes it with the other pending organisations. That run is handed back rather than counted
+ * against its attempts, up to RETENTION_ORG_MAX_RESUMES times, so a tenant
+ * with a large backlog takes as many fires as it needs instead of failing.
  *
  * The cycle completes, and reports itself to the tick ledger through
  * `recordTickCycleCompleted`, when enumeration has ended and every
@@ -55,6 +62,14 @@ export const RETENTION_CYCLE_START_HOUR_UTC = 3
  * cannot hold the cycle open for ever.
  */
 export const RETENTION_ORG_MAX_ATTEMPTS = 3
+
+/**
+ * Times an organisation may stop on the budget with work still due and have
+ * the run handed back. Every stopped run committed at least one bounded round,
+ * so this only binds a tenant that keeps falling behind (four hours of fires
+ * at five minutes); past it each further stopped run uses up an attempt.
+ */
+export const RETENTION_ORG_MAX_RESUMES = 48
 
 /** Completed cycles kept for reporting before the dispatcher prunes them. */
 export const RETENTION_CYCLE_KEEP_DAYS = 35
@@ -338,6 +353,89 @@ export async function recordOrgOutcome(
 }
 
 /**
+ * What earlier runs of the organisation in this cycle committed, per dataset,
+ * for the completion audit's totals.
+ */
+export async function organisationCounts(
+  cycleId: string,
+  organisationId: string
+): Promise<OrganisationPurgeCounts> {
+  const [row] = await getDatabase()<{ counts: OrganisationPurgeCounts }[]>`
+    select counts
+    from retention_cycle_org
+    where cycle_id = ${cycleId}
+      and organisation_id = ${organisationId}
+  `
+  return row?.counts ?? {}
+}
+
+/**
+ * Adds one committed purge round's counts to the organisation's cycle totals.
+ * Called after each round commits, so a run that fails or is killed later
+ * still leaves what it did on record.
+ */
+export async function addOrganisationCounts(
+  cycleId: string,
+  organisationId: string,
+  counts: OrganisationPurgeCounts
+) {
+  const database = getDatabase()
+  await database`
+    update retention_cycle_org o
+    set counts = (
+      select coalesce(jsonb_object_agg(key, total), '{}'::jsonb)
+      from (
+        select key, sum(value::int) as total
+        from (
+          select key, value from jsonb_each_text(o.counts)
+          union all
+          select key, value from jsonb_each_text(${database.json(counts)})
+        ) entries
+        group by key
+      ) merged
+    )
+    where o.cycle_id = ${cycleId}
+      and o.organisation_id = ${organisationId}
+  `
+}
+
+/**
+ * Settles a run the time budget stopped with rows still due: the organisation
+ * goes back to pending (out of failed, if a retry was stopped) so the next
+ * fire resumes it, and the run is handed back while it has resumes left.
+ */
+export async function recordOrgPartial(cycleId: string, organisationId: string) {
+  await getDatabase()`
+    with previous as (
+      select status
+      from retention_cycle_org
+      where cycle_id = ${cycleId}
+        and organisation_id = ${organisationId}
+    ),
+    settled as (
+      update retention_cycle_org
+      set status = 'pending',
+        last_error_code = null,
+        resumes = resumes + 1,
+        attempts = case
+          when resumes < ${RETENTION_ORG_MAX_RESUMES} then greatest(attempts - 1, 0)
+          else attempts
+        end
+      where cycle_id = ${cycleId}
+        and organisation_id = ${organisationId}
+        and status <> 'succeeded'
+      returning 1
+    )
+    update retention_cycle
+    set failed = failed - case
+          when (select status from previous) = 'failed' then 1 else 0
+        end
+    where id = ${cycleId}
+      and exists (select 1 from settled)
+  `
+}
+
+/**
  * Completes the cycle when enumeration has ended and no organisation is left
  * to run: every one has succeeded or used up its attempts. True only for the
  * call that completed it.
@@ -459,7 +557,7 @@ export type RetentionCycleInput = {
   /** Organisations copied into the cycle per enumeration read. */
   pageSize?: number
   /** The per-organisation purge. Injected by tests to make one fail. */
-  purge?: (input: OrganisationPurgeInput) => Promise<OrganisationPurgeCounts>
+  purge?: (input: OrganisationPurgeInput) => Promise<OrganisationPurgeResult>
 }
 
 /**
@@ -486,6 +584,7 @@ export async function runRetentionCycle({
       opened: false,
       completed: false,
       organisations: [],
+      partial: [],
       failures: [] as RetentionFailure[],
       abuseRateBuckets: null,
     }
@@ -498,6 +597,7 @@ export async function runRetentionCycle({
     : null
 
   const results: Array<Record<string, string | number>> = []
+  const partial: Array<Record<string, string | number>> = []
   const failures: RetentionFailure[] = []
   const started = new Set<string>()
   let processed = 0
@@ -523,8 +623,20 @@ export async function runRetentionCycle({
           requestId,
           clientRequestId,
           deletesEnabled,
+          deadline,
+          priorCounts: await organisationCounts(cycle.id, organisationId),
+          onProgress: (counts) =>
+            addOrganisationCounts(cycle.id, organisationId, counts),
         })
-        results.push({ organisationId, ...purged })
+        if (!purged.complete) {
+          // The budget ran out inside this organisation: what it committed
+          // stays, and it is pending again for the next fire.
+          partial.push({ organisationId, ...purged.counts })
+          await recordOrgPartial(cycle.id, organisationId)
+          budgetExhausted = true
+          break walk
+        }
+        results.push({ organisationId, ...purged.counts })
         outcome = { ok: true }
       } catch (error) {
         // One tenant's failure must not hold up the rest of the cycle: it is
@@ -571,6 +683,7 @@ export async function runRetentionCycle({
     opened,
     completed,
     organisations: results,
+    partial,
     failures,
     abuseRateBuckets,
   }
