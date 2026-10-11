@@ -29,13 +29,21 @@ export const POST = route({
       redirectTo: confirmationUrl.toString(),
     })
     if (result.identity) {
-      await completeEmailAuthentication({
+      // Sign-up returns no token to challenge a factor with. A brand-new
+      // account has none; one that does (an existing identity) gets no
+      // session here and signs in instead (completeEmailAuthentication
+      // refuses with mfa_required while MFA is on).
+      const completed = await completeEmailAuthentication({
         identity: result.identity,
         inviteToken: body.inviteToken,
         requestId,
         clientRequestId,
+        authMethod: "password",
+        provider: { accessToken: null, factors: result.factors },
       })
-      return { authenticated: true } satisfies RegisterResponse
+      if (!completed.mfaRequired) {
+        return { authenticated: true } satisfies RegisterResponse
+      }
     }
     return NextResponse.json(
       {

@@ -155,6 +155,10 @@ export const serverEnvSchema = z.object({
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
+  // Two-step verification (TOTP through Supabase Auth, lib/server/mfa.ts).
+  // Off by default: sign-in ignores enrolled factors and the MFA routes
+  // answer 404. Turn on only once TOTP is enabled in the Supabase project.
+  MFA_ENABLED: featureFlag(false),
   REGISTRATION_MODE: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.enum(["open", "invite_only"]).default("open")

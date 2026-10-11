@@ -97,6 +97,21 @@ export const ABUSE_POLICIES = {
     ip: { limit: 30, windowSeconds: MINUTES_15 },
     user: { limit: 10, windowSeconds: MINUTES_15 },
   },
+  // TOTP code guessing (P02-S8). Each ticket also caps itself at five
+  // attempts (lib/server/mfa.ts); these bound a person or address opening
+  // ticket after ticket. Per user covers enrollment, which runs in a session.
+  mfa_verify: {
+    code: "auth_rate_limited",
+    ip: { limit: 30, windowSeconds: MINUTES_15 },
+    token: { limit: 10, windowSeconds: MINUTES_15 },
+    user: { limit: 20, windowSeconds: MINUTES_15 },
+  },
+  // Enrollment re-checks the password (and, for a backup, a current code).
+  mfa_enroll: {
+    code: "auth_rate_limited",
+    ip: { limit: 20, windowSeconds: MINUTES_15 },
+    user: { limit: 10, windowSeconds: HOUR },
+  },
   // Viewers of a shared report reload it; probers walk tokens.
   report_share: {
     code: "auth_rate_limited",

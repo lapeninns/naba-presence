@@ -157,8 +157,14 @@ function SignInForm({
       setFieldErrors({})
       startTransition(async () => {
         try {
-          await authApi.signIn(parsed.data)
-          window.location.assign(nextPath ?? "/inbox")
+          const result = await authApi.signIn(parsed.data)
+          // Two-step verification: the code screen finishes the sign-in and
+          // then goes where this one would have.
+          window.location.assign(
+            result.mfaRequired
+              ? `/sign-in/verify${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ""}`
+              : (nextPath ?? "/inbox")
+          )
           // Deliberately never resolve: the page is navigating away, and
           // letting the transition "finish" here would flip the submit
           // button back to enabled during that window - reopening the

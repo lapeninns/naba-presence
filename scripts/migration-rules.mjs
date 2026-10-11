@@ -17,7 +17,15 @@ export const LEGACY_MIGRATION_FILES = [
 ]
 
 /** Versions that were never used. Git history has no `0021` file. */
-export const KNOWN_VERSION_GAPS = ["0021"]
+export const KNOWN_VERSION_GAPS = [
+  "0021",
+  // Fan-out reservation (2026-10 workstreams): stream A numbers its
+  // migrations from 0200 so parallel branches never collide. The integrator
+  // renumbers them sequentially and removes this range.
+  ...Array.from({ length: 200 - 95 }, (_, index) =>
+    String(95 + index).padStart(4, "0")
+  ),
+]
 
 /** @param {string} file */
 export const versionNumber = (file) => Number(file.slice(0, 4))

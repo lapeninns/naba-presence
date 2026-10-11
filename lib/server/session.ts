@@ -7,9 +7,12 @@ import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { createSession } from "@/lib/server/session-store"
+import {
+  createSession,
+  type SessionAssurance,
+} from "@/lib/server/session-store"
 
-export { createSession }
+export { createSession, type SessionAssurance }
 
 const SESSION_COOKIE = "naba_session"
 const LOCAL_ORGANISATION_ID = "00000000-0000-4000-8000-000000000001"
@@ -34,6 +37,30 @@ export type Session = {
    */
   supportActor?: string | null
   impersonationReason?: string | null
+  /**
+   * Assurance (0200, lib/server/session-store.ts). Optional so existing
+   * `Session` fixtures stay valid; `lookupSession` always selects them, and a
+   * missing value means aal1 with no recent proof.
+   */
+  aal?: "aal1" | "aal2"
+  mfaFactorId?: string | null
+  mfaVerifiedAt?: Date | null
+  mfaProofExpiresAt?: Date | null
+  securityVersion?: number
+  authMethod?: string | null
+  /** Verified TOTP factors the person had when last seen (0 = none). */
+  mfaFactorCount?: number
+}
+
+/** The assurance a session minted from `session` carries across. */
+export function assuranceOf(session: Session): SessionAssurance {
+  return {
+    aal: session.aal ?? "aal1",
+    factorId: session.mfaFactorId ?? null,
+    verifiedAt: session.mfaVerifiedAt ?? null,
+    proofExpiresAt: session.mfaProofExpiresAt ?? null,
+    authMethod: session.authMethod ?? null,
+  }
 }
 
 async function lookupSession(rawToken: string): Promise<Session | null> {
@@ -49,20 +76,30 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         userId: string
         organisationId: string
         isSupport: boolean
+        currentVersion: boolean
       }[]
     >`
       select
-        id::text as "sessionId",
-        user_id::text as "userId",
-        organisation_id::text as "organisationId",
-        support_actor is not null as "isSupport"
-      from app_session
-      where token_hash = ${tokenHash}
-        and expires_at > now()
-        and (absolute_expires_at is null or absolute_expires_at > now())
+        s.id::text as "sessionId",
+        s.user_id::text as "userId",
+        s.organisation_id::text as "organisationId",
+        s.support_actor is not null as "isSupport",
+        s.security_version = u.security_version as "currentVersion"
+      from app_session s
+      join app_user u on u.id = s.user_id
+      where s.token_hash = ${tokenHash}
+        and s.expires_at > now()
+        and (s.absolute_expires_at is null or s.absolute_expires_at > now())
       limit 1
     `
     if (!sessionIdentity) return null
+    // Minted before the person's security_version moved on (operator MFA
+    // recovery bumps it, 0200): the session is over everywhere, and its row
+    // goes now rather than waiting for its expiry.
+    if (!sessionIdentity.currentVersion) {
+      await sql`delete from app_session where token_hash = ${tokenHash}`
+      return null
+    }
     // With support impersonation off (the default), a support session never
     // resolves, and the row it presented is deleted so it cannot come back
     // when the flag is turned on again. The policy on app_session lets this
@@ -94,7 +131,14 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         m.role,
         m.can_publish as "canPublish",
         s.support_actor as "supportActor",
-        s.impersonation_reason as "impersonationReason"
+        s.impersonation_reason as "impersonationReason",
+        s.aal,
+        s.mfa_factor_id as "mfaFactorId",
+        s.mfa_verified_at as "mfaVerifiedAt",
+        s.mfa_proof_expires_at as "mfaProofExpiresAt",
+        s.security_version as "securityVersion",
+        s.auth_method as "authMethod",
+        u.mfa_factor_count as "mfaFactorCount"
       from app_session s
       join app_user u on u.id = s.user_id
       join organisation o on o.id = s.organisation_id

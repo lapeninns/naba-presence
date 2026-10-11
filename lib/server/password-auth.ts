@@ -5,12 +5,22 @@ import { z } from "zod"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 
+const providerFactorSchema = z.object({
+  id: z.string().min(1).max(128),
+  factor_type: z.string(),
+  status: z.string(),
+  friendly_name: z.string().nullable().optional(),
+})
+
 const providerUserSchema = z.object({
   id: z.string().min(1),
   email: z.email().optional(),
   email_confirmed_at: z.string().nullable().optional(),
   confirmed_at: z.string().nullable().optional(),
   user_metadata: z.record(z.string(), z.unknown()).optional(),
+  // GoTrue lists the user's MFA factors on the user object; absent (or null)
+  // for a user who never enrolled.
+  factors: z.array(providerFactorSchema).nullable().optional(),
 })
 
 const providerSessionSchema = z.object({
@@ -25,6 +35,33 @@ export type PasswordIdentity = {
   email: string
   displayName: string
   emailVerified: boolean
+}
+
+/** A verified TOTP factor: the only kind a sign-in may be challenged with. */
+export type ProviderFactor = { id: string; friendlyName: string | null }
+
+/**
+ * What a provider sign-in hands back besides the identity: the user's access
+ * token (aal1) and the verified TOTP factors, so the caller can decide
+ * whether the sign-in still needs a code (lib/server/mfa.ts).
+ */
+export type ProviderAuthentication = {
+  identity: PasswordIdentity
+  accessToken: string
+  factors: ProviderFactor[]
+}
+
+export function verifiedTotpFactors(userValue: unknown): ProviderFactor[] {
+  const user = providerUserSchema.safeParse(userValue)
+  if (!user.success) return []
+  return (user.data.factors ?? [])
+    .filter(
+      (factor) => factor.factor_type === "totp" && factor.status === "verified"
+    )
+    .map((factor) => ({
+      id: factor.id,
+      friendlyName: factor.friendly_name ?? null,
+    }))
 }
 
 class AuthProviderError extends Error {
@@ -155,7 +192,7 @@ function mapLoginFailure(error: unknown): never {
 export async function signInWithPassword(
   email: string,
   password: string
-): Promise<PasswordIdentity> {
+): Promise<ProviderAuthentication> {
   try {
     const payload = providerSessionSchema.parse(
       await providerRequest("/token?grant_type=password", {
@@ -163,14 +200,18 @@ export async function signInWithPassword(
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
       })
     )
-    if (!payload.user) {
+    if (!payload.user || !payload.access_token) {
       throw new AuthProviderError(502, "auth_provider_invalid_response")
     }
     const identity = identityFromUser(payload.user)
     if (!identity.emailVerified) {
       throw genericLoginFailure() // was: ApiError(403, "email_not_verified", …)
     }
-    return identity
+    return {
+      identity,
+      accessToken: payload.access_token,
+      factors: verifiedTotpFactors(payload.user),
+    }
   } catch (error) {
     mapLoginFailure(error)
   }
@@ -184,6 +225,8 @@ export async function signUpWithPassword(input: {
 }): Promise<{
   identity: PasswordIdentity | null
   confirmationRequired: boolean
+  /** Verified TOTP factors on the returned user (none for a new account). */
+  factors: ProviderFactor[]
 }> {
   try {
     const providerPayload = await providerRequest(
@@ -207,12 +250,13 @@ export async function signUpWithPassword(input: {
         ? sessionPayload.data.user
         : undefined
     if (!user) {
-      return { identity: null, confirmationRequired: true }
+      return { identity: null, confirmationRequired: true, factors: [] }
     }
     const identity = identityFromUser(user)
     return {
       identity: identity.emailVerified ? identity : null,
       confirmationRequired: !identity.emailVerified,
+      factors: verifiedTotpFactors(user),
     }
   } catch (error) {
     if (error instanceof AuthProviderError) {
@@ -225,7 +269,7 @@ export async function signUpWithPassword(input: {
       }
       // Avoid exposing whether an account already exists.
       if (error.status === 400 || error.status === 422) {
-        return { identity: null, confirmationRequired: true }
+        return { identity: null, confirmationRequired: true, factors: [] }
       }
       throw new ApiError(
         503,
@@ -240,7 +284,7 @@ export async function signUpWithPassword(input: {
 export async function verifyEmailToken(input: {
   tokenHash: string
   type: "email" | "recovery"
-}): Promise<{ identity: PasswordIdentity; accessToken: string }> {
+}): Promise<ProviderAuthentication> {
   try {
     const payload = providerSessionSchema.parse(
       await providerRequest("/verify", {
@@ -257,6 +301,7 @@ export async function verifyEmailToken(input: {
     return {
       identity: identityFromUser(payload.user),
       accessToken: payload.access_token,
+      factors: verifiedTotpFactors(payload.user),
     }
   } catch (error) {
     if (error instanceof AuthProviderError) {
@@ -392,5 +437,190 @@ export async function updatePasswordWithToken(
         "We could not confirm whether your new password was saved. Try signing in with the new password before requesting another reset link."
       )
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MFA (P02-S8). Every call below acts as the user, with the access token a
+// sign-in returned; the provider holds the TOTP secrets and checks the codes.
+// ---------------------------------------------------------------------------
+
+const enrolledFactorSchema = z.object({
+  id: z.string().min(1).max(128),
+  totp: z.object({
+    qr_code: z.string().min(1),
+    secret: z.string().min(1),
+    uri: z.string().min(1),
+  }),
+})
+
+const challengeSchema = z.object({ id: z.string().min(1) })
+
+/**
+ * GoTrue versions differ: some return the QR code as a `data:image/svg+xml`
+ * URI, older ones as bare SVG markup. Always hand the client an image data
+ * URI, and nothing else (no remote URL ever reaches an <img>).
+ */
+export function qrCodeDataUri(value: string): string {
+  const trimmed = value.trim()
+  if (/^data:image\/(svg\+xml|png)[;,]/.test(trimmed)) return trimmed
+  if (trimmed.startsWith("<svg") || trimmed.startsWith("<?xml")) {
+    return `data:image/svg+xml;utf-8,${encodeURIComponent(trimmed)}`
+  }
+  throw new ApiError(
+    503,
+    "auth_provider_invalid_response",
+    "Two-step verification is temporarily unavailable."
+  )
+}
+
+export type TotpEnrollment = {
+  factorId: string
+  qrCode: string
+  secret: string
+  uri: string
+}
+
+function mfaProviderFailure(error: unknown): never {
+  if (error instanceof ApiError) throw error
+  if (error instanceof AuthProviderError) {
+    if (error.status === 429) {
+      throw new ApiError(
+        429,
+        "auth_rate_limited",
+        "Too many attempts. Try again later."
+      )
+    }
+    if (error.status === 401 || error.status === 403) {
+      throw new ApiError(
+        401,
+        "mfa_ticket_invalid",
+        "Your sign-in has expired. Sign in again."
+      )
+    }
+    throw new ApiError(
+      503,
+      error.code,
+      "Two-step verification is temporarily unavailable."
+    )
+  }
+  throw error
+}
+
+/** The user's verified TOTP factors, read fresh from the provider. */
+export async function listFactors(
+  accessToken: string
+): Promise<ProviderFactor[]> {
+  try {
+    return verifiedTotpFactors(
+      await providerRequest("/user", { method: "GET", accessToken })
+    )
+  } catch (error) {
+    mfaProviderFailure(error)
+  }
+}
+
+/**
+ * Starts a TOTP enrollment: the provider creates an unverified factor and
+ * returns its secret, which the person adds to an authenticator app. The
+ * factor counts only once a code from it is verified. A person who already
+ * has a verified factor needs an aal2 token for this (GoTrue's rule).
+ */
+export async function enrollTotp(
+  accessToken: string,
+  friendlyName: string
+): Promise<TotpEnrollment> {
+  try {
+    const payload = enrolledFactorSchema.parse(
+      await providerRequest("/factors", {
+        method: "POST",
+        accessToken,
+        body: JSON.stringify({
+          factor_type: "totp",
+          friendly_name: friendlyName,
+          issuer: "NabaPresence",
+        }),
+      })
+    )
+    return {
+      factorId: payload.id,
+      qrCode: qrCodeDataUri(payload.totp.qr_code),
+      secret: payload.totp.secret,
+      uri: payload.totp.uri,
+    }
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ApiError(
+        503,
+        "auth_provider_invalid_response",
+        "Two-step verification is temporarily unavailable."
+      )
+    }
+    mfaProviderFailure(error)
+  }
+}
+
+/**
+ * Challenges a factor and verifies the code against it in one step (the
+ * challenge carries nothing the person needs to see for TOTP). Returns the
+ * provider session the verification minted, whose token says aal2, and the
+ * user's verified factors after it.
+ *
+ * A wrong code is 400 `mfa_code_invalid`; the caller counts attempts.
+ */
+export async function challengeAndVerifyFactor(input: {
+  accessToken: string
+  factorId: string
+  code: string
+}): Promise<{ accessToken: string; factors: ProviderFactor[] }> {
+  const factorPath = `/factors/${encodeURIComponent(input.factorId)}`
+  let challengeId: string
+  try {
+    challengeId = challengeSchema.parse(
+      await providerRequest(`${factorPath}/challenge`, {
+        method: "POST",
+        accessToken: input.accessToken,
+        body: JSON.stringify({}),
+      })
+    ).id
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ApiError(
+        503,
+        "auth_provider_invalid_response",
+        "Two-step verification is temporarily unavailable."
+      )
+    }
+    mfaProviderFailure(error)
+  }
+  try {
+    const payload = providerSessionSchema.parse(
+      await providerRequest(`${factorPath}/verify`, {
+        method: "POST",
+        accessToken: input.accessToken,
+        body: JSON.stringify({ challenge_id: challengeId, code: input.code }),
+      })
+    )
+    if (!payload.access_token) {
+      throw new AuthProviderError(502, "auth_provider_invalid_response")
+    }
+    return {
+      accessToken: payload.access_token,
+      factors: verifiedTotpFactors(payload.user),
+    }
+  } catch (error) {
+    // GoTrue answers a wrong or replayed code with 422
+    // mfa_verification_failed (older versions 400).
+    if (
+      error instanceof AuthProviderError &&
+      (error.status === 400 || error.status === 422)
+    ) {
+      throw new ApiError(
+        400,
+        "mfa_code_invalid",
+        "That code did not match. Check your authenticator app and try again."
+      )
+    }
+    mfaProviderFailure(error)
   }
 }

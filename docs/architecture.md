@@ -5,7 +5,8 @@
 Supabase Auth owns password hashing, password recovery, abuse controls, and
 email verification. NabaPresence exchanges only a verified Supabase user
 identity for an opaque, HTTP-only application session; it never stores a
-password or a Supabase access/refresh token. The server hashes the opaque token
+password or a Supabase refresh token, and keeps a Supabase access token only
+encrypted inside a five-minute two-step verification ticket (below). The server hashes the opaque token
 before lookup, binds the resulting user and organisation to the request, and
 opens every tenant data operation in a transaction that sets
 `app.organisation_id`. PostgreSQL row-level policies then default-deny records
@@ -33,6 +34,33 @@ the same user and default organisation on every device. Google OAuth is a
 separate owner/admin action whose encrypted connection belongs to that
 organisation, so application sign-out or a new device session does not remove
 the Google connection.
+
+### Two-step verification (P02-S8, migration 0200)
+
+Behind `MFA_ENABLED` (default off), a person with a verified Supabase TOTP
+factor does not get a session from a password, a reset or an emailed link
+alone. `lib/server/email-auth.ts` opens a five-minute pending ticket instead
+(`mfa_pending_login`, reached only through SECURITY DEFINER functions; the
+provider's access token for the challenge is kept encrypted for those five
+minutes and never longer), sets it in the httpOnly `naba_mfa_ticket` cookie
+scoped to `/api/auth/mfa`, and answers `mfaRequired`. `POST
+/api/auth/mfa/verify` (abuse scope `mfa_verify`, five attempts per ticket)
+challenges and verifies the code at the provider, requires the provider's
+token to say `aal2`, spends the ticket exactly once and only then provisions,
+accepts an invitation and mints the session. `GET /api/auth/mfa/factors`
+lists the primary and backup factors a ticket may use. `POST
+/api/auth/mfa/enroll` re-checks the password (the app keeps no provider token
+for a session) and, for a backup, a current code; verifying the new factor
+replaces the enrolling session with an aal2 one. Sessions record `aal`,
+`mfa_factor_id`, `mfa_verified_at`, `mfa_proof_expires_at` (verified plus 15
+minutes), `auth_method` and the person's `security_version`
+(`lib/server/session-store.ts`); a workspace switch and accepting an
+invitation while signed in carry the assurance across, and `lookupSession`
+deletes a session whose `security_version` is behind the person's (which only
+ever increases). Sessions from before 0200 are aal1. A password reset by an
+enrolled person ends their other sessions as soon as the new password is set,
+before the code. `lib/server/mfa.ts` owns the ticket, cookie and assurance
+helpers; `/sign-in/verify` and `/settings/security` are the screens.
 
 Arbitrary tenant headers are never accepted. Owner/admin, member, viewer,
 location access, and publish authority checks happen above the database RLS

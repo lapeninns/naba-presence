@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 
+import { useSettingsFeatures } from "@/components/settings/settings-features"
 import { TabNav } from "@/components/ui/tabs"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 
@@ -18,10 +19,13 @@ import { settingsGatingFromRole } from "@/lib/settings/gating"
 const AREAS: {
   href: string
   label: string
-  capability: "always" | "canManageConnections"
+  capability: "always" | "canManageConnections" | "mfa"
 }[] = [
   { href: "/settings", label: "Policy", capability: "always" },
   { href: "/settings/notifications", label: "Notifications", capability: "always" },
+  // Two-step verification is per person, so every role sees it once the
+  // MFA_ENABLED flag is on (P02-S8).
+  { href: "/settings/security", label: "Sign-in security", capability: "mfa" },
   {
     href: "/settings/connections",
     label: "Google connections",
@@ -48,8 +52,13 @@ export function SettingsNav({
 }) {
   const pathname = usePathname()
   const caps = settingsGatingFromRole(role)
-  const items = AREAS.filter(
-    (area) => area.capability === "always" || caps[area.capability]
+  const features = useSettingsFeatures()
+  const items = AREAS.filter((area) =>
+    area.capability === "always"
+      ? true
+      : area.capability === "mfa"
+        ? features.mfa
+        : caps[area.capability]
   ).map((area) => ({
     href: area.href,
     label: area.label,

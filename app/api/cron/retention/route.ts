@@ -1,4 +1,5 @@
 import { purgeAbuseRateBuckets } from "@/lib/server/abuse-limits"
+import { purgeMfaPendingLogins } from "@/lib/server/mfa"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -85,6 +86,15 @@ async function retain({
       abuseRateBuckets = await purgeAbuseRateBuckets()
     } catch (error) {
       log.error("retention.abuse_buckets_failed", { requestId, error })
+    }
+  }
+  // Expired MFA tickets (0200): platform-level too, and same treatment.
+  let mfaPendingLogins: number | null = null
+  if (cursor === null) {
+    try {
+      mfaPendingLogins = await purgeMfaPendingLogins()
+    } catch (error) {
+      log.error("retention.mfa_pending_failed", { requestId, error })
     }
   }
   const results = []
@@ -567,6 +577,7 @@ async function retain({
     organisations: results,
     failures,
     abuseRateBuckets,
+    mfaPendingLogins,
     nextCursor:
       budgetExhausted || organisations.length === batchSize
         ? lastProcessedOrganisationId
