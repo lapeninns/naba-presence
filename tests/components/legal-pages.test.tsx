@@ -26,18 +26,42 @@ describe("public legal pages", () => {
 
   it("names the permissions requested and the retention promises", () => {
     render(<PrivacyPage />)
-    expect(screen.getByText("https://www.googleapis.com/auth/business.manage")).toBeInTheDocument()
-    expect(screen.getByText(/at most 30 days after we last received it/)).toBeInTheDocument()
+    expect(
+      screen.getByText("https://www.googleapis.com/auth/business.manage")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/at most 30 days after we last received it/)
+    ).toBeInTheDocument()
     expect(screen.getByText(/Seven days later we delete/)).toBeInTheDocument()
     expect(screen.getByText(/encrypted with AES-256-GCM/)).toBeInTheDocument()
-    expect(screen.getAllByText(new RegExp(escape(LEGAL_OPERATOR.privacyEmail))).length).toBeGreaterThan(0)
+    // The 30-day purge clears the reviewer's photo link with the name
+    // (lib/server/retention/purge.ts); the page must not promise to keep it.
+    expect(
+      screen.getByText(
+        /reviewer profile photo links, review photos and the raw data/
+      )
+    ).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(
+      /keep[^.]*profile photo link/i
+    )
+    expect(screen.getByText(/are kept for 13 months/)).toBeInTheDocument()
+    expect(
+      screen.getAllByText(new RegExp(escape(LEGAL_OPERATOR.privacyEmail)))
+        .length
+    ).toBeGreaterThan(0)
   })
 
   it("renders the terms with the operator named", () => {
     render(<TermsPage />)
-    expect(screen.getByRole("heading", { level: 1, name: "Terms of service" })).toBeInTheDocument()
-    expect(screen.getByText(new RegExp(escape(LEGAL_OPERATOR.legalName)))).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy")
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Terms of service" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(new RegExp(escape(LEGAL_OPERATOR.legalName)))
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Privacy policy" })
+    ).toHaveAttribute("href", "/privacy")
   })
 
   it("leaves out an empty registered address without stray punctuation", () => {
@@ -62,30 +86,37 @@ describe("assertLegalDetailsForProduction", () => {
   const placeholders = { ...LEGAL_OPERATOR, legalName: "[LEGAL ENTITY NAME]" }
 
   it("fails a production build while any operator detail is a placeholder", async () => {
-    const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
-      "@/lib/legal/operator"
-    )
+    const { assertLegalDetailsForProduction, hasLegalPlaceholders } =
+      await import("@/lib/legal/operator")
     expect(hasLegalPlaceholders(placeholders)).toBe(true)
     expect(() =>
-      assertLegalDetailsForProduction({ VERCEL_ENV: "production" }, placeholders)
+      assertLegalDetailsForProduction(
+        { VERCEL_ENV: "production" },
+        placeholders
+      )
     ).toThrow(/placeholder operator details/)
     // Previews and local builds render the brackets so the wording can be reviewed.
     expect(() =>
       assertLegalDetailsForProduction({ VERCEL_ENV: "preview" }, placeholders)
     ).not.toThrow()
-    expect(() => assertLegalDetailsForProduction({}, placeholders)).not.toThrow()
+    expect(() =>
+      assertLegalDetailsForProduction({}, placeholders)
+    ).not.toThrow()
   })
 
   it("treats an empty registered address as deliberate, not a placeholder", async () => {
     const { hasLegalPlaceholders } = await import("@/lib/legal/operator")
-    expect(hasLegalPlaceholders({ ...LEGAL_OPERATOR, registeredAddress: "" })).toBe(false)
+    expect(
+      hasLegalPlaceholders({ ...LEGAL_OPERATOR, registeredAddress: "" })
+    ).toBe(false)
   })
 
   it("lets production publish the committed operator details", async () => {
-    const { assertLegalDetailsForProduction, hasLegalPlaceholders } = await import(
-      "@/lib/legal/operator"
-    )
+    const { assertLegalDetailsForProduction, hasLegalPlaceholders } =
+      await import("@/lib/legal/operator")
     expect(hasLegalPlaceholders()).toBe(false)
-    expect(() => assertLegalDetailsForProduction({ VERCEL_ENV: "production" })).not.toThrow()
+    expect(() =>
+      assertLegalDetailsForProduction({ VERCEL_ENV: "production" })
+    ).not.toThrow()
   })
 })

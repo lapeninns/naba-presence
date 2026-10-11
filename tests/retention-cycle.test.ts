@@ -202,4 +202,61 @@ describe("retention purge statements", () => {
     expect(purge.match(/\bupdate \$\{target\}/g)).toHaveLength(1)
     expect(purge).toMatch(/select id from \$\{target\} where \$\{where\(\)\} limit \$\{limit\}/)
   })
+  it("redacts the reviewer's photo link with the rest of an expired review", () => {
+    const step = purge.slice(
+      purge.indexOf('rowsStep("reviews"'),
+      purge.indexOf('rowsStep("accounts"')
+    )
+    expect(step).toContain("or reviewer_profile_photo_url is not null")
+    expect(step).toContain("reviewer_profile_photo_url = null")
+    // Legal holds still win over the expiry.
+    expect(step).toMatch(/not exists \(\s*select 1 from legal_hold h/)
+  })
+
+  it("deletes ai_usage only behind the deletion switch and the closed-period guard", () => {
+    const step = purge.slice(
+      purge.indexOf('rowsStep("aiUsage"'),
+      purge.indexOf('rowsStep("placeActionMutations"')
+    )
+    expect(step).toContain("destructive: true")
+    expect(step).toContain('table: "ai_usage"')
+    expect(step).toContain(
+      "created_at < now() - make_interval(months => ${AI_USAGE_RETENTION_MONTHS})"
+    )
+    expect(step).toContain("${aiUsageInClosedPeriod(sql)}")
+    // ai_usage is deleted nowhere else in the purge.
+    expect(purge.match(/table: "ai_usage"/g)).toHaveLength(1)
+    const guard = purge.slice(
+      purge.indexOf("export function aiUsageInClosedPeriod"),
+      purge.indexOf("/**\n * Every dataset the purge retains")
+    )
+    expect(guard).toContain("ai_usage.status in ('settled', 'released')")
+    expect(guard).toContain(
+      "< (date_trunc('month', now() at time zone 'utc'))::date"
+    )
+  })
 })
+
+describe("0100 AI usage retention migration", () => {
+  const migration = readFileSync(
+    new URL("../supabase/migrations/0100_ai_usage_retention.sql", import.meta.url),
+    "utf8"
+  )
+
+  it("grants the runtime role delete on ai_usage and indexes the age scan", () => {
+    expect(migration).toContain("grant delete on ai_usage to naba_app_runtime;")
+    expect(migration).toMatch(
+      /create index if not exists ai_usage_created_idx\s+on ai_usage \(organisation_id, created_at\);/
+    )
+    expect(migration).toContain("'0100_ai_usage_retention'")
+    expect(migration).not.toMatch(/create index concurrently/i)
+  })
+
+  it("rebuilds the unredacted-review index on the purge's wider predicate", () => {
+    expect(migration).toContain("drop index if exists review_unredacted_expiry_idx;")
+    expect(migration).toMatch(
+      /create index if not exists review_unredacted_expiry_idx\s+on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null\s+or reviewer_display_name is not null\s+or reviewer_profile_photo_url is not null\s+or raw_payload is not null;/
+    )
+  })
+})
+

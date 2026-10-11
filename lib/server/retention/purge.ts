@@ -178,6 +178,41 @@ function strandedStep(
   }
 }
 
+/** How long an ai_usage row is kept, from its creation (0059). */
+export const AI_USAGE_RETENTION_MONTHS = 13
+
+/**
+ * The guard every ai_usage delete carries: the row's credit period is over
+ * and the row itself is settled. Age alone is not enough, since a period's
+ * rows are what its allowance and any later settlement are reckoned from:
+ *
+ * - a `reserved` row is a call still in flight (or one the job tick's
+ *   release_stale_ai_reservations has yet to release), so it is never
+ *   deleted whatever its age;
+ * - a row of the current UTC month (lib/server/ai-credits.ts
+ *   `billingPeriod`, the period still open) is never deleted, even if a
+ *   clock or backdated row makes it look old.
+ *
+ * Credit periods with their own settlement (plan P07) plug in HERE, as one
+ * more conjunct, so the purge has a single place that decides whether a
+ * period is closed, for example:
+ *
+ *   and not exists (
+ *     select 1 from ai_credit_period p
+ *     where p.id = ai_usage.credit_period_id and p.settled_at is null
+ *   )
+ *
+ * tests/retention-cycle.test.ts holds the purge's ai_usage statement to this
+ * guard.
+ */
+export function aiUsageInClosedPeriod(sql: TransactionSql): Fragment {
+  return sql`
+    ai_usage.status in ('settled', 'released')
+    and ai_usage.period_start
+      < (date_trunc('month', now() at time zone 'utc'))::date
+  `
+}
+
 /**
  * Every dataset the purge retains, in the order each round runs them. The
  * predicates are the retention rules; each runs bounded (see boundedRows).
@@ -213,8 +248,11 @@ function purgeSteps(organisationId: string): PurgeStep[] {
         )
       `,
     }),
-    // review_unredacted_expiry_idx (0099) is a partial index on exactly
-    // this predicate: widening it needs a matching new index.
+    // review_unredacted_expiry_idx (0100) is a partial index on exactly
+    // this predicate: widening it needs a matching new index. The reviewer's
+    // profile photo link is provider content like the name beside it, so it
+    // expires with it; a re-ingest inside the window writes it back
+    // (lib/server/reviews.ts) unless the review was erased.
     rowsStep("reviews", {
       table: "review",
       where: (sql) => sql`
@@ -227,12 +265,14 @@ function purgeSteps(organisationId: string): PurgeStep[] {
         and (
           review_text is not null
           or reviewer_display_name is not null
+          or reviewer_profile_photo_url is not null
           or raw_payload is not null
         )
       `,
       set: (sql) => sql`
         review_text = null,
         reviewer_display_name = null,
+        reviewer_profile_photo_url = null,
         raw_payload = null
       `,
     }),
@@ -318,6 +358,18 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       table: "performance_search_keyword_monthly",
       where: (sql) => sql`
         metric_month < date_trunc('month', now()) - interval '18 months'
+      `,
+    }),
+    // AI cost history (0059) holds no review text, so it is kept for
+    // AI_USAGE_RETENTION_MONTHS rather than the raw-content window, and
+    // never while its credit period is still open (aiUsageInClosedPeriod).
+    // ai_usage_created_idx (0100) serves the scan.
+    rowsStep("aiUsage", {
+      destructive: true,
+      table: "ai_usage",
+      where: (sql) => sql`
+        created_at < now() - make_interval(months => ${AI_USAGE_RETENTION_MONTHS})
+        and ${aiUsageInClosedPeriod(sql)}
       `,
     }),
     rowsStep("placeActionMutations", {

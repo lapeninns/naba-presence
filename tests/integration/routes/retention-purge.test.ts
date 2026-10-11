@@ -12,12 +12,14 @@ import {
   seedLinkedReview,
 } from "../helpers/tenant"
 
+import { withTenant } from "@/lib/server/db"
 import { runRetentionCycle } from "@/lib/server/retention/cycle"
 import {
   purgeOrganisation,
   retainPage,
   type OrganisationPurgeCounts,
 } from "@/lib/server/retention/purge"
+import { upsertGoogleReview } from "@/lib/server/reviews"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -1044,4 +1046,225 @@ describeDatabase("retention purge", () => {
     `
     expect(stalled.sourceUrl).toBe("https://example.test/source.jpg")
   }, 40_000)
+
+  describe("reviewer photos and AI usage", () => {
+    const PHOTO = "https://example.test/reviewer-avatar.jpg"
+
+    async function purge(organisationId: string, deletesEnabled: boolean) {
+      return purgeOrganisation({
+        organisationId,
+        requestId: `retention-p04-3-${randomUUID()}`,
+        clientRequestId: null,
+        deletesEnabled,
+        deadline: Date.now() + 30_000,
+      })
+    }
+
+    async function photoOf(reviewId: string) {
+      const [row] = await admin<{ photo: string | null; name: string | null }[]>`
+        select
+          reviewer_profile_photo_url as photo,
+          reviewer_display_name as name
+        from review
+        where id = ${reviewId}
+      `
+      return row
+    }
+
+    it("drops an expired review's photo link, keeps live and held ones, and lets a re-ingest restore it", async () => {
+      const owner = await createTenant()
+      const connection = await seedGoogleConnection(admin, {
+        organisationId: owner.organisationId,
+      })
+      const seed = () =>
+        seedLinkedReview(admin, {
+          organisationId: owner.organisationId,
+          connectionId: connection.connectionId,
+          googleAccountName: connection.googleAccountName,
+        })
+      const expired = await seed()
+      const live = await seed()
+      const held = await seed()
+      // Only the photo link is left on this one: the wider predicate (0100)
+      // has to reach a row the name, text and payload no longer match.
+      const photoOnly = await seed()
+      await admin`
+        update review
+        set
+          reviewer_profile_photo_url = ${PHOTO},
+          raw_content_expires_at = case
+            when id = ${live.reviewId} then now() + interval '10 days'
+            else now() - interval '1 day'
+          end
+        where id in ${admin([
+          expired.reviewId,
+          live.reviewId,
+          held.reviewId,
+          photoOnly.reviewId,
+        ])}
+      `
+      await admin`
+        update review
+        set review_text = null, reviewer_display_name = null, raw_payload = null
+        where id = ${photoOnly.reviewId}
+      `
+      await admin`
+        insert into legal_hold (organisation_id, review_id, reason, approved_by)
+        values (
+          ${owner.organisationId},
+          ${held.reviewId},
+          'Litigation hold ahead of disclosure.',
+          ${owner.userId}
+        )
+      `
+
+      // Redaction is not a delete: it runs with deletions switched off.
+      const result = await purge(owner.organisationId, false)
+      expect(result.complete).toBe(true)
+      expect(result.counts.reviews).toBe(2)
+      expect(await photoOf(expired.reviewId)).toEqual({ photo: null, name: null })
+      expect((await photoOf(photoOnly.reviewId)).photo).toBeNull()
+      expect((await photoOf(live.reviewId)).photo).toBe(PHOTO)
+      expect((await photoOf(held.reviewId)).photo).toBe(PHOTO)
+
+      // Google serves the review again inside a fresh window: the expiry
+      // moves on and the link comes back (only an erasure keeps it gone).
+      const [external] = await admin<{ googleLocationName: string }[]>`
+        select google_location_name as "googleLocationName"
+        from external_location
+        where id = ${expired.externalLocationId}
+      `
+      await withTenant(owner.organisationId, (sql) =>
+        upsertGoogleReview(
+          sql,
+          owner.organisationId,
+          {
+            externalLocationId: expired.externalLocationId,
+            locationId: expired.locationId,
+            connectionId: connection.connectionId,
+            googleAccountName: connection.googleAccountName,
+            googleLocationName: external.googleLocationName,
+            verified: true,
+          },
+          {
+            name: expired.googleReviewName,
+            reviewId: expired.reviewId,
+            reviewer: { displayName: "Returning reviewer", profilePhotoUrl: PHOTO },
+            starRating: "FOUR",
+            comment: "Back again.",
+            createTime: "2026-08-01T10:00:00.000Z",
+            updateTime: "2026-08-02T10:00:00.000Z",
+          }
+        )
+      )
+      expect(await photoOf(expired.reviewId)).toEqual({
+        photo: PHOTO,
+        name: "Returning reviewer",
+      })
+      const again = await purge(owner.organisationId, true)
+      expect(again.counts.reviews).toBe(0)
+      expect((await photoOf(expired.reviewId)).photo).toBe(PHOTO)
+    }, 40_000)
+
+    it("deletes settled AI usage past 13 months but never a reserved row, an open period or with deletions off", async () => {
+      const owner = await createTenant()
+      const other = await createTenant()
+      async function usage(
+        organisationId: string,
+        input: { status: string; age: string; openPeriod?: boolean }
+      ) {
+        const [row] = await admin<{ id: string }[]>`
+          insert into ai_usage (
+            organisation_id, kind, status, credits, model,
+            period_start, created_at, settled_at
+          )
+          values (
+            ${organisationId},
+            'draft',
+            ${input.status},
+            ${input.status === "settled" ? 1 : input.status === "reserved" ? 1 : 0},
+            'test-model',
+            ${
+              input.openPeriod
+                ? admin`(date_trunc('month', now() at time zone 'utc'))::date`
+                : admin`(date_trunc('month', (now() - ${input.age}::interval) at time zone 'utc'))::date`
+            },
+            now() - ${input.age}::interval,
+            ${
+              input.status === "reserved"
+                ? null
+                : admin`now() - ${input.age}::interval`
+            }
+          )
+          returning id
+        `
+        return row.id
+      }
+      const expiredSettled = await usage(owner.organisationId, {
+        status: "settled",
+        age: "13 months 1 day",
+      })
+      const expiredReleased = await usage(owner.organisationId, {
+        status: "released",
+        age: "14 months",
+      })
+      const recent = await usage(owner.organisationId, {
+        status: "settled",
+        age: "12 months",
+      })
+      const reserved = await usage(owner.organisationId, {
+        status: "reserved",
+        age: "13 months 1 day",
+      })
+      // A backdated row of the period still open is not the purge's to take.
+      const openPeriod = await usage(owner.organisationId, {
+        status: "settled",
+        age: "14 months",
+        openPeriod: true,
+      })
+      const otherTenant = await usage(other.organisationId, {
+        status: "settled",
+        age: "13 months 1 day",
+      })
+
+      async function remaining() {
+        const rows = await admin<{ id: string }[]>`
+          select id::text as id from ai_usage
+          where organisation_id in ${admin([owner.organisationId, other.organisationId])}
+        `
+        return rows.map((row) => row.id).sort()
+      }
+      const all = [
+        expiredSettled,
+        expiredReleased,
+        recent,
+        reserved,
+        openPeriod,
+        otherTenant,
+      ].sort()
+
+      // RETENTION_DELETES_ENABLED off: the destructive dataset does not run.
+      const disabled = await purge(owner.organisationId, false)
+      expect(disabled.counts.aiUsage).toBe(0)
+      expect(await remaining()).toEqual(all)
+
+      const enabled = await purge(owner.organisationId, true)
+      expect(enabled.counts.aiUsage).toBe(2)
+      expect(await remaining()).toEqual(
+        [recent, reserved, openPeriod, otherTenant].sort()
+      )
+
+      const [audit] = await admin<{ metadata: Record<string, unknown> }[]>`
+        select metadata from audit_log
+        where organisation_id = ${owner.organisationId}
+          and action = 'retention.purge.completed'
+        order by created_at desc
+        limit 1
+      `
+      expect(audit.metadata.aiUsage).toBe(2)
+
+      const again = await purge(owner.organisationId, true)
+      expect(again.counts.aiUsage).toBe(0)
+    }, 40_000)
+  })
 })

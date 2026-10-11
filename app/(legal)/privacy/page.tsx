@@ -105,6 +105,12 @@ export default function PrivacyPage() {
             connecting Google, approving and publishing replies, and privacy
             requests, including who did them.
           </li>
+          <li>
+            <strong>AI usage records</strong> when AI reply drafting is switched
+            on: one record per suggested reply written or checked, with the
+            model used, its size in tokens, the credits it used, who asked for
+            it and which review it was for. These records hold no review text.
+          </li>
         </ul>
       </LegalSection>
 
@@ -114,8 +120,8 @@ export default function PrivacyPage() {
             <strong>Review and listing content from Google</strong> is kept for
             at most 30 days after we last received it from Google (a business
             can choose a shorter period). After that, review text, reviewer
-            names, review photos and the raw data Google sent are removed. We
-            keep the star rating, dates, the reviewer’s profile photo link and a
+            names, reviewer profile photo links, review photos and the raw data
+            Google sent are removed. We keep the star rating, dates and a
             one-way fingerprint of each review, so a review is not imported
             twice and your reports stay accurate. Content under a legal hold is
             kept until the hold ends.
@@ -129,6 +135,10 @@ export default function PrivacyPage() {
             <strong>Search keyword history</strong> is deleted after 18 months;
             daily performance figures are kept while the location stays
             connected.
+          </li>
+          <li>
+            <strong>AI usage records</strong> are kept for 13 months, and
+            never while the allowance period they count towards is still open.
           </li>
           <li>
             <strong>Audit records</strong> are kept for one year by default.
