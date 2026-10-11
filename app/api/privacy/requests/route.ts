@@ -26,6 +26,13 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 /**
+ * How long the inline withdrawal round may keep starting provider calls.
+ * It leaves room under `maxDuration` for the last call to time out and the
+ * round to settle; replies it has no time for are deferred to the job tick.
+ */
+const INLINE_WITHDRAWAL_BUDGET_MS = 40_000
+
+/**
  * Mirrors `enforce_privacy_request_transition`
  * (0041_privacy_fulfilment.sql). The trigger is the invariant; this is the
  * 409 an operator sees instead of a 500 raised out of plpgsql.
@@ -349,6 +356,7 @@ export const PATCH = route({
         actor: session,
         requestId,
         reviewIds: result.withdrawals,
+        deadline: Date.now() + INLINE_WITHDRAWAL_BUDGET_MS,
       })
       const settled = await settleWithdrawal({
         organisationId: session.organisationId,
@@ -361,6 +369,17 @@ export const PATCH = route({
         removal,
       })
       if (settled.outcome === "resolved_elsewhere") {
+        // A background round claimed before this fulfil can finish the
+        // erasure while the inline round runs. The owner asked for exactly
+        // that, so it is a success, not a conflict.
+        const [current] = await tenant(
+          (sql) => sql`
+            select ${sql.unsafe(RESOLUTION_COLUMNS)}
+            from privacy_request
+            where id = ${input.id}
+          `
+        )
+        if (current?.status === "completed") return { request: current }
         throw new ApiError(
           409,
           "privacy_request_resolved",

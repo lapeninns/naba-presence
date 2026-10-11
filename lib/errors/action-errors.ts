@@ -378,10 +378,11 @@ const COPY: Record<string, string> = {
   privacy_request_transition_invalid:
     "A privacy request can’t move back to that status.",
   // The local erasure committed; only the withdrawal at Google failed, and
-  // the request is deliberately left open. The 409 fallback ("refresh and try
-  // again") hides that half the work is already done and durable.
+  // the request is deliberately left open while the job tick retries it. The
+  // 409 fallback ("refresh and try again") hides that half the work is
+  // already done and durable.
   privacy_reply_withdraw_failed:
-    "The reply could not be withdrawn from Google. The local records were erased and the request stays open — retry it once Google is reachable.",
+    "The reply could not be withdrawn from Google yet. The local records were erased and the request stays open — the withdrawal is retried automatically.",
   legal_hold_not_found: "There’s no active legal hold for that review.",
   review_not_found: "That review no longer exists.",
 

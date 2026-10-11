@@ -111,6 +111,17 @@ export type PrivacyExportCursor = z.infer<typeof privacyExportCursorSchema>
 // Responses
 // ---------------------------------------------------------------------------
 
+/**
+ * Background withdrawal state of an erasure (plan P04-5). `nextAttemptAt`
+ * null on an open request means no automatic retry is coming; with replies
+ * still pending that is `withdrawalStalled`, and a person has to act.
+ */
+const withdrawalRetryFields = {
+  withdrawalAttempts: z.number().int().min(0).optional(),
+  nextAttemptAt: z.string().nullable().optional(),
+  lastErrorCode: z.string().nullable().optional(),
+}
+
 export const privacyRequestSchema = z.object({
   id: z.string(),
   requestType: privacyRequestTypeSchema,
@@ -121,6 +132,10 @@ export const privacyRequestSchema = z.object({
   resolvedBy: z.string().nullable(),
   resolutionNote: z.string().nullable(),
   resolvedAt: z.string().nullable(),
+  dueAt: z.string().optional(),
+  overdue: z.boolean().optional(),
+  withdrawalStalled: z.boolean().optional(),
+  ...withdrawalRetryFields,
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -148,19 +163,37 @@ export type PrivacyRequestCreatedResponse = z.infer<
   typeof privacyRequestCreatedResponseSchema
 >
 
+const privacyRequestResolutionSchema = z.object({
+  id: z.string(),
+  requestType: privacyRequestTypeSchema,
+  status: z.string(),
+  subjectReference: z.string(),
+  resolutionNote: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  ...withdrawalRetryFields,
+})
+
 /** PATCH `/api/privacy/requests` response. */
 export const privacyRequestResolutionResponseSchema = z.object({
-  request: z.object({
-    id: z.string(),
-    requestType: privacyRequestTypeSchema,
-    status: z.string(),
-    subjectReference: z.string(),
-    resolutionNote: z.string().nullable(),
-    resolvedAt: z.string().nullable(),
-  }),
+  request: privacyRequestResolutionSchema,
 })
 export type PrivacyRequestResolutionResponse = z.infer<
   typeof privacyRequestResolutionResponseSchema
+>
+
+/**
+ * PATCH `/api/privacy/requests` 409 when an erasure's local scrub committed
+ * but some replies are still live at Google. The request stays
+ * `in_progress` and the job tick retries the withdrawal on its own.
+ */
+export const privacyReplyWithdrawFailedResponseSchema = z.object({
+  error: z.literal("privacy_reply_withdraw_failed"),
+  message: z.string(),
+  pending: z.array(z.object({ reviewId: z.string(), code: z.string() })),
+  request: privacyRequestResolutionSchema,
+})
+export type PrivacyReplyWithdrawFailedResponse = z.infer<
+  typeof privacyReplyWithdrawFailedResponseSchema
 >
 
 /**

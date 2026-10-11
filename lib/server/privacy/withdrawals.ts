@@ -12,6 +12,7 @@ import { log } from "@/lib/server/logger"
 
 import {
   PRIVACY_WITHDRAWAL_MAX_ATTEMPTS,
+  recordWithdrawalExhausted,
   settleWithdrawal,
   withdrawReplies,
   type WithdrawalSettlement,
@@ -46,6 +47,8 @@ export type PrivacyWithdrawalTickSummary = {
   exhausted: number
   held: number
   failed: number
+  /** Claimed but not started before the deadline; lease released. */
+  released: number
 }
 
 type Prepared =
@@ -204,6 +207,8 @@ export async function processPrivacyWithdrawal(input: {
   organisationId: string
   privacyRequestId: string
   requestId: string
+  /** Epoch ms the round must finish its provider calls by. */
+  deadline?: number
 }): Promise<Prepared["kind"] | WithdrawalSettlement["outcome"]> {
   const prepared = await prepare(
     input.organisationId,
@@ -216,6 +221,7 @@ export async function processPrivacyWithdrawal(input: {
     actor: prepared.scope,
     requestId: input.requestId,
     reviewIds: prepared.reviewIds,
+    deadline: input.deadline,
   })
   const settlement = await settleWithdrawal({
     organisationId: input.organisationId,
@@ -233,14 +239,18 @@ export async function processPrivacyWithdrawal(input: {
  * Release the lease after a round that threw, so the request is claimable
  * again at its next attempt time rather than only after the lease runs out,
  * and count the round against the budget: an error that repeats must not
- * retry forever.
+ * retry forever. A round that spends the last attempt leaves the same
+ * exhaustion trail as one that settled.
  */
 async function recordRoundError(
   organisationId: string,
-  privacyRequestId: string
+  privacyRequestId: string,
+  requestId: string
 ) {
   await withTenant(organisationId, async (sql) => {
-    await sql`
+    const [row] = await sql<
+      { attempts: number; exhausted: boolean; actorUserId: string | null }[]
+    >`
       update privacy_request
       set
         withdrawal_attempts = withdrawal_attempts + 1,
@@ -253,8 +263,55 @@ async function recordRoundError(
         withdrawal_lease_expires_at = null
       where id = ${privacyRequestId}
         and status = 'in_progress'
+      returning
+        withdrawal_attempts as attempts,
+        next_attempt_at is null as exhausted,
+        withdrawal_actor_id::text as "actorUserId"
     `
+    if (row?.exhausted) {
+      await recordWithdrawalExhausted(sql, {
+        organisationId,
+        privacyRequestId,
+        actorUserId: row.actorUserId,
+        requestId,
+        attempts: row.attempts,
+        lastErrorCode: "withdrawal_round_failed",
+        pending: null,
+      })
+    }
   })
+}
+
+/**
+ * Hand back requests this tick claimed but has no time left to start. The
+ * claim cost them nothing, so they keep their schedule and budget and are
+ * claimable on the next tick instead of after the lease runs out.
+ */
+async function releaseUnstarted(
+  rows: readonly { organisationId: string; privacyRequestId: string }[]
+) {
+  const byOrganisation = new Map<string, string[]>()
+  for (const row of rows) {
+    const ids = byOrganisation.get(row.organisationId) ?? []
+    ids.push(row.privacyRequestId)
+    byOrganisation.set(row.organisationId, ids)
+  }
+  for (const [organisationId, ids] of byOrganisation) {
+    await withTenant(organisationId, async (sql) => {
+      await sql`
+        update privacy_request
+        set withdrawal_lease_expires_at = null
+        where id = any(${ids}::uuid[])
+          and status = 'in_progress'
+      `
+    }).catch((error: unknown) => {
+      // The lease still runs out on its own; this only makes it sooner.
+      log.warn("privacy.withdrawal_lease_release_failed", {
+        organisationId,
+        error,
+      })
+    })
+  }
 }
 
 /** Called from the job tick while its budget lasts. */
@@ -270,11 +327,17 @@ export async function runDuePrivacyWithdrawals(options: {
     exhausted: 0,
     held: 0,
     failed: 0,
+    released: 0,
   }
   const env = getServerEnv()
   const deadline = Date.now() + options.budgetMs
   const leaseSeconds = Math.ceil(options.budgetMs / 1000) + 60
-  while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
+  // A round starts only with one provider call's worth of time left, and
+  // withdrawReplies stops before any further call that would not fit: the
+  // tick must answer inside the route's maxDuration, and a round killed
+  // mid-flight never settles or spends its budget.
+  const hasTime = () => Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline
+  claiming: while (hasTime()) {
     const claimed = await getDatabase()<
       { organisationId: string; privacyRequestId: string }[]
     >`
@@ -288,13 +351,20 @@ export async function runDuePrivacyWithdrawals(options: {
       )
     `
     if (!claimed.length) break
-    for (const row of claimed) {
-      summary.claimed += 1
+    summary.claimed += claimed.length
+    for (const [index, row] of claimed.entries()) {
+      if (!hasTime()) {
+        const unstarted = claimed.slice(index)
+        summary.released += unstarted.length
+        await releaseUnstarted(unstarted)
+        break claiming
+      }
       try {
         const outcome = await processPrivacyWithdrawal({
           organisationId: row.organisationId,
           privacyRequestId: row.privacyRequestId,
           requestId: options.requestId,
+          deadline,
         })
         if (outcome === "completed") summary.completed += 1
         else if (outcome === "retry_scheduled") summary.retrying += 1
@@ -308,9 +378,11 @@ export async function runDuePrivacyWithdrawals(options: {
           privacyRequestId: row.privacyRequestId,
           error,
         })
-        await recordRoundError(row.organisationId, row.privacyRequestId).catch(
-          () => undefined
-        )
+        await recordRoundError(
+          row.organisationId,
+          row.privacyRequestId,
+          options.requestId
+        ).catch(() => undefined)
       }
     }
   }

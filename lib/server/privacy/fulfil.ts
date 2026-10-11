@@ -65,8 +65,19 @@ export const PRIVACY_WITHDRAWAL_PAUSE_RECHECK_MS = 5 * 60_000
  */
 export const PRIVACY_WITHDRAWAL_PARK_GRACE = "5 minutes"
 
-/** Codes that mean "not now", never "failed": a pause defers for free. */
-const DEFERRED_CODES = new Set(["publishing_paused"])
+/**
+ * A reply the round had no time left to try. The round stops before a
+ * provider call that could outlive its caller's budget (the job tick's, or
+ * the PATCH's `maxDuration`): a process killed mid-round never settles, so
+ * it would neither spend its budget nor record what it did.
+ */
+export const WITHDRAWAL_OUT_OF_TIME = "withdrawal_out_of_time"
+
+/**
+ * Codes that mean "not now", never "failed": a pause or a round that ran out
+ * of time defers for free.
+ */
+const DEFERRED_CODES = new Set(["publishing_paused", WITHDRAWAL_OUT_OF_TIME])
 
 /** Delay after `attempts` failed rounds (1-based), doubling to the cap. */
 export function withdrawalRetryDelayMs(attempts: number) {
@@ -232,19 +243,26 @@ export type WithdrawalResult = {
  * `actor` is the live Session in the PATCH, or the scope the background
  * tick re-derived from membership; `executeReplyDelete` re-checks it at
  * every location either way.
+ *
+ * `deadline` (epoch ms) bounds the round: a reply is only started with one
+ * provider timeout's worth of time left, and the rest are returned pending
+ * as `withdrawal_out_of_time`. The first live reply is always tried, so a
+ * round that starts always makes progress or spends an attempt.
  */
 export async function withdrawReplies(input: {
   organisationId: string
   actor: ReplyDeleteInput["session"]
   requestId: string
   reviewIds: string[]
+  deadline?: number
 }): Promise<WithdrawalResult> {
   const withdrawn: string[] = []
   const pending: WithdrawalPending[] = []
+  const env = getServerEnv()
   // Withdrawing a reply is a Google write, and the manual delete route pauses
   // on the same flag. Nothing is lost by honouring it: the local scrub is
   // already committed and the request stays open until publishing resumes.
-  if (!getServerEnv().PUBLISH_ENABLED) {
+  if (!env.PUBLISH_ENABLED) {
     return {
       withdrawn,
       pending: input.reviewIds.map((reviewId) => ({
@@ -265,11 +283,21 @@ export async function withdrawReplies(input: {
     `
     return new Set(rows.map(({ reviewId }) => reviewId))
   })
+  let tried = 0
   for (const reviewId of input.reviewIds) {
     if (!live.has(reviewId)) {
       withdrawn.push(reviewId)
       continue
     }
+    if (
+      tried > 0 &&
+      input.deadline !== undefined &&
+      Date.now() + env.GOOGLE_TIMEOUT_MS > input.deadline
+    ) {
+      pending.push({ reviewId, code: WITHDRAWAL_OUT_OF_TIME })
+      continue
+    }
+    tried += 1
     try {
       const outcome = await executeReplyDelete({
         organisationId: input.organisationId,
@@ -313,6 +341,43 @@ export type WithdrawalSettlement =
     }
   /** Rejected or completed by someone else while the round ran. */
   | { outcome: "resolved_elsewhere"; request: null }
+
+/**
+ * The trail of an erasure whose retry budget is spent: whichever way the last
+ * round ended, the audit says why the automatic retries stopped.
+ */
+export async function recordWithdrawalExhausted(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    privacyRequestId: string
+    actorUserId: string | null
+    requestId: string
+    attempts: number
+    lastErrorCode: string
+    pending: WithdrawalPending[] | null
+  }
+) {
+  await writeAudit(sql, {
+    organisationId: input.organisationId,
+    actorUserId: input.actorUserId,
+    action: "privacy.request.withdrawal_exhausted",
+    subjectType: "privacy_request",
+    subjectId: input.privacyRequestId,
+    requestId: input.requestId,
+    metadata: {
+      attempts: input.attempts,
+      lastErrorCode: input.lastErrorCode,
+      pending: input.pending,
+    },
+  })
+  log.error("privacy.withdrawal_exhausted", {
+    organisationId: input.organisationId,
+    privacyRequestId: input.privacyRequestId,
+    attempts: input.attempts,
+    lastErrorCode: input.lastErrorCode,
+  })
+}
 
 /**
  * Record one withdrawal round and decide what happens next: complete the
@@ -390,15 +455,23 @@ export async function settleWithdrawal(input: {
     }
 
     const pendingIds = removal.pending.map(({ reviewId }) => reviewId)
-    const code = removal.pending[0]!.code
+    // The code that explains the round: a real failure over a deferral.
+    const code = (
+      removal.pending.find((item) => !DEFERRED_CODES.has(item.code)) ??
+      removal.pending[0]!
+    ).code
     if (removal.pending.every((item) => DEFERRED_CODES.has(item.code))) {
+      // Out of time is picked up by the next tick; a pause is looked at
+      // again after a while.
+      const recheckMs =
+        code === WITHDRAWAL_OUT_OF_TIME
+          ? 0
+          : PRIVACY_WITHDRAWAL_PAUSE_RECHECK_MS
       const [row] = await sql`
         update privacy_request
         set
           pending_review_ids = ${pendingIds}::uuid[],
-          next_attempt_at = ${new Date(
-            Date.now() + PRIVACY_WITHDRAWAL_PAUSE_RECHECK_MS
-          )},
+          next_attempt_at = ${new Date(Date.now() + recheckMs)},
           last_error_code = ${code},
           withdrawal_lease_expires_at = null
         where id = ${input.privacyRequestId}
@@ -425,20 +498,14 @@ export async function settleWithdrawal(input: {
       returning ${sql.unsafe(RESOLUTION_COLUMNS)}
     `
     if (exhausted) {
-      await writeAudit(sql, {
-        organisationId: input.organisationId,
-        actorUserId: input.actorUserId,
-        action: "privacy.request.withdrawal_exhausted",
-        subjectType: "privacy_request",
-        subjectId: input.privacyRequestId,
-        requestId: input.requestId,
-        metadata: { attempts, lastErrorCode: code, pending: removal.pending },
-      })
-      log.error("privacy.withdrawal_exhausted", {
+      await recordWithdrawalExhausted(sql, {
         organisationId: input.organisationId,
         privacyRequestId: input.privacyRequestId,
+        actorUserId: input.actorUserId,
+        requestId: input.requestId,
         attempts,
         lastErrorCode: code,
+        pending: removal.pending,
       })
     }
     return {

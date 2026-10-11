@@ -1035,9 +1035,15 @@ parked `in_progress` and retried by the job tick
 rounds, as the owner who fulfilled it: that owner's grant is re-derived from
 membership at dispatch (`lib/server/authz/actor.ts`), so a removed or demoted
 owner stops the retries (`actor_revoked`). A publish pause defers a round
-without spending its budget; entitlements do not gate it. A request with no
-retry coming is listed first and flagged `withdrawalStalled` and `overdue`;
-an owner fulfilling it again takes it over and restarts the budget.
+without spending its budget; entitlements do not gate it. A round only
+starts a reply with one Google timeout left in its budget (the tick's, or
+the PATCH's inline 40 seconds); replies it has no time for are deferred to
+the next tick at no cost, and requests claimed but not started have their
+lease released. A request with no retry coming is listed first and flagged
+`withdrawalStalled` and `overdue`; an owner fulfilling it again takes it
+over and restarts the budget. Erasures parked before migration 0101 have no
+retry actor or schedule, so they are listed as stalled and join the
+background retry only after one manual re-fulfil.
 `app/api/privacy/export/route.ts` exports only still-retained content, in
 keyset pages (`create_time desc, id desc`, both immutable, at most 1000
 reviews each) so any match size completes: each page returns `nextCursor`

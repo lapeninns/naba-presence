@@ -53,7 +53,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
 
   async function createActor(
     organisationId: string,
-    role: "admin" | "member" | "viewer"
+    role: "owner" | "admin" | "member" | "viewer"
   ) {
     const userId = randomUUID()
     const token = randomBytes(32).toString("base64url")
@@ -73,7 +73,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     `
     await admin`
       insert into member (organisation_id, user_id, role, can_publish)
-      values (${organisationId}, ${userId}, ${role}, false)
+      values (${organisationId}, ${userId}, ${role}, ${role === "owner"})
     `
     await admin`
       insert into app_session (
@@ -1243,6 +1243,101 @@ describeDatabase("privacy fulfilment and audit retention", () => {
       withdrawalStalled: true,
     })
     stub.reset()
+  })
+
+  it("holds a parked withdrawal when a legal hold lands, without calling Google", async () => {
+    const { owner, seed, request } = await parkedErasure(500, "Held")
+    await admin`
+      insert into legal_hold (organisation_id, review_id, reason, approved_by)
+      values (
+        ${owner.organisationId},
+        ${seed.reviewId},
+        'Dispute after erasure',
+        ${owner.userId}
+      )
+    `
+    stub.reset()
+    await makeDue(request.id)
+    await runJobsTick()
+
+    expect(await retryState(request.id)).toMatchObject({
+      status: "in_progress",
+      lastErrorCode: "privacy_legal_hold",
+      nextAttemptAt: null,
+      // A hold is a human decision, not a failed round.
+      withdrawalAttempts: 1,
+      pendingReviewIds: [seed.reviewId],
+    })
+    expect(
+      stub.calls.some(
+        (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+      )
+    ).toBe(false)
+    const [held] = await admin<{ metadata: { code: string } }[]>`
+      select metadata
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.withdrawal_held'
+    `
+    expect(held.metadata.code).toBe("privacy_legal_hold")
+  })
+
+  it("restarts the budget and takes over as actor when an owner re-fulfils an exhausted withdrawal", async () => {
+    const { owner, request } = await parkedErasure(403, "Takeover")
+    await admin`
+      update privacy_request
+      set withdrawal_attempts = 11
+      where id = ${request.id}
+    `
+    await makeDue(request.id)
+    await runJobsTick()
+    expect(await retryState(request.id)).toMatchObject({
+      withdrawalAttempts: 12,
+      nextAttemptAt: null,
+    })
+
+    // Another owner picks it up while Google still refuses.
+    const successor = await createActor(owner.organisationId, "owner")
+    const retry = await fulfil(successor.cookie, request.id)
+    expect(retry.status).toBe(409)
+    expect((await retry.json()).error).toBe("privacy_reply_withdraw_failed")
+
+    const state = await retryState(request.id)
+    expect(state.status).toBe("in_progress")
+    // Reset to zero by the re-fulfil, then its own inline round.
+    expect(state.withdrawalAttempts).toBe(1)
+    expect(state.nextAttemptAt).toBeInstanceOf(Date)
+    const [actor] = await admin<{ actorUserId: string | null }[]>`
+      select withdrawal_actor_id::text as "actorUserId"
+      from privacy_request
+      where id = ${request.id}
+    `
+    expect(actor.actorUserId).toBe(successor.userId)
+    stub.reset()
+  })
+
+  it("completes a parked withdrawal whose reply was deleted out of band, without calling Google", async () => {
+    const { owner, seed, request } = await parkedErasure(500, "Out of band")
+    await admin`
+      update review_reply
+      set publish_status = 'deleted'
+      where review_id = ${seed.reviewId}
+    `
+    stub.reset()
+    await makeDue(request.id)
+    await runJobsTick()
+
+    expect(await retryState(request.id)).toMatchObject({
+      status: "completed",
+      pendingReviewIds: [],
+      nextAttemptAt: null,
+      resolvedBy: owner.userId,
+    })
+    expect(
+      stub.calls.some(
+        (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+      )
+    ).toBe(false)
   })
 
   it("will not fulfil a rejected request, nor reopen a completed one", async () => {
