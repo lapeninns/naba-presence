@@ -987,6 +987,122 @@ its `retention.purge.completed` audit row and in
 falls is an unmet deletion obligation waiting on a hold nobody released, not a
 purge failure. Releasing the hold lets the next sweep complete the deletion.
 
+A legal hold on a review keeps everything retention would otherwise remove
+for it: the review's redaction and media, its drafts, replies and publish
+attempts (they go only with the review), its location on disconnect, its AI
+usage rows past 13 months, and audit rows whose subject is the review past the
+audit window.
+
+### Retention inventory and dry run
+
+`lib/server/retention/inventory.ts` classifies every table: provenance
+(`google`, `customer`, `derived`, `operational`), action (`redact`,
+`delete`, `keep`), window, the purge steps or cascades that act on it,
+whether `RETENTION_DELETES_ENABLED` gates its deletes, whether a legal hold
+keeps it, and the approval the window stands on (`published` in the privacy
+notice, `lifecycle` of its owning record, `internal`, or `pending` a named
+decision with the interim keep decision). `tests/retention-inventory.test.ts`
+fails on any table a migration creates without a row, on a purge step its row
+does not list, and on a new derived dataset without a published window; a
+new table lands with its row in the same change.
+
+Preview a purge before enabling deletes or after changing a predicate:
+`POST /api/cron/retention?dryRun=1&batch_size=25` with the cron bearer (add
+`&cursor=<nextCursor>` to continue). Each organisation reports `counts`, the
+rows each dataset would change now (a `select count(*)` on the step's own
+predicate), `deferredDeletes` while `RETENTION_DELETES_ENABLED` is off (what
+would be deleted once it is on), and `heldLocationsSkipped`. It changes
+nothing except one `retention.dry_run` audit per organisation, takes no lease
+and runs while the retention scope is paused. The Vercel cron GET never
+previews.
+
+<!-- retention-inventory:start -->
+| Table | Provenance | Action | Window | Mechanism | Deletes | Hold | Approval |
+| ----- | ---------- | ------ | ------ | --------- | ------- | ---- | -------- |
+| `abuse_rate_bucket` | operational | delete | when its window ends (expires_at) | purgeEndedAbuseBuckets (lib/server/retention/purge.ts), once per cycle | ungated | no | internal |
+| `ai_usage` | derived | delete | 13 months after creation, never while its allowance period is open or the row is reserved | `aiUsage` | gated | yes | published |
+| `app_session` | operational | delete | 7 days after it expires | `appSessions` | gated | no | published |
+| `app_user` | customer | keep | for the life of the account | none | none | no | lifecycle |
+| `approval_decision` | customer | keep | with its review | cascade from `review` | gated | yes | published |
+| `audit_log` | operational | delete | organisation.audit_retention_days (default 365) after it is written; never a held review's | `auditLogs` | gated | yes | published |
+| `bulk_listing_child` | customer | keep | with its bulk operation | none | none | no | pending D-47: keep each location's current and proposed values with its bulk operation |
+| `bulk_listing_operation` | customer | keep | kept after it finishes | none | none | no | pending D-47: keep finished bulk operations for the life of the organisation |
+| `client` | customer | keep | for the life of the client record | none | none | no | lifecycle |
+| `client_google_connection` | customer | keep | for the life of the client and connection | none | none | no | lifecycle |
+| `connection_task` | operational | keep | for the life of the connection | none | none | no | lifecycle |
+| `cron_cursor` | operational | keep | one row per walk, updated in place | none | none | no | internal |
+| `draft` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
+| `external_location` | google | redact | raw payload and address at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at), unless a review of it is held | `locations`, `disconnectedLocations` | gated | yes | published |
+| `food_menu_item_identity` | derived | keep | for the life of the location | none | none | no | pending D-28: keep the item mapping while the location exists; it is rebuilt on each menu reconcile |
+| `food_menus_state` | google | delete | expires_at (30 days after each observation) | `foodMenuStates`, cascade from `external_location` | gated | yes | published |
+| `food_menus_sync_attempt` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `foodMenuAttempts`, `strandedFoodMenus`, cascade from `external_location` | gated | yes | internal |
+| `gbp_change_set` | operational | delete | expires_at (180 days after it is requested), once no Place Action attempt refers to it | `managementChangeSets` | gated | no | internal |
+| `gbp_local_post` | customer | redact | provider payload at provider_payload_expires_at; the post while its location stays connected; deleted with the external location 7 days after disconnect | `postPayloads`, `strandedPosts`, cascade from `external_location` | gated | yes | published |
+| `gbp_local_post_attempt` | operational | delete | expires_at (180 days after it is created) | `postAttempts`, cascade from `gbp_local_post` | gated | yes | internal |
+| `gbp_management_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `managementMutations`, `strandedManagement` | gated | no | internal |
+| `gbp_media_item` | google | redact | URLs, description, attribution, dimensions and insights at payload_expires_at (30 days after each observation) | `googleMediaPayloads`, cascade from `external_location` | gated | yes | published |
+| `gbp_media_mutation` | operational | delete | expires_at (180 days after it is created), except an unresolved uncertain create; in-flight rows aged to ambiguous after 24 hours | `mediaMutations`, `strandedMedia` | gated | no | internal |
+| `gbp_resource_snapshot` | google | delete | expires_at (30 days after each observation) | `resourceSnapshots` | gated | no | published |
+| `google_account` | google | redact | raw payload at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row while its connection exists | `accounts` | none | no | published |
+| `google_connection` | operational | keep | for the life of the organisation; tokens are cleared on disconnect | none | none | no | lifecycle |
+| `google_onboarding_creation` | google | delete | with its onboarding draft | cascade from `google_onboarding_draft`, cascade from `google_onboarding_review` | gated | no | internal |
+| `google_onboarding_draft` | google | delete | expires_at (180 days after it is started) | `onboardingDrafts` | gated | no | internal |
+| `google_onboarding_match_link` | google | delete | with its onboarding draft | cascade from `google_onboarding_match_link_review` | gated | no | internal |
+| `google_onboarding_match_link_review` | google | delete | with its onboarding draft | cascade from `google_onboarding_draft` | gated | no | internal |
+| `google_onboarding_review` | google | delete | with its onboarding draft | cascade from `google_onboarding_draft` | gated | no | internal |
+| `google_rate_bucket` | operational | keep | one row per quota bucket, updated in place | none | none | no | internal |
+| `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | yes | internal |
+| `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
+| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record | cascade from `review` | gated | yes | lifecycle |
+| `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
+| `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
+| `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
+| `member` | customer | keep | while the person is a member | none | none | no | lifecycle |
+| `mutation_approval_decision` | operational | keep | with its operation receipt | none | none | no | lifecycle |
+| `mutation_operation` | operational | keep | for the life of the organisation; approved requests whose dispatch never started are settled failed | `interruptedApprovals` | none | no | pending D-47: keep every operation receipt as the outcome record of the write it answers |
+| `notification_delivery` | operational | keep | kept after it is sent or fails | none | none | no | pending D-47: keep delivery history for the life of the organisation |
+| `notification_delivery_event` | operational | keep | with its delivery | none | none | no | pending D-47: keep provider delivery events with their delivery |
+| `notification_digest` | operational | keep | kept after it is sent | none | none | no | pending D-47: keep digest records for the life of the organisation |
+| `notification_incident` | operational | keep | kept after it resolves | none | none | no | pending D-47: keep resolved incidents for the life of the organisation |
+| `notification_preference` | customer | keep | while the person is a member | none | none | no | lifecycle |
+| `notification_recipient_state` | operational | keep | with its incident; cleared when a person marks it unread | none | none | no | lifecycle |
+| `ops_heartbeat` | operational | keep | one row per tick, updated in place | none | none | no | internal |
+| `ops_pause_control` | operational | keep | one row per pause scope, updated in place | none | none | no | internal |
+| `ops_pause_event` | operational | keep | append-only history of pause changes | none | none | no | pending D-47: keep every pause change as the operator record |
+| `organisation` | customer | keep | for the life of the account | none | none | no | lifecycle |
+| `organisation_feature` | customer | keep | for the life of the organisation | none | none | no | lifecycle |
+| `organisation_job_route` | operational | keep | for the life of the organisation | none | none | no | internal |
+| `performance_metric_daily` | derived | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | pending D-28: keep daily figures while the location stays connected, as the privacy notice says |
+| `performance_search_keyword_monthly` | derived | delete | 18 months after the metric month | `keywordHistory`, cascade from `external_location` | gated | yes | pending D-28: keep deleting keyword history after 18 months, as the privacy notice says |
+| `place_action_link` | google | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | pending D-28: keep the mirrored links while the location stays connected; they are refreshed on every read |
+| `place_action_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `placeActionMutations`, `strandedPlaceActions`, cascade from `external_location` | gated | yes | internal |
+| `platform_incident` | operational | keep | kept after it resolves | none | none | no | pending D-47: keep resolved platform incidents as the operations record |
+| `platform_incident_delivery` | operational | keep | with its incident | none | none | no | pending D-47: keep operator alert deliveries (recipient address included) with their incident |
+| `post_approval_decision` | customer | keep | with its post | cascade from `gbp_local_post` | gated | yes | lifecycle |
+| `post_publication_occurrence` | customer | keep | with its schedule | none | none | no | pending D-47: keep every occurrence, run or skipped, for the life of its schedule |
+| `post_publication_schedule` | customer | keep | for the life of the location | none | none | no | pending D-47: keep finished and cancelled schedules for the life of the location |
+| `presence_canonical_resource` | customer | keep | for the life of the location | none | none | no | lifecycle |
+| `presence_import_proposal` | google | delete | expires_at (90 days after it is raised) | `importProposals`, cascade from `external_location` | gated | yes | published |
+| `presence_resource_reconcile_state` | operational | keep | one row per location and resource, for the life of the location | none | none | no | internal |
+| `privacy_request` | customer | keep | kept after it is resolved | none | none | no | pending D-47: keep resolved privacy requests as the record of how each was answered |
+| `processed_webhook_event` | google | redact | payload at payload_expires_at (30 days; legacy rows only, new events store no payload); the dedupe row is kept | `webhookPayloads` | none | no | published |
+| `profile_field_state` | google | redact | canonical and Google values at snapshot_expires_at (30 days after each observation) | `profileSnapshots`, cascade from `external_location` | gated | yes | published |
+| `profile_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `profileAttempts`, `strandedProfiles`, cascade from `external_location` | gated | yes | internal |
+| `publish_attempt` | operational | keep | with its reply | cascade from `review_reply` | gated | yes | published |
+| `publish_attempt_event` | operational | keep | with its publish attempt (append-only; yields only to retention) | cascade from `publish_attempt` | gated | yes | published |
+| `report_share` | customer | keep | kept after it expires or is revoked | none | none | no | pending D-22: keep expired and revoked share rows (token hash only) for the life of the client |
+| `retention_cycle` | operational | delete | completed cycles 35 days after their day (RETENTION_CYCLE_KEEP_DAYS) | openOrResumeCycle (lib/server/retention/cycle.ts), when a new cycle opens | ungated | no | internal |
+| `retention_cycle_org` | operational | delete | with its cycle | cascade from `retention_cycle` | ungated | no | internal |
+| `review` | google | redact | review text, reviewer name, photo link and raw payload at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at) | `reviews`, `disconnectedReviews`, cascade from `external_location` | gated | yes | published |
+| `review_media_item` | google | delete | with its review's raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt | `media`, cascade from `review` | gated | yes | published |
+| `review_reply` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
+| `risc_event` | operational | keep | kept as the Cross-Account Protection record | none | none | no | pending D-47: keep received security events as their record |
+| `schema_migration` | operational | keep | one row per applied migration | none | none | no | internal |
+| `sync_checkpoint` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
+| `verification_result` | customer | keep | with its draft | cascade from `draft` | gated | yes | published |
+| `webhook_route` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
+<!-- retention-inventory:end -->
+
 ## Retired capabilities and service eligibility
 
 `410 provider_capability_retired` is a terminal unsupported operation. Do not

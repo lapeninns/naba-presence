@@ -1,7 +1,7 @@
 import { ApiError } from "@/lib/server/http"
 import { withAdvisoryLock } from "@/lib/server/leases"
 import { runRetentionCycle } from "@/lib/server/retention/cycle"
-import { retainPage } from "@/lib/server/retention/purge"
+import { dryRunPage, retainPage } from "@/lib/server/retention/purge"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -23,23 +23,51 @@ const UUID =
  *
  * `batch_size` (1-100, default 25 for a page, 100 for the dispatcher) is the
  * page size in both.
+ *
+ * POST only, `dryRun=1`: one page of the dry run (plan P04-4), from
+ * `cursor` (the head when absent or empty). It reports per organisation
+ * what the purge would change, changing nothing but its `retention.dry_run`
+ * audits, so it needs neither the lease nor an unpaused scope. The Vercel
+ * cron GET never previews.
  */
 type RetentionQuery =
   | { mode: "cycle"; batchSize: number }
   | { mode: "page"; cursor: string | null; batchSize: number }
+  | { mode: "dryRun"; cursor: string | null; batchSize: number }
+
+function pageCursor(searchParams: URLSearchParams): string | null {
+  const cursor = searchParams.get("cursor") || null
+  if (cursor !== null && !UUID.test(cursor)) {
+    throw new ApiError(400, "invalid_request", "cursor must be an organisation id.")
+  }
+  return cursor
+}
 
 function retentionQuery(searchParams: URLSearchParams): RetentionQuery {
   const requested = searchParams.get("batch_size")
   const size = (fallback: number) =>
     Math.min(100, Math.max(1, Number(requested ?? fallback) || fallback))
+  if (searchParams.has("dryRun")) {
+    throw new ApiError(400, "invalid_request", "dryRun is POST only.")
+  }
   if (!searchParams.has("cursor")) {
     return { mode: "cycle", batchSize: size(100) }
   }
-  const cursor = searchParams.get("cursor") || null
-  if (cursor !== null && !UUID.test(cursor)) {
-    throw new ApiError(400, "invalid_request", "cursor must be an organisation id.")
+  return { mode: "page", cursor: pageCursor(searchParams), batchSize: size(25) }
+}
+
+function retentionPostQuery(searchParams: URLSearchParams): RetentionQuery {
+  const dryRun = searchParams.get("dryRun")
+  if (dryRun === null) return retentionQuery(searchParams)
+  if (dryRun !== "1") {
+    throw new ApiError(400, "invalid_request", "dryRun must be 1.")
   }
-  return { mode: "page", cursor, batchSize: size(25) }
+  const requested = searchParams.get("batch_size")
+  return {
+    mode: "dryRun",
+    cursor: pageCursor(searchParams),
+    batchSize: Math.min(100, Math.max(1, Number(requested ?? 25) || 25)),
+  }
 }
 
 function runRetentionTick({
@@ -51,6 +79,14 @@ function runRetentionTick({
   clientRequestId: string | null
   query: RetentionQuery
 }) {
+  if (query.mode === "dryRun") {
+    return dryRunPage({
+      requestId,
+      clientRequestId,
+      cursor: query.cursor,
+      batchSize: query.batchSize,
+    })
+  }
   if (query.mode === "page") {
     return withAdvisoryLock(
       "naba:retention",
@@ -78,7 +114,7 @@ function runRetentionTick({
 
 export const POST = route({
   auth: "cron",
-  query: retentionQuery,
+  query: retentionPostQuery,
   handler: ({ requestId, clientRequestId, query }) =>
     runRetentionTick({ requestId, clientRequestId, query }),
 })

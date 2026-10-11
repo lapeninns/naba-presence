@@ -2,7 +2,7 @@ import "server-only"
 
 import { randomUUID } from "node:crypto"
 
-import type { TransactionSql } from "postgres"
+import type { Fragment, TransactionSql } from "postgres"
 import { z, type ZodType } from "zod"
 
 import {
@@ -899,6 +899,24 @@ async function followDispatch(
 export const INTERRUPTED_APPROVAL_AFTER_SECONDS = 300
 
 /**
+ * The receipts settleInterruptedListingChanges settles: an approved change
+ * request still `sent` with no attempt past INTERRUPTED_APPROVAL_AFTER_SECONDS.
+ * The retention dry run counts with the same predicate.
+ */
+export function interruptedListingChange(
+  sql: TransactionSql,
+  organisationId: string
+): Fragment {
+  return sql`
+    organisation_id = ${organisationId}
+    and change_request is not null
+    and state = 'sent'
+    and attempt_id is null
+    and updated_at < now() - make_interval(secs => ${INTERRUPTED_APPROVAL_AFTER_SECONDS})
+  `
+}
+
+/**
  * Settles approved change requests whose dispatch never claimed an attempt
  * -- the approval was killed (a timeout, a crash) between committing the
  * decision and its dispatch reaching Google. A dispatch that got that far
@@ -923,11 +941,7 @@ export async function settleInterruptedListingChanges(
       error_code = 'approval_dispatch_interrupted',
       next_recovery_at = null,
       updated_at = now()
-    where organisation_id = ${input.organisationId}
-      and change_request is not null
-      and state = 'sent'
-      and attempt_id is null
-      and updated_at < now() - make_interval(secs => ${INTERRUPTED_APPROVAL_AFTER_SECONDS})
+    where ${interruptedListingChange(sql, input.organisationId)}
       ${only}
     returning id
   `

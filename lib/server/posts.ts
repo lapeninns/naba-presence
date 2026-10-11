@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { TransactionSql } from "postgres"
+import type { Fragment, TransactionSql } from "postgres"
 import { z } from "zod"
 
 import {
@@ -428,6 +428,24 @@ async function settleStrandedLocalPosts(
 }
 
 /**
+ * The rows reapStrandedLocalPosts parks: still `publishing` past their
+ * publish lease (or, with no lease, 15 minutes untouched). The retention dry
+ * run counts with the same predicate.
+ */
+export function strandedLocalPost(sql: TransactionSql): Fragment {
+  return sql`
+    status = 'publishing'
+    and (
+      publish_lease_expires_at <= now()
+      or (
+        publish_lease_expires_at is null
+        and updated_at <= now() - interval '15 minutes'
+      )
+    )
+  `
+}
+
+/**
  * Rows an interrupted publish left at `publishing`, parked as `ambiguous`
  * without a provider call. Runs inside one tenant's transaction, so the
  * fleet-wide sweep is the retention cron's existing per-organisation loop
@@ -446,14 +464,7 @@ export async function reapStrandedLocalPosts(
     update gbp_local_post
     set status = 'ambiguous', last_error_code = 'publish_lease_expired',
       publish_lease_expires_at = null
-    where status = 'publishing'
-      and (
-        publish_lease_expires_at <= now()
-        or (
-          publish_lease_expires_at is null
-          and updated_at <= now() - interval '15 minutes'
-        )
-      )
+    where ${strandedLocalPost(sql)}
     returning id::text as id
   `
   if (reaped.length > 0) {
