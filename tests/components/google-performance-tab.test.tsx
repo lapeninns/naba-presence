@@ -82,4 +82,27 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(await tileFor("Call button taps")).getByText("9")).toBeInTheDocument()
     expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
   })
+  it("names every missing location when the report covers none of them", async () => {
+    stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "empty", freshThrough: null,
+      locations: [{ id: "l", name: "Lamb" }, { id: "m", name: "Mitre" }], totals: ZERO_TOTALS, series: [], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true,
+      completeness: { state: "none", expected: 2, covered: 0, completeThrough: null,
+        missing: [{ id: "l", name: "Lamb", reason: "stale" }, { id: "m", name: "Mitre", reason: "pending" }], refreshFailed: [] } })
+    renderTab()
+    const banner = (await screen.findByText("Showing 0 of 2 locations")).closest("[data-slot=partial-coverage]") as HTMLElement
+    expect(within(banner).getByText(/latest figures end before this period: Lamb/)).toBeInTheDocument()
+    expect(within(banner).getByText(/Not fetched from Google yet: Mitre/)).toBeInTheDocument()
+    expect(within(banner).getByText(/none is counted as zero/)).toBeInTheDocument()
+    expect(screen.getByText("No activity yet")).toBeInTheDocument()
+  })
+  it("names a failed refresh once, inside the alert that says why", async () => {
+    const totals = Object.fromEntries(Object.keys(ZERO_TOTALS).map((metric) => [metric, null]))
+    stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "ready", freshThrough: "2026-08-29",
+      locations: [{ id: "l", name: "Lamb" }, { id: "m", name: "Mitre" }],
+      totals: { ...totals, CALL_CLICKS: 9 }, series: [{ date: "2026-08-20", metrics: { CALL_CLICKS: 9 } }], unavailableReasons: ["performance_sync_failed"], keywordsEnabled: false, ingestionEnabled: true,
+      completeness: { state: "partial", expected: 2, covered: 2, completeThrough: "2026-08-20", missing: [], refreshFailed: [{ id: "m", name: "Mitre" }] } })
+    renderTab()
+    const alert = (await screen.findByText("Some figures could not be refreshed")).closest("[data-slot=unavailable-reasons]") as HTMLElement
+    expect(within(alert).getByText(/Latest refresh failed.*Mitre.*through 20 Aug/)).toBeInTheDocument()
+    expect(document.querySelector("[data-slot=partial-coverage]")).toBeNull()
+  })
 })

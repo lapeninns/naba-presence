@@ -11,8 +11,10 @@ import type {
  * `last_keyword_month`, or the newest stored row when the checkpoint has
  * none. Watermarks only advance over persisted data and survive a failed
  * refresh, so the oldest covered watermark is the date every covered
- * location is complete through. A location without one is missing: it adds
- * nothing to the totals, and is named rather than counted as zero.
+ * location is complete through. A location is covered only when its
+ * watermark falls inside the report window: one without a watermark, or
+ * whose watermark ends before the window starts, adds nothing to the totals
+ * and is named as missing rather than counted as zero.
  */
 export type CoverageLocation = { id: string; name: string }
 
@@ -23,11 +25,20 @@ export type CoverageCheckpoint = {
   watermark: string | null
 }
 
+export type CoverageOptions = {
+  /**
+   * First day of the report window (ISO `YYYY-MM-DD`; keywords pass the
+   * first day of the first month). A watermark before it is out of window.
+   */
+  windowStart: string
+  /** Newest stored date per location, used when a checkpoint has no watermark. */
+  latestStored?: ReadonlyMap<string, string>
+}
+
 export function summariseReportCoverage(
   locations: readonly CoverageLocation[],
   checkpoints: readonly CoverageCheckpoint[],
-  /** Newest stored date per location, used when a checkpoint has no watermark. */
-  latestStored: ReadonlyMap<string, string> = new Map()
+  { windowStart, latestStored = new Map() }: CoverageOptions
 ): ReportCompleteness {
   const byLocation = new Map(
     checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
@@ -38,13 +49,14 @@ export function summariseReportCoverage(
   let covered = 0
   for (const location of locations) {
     const checkpoint = byLocation.get(location.id)
+    const status = checkpoint?.status ?? null
     const watermark =
       checkpoint?.watermark ?? latestStored.get(location.id) ?? null
-    if (!watermark) {
+    if (!watermark || watermark < windowStart) {
       missing.push({
         id: location.id,
         name: location.name,
-        reason: missingReason(checkpoint?.status ?? null),
+        reason: missingReason(status, Boolean(watermark)),
       })
       continue
     }
@@ -52,7 +64,7 @@ export function summariseReportCoverage(
     if (!completeThrough || watermark < completeThrough) {
       completeThrough = watermark
     }
-    if (checkpoint?.status === "failed") {
+    if (status === "failed") {
       refreshFailed.push({ id: location.id, name: location.name })
     }
   }
@@ -71,19 +83,15 @@ export function summariseReportCoverage(
   }
 }
 
-function missingReason(status: string | null): ReportMissingReason {
+function missingReason(
+  status: string | null,
+  /** The location has data, but all of it ends before the window starts. */
+  beforeWindow: boolean
+): ReportMissingReason {
   if (status === "failed") return "unavailable"
+  if (beforeWindow) return "stale"
   if (status === null || status === "pending" || status === "running") {
     return "pending"
   }
   return "no_data"
-}
-
-/** Totals for a report with no covered location: every figure missing, none zero. */
-export function totalsForCoverage<T extends Record<string, number | null>>(
-  totals: T,
-  completeness: ReportCompleteness
-): T {
-  if (completeness.covered > 0) return totals
-  return Object.fromEntries(Object.keys(totals).map((key) => [key, null])) as T
 }

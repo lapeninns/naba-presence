@@ -98,7 +98,8 @@ export const GET = route({
           ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
           and ${visibility}
       `
-      // Newest stored month per location, for a checkpoint without a watermark.
+      // Newest stored month in the window per location, for a checkpoint
+      // without a watermark. Older months add nothing, so they cover nothing.
       const latestStored = await sql<
         Array<{ locationId: string; latest: string }>
       >`
@@ -108,7 +109,7 @@ export const GET = route({
           on ll.external_location_id = k.external_location_id
          and ll.is_active = true
         join location l on l.id = ll.location_id
-        where 1 = 1
+        where k.metric_month >= ${from}::date
           ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
           ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
           and ${visibility}
@@ -123,7 +124,13 @@ export const GET = route({
         status: checkpoint.status,
         watermark: checkpoint.lastKeywordMonth,
       })),
-      new Map(payload.latestStored.map((row) => [row.locationId, row.latest]))
+      {
+        // A month watermark (first of the month) before `from` is out of window.
+        windowStart: from,
+        latestStored: new Map(
+          payload.latestStored.map((row) => [row.locationId, row.latest])
+        ),
+      }
     )
     const state = !payload.locations.length
       ? "no_link"

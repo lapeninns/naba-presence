@@ -115,4 +115,65 @@ describeDatabase("Google presence report provenance", () => {
     )
     expect(report.dateBasis).toBe("google_daily")
   })
+
+  it("names a location whose watermark ends before the window as missing, and a report covering none has null totals", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const current = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      ...connection,
+    })
+    const stopped = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      ...connection,
+    })
+    const metric = (externalLocationId: string, date: string, value: number) =>
+      admin`
+        insert into performance_metric_daily (organisation_id, external_location_id, metric, metric_date, value)
+        values (${owner.organisationId}, ${externalLocationId}, 'CALL_CLICKS', ${date}::date, ${value})`
+    const checkpoint = (externalLocationId: string, through: string) => admin`
+      insert into sync_checkpoint (organisation_id, external_location_id, sync_type, status, next_attempt_at, last_succeeded_at, last_metric_date)
+      values (${owner.organisationId}, ${externalLocationId}, 'performance', 'succeeded', now(), now(), ${through}::date)`
+    await metric(current.externalLocationId, day(3), 5)
+    await checkpoint(current.externalLocationId, day(3))
+    // Google stopped returning data for this one 60 days ago.
+    await metric(stopped.externalLocationId, day(60), 8)
+    await checkpoint(stopped.externalLocationId, day(60))
+
+    const load = async (query: string) => {
+      const response = await fetch(
+        `${server.baseUrl}/api/analytics/presence?range=28d${query}`,
+        { headers: { cookie: owner.cookie } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      return presenceResponseSchema.parse(await response.json())
+    }
+    const both = await load("")
+    expect(both.totals.CALL_CLICKS).toBe(5)
+    expect(both.completeness).toEqual({
+      state: "partial",
+      expected: 2,
+      covered: 1,
+      // The stopped location's watermark never becomes the complete date.
+      completeThrough: day(3),
+      missing: [
+        { id: stopped.locationId, name: expect.any(String), reason: "stale" },
+      ],
+      refreshFailed: [],
+    })
+
+    const stoppedOnly = await load(`&locationId=${stopped.locationId}`)
+    expect(stoppedOnly.completeness).toMatchObject({
+      state: "none",
+      expected: 1,
+      covered: 0,
+      completeThrough: null,
+    })
+    for (const value of Object.values(stoppedOnly.totals)) {
+      expect(value).toBeNull()
+    }
+  })
 })

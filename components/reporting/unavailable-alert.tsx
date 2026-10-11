@@ -1,4 +1,5 @@
 import Link from "next/link"
+import type { ReactNode } from "react"
 
 import {
   Alert,
@@ -16,13 +17,17 @@ const RECONNECT_CODES = new Set(["permission_denied"])
  * Why some (or all) figures could not be refreshed (reference
  * `unavailable-reasons`). Every reason is spelled out in plain words; the
  * raw code is never shown. A permission failure offers the way to fix it.
+ * `children` adds detail about the same failure (which locations it hit),
+ * so one failure is one warning.
  */
 export function UnavailableAlert({
   codes,
   title,
+  children,
 }: {
   codes: string[]
   title: string
+  children?: ReactNode
 }) {
   const reasons = humaniseUnavailableReasons(codes)
   if (reasons.length === 0) return null
@@ -40,6 +45,7 @@ export function UnavailableAlert({
             ))}
           </ul>
         )}
+        {children}
       </AlertDescription>
       {reconnect ? (
         <AlertActions>

@@ -7,10 +7,7 @@ import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
-import {
-  summariseReportCoverage,
-  totalsForCoverage,
-} from "@/lib/domain/report-coverage"
+import { summariseReportCoverage } from "@/lib/domain/report-coverage"
 import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   visibilityPredicate,
@@ -159,8 +156,9 @@ export async function loadPresenceReport(
       ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
       and ${visibility}
   `
-  // Per-location newest stored day, for a checkpoint that has no watermark
-  // (rows written before last_metric_date existed, or seeded directly).
+  // Per-location newest stored day in the window, for a checkpoint that has
+  // no watermark (rows written before last_metric_date existed, or seeded
+  // directly). Older rows add nothing to this window, so they cover nothing.
   const latestStored = await sql<Array<{ locationId: string; latest: string }>>`
     select l.id::text as "locationId", max(p.metric_date)::text as latest
     from performance_metric_daily p
@@ -168,24 +166,27 @@ export async function loadPresenceReport(
       on ll.external_location_id = p.external_location_id
      and ll.is_active = true
     join location l on l.id = ll.location_id
-    where p.metric_date <= ${end}::date
+    where p.metric_date between ${start}::date and ${end}::date
       ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
       ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
       and ${visibility}
     group by l.id
   `
+  // The window always ends today and Google never dates a metric later, so a
+  // watermark needs no cap at the end; one before `start` covers nothing.
   const completeness = summariseReportCoverage(
     locations,
     checkpoints.map((checkpoint) => ({
       locationId: checkpoint.locationId,
       status: checkpoint.status,
-      // A window that ends before the watermark is complete through its end.
-      watermark:
-        checkpoint.lastMetricDate && checkpoint.lastMetricDate > end
-          ? end
-          : checkpoint.lastMetricDate,
+      watermark: checkpoint.lastMetricDate,
     })),
-    new Map(latestStored.map((row) => [row.locationId, row.latest]))
+    {
+      windowStart: start,
+      latestStored: new Map(
+        latestStored.map((row) => [row.locationId, row.latest])
+      ),
+    }
   )
   // A metric with no rows stays null: Google sent nothing, which is not zero.
   const totals = emptyTotals()
@@ -265,8 +266,9 @@ export async function loadPresenceReport(
     dateBasis: "google_daily",
     freshThrough,
     locations: [...locations],
-    // No covered location: every figure is missing, never a zero.
-    totals: totalsForCoverage(totals, completeness),
+    // A metric with no rows in the window stays null. With no covered
+    // location there are no rows, so every figure is missing, never a zero.
+    totals,
     completeness,
     series: Array.from(byDate, ([date, metrics]) => ({ date, metrics })),
     unavailableReasons: Array.from(

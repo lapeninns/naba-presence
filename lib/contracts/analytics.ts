@@ -159,7 +159,8 @@ export type PresenceCoverage = z.infer<typeof presenceCoverageSchema>
  * location the viewer can see; a location is `covered` once it has a
  * complete-data watermark (the last day or month Google returned for it).
  * `completeThrough` is the OLDEST covered watermark, so every covered
- * location is complete up to it; `missing` locations contribute nothing to
+ * location is complete up to it; a watermark before the window's start does
+ * not cover a location (reason `stale`); `missing` locations contribute nothing to
  * the totals, which are never padded with zeros for them. `refreshFailed`
  * names covered locations whose latest refresh failed, so their figures may
  * stop short of the window's end.
@@ -173,6 +174,8 @@ export const REPORT_MISSING_REASONS = [
   "unavailable",
   "pending",
   "no_data",
+  // Google's latest figures for it end before the report window starts.
+  "stale",
 ] as const
 const reportCoverageLocationSchema = z.object({
   id: z.string(),

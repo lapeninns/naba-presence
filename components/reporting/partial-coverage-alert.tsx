@@ -9,6 +9,7 @@ const MISSING_LABEL: Record<ReportMissingReason, string> = {
   pending: "Not fetched from Google yet",
   unavailable: "Could not be refreshed",
   no_data: "Google has reported nothing",
+  stale: "Google’s latest figures end before this period",
 }
 
 const MONTH = new Intl.DateTimeFormat("en-GB", {
@@ -17,6 +18,19 @@ const MONTH = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 })
 
+type Nouns = { one: string; many: string }
+
+const LOCATION_NOUNS: Nouns = { one: "location", many: "locations" }
+
+/**
+ * Completeness as the report shows it: the shared client report's DTO
+ * carries names only, so ids are optional here.
+ */
+type Completeness = Omit<ReportCompleteness, "missing" | "refreshFailed"> & {
+  missing: Array<{ name: string; reason: ReportMissingReason }>
+  refreshFailed: Array<{ name: string }>
+}
+
 /** A day (presence, Google's own dates) or a `YYYY-MM` month (keywords). */
 function formatThrough(value: string) {
   return value.length === 7
@@ -24,21 +38,62 @@ function formatThrough(value: string) {
     : formatDate(value, "UTC")
 }
 
+function completeThroughLine(completeness: Completeness, nouns: Nouns) {
+  return completeness.completeThrough
+    ? `Complete for every ${nouns.one} shown through ${formatThrough(completeness.completeThrough)}.`
+    : null
+}
+
+/**
+ * Which covered locations' latest refresh failed. Rendered inside the
+ * "could not be refreshed" alert that already explains why, so the same
+ * failure is one warning, not two. Renders nothing when none failed.
+ */
+export function RefreshFailedNote({
+  completeness,
+  nouns = LOCATION_NOUNS,
+}: {
+  completeness: Completeness | null | undefined
+  nouns?: Nouns
+}) {
+  if (!completeness?.refreshFailed.length) return null
+  const names = completeness.refreshFailed.map((location) => location.name)
+  // With nothing missing, no other banner states the complete-through date.
+  const through = completeness.missing.length
+    ? null
+    : completeThroughLine(completeness, nouns)
+  return (
+    <p data-slot="refresh-failed" className="mt-1">
+      {`Latest refresh failed, so figures may stop early: ${names.join(", ")}.`}
+      {through ? ` ${through}` : null}
+    </p>
+  )
+}
+
 /**
  * A report that does not cover every location in scope says so: how many it
  * shows, which are missing and why, and the oldest date every covered
  * location is complete through. Missing locations add nothing to the totals,
- * which are never padded with zeros for them. Renders nothing for a complete
- * report, or for a server that predates the completeness field.
+ * which are never padded with zeros for them. Shown for a partial report and
+ * for one that covers no location at all. `refreshFailedShownElsewhere`
+ * leaves covered-but-failed locations to a {@link RefreshFailedNote} in the
+ * unavailable-reasons alert. Renders nothing for a complete report, or for a
+ * server that predates the completeness field.
  */
 export function PartialCoverageAlert({
   completeness,
-  nouns = { one: "location", many: "locations" },
+  nouns = LOCATION_NOUNS,
+  refreshFailedShownElsewhere = false,
 }: {
-  completeness: ReportCompleteness | null | undefined
-  nouns?: { one: string; many: string }
+  completeness: Completeness | null | undefined
+  nouns?: Nouns
+  refreshFailedShownElsewhere?: boolean
 }) {
-  if (!completeness || completeness.state !== "partial") return null
+  if (!completeness || completeness.state === "complete") return null
+  const behind = refreshFailedShownElsewhere
+    ? []
+    : completeness.refreshFailed.map((location) => location.name)
+  if (!completeness.missing.length && !behind.length) return null
   const noun = (count: number) => (count === 1 ? nouns.one : nouns.many)
   const groups = (Object.keys(MISSING_LABEL) as ReportMissingReason[]).flatMap(
     (reason) => {
@@ -48,7 +103,7 @@ export function PartialCoverageAlert({
       return names.length ? [{ reason, names }] : []
     }
   )
-  const behind = completeness.refreshFailed.map((location) => location.name)
+  const through = completeThroughLine(completeness, nouns)
   return (
     <Alert variant="warning" data-slot="partial-coverage">
       <AlertTitle>
@@ -71,15 +126,12 @@ export function PartialCoverageAlert({
           ) : null}
           {completeness.missing.length ? (
             <li>
-              Totals include only the {noun(completeness.covered)} shown; a
-              missing {nouns.one} is not counted as zero.
+              {completeness.covered
+                ? `Totals include only the ${noun(completeness.covered)} shown; a missing ${nouns.one} is not counted as zero.`
+                : `No ${nouns.one} has figures for this period; none is counted as zero.`}
             </li>
           ) : null}
-          {completeness.completeThrough ? (
-            <li>
-              {`Complete for every ${nouns.one} shown through ${formatThrough(completeness.completeThrough)}.`}
-            </li>
-          ) : null}
+          {through ? <li>{through}</li> : null}
         </ul>
       </AlertDescription>
     </Alert>

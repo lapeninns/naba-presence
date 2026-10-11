@@ -5,23 +5,25 @@ import {
   presenceResponseSchema,
 } from "@/lib/contracts/analytics"
 import { GOOGLE_PERFORMANCE_METRICS } from "@/lib/domain/google-contract"
-import {
-  summariseReportCoverage,
-  totalsForCoverage,
-} from "@/lib/domain/report-coverage"
+import { summariseReportCoverage } from "@/lib/domain/report-coverage"
 
 const LOCATIONS = [
   { id: "a", name: "Alpha" },
   { id: "b", name: "Bravo" },
   { id: "c", name: "Charlie" },
 ]
+const WINDOW = { windowStart: "2026-09-13" }
 
 describe("summariseReportCoverage", () => {
   it("counts expected vs covered, names the missing and takes the oldest watermark", () => {
-    const summary = summariseReportCoverage(LOCATIONS, [
-      { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
-      { locationId: "b", status: "succeeded", watermark: "2026-10-03" },
-    ])
+    const summary = summariseReportCoverage(
+      LOCATIONS,
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
+        { locationId: "b", status: "succeeded", watermark: "2026-10-03" },
+      ],
+      WINDOW
+    )
     expect(summary).toEqual({
       state: "partial",
       expected: 3,
@@ -33,19 +35,27 @@ describe("summariseReportCoverage", () => {
   })
 
   it("is complete only when every location is covered and refreshed", () => {
-    const summary = summariseReportCoverage(LOCATIONS.slice(0, 2), [
-      { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
-      { locationId: "b", status: "running", watermark: "2026-10-07" },
-    ])
+    const summary = summariseReportCoverage(
+      LOCATIONS.slice(0, 2),
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
+        { locationId: "b", status: "running", watermark: "2026-10-07" },
+      ],
+      WINDOW
+    )
     expect(summary.state).toBe("complete")
     expect(summary.completeThrough).toBe("2026-10-07")
   })
 
   it("keeps a failed location's older watermark and marks the report partial", () => {
-    const summary = summariseReportCoverage(LOCATIONS.slice(0, 2), [
-      { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
-      { locationId: "b", status: "failed", watermark: "2026-09-20" },
-    ])
+    const summary = summariseReportCoverage(
+      LOCATIONS.slice(0, 2),
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
+        { locationId: "b", status: "failed", watermark: "2026-09-20" },
+      ],
+      WINDOW
+    )
     expect(summary).toMatchObject({
       state: "partial",
       covered: 2,
@@ -56,10 +66,14 @@ describe("summariseReportCoverage", () => {
   })
 
   it("names why each location is missing", () => {
-    const summary = summariseReportCoverage(LOCATIONS, [
-      { locationId: "a", status: "failed", watermark: null },
-      { locationId: "b", status: "succeeded", watermark: null },
-    ])
+    const summary = summariseReportCoverage(
+      LOCATIONS,
+      [
+        { locationId: "a", status: "failed", watermark: null },
+        { locationId: "b", status: "succeeded", watermark: null },
+      ],
+      WINDOW
+    )
     expect(summary.state).toBe("none")
     expect(summary.completeThrough).toBeNull()
     expect(summary.missing).toEqual([
@@ -73,7 +87,7 @@ describe("summariseReportCoverage", () => {
     const summary = summariseReportCoverage(
       LOCATIONS.slice(0, 1),
       [{ locationId: "a", status: "succeeded", watermark: null }],
-      new Map([["a", "2026-10-01"]])
+      { ...WINDOW, latestStored: new Map([["a", "2026-10-01"]]) }
     )
     expect(summary).toMatchObject({
       state: "complete",
@@ -82,19 +96,65 @@ describe("summariseReportCoverage", () => {
     })
   })
 
-  it("leaves every total missing, never zero, when no location is covered", () => {
-    const none = summariseReportCoverage(LOCATIONS, [])
-    expect(
-      totalsForCoverage({ CALL_CLICKS: 0, WEBSITE_CLICKS: 4 }, none)
-    ).toEqual({
-      CALL_CLICKS: null,
-      WEBSITE_CLICKS: null,
+  it("does not count a watermark that ends before the window as covered", () => {
+    const summary = summariseReportCoverage(
+      LOCATIONS,
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-10-08" },
+        // Dead-lettered, or Google stopped returning data, in July.
+        { locationId: "b", status: "succeeded", watermark: "2026-07-01" },
+        { locationId: "c", status: "failed", watermark: "2026-07-01" },
+      ],
+      WINDOW
+    )
+    expect(summary).toEqual({
+      state: "partial",
+      expected: 3,
+      covered: 1,
+      // Never a date before the window starts.
+      completeThrough: "2026-10-08",
+      missing: [
+        { id: "b", name: "Bravo", reason: "stale" },
+        { id: "c", name: "Charlie", reason: "unavailable" },
+      ],
+      refreshFailed: [],
     })
-    const some = summariseReportCoverage(LOCATIONS, [
-      { locationId: "a", status: "succeeded", watermark: "2026-10-01" },
-    ])
-    expect(totalsForCoverage({ CALL_CLICKS: 0 }, some)).toEqual({
-      CALL_CLICKS: 0,
+  })
+
+  it("covers a watermark on the window's first day, and compares months for keywords", () => {
+    expect(
+      summariseReportCoverage(
+        LOCATIONS.slice(0, 1),
+        [{ locationId: "a", status: "succeeded", watermark: "2026-09-13" }],
+        WINDOW
+      ).state
+    ).toBe("complete")
+    const keywords = summariseReportCoverage(
+      LOCATIONS.slice(0, 2),
+      [
+        { locationId: "a", status: "succeeded", watermark: "2026-05-01" },
+        { locationId: "b", status: "succeeded", watermark: "2026-04-01" },
+      ],
+      { windowStart: "2026-05-01" }
+    )
+    expect(keywords).toMatchObject({
+      covered: 1,
+      completeThrough: "2026-05-01",
+      missing: [{ id: "b", reason: "stale" }],
+    })
+  })
+
+  it("is none, naming every location, when nothing falls in the window", () => {
+    const summary = summariseReportCoverage(
+      LOCATIONS.slice(0, 1),
+      [{ locationId: "a", status: "succeeded", watermark: "2026-01-31" }],
+      WINDOW
+    )
+    expect(summary).toMatchObject({
+      state: "none",
+      covered: 0,
+      completeThrough: null,
+      missing: [{ id: "a", reason: "stale" }],
     })
   })
 })
