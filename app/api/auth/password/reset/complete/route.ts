@@ -3,6 +3,7 @@ import {
   type ResetCompleteResponse,
 } from "@/lib/contracts/auth"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
+import { isMfaEnabled } from "@/lib/server/mfa"
 import {
   updatePasswordWithToken,
   verifyEmailToken,
@@ -21,9 +22,15 @@ export const POST = route({
       tokenHash: body.tokenHash,
       type: "recovery",
     })
-    await updatePasswordWithToken(verified.accessToken, body.password)
-    // An enrolled person still owes their code: the password is changed and
-    // their other sessions are ended now, the new session comes after it.
+    // An enrolled person's new password waits for their code: the provider
+    // sets a password for a user with factors only at aal2, and a mailbox
+    // alone must not change the credential or end the owner's sessions.
+    // The password travels in the ticket (encrypted) and the verify route
+    // sets it; nothing changes if the code never comes.
+    const deferred = isMfaEnabled() && verified.factors.length > 0
+    if (!deferred) {
+      await updatePasswordWithToken(verified.accessToken, body.password)
+    }
     const result = await completeEmailAuthentication({
       identity: verified.identity,
       requestId,
@@ -31,9 +38,10 @@ export const POST = route({
       passwordReset: true,
       authMethod: "password_reset",
       provider: verified,
+      newPassword: deferred ? body.password : undefined,
     })
     return {
-      updated: true,
+      updated: !result.mfaRequired,
       authenticated: !result.mfaRequired,
       mfaRequired: result.mfaRequired,
     } satisfies ResetCompleteResponse

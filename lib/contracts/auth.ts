@@ -84,9 +84,13 @@ export type ResetRequestResponse = z.infer<typeof resetRequestResponseSchema>
 
 /** POST `/api/auth/password/reset/complete` response. */
 export const resetCompleteResponseSchema = z.object({
-  updated: z.literal(true),
+  /**
+   * True once the new password is set. False with `mfaRequired`: an enrolled
+   * person's password is set only after their code (POST /api/auth/mfa/verify).
+   */
+  updated: z.boolean(),
   authenticated: z.boolean(),
-  /** As for login: the new password is set, the code is still owed. */
+  /** As for login: the code is still owed. */
   mfaRequired: z.boolean().optional(),
 })
 export type ResetCompleteResponse = z.infer<typeof resetCompleteResponseSchema>

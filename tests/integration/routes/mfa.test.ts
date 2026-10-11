@@ -12,13 +12,16 @@ const describeDatabase = run ? describe : describe.skip
 
 const PASSWORD = "Correct horse!42"
 
-/** The `name=value` pairs a response set, by cookie name. */
+/**
+ * The `name=value` pairs a response set, by cookie name. A deletion (empty
+ * value) is not a cookie set.
+ */
 function setCookies(response: Response): Map<string, string> {
   const cookies = new Map<string, string>()
   for (const header of response.headers.getSetCookie()) {
     const pair = header.split(";")[0] ?? ""
     const name = pair.slice(0, pair.indexOf("="))
-    cookies.set(name, pair)
+    if (pair.length > name.length + 1) cookies.set(name, pair)
   }
   return cookies
 }
@@ -257,27 +260,38 @@ describeDatabase("two-step verification (P02-S8)", () => {
     expect(await foreign.json()).toMatchObject({ error: "mfa_factor_unknown" })
   })
 
-  it("does not let a password reset bypass the code, and ends other sessions at once", async () => {
+  it("sets an enrolled person's reset password only after the code", async () => {
     const { email } = newUser({ enrolled: true })
     const earlier = await signInWithCode(email)
     expect((await sessionOf(earlier)).session).not.toBeNull()
+    const NEW_PASSWORD = "Brand new horse!43"
 
     await post("/api/auth/password/reset/request", { email })
-    const tokenHash = auth.recoveryToken(email)
     const reset = await post("/api/auth/password/reset/complete", {
-      tokenHash,
-      password: "Brand new horse!43",
+      tokenHash: auth.recoveryToken(email),
+      password: NEW_PASSWORD,
     })
     expect(reset.status).toBe(200)
     expect(await reset.json()).toEqual({
-      updated: true,
+      updated: false,
       authenticated: false,
       mfaRequired: true,
     })
     const cookies = setCookies(reset)
     expect(cookies.has("naba_session")).toBe(false)
-    // The stolen-cookie case: the earlier session is gone before the code.
-    expect((await sessionOf(earlier)).session).toBeNull()
+    // The mailbox alone changes nothing: same password, sessions intact.
+    expect(auth.passwordUpdates.some((u) => u.email === email)).toBe(false)
+    expect(auth.users.get(email)!.password).toBe(PASSWORD)
+    expect((await sessionOf(earlier)).session).not.toBeNull()
+    const [ticketRow] = await admin<{ completion: Record<string, unknown> }[]>`
+      select completion from mfa_pending_login
+      where auth_subject = ${auth.users.get(email)!.id}
+    `
+    // Held encrypted, never in the clear.
+    expect(JSON.stringify(ticketRow.completion)).not.toContain(NEW_PASSWORD)
+    expect(ticketRow.completion.newPasswordCiphertext).toEqual(
+      expect.any(String)
+    )
 
     const verify = await post(
       "/api/auth/mfa/verify",
@@ -285,8 +299,125 @@ describeDatabase("two-step verification (P02-S8)", () => {
       cookies.get("naba_mfa_ticket")
     )
     expect(verify.status).toBe(200)
-    const row = await sessionRow(setCookies(verify).get("naba_session")!)
+    // Set with the aal2 token (the stub refuses aal1 for an enrolled user).
+    expect(auth.users.get(email)!.password).toBe(NEW_PASSWORD)
+    const fresh = setCookies(verify).get("naba_session")!
+    const row = await sessionRow(fresh)
     expect(row).toMatchObject({ aal: "aal2", authMethod: "password_reset" })
+    // Now the earlier session ends, and the reset is audited.
+    expect((await sessionOf(earlier)).session).toBeNull()
+    const userId = (await sessionOf(fresh)).session!.userId
+    const [audit] = await admin<{ count: number }[]>`
+      select count(*)::int as count from audit_log
+      where actor_user_id = ${userId} and action = 'user.password_reset'
+    `
+    expect(audit.count).toBe(1)
+  })
+
+  it("leaves the password and sessions alone when a reset's code never comes", async () => {
+    const { email } = newUser({ enrolled: true })
+    const earlier = await signInWithCode(email)
+    await post("/api/auth/password/reset/request", { email })
+    const reset = await post("/api/auth/password/reset/complete", {
+      tokenHash: auth.recoveryToken(email),
+      password: "Attacker horse!44",
+    })
+    expect(await reset.json()).toMatchObject({ mfaRequired: true })
+    const wrong = await post(
+      "/api/auth/mfa/verify",
+      { code: "000000" },
+      setCookies(reset).get("naba_mfa_ticket")
+    )
+    expect(wrong.status).toBe(400)
+    expect(auth.users.get(email)!.password).toBe(PASSWORD)
+    expect((await sessionOf(earlier)).session).not.toBeNull()
+  })
+
+  it("fails closed when the provider does not raise the token to aal2, keeping the ticket", async () => {
+    const { email } = newUser({ enrolled: true })
+    const ticket = setCookies(await login(email)).get("naba_mfa_ticket")!
+    auth.options.verifyAal = "aal1"
+    try {
+      const unconfirmed = await post(
+        "/api/auth/mfa/verify",
+        { code: STUB_TOTP_CODE },
+        ticket
+      )
+      expect(unconfirmed.status).toBe(503)
+      expect(await unconfirmed.json()).toMatchObject({
+        error: "mfa_assurance_unconfirmed",
+      })
+      expect(setCookies(unconfirmed).has("naba_session")).toBe(false)
+      const [user] = await admin`select id from app_user where email = ${email}`
+      expect(user).toBeUndefined()
+    } finally {
+      auth.options.verifyAal = "aal2"
+    }
+    // Not consumed: the same ticket completes once the provider says aal2.
+    const verify = await post(
+      "/api/auth/mfa/verify",
+      { code: STUB_TOTP_CODE },
+      ticket
+    )
+    expect(verify.status).toBe(200)
+  })
+
+  it("mints exactly one session when one ticket is verified twice at once", async () => {
+    const { email } = newUser({ enrolled: true })
+    const ticket = setCookies(await login(email)).get("naba_mfa_ticket")!
+    const responses = await Promise.all([
+      post("/api/auth/mfa/verify", { code: STUB_TOTP_CODE }, ticket),
+      post("/api/auth/mfa/verify", { code: STUB_TOTP_CODE }, ticket),
+    ])
+    expect(responses.map((r) => r.status).sort()).toEqual([200, 401])
+    const [count] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from app_session s join app_user u on u.id = s.user_id
+      where u.email = ${email}
+    `
+    expect(count.count).toBe(1)
+  })
+
+  it("ends another person's session in this browser when a ticket is issued", async () => {
+    const other = newUser()
+    const otherCookie = setCookies(await login(other.email)).get(
+      "naba_session"
+    )!
+    expect((await sessionOf(otherCookie)).session).not.toBeNull()
+    const { email } = newUser({ enrolled: true })
+    const first = await post(
+      "/api/auth/password/login",
+      { email, password: PASSWORD },
+      otherCookie
+    )
+    expect(await first.json()).toMatchObject({ mfaRequired: true })
+    const cleared = first.headers
+      .getSetCookie()
+      .find((header) => header.startsWith("naba_session="))
+    expect(cleared).toMatch(/^naba_session=;/)
+    expect((await sessionOf(otherCookie)).session).toBeNull()
+    // So the code screen renders instead of redirecting into that session
+    // (even for a browser that still sends the old cookie).
+    const page = await fetch(`${server.baseUrl}/sign-in/verify`, {
+      headers: { cookie: otherCookie },
+      redirect: "manual",
+    })
+    expect(page.status).toBe(200)
+  })
+
+  it("does not tell registration that an enrolled account exists", async () => {
+    const { email } = newUser({ enrolled: true })
+    const registered = await post("/api/auth/password/register", {
+      email,
+      password: PASSWORD,
+      displayName: "Someone",
+    })
+    expect(registered.status).toBe(202)
+    expect(await registered.json()).toEqual({
+      authenticated: false,
+      confirmationRequired: true,
+    })
+    expect(setCookies(registered).has("naba_session")).toBe(false)
   })
 
   it("accepts an invitation only after the code", async () => {
@@ -432,6 +563,17 @@ describeDatabase("two-step verification (P02-S8)", () => {
       `${ticket}; ${stranger.cookie}`
     )
     expect(hijack.status).toBe(401)
+    // Nor for another session of the same person.
+    const sameUserOtherSession = setCookies(await login(email)).get(
+      "naba_session"
+    )!
+    const sideways = await post(
+      "/api/auth/mfa/verify",
+      { code: STUB_TOTP_CODE },
+      `${ticket}; ${sameUserOtherSession}`
+    )
+    expect(sideways.status).toBe(401)
+    expect(await sideways.json()).toMatchObject({ error: "mfa_ticket_invalid" })
 
     const freshTicket = setCookies(
       await post("/api/auth/mfa/enroll", { password: PASSWORD }, cookie)
@@ -482,8 +624,96 @@ describeDatabase("two-step verification (P02-S8)", () => {
       setCookies(backupVerify).get("naba_session")!
     )
     expect(third.status).toBe(409)
+    expect(await third.json()).toMatchObject({ error: "mfa_factor_limit" })
     const next = await login(email)
     expect(await next.json()).toMatchObject({ mfaRequired: true })
+  })
+})
+
+describeDatabase("two-step verification per-account guessing limit", () => {
+  let admin: ReturnType<typeof postgres>
+  let auth: Awaited<ReturnType<typeof startAuthProviderStub>>
+  let server: Awaited<ReturnType<typeof startAppServer>>
+  const email = `mfa-limit-${randomUUID()}@nabapresence.test`
+
+  beforeAll(async () => {
+    admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+    auth = await startAuthProviderStub()
+    server = await startAppServer({
+      PASSWORD_AUTH_ENABLED: "true",
+      MFA_ENABLED: "true",
+      ABUSE_LIMITS_ENABLED: "true",
+      SUPABASE_URL: auth.baseUrl,
+      SUPABASE_PUBLISHABLE_KEY: "stub-publishable-key",
+    })
+  })
+
+  afterAll(async () => {
+    await server.stop()
+    await auth.stop()
+    const owned = await admin<{ id: string }[]>`
+      select m.organisation_id::text as id
+      from member m join app_user u on u.id = m.user_id
+      where u.email = ${email}
+    `
+    await destroyTenants(
+      admin,
+      owned.map((row) => row.id)
+    )
+    await admin`delete from app_user where email = ${email}`
+    await admin.end()
+  })
+
+  async function post(path: string, body: unknown, cookie?: string) {
+    return fetch(`${server.baseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(cookie ? { cookie } : {}),
+      },
+      body: JSON.stringify(body),
+    })
+  }
+
+  it("caps code attempts per account across fresh tickets", async () => {
+    auth.addUser({ id: randomUUID(), email, password: PASSWORD })
+    auth.addFactor(email)
+    // ABUSE_POLICIES.mfa_verify_account: 15 attempts per 15 minutes. Each
+    // ticket allows five, so the fourth ticket's first attempt is refused.
+    const statuses: number[] = []
+    for (let ticketIndex = 0; ticketIndex < 4; ticketIndex += 1) {
+      const login = await post("/api/auth/password/login", {
+        email,
+        password: PASSWORD,
+      })
+      expect(login.status).toBe(200)
+      const ticket = setCookies(login).get("naba_mfa_ticket")!
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const response = await post(
+          "/api/auth/mfa/verify",
+          { code: "000000" },
+          ticket
+        )
+        statuses.push(response.status)
+        if (response.status === 429) break
+      }
+      if (statuses.at(-1) === 429) break
+    }
+    expect(statuses.filter((status) => status !== 429)).toHaveLength(15)
+    expect(statuses.at(-1)).toBe(429)
+
+    // Even the right code on a brand-new ticket is refused for the window.
+    const login = await post("/api/auth/password/login", {
+      email,
+      password: PASSWORD,
+    })
+    const right = await post(
+      "/api/auth/mfa/verify",
+      { code: STUB_TOTP_CODE },
+      setCookies(login).get("naba_mfa_ticket")
+    )
+    expect(right.status).toBe(429)
+    expect(await right.json()).toMatchObject({ error: "auth_rate_limited" })
   })
 })
 

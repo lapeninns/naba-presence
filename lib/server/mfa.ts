@@ -131,8 +131,14 @@ export const signInCompletionSchema = z.object({
   inviteTokenHash: z.string().length(64).nullable(),
   passwordReset: z.boolean(),
   authMethod: z.string().min(1),
+  /**
+   * A reset by an enrolled person: the new password, encrypted
+   * (lib/server/crypto.ts, base64). It is set only once the code is
+   * verified, with the aal2 token, so the mailbox alone changes nothing.
+   */
+  newPasswordCiphertext: z.string().min(1).max(4096).nullable().default(null),
 })
-export type SignInCompletion = z.infer<typeof signInCompletionSchema>
+export type SignInCompletion = z.input<typeof signInCompletionSchema>
 
 const factorListSchema = z.array(
   z.object({ id: z.string().min(1), friendlyName: z.string().nullable() })

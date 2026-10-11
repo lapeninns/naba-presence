@@ -39,13 +39,25 @@ describe("0200 MFA assurance migration", () => {
       "consume_mfa_pending_login",
       "discard_mfa_pending_login",
       "purge_mfa_pending_logins",
-      "revoke_auth_identity_sessions",
     ]) {
       expect(migration).toMatch(new RegExp(`revoke all on function ${fn}\\(`))
       expect(migration).toMatch(
         new RegExp(`grant execute on function ${fn}\\(`)
       )
     }
+  })
+
+  it("locks app_session before app_user, with a lock timeout, before altering either", () => {
+    const lock = migration.indexOf(
+      "lock table app_session, app_user in access exclusive mode"
+    )
+    const timeout = migration.indexOf("set local lock_timeout")
+    expect(timeout).toBeGreaterThan(-1)
+    expect(lock).toBeGreaterThan(timeout)
+    const alterSession = migration.indexOf("alter table app_session")
+    const alterUser = migration.indexOf("alter table app_user")
+    expect(alterSession).toBeGreaterThan(lock)
+    expect(alterUser).toBeGreaterThan(alterSession)
   })
 
   describe("against PGlite", () => {
@@ -182,24 +194,6 @@ describe("0200 MFA assurance migration", () => {
         [OTHER, ORG]
       )
       expect(existing.rows[0]).toEqual({ aal: "aal1", securityVersion: 1 })
-    })
-
-    it("revokes an identity's own sessions, not a support session's", async () => {
-      await db.query(
-        `insert into app_session (token_hash, user_id, organisation_id, support_actor)
-         values ('mine-1', $1, $2, null), ('mine-2', $1, $2, null),
-                ('support', $1, $2, 'agent@example.test')`,
-        [USER, ORG]
-      )
-      const revoked = await db.query<{ count: number }>(
-        "select revoke_auth_identity_sessions('supabase', 'subject-1') as count"
-      )
-      expect(revoked.rows[0]?.count).toBe(2)
-      const left = await db.query<{ tokenHash: string }>(
-        `select token_hash as "tokenHash" from app_session where user_id = $1`,
-        [USER]
-      )
-      expect(left.rows.map((row) => row.tokenHash)).toEqual(["support"])
     })
   })
 })

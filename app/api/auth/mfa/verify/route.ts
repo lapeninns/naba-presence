@@ -1,6 +1,7 @@
 import { mfaVerifySchema, type MfaVerifyResponse } from "@/lib/contracts/auth"
 import { clientIpFromRequest, takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { writeAudit } from "@/lib/server/audit"
+import { decryptSecret } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { completeEmailAuthentication } from "@/lib/server/email-auth"
 import { ApiError } from "@/lib/server/http"
@@ -21,6 +22,7 @@ import {
 import {
   challengeAndVerifyFactor,
   type ProviderFactor,
+  updatePasswordWithToken,
 } from "@/lib/server/password-auth"
 import { route } from "@/lib/server/route"
 import {
@@ -63,6 +65,12 @@ export const POST = route({
       await clearMfaTicketCookie()
       throw ticketExpiredError()
     }
+    // Per account, across tickets: a new ticket is only a password sign-in
+    // away, so the per-ticket and per-IP budgets alone do not bound guessing
+    // on one account (abuse-limits.ts, mfa_verify_account).
+    const account = `${pending.authProvider}:${pending.authSubject}`
+    await takeAbuseBudget("mfa_verify_account", { account })
+    await takeAbuseBudget("mfa_verify_account_daily", { account })
     if (pending.purpose === "enroll") {
       if (
         !session ||
@@ -124,6 +132,14 @@ export const POST = route({
     }
 
     const completion = signInCompletionSchema.parse(pending.completion)
+    if (completion.newPasswordCiphertext) {
+      // A reset by an enrolled person: the new password waited for the code
+      // and is set now, with the aal2 token the provider requires for it.
+      await updatePasswordWithToken(
+        verified.accessToken,
+        decryptSecret(Buffer.from(completion.newPasswordCiphertext, "base64"))
+      )
+    }
     await completeEmailAuthentication({
       identity: completion.identity,
       inviteTokenHash: completion.inviteTokenHash,

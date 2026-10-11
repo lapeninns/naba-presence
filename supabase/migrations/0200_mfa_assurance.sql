@@ -35,29 +35,13 @@ begin;
 --    code attempts.
 -- ---------------------------------------------------------------------------
 
-alter table app_user
-  add column security_version integer not null default 1
-    check (security_version >= 1),
-  add column mfa_factor_count integer not null default 0
-    check (mfa_factor_count between 0 and 10);
-
-create or replace function app_user_security_version_monotonic()
-returns trigger
-language plpgsql
-as $$
-begin
-  if new.security_version < old.security_version then
-    raise exception 'security_version_decrease'
-      using errcode = '23514';
-  end if;
-  return new;
-end;
-$$;
-
-create trigger app_user_security_version_monotonic
-  before update of security_version on app_user
-  for each row
-  execute function app_user_security_version_monotonic();
+-- Both tables are altered under ACCESS EXCLUSIVE. Take the locks up front,
+-- app_session before app_user (the order lookupSession's join reads them),
+-- so a request holding one cannot deadlock with this migration; and give up
+-- quickly rather than queue every session lookup behind a long wait. A
+-- lock_timeout failure rolls back cleanly; re-run the migration.
+set local lock_timeout = '5s';
+lock table app_session, app_user in access exclusive mode;
 
 alter table app_session
   add column aal text not null default 'aal1'
@@ -82,6 +66,30 @@ alter table app_session
     )
   );
 
+alter table app_user
+  add column security_version integer not null default 1
+    check (security_version >= 1),
+  add column mfa_factor_count integer not null default 0
+    check (mfa_factor_count between 0 and 10);
+
+create or replace function app_user_security_version_monotonic()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.security_version < old.security_version then
+    raise exception 'security_version_decrease'
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger app_user_security_version_monotonic
+  before update of security_version on app_user
+  for each row
+  execute function app_user_security_version_monotonic();
+
 create table mfa_pending_login (
   id uuid primary key default gen_random_uuid(),
   ticket_hash text not null unique check (length(ticket_hash) = 64),
@@ -99,7 +107,8 @@ create table mfa_pending_login (
   factors jsonb not null default '[]'::jsonb
     check (jsonb_typeof(factors) = 'array'),
   -- sign_in: what completes once the code is verified (identity,
-  -- invitation token hash, password reset, auth method).
+  -- invitation token hash, password reset, auth method, and for a reset
+  -- by an enrolled person the new password, encrypted until the code).
   completion jsonb not null default '{}'::jsonb
     check (jsonb_typeof(completion) = 'object'),
   provider_token_ciphertext bytea not null,
@@ -290,34 +299,6 @@ as $$
   select count(*)::integer from removed
 $$;
 
--- A password reset by an enrolled person ends their sessions as soon as the
--- new password is set, before the code is entered: the reset alone proves
--- the old credential is gone, and a stolen cookie must not outlive it while
--- the person is still at the verify screen. Keyed by the provider identity
--- because the app user is resolved only after verification.
-create or replace function revoke_auth_identity_sessions(
-  p_auth_provider text,
-  p_auth_subject text
-)
-returns integer
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_count integer;
-begin
-  delete from app_session s
-  using app_user u
-  where u.id = s.user_id
-    and u.auth_provider = p_auth_provider
-    and u.auth_subject = p_auth_subject
-    and s.support_actor is null;
-  get diagnostics v_count = row_count;
-  return v_count;
-end;
-$$;
-
 revoke all on function create_mfa_pending_login(
   text, text, text, text, uuid, uuid, text, jsonb, jsonb, bytea
 ) from public;
@@ -326,7 +307,6 @@ revoke all on function take_mfa_pending_attempt(text, integer) from public;
 revoke all on function consume_mfa_pending_login(text) from public;
 revoke all on function discard_mfa_pending_login(text) from public;
 revoke all on function purge_mfa_pending_logins(integer) from public;
-revoke all on function revoke_auth_identity_sessions(text, text) from public;
 
 grant execute on function create_mfa_pending_login(
   text, text, text, text, uuid, uuid, text, jsonb, jsonb, bytea
@@ -337,8 +317,6 @@ grant execute on function take_mfa_pending_attempt(text, integer)
 grant execute on function consume_mfa_pending_login(text) to naba_app_runtime;
 grant execute on function discard_mfa_pending_login(text) to naba_app_runtime;
 grant execute on function purge_mfa_pending_logins(integer) to naba_app_runtime;
-grant execute on function revoke_auth_identity_sessions(text, text)
-  to naba_app_runtime;
 
 insert into schema_migration (version) values ('0200_mfa_assurance')
 on conflict (version) do nothing;

@@ -93,6 +93,9 @@ export async function startAuthProviderStub() {
   const accessTokens = new Map<string, { email: string; aal: string }>()
   const challenges = new Map<string, string>()
   const mfaCalls: Array<{ kind: "enroll" | "challenge" | "verify"; factorId?: string }> = []
+  // The assurance a correct factor verification is answered with. A real
+  // provider says aal2; tests set aal1 to prove the app fails closed.
+  const options: { verifyAal: "aal1" | "aal2" } = { verifyAal: "aal2" }
 
   // GoTrue-shaped access tokens: a JWT whose claims carry aal and amr. The
   // signature is not checked by the app (lib/server/mfa.ts).
@@ -337,7 +340,7 @@ export async function startAuthProviderStub() {
         }
         factor.status = "verified"
         return json(response, 200, {
-          access_token: issueToken(caller.user, "aal2"),
+          access_token: issueToken(caller.user, options.verifyAal),
           token_type: "bearer",
           expires_in: 3600,
           refresh_token: `refresh-${caller.user.id}`,
@@ -352,6 +355,14 @@ export async function startAuthProviderStub() {
           return json(response, 401, {
             error_code: "invalid_token",
           })
+        }
+        // GoTrue: a user with a verified factor changes the password only
+        // with an aal2 token.
+        if (
+          caller.aal !== "aal2" &&
+          user.factors.some((factor) => factor.status === "verified")
+        ) {
+          return json(response, 401, { error_code: "insufficient_aal" })
         }
         user.password = body.password
         passwordUpdates.push({ email: user.email, password: body.password })
@@ -377,6 +388,7 @@ export async function startAuthProviderStub() {
     resendRequests,
     passwordUpdates,
     mfaCalls,
+    options,
     addUser,
     addFactor,
     confirmationToken(email: string) {

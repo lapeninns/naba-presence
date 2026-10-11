@@ -147,9 +147,16 @@ describe("signInCompletionSchema", () => {
       inviteTokenHash: null,
       passwordReset: true,
       authMethod: "password_reset",
+      newPasswordCiphertext: "c2VhbGVk",
     }
     expect(
       signInCompletionSchema.parse(JSON.parse(JSON.stringify(completion)))
     ).toEqual(completion)
+    // A ticket with no deferred password reads as none.
+    const withoutPassword: Record<string, unknown> = { ...completion }
+    delete withoutPassword.newPasswordCiphertext
+    expect(
+      signInCompletionSchema.parse(withoutPassword).newPasswordCiphertext
+    ).toBeNull()
   })
 })

@@ -1,7 +1,7 @@
 import "server-only"
 
 import { writeAudit } from "@/lib/server/audit"
-import { sha256 } from "@/lib/server/crypto"
+import { encryptSecret, sha256 } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import {
   createPendingTicket,
@@ -14,7 +14,7 @@ import {
   provisionAuthenticatedMember,
   provisionAuthenticatedOwner,
 } from "@/lib/server/provisioning"
-import { setSessionCookie } from "@/lib/server/session"
+import { clearSession, setSessionCookie } from "@/lib/server/session"
 import { AAL1_ASSURANCE, type SessionAssurance } from "@/lib/server/session-store"
 import { ApiError } from "@/lib/server/http"
 
@@ -84,6 +84,12 @@ export async function completeEmailAuthentication(input: {
    * token), the factor count is left as it was.
    */
   provider?: { accessToken: string | null; factors: ProviderFactor[] }
+  /**
+   * Set by the reset flow when the person has factors: the new password is
+   * not set yet; it is held (encrypted) in the ticket and set by the verify
+   * route with the aal2 token. Ignored when no ticket is opened.
+   */
+  newPassword?: string
   /** Set only by the MFA verify route, once the code checked out. */
   assurance?: SessionAssurance
 }): Promise<EmailAuthenticationResult> {
@@ -108,16 +114,11 @@ export async function completeEmailAuthentication(input: {
     }
     // An invalid invitation fails now, not after the code.
     if (inviteTokenHash) await resolveInvitationByHash(inviteTokenHash)
-    if (input.passwordReset) {
-      // The new password is already live: the person's other sessions end
-      // now, whether or not they go on to enter the code.
-      await getDatabase()`
-        select revoke_auth_identity_sessions(
-          ${input.identity.provider},
-          ${input.identity.subject}
-        )
-      `
-    }
+    // Whoever this browser was signed in as, a new sign-in has started in
+    // it: end that session (as a completed sign-in would replace its
+    // cookie), so the code screen is reachable and the ticket is not
+    // dropped in favour of someone else's session.
+    await clearSession()
     const ticket = await createPendingTicket({
       purpose: "sign_in",
       authProvider: input.identity.provider,
@@ -128,6 +129,9 @@ export async function completeEmailAuthentication(input: {
         inviteTokenHash,
         passwordReset: input.passwordReset === true,
         authMethod: input.authMethod,
+        newPasswordCiphertext: input.newPassword
+          ? encryptSecret(input.newPassword).toString("base64")
+          : null,
       },
       providerToken: input.provider.accessToken,
     })

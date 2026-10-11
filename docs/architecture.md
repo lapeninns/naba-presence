@@ -44,7 +44,9 @@ alone. `lib/server/email-auth.ts` opens a five-minute pending ticket instead
 provider's access token for the challenge is kept encrypted for those five
 minutes and never longer), sets it in the httpOnly `naba_mfa_ticket` cookie
 scoped to `/api/auth/mfa`, and answers `mfaRequired`. `POST
-/api/auth/mfa/verify` (abuse scope `mfa_verify`, five attempts per ticket)
+/api/auth/mfa/verify` (abuse scope `mfa_verify`, five attempts per ticket,
+and `mfa_verify_account`/`mfa_verify_account_daily` per provider identity
+across tickets)
 challenges and verifies the code at the provider, requires the provider's
 token to say `aal2`, spends the ticket exactly once and only then provisions,
 accepts an invitation and mints the session. `GET /api/auth/mfa/factors`
@@ -58,8 +60,10 @@ minutes), `auth_method` and the person's `security_version`
 invitation while signed in carry the assurance across, and `lookupSession`
 deletes a session whose `security_version` is behind the person's (which only
 ever increases). Sessions from before 0200 are aal1. A password reset by an
-enrolled person ends their other sessions as soon as the new password is set,
-before the code. `lib/server/mfa.ts` owns the ticket, cookie and assurance
+enrolled person sets nothing until the code: the new password waits in the
+ticket (encrypted) and the verify route sets it with the aal2 token, then
+ends the person's other sessions and audits `user.password_reset`. Issuing a
+sign-in ticket ends whatever session the browser already held. `lib/server/mfa.ts` owns the ticket, cookie and assurance
 helpers; `/sign-in/verify` and `/settings/security` are the screens.
 
 Arbitrary tenant headers are never accepted. Owner/admin, member, viewer,
