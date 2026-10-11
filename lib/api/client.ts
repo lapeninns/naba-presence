@@ -2,6 +2,10 @@ import type { ZodType } from "zod"
 
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import {
+  MFA_ENROLLMENT_REQUIRED,
+  MFA_STEP_UP_REQUIRED,
+} from "@/lib/contracts/auth"
+import {
   LISTING_CHANGE_AWAITING_APPROVAL,
   listingChangeParkedResponseSchema,
 } from "@/lib/contracts/listing-changes"
@@ -174,6 +178,38 @@ async function readPayload(response: Response): Promise<{
   }
 }
 
+/**
+ * The window event a sensitive action's 403 raises when two-step
+ * verification is due (`mfa_step_up_required`) or not set up yet
+ * (`mfa_enrollment_required`). components/auth/mfa-step-up-prompt.tsx
+ * listens for it and asks for the code; the caller still gets the error,
+ * so its own error path keeps the edit and says what happened.
+ */
+export const MFA_STEP_UP_EVENT = "naba:mfa-step-up"
+
+export type MfaStepUpEventDetail = {
+  code: typeof MFA_STEP_UP_REQUIRED | typeof MFA_ENROLLMENT_REQUIRED
+}
+
+/** True for the 403 a sensitive action answers when a code is due. */
+export function isMfaStepUpError(error: unknown): error is ApiClientError {
+  return (
+    error instanceof ApiClientError &&
+    error.status === 403 &&
+    (error.code === MFA_STEP_UP_REQUIRED ||
+      error.code === MFA_ENROLLMENT_REQUIRED)
+  )
+}
+
+function requestStepUp(code: MfaStepUpEventDetail["code"]): void {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(
+    new CustomEvent<MfaStepUpEventDetail>(MFA_STEP_UP_EVENT, {
+      detail: { code },
+    })
+  )
+}
+
 function handleUnauthorized(): void {
   stashAllDrafts()
   const next = encodeURIComponent(
@@ -244,6 +280,13 @@ export async function apiFetch<T = unknown>(
       !background
     ) {
       handleUnauthorized()
+    }
+    if (
+      response.status === 403 &&
+      (code === MFA_STEP_UP_REQUIRED || code === MFA_ENROLLMENT_REQUIRED) &&
+      !background
+    ) {
+      requestStepUp(code)
     }
     throw new ApiClientError(
       response.status,

@@ -8,7 +8,15 @@
  * `succeeded`, `not_applied`, or `diverged`.
  */
 
+import type { AuthorisationAssurance } from "@/lib/server/mfa"
 import type { Session } from "@/lib/server/session"
+
+/** `publish_attempt.authorised_*` (0201): see attemptAuthorisation. */
+export type AttemptAuthorisation = {
+  userId: string
+  assurance: AuthorisationAssurance
+  connectionId: string | null
+}
 
 /**
  * `publish_attempt.status` CHECK constraint vocabulary (0001_initial.sql,

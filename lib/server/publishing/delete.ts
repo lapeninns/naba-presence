@@ -25,6 +25,7 @@ import {
 } from "@/lib/server/permissions"
 
 import {
+  attemptAuthorisation,
   classifyProviderFailure,
   findAttemptByKey,
   insertAttempt,
@@ -227,8 +228,12 @@ async function startDeleteIntent(
   record: DeleteRecord,
   key: { idempotencyKey: string; existing: ExistingAttempt | null }
 ): Promise<DeleteIntent | null> {
+  const authorisation = attemptAuthorisation(
+    input.session,
+    record.connection_id
+  )
   const attempt = key.existing
-    ? await rearmAttempt(sql, { attemptId: key.existing.id })
+    ? await rearmAttempt(sql, { attemptId: key.existing.id, authorisation })
     : await insertAttempt(sql, {
         organisationId: input.organisationId,
         reviewReplyId: record.review_reply_id,
@@ -238,6 +243,7 @@ async function startDeleteIntent(
         operation: "delete",
         intendedBody: null,
         publishGeneration: record.publish_generation,
+        authorisation,
       })
   if (!attempt) return null
   await supersedeQueuedSiblings(sql, {

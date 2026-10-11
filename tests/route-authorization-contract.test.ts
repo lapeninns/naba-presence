@@ -249,6 +249,8 @@ const NO_LOCATION: Record<string, string> = {
     "the caller's own notification preferences",
   "POST app/api/auth/mfa/enroll/route.ts":
     "enrolls the caller's own authenticator app, after their password",
+  "POST app/api/auth/mfa/step-up/route.ts":
+    "renews the caller's own session assurance, after their password and a code",
 }
 
 /**

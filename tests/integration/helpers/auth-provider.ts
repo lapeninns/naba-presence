@@ -20,6 +20,8 @@ type StubUser = {
 
 /** The code a factor accepts unless addFactor names another. */
 export const STUB_TOTP_CODE = "246810"
+/** What the stub's admin API accepts as the service-role key. */
+export const STUB_SERVICE_ROLE_KEY = "stub-service-role-key"
 
 function base64url(value: unknown) {
   return Buffer.from(JSON.stringify(value)).toString("base64url")
@@ -367,6 +369,42 @@ export async function startAuthProviderStub() {
         user.password = body.password
         passwordUpdates.push({ email: user.email, password: body.password })
         return json(response, 200, { user: providerUser(user) })
+      }
+
+      // GoTrue admin API, for scripts/mfa-recover.mjs: the service-role key
+      // reads a user (with factors) and deletes a factor.
+      const admin = url.pathname.match(
+        /^\/auth\/v1\/admin\/users\/([^/]+)(?:\/factors\/([^/]+))?$/
+      )
+      if (admin) {
+        if (
+          request.headers.authorization !==
+          `Bearer ${STUB_SERVICE_ROLE_KEY}`
+        ) {
+          return json(response, 401, { error_code: "not_admin" })
+        }
+        const user = [...users.values()].find((item) => item.id === admin[1])
+        if (!user) return json(response, 404, { error_code: "user_not_found" })
+        if (request.method === "GET" && !admin[2]) {
+          return json(response, 200, {
+            id: user.id,
+            email: user.email,
+            factors: user.factors.map((factor) => ({
+              id: factor.id,
+              factor_type: "totp",
+              status: factor.status,
+              friendly_name: factor.friendlyName,
+            })),
+          })
+        }
+        if (request.method === "DELETE" && admin[2]) {
+          const index = user.factors.findIndex((item) => item.id === admin[2])
+          if (index === -1) {
+            return json(response, 404, { error_code: "mfa_factor_not_found" })
+          }
+          const [removed] = user.factors.splice(index, 1)
+          return json(response, 200, { id: removed?.id })
+        }
       }
 
       return json(response, 404, { error_code: "not_found" })

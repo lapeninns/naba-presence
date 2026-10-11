@@ -261,6 +261,27 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       "scheduled",
       "scheduled",
     ])
+    // The assurance it was approved with (0201): MFA is off here, so aal1.
+    const assuranceOf = async () =>
+      (
+        await admin<
+          {
+            aal: string | null
+            verifiedAt: Date | null
+            version: number | null
+          }[]
+        >`
+          select approved_aal as aal,
+            approved_mfa_verified_at as "verifiedAt",
+            approved_security_version as version
+          from post_publication_schedule where id = ${s.id}
+        `
+      )[0]
+    expect(await assuranceOf()).toEqual({
+      aal: "aal1",
+      verifiedAt: null,
+      version: 1,
+    })
     const revised = await t.api(`/post-schedules/${s.id}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -279,6 +300,11 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "awaiting_approval",
       revision: 2,
       approvedBy: null,
+    })
+    expect(await assuranceOf()).toEqual({
+      aal: null,
+      verifiedAt: null,
+      version: null,
     })
     expect(
       (await t.occurrences(s.id)).map((o) => `${o.status}:${o.status_reason}`)

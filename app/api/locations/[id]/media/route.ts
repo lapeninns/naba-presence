@@ -39,6 +39,7 @@ export const GET = route({
 // request directly here rather than through a `body` schema; the JSON
 // create branch parses its own body for the same reason.
 export const POST = route({
+  mfa: "step_up",
   params: paramsSchema,
   handler: async ({ request, session, params, requestId }) => {
     const intent = request.headers.get("idempotency-key")

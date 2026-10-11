@@ -8,6 +8,6 @@ const params = z.object({ id: z.uuid(), reviewId: z.uuid() })
 export const GET = route({ roles: ["owner", "admin"], params,
   handler: async ({ session, params }) => ({ review: await readPlaceActionReview(session, params.id, params.reviewId) }),
 })
-export const POST = route({ roles: ["owner", "admin"], params, body: placeActionApprovalSchema,
+export const POST = route({ mfa: "step_up", roles: ["owner", "admin"], params, body: placeActionApprovalSchema,
   handler: async ({ session, params, body, requestId }) => ({ review: await approvePlaceActionReview(session, params.id, params.reviewId, body.expectedPayloadHash, requestId) }),
 })

@@ -175,9 +175,13 @@ describeDatabase(
           authorId: string | null
           contentRevision: number
           contentHash: string
+          authorisedAal: string | null
+          authorisedSecurityVersion: number | null
         }[]
       >`
       select decision, decided_by::text as "decidedBy",
+        authorised_aal as "authorisedAal",
+        authorised_security_version as "authorisedSecurityVersion",
         requested_by::text as "requestedBy", author_id::text as "authorId",
         content_revision::integer as "contentRevision",
         content_hash as "contentHash"
@@ -246,6 +250,9 @@ describeDatabase(
         requestedBy: owner.userId,
         authorId: owner.userId,
         contentRevision: 1,
+        // The assurance it was decided with (0201); MFA is off here.
+        authorisedAal: "aal1",
+        authorisedSecurityVersion: 1,
       })
       expect(decision.contentHash).toMatch(/^[0-9a-f]{64}$/)
       expect(await stored(postId)).toMatchObject({

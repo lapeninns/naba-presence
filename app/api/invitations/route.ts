@@ -182,6 +182,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: invitationCreateSchema,
   handler: async ({

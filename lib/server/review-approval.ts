@@ -5,6 +5,7 @@ import type { TransactionSql } from "postgres"
 import type { ApprovalInput, ApprovalResult } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
 import { canPublishLocation, requireLocationAccess } from "@/lib/server/permissions"
 import { executePublish } from "@/lib/server/publishing"
 import type { Session } from "@/lib/server/session"
@@ -156,9 +157,12 @@ export async function recordApprovalDecision(
     )
   }
 
+  // The assurance the decision was made with (0201), as evidence.
+  const assurance = authorisationAssurance(session)
   await sql`
     insert into approval_decision (
-      organisation_id, review_id, draft_id, decided_by, decision, note
+      organisation_id, review_id, draft_id, decided_by, decision, note,
+      authorised_aal, authorised_mfa_verified_at, authorised_security_version
     )
     values (
       ${session.organisationId},
@@ -166,7 +170,10 @@ export async function recordApprovalDecision(
       ${draftId},
       ${session.userId},
       ${input.decision === "approve" ? "approved" : "rejected"},
-      ${input.note ?? null}
+      ${input.note ?? null},
+      ${assurance.aal},
+      ${assurance.mfaVerifiedAt},
+      ${assurance.securityVersion}
     )
   `
   await writeAudit(sql, {

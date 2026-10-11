@@ -224,7 +224,11 @@ describeDatabase("durable background jobs", () => {
         operation,
         intended_body,
         started_at,
-        next_attempt_at
+        next_attempt_at,
+        authorised_by,
+        authorised_aal,
+        authorised_security_version,
+        authorised_connection_id
       )
       values (
         ${subject.owner.organisationId},
@@ -240,7 +244,17 @@ describeDatabase("durable background jobs", () => {
             ? new Date()
             : new Date(Date.now() - 15 * 60_000)
         },
-        ${status === "started" ? null : new Date(Date.now() - 1_000)}
+        ${status === "started" ? null : new Date(Date.now() - 1_000)},
+        -- Who asked (0201): the retry rechecks it before replaying.
+        ${subject.owner.userId},
+        'aal1',
+        1,
+        (
+          select e.google_connection_id
+          from review r
+          join external_location e on e.id = r.external_location_id
+          where r.id = ${subject.reviewId}
+        )
       )
       returning id::text as id
     `

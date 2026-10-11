@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -19,6 +21,7 @@ const describeDatabase = run ? describe : describe.skip
 
 type Fixture = {
   owner: Awaited<ReturnType<typeof createTestTenant>>
+  connectionId: string
   review: Awaited<ReturnType<typeof seedLinkedReview>>
   draft: Awaited<ReturnType<typeof saveHumanDraft>>
   body: string
@@ -65,7 +68,13 @@ describeDatabase("durable publish lifecycle", () => {
       review.reviewId,
       body
     )
-    return { owner, review, draft, body }
+    return {
+      owner,
+      connectionId: connection.connectionId,
+      review,
+      draft,
+      body,
+    }
   }
 
   function publish(fixture: Fixture) {
@@ -116,8 +125,24 @@ describeDatabase("durable publish lifecycle", () => {
       status: "started" | "ambiguous" | "retryable"
       startedAt?: Date
       nextAttemptAt?: Date
+      /**
+       * Who authorised it (0201). Defaults to the owner, at security
+       * version 1, through the fixture's connection; null fields model a
+       * row queued before 0201.
+       */
+      authorisation?: {
+        userId?: string | null
+        securityVersion?: number | null
+        connectionId?: string | null
+      }
     }
   ) {
+    const authorisation = {
+      userId: fixture.owner.userId,
+      securityVersion: 1,
+      connectionId: fixture.connectionId,
+      ...input.authorisation,
+    }
     const bodyHash = sha256(fixture.body)
     const idempotencyKey = sha256(
       `${fixture.owner.organisationId}:${fixture.review.reviewId}:0:${bodyHash}`
@@ -150,7 +175,11 @@ describeDatabase("durable publish lifecycle", () => {
         intended_body,
         started_at,
         next_attempt_at,
-        publish_generation
+        publish_generation,
+        authorised_by,
+        authorised_aal,
+        authorised_security_version,
+        authorised_connection_id
       )
       values (
         ${fixture.owner.organisationId},
@@ -164,7 +193,11 @@ describeDatabase("durable publish lifecycle", () => {
         ${fixture.body},
         ${input.startedAt ?? new Date()},
         ${input.nextAttemptAt ?? null},
-        0
+        0,
+        ${authorisation.userId},
+        ${authorisation.userId ? "aal1" : null},
+        ${authorisation.securityVersion},
+        ${authorisation.connectionId}
       )
       returning id::text as id
     `
@@ -469,6 +502,183 @@ describeDatabase("durable publish lifecycle", () => {
       workflow_status: "failed",
     })
   }, 30_000)
+
+  describe("a queued retry rechecks who authorised it (P02-S9)", () => {
+    async function runRetry(
+      fixture: Fixture,
+      seeded: { attemptId: string }
+    ) {
+      stub.reset()
+      stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+        status: 200,
+        json: { reviewId: "stub" },
+      }))
+      stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+        status: 200,
+        json: { comment: fixture.body, updateTime: "2026-08-20T10:00:00.000Z" },
+      }))
+      const ran = await runJobs()
+      expect(ran.status, await ran.clone().text()).toBe(200)
+      const puts = stub.calls.filter(
+        (call) =>
+          call.method === "PUT" && call.path.includes(fixture.review.reviewId)
+      )
+      const [settled] = await admin<
+        {
+          status: string
+          code: string | null
+          publishStatus: string
+          reason: string | null
+        }[]
+      >`
+        select
+          pa.status,
+          pa.provider_error_code as code,
+          rr.publish_status as "publishStatus",
+          (
+            select e.payload->>'reason'
+            from publish_attempt_event e
+            where e.publish_attempt_id = pa.id
+              and e.event_type = 'completed'
+            order by e.created_at desc
+            limit 1
+          ) as reason
+        from publish_attempt pa
+        join review_reply rr on rr.id = pa.review_reply_id
+        where pa.id = ${seeded.attemptId}
+      `
+      return { puts, settled }
+    }
+
+    async function queued(
+      authorisation?: Parameters<typeof seedPublishAttempt>[1]["authorisation"]
+    ) {
+      const fixture = await createFixture()
+      const seeded = await seedPublishAttempt(fixture, {
+        status: "retryable",
+        nextAttemptAt: new Date(Date.now() - 60_000),
+        authorisation,
+      })
+      return { fixture, seeded }
+    }
+
+    it("replays when the authorisation still holds", async () => {
+      const { fixture, seeded } = await queued()
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(1)
+      expect(settled.status).toBe("succeeded")
+    }, 30_000)
+
+    it("refuses a person removed from the organisation", async () => {
+      const fixture = await createFixture()
+      const leaver = randomUUID()
+      await admin`
+        insert into app_user (id, email, display_name, default_organisation_id)
+        values (
+          ${leaver}, ${`harness-${leaver.slice(0, 8)}@nabapresence.test`},
+          'Leaver', ${fixture.owner.organisationId}
+        )
+      `
+      await admin`
+        insert into member (organisation_id, user_id, role, can_publish)
+        values (${fixture.owner.organisationId}, ${leaver}, 'admin', true)
+      `
+      const seeded = await seedPublishAttempt(fixture, {
+        status: "retryable",
+        nextAttemptAt: new Date(Date.now() - 60_000),
+        authorisation: { userId: leaver },
+      })
+      await admin`
+        delete from member
+        where organisation_id = ${fixture.owner.organisationId}
+          and user_id = ${leaver}
+      `
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toEqual({
+        status: "failed",
+        code: "authorisation_revoked",
+        publishStatus: "failed",
+        reason: "actor_not_member",
+      })
+    }, 30_000)
+
+    it("refuses a person who lost the publish grant", async () => {
+      // A second publisher, so demoting them leaves the owner in place
+      // (the last owner cannot be demoted).
+      const fixture = await createFixture()
+      const publisher = randomUUID()
+      await admin`
+        insert into app_user (id, email, display_name, default_organisation_id)
+        values (
+          ${publisher}, ${`harness-${publisher.slice(0, 8)}@nabapresence.test`},
+          'Publisher', ${fixture.owner.organisationId}
+        )
+      `
+      await admin`
+        insert into member (organisation_id, user_id, role, can_publish)
+        values (${fixture.owner.organisationId}, ${publisher}, 'admin', true)
+      `
+      const seeded = await seedPublishAttempt(fixture, {
+        status: "retryable",
+        nextAttemptAt: new Date(Date.now() - 60_000),
+        authorisation: { userId: publisher },
+      })
+      await admin`
+        update member set role = 'viewer', can_publish = false
+        where organisation_id = ${fixture.owner.organisationId}
+          and user_id = ${publisher}
+      `
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toMatchObject({
+        status: "failed",
+        code: "authorisation_revoked",
+        reason: "action_denied",
+      })
+    }, 30_000)
+
+    it("refuses when the location moved to another Google connection", async () => {
+      const { fixture, seeded } = await queued({ connectionId: randomUUID() })
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toMatchObject({
+        status: "failed",
+        code: "authorisation_revoked",
+        reason: "connection_changed",
+      })
+    }, 30_000)
+
+    it("refuses after the person's security version was bumped", async () => {
+      const { fixture, seeded } = await queued()
+      await admin`
+        update app_user set security_version = security_version + 1
+        where id = ${fixture.owner.userId}
+      `
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toMatchObject({
+        status: "failed",
+        code: "authorisation_revoked",
+        reason: "security_version_changed",
+      })
+    }, 30_000)
+
+    it("refuses a row queued before authorisations were recorded", async () => {
+      const { fixture, seeded } = await queued({
+        userId: null,
+        securityVersion: null,
+        connectionId: null,
+      })
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toMatchObject({
+        status: "failed",
+        code: "authorisation_unverifiable",
+        reason: "authorised_by_missing",
+      })
+    }, 30_000)
+  })
 
   it("permits republishing identical text after a delete", async () => {
     const body = "Thank you for the kind words about our breakfast."

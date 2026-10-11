@@ -68,6 +68,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: notificationPatchSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {

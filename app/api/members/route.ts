@@ -93,6 +93,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   handler: () => {
     throw new ApiError(
@@ -104,6 +105,7 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: memberUpdateSchema,
   handler: async ({
@@ -212,6 +214,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: memberRemoveSchema,
   handler: async ({

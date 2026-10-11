@@ -20,8 +20,11 @@ import { retryDelayMs } from "@/lib/domain/retry"
 import { isAmbiguousProviderError } from "@/lib/server/gbp-write"
 import { isConnectionBlockedError } from "@/lib/server/google/connection-failures"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
+import type { Session } from "@/lib/server/session"
 
 import type {
+  AttemptAuthorisation,
   PublishAttemptEventType,
   PublishAttemptOperation,
   PublishAttemptStatus,
@@ -83,18 +86,46 @@ export async function findAttemptByKey(
 }
 
 /**
+ * Who authorises a reply mutation and under what (0201): the session's
+ * person, assurance and security version, and the Google connection the
+ * mutation is prepared against. The retry worker rechecks all of it before
+ * it re-dispatches (retry.ts).
+ */
+export function attemptAuthorisation(
+  session: Session,
+  connectionId: string | null
+): AttemptAuthorisation {
+  return {
+    userId: session.userId,
+    assurance: authorisationAssurance(session),
+    connectionId,
+  }
+}
+
+/**
  * Re-arm a settled (`retryable`) row as a fresh `started` intent. Publish
  * re-arms also pin the intended body; delete re-arms leave it untouched.
+ * The person re-arming it becomes the one who authorised it.
  */
 export async function rearmAttempt(
   sql: TransactionSql,
-  input: { attemptId: string; intendedBody?: string }
+  input: {
+    attemptId: string
+    intendedBody?: string
+    authorisation: AttemptAuthorisation
+  }
 ): Promise<StartedAttempt> {
+  const auth = input.authorisation
   const [attempt] =
     input.intendedBody === undefined
       ? await sql<StartedAttempt[]>`
           update publish_attempt
           set
+            authorised_by = ${auth.userId},
+            authorised_aal = ${auth.assurance.aal},
+            authorised_mfa_verified_at = ${auth.assurance.mfaVerifiedAt},
+            authorised_security_version = ${auth.assurance.securityVersion},
+            authorised_connection_id = ${auth.connectionId},
             status = 'started',
             attempt_no = attempt_no + 1,
             provider_http_status = null,
@@ -109,6 +140,11 @@ export async function rearmAttempt(
       : await sql<StartedAttempt[]>`
           update publish_attempt
           set
+            authorised_by = ${auth.userId},
+            authorised_aal = ${auth.assurance.aal},
+            authorised_mfa_verified_at = ${auth.assurance.mfaVerifiedAt},
+            authorised_security_version = ${auth.assurance.securityVersion},
+            authorised_connection_id = ${auth.connectionId},
             status = 'started',
             attempt_no = attempt_no + 1,
             provider_http_status = null,
@@ -141,8 +177,10 @@ export async function insertAttempt(
     operation: PublishAttemptOperation
     intendedBody: string | null
     publishGeneration: number
+    authorisation: AttemptAuthorisation
   }
 ): Promise<StartedAttempt | null> {
+  const auth = input.authorisation
   const [attempt] = await sql<StartedAttempt[]>`
     insert into publish_attempt (
       organisation_id,
@@ -154,7 +192,12 @@ export async function insertAttempt(
       attempt_no,
       operation,
       intended_body,
-      publish_generation
+      publish_generation,
+      authorised_by,
+      authorised_aal,
+      authorised_mfa_verified_at,
+      authorised_security_version,
+      authorised_connection_id
     )
     values (
       ${input.organisationId},
@@ -166,7 +209,12 @@ export async function insertAttempt(
       1,
       ${input.operation},
       ${input.intendedBody},
-      ${input.publishGeneration}
+      ${input.publishGeneration},
+      ${auth.userId},
+      ${auth.assurance.aal},
+      ${auth.assurance.mfaVerifiedAt},
+      ${auth.assurance.securityVersion},
+      ${auth.connectionId}
     )
     on conflict (organisation_id, idempotency_key) do nothing
     returning id::text as id, attempt_no

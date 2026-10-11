@@ -8,6 +8,7 @@ import { googleLodgingApi } from "@/lib/server/google"
 import { resolveGbpLocationContext, stableGoogleHash, type GbpLocationContext } from "@/lib/server/gbp-management"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
 import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
@@ -159,7 +160,9 @@ export async function approveGbpChange(input: {
     if (row.payload_hash !== expectedPayloadHash) throw new ApiError(409, "approval_stale", "The reviewed content changed. Generate a new review.")
     if (row.require_two_person_approval && row.requested_by === session.userId) throw new ApiError(409, "second_approver_required", "A different authorised user must review and approve this change.")
     if (row.approved_by) return project(row, session, linked.locationName)
-    const [approved] = await sql<ChangeSetRow[]>`update gbp_change_set set approved_by = ${session.userId}, approved_at = now() where id = ${row.id} returning *`
+    // The assurance the approval was given with (0201), as evidence.
+    const assurance = authorisationAssurance(session)
+    const [approved] = await sql<ChangeSetRow[]>`update gbp_change_set set approved_by = ${session.userId}, approved_at = now(), approved_aal = ${assurance.aal}, approved_mfa_verified_at = ${assurance.mfaVerifiedAt}, approved_security_version = ${assurance.securityVersion} where id = ${row.id} returning *`
     await writeAudit(sql, { organisationId: session.organisationId, actorUserId: session.userId, action: "google.change_set.approved", subjectType: "location", subjectId: locationId, requestId, metadata: { changeSetId, payloadHash: row.payload_hash } })
     return project(approved, session, linked.locationName)
   })

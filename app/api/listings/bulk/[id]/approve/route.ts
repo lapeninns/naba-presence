@@ -9,6 +9,7 @@ const params = z.object({ id: z.uuid() })
 
 /** Approves an exact preview revision. */
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params, body: bulkApprovalSchema,
   handler: async ({ session, params, body, requestId }) => ({ operation: await approveBulkOperation(session, params.id, body, requestId) }),
 })

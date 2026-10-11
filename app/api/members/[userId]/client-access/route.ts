@@ -93,6 +93,7 @@ export const GET = route({
 })
 
 export const PUT = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: clientAccessParamsSchema,
   body: clientAccessUpdateSchema,

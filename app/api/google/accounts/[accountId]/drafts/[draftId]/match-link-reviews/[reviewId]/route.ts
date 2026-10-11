@@ -10,6 +10,7 @@ export const GET = route({
   handler: ({ session, params }) => getOnboardingMatchLinkReview(session, params.accountId, params.draftId, params.reviewId),
 })
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params, body: onboardingMatchLinkApproveSchema,
   handler: ({ session, params, body, requestId }) => approveOnboardingMatchLink(session, params.accountId, params.draftId, params.reviewId, body.expectedReviewHash, requestId),
 })

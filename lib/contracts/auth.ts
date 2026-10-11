@@ -145,6 +145,31 @@ export const mfaEnrollSchema = z.object({
 })
 export type MfaEnrollInput = z.input<typeof mfaEnrollSchema>
 
+/**
+ * POST `/api/auth/mfa/step-up` body (P02-S9). The password is asked with
+ * the code for the same reason as enrollment: the app keeps no provider
+ * token for a session. `factor` picks the authenticator app the code is
+ * from: the first one enrolled, or the backup.
+ */
+export const mfaStepUpSchema = z.object({
+  password: z.string().min(1).max(200),
+  code: totpCodeSchema,
+  factor: z.enum(["primary", "backup"]).default("primary"),
+})
+export type MfaStepUpInput = z.input<typeof mfaStepUpSchema>
+
+/** POST `/api/auth/mfa/step-up` response. */
+export const mfaStepUpResponseSchema = z.object({
+  verified: z.literal(true),
+  /** Until when sensitive actions are allowed without another code. */
+  proofExpiresAt: z.string(),
+})
+export type MfaStepUpResponse = z.infer<typeof mfaStepUpResponseSchema>
+
+/** 403 codes a sensitive action answers when two-step verification is due. */
+export const MFA_STEP_UP_REQUIRED = "mfa_step_up_required"
+export const MFA_ENROLLMENT_REQUIRED = "mfa_enrollment_required"
+
 /** POST `/api/auth/mfa/enroll` response: what the authenticator app needs. */
 export const mfaEnrollResponseSchema = z.object({
   factorId: z.string(),

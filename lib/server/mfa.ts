@@ -13,7 +13,8 @@ import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import type { ProviderFactor } from "@/lib/server/password-auth"
-import { isLocalBootstrapEnabled } from "@/lib/server/session"
+import { isManagerialRole } from "@/lib/server/permissions"
+import { isLocalBootstrapEnabled, type Session } from "@/lib/server/session"
 import type { SessionAssurance } from "@/lib/server/session-store"
 
 /**
@@ -112,6 +113,119 @@ export function verifiedAssurance(input: {
       verifiedAt.getTime() + MFA_PROOF_MINUTES * 60 * 1000
     ),
     authMethod: input.authMethod,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Step-up (P02-S9)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a session may not take a sensitive action yet:
+ * - `mfa_enrollment_required`: an owner or admin with no authenticator app
+ *   (Settings › Sign-in security enrolls one, at aal1);
+ * - `mfa_step_up_required`: enrolled, but the session holds no aal2 proof
+ *   from the last `maxAgeMinutes` (POST /api/auth/mfa/step-up renews it).
+ */
+export type MfaStepUpRefusal =
+  | "mfa_enrollment_required"
+  | "mfa_step_up_required"
+
+export type RecentMfaOptions = {
+  /** How old the verified code may be. Defaults to MFA_PROOF_MINUTES. */
+  maxAgeMinutes?: number
+  now?: Date
+}
+
+/**
+ * The step-up rule, without throwing. Only owners and admins are held to it,
+ * and only while MFA_ENABLED is on; members and viewers, and every session
+ * with the flag off, pass unchanged. A proof counts when the session is aal2,
+ * its code was verified no more than `maxAgeMinutes` ago and its own
+ * `mfa_proof_expires_at` has not passed (both, so a shorter window asked by
+ * a caller and the window stored at verification each hold). Sessions that
+ * existed before 0200 are aal1 and so step up on their first sensitive
+ * action.
+ */
+export function mfaStepUpRefusal(
+  session: Pick<
+    Session,
+    "role" | "aal" | "mfaVerifiedAt" | "mfaProofExpiresAt" | "mfaFactorCount"
+  >,
+  options: RecentMfaOptions = {}
+): MfaStepUpRefusal | null {
+  if (!isMfaEnabled()) return null
+  if (!isManagerialRole(session.role)) return null
+  const now = (options.now ?? new Date()).getTime()
+  const maxAgeMs = (options.maxAgeMinutes ?? MFA_PROOF_MINUTES) * 60 * 1000
+  const verifiedAt = session.mfaVerifiedAt
+    ? new Date(session.mfaVerifiedAt).getTime()
+    : Number.NaN
+  const expiresAt = session.mfaProofExpiresAt
+    ? new Date(session.mfaProofExpiresAt).getTime()
+    : Number.NaN
+  const recent =
+    session.aal === "aal2" &&
+    Number.isFinite(verifiedAt) &&
+    Number.isFinite(expiresAt) &&
+    verifiedAt <= now + 60_000 &&
+    now - verifiedAt <= maxAgeMs &&
+    expiresAt > now
+  if (recent) return null
+  return (session.mfaFactorCount ?? 0) > 0
+    ? "mfa_step_up_required"
+    : "mfa_enrollment_required"
+}
+
+/**
+ * Throws 403 `mfa_step_up_required` / `mfa_enrollment_required` unless the
+ * session may take a sensitive action now (mfaStepUpRefusal). `route()`
+ * calls it for handlers declared `mfa: "step_up"`; a handler whose
+ * sensitivity depends on its body (bulk triage vs bulk approval) calls it
+ * itself.
+ */
+export function requireRecentMfa(
+  session: Session,
+  options: RecentMfaOptions = {}
+): void {
+  const refusal = mfaStepUpRefusal(session, options)
+  if (!refusal) return
+  const maxAgeMinutes = options.maxAgeMinutes ?? MFA_PROOF_MINUTES
+  throw refusal === "mfa_enrollment_required"
+    ? new ApiError(
+        403,
+        refusal,
+        "Set up two-step verification before you do this.",
+        { details: { enrollPath: "/settings/security" } }
+      )
+    : new ApiError(
+        403,
+        refusal,
+        "Confirm it’s you with a code from your authenticator app.",
+        { details: { maxAgeMinutes } }
+      )
+}
+
+/**
+ * What an approval or a queued dispatch records about the authorisation
+ * behind it (0201): the assurance level, when its code was verified, and the
+ * security version the session was minted under. Workers compare the
+ * version (recheckAuthorisation); the rest is evidence.
+ */
+export type AuthorisationAssurance = {
+  aal: "aal1" | "aal2"
+  mfaVerifiedAt: Date | null
+  securityVersion: number | null
+}
+
+export function authorisationAssurance(
+  session: Pick<Session, "aal" | "mfaVerifiedAt" | "securityVersion">
+): AuthorisationAssurance {
+  const aal = session.aal === "aal2" ? "aal2" : "aal1"
+  return {
+    aal,
+    mfaVerifiedAt: aal === "aal2" ? (session.mfaVerifiedAt ?? null) : null,
+    securityVersion: session.securityVersion ?? null,
   }
 }
 

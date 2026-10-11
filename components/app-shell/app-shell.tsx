@@ -7,6 +7,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
+import { MfaStepUpPrompt } from "@/components/auth/mfa-step-up-prompt"
 import { BrandMark } from "@/components/app-shell/brand-mark"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchReviewCounts } from "@/lib/api/review-counts"
@@ -413,6 +414,7 @@ function AppShell({
             ) : null}
             {sessionReady ? <ReconnectBanner /> : null}
             {sessionReady ? <ShellOAuthReturn /> : null}
+            {sessionReady ? <MfaStepUpPrompt /> : null}
 
             <div className="flex min-h-0 flex-1 flex-col">
               {sessionReady ? children : null}

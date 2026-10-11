@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -26,12 +26,39 @@ function setCookies(response: Response): Map<string, string> {
   return cookies
 }
 
+const sha256 = (value: string) =>
+  createHash("sha256").update(value).digest("hex")
+
 describeDatabase("two-step verification (P02-S8)", () => {
   let admin: ReturnType<typeof postgres>
   let auth: Awaited<ReturnType<typeof startAuthProviderStub>>
   let server: Awaited<ReturnType<typeof startAppServer>>
   const organisations: string[] = []
   const emails: string[] = []
+
+  /**
+   * An owner who enrolled and verified a code just now: inviting is a
+   * sensitive action (P02-S9 step-up), so an aal1 owner would be refused.
+   */
+  async function steppedUpOwner() {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const token = randomBytes(32).toString("base64url")
+    await admin`update app_user set mfa_factor_count = 1 where id = ${owner.userId}`
+    await admin`
+      insert into app_session (
+        token_hash, user_id, organisation_id, expires_at,
+        aal, mfa_factor_id, mfa_verified_at, mfa_proof_expires_at,
+        security_version, auth_method
+      )
+      select
+        ${sha256(token)}, ${owner.userId}, ${owner.organisationId},
+        now() + interval '1 hour', 'aal2', 'factor-1', now(),
+        now() + interval '15 minutes', u.security_version, 'password'
+      from app_user u where u.id = ${owner.userId}
+    `
+    return { ...owner, cookie: `naba_session=${token}` }
+  }
 
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
@@ -421,8 +448,7 @@ describeDatabase("two-step verification (P02-S8)", () => {
   })
 
   it("accepts an invitation only after the code", async () => {
-    const owner = await createTestTenant(admin)
-    organisations.push(owner.organisationId)
+    const owner = await steppedUpOwner()
     const { email } = newUser({ enrolled: true })
     const invited = await post(
       "/api/invitations",
@@ -480,8 +506,7 @@ describeDatabase("two-step verification (P02-S8)", () => {
   })
 
   it("shows the code screen for an invitation link opened in a signed-in browser, then accepts it", async () => {
-    const owner = await createTestTenant(admin)
-    organisations.push(owner.organisationId)
+    const owner = await steppedUpOwner()
     const other = newUser()
     const otherCookie = setCookies(await login(other.email)).get(
       "naba_session"

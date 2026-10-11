@@ -23,6 +23,7 @@ import {
 
 import { requestApproval, requiresApproval } from "./approval"
 import {
+  attemptAuthorisation,
   findAttemptByKey,
   insertAttempt,
   rearmAttempt,
@@ -314,10 +315,15 @@ export async function startPublishIntent(
       published_by = excluded.published_by
     returning id::text as id
   `
+  const authorisation = attemptAuthorisation(
+    input.session,
+    record.connection_id
+  )
   const attempt = key.existing
     ? await rearmAttempt(sql, {
         attemptId: key.existing.id,
         intendedBody: record.body,
+        authorisation,
       })
     : await insertAttempt(sql, {
         organisationId: input.organisationId,
@@ -328,6 +334,7 @@ export async function startPublishIntent(
         operation: "publish",
         intendedBody: record.body,
         publishGeneration: record.publish_generation,
+        authorisation,
       })
   if (!attempt) return null
   await supersedeQueuedSiblings(sql, {

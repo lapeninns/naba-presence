@@ -627,8 +627,38 @@ menu, `DELETE /api/session?scope=all`) ends every session the person has in
 every organisation. If that fails (503 `sign_out_everywhere_failed`, logged as
 `session.revoke_all_failed`), the requesting browser is still signed out but
 the other sessions may remain; the person can sign in and retry. None of this
-touches Google connections or background sync. MFA for owners and admins is a
-Supabase Auth feature still to enable.
+touches Google connections or background sync. Two-step verification for
+owners and admins is behind `MFA_ENABLED` (default off) and needs TOTP
+enabled in the Supabase project first.
+
+### MFA recovery
+
+For a person who lost every authenticator app. Verify their identity out of
+band first (a call to a number already on file, a second owner's
+confirmation) and record how in the reason. Running it against production is
+a release operation that needs approval, and the recovery procedure itself
+needs security reviewer sign-off before first use. It runs outside the app,
+with the owner/operator database connection and the Supabase service-role
+key, which the operator holds:
+
+```sh
+DIRECT_DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  pnpm ops:mfa-recover --email person@example.com \
+  --operator you@example.com --reason "Lost phone; identity checked by call, ticket 123" --dry-run
+DIRECT_DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  pnpm ops:mfa-recover --email person@example.com \
+  --operator you@example.com --reason "Lost phone; identity checked by call, ticket 123"
+```
+
+`recover_user_mfa` (0201; the runtime role cannot execute it) bumps the
+person's `security_version`, so every session they hold stops resolving and
+every queued dispatch they authorised is refused; deletes their sessions and
+pending MFA tickets; zeroes `mfa_factor_count`, so their next sensitive action
+asks them to enroll again; and writes one `user.mfa_recovered` audit row per
+organisation naming the operator and reason. The script then deletes every
+TOTP factor at the provider. If that step fails the person is signed out
+everywhere but still needs a code; re-run it (safe). `--skip-provider` does
+only the database step; without it a missing key refuses to start.
 
 ### Support impersonation
 

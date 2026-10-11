@@ -40,6 +40,11 @@ import {
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import {
+  authorisationAssurance,
+  mfaStepUpRefusal,
+  requireRecentMfa,
+} from "@/lib/server/mfa"
+import {
   loadPauseSnapshot,
   requireGbpDispatch,
 } from "@/lib/server/pause-controls"
@@ -763,6 +768,15 @@ export async function updateLocalPostDraft(
 ) {
   return withTenant(organisationId, async (sql) => {
     await requireLocationAction(sql, session, locationId, "edit")
+    if (mfaStepUpRefusal(session)) {
+      // Editing a published post republishes it (the route sends it on), so
+      // an owner or admin needs a recent code for that; a draft does not.
+      const [current] = await sql<{ status: string }[]>`
+        select status from gbp_local_post
+        where id = ${postId} and location_id = ${locationId}
+      `
+      if (current?.status === "published") requireRecentMfa(session)
+    }
     if (expectedUpdatedAt) {
       const [current] = await sql<{ changed: boolean }[]>`
         select date_trunc('milliseconds', updated_at) <> ${expectedUpdatedAt}::timestamptz as changed
@@ -1134,14 +1148,19 @@ async function insertDecision(
   post: LocalPost,
   decision: "approved" | "rejected"
 ): Promise<string> {
+  // The assurance the decision was made with (0201), as evidence.
+  const assurance = authorisationAssurance(input.session)
   const [row] = await sql<{ id: string }[]>`
     insert into post_approval_decision (
       organisation_id, post_id, content_revision, content_hash,
-      requested_by, author_id, decided_by, decision
+      requested_by, author_id, decided_by, decision,
+      authorised_aal, authorised_mfa_verified_at, authorised_security_version
     ) values (
       ${input.organisationId}, ${post.id}, ${post.contentRevision},
       ${postContentHash(post)}, ${post.approvalRequestedBy},
-      ${post.authorId}, ${input.session.userId}, ${decision}
+      ${post.authorId}, ${input.session.userId}, ${decision},
+      ${assurance.aal}, ${assurance.mfaVerifiedAt},
+      ${assurance.securityVersion}
     )
     returning id::text as id
   `

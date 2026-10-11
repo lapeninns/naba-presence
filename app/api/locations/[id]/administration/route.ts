@@ -43,6 +43,7 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: administrationMutationSchema,

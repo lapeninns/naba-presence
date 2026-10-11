@@ -21,6 +21,7 @@ import { jsonColumn, withTenant } from "@/lib/server/db"
 import type { GbpWriteSurface } from "@/lib/server/env"
 import { idempotencyKey, type IdempotencyPart } from "@/lib/server/gbp-write"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
 import {
   claimAmbientIntent,
   currentIntentId,
@@ -616,13 +617,18 @@ async function insertDecision(
   row: ChangeRow,
   decision: "approved" | "rejected"
 ): Promise<string> {
+  // The assurance the decision was made with (0201), as evidence.
+  const assurance = authorisationAssurance(input.session)
   const [decided] = await sql<{ id: string }[]>`
     insert into mutation_approval_decision (
       organisation_id, operation_id, payload_hash, requested_by, decided_by,
-      decision
+      decision, authorised_aal, authorised_mfa_verified_at,
+      authorised_security_version
     ) values (
       ${input.session.organisationId}, ${row.id}, ${row.payloadHash},
-      ${row.actorUserId}, ${input.session.userId}, ${decision}
+      ${row.actorUserId}, ${input.session.userId}, ${decision},
+      ${assurance.aal}, ${assurance.mfaVerifiedAt},
+      ${assurance.securityVersion}
     )
     returning id::text as id
   `

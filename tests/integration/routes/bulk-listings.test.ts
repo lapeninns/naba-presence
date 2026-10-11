@@ -194,6 +194,16 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       error: "bulk_skipped_unacknowledged",
     })
     await t.read(await t.approve(op, true))
+    // The assurance it was approved with (0201): MFA is off here, so aal1.
+    const [assurance] = await admin<
+      { aal: string | null; verifiedAt: Date | null; version: number | null }[]
+    >`
+      select approved_aal as aal,
+        approved_mfa_verified_at as "verifiedAt",
+        approved_security_version as version
+      from bulk_listing_operation where id = ${op.id}
+    `
+    expect(assurance).toEqual({ aal: "aal1", verifiedAt: null, version: 1 })
     const started = await t.api(`/${op.id}/execute`, {})
     expect(started.status).toBe(202)
     await tick()

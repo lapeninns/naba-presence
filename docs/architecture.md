@@ -66,6 +66,47 @@ ends the person's other sessions and audits `user.password_reset`. Issuing a
 sign-in ticket ends whatever session the browser already held. `lib/server/mfa.ts` owns the ticket, cookie and assurance
 helpers; `/sign-in/verify` and `/settings/security` are the screens.
 
+### Step-up and authorised dispatch (P02-S9, migration 0201)
+
+With `MFA_ENABLED` on, owners and admins need an aal2 proof from the last 15
+minutes before a sensitive action: a route handler declares
+`route({ mfa: "step_up" })` (`lib/server/route.ts`), which runs
+`requireRecentMfa` (`lib/server/mfa.ts`) after the role gate and answers 403
+`mfa_step_up_required`, or `mfa_enrollment_required` for a manager with no
+authenticator app. The handlers that declare it (team, Google connection and
+onboarding writes, every publish, approve and execute path, settings,
+legal holds and privacy requests) are pinned by
+`tests/mfa-step-up-contract.test.ts`; bulk review approval and editing a
+published post call `requireRecentMfa` for that branch only. Reads,
+enrollment, exports and workspace switching stay at aal1, and members and
+viewers are not held to it. `POST /api/auth/mfa/step-up` takes the password
+and a current code (primary or backup factor; abuse scopes `mfa_verify` and
+the per-account budgets) and replaces the session with an aal2 one.
+`components/auth/mfa-step-up-prompt.tsx`, mounted in the app shell, opens on
+the window event `lib/api/client.ts` raises for those 403s; the action is not
+replayed, the person sends it again.
+
+Approvals record the assurance they were made with
+(`authorisationAssurance`): `approval_decision`, `post_approval_decision`
+and `mutation_approval_decision` gain `authorised_aal`,
+`authorised_mfa_verified_at` and `authorised_security_version`, and
+`gbp_change_set`, `post_publication_schedule` and `bulk_listing_operation`
+the matching `approved_*` columns (a schedule revision clears them). `publish_attempt` records
+who authorised the reply mutation (`authorised_by`, assurance, security
+version and `authorised_connection_id`), and `retryPublishAttempt`
+(`lib/server/publishing/retry.ts`) re-decides it through
+`recheckAuthorisation` before every replay: a removed member, a lost publish
+grant, a changed connection or a bumped security version settles the attempt
+`failed` (`authorisation_revoked`, reason in the event) with no provider
+call, and a row with nobody recorded fails closed
+(`authorisation_unverifiable`). `beginOperation` stamps the actor's security
+version on `mutation_operation`. Operator recovery is
+`scripts/mfa-recover.mjs` (`pnpm ops:mfa-recover`), outside the app runtime:
+`recover_user_mfa` (owner connection only) bumps `security_version`, deletes
+sessions and tickets, zeroes `mfa_factor_count` and audits
+`user.mfa_recovered` per organisation; the script then deletes the factors at
+the provider with the service-role key (runbook, "MFA recovery").
+
 Arbitrary tenant headers are never accepted. Owner/admin, member, viewer,
 location access, and publish authority checks happen above the database RLS
 boundary.
@@ -207,9 +248,10 @@ bulk assign/triage all refuse it. Work that runs without a session (retries,
 schedules, recovery, bulk batches) re-derives the actor's grant at dispatch
 through `lib/server/authz/actor.ts`: `actorScopeFromMembership` turns the
 member row into a grant scope, and `recheckAuthorisation` re-decides the
-action, refuses a relinked Google connection or a changed approval policy,
-and fails closed on a supplied security version, generation id or entitlement
-until those mechanisms exist (P02-S9, P03-S2/P07-S2, P07-S1 wire them in). A bulk assignee must pass the same
+action, refuses a relinked Google connection, a changed approval policy or
+a security version the person has moved past (P02-S9), and fails closed on a
+supplied generation id or entitlement until those mechanisms exist
+(P03-S2/P07-S2, P07-S1 wire them in). A bulk assignee must pass the same
 recheck for the review's location (`assignee_not_eligible` otherwise).
 Bulk approve (`app/api/reviews/bulk/route.ts`) names, per row, the draft and
 review update time the operator was shown; `recordApprovalDecision` refuses
@@ -290,7 +332,8 @@ upload cannot be frozen (no asset store yet), so it is refused with 409
 pending requests above themselves (`components/locations/listing-change-requests.tsx`,
 only where the location capability `listingChangeApprovals` is true), and the
 API client raises a parked answer as `listing_change_awaiting_approval`, never
-as a failure or a send. Approvals carry no MFA assurance yet (P02-S9).
+as a failure or a send. Each decision records the approver's assurance
+(P02-S9, above).
 
 `tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
 every session mutation declares non-viewer `roles`, calls an action guard in

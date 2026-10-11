@@ -33,6 +33,7 @@ export const GET = route({
  * reads it and changing it would break nothing but gain nothing.
  */
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner"],
   body: organisationRenameSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {

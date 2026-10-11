@@ -11,6 +11,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { deleteWorkflowTarget } from "@/lib/domain/workflow"
+import { recheckAuthorisation } from "@/lib/server/authz/actor"
 import { withTenant } from "@/lib/server/db"
 import { isScopeEnabled } from "@/lib/server/pause-controls"
 
@@ -59,6 +60,10 @@ type RetryPrecheck = Omit<RetryAttemptContext, "attemptNo"> & {
   replyGeneration: number
   restrictedAt: Date | null
   supersededBySuccess: boolean
+  locationId: string
+  authorisedBy: string | null
+  authorisedSecurityVersion: number | null
+  authorisedConnectionId: string | null
 }
 
 /**
@@ -87,6 +92,10 @@ async function precheckRetry(
       r.google_review_name_ciphertext as "googleReviewNameCiphertext",
       r.restricted_at as "restrictedAt",
       e.google_connection_id::text as "connectionId",
+      r.location_id::text as "locationId",
+      pa.authorised_by::text as "authorisedBy",
+      pa.authorised_security_version as "authorisedSecurityVersion",
+      pa.authorised_connection_id::text as "authorisedConnectionId",
       exists (
         select 1
         from publish_attempt newer
@@ -106,6 +115,83 @@ async function precheckRetry(
   return attempt ?? null
 }
 
+/**
+ * Re-decides the authorisation recorded on the attempt (0201) before a
+ * replay. Null when it still holds; otherwise the code the attempt settles
+ * with. A row with nobody recorded (queued before 0201, or its person
+ * deleted) cannot be rechecked and is refused rather than replayed.
+ */
+async function recheckRetryAuthorisation(
+  sql: TransactionSql,
+  organisationId: string,
+  precheck: RetryPrecheck
+): Promise<{ code: string; reason: string } | null> {
+  if (!precheck.authorisedBy) {
+    return {
+      code: "authorisation_unverifiable",
+      reason: "authorised_by_missing",
+    }
+  }
+  const recheck = await recheckAuthorisation(sql, {
+    organisationId,
+    actorUserId: precheck.authorisedBy,
+    locationId: precheck.locationId,
+    action: "publish",
+    connectionId: precheck.authorisedConnectionId,
+    securityVersion: precheck.authorisedSecurityVersion,
+  })
+  if (recheck.ok) {
+    // The replay itself goes through the review's connection; it must be the
+    // one the person authorised. Rows without one recorded fail closed.
+    if (
+      !precheck.authorisedConnectionId ||
+      precheck.authorisedConnectionId.toLowerCase() !==
+        precheck.connectionId.toLowerCase()
+    ) {
+      return { code: "authorisation_revoked", reason: "connection_changed" }
+    }
+    return null
+  }
+  return { code: "authorisation_revoked", reason: recheck.reason }
+}
+
+/**
+ * Settles a due `retryable` row `failed` without calling Google, and the
+ * reply with it: a restriction fulfilled after it was queued, or an
+ * authorisation that no longer holds.
+ */
+async function failBeforeDispatch(
+  sql: TransactionSql,
+  organisationId: string,
+  precheck: RetryPrecheck,
+  code: string,
+  detail: Record<string, unknown> = {}
+): Promise<RetryClaim> {
+  const settled = await sql`
+    update publish_attempt
+    set
+      status = 'failed',
+      provider_error_code = ${code},
+      next_attempt_at = null,
+      finished_at = now()
+    where id = ${precheck.id}
+      and status = 'retryable'
+    returning id
+  `
+  if (settled.length === 0) return { kind: "settled", result: "skipped" }
+  await writePublishAttemptEvent(sql, {
+    organisationId,
+    publishAttemptId: precheck.id,
+    eventType: "completed",
+    payload: { result: "failed", code, ...detail, ...JOB_RUNNER },
+  })
+  await applyFailedReply(sql, {
+    reviewReplyId: precheck.reviewReplyId,
+    reviewId: precheck.reviewId,
+  })
+  return { kind: "settled", result: "failed" }
+}
+
 /** Claim the due `retryable` row as a new `started` attempt. */
 async function claimRetry(
   sql: TransactionSql,
@@ -120,29 +206,7 @@ async function claimRetry(
   // the only gate it passes. A delete is remediation, not processing, and
   // stays allowed.
   if (precheck.restrictedAt && precheck.operation === "publish") {
-    const settled = await sql`
-      update publish_attempt
-      set
-        status = 'failed',
-        provider_error_code = 'review_restricted',
-        next_attempt_at = null,
-        finished_at = now()
-      where id = ${attemptId}
-        and status = 'retryable'
-      returning id
-    `
-    if (settled.length === 0) return { kind: "settled", result: "skipped" }
-    await writePublishAttemptEvent(sql, {
-      organisationId,
-      publishAttemptId: attemptId,
-      eventType: "completed",
-      payload: { result: "failed", code: "review_restricted", ...JOB_RUNNER },
-    })
-    await applyFailedReply(sql, {
-      reviewReplyId: precheck.reviewReplyId,
-      reviewId: precheck.reviewId,
-    })
-    return { kind: "settled", result: "failed" }
+    return failBeforeDispatch(sql, organisationId, precheck, "review_restricted")
   }
 
   const staleGeneration =
@@ -155,6 +219,16 @@ async function claimRetry(
       reason: staleGeneration ? "stale_generation" : "newer_reply_published",
     })
     return { kind: "settled", result: "skipped" }
+  }
+
+  // The person who asked for this mutation must still be allowed to make it,
+  // through the same Google connection, under the same security version
+  // (P02-S9): the replay is made on their behalf, possibly hours later.
+  const refusal = await recheckRetryAuthorisation(sql, organisationId, precheck)
+  if (refusal) {
+    return failBeforeDispatch(sql, organisationId, precheck, refusal.code, {
+      reason: refusal.reason,
+    })
   }
 
   const [claimed] = await sql<{ attemptNo: number }[]>`

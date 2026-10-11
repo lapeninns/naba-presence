@@ -211,6 +211,10 @@ export async function beginOperation(
 ): Promise<{ operation: MutationOperation; created: boolean }> {
   const d = input.descriptor
   const connectionId = d.googleConnectionId ?? null
+  // security_version: the actor's version now (0200) unless the descriptor
+  // names one. A session behind it never resolves (lookupSession), so this is
+  // the version of the session that asked; workers compare it before they
+  // dispatch (recheckAuthorisation).
   const [inserted] = await sql<MutationOperation[]>`
     insert into mutation_operation (
       organisation_id, intent_id, actor_user_id, surface, action,
@@ -223,7 +227,12 @@ export async function beginOperation(
       ${d.surface}, ${d.action}, ${d.locationId ?? null},
       ${d.targetType ?? null}, ${d.targetRef ?? null}, ${input.payloadHash},
       ${d.expectedRevision === undefined || d.expectedRevision === null ? null : String(d.expectedRevision)},
-      ${d.approvalRef ?? null}, ${d.securityVersion ?? null}, ${connectionId},
+      ${d.approvalRef ?? null},
+      coalesce(
+        ${d.securityVersion ?? null}::integer,
+        (select security_version from app_user where id = ${input.actorUserId})
+      ),
+      ${connectionId},
       (select credential_generation from google_connection where id = ${connectionId}),
       ${input.attemptTable}, 'sent'
     )

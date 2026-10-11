@@ -65,7 +65,11 @@ const SCHEMA = `
   create role naba_app_runtime;
   create table schema_migration (version text primary key);
   create table organisation (id uuid primary key);
-  create table app_user (id uuid primary key);
+  -- security_version (0200): beginOperation stamps the actor's.
+  create table app_user (
+    id uuid primary key,
+    security_version integer not null default 1
+  );
   create table location (id uuid primary key, organisation_id uuid not null);
   create table google_connection (
     id uuid primary key,
@@ -96,7 +100,7 @@ const SCHEMA = `
     created_at timestamptz not null default now()
   );
   insert into organisation values ('${ORG}');
-  insert into app_user values ('${USER}');
+  insert into app_user (id, security_version) values ('${USER}', 3);
   insert into location values ('${LOCATION}', '${ORG}');
   insert into google_connection values ('${CONNECTION}', '${ORG}', 4);
 `
@@ -219,7 +223,8 @@ describe("mutation operation ledger", () => {
       attempt_id: result.attemptId,
       state: "confirmed_applied",
       approval_ref: null,
-      security_version: null,
+      // The actor's version when the intent was recorded.
+      security_version: 3,
     })
     expect(result.operationId).toBe(operation.id)
   })

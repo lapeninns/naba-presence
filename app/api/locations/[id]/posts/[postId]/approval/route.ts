@@ -13,6 +13,7 @@ import {
 import { route } from "@/lib/server/route"
 
 export const POST = route({
+  mfa: "step_up",
   params: z.object({ id: z.string(), postId: z.string() }),
   body: postApprovalDecisionSchema,
   handler: async ({ session, params, body, requestId }) => {

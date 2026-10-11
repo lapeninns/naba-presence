@@ -8,6 +8,7 @@ import {
 import { writeAudit } from "@/lib/server/audit"
 import { recheckAuthorisation } from "@/lib/server/authz/actor"
 import { ApiError } from "@/lib/server/http"
+import { requireRecentMfa } from "@/lib/server/mfa"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAction } from "@/lib/server/permissions"
 import { REPLY_PUBLISHING_PAUSED } from "@/lib/server/publishing"
@@ -53,6 +54,8 @@ export const POST = route({
   body: bulkReviewActionSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
     if (body.action === "approve") {
+      // Approving publishes; triage and assignment stay allowed at aal1.
+      requireRecentMfa(session)
       await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
     }
 

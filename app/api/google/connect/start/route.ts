@@ -16,6 +16,7 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: connectStartBodySchema,
   handler: async ({ session, body, tenant }) => {
