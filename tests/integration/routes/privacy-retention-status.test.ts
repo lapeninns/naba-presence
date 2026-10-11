@@ -57,6 +57,25 @@ describeDatabase("privacy retention status route", () => {
     expect(response.status).toBe(404)
   })
 
+  it("serves the /settings/privacy page only once the feature is on", async () => {
+    const tenant = await createTestTenant(admin)
+    organisations.push(tenant.organisationId)
+    const page = () =>
+      fetch(`${server.baseUrl}/settings/privacy`, {
+        headers: { cookie: tenant.cookie },
+        redirect: "manual",
+      })
+    // The settings loading boundary streams the shell first, so notFound()
+    // can arrive after a 200 status; what matters is that the area is not
+    // rendered.
+    const DESCRIPTION = "Requests from reviewers about their data"
+    expect(await (await page()).text()).not.toContain(DESCRIPTION)
+    await enable(tenant.organisationId)
+    const response = await page()
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain(DESCRIPTION)
+  })
+
   it("refuses members", async () => {
     const tenant = await createTestTenant(admin)
     organisations.push(tenant.organisationId)
