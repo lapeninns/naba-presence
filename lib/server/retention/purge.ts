@@ -248,7 +248,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
         )
       `,
     }),
-    // review_unredacted_expiry_idx (0100) is a partial index on exactly
+    // review_unredacted_expiry_v2_idx (0100) is a partial index on exactly
     // this predicate: widening it needs a matching new index. The reviewer's
     // profile photo link is provider content like the name beside it, so it
     // expires with it; a re-ingest inside the window writes it back

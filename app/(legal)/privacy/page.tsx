@@ -137,8 +137,9 @@ export default function PrivacyPage() {
             connected.
           </li>
           <li>
-            <strong>AI usage records</strong> are kept for 13 months, and
-            never while the allowance period they count towards is still open.
+            <strong>AI usage records</strong> are kept for 13 months, and are
+            never deleted while the allowance period they count towards is
+            still open.
           </li>
           <li>
             <strong>Audit records</strong> are kept for one year by default.

@@ -15,13 +15,19 @@ begin;
 -- 0099's review_unredacted_expiry_idx is a partial index on the narrower
 -- predicate, which a row whose only remaining provider field is the photo
 -- link does not satisfy, so the planner could not use it for the wider scan.
--- It is rebuilt on the wider predicate. The wider predicate is implied by the
--- narrower one, so code still issuing 0099's predicate can use it as well.
+-- review_unredacted_expiry_v2_idx replaces it on the wider predicate. The
+-- wider predicate is implied by the narrower one, so code still issuing
+-- 0099's predicate can use it as well.
 --
 -- Plain `create index if not exists`: the migration runs in a transaction, so
--- CONCURRENTLY is unavailable. review is a fleet-wide table, and the build
--- holds a SHARE lock that blocks every tenant's review writes (ingest
--- included) until it finishes. Apply this migration in a low-traffic window.
+-- CONCURRENTLY is unavailable. review is a fleet-wide table. Each build holds
+-- a SHARE lock on its table until commit, which blocks every tenant's writes
+-- (review ingest included) but not reads. The new review index is therefore
+-- built before the old one is dropped: DROP INDEX takes an ACCESS EXCLUSIVE
+-- lock, which also blocks reads, and holding it from the start would block
+-- every review read for the whole build. Dropping last keeps that lock to the
+-- moment between the drop and commit. Apply this migration in a low-traffic
+-- window.
 -- ---------------------------------------------------------------------------
 
 grant delete on ai_usage to naba_app_runtime;
@@ -29,14 +35,15 @@ grant delete on ai_usage to naba_app_runtime;
 create index if not exists ai_usage_created_idx
   on ai_usage (organisation_id, created_at);
 
-drop index if exists review_unredacted_expiry_idx;
-
-create index if not exists review_unredacted_expiry_idx
+create index if not exists review_unredacted_expiry_v2_idx
   on review (organisation_id, raw_content_expires_at)
   where review_text is not null
     or reviewer_display_name is not null
     or reviewer_profile_photo_url is not null
     or raw_payload is not null;
+
+-- Last statement before the version row: see the lock note above.
+drop index if exists review_unredacted_expiry_idx;
 
 insert into schema_migration (version)
 values ('0100_ai_usage_retention')

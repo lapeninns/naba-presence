@@ -1005,27 +1005,28 @@ membership, rotates the session, updates the default organisation, and audits
 organisation switching.
 
 Google source payloads, review text, reviewer display names and profile photo
-links, addresses, and media links carry an expiry no later than the organisation’s configured window, which
-is database-constrained to 30 days. `/api/cron/retention` purges expired raw
-content while retaining minimal derived operational metrics. It is a
-five-minute dispatcher over one retention cycle per UTC day, opened at or after
-03:00 (`lib/server/retention/cycle.ts`, migration 0097): each fire resumes the
-running cycle from its persisted enumeration cursor, retains each organisation
-in bounded rounds (`lib/server/retention/purge.ts`, migration 0099: one tenant
-transaction per round, at most `RETENTION_BATCH_ROWS` rows per dataset
-statement), leaves an organisation the budget stopped part-way pending for the
-next fire with its committed counts, records its
-success or failure per organisation, retries a failed organisation on later
-fires up to three runs, and completes the cycle -- reported to the tick ledger
-through `recordTickCycleCompleted` -- once every organisation has succeeded or
-used up its runs. An explicit `?cursor=` runs one hand-run page instead and
-never moves the cycle. The same purge deletes `ai_usage` cost rows 13 months
-after creation (migration 0100), behind `RETENTION_DELETES_ENABLED`, and never a
-`reserved` row or one of the credit period still open
-(`aiUsageInClosedPeriod`, where settled credit periods plug in). An owner-approved
-legal hold from `app/api/legal-holds/route.ts` blocks purge and erasure only for
-its selected review. `app/api/privacy/requests/route.ts` implements attributable
-access, rectification, erasure, and restriction fulfilment;
+links, addresses, and media links carry an expiry no later than the
+organisation’s configured window, which is database-constrained to 30 days.
+`/api/cron/retention` purges expired raw content while retaining minimal derived
+operational metrics. It is a five-minute dispatcher over one retention cycle per
+UTC day, opened at or after 03:00 (`lib/server/retention/cycle.ts`, migration
+0097): each fire resumes the running cycle from its persisted enumeration
+cursor, retains each organisation in bounded rounds
+(`lib/server/retention/purge.ts`, migration 0099: one tenant transaction per
+round, at most `RETENTION_BATCH_ROWS` rows per dataset statement), leaves an
+organisation the budget stopped part-way pending for the next fire with its
+committed counts, records its success or failure per organisation, retries a
+failed organisation on later fires up to three runs, and completes the cycle --
+reported to the tick ledger through `recordTickCycleCompleted` -- once every
+organisation has succeeded or used up its runs. An explicit `?cursor=` runs one
+hand-run page instead and never moves the cycle. The same purge deletes
+`ai_usage` cost rows 13 months after creation (migration 0100), behind
+`RETENTION_DELETES_ENABLED`, and never a `reserved` row or one of the credit
+period still open (`aiUsageInClosedPeriod`, where settled credit periods plug
+in). An owner-approved legal hold from `app/api/legal-holds/route.ts` blocks
+purge and erasure only for its selected review.
+`app/api/privacy/requests/route.ts` implements attributable access,
+rectification, erasure, and restriction fulfilment;
 `app/api/privacy/export/route.ts` exports only still-retained content.
 
 Disconnect immediately destroys stored OAuth tokens and disables notifications.

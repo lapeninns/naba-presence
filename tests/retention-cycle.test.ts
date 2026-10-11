@@ -252,11 +252,18 @@ describe("0100 AI usage retention migration", () => {
     expect(migration).not.toMatch(/create index concurrently/i)
   })
 
-  it("rebuilds the unredacted-review index on the purge's wider predicate", () => {
-    expect(migration).toContain("drop index if exists review_unredacted_expiry_idx;")
-    expect(migration).toMatch(
-      /create index if not exists review_unredacted_expiry_idx\s+on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null\s+or reviewer_display_name is not null\s+or reviewer_profile_photo_url is not null\s+or raw_payload is not null;/
+  it("builds the wider unredacted-review index before dropping 0099's", () => {
+    const create = migration.search(
+      /create index if not exists review_unredacted_expiry_v2_idx\s+on review \(organisation_id, raw_content_expires_at\)\s+where review_text is not null\s+or reviewer_display_name is not null\s+or reviewer_profile_photo_url is not null\s+or raw_payload is not null;/
     )
+    const drop = migration.indexOf("drop index if exists review_unredacted_expiry_idx;")
+    const version = migration.indexOf("insert into schema_migration")
+    expect(create).toBeGreaterThan(-1)
+    // DROP INDEX holds ACCESS EXCLUSIVE (blocking reads) until commit, so it
+    // must come after the build and be the last statement before the version row.
+    expect(drop).toBeGreaterThan(create)
+    expect(version).toBeGreaterThan(drop)
+    expect(migration.slice(drop, version)).not.toMatch(/^\s*(create|alter|update|insert|delete|grant)\b/im)
   })
 })
 
