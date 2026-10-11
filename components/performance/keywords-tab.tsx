@@ -7,6 +7,7 @@ import { useState } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
+import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
@@ -207,6 +208,7 @@ export function KeywordsTab({
         codes={data.unavailableReasons}
         title="Some keywords could not be refreshed"
       />
+      <PartialCoverageAlert completeness={data.completeness} />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Input
           type="search"

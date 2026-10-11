@@ -2,6 +2,7 @@
 
 import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
 import { PresenceFigures } from "@/components/performance/presence-figures"
+import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
 import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import { ReplyLocationsTable } from "@/components/performance/reply-locations-table"
 import { kpiDelta } from "@/components/reporting/delta-badge"
@@ -103,6 +104,22 @@ export function SharedClientReportView({
         fetchedAt: google.fetchedAt,
         coverage: google.coverage,
         dateBasis: "google_daily",
+        // Positional keys, as for the venue table: the DTO carries names only.
+        completeness: google.completeness
+          ? {
+              ...google.completeness,
+              missing: google.completeness.missing.map((location, index) => ({
+                ...location,
+                id: `missing-${index + 1}`,
+              })),
+              refreshFailed: google.completeness.refreshFailed.map(
+                (location, index) => ({
+                  ...location,
+                  id: `behind-${index + 1}`,
+                })
+              ),
+            }
+          : null,
       }
     : null
 
@@ -335,6 +352,10 @@ export function SharedClientReportView({
             </p>
             <PresenceProvenance data={presence} />
           </div>
+          <PartialCoverageAlert
+            completeness={presence.completeness}
+            nouns={{ one: "venue", many: "venues" }}
+          />
           <PresenceFigures data={presence} />
         </section>
       ) : null}

@@ -4,6 +4,7 @@ import { Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
+import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
 import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
@@ -187,6 +188,8 @@ export function GooglePerformanceTab({
         codes={data.unavailableReasons}
         title="Some figures could not be refreshed"
       />
+      {/* Expected vs covered: missing locations are named, never zero. */}
+      <PartialCoverageAlert completeness={data.completeness} />
       <PresenceFigures data={data} />
     </>
   )

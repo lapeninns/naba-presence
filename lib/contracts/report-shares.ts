@@ -9,7 +9,7 @@
 import { z } from "zod"
 
 import type { GooglePerformanceMetric } from "@/lib/domain/google-contract"
-import type { PresenceResponse } from "./analytics"
+import type { PresenceResponse, ReportCompleteness } from "./analytics"
 
 // ---------------------------------------------------------------------------
 // Link lifetimes
@@ -178,5 +178,20 @@ export type SharedClientReport = {
     previous?: PresenceResponse["previous"]
     fetchedAt?: PresenceResponse["fetchedAt"]
     coverage?: PresenceResponse["coverage"]
+    /**
+     * Expected vs covered venues and the oldest complete date. Venues are
+     * named only, like `venues`: no location ids leave the server.
+     */
+    completeness?: {
+      state: ReportCompleteness["state"]
+      expected: number
+      covered: number
+      completeThrough: string | null
+      missing: Array<{
+        name: string
+        reason: ReportCompleteness["missing"][number]["reason"]
+      }>
+      refreshFailed: Array<{ name: string }>
+    } | null
   } | null
 }

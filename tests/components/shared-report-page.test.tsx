@@ -283,6 +283,69 @@ describe("SharedClientReportView", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("states the venues it covers and never shows a missing venue as zero", () => {
+    const { container } = render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          google: {
+            ...REPORT.google!,
+            totals: {
+              ...REPORT.google!.totals,
+              BUSINESS_BOOKINGS: null,
+            },
+            completeness: {
+              state: "partial",
+              expected: 3,
+              covered: 2,
+              completeThrough: "2026-09-12",
+              missing: [{ name: "Old Crown, Cheam", reason: "unavailable" }],
+              refreshFailed: [],
+            },
+          },
+        }}
+      />
+    )
+    const banner = container.querySelector(
+      "[data-slot=partial-coverage]"
+    ) as HTMLElement
+    expect(within(banner).getByText("Showing 2 of 3 venues")).toBeInTheDocument()
+    expect(
+      within(banner).getByText(/Could not be refreshed: Old Crown, Cheam/)
+    ).toBeInTheDocument()
+    expect(
+      within(banner).getByText(/Complete for every venue shown through 12 Sept/)
+    ).toBeInTheDocument()
+    // The oldest complete date also reads in the provenance line.
+    expect(
+      screen.getByText(/All reporting locations complete through 12 Sept/)
+    ).toBeInTheDocument()
+  })
+
+  it("shows no coverage banner for a complete report", () => {
+    const { container } = render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          google: {
+            ...REPORT.google!,
+            completeness: {
+              state: "complete",
+              expected: 2,
+              covered: 2,
+              completeThrough: "2026-09-18",
+              missing: [],
+              refreshFailed: [],
+            },
+          },
+        }}
+      />
+    )
+    expect(
+      container.querySelector("[data-slot=partial-coverage]")
+    ).toBeNull()
+  })
+
   it("says so when there were no reviews in either window", () => {
     render(
       <SharedClientReportView

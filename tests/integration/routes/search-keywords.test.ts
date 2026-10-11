@@ -112,6 +112,14 @@ describeDatabase("Google search keyword analytics", () => {
           thresholded: true,
         },
       ],
+      // Every month walked to the current one: one location, fully covered.
+      completeness: {
+        state: "complete",
+        expected: 1,
+        covered: 1,
+        completeThrough: new Date().toISOString().slice(0, 7),
+        missing: [],
+      },
     })
 
     const isolated = await fetch(

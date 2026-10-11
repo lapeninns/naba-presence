@@ -354,6 +354,7 @@ established; see `docs/gbp-operations-acceptance.md`.
 | Scheduled publication | Posts tab: Schedule sheet with exact preview, schedules list with approval, pause/resume/cancel/change; `/calendar` month, week and agenda | `/api/locations/[id]/post-schedules/**`, `/api/post-schedules/occurrences`; job tick |
 | Bulk listing changes | Listings board selection (up to 100), `/listings/bulk` compose, `/listings/bulk/[id]` review, approval, progress, cancel, retry | `/api/listings/bulk/preview`, `/[id]`, `/[id]/approve`, `/[id]/execute` (202), `/[id]/cancel`, `/[id]/retry`; job tick |
 | Report provenance | Google tab, location report and share page: "No data" for missing metrics, prior-window deltas, data-through vs last fetched, coverage, totals CSV, print styles | `/api/analytics/presence` optional `previous`, `fetchedAt`, `coverage`, `dateBasis` |
+| Report completeness | Google tab, keywords tab and share page: "Showing N of M locations" banner naming missing locations and why, refresh-failed locations, and the oldest complete date; missing locations are never counted as zero (`components/reporting/partial-coverage-alert.tsx`) | `completeness` on `/api/analytics/presence` and `/api/analytics/presence/keywords` (null from an older server), summarised by `lib/domain/report-coverage.ts` from `sync_checkpoint.last_metric_date` / `last_keyword_month`; `freshThrough` stays the newest date |
 
 Wording rule applied: call clicks are "Call button taps", booking clicks are
 "Booking button clicks", keyword positions are not search rankings.

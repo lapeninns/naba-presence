@@ -1,6 +1,8 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { presenceResponseSchema } from "@/lib/contracts/analytics"
+
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -224,6 +226,84 @@ describeDatabase("Google Performance analytics", () => {
         and subject_id = ${denied.externalLocationId}
     `
     expect(failureAudit.count).toBe(1)
+  }, 30_000)
+
+  it("reports a failed location as partial at its older watermark, never as zero", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const seed = {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    }
+    const fresh = await seedLinkedLocation(admin, seed)
+    const failing = await seedLinkedLocation(admin, seed)
+    // The failing location was complete through ten days ago; its next
+    // refresh is refused, and that watermark must survive the failure.
+    const olderDate = new Date(Date.now() - 10 * DAY_MS)
+      .toISOString()
+      .slice(0, 10)
+    await admin`
+      insert into sync_checkpoint (
+        organisation_id, external_location_id, sync_type, status,
+        next_attempt_at, last_metric_date, last_succeeded_at
+      )
+      values (
+        ${owner.organisationId}, ${failing.externalLocationId}, 'performance',
+        'succeeded', now(), ${olderDate}::date, now() - interval '10 days'
+      )
+    `
+    google.reset()
+    google.respond(
+      { method: "GET", pathIncludes: ":fetchMultiDailyMetricsTimeSeries" },
+      (call) =>
+        call.path.includes(failing.googleLocationName)
+          ? {
+              status: 403,
+              json: {
+                error: {
+                  status: "PERMISSION_DENIED",
+                  message: "The caller does not have permission.",
+                },
+              },
+            }
+          : {
+              status: 200,
+              json: { multiDailyMetricTimeSeries: [series("CALL_CLICKS", 4)] },
+            }
+    )
+    const sync = await fetch(`${server.baseUrl}/api/sync/performance`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie),
+      body: JSON.stringify({}),
+    })
+    expect(sync.status, await sync.clone().text()).toBe(200)
+
+    const response = await fetch(
+      `${server.baseUrl}/api/analytics/presence?range=28d`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(response.status, await response.clone().text()).toBe(200)
+    const report = presenceResponseSchema.parse(await response.json())
+    expect(report.state).toBe("ready")
+    expect(report.totals.CALL_CLICKS).toBe(4)
+    expect(report.totals.WEBSITE_CLICKS).toBeNull()
+    // freshThrough stays the newest date; completeThrough is the oldest.
+    expect(report.freshThrough! > olderDate).toBe(true)
+    expect(report.completeness).toMatchObject({
+      state: "partial",
+      expected: 2,
+      covered: 2,
+      completeThrough: olderDate,
+      missing: [],
+      refreshFailed: [{ id: failing.locationId }],
+    })
+    expect(
+      report.completeness!.refreshFailed.map((location) => location.id)
+    ).not.toContain(fresh.locationId)
   }, 30_000)
 
   it("re-requests every day back to a stale watermark", async () => {

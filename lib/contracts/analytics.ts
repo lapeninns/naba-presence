@@ -24,7 +24,13 @@ export const KEYWORD_RANGES = ["1m", "6m", "12m", "18m"] as const
 export type KeywordRange = (typeof KEYWORD_RANGES)[number]
 
 /** Readiness of a presence/keywords report for the visible locations. */
-export const PRESENCE_STATES = ["no_link", "ready", "unavailable", "pending", "empty"] as const
+export const PRESENCE_STATES = [
+  "no_link",
+  "ready",
+  "unavailable",
+  "pending",
+  "empty",
+] as const
 export const presenceStateSchema = z.enum(PRESENCE_STATES)
 export type PresenceStatus = z.infer<typeof presenceStateSchema>
 
@@ -40,7 +46,9 @@ export const analyticsOverviewQuerySchema = z.object({
   to: z.iso.datetime().optional(),
   granularity: z.enum(ANALYTICS_GRANULARITIES).default("day"),
 })
-export type AnalyticsOverviewQuery = z.input<typeof analyticsOverviewQuerySchema>
+export type AnalyticsOverviewQuery = z.input<
+  typeof analyticsOverviewQuerySchema
+>
 
 /** GET `/api/analytics/presence` query. */
 export const presenceQuerySchema = z.object({
@@ -126,8 +134,12 @@ const reportLocationSchema = z.object({ id: z.string(), name: z.string() })
 
 /** Null means Google returned no rows for that metric in the window: missing, not zero. */
 const metricTotalsSchema = z.object(
-  Object.fromEntries(GOOGLE_PERFORMANCE_METRICS.map((m) => [m, z.number().nullable()]))
-) as z.ZodType<Record<(typeof GOOGLE_PERFORMANCE_METRICS)[number], number | null>>
+  Object.fromEntries(
+    GOOGLE_PERFORMANCE_METRICS.map((m) => [m, z.number().nullable()])
+  )
+) as z.ZodType<
+  Record<(typeof GOOGLE_PERFORMANCE_METRICS)[number], number | null>
+>
 
 /**
  * How many in-scope locations each reporting state covers. A location can be
@@ -141,6 +153,46 @@ export const presenceCoverageSchema = z.object({
   pending: z.number().int().nonnegative(),
 })
 export type PresenceCoverage = z.infer<typeof presenceCoverageSchema>
+
+/**
+ * Whether a report covers every location in scope. `expected` is every linked
+ * location the viewer can see; a location is `covered` once it has a
+ * complete-data watermark (the last day or month Google returned for it).
+ * `completeThrough` is the OLDEST covered watermark, so every covered
+ * location is complete up to it; `missing` locations contribute nothing to
+ * the totals, which are never padded with zeros for them. `refreshFailed`
+ * names covered locations whose latest refresh failed, so their figures may
+ * stop short of the window's end.
+ */
+export const REPORT_COMPLETENESS_STATES = [
+  "complete",
+  "partial",
+  "none",
+] as const
+export const REPORT_MISSING_REASONS = [
+  "unavailable",
+  "pending",
+  "no_data",
+] as const
+const reportCoverageLocationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+export const reportCompletenessSchema = z.object({
+  state: z.enum(REPORT_COMPLETENESS_STATES),
+  expected: z.number().int().nonnegative(),
+  covered: z.number().int().nonnegative(),
+  /** Presence: an ISO day (Google's daily dates). Keywords: a `YYYY-MM` month. */
+  completeThrough: z.string().nullable(),
+  missing: z.array(
+    reportCoverageLocationSchema.extend({
+      reason: z.enum(REPORT_MISSING_REASONS),
+    })
+  ),
+  refreshFailed: z.array(reportCoverageLocationSchema),
+})
+export type ReportCompleteness = z.infer<typeof reportCompletenessSchema>
+export type ReportMissingReason = (typeof REPORT_MISSING_REASONS)[number]
 
 const metricPartialSchema = z.record(z.string(), z.number())
 
@@ -169,6 +221,11 @@ export const presenceResponseSchema = z.object({
   coverage: presenceCoverageSchema.optional(),
   /** Google's daily metric dates, reported as Google dates them; never shifted into another zone. */
   dateBasis: z.literal("google_daily").optional(),
+  /**
+   * Expected vs covered locations and the oldest complete watermark. Null
+   * from a server that predates it; `freshThrough` stays the NEWEST date.
+   */
+  completeness: reportCompletenessSchema.nullable().default(null),
 })
 export type PresenceResponse = z.infer<typeof presenceResponseSchema>
 
@@ -195,5 +252,7 @@ export const keywordsResponseSchema = z.object({
   locations: z.array(reportLocationSchema),
   keywords: z.array(keywordRowSchema),
   unavailableReasons: z.array(z.string()),
+  /** As on the presence report, with `completeThrough` a `YYYY-MM` month. */
+  completeness: reportCompletenessSchema.nullable().default(null),
 })
 export type KeywordsResponse = z.infer<typeof keywordsResponseSchema>

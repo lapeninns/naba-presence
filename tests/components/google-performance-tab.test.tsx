@@ -65,4 +65,21 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(screen.getByText(/Data through .*Google’s daily dates/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Download Google profile totals as CSV" })).toBeInTheDocument()
   })
+  it("states expected vs covered locations and leaves a missing location out of the tiles", async () => {
+    const totals = Object.fromEntries(Object.keys(ZERO_TOTALS).map((metric) => [metric, null]))
+    stub({ range: "28d", from: "2026-08-04", to: "2026-08-31", state: "ready", freshThrough: "2026-08-29",
+      locations: [{ id: "l", name: "Lamb" }, { id: "m", name: "Mitre" }, { id: "n", name: "Nags Head" }],
+      totals: { ...totals, CALL_CLICKS: 9 }, series: [{ date: "2026-08-20", metrics: { CALL_CLICKS: 9 } }], unavailableReasons: [], keywordsEnabled: false, ingestionEnabled: true,
+      completeness: { state: "partial", expected: 3, covered: 2, completeThrough: "2026-08-20",
+        missing: [{ id: "n", name: "Nags Head", reason: "pending" }], refreshFailed: [{ id: "m", name: "Mitre" }] } })
+    renderTab()
+    const banner = (await screen.findByText("Showing 2 of 3 locations")).closest("[data-slot=partial-coverage]") as HTMLElement
+    expect(within(banner).getByText(/Not fetched from Google yet: Nags Head/)).toBeInTheDocument()
+    expect(within(banner).getByText(/Latest refresh failed.*Mitre/)).toBeInTheDocument()
+    expect(within(banner).getByText(/not counted as zero/)).toBeInTheDocument()
+    expect(within(banner).getByText(/through 20 Aug/)).toBeInTheDocument()
+    const tileFor = async (label: string) => (await screen.findAllByText(label)).find((node) => node.closest("[data-slot=kpi-tile]"))!.closest("[data-slot=kpi-tile]") as HTMLElement
+    expect(within(await tileFor("Call button taps")).getByText("9")).toBeInTheDocument()
+    expect(within(await tileFor("Search views")).getByText("No data")).toBeInTheDocument()
+  })
 })
