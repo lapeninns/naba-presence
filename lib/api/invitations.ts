@@ -1,12 +1,17 @@
 import { apiFetch, type RequestOptions } from "./client"
 import {
   invitationCreatedResponseSchema,
+  invitationResentResponseSchema,
   invitationRevokedResponseSchema,
   invitationsResponseSchema,
   type InvitationCreateInput,
 } from "@/lib/contracts/invitations"
 
-export { invitationSchema, type Invitation } from "@/lib/contracts/invitations"
+export {
+  invitationSchema,
+  type Invitation,
+  type InvitationDelivery,
+} from "@/lib/contracts/invitations"
 
 export function fetchInvitations(options?: RequestOptions) {
   return apiFetch("/api/invitations", { schema: invitationsResponseSchema, ...options })
@@ -24,5 +29,13 @@ export function revokeInvitation(id: string) {
   return apiFetch(`/api/invitations/${id}`, {
     method: "DELETE",
     schema: invitationRevokedResponseSchema,
+  })
+}
+
+/** Emails a pending invitation again (owner/admin, `invitation_email` feature). */
+export function resendInvitation(id: string) {
+  return apiFetch(`/api/invitations/${id}/resend`, {
+    method: "POST",
+    schema: invitationResentResponseSchema,
   })
 }

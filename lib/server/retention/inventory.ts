@@ -428,6 +428,15 @@ export const RETENTION_INVENTORY = [
     ),
   },
   {
+    table: "invitation_delivery",
+    provenance: "operational",
+    action: "keep",
+    window: "with its invitation; deleted when the invitation is revoked",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
     table: "draft",
     provenance: "customer",
     action: "keep",

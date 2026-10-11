@@ -363,6 +363,16 @@ const COPY: Record<string, string> = {
   already_a_member:
     "That person is already in this organisation. Change their role from the team list instead.",
   invitation_not_found: "That invitation is no longer available.",
+  // Invitation email (P06-6).
+  invitation_email_pending:
+    "An email for this invitation is still being sent. Wait a moment before resending.",
+  invitation_email_unavailable:
+    "Emailing invitations isn’t available for this account yet. Copy the link and send it yourself.",
+  invitation_email_rate_limited:
+    "Too many invitation emails were sent in a short time. Copy the link and send it yourself, or try again later.",
+  invitation_expired:
+    "This invitation has expired. Revoke it and invite them again.",
+  invitation_accepted: "This invitation has already been accepted.",
   viewer_cannot_publish: "Viewers can’t be given publishing access.",
   duplicate_location: "That location appears more than once.",
   location_not_found: "That location no longer exists.",

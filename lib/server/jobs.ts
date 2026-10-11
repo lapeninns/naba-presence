@@ -83,6 +83,10 @@ import { settleWebhookEvent } from "@/lib/server/webhooks"
 import { runDueSchedules, type ScheduleTickSummary } from "@/lib/server/publication-schedule-runner"
 import { runDueBulkChildren, type BulkTickSummary } from "@/lib/server/bulk-listing-runner"
 import {
+  runDueInvitationDeliveries,
+  type InvitationDeliveryTickSummary,
+} from "@/lib/server/invitations/delivery"
+import {
   runDuePrivacyWithdrawals,
   type PrivacyWithdrawalTickSummary,
 } from "@/lib/server/privacy/withdrawals"
@@ -138,6 +142,8 @@ export type JobSummary = {
   bulk?: BulkTickSummary
   /** Parked privacy erasures retried in the background (plan P04-5). */
   privacy?: PrivacyWithdrawalTickSummary
+  /** Invitation email due again or never settled inline (plan P06-6). */
+  invitations?: InvitationDeliveryTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -1018,6 +1024,16 @@ export async function runDueJobs(options: {
   // (lib/server/privacy/fulfil.ts settleWithdrawal).
   if (scopesEnabled(env, pauses, ["jobs"])) {
     summary.privacy = await runDuePrivacyWithdrawals({
+      budgetMs: Math.max(0, deadline - Date.now()),
+      requestId: options.requestId,
+    })
+  }
+
+  // Invitation email: retries, and sends whose inline attempt never
+  // settled. Held by the runner's switch and its own operator scope
+  // (`invitation_email`), not by publishing: nothing here reaches Google.
+  if (scopesEnabled(env, pauses, ["jobs", "invitation_email"])) {
+    summary.invitations = await runDueInvitationDeliveries({
       budgetMs: Math.max(0, deadline - Date.now()),
       requestId: options.requestId,
     })

@@ -16,6 +16,13 @@ import {
 } from "@/lib/server/crypto"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import {
+  attemptInvitationDelivery,
+  enqueueInvitationDelivery,
+  invitationEmailEnabled,
+  latestDelivery,
+  serialiseDelivery,
+} from "@/lib/server/invitations/delivery"
 import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
 
@@ -118,8 +125,12 @@ async function validateLocationScope(
 
 export const GET = route({
   roles: ["owner", "admin"],
-  handler: async ({ tenant }) => {
-    const items = await tenant(async (sql) => {
+  handler: async ({ session, tenant }) => {
+    const { items, emailDelivery } = await tenant(async (sql) => {
+      const emailDelivery = await invitationEmailEnabled(
+        sql,
+        session.organisationId
+      )
       const rows = await sql<
         Array<{
           id: string
@@ -133,10 +144,19 @@ export const GET = route({
           expiresAt: Date
           acceptedAt: Date | null
           createdAt: Date
+          delivery: {
+            id: string
+            kind: "initial" | "resend"
+            status: "pending" | "sent" | "failed" | "suppressed" | "uncertain"
+            errorCode: string | null
+            attempts: number
+            sentAt: string | null
+            createdAt: string
+          } | null
         }>
       >`
         select
-          id::text as id,
+          i.id::text as id,
           email,
           role,
           can_publish as "canPublish",
@@ -159,14 +179,29 @@ export const GET = route({
           location_scope as "locationScope",
           token_ciphertext as "tokenCiphertext",
           expires_at as "expiresAt",
-          accepted_at as "acceptedAt",
-          created_at as "createdAt"
+          i.accepted_at as "acceptedAt",
+          i.created_at as "createdAt",
+          (
+            select json_build_object(
+              'id', d.id::text,
+              'kind', d.kind,
+              'status', d.status,
+              'errorCode', d.last_error_code,
+              'attempts', d.attempts,
+              'sentAt', d.sent_at,
+              'createdAt', d.created_at
+            )
+            from invitation_delivery d
+            where d.invitation_id = i.id
+            order by d.created_at desc, d.id desc
+            limit 1
+          ) as delivery
         from invitation i
-        where accepted_at is null
-        order by created_at desc
+        where i.accepted_at is null
+        order by i.created_at desc
       `
       const baseUrl = getServerEnv().NEXTAUTH_URL ?? "http://localhost:3000"
-      return rows.map(({ tokenCiphertext, ...row }) => ({
+      const items = rows.map(({ tokenCiphertext, delivery, ...row }) => ({
         ...row,
         expiresAt: row.expiresAt.toISOString(),
         acceptedAt: row.acceptedAt?.toISOString() ?? null,
@@ -175,9 +210,17 @@ export const GET = route({
           `/invite/${decryptSecret(tokenCiphertext)}`,
           baseUrl
         ).toString(),
+        delivery: delivery
+          ? serialiseDelivery({
+              ...delivery,
+              sentAt: delivery.sentAt ? new Date(delivery.sentAt) : null,
+              createdAt: new Date(delivery.createdAt),
+            })
+          : null,
       }))
+      return { items, emailDelivery }
     })
-    return { items } satisfies InvitationsResponse
+    return { items, emailDelivery } satisfies InvitationsResponse
   },
 })
 
@@ -195,6 +238,9 @@ export const POST = route({
     assertRoleChangeAllowed(session.role, input.role)
     const token = randomToken()
     let invitation: InvitationCreatedResponse["invitation"]
+    // Set when the organisation emails its invitations: the row queued in
+    // the same transaction as the invitation, sent once it commits.
+    let deliveryId: string | null = null
     try {
       invitation = await tenant(async (sql) => {
         // Invitations are for people who are not in the organisation yet.
@@ -295,6 +341,14 @@ export const POST = route({
             clientRequestId,
           },
         })
+        if (await invitationEmailEnabled(sql, session.organisationId)) {
+          deliveryId = await enqueueInvitationDelivery(sql, {
+            organisationId: session.organisationId,
+            invitationId: row.id,
+            requestedBy: session.userId,
+            kind: "initial",
+          })
+        }
         return {
           ...row,
           clients: clientIds
@@ -324,6 +378,22 @@ export const POST = route({
         )
       }
       throw error
+    }
+    if (deliveryId) {
+      // Inline, so the inviter sees Sent (or why not) straight away. The
+      // invitation is committed either way; a send this request does not
+      // settle is the job tick's.
+      await attemptInvitationDelivery({
+        organisationId: session.organisationId,
+        deliveryId,
+        limit: { email: input.email, userId: session.userId },
+        requestId,
+      })
+      const invitationId = invitation.id
+      invitation = {
+        ...invitation,
+        delivery: await tenant((sql) => latestDelivery(sql, invitationId)),
+      }
     }
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     return NextResponse.json(

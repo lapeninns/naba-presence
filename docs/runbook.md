@@ -227,9 +227,11 @@ re-armed, and no retry or recovery budget is spent, while a flag is off.
 `ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one
 row per scope: `jobs`, `publish`, `sync`, `notifications`, `retention`,
 `drafts`, the Google surfaces (`profileWrites`, `posts`, `media`,
-`placeActions`, `foodMenus`, `performance`, `keywords`) and the reserved
-`scheduled_post`, `bulk`, `billing`, `invitation_email`, plus
-`mutation_recover` (the uncertain-write recovery kind).
+`placeActions`, `foodMenus`, `performance`, `keywords`), `scheduled_post`,
+`bulk`, `invitation_email` (invitation emails: nothing is claimed while it is
+paused, queued rows stay pending and go out after it lifts; Copy link keeps
+working), the reserved `billing`, plus `mutation_recover` (the
+uncertain-write recovery kind).
 A paused row has the same effect as its env flag being off, at the same
 places: the runner's claim, provider dispatch (`runGbpWrite`, the reply
 pipeline, and the post and reply approval routes before any decision is
@@ -878,8 +880,12 @@ configure the application's incident/support email adapter.
 
 Production uses `REGISTRATION_MODE=invite_only`. Owners/admins create invitation
 links in Team and share them with the intended tester; the application returns
-an `inviteUrl` and does not send invitation messages itself. Invitees join that
-organisation. Signup checks token validity, expiry, prior use and the invited
+an `inviteUrl`. It emails the invitation itself only for an organisation with
+the `invitation_email` feature on (`scripts/ops-pause.mjs`, default off), and
+only once the email adapter below is configured and `TENANT_EMAIL_ENABLED` is
+on; otherwise the delivery is recorded `suppressed` and Team says to copy the
+link. Delivery state is `invitation_delivery.status` (migration 0104);
+`invitation_email` pauses it. Invitees join that organisation. Signup checks token validity, expiry, prior use and the invited
 email before sending confirmation. Confirmation/acceptance checks again under
 a database row lock. Existing members can still sign in and recover without
 an invitation, while identities with no membership cannot create a workspace.
@@ -1074,6 +1080,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `google_rate_bucket` | operational | keep | one row per quota bucket, updated in place | none | none | no | internal |
 | `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | cascade only | internal |
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
+| `invitation_delivery` | operational | keep | with its invitation; deleted when the invitation is revoked | none | none | no | lifecycle |
 | `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record | cascade from `review` | gated | yes | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |

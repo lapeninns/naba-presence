@@ -97,6 +97,17 @@ export const ABUSE_POLICIES = {
     ip: { limit: 30, windowSeconds: MINUTES_15 },
     user: { limit: 10, windowSeconds: MINUTES_15 },
   },
+  // Invitation email the app sends (plan P06-6), on creation and on Resend.
+  // Per email bounds what one inbox receives from any number of
+  // organisations; per person and per organisation bound one inviter or one
+  // workspace. An over-limit creation still makes the invitation (its link
+  // can be copied) and records the email as not sent; a Resend answers 429.
+  invitation_email: {
+    code: "invitation_email_rate_limited",
+    email: { limit: 5, windowSeconds: HOUR },
+    user: { limit: 30, windowSeconds: HOUR },
+    organisation: { limit: 100, windowSeconds: HOUR },
+  },
   // Viewers of a shared report reload it; probers walk tokens.
   report_share: {
     code: "auth_rate_limited",
@@ -140,6 +151,8 @@ const MESSAGES: Record<string, string> = {
   auth_rate_limited: "Too many attempts. Try again later.",
   draft_rate_limited:
     "Too many drafts were requested in a short time. Wait a moment and try again.",
+  invitation_email_rate_limited:
+    "Too many invitation emails were sent in a short time. Copy the link and send it yourself, or try again later.",
 }
 
 // ---------------------------------------------------------------------------

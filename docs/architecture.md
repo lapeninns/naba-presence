@@ -482,8 +482,8 @@ can distinguish "no data" from "writes intentionally disabled".
 The env flags above are read once per process, so on their own they take a
 redeploy. `ops_pause_control` (migration 0090) is the hot layer on top:
 one row per scope (the env switches' own names, plus `scheduled_post`,
-`bulk`, `billing`, `mutation_recover` and `invitation_email` reserved for work
-that lands later), read through `lib/server/pause-controls.ts` with a
+`bulk`, `mutation_recover`, `invitation_email` (invitation email delivery),
+and `billing` reserved for work that lands later), read through `lib/server/pause-controls.ts` with a
 5-second cache. A scope runs only when its env flag is on **and** its row is
 not paused: the env flag stays the hard override, and a row can add a pause
 but never lift one. The checks sit where work starts:
@@ -1035,6 +1035,26 @@ verified email/password identity inside the inviting organisation; it does not
 create an unrelated tenant. `app/api/session/switch/route.ts` verifies
 membership, rotates the session, updates the default organisation, and audits
 organisation switching.
+
+Invitation email (plan P06-6), behind the organisation's `invitation_email`
+feature (default off; off, an invitation is a link the inviter copies). On,
+`POST /api/invitations` queues an `invitation_delivery` row (migration 0104)
+in the invitation's transaction and sends it inline once that commits;
+`POST /api/invitations/[token]/resend` (owner/admin, the segment carrying the
+invitation id) queues another. Both go through the shared email driver in
+`lib/server/invitations/delivery.ts`, with the idempotency key
+`invitation-delivery/<id>`, at most one pending row per invitation, and the
+link rebuilt from the encrypted token and `NEXTAUTH_URL` at send time (never
+logged). The job tick (`runDueJobs`) drains retries and rows the inline
+attempt did not settle, across tenants through
+`invitation_delivery_due_organisations`, under the `jobs` and
+`invitation_email` pause scopes. `TENANT_EMAIL_ENABLED=false` or no provider
+records the row `suppressed`; the `invitation_email` abuse limit
+(`lib/server/abuse-limits.ts`) suppresses a creation over it and answers a
+Resend with 429. `GET /api/invitations` returns each invitation's latest
+delivery and `emailDelivery`; Team shows the state, Resend and Copy link as
+the fallback (`components/settings/invitations-panel.tsx`,
+`lib/settings/invitation-delivery.ts`).
 
 Workspace mode (plan P06-5). Registration can offer a business (the default)
 or an agency workspace while admission is open (`lib/domain/auth.ts`

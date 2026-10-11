@@ -22,6 +22,10 @@ export const ORG_FEATURES = [
   // Settings card and PATCH /api/organisations { workspaceMode }. Renames
   // stay served either way.
   "workspace_mode_change",
+  // App-sent invitation email (plan P06-6): creating an invitation emails
+  // the link, each invitation shows whether it went out, and owners and
+  // admins can resend. Off, an invitation is a link to copy, as before.
+  "invitation_email",
 ] as const
 
 export type OrgFeature = (typeof ORG_FEATURES)[number]

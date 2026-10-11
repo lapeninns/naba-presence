@@ -46,9 +46,51 @@ export const invitationLookupParamsSchema = z.object({ token: z.string() })
 /** DELETE `/api/invitations/[token]` params: the invitation id. */
 export const invitationRevokeParamsSchema = z.object({ token: z.uuid() })
 
+/**
+ * POST `/api/invitations/[token]/resend` params: the invitation id (the
+ * segment is named `token` because it shares the folder with the public
+ * lookup).
+ */
+export const invitationResendParamsSchema = z.object({ token: z.uuid() })
+
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
+
+/**
+ * Where an invitation email stands (supabase 0104 invitation_delivery, the
+ * shared email driver's states): `pending` queued or retrying, `sent` the
+ * provider accepted it, `failed` it certainly did not go out, `suppressed`
+ * deliberately not sent (see `errorCode`), `uncertain` it may have gone out.
+ */
+export const invitationDeliveryStatusSchema = z.enum([
+  "pending",
+  "sent",
+  "failed",
+  "suppressed",
+  "uncertain",
+])
+export type InvitationDeliveryStatus = z.infer<
+  typeof invitationDeliveryStatusSchema
+>
+
+/** The latest email the app tried to send for an invitation. */
+export const invitationDeliverySchema = z.object({
+  id: z.string(),
+  kind: z.enum(["initial", "resend"]),
+  status: invitationDeliveryStatusSchema,
+  /**
+   * Why it is not sent, when it is not: `provider_not_configured`,
+   * `tenant_email_disabled`, `invitation_email_rate_limited`,
+   * `invitation_accepted`, `invitation_expired`, `email_http_<status>`,
+   * `email_timeout` and the like. Never a provider error body.
+   */
+  errorCode: z.string().nullable(),
+  attempts: z.number().int(),
+  sentAt: z.string().nullable(),
+  createdAt: z.string(),
+})
+export type InvitationDelivery = z.infer<typeof invitationDeliverySchema>
 
 export const invitationSchema = z.object({
   id: z.string(),
@@ -71,12 +113,20 @@ export const invitationSchema = z.object({
   acceptedAt: z.string().nullable().optional(),
   createdAt: z.string(),
   inviteUrl: z.string().optional(),
+  /** The latest invitation email; null when the app never sent one. */
+  delivery: invitationDeliverySchema.nullable().optional(),
 })
 export type Invitation = z.infer<typeof invitationSchema>
 
 /** GET `/api/invitations` response. */
 export const invitationsResponseSchema = z.object({
   items: z.array(invitationSchema),
+  /**
+   * Whether this organisation's invitations are emailed by the app (the
+   * `invitation_email` feature). Off or absent: the link is copied and sent
+   * by the inviter.
+   */
+  emailDelivery: z.boolean().optional(),
 })
 export type InvitationsResponse = z.infer<typeof invitationsResponseSchema>
 
@@ -85,6 +135,14 @@ export const invitationCreatedResponseSchema = z.object({
   invitation: invitationSchema,
   inviteUrl: z.string(),
 })
+
+/** POST `/api/invitations/[token]/resend` response (202). */
+export const invitationResentResponseSchema = z.object({
+  delivery: invitationDeliverySchema,
+})
+export type InvitationResentResponse = z.infer<
+  typeof invitationResentResponseSchema
+>
 export type InvitationCreatedResponse = z.infer<
   typeof invitationCreatedResponseSchema
 >

@@ -284,3 +284,58 @@ export function renderPlatformEmail(
     ].join("\n"),
   }
 }
+
+const INVITE_ROLE_LABELS = {
+  owner: "an owner",
+  admin: "an admin",
+  member: "a member",
+  viewer: "a viewer",
+} as const
+
+/** One line of user-provided text, safe for a subject or a sentence. */
+function oneLine(value: string, fallback: string, max = 120): string {
+  const flat = value.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim()
+  if (!flat) return fallback
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat
+}
+
+/**
+ * An invitation (plan P06-6): the organisation, the role, the link and when
+ * it stops working. The link carries the invitation token, so it is the one
+ * secret this email holds: it goes in the body only, never in a subject or a
+ * log line. The link is built by the caller from NEXTAUTH_URL.
+ */
+export function renderInvitationEmail(input: {
+  organisationName: string
+  role: keyof typeof INVITE_ROLE_LABELS
+  inviteUrl: string
+  expiresAt: Date
+  timeZone?: string
+}): { subject: string; text: string } {
+  const organisation = oneLine(input.organisationName, "a NabaPresence workspace")
+  const format = (timeZone: string) =>
+    new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      timeZone,
+    }).format(input.expiresAt)
+  let expires: string
+  try {
+    expires = format(input.timeZone ?? "Europe/London")
+  } catch {
+    // An organisation timezone Intl does not know: never fail the send on it.
+    expires = format("Europe/London")
+  }
+  return {
+    subject: `You're invited to join ${organisation} on NabaPresence`,
+    text: [
+      `You've been invited to join ${organisation} on NabaPresence as ${INVITE_ROLE_LABELS[input.role]}.`,
+      "",
+      `Accept the invitation: ${input.inviteUrl}`,
+      "",
+      `The link works once and expires on ${expires}. Sign in or create your account with this email address to accept it.`,
+      "If you weren't expecting this, you can ignore this email; nothing happens unless you accept.",
+    ].join("\n"),
+  }
+}

@@ -56,9 +56,10 @@ export const PAUSE_SCOPES = [
   "keywords",
   // Scopes with no env flag of their own. `scheduled_post` and `bulk` hold
   // off the job tick's publication-schedule and bulk-listing runners
-  // (lib/server/jobs.ts runDueJobs); `mutation_recover` the recovery kind.
-  // Reserved for work that lands later: billing processing (P07) and
-  // invitation email delivery (P06-6).
+  // (lib/server/jobs.ts runDueJobs); `mutation_recover` the recovery kind;
+  // `invitation_email` invitation email delivery, inline and on the tick
+  // (lib/server/invitations/delivery.ts). Reserved for work that lands
+  // later: billing processing (P07).
   "scheduled_post",
   "bulk",
   "billing",
