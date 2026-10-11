@@ -104,4 +104,5 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0093_media_mutation_checkpoints",
   "0094_listing_change_approval",
   "20260729000400_remove_local_demo_data",
+  "0220_billing_foundation",
 ]

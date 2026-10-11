@@ -1542,6 +1542,38 @@ preview. Readback confirms; interrupted children become ambiguous and a retry
 re-reads before any write, so succeeded children are never replayed. Cancelling
 stops only queued children.
 
+## Billing foundation and entitlements (P07, 0220)
+
+Migration `supabase/migrations/0220_billing_foundation.sql` adds the
+commercial records; nothing refuses work on them yet (central enforcement is a
+later slice), so the app behaves as before.
+
+- `billing_plan` is the versioned catalog: platform-level, readable by the
+  runtime, written only from the operator connection. A version's terms never
+  change (a trigger allows only `active` to flip), an active plan must name its
+  Stripe price, and a test-environment plan is always a test offer. The
+  migration seeds no plans, so nothing can be sold until a catalog exists.
+- `organisation_billing` is one row per organisation under forced tenant RLS.
+  Every existing organisation was backfilled as an explicit `pilot`, and
+  `lib/server/provisioning.ts` seeds the same row in the transaction that
+  creates an organisation (`seedPilotBilling` in
+  `lib/server/billing/state.ts`, which also holds the plain and `FOR UPDATE`
+  reads).
+- `ai_credit_period` is one allowance grant (pilot month, trial, paid period,
+  adjustment), idempotent per organisation, kind and `source_ref`; a null
+  allowance means unknown. `ai_usage.credit_period_id` links usage to its
+  period through a composite tenant key. The migration grants nothing: no
+  periods, and existing usage keeps a null link.
+
+`lib/domain/entitlements.ts` `deriveAccess(billing, plans, now)` is the one
+pure answer to "what may this organisation do now": `full`, `grace` or
+`read_only`, with a reason, the location limit and the limit new links must
+fit (the lower of the current and a scheduled plan's). Pilots get full access
+with no limits; a failed renewal gets seven days of grace; a failed first
+payment gets none; a missing record or a paid state without its plan derives
+read-only. `lookupSession` attaches the result as `Session.access`
+(informational for now). Wire shapes live in `lib/contracts/billing.ts`.
+
 ## Reporting provenance (WP9)
 
 `loadPresenceReport` returns null (not zero) for a metric Google sent no rows

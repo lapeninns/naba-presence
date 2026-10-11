@@ -49,6 +49,12 @@ export async function createTestTenant(
       ${options.workspaceMode ?? "agency"}
     )
   `
+  // Provisioning gives every organisation an explicit pilot billing record
+  // (lib/server/billing/state.ts seedPilotBilling); harness tenants match.
+  await admin`
+    insert into organisation_billing (organisation_id, state)
+    values (${organisationId}, 'pilot')
+  `
   if (options.workspaceMode === "business") {
     await admin`
       insert into client (organisation_id, name, slug, is_home)

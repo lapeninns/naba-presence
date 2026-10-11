@@ -3,6 +3,11 @@ import "server-only"
 import { cookies } from "next/headers"
 import { cache } from "react"
 
+import type { Access } from "@/lib/domain/entitlements"
+import {
+  accessFromView,
+  getOrganisationBilling,
+} from "@/lib/server/billing/state"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -34,6 +39,14 @@ export type Session = {
    */
   supportActor?: string | null
   impersonationReason?: string | null
+  /**
+   * The organisation's billing access when the session was looked up
+   * (lib/domain/entitlements.ts deriveAccess; read-only without a billing
+   * row). Informational until central enforcement (plan P07-S3). Optional
+   * so existing `Session` fixtures stay valid; `lookupSession` always sets
+   * it.
+   */
+  access?: Access
 }
 
 async function lookupSession(rawToken: string): Promise<Session | null> {
@@ -120,7 +133,9 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         end
       where id = ${sessionIdentity.sessionId}
     `
-    return session ?? null
+    if (!session) return null
+    const billing = await getOrganisationBilling(sql, session.organisationId)
+    return { ...session, access: accessFromView(billing, new Date()) }
   }) as Promise<Session | null>
 }
 

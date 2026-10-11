@@ -14,6 +14,11 @@ import {
   versionNumber,
 } from "../scripts/migration-rules.mjs"
 
+// INTEGRATION: fan-out stream B numbers its migrations in the reserved range
+// 0220-0239, leaving 0095-0219 unused on this branch. The integrator
+// renumbers them sequentially and deletes this allowance.
+const FANOUT_RESERVED_GAP = (version: number) => version >= 95 && version < 220
+
 const migrationsDirectory = new URL("../supabase/migrations/", import.meta.url)
 const migrationFiles = async () =>
   (await readdir(migrationsDirectory))
@@ -69,7 +74,9 @@ describe("database migration contract", () => {
     const used = new Set(files.map(versionNumber))
     const gaps: string[] = []
     for (let version = 1; version <= highestVersion(files); version += 1) {
-      if (!used.has(version)) gaps.push(String(version).padStart(4, "0"))
+      if (!used.has(version) && !FANOUT_RESERVED_GAP(version)) {
+        gaps.push(String(version).padStart(4, "0"))
+      }
     }
     expect(gaps).toEqual(KNOWN_VERSION_GAPS)
   })
