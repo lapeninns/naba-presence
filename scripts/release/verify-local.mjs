@@ -112,6 +112,7 @@ export function childEnv(base) {
     LC_ALL: "en_US.UTF-8",
     LANG: "en_US.UTF-8",
     FORCE_COLOR: "0",
+    NO_COLOR: "1",
   }
 }
 
