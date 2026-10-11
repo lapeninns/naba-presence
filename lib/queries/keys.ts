@@ -94,6 +94,14 @@ export const queryKeys = {
   analytics: (kind: string, params: unknown) =>
     ["analytics", kind, params] as const,
   settingsCapabilities: ["settings-capabilities"] as const,
+  // The Data and privacy area. Rooted together so a fulfil (which can move a
+  // hold's effect and the retention picture) refreshes all three. Scoped to
+  // the organisation like every key here: switching organisation reloads the
+  // page and with it the cache (components/app-shell/account-menu.tsx).
+  privacyAll: ["privacy"] as const,
+  privacyRequests: ["privacy", "requests"] as const,
+  legalHolds: ["privacy", "legal-holds"] as const,
+  retentionStatus: ["privacy", "retention-status"] as const,
   members: ["members"] as const,
   // Under the members prefix, so invalidating the team list refreshes it too.
   memberClientAccess: (userId: string) =>

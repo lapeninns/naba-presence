@@ -15,6 +15,49 @@ export function settingsGatingFromRole(role: string | null): SettingsCapabilitie
   }
 }
 
+/** Access to the Data and privacy area (settings capabilities `privacy`). */
+export type PrivacyAccess = "none" | "read" | "manage"
+
+/**
+ * Mirror of the server's `privacy` settings capability: an owner manages,
+ * an admin reads, nobody else sees the area, and nobody does while the
+ * organisation's `privacy_settings` feature is off.
+ */
+export function privacyAccessFromRole(
+  role: string | null,
+  featureEnabled: boolean
+): PrivacyAccess {
+  if (!featureEnabled) return "none"
+  if (role === "owner") return "manage"
+  if (role === "admin") return "read"
+  return "none"
+}
+
+export type PrivacyGating = {
+  /** See the area: requests, holds and retention status. */
+  canViewPrivacy: boolean
+  /** Log a new request (owners and admins: POST /api/privacy/requests). */
+  canCreateRequests: boolean
+  /**
+   * Fulfil or reject requests, apply or release legal holds, export a
+   * subject's records (owners only: the PATCH, legal-hold writes and export
+   * routes are `roles: ["owner"]`).
+   */
+  canManagePrivacy: boolean
+}
+
+export function privacyGating(access: PrivacyAccess | undefined): PrivacyGating {
+  return {
+    canViewPrivacy: access === "read" || access === "manage",
+    canCreateRequests: access === "read" || access === "manage",
+    canManagePrivacy: access === "manage",
+  }
+}
+
+export function managePrivacyDisabledReason(gating: PrivacyGating): string | null {
+  return gating.canManagePrivacy ? null : "Only an owner can do this."
+}
+
 export function editSettingsDisabledReason(caps: SettingsCapabilities | undefined): string | null {
   if (!caps) return null
   return caps.canEditSettings ? null : "Only owners and admins can change these settings."

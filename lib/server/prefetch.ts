@@ -25,6 +25,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
   locationCapabilities,
+  readSettingsFeatures,
   settingsCapabilities,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
@@ -159,12 +160,18 @@ export async function readListingSummary(
   return summary ? throughWire(listingSummarySchema, summary) : null
 }
 
-/** What `useSettingsCapabilities()` fetches. Pure role projection. */
-export function readSettingsCapabilities(
+/**
+ * What `useSettingsCapabilities()` fetches: a role projection plus the
+ * organisation's settings feature switches.
+ */
+export async function readSettingsCapabilities(
   session: Session
-): SettingsCapabilities {
+): Promise<SettingsCapabilities> {
+  const features = await withTenant(session.organisationId, (sql) =>
+    readSettingsFeatures(sql, session)
+  )
   const payload = {
-    capabilities: settingsCapabilities(session),
+    capabilities: settingsCapabilities(session, features),
   } satisfies SettingsCapabilitiesResponse
   return throughWire(settingsCapabilitiesResponseSchema, payload).capabilities
 }
@@ -236,7 +243,7 @@ export function settingsPrefetch(): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: queryKeys.settingsCapabilities,
-      load: async () => readSettingsCapabilities(session),
+      load: () => readSettingsCapabilities(session),
     },
   ]
 }

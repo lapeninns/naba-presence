@@ -1054,6 +1054,17 @@ received, and every page writes its own audit row with its page index and
 starting position. The last page reports `complete: false` with
 `addedDuringExport` when matching reviews were first stored after page 1 and
 sort ahead of it. Nothing about an export in progress is stored server-side.
+Owners work all of this from `/settings/privacy`
+(`app/(dashboard)/settings/privacy/page.tsx`, plan P04-7), which ships dark
+behind the `privacy_settings` organisation feature: the page and
+`app/api/privacy/retention-status/route.ts` are a 404 while it is off, and the
+settings capabilities carry `privacy` (`none`, `read` for admins, `manage` for
+owners) so the settings tabs only offer it when it is on. The export form
+follows `nextCursor` page by page, joins the pages into one JSON file, and
+resumes from the last cursor after a failed page. The retention-status route
+reads `retention_cycle` and `retention_cycle_org` outside the tenant
+transaction, filtered to the session's organisation, and returns none of a
+cycle's fleet-wide counts.
 
 Disconnect immediately destroys stored OAuth tokens and disables notifications.
 External location data is scheduled for deletion within seven days. Audit rows

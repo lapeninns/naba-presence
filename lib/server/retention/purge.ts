@@ -800,7 +800,7 @@ export function retentionPurgeCatalog(): RetentionPurgeStepInfo[] {
  * Locations held back from a disconnected purge: their connection is due,
  * but a review of theirs is under an unreleased legal hold.
  */
-async function countHeldDisconnectedLocations(
+export async function countHeldDisconnectedLocations(
   sql: TransactionSql
 ): Promise<number> {
   const [held] = await sql<{ count: number }[]>`

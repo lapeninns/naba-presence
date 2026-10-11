@@ -42,7 +42,7 @@ describe("settings clients", () => {
 
   it("fetchSettingsCapabilities parses the capability envelope", async () => {
     vi.stubGlobal("fetch", vi.fn(async () =>
-      jsonResponse({ capabilities: { canManageTeam: true, canManageConnections: true, canEditSettings: false } })
+      jsonResponse({ capabilities: { canManageTeam: true, canManageConnections: true, canEditSettings: false, privacy: "read" } })
     ))
     expect((await fetchSettingsCapabilities()).canEditSettings).toBe(false)
   })

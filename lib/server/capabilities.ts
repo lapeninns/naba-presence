@@ -38,7 +38,9 @@ import {
   hasPendingListingChanges,
   listingApprovalRequired,
 } from "@/lib/server/listing-changes"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import type { Session } from "@/lib/server/session"
+import { privacyAccessFromRole } from "@/lib/settings/gating"
 
 // One capability object per review (shape: ReviewCapabilities in
 // lib/contracts/reviews.ts). The location rule itself lives ONLY in
@@ -328,12 +330,32 @@ export async function locationCapabilities(
 
 // Org/settings capabilities for the Settings workspace (spec §3):
 //   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
-// Pure role predicates that mirror the route guards; no SQL.
-export function settingsCapabilities(session: Session): SettingsCapabilities {
+//   privacy === privacyAccessFromRole(role, privacy_settings feature)
+// Pure role predicates that mirror the route guards; the one product switch
+// is read by the caller (readSettingsFeatures) and passed in.
+export function settingsCapabilities(
+  session: Session,
+  features: { privacySettings: boolean }
+): SettingsCapabilities {
   const managerial = isManagerialRole(session.role)
   return {
     canManageTeam: managerial,
     canManageConnections: managerial,
     canEditSettings: managerial,
+    privacy: privacyAccessFromRole(session.role, features.privacySettings),
+  }
+}
+
+/** The organisation feature switches the settings capabilities read. */
+export async function readSettingsFeatures(
+  sql: TransactionSql,
+  session: Session
+): Promise<{ privacySettings: boolean }> {
+  return {
+    privacySettings: await isOrgFeatureEnabled(
+      sql,
+      session.organisationId,
+      "privacy_settings"
+    ),
   }
 }

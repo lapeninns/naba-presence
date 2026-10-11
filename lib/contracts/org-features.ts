@@ -14,6 +14,10 @@ export const ORG_FEATURES = [
   // write parks as a change request for a second publisher to approve
   // (lib/server/listing-changes.ts).
   "listing_change_approvals",
+  // The owner Data and privacy settings area (plan P04-7): privacy
+  // requests, legal holds, subject export and retention status at
+  // /settings/privacy. The API routes it drives stay served either way.
+  "privacy_settings",
 ] as const
 
 export type OrgFeature = (typeof ORG_FEATURES)[number]

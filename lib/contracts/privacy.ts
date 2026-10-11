@@ -4,9 +4,9 @@
  * Client-safe: no `server-only`, no `lib/server` imports. The routes parse
  * bodies with the request schemas and shape replies with the response ones.
  *
- * The routes are now the only consumer. The browser-side wrapper this file
- * used to name went with the compliance console; data-subject requests are
- * served over the API, owner/admin-gated as they always were.
+ * The browser-side wrappers live in `lib/api/privacy.ts`, used by the Data
+ * and privacy settings area (plan P04-7); the routes stay owner/admin-gated
+ * as they always were.
  */
 import { z } from "zod"
 
@@ -222,3 +222,55 @@ export const privacyExportResponseSchema = z.object({
   reviews: z.array(z.record(z.string(), z.unknown())),
 })
 export type PrivacyExportResponse = z.infer<typeof privacyExportResponseSchema>
+
+// ---------------------------------------------------------------------------
+// Retention status
+// ---------------------------------------------------------------------------
+
+/**
+ * This organisation's place in one retention cycle (retention_cycle_org).
+ * Null on a cycle that has not reached the organisation (or never will: one
+ * enumerated before the organisation existed).
+ */
+export const retentionCycleOrganisationSchema = z.object({
+  status: z.enum(["pending", "succeeded", "failed"]),
+  attempts: z.number().int().min(0),
+  lastErrorCode: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+})
+export type RetentionCycleOrganisation = z.infer<
+  typeof retentionCycleOrganisationSchema
+>
+
+export const retentionCycleSummarySchema = z.object({
+  cycleDate: z.string(),
+  startedAt: z.string(),
+  completedAt: z.string().nullable(),
+  organisation: retentionCycleOrganisationSchema.nullable(),
+})
+export type RetentionCycleSummary = z.infer<typeof retentionCycleSummarySchema>
+
+/**
+ * GET `/api/privacy/retention-status` response. Only this organisation's
+ * standing is reported: the cycle's fleet-wide counts never leave the
+ * operator surfaces.
+ */
+export const retentionStatusResponseSchema = z.object({
+  /** The most recent cycle that finished, or null before the first one. */
+  lastCompletedCycle: retentionCycleSummarySchema.nullable(),
+  /** The cycle being worked through now, if one is open. */
+  currentCycle: retentionCycleSummarySchema.nullable(),
+  /** Reviews under an unreleased legal hold. */
+  heldReviews: z.number().int().min(0),
+  /**
+   * Disconnected locations past their seven-day purge kept because a review
+   * of theirs is held.
+   */
+  heldLocations: z.number().int().min(0),
+  rawContentRetentionDays: z.number().int(),
+  /** False while RETENTION_DELETES_ENABLED is off: redaction still runs. */
+  deletesEnabled: z.boolean(),
+})
+export type RetentionStatusResponse = z.infer<
+  typeof retentionStatusResponseSchema
+>
