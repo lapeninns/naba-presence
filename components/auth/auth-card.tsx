@@ -29,11 +29,11 @@ const ASIDES: Record<
 > = {
   product: {
     label: "About NabaPresence",
-    statement: "Your clients’ Google reviews and listings, run from one desk.",
+    statement: "Google reviews and listings, run from one desk.",
     beats: [
       {
         icon: Inbox,
-        title: "Every client’s reviews in one inbox",
+        title: "Every review in one inbox",
         text: "Needs reply, approval and failed publishes, across every pub and restaurant you look after.",
       },
       {
@@ -43,12 +43,12 @@ const ASIDES: Record<
       },
       {
         icon: Send,
-        title: "Publish to each client’s Business Profile",
-        text: "Changes go out through each client’s own Google connection and show as live only once Google confirms.",
+        title: "Publish to each Business Profile",
+        text: "Changes go out through the profile’s own Google connection and show as live only once Google confirms.",
       },
     ],
     footnote:
-      "For agencies that manage Google Business Profiles for hospitality clients.",
+      "For hospitality businesses, and for the agencies that manage their Google Business Profiles.",
   },
   recovery: {
     label: "About account recovery",
@@ -56,7 +56,7 @@ const ASIDES: Record<
     beats: [
       {
         icon: Link2,
-        text: "Every client’s Google connection keeps working. Nothing is disconnected or re-authorised.",
+        text: "Every Google connection keeps working. Nothing is disconnected or re-authorised.",
       },
       {
         icon: PencilLine,
@@ -64,15 +64,15 @@ const ASIDES: Record<
       },
     ],
     footnote:
-      "Locked out of a client’s Google login instead? An owner or admin can reconnect it from Settings.",
+      "Locked out of a Google login instead? An owner or admin can reconnect it from Settings.",
   },
   reset: {
     label: "About account recovery",
-    statement: "A new password for you. Nothing changes for your clients.",
+    statement: "A new password for you. Nothing else changes.",
     beats: [
       {
         icon: Link2,
-        text: "Every client’s Google connection keeps working. Nothing is disconnected or re-authorised.",
+        text: "Every Google connection keeps working. Nothing is disconnected or re-authorised.",
       },
       {
         icon: KeyRound,
@@ -84,12 +84,12 @@ const ASIDES: Record<
   },
   invite: {
     label: "About NabaPresence",
-    statement: "Your agency has asked you to help with its clients.",
+    statement: "You’ve been asked to help look after Google reviews.",
     beats: [
       {
         icon: Inbox,
-        title: "Every client’s reviews in one inbox",
-        text: "You see the clients your role and access allow.",
+        title: "Every review in one inbox",
+        text: "You see the reviews and listings your role and access allow.",
       },
       {
         icon: ShieldCheck,
@@ -98,12 +98,12 @@ const ASIDES: Record<
       },
       {
         icon: Send,
-        title: "Publish to each client’s Business Profile",
-        text: "Through the Google logins your agency has already connected. You don’t connect your own.",
+        title: "Publish to each Business Profile",
+        text: "Through the Google logins already connected. You don’t connect your own.",
       },
     ],
     footnote:
-      "Invitations are sent by an agency owner or admin and work for one email address.",
+      "Invitations are sent by an owner or admin and work for one email address.",
   },
 }
 

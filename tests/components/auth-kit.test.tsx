@@ -19,6 +19,24 @@ describe("AuthCard", () => {
   })
 })
 
+describe("AuthCard copy", () => {
+  // Every pre-auth screen is shared by single businesses and agencies, so
+  // none of them may assume the reader manages clients.
+  it.each(["product", "recovery", "reset", "invite"] as const)(
+    "the %s panel never addresses the reader as an agency with clients",
+    (aside) => {
+      const { container } = render(
+        <AuthCard title="Title" aside={aside}>
+          body
+        </AuthCard>
+      )
+      const text = container.textContent ?? ""
+      expect(text).not.toMatch(/\bclients?\b|client’s/i)
+      expect(text).not.toMatch(/your agency|agency owner/i)
+    }
+  )
+})
+
 describe("PasswordField", () => {
   function Harness({ error }: { error?: string } = {}) {
     return (
