@@ -7,6 +7,7 @@
 
 import { z } from "zod"
 
+import { fromBase64Url, toBase64Url } from "@/lib/contracts/cursor"
 import type { VerificationReason as DomainVerificationReason } from "@/lib/domain/verification"
 import {
   REVIEW_WORKFLOW_STATES,
@@ -243,24 +244,6 @@ const WIRE = {
   pageSize: "page_size",
   cursor: "cursor",
 } as const
-
-// base64url(JSON) without Node's Buffer so the module stays client-safe. The
-// output is byte-identical to `Buffer.from(json).toString("base64url")`.
-function toBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
-function fromBase64Url(value: string): string {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/")
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4)
-  const binary = atob(padded)
-  return new TextDecoder().decode(
-    Uint8Array.from(binary, (char) => char.charCodeAt(0))
-  )
-}
 
 export function encodeReviewsCursor(cursor: ReviewsCursor): string {
   return toBase64Url(

@@ -1069,7 +1069,38 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     expect(requests.map((row) => row.overdue)).toEqual([true, false, false])
   })
 
-  it("reports the true match count and truncation flag on the export", async () => {
+  async function exportPage(
+    cookie: string,
+    body: { subject: string; cursor?: string; pageSize?: number }
+  ) {
+    return fetch(`${server.baseUrl}/api/privacy/export`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  }
+
+  async function exportAudits(organisationId: string) {
+    return admin<
+      {
+        metadata: {
+          page?: number
+          records?: number
+          totalMatched?: number
+          truncated?: boolean
+          complete?: boolean
+        }
+      }[]
+    >`
+      select metadata
+      from audit_log
+      where organisation_id = ${organisationId}
+        and action = 'privacy.data.exported'
+      order by created_at, id
+    `
+  }
+
+  it("reports the true match count and completion on a single-page export", async () => {
     const fixture = await createFixture()
     const second = await seedReview(admin, {
       organisationId: fixture.owner.organisationId,
@@ -1080,34 +1111,184 @@ describeDatabase("privacy fulfilment and audit retention", () => {
       where id = ${second.reviewId}
     `
 
-    const response = await fetch(`${server.baseUrl}/api/privacy/export`, {
-      method: "POST",
-      headers: {
-        cookie: fixture.owner.cookie,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ subject: fixture.reviewerName }),
+    const response = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
     })
     expect(response.status).toBe(200)
     const payload = await response.json()
     expect(payload.totalMatched).toBe(2)
     expect(payload.returned).toBe(2)
+    expect(payload.page).toBe(1)
     expect(payload.truncated).toBe(false)
+    expect(payload.nextCursor).toBeNull()
     expect(payload.reviews).toHaveLength(2)
-    // No row carries the window count out with it.
+    // No row carries the keyset position or a window count out with it.
     expect(payload.reviews[0].totalMatched).toBeUndefined()
+    expect(payload.reviews[0].cursorUpdateTime).toBeUndefined()
 
-    const [audit] = await admin<
-      { metadata: { totalMatched?: number; truncated?: boolean } }[]
-    >`
-      select metadata
-      from audit_log
-      where organisation_id = ${fixture.owner.organisationId}
-        and action = 'privacy.data.exported'
-      order by created_at desc
-      limit 1
+    const audits = await exportAudits(fixture.owner.organisationId)
+    expect(audits).toHaveLength(1)
+    expect(audits[0].metadata).toMatchObject({
+      page: 1,
+      records: 2,
+      totalMatched: 2,
+      truncated: false,
+      complete: true,
+    })
+  })
+
+  it("exports 1200 matches across keyset pages with no gaps or duplicates and resumes from a cursor", async () => {
+    const fixture = await createFixture()
+    // 1199 copies of the fixture review. Every third one shares an update
+    // time with its neighbours (the id breaks the tie) and the rest differ
+    // only by microseconds, which a millisecond cursor would skip or repeat.
+    await admin`
+      insert into review (
+        id, organisation_id, location_id, external_location_id,
+        google_review_name_ciphertext, google_review_name_hash,
+        google_review_id_ciphertext, google_review_id_hash,
+        reviewer_display_name, reviewer_is_anonymous, star_rating, review_text,
+        detected_language_code, language_confidence, has_media,
+        create_time, update_time, content_hash, workflow_status, raw_payload
+      )
+      select
+        gen_random_uuid(), r.organisation_id, r.location_id,
+        r.external_location_id,
+        r.google_review_name_ciphertext,
+        encode(sha256(convert_to('bulk-name-' || g || '-' || r.id, 'UTF8')), 'hex'),
+        r.google_review_id_ciphertext,
+        encode(sha256(convert_to('bulk-id-' || g || '-' || r.id, 'UTF8')), 'hex'),
+        r.reviewer_display_name, r.reviewer_is_anonymous, r.star_rating,
+        r.review_text, r.detected_language_code, r.language_confidence,
+        r.has_media, r.create_time,
+        timestamptz '2026-09-01T12:00:00.000000Z'
+          - (g / 3) * interval '1 microsecond',
+        r.content_hash, r.workflow_status, r.raw_payload
+      from review r
+      cross join generate_series(1, 1199) as g
+      where r.id = ${fixture.review.reviewId}
     `
-    expect(audit.metadata.totalMatched).toBe(2)
-    expect(audit.metadata.truncated).toBe(false)
+    // Another reviewer's review never leaks into the subject's pages.
+    await seedReview(admin, { organisationId: fixture.owner.organisationId })
+    const [{ expected }] = await admin<{ expected: number }[]>`
+      select count(*)::int as expected
+      from review
+      where organisation_id = ${fixture.owner.organisationId}
+        and reviewer_display_name = ${fixture.reviewerName}
+    `
+    expect(expected).toBe(1200)
+
+    // The first page and the second are fetched; then the download is
+    // "interrupted" and resumed from the second page's cursor.
+    const ids: string[] = []
+    const pages: { page: number; returned: number; total: number }[] = []
+    let cursor: string | undefined
+    let resumeFrom: string | undefined
+    for (let guard = 0; guard < 10; guard++) {
+      const response = await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 500,
+        ...(cursor ? { cursor } : {}),
+      })
+      expect(response.status).toBe(200)
+      const payload = (await response.json()) as {
+        page: number
+        returned: number
+        totalMatched: number
+        truncated: boolean
+        nextCursor: string | null
+        reviews: { id: string; googleReviewId: string }[]
+      }
+      expect(payload.truncated).toBe(payload.nextCursor !== null)
+      pages.push({
+        page: payload.page,
+        returned: payload.returned,
+        total: payload.totalMatched,
+      })
+      ids.push(...payload.reviews.map((review) => review.id))
+      if (payload.page === 2) resumeFrom = payload.nextCursor ?? undefined
+      if (!payload.nextCursor) break
+      cursor = payload.nextCursor
+    }
+    expect(pages).toEqual([
+      { page: 1, returned: 500, total: 1200 },
+      { page: 2, returned: 500, total: 1200 },
+      { page: 3, returned: 200, total: 1200 },
+    ])
+    expect(ids).toHaveLength(1200)
+    expect(new Set(ids).size).toBe(1200)
+
+    // Resuming from the cursor returns exactly the third page again.
+    const resumed = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 500,
+      cursor: resumeFrom,
+    })
+    expect(resumed.status).toBe(200)
+    const resumedPayload = (await resumed.json()) as {
+      page: number
+      nextCursor: string | null
+      reviews: { id: string }[]
+    }
+    expect(resumedPayload.page).toBe(3)
+    expect(resumedPayload.nextCursor).toBeNull()
+    expect(resumedPayload.reviews.map((review) => review.id)).toEqual(
+      ids.slice(1000)
+    )
+    expect(resumed.headers.get("content-disposition")).toContain(
+      "privacy-export-page-3.json"
+    )
+
+    // One audit row per page served, each naming its page.
+    const audits = await exportAudits(fixture.owner.organisationId)
+    expect(audits.map((row) => row.metadata.page)).toEqual([1, 2, 3, 3])
+    expect(audits.map((row) => row.metadata.records)).toEqual([
+      500, 500, 200, 200,
+    ])
+    expect(audits.map((row) => row.metadata.complete)).toEqual([
+      false, false, true, true,
+    ])
+    expect(audits.every((row) => row.metadata.totalMatched === 1200)).toBe(
+      true
+    )
+  })
+
+  it("rejects a malformed cursor and one minted for another subject", async () => {
+    const fixture = await createFixture()
+    const second = await seedReview(admin, {
+      organisationId: fixture.owner.organisationId,
+    })
+    await admin`
+      update review
+      set reviewer_display_name = ${fixture.reviewerName}
+      where id = ${second.reviewId}
+    `
+    const first = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 1,
+    })
+    expect(first.status).toBe(200)
+    const { nextCursor } = (await first.json()) as { nextCursor: string }
+    expect(nextCursor).toEqual(expect.any(String))
+
+    const garbled = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      cursor: "not-a-cursor",
+    })
+    expect(garbled.status).toBe(400)
+    expect((await garbled.json()).error).toBe("invalid_cursor")
+
+    const crossSubject = await exportPage(fixture.owner.cookie, {
+      subject: "Somebody else entirely",
+      cursor: nextCursor,
+    })
+    expect(crossSubject.status).toBe(400)
+    expect((await crossSubject.json()).error).toBe("invalid_cursor")
+
+    const oversized = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 1001,
+    })
+    expect(oversized.status).toBe(400)
   })
 })

@@ -71,10 +71,37 @@ export type UpdatePrivacyInput = z.infer<typeof privacyRequestUpdateSchema>
  * POST `/api/privacy/export` body. The subject travels in the body (never
  * the URL) so it never lands in browser history, proxy logs or referrers.
  */
+export const PRIVACY_EXPORT_PAGE_SIZE_DEFAULT = 500
+export const PRIVACY_EXPORT_PAGE_SIZE_MAX = 1000
+
 export const privacyExportBodySchema = z.object({
   subject: z.string().trim().min(3).max(240),
+  /** `nextCursor` from the previous page; absent for the first page. */
+  cursor: z.string().min(1).max(1024).optional(),
+  pageSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(PRIVACY_EXPORT_PAGE_SIZE_MAX)
+    .default(PRIVACY_EXPORT_PAGE_SIZE_DEFAULT),
 })
-export type PrivacyExportInput = z.infer<typeof privacyExportBodySchema>
+export type PrivacyExportInput = z.input<typeof privacyExportBodySchema>
+
+/**
+ * Decoded export cursor: the keyset position (`update_time desc, id desc`)
+ * of the last review on the previous page, the index of the page it opens,
+ * and a fingerprint of the subject so a cursor cannot continue a different
+ * subject's export. The cursor lives only in the client's hands; nothing about
+ * an export in progress is stored server-side.
+ */
+export const privacyExportCursorSchema = z.object({
+  v: z.literal(1),
+  subject: z.string().regex(/^[0-9a-f]{16}$/),
+  page: z.number().int().min(2),
+  updateTime: z.iso.datetime({ offset: true }),
+  id: z.uuid(),
+})
+export type PrivacyExportCursor = z.infer<typeof privacyExportCursorSchema>
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -129,3 +156,24 @@ export const privacyRequestResolutionResponseSchema = z.object({
 export type PrivacyRequestResolutionResponse = z.infer<
   typeof privacyRequestResolutionResponseSchema
 >
+
+/**
+ * POST `/api/privacy/export` response: one page of the subject's reviews.
+ * `totalMatched` counts the whole match set on every page; the export is
+ * complete when `nextCursor` is null. `truncated` mirrors `nextCursor !==
+ * null` for clients written before pages existed.
+ */
+export const privacyExportResponseSchema = z.object({
+  generatedAt: z.string(),
+  organisationId: z.string(),
+  subjectReference: z.string(),
+  note: z.string(),
+  page: z.number().int().min(1),
+  pageSize: z.number().int(),
+  totalMatched: z.number().int(),
+  returned: z.number().int(),
+  truncated: z.boolean(),
+  nextCursor: z.string().nullable(),
+  reviews: z.array(z.record(z.string(), z.unknown())),
+})
+export type PrivacyExportResponse = z.infer<typeof privacyExportResponseSchema>

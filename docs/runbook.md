@@ -974,7 +974,9 @@ Disconnect destroys OAuth tokens immediately, cancels sync checkpoints, clears
 the Google notification setting where possible, and schedules remaining
 external-location cleanup inside seven days. Track access, rectification,
 erasure, and restriction work in `/api/privacy/requests`; use
-`/api/privacy/export` for retained-content exports. Apply a legal hold only with
+`/api/privacy/export` for retained-content exports (paged: repeat the POST
+with the returned `nextCursor` until it is null; an interrupted export resumes
+from the last cursor received). Apply a legal hold only with
 an owner-approved reason and release it explicitly. Audit exports are available
 as JSON or CSV from `/api/audit-log`.
 
