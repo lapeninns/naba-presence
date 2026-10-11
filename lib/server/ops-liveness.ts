@@ -177,6 +177,7 @@ export type TickFinding = {
     | "tick_never_completed"
     | "tick_lock_wedged"
     | "tick_cycle_overdue"
+    | "tick_cycle_failures"
   subject: string
   details: Record<string, unknown>
 }

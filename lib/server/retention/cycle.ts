@@ -5,6 +5,7 @@ import type { Sql } from "postgres"
 import { getDatabase } from "@/lib/server/db"
 import { recordTickCycleCompleted } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
+import type { TickFinding } from "@/lib/server/ops-liveness"
 import {
   purgeEndedAbuseBuckets,
   purgeOrganisation,
@@ -35,7 +36,10 @@ import {
  * The cycle completes, and reports itself to the tick ledger through
  * `recordTickCycleCompleted`, when enumeration has ended and every
  * organisation in it has succeeded or used up its attempts. A second fire on
- * the same day finds the day's cycle completed and does nothing.
+ * the same day finds the day's cycle completed and does nothing. A completed
+ * cycle that left organisations failed raises its own operator alert
+ * (retentionCycleFailureFinding), since completion alone clears the overdue
+ * check.
  *
  * Progress is platform-level state, read and written outside withTenant; the
  * purge of each organisation runs in its own tenant transaction.
@@ -256,10 +260,17 @@ async function enumerateNextPage(
   return updated
 }
 
+/** Left on a claimed organisation until its run settles. */
+export const RETENTION_ATTEMPT_INTERRUPTED = "attempt_interrupted"
+
 /**
  * Counts one run against the organisation before it starts. False when the
  * organisation has already succeeded or has no attempts left, in which case
  * it must not run.
+ *
+ * The run's error code reads `attempt_interrupted` until recordOrgOutcome
+ * settles it, so a run the platform killed (maxDuration runs no catch block)
+ * shows as killed rather than keeping an earlier run's error.
  */
 export async function claimOrganisation(
   cycleId: string,
@@ -267,7 +278,8 @@ export async function claimOrganisation(
 ): Promise<boolean> {
   const rows = await getDatabase()`
     update retention_cycle_org
-    set attempts = attempts + 1
+    set attempts = attempts + 1,
+      last_error_code = ${RETENTION_ATTEMPT_INTERRUPTED}
     where cycle_id = ${cycleId}
       and organisation_id = ${organisationId}
       and status <> 'succeeded'
@@ -347,6 +359,96 @@ export async function completeCycle(cycleId: string): Promise<boolean> {
     returning 1
   `
   return rows.length > 0
+}
+
+/** Organisations named in a tick_cycle_failures alert. */
+export const RETENTION_FAILURE_ALERT_LIMIT = 10
+
+/**
+ * The operator finding for organisations the latest completed cycle could
+ * not retain, or null when it retained every one (or none has completed).
+ *
+ * Completing a cycle stamps `last_cycle_completed_at` whether or not every
+ * organisation succeeded, so tick_cycle_overdue cannot see a tenant whose
+ * purge fails every day. This reads the failed rows themselves rather than
+ * the cycle's `failed` count, which keeps counting a tenant deleted since.
+ * `repeated` counts organisations that also failed in the completed cycle
+ * before it. The finding stays open while today's cycle runs and resolves
+ * once a later cycle completes clean.
+ *
+ * Platform-level read, outside withTenant: ids and codes only.
+ */
+export async function retentionCycleFailureFinding(): Promise<TickFinding | null> {
+  const database = getDatabase()
+  const [latest] = await database<
+    {
+      id: string
+      cycleDate: string
+      completedAt: Date
+      enumerated: number
+      succeeded: number
+      previousId: string | null
+    }[]
+  >`
+    select
+      c.id::text as id,
+      to_char(c.cycle_date, 'YYYY-MM-DD') as "cycleDate",
+      c.completed_at as "completedAt",
+      c.enumerated,
+      c.succeeded,
+      (
+        select p.id::text
+        from retention_cycle p
+        where p.status = 'completed'
+          and p.cycle_date < c.cycle_date
+        order by p.cycle_date desc
+        limit 1
+      ) as "previousId"
+    from retention_cycle c
+    where c.status = 'completed'
+    order by c.cycle_date desc
+    limit 1
+  `
+  if (!latest) return null
+  const failed = await database<
+    {
+      organisationId: string
+      attempts: number
+      lastErrorCode: string | null
+      failedPreviousCycle: boolean
+    }[]
+  >`
+    select
+      o.organisation_id::text as "organisationId",
+      o.attempts,
+      o.last_error_code as "lastErrorCode",
+      exists (
+        select 1
+        from retention_cycle_org p
+        where p.cycle_id = ${latest.previousId}::uuid
+          and p.organisation_id = o.organisation_id
+          and p.status = 'failed'
+      ) as "failedPreviousCycle"
+    from retention_cycle_org o
+    where o.cycle_id = ${latest.id}
+      and o.status = 'failed'
+    order by o.organisation_id
+  `
+  if (!failed.length) return null
+  return {
+    kind: "tick_cycle_failures",
+    subject: "retention",
+    details: {
+      cycleId: latest.id,
+      cycleDate: latest.cycleDate,
+      completedAt: latest.completedAt.toISOString(),
+      enumerated: latest.enumerated,
+      succeeded: latest.succeeded,
+      failed: failed.length,
+      repeated: failed.filter((row) => row.failedPreviousCycle).length,
+      organisations: failed.slice(0, RETENTION_FAILURE_ALERT_LIMIT),
+    },
+  }
 }
 
 export type RetentionCycleInput = {

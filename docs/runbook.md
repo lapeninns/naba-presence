@@ -353,18 +353,24 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   the fleet from the persisted `enumeration_cursor`, then, once enumeration
   has ended, organisations that failed on an earlier fire. Each organisation
   has a `retention_cycle_org` row with its status, attempts (counted before
-  each run, so a killed fire uses one) and `last_error_code`; after three
-  runs it stays `failed` (`attempts_exhausted` if every run was killed) and
-  stops holding the cycle open. The cycle completes when enumeration has
-  ended and nothing is left to run, and stamps `last_cycle_completed_at` on
-  the `retention` tick (alerted as `tick_cycle_overdue` after 26 hours). A
+  each run, so a killed fire uses one) and `last_error_code`
+  (`attempt_interrupted` while a run is in flight, so a killed run stays
+  visible); after three runs it stays `failed` (`attempts_exhausted` if every
+  run was killed) and stops holding the cycle open. The cycle completes when
+  enumeration has ended and nothing is left to run, and stamps
+  `last_cycle_completed_at` on the `retention` tick (alerted as
+  `tick_cycle_overdue` after 26 hours). Completing with failed organisations
+  still stamps it, so those raise `tick_cycle_failures` instead (below). A
   second fire the same day, or any fire before 03:00 with nothing running,
   answers `cycle: null` and does nothing. Progress:
   `select cycle_date, status, enumerated, succeeded, failed,
   enumeration_completed_at from retention_cycle order by cycle_date desc
   limit 3`, and the failures:
   `select organisation_id, attempts, last_error_code from retention_cycle_org
-  where status = 'failed' and cycle_id = '<id>'`. A failed organisation is
+  where status = 'failed' and cycle_id = '<id>'`. `enumerated` counts the
+  organisations copied in; one deleted mid-cycle takes its row with it but
+  stays counted (and in `failed` if it had failed), so `succeeded + failed`
+  can stay below `enumerated` on a completed cycle. A failed organisation is
   retained again by the next day's cycle; to retain it now, run a hand page
   `POST /api/cron/retention?cursor=<the organisation id just before it>&batch_size=1`
   with the cron bearer. A hand page (any `cursor`, empty for the head) never
@@ -608,7 +614,8 @@ row claimed after the window (a pause, a skipped tick) settles
 
 The health tick emails `OPS_ALERT_EMAILS` and opens a `platform_incident`
 for four tick findings, read from each tick's `ops_heartbeat` run ledger
-(0089) and shown in `schedulerTicks` on the platform health endpoint:
+(0089) and shown in `schedulerTicks` on the platform health endpoint, and for
+retention cycle failures:
 
 - `stale_heartbeat`: the tick used to complete and has not for
   `staleAfterSeconds`. Check `lastFailedAt`/`lastErrorCode` first: a tick that
@@ -624,8 +631,16 @@ for four tick findings, read from each tick's `ops_heartbeat` run ledger
   when its connection is terminated.
 - `tick_cycle_overdue`: a tick that runs in cycles (retention) has not
   finished a walk over every organisation within `cycleStaleAfterSeconds`.
-  Read the cycle's progress (see "Retention cycle" below) and the
+  Read the cycle's progress (see "Retention cycle" above) and the
   `retention.organisation_failed` logs.
+- `tick_cycle_failures`: the latest completed retention cycle left
+  organisations `failed` after every attempt, so their expired Google content
+  was not purged (0098). The alert lists up to ten with their
+  `last_error_code` and counts those that also failed in the cycle before
+  (`repeated`), which points at a tenant that fails every day rather than a
+  passing fault. Read the failures and retain them by hand (see "Retention
+  cycle" above). It stays open while the next cycle runs and resolves once a
+  cycle completes with none failed.
 
 The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that

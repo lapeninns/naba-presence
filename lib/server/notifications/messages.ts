@@ -210,6 +210,7 @@ export function renderPlatformEmail(
     | "tick_never_completed"
     | "tick_lock_wedged"
     | "tick_cycle_overdue"
+    | "tick_cycle_failures"
     | "google_quota_pressure",
   subject: string,
   details: Record<string, unknown>
@@ -253,6 +254,25 @@ export function renderPlatformEmail(
         `The "${subject}" tick has not finished a full cycle since ${text(details.lastCycleCompletedAt ?? details.registeredAt, "an unknown time")}.`,
         `A cycle is expected at least every ${details.cycleStaleAfterSeconds ?? "?"} seconds.`,
         'Check the tick\'s failures and cursor in the function logs (docs/runbook.md, "Stale heartbeat").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "tick_cycle_failures") {
+    const organisations = Array.isArray(details.organisations)
+      ? (details.organisations as Record<string, unknown>[])
+      : []
+    return {
+      subject: `NabaPresence: the ${subject} cycle left organisations unretained`,
+      text: [
+        `The "${subject}" cycle for ${text(details.cycleDate, "an unknown day")} completed with ${details.failed ?? "?"} of ${details.enumerated ?? "?"} organisations failed after every attempt; their expired content has not been purged.`,
+        ...(Number(details.repeated) > 0
+          ? [`${details.repeated} of them also failed in the cycle before.`]
+          : []),
+        ...organisations.map(
+          (organisation) =>
+            `- ${text(organisation.organisationId, "unknown")}: ${text(organisation.lastErrorCode, "unknown error")} after ${organisation.attempts ?? "?"} runs`
+        ),
+        'Read the failures and retain them by hand (docs/runbook.md, "Retention cycle").',
       ].join("\n"),
     }
   }

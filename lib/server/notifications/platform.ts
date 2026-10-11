@@ -8,6 +8,7 @@ import {
   tickFindings,
   type TickFinding,
 } from "@/lib/server/ops-liveness"
+import { retentionCycleFailureFinding } from "@/lib/server/retention/cycle"
 
 import { runDeliveries, type DeliveryOutcome } from "./delivery"
 import { sendEmail } from "./email"
@@ -20,6 +21,7 @@ const PLATFORM_INCIDENT_KINDS: readonly PlatformIncidentKind[] = [
   "tick_never_completed",
   "tick_lock_wedged",
   "tick_cycle_overdue",
+  "tick_cycle_failures",
   "google_quota_pressure",
 ]
 
@@ -47,12 +49,17 @@ export type PlatformEvaluation = {
  * the grace from its registration (0089), a lease wedged by repeated lock
  * skips, and a multi-run tick that has not finished a cycle in its window.
  * Only scheduled runs count; a manual refresh under the same lease does not.
+ * A cycle that completed with organisations it could not retain is its own
+ * finding (retentionCycleFailureFinding): completing stamps the ledger, so
+ * the overdue check never sees a tenant that fails every day.
  */
 export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   const database = getDatabase()
   const now = new Date()
   const liveness = await schedulerLiveness(now)
   const findings: PlatformFinding[] = tickFindings(liveness.schedulerTicks, now)
+  const cycleFailures = await retentionCycleFailureFinding()
+  if (cycleFailures) findings.push(cycleFailures)
   const throttled = await database<
     { bucket: string; throttledCount: number }[]
   >`

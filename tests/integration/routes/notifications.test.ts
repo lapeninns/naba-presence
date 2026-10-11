@@ -53,7 +53,7 @@ describeDatabase("operational notifications", () => {
     await destroyTenants(admin, organisations)
     await admin`
       delete from platform_incident
-      where subject in ('reconcile', 'keywords', 'presence-resources')
+      where subject in ('reconcile', 'keywords', 'presence-resources', 'retention')
     `
     await admin.end()
   })
@@ -628,6 +628,67 @@ describeDatabase("operational notifications", () => {
     } finally {
       await admin`delete from platform_incident where id = ${incident.id}`
     }
+  }, 120_000)
+
+  it("alerts operators when a retention cycle completes with organisations it could not retain", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    // Dated ahead of any cycle another test leaves, so it is the latest.
+    const [cycle] = await admin<{ id: string }[]>`
+      insert into retention_cycle (
+        cycle_date, status, completed_at, enumeration_completed_at,
+        enumerated, succeeded, failed
+      )
+      values ('2099-01-01', 'completed', now(), now(), 4, 3, 1)
+      returning id::text as id
+    `
+    await admin`
+      insert into retention_cycle_org (
+        cycle_id, organisation_id, status, attempts, last_error_code, finished_at
+      )
+      values (${cycle.id}, ${owner.organisationId}, 'failed', 3, 'internal_error', now())
+    `
+    try {
+      await runTick()
+      await runTick()
+      const [incident] = await admin<
+        {
+          notifyStatus: string
+          details: { failed: number; organisations: { organisationId: string }[] }
+        }[]
+      >`
+        select notify_status as "notifyStatus", details
+        from platform_incident
+        where kind = 'tick_cycle_failures' and subject = 'retention'
+          and status = 'open'
+      `
+      expect(incident).toMatchObject({
+        notifyStatus: "sent",
+        details: {
+          failed: 1,
+          organisations: [{ organisationId: owner.organisationId }],
+        },
+      })
+      const alerts = sentTo(OPS).filter((mail) =>
+        mail.subject.includes("retention cycle left organisations unretained")
+      )
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0].text).toContain(
+        `${owner.organisationId}: internal_error after 3 runs`
+      )
+    } finally {
+      await admin`delete from retention_cycle where id = ${cycle.id}`
+    }
+    // Once that cycle is no longer the latest with failures, the next tick
+    // stops reporting it (and resolves the incident if no other cycle has
+    // failures).
+    await runTick()
+    const open = await admin`
+      select 1 from platform_incident
+      where kind = 'tick_cycle_failures' and subject = 'retention'
+        and status = 'open' and details->>'cycleId' = ${cycle.id}
+    `
+    expect(open).toHaveLength(0)
   }, 120_000)
 
   it("alerts a tick that never completed after grace", async () => {

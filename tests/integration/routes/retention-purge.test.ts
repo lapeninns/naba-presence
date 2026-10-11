@@ -12,6 +12,8 @@ import {
   seedLinkedReview,
 } from "../helpers/tenant"
 
+import { runRetentionCycle } from "@/lib/server/retention/cycle"
+
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
@@ -187,6 +189,59 @@ describeDatabase("retention purge", () => {
     // The NOT NULL expiry column (0022) must survive the redaction.
     expect(item.payloadExpiresAt).not.toBeNull()
   }, 30_000)
+
+  it("redacts an expired media payload through a dispatcher cycle, not only a hand page", async () => {
+    const owner = await createTenant()
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedLocation(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const mediaItemId = await seedExpiredMediaItem({
+      organisationId: owner.organisationId,
+      locationId: linked.locationId,
+      externalLocationId: linked.externalLocationId,
+    })
+
+    // The cycle with its default, real per-organisation purge, on a fixed
+    // clock past 03:00 so it opens whatever the time of day.
+    await admin`delete from retention_cycle`
+    try {
+      const fire = () =>
+        runRetentionCycle({
+          requestId: "retention-purge-cycle",
+          clientRequestId: null,
+          now: new Date("2026-02-01T03:00:00Z"),
+        })
+      let result = await fire()
+      for (let index = 0; index < 5 && !result.completed; index += 1) {
+        result = await fire()
+      }
+      expect(result.completed).toBe(true)
+      const [row] = await admin<{ status: string }[]>`
+        select o.status
+        from retention_cycle_org o
+        join retention_cycle c on c.id = o.cycle_id
+        where c.cycle_date = '2026-02-01'
+          and o.organisation_id = ${owner.organisationId}
+      `
+      expect(row).toEqual({ status: "succeeded" })
+    } finally {
+      await admin`delete from retention_cycle`
+    }
+
+    const [item] = await admin<
+      { sourceUrl: string | null; description: string | null }[]
+    >`
+      select source_url as "sourceUrl", description
+      from gbp_media_item
+      where id = ${mediaItemId}
+    `
+    expect(item).toEqual({ sourceUrl: null, description: null })
+  }, 60_000)
 
   it("keeps an expired media create that still waits on a person", async () => {
     const owner = await createTenant()

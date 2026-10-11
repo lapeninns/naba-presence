@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 
 import { describe, expect, it } from "vitest"
 
+import { renderPlatformEmail } from "@/lib/server/notifications/messages"
 import {
   TICK_CYCLE_STALE_AFTER_SECONDS,
   TICK_STALE_AFTER_SECONDS,
@@ -91,5 +92,49 @@ describe("retention route", () => {
     expect(route).toContain('searchParams.has("cursor")')
     expect(route).toContain("runRetentionCycle(")
     expect(route).toMatch(/retainPage\([\s\S]*trigger: "manual"/)
+  })
+})
+
+describe("tick_cycle_failures alert", () => {
+  it("names the cycle, the failed organisations and their codes, and repeats", () => {
+    const email = renderPlatformEmail("tick_cycle_failures", "retention", {
+      cycleDate: "2026-10-10",
+      enumerated: 40,
+      failed: 2,
+      repeated: 1,
+      organisations: [
+        {
+          organisationId: "org-a",
+          attempts: 3,
+          lastErrorCode: "internal_error",
+        },
+        {
+          organisationId: "org-b",
+          attempts: 3,
+          lastErrorCode: "attempt_interrupted",
+        },
+      ],
+    })
+    expect(email.subject).toBe(
+      "NabaPresence: the retention cycle left organisations unretained"
+    )
+    expect(email.text).toContain(
+      'The "retention" cycle for 2026-10-10 completed with 2 of 40 organisations failed'
+    )
+    expect(email.text).toContain("1 of them also failed in the cycle before.")
+    expect(email.text).toContain("- org-a: internal_error after 3 runs")
+    expect(email.text).toContain("- org-b: attempt_interrupted after 3 runs")
+    expect(email.text).toContain('"Retention cycle"')
+  })
+
+  it("leaves out the repeat line when nothing repeated", () => {
+    const email = renderPlatformEmail("tick_cycle_failures", "retention", {
+      cycleDate: "2026-10-10",
+      enumerated: 5,
+      failed: 1,
+      repeated: 0,
+      organisations: [],
+    })
+    expect(email.text).not.toContain("cycle before")
   })
 })

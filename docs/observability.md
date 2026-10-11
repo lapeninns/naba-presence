@@ -142,9 +142,12 @@ for a tick that has never completed. The health tick alerts operators
 that used to complete and stopped), `tick_never_completed` (no completed
 scheduled run within `staleAfterSeconds` of `registeredAt`),
 `tick_lock_wedged` (`consecutiveSkips` reached three) and `tick_cycle_overdue`
-(no completed cycle within `cycleStaleAfterSeconds`; the retention page that
-ends the organisation walk records one). The health tick never alerts on
-itself.
+(no completed cycle within `cycleStaleAfterSeconds`; the retention dispatcher
+records one when its daily cycle completes). Because a cycle completes even
+when some organisations failed every attempt, it also alerts on
+`tick_cycle_failures` while the latest completed retention cycle has failed
+organisations (`retentionCycleFailureFinding` in
+`lib/server/retention/cycle.ts`). The health tick never alerts on itself.
 
 The `scheduler` row is stamped at the start of every authenticated jobs run,
 including one that claims nothing because a kill switch is off, so it does not
