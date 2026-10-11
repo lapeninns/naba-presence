@@ -3,6 +3,8 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import {
+  decodeMediaCursor,
+  encodeMediaCursor,
   MAX_MEDIA_UPLOAD_BYTES,
   MIN_PHOTO_UPLOAD_BYTES,
   mediaCreateSchema,
@@ -193,16 +195,49 @@ type MediaListItem = MediaItemWire
 
 export type MediaOwnershipFilter = MediaOwnership
 
+function parseMediaCursor(
+  value: string | undefined,
+  locationId: string,
+  filters: { category?: GoogleMediaCategory; ownership?: MediaOwnershipFilter }
+) {
+  if (!value) return null
+  const cursor = decodeMediaCursor(value)
+  if (!cursor)
+    throw new ApiError(400, "invalid_cursor", "The media cursor is invalid.")
+  if (
+    cursor.locationId !== locationId ||
+    cursor.category !== (filters.category ?? null) ||
+    cursor.ownershipFilter !== (filters.ownership ?? null)
+  )
+    throw new ApiError(
+      400,
+      "invalid_cursor",
+      "This cursor belongs to another list."
+    )
+  return cursor
+}
+
+/**
+ * One keyset page in the library's order: by ownership name (customer, then
+ * merchant), newest Google create time first (none last), then id. A refresh
+ * re-upserts rows by Google name and keeps their ids, so a cursor survives
+ * it.
+ */
 async function readMediaPage(
   organisationId: string,
   locationId: string,
-  page: number,
+  cursor: string | undefined,
   pageSize: number,
   filters: {
     category?: GoogleMediaCategory
     ownership?: MediaOwnershipFilter
   } = {}
-): Promise<{ items: MediaListItem[]; total: number }> {
+): Promise<{
+  items: MediaListItem[]
+  total: number
+  nextCursor: string | null
+}> {
+  const after = parseMediaCursor(cursor, locationId, filters)
   return withTenant(organisationId, async (sql) => {
     const categoryFilter = filters.category
       ? sql`and category = ${filters.category}`
@@ -218,21 +253,54 @@ async function readMediaPage(
       ${ownershipFilter}
     `
     const total = countRow?.total ?? 0
-    const offset = (page - 1) * pageSize
-    const items = await sql<MediaListItem[]>`
+    // Within the cursor's ownership: older create times, then same time and
+    // a later id, then the undated items that sort last.
+    const keyset = !after
+      ? sql``
+      : after.at === null
+        ? sql`and (ownership > ${after.ownership} or (ownership = ${after.ownership}
+            and google_create_time is null and id > ${after.id}::uuid))`
+        : sql`and (ownership > ${after.ownership} or (ownership = ${after.ownership} and (
+            google_create_time < ${after.at}::text::timestamptz
+            or (google_create_time = ${after.at}::text::timestamptz and id > ${after.id}::uuid)
+            or google_create_time is null
+          )))`
+    const rows = await sql<(MediaListItem & { cursorAt: string | null })[]>`
       select id::text as id, google_media_name as "googleMediaName",
         ownership, media_format as "mediaFormat", category, source_url as "sourceUrl",
         google_url as "googleUrl", thumbnail_url as "thumbnailUrl", description,
         attribution, dimensions, insights, google_hash as "googleHash",
-        google_create_time as "createTime"
+        google_create_time as "createTime",
+        to_char(google_create_time at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "cursorAt"
       from gbp_media_item
       where location_id = ${locationId} and deleted_at is null
       ${categoryFilter}
       ${ownershipFilter}
-      order by ownership, google_create_time desc nulls last
-      limit ${pageSize} offset ${offset}
+      ${keyset}
+      order by ownership, google_create_time desc nulls last, id
+      limit ${pageSize + 1}
     `
-    return { items, total }
+    const page = rows.slice(0, pageSize)
+    const last = page.at(-1)
+    const nextCursor =
+      rows.length > pageSize && last
+        ? encodeMediaCursor({
+            version: 1,
+            locationId,
+            category: filters.category ?? null,
+            ownershipFilter: filters.ownership ?? null,
+            ownership: last.ownership,
+            at: last.cursorAt,
+            id: last.id,
+          })
+        : null
+    const items = page.map((row): MediaListItem => {
+      // The cursor's copy of the create time is not part of the row contract.
+      const { cursorAt, ...item } = row
+      void cursorAt
+      return item
+    })
+    return { items, total, nextCursor }
   })
 }
 
@@ -264,14 +332,13 @@ export async function loadMedia(
   session: Session,
   locationId: string,
   options: {
-    page?: number
+    cursor?: string
     pageSize?: number
     refresh?: boolean
     category?: GoogleMediaCategory
     ownership?: MediaOwnershipFilter
   } = {}
 ) {
-  const page = Math.max(1, Math.floor(options.page ?? 1))
   const pageSize = Math.min(
     MAX_MEDIA_PAGE_SIZE,
     Math.max(1, Math.floor(options.pageSize ?? DEFAULT_MEDIA_PAGE_SIZE))
@@ -291,7 +358,10 @@ export async function loadMedia(
     })
   )
 
+  // Only the first page may re-read Google: loading more pages the cache
+  // the first page read, so the rows below a cursor do not move under it.
   if (
+    !options.cursor &&
     shouldSyncMediaCache({
       refresh,
       count: cache.count,
@@ -316,10 +386,10 @@ export async function loadMedia(
   }
 
   const env = getServerEnv()
-  const { items, total } = await readMediaPage(
+  const { items, total, nextCursor } = await readMediaPage(
     organisationId,
     locationId,
-    page,
+    options.cursor,
     pageSize,
     { category, ownership }
   )
@@ -329,8 +399,8 @@ export async function loadMedia(
     categories: GOOGLE_MEDIA_CATEGORIES,
     items,
     total,
-    page,
     pageSize,
+    nextCursor,
     category: category ?? null,
     ownership: ownership ?? null,
     unresolvedCreates,

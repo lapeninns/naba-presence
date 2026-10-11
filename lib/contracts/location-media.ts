@@ -7,6 +7,7 @@
  */
 import { z } from "zod"
 
+import { decodeCursor, encodeCursor } from "@/lib/contracts/cursor"
 import { httpUrl } from "@/lib/contracts/http-url"
 import { GOOGLE_MEDIA_CATEGORIES } from "@/lib/domain/google-contract"
 import { operationSummaryField } from "@/lib/contracts/mutation-operations"
@@ -29,15 +30,47 @@ export const MIN_PHOTO_UPLOAD_BYTES = 10 * 1024
 // Requests
 // ---------------------------------------------------------------------------
 
-/** GET `/media` query (`page`/`pageSize` arrive as strings). */
+/**
+ * GET `/media` query (`pageSize` arrives as a string). Paging is by keyset
+ * `cursor` within one set of filters.
+ */
 export const mediaListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
+  cursor: z.string().max(1024).optional(),
   refresh: z.literal("1").optional(),
   category: z.enum(GOOGLE_MEDIA_CATEGORIES).optional(),
   ownership: z.enum(MEDIA_OWNERSHIPS).optional(),
 })
 export type MediaListQuery = z.infer<typeof mediaListQuerySchema>
+
+/**
+ * The position after a page's last item in the library's order: customer
+ * before merchant, newest Google create time first (none last), then id.
+ * Bound to its location and filters; the server refuses it anywhere else
+ * (400 `invalid_cursor`).
+ */
+export const mediaCursorSchema = z
+  .object({
+    version: z.literal(1),
+    locationId: z.uuid(),
+    category: z.enum(GOOGLE_MEDIA_CATEGORIES).nullable(),
+    ownershipFilter: z.enum(MEDIA_OWNERSHIPS).nullable(),
+    ownership: z.enum(MEDIA_OWNERSHIPS),
+    at: z.iso.datetime().nullable(),
+    id: z.uuid(),
+  })
+  .strict()
+export type MediaCursor = z.infer<typeof mediaCursorSchema>
+
+export function encodeMediaCursor(cursor: MediaCursor): string {
+  return encodeCursor(cursor)
+}
+
+export function decodeMediaCursor(
+  value: string | null | undefined
+): MediaCursor | null {
+  return decodeCursor(value, mediaCursorSchema)
+}
 
 /** Create-from-URL fields (the JSON branch of POST `/media`). */
 export const mediaCreateSchema = z.object({
@@ -156,9 +189,11 @@ export const mediaStateSchema = z.object({
   writesEnabled: z.boolean(),
   categories: z.array(z.enum(GOOGLE_MEDIA_CATEGORIES)).readonly(),
   items: z.array(mediaItemSchema),
+  /** Every item matching the filters, not just this page. */
   total: z.number().int().nonnegative(),
-  page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
+  /** Where the next page starts; `null` on the last page. */
+  nextCursor: z.string().nullable(),
   category: z.string().nullable().optional(),
   ownership: z.enum(MEDIA_OWNERSHIPS).nullable().optional(),
   unresolvedCreates: z.array(mediaUnresolvedCreateSchema).default([]),

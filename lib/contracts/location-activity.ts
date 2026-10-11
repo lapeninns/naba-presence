@@ -6,19 +6,57 @@
  * `lib/server/location-activity.ts` (the item/state types).
  */
 import { z } from "zod"
+import { encodeCursor, decodeCursor } from "./cursor"
 import { gbpExecutionStateSchema, gbpConfirmationStateSchema } from "./gbp-management"
 
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
 
-/** GET `/activity` query (`page`/`pageSize` arrive as strings). */
+/**
+ * GET `/activity` query (`pageSize` arrives as a string). Paging is by keyset
+ * cursor only: a `page` from a client older than that is accepted and
+ * ignored, so it reads the first page rather than failing.
+ */
 export const locationActivityQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(50).optional(),
   cursor: z.string().max(1024).optional(),
 })
 export type LocationActivityQuery = z.infer<typeof locationActivityQuerySchema>
+
+/**
+ * The position after the last row of a page: newest first by
+ * (`created_at`, prefixed id). Bound to its location; the server refuses it
+ * anywhere else (400 `invalid_cursor`).
+ */
+export const locationActivityCursorSchema = z
+  .object({
+    version: z.literal(1),
+    locationId: z.uuid(),
+    at: z.iso.datetime(),
+    id: z
+      .string()
+      .regex(
+        /^(management|hours|profile|menus|links|media|posts|reviews):[0-9a-f-]{36}$/
+      ),
+  })
+  .strict()
+export type LocationActivityCursor = z.infer<
+  typeof locationActivityCursorSchema
+>
+
+export function encodeLocationActivityCursor(
+  cursor: LocationActivityCursor
+): string {
+  return encodeCursor(cursor)
+}
+
+export function decodeLocationActivityCursor(
+  value: string | null | undefined
+): LocationActivityCursor | null {
+  return decodeCursor(value, locationActivityCursorSchema)
+}
 
 // ---------------------------------------------------------------------------
 // Responses
@@ -49,10 +87,11 @@ export type LocationActivityItem = z.infer<typeof locationActivityItemSchema>
 export const locationActivityStateSchema = z.object({
   canManage: z.boolean().optional(),
   items: z.array(locationActivityItemSchema),
+  /** Every recorded change for the location, not just this page. */
   total: z.number().int().nonnegative(),
-  page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
-  nextCursor: z.string().nullable().optional(),
+  /** Where the next page starts; `null` on the last page. */
+  nextCursor: z.string().nullable().default(null),
 })
 export type LocationActivityState = z.infer<typeof locationActivityStateSchema>
 

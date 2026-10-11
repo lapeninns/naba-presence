@@ -26,7 +26,7 @@ export const GET = route({
   handler: async ({ session, params, query }) =>
     ({
       media: await loadMedia(session.organisationId, session, params.id, {
-        page: query.page ?? 1,
+        cursor: query.cursor,
         pageSize: query.pageSize ?? 12,
         refresh: query.refresh === "1",
         category: query.category,

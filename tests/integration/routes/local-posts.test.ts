@@ -153,6 +153,77 @@ describeDatabase("Local Posts CRUD", () => {
     expect(google.calls.every((call) => call.method === "GET")).toBe(true)
   })
 
+  it("pages the list by keyset cursor without gaps or repeats while posts are added", async () => {
+    const { owner, linked } = await linkedTenant()
+    google.respond({ method: "GET", pathIncludes: "/localPosts" }, () => ({
+      status: 200,
+      json: { localPosts: [] },
+    }))
+    const ids: string[] = []
+    for (const summary of ["one", "two", "three", "four", "five"]) {
+      ids.push(await createDraft(owner.cookie, linked.locationId, `Draft ${summary}`))
+    }
+    // Content times (the latest local edit; audit_log is append-only, so a
+    // later edit row sets it): "five" newest; "three" and "four" share one,
+    // so the id breaks the tie.
+    const editedAt = async (id: string, at: string) => {
+      await admin`insert into audit_log (organisation_id, actor_user_id, action, subject_type, subject_id, created_at)
+        values (${owner.organisationId}, ${owner.userId}, 'post.updated', 'local_post', ${id}, ${at}::timestamptz)`
+    }
+    const times = ["2099-09-01T10:00:00.000001Z", "2099-09-02T10:00:00Z", "2099-09-03T10:00:00.5Z", "2099-09-03T10:00:00.5Z", "2099-09-04T10:00:00Z"]
+    for (const [index, id] of ids.entries()) await editedAt(id, times[index])
+    // A post with no recorded edit has no content time and sorts last.
+    const [undated] = await admin<{ id: string }[]>`
+      insert into gbp_local_post (organisation_id, location_id, external_location_id, topic_type, summary)
+      values (${owner.organisationId}, ${linked.locationId}, ${linked.externalLocationId}, 'STANDARD', 'Undated')
+      returning id::text as id`
+    const tied = [ids[2], ids[3]].sort()
+    const expected = [ids[4], ...tied, ids[1], ids[0], undated.id]
+
+    const read = async (query: string) => {
+      const response = await fetch(`${server.baseUrl}/api/locations/${linked.locationId}/posts${query}`, { headers: { cookie: owner.cookie } })
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (await response.json()) as { posts: { id: string }[]; nextCursor: string | null; counts: Record<string, number>; filter: string }
+    }
+    const first = await read("?pageSize=2")
+    expect(first.counts).toMatchObject({ all: 6, draft: 6, published: 0, attention: 0, live: 0 })
+    const listReads = () => google.calls.filter((call) => call.method === "GET" && call.path.includes("/localPosts")).length
+    const readsAfterFirst = listReads()
+    expect(readsAfterFirst).toBeGreaterThan(0)
+
+    // Added between pages: it sorts above the cursor, so it moves nothing below.
+    await editedAt(await createDraft(owner.cookie, linked.locationId, "Draft added mid-walk"), "2100-01-01T00:00:00Z")
+    const pages = [first]
+    while (pages.at(-1)?.nextCursor) {
+      pages.push(await read(`?pageSize=2&cursor=${pages.at(-1)?.nextCursor}`))
+    }
+    expect(pages.map((page) => page.posts.length)).toEqual([2, 2, 2])
+    expect(pages.flatMap((page) => page.posts.map((post) => post.id))).toEqual(expected)
+    // Only the first page reconciles with Google.
+    expect(listReads()).toBe(readsAfterFirst)
+
+    // One post on its own, wherever it sits in the list.
+    const single = await read(`?post=${undated.id}`)
+    expect(single.posts.map((post) => post.id)).toEqual([undated.id])
+    expect(single.nextCursor).toBeNull()
+
+    // A view pages on its own cursor; another view's or location's is refused.
+    const drafts = await read("?filter=draft&pageSize=2")
+    expect(drafts.filter).toBe("draft")
+    expect((await read("?filter=published")).posts).toEqual([])
+    const other = await linkedTenant()
+    for (const [locationId, query] of [
+      [linked.locationId, `?filter=attention&cursor=${drafts.nextCursor}`],
+      [other.linked.locationId, `?filter=draft&cursor=${drafts.nextCursor}`],
+      [linked.locationId, "?cursor=garbage"],
+    ] as const) {
+      const cookie = locationId === linked.locationId ? owner.cookie : other.owner.cookie
+      const refused = await fetch(`${server.baseUrl}/api/locations/${locationId}/posts${query}`, { headers: { cookie } })
+      expect(refused.status).toBe(400)
+      expect((await refused.json()).error).toBe("invalid_cursor")
+    }
+  })
+
   it("creates a draft, publishes, updates with a mask, and deletes", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)

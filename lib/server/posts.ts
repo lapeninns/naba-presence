@@ -4,9 +4,16 @@ import type { Fragment, TransactionSql } from "postgres"
 import { z } from "zod"
 
 import {
+  DEFAULT_POSTS_PAGE_SIZE,
+  decodePostsCursor,
+  encodePostsCursor,
   localPostInputSchema,
+  MAX_POSTS_PAGE_SIZE,
   type LocalPostInput,
+  type PostCounts,
+  type PostListFilter,
   type PostRow,
+  type PostsListQuery,
 } from "@/lib/contracts/location-posts"
 import {
   localPostMatches,
@@ -651,26 +658,107 @@ function providerPayload(post: PostContent) {
   )
 }
 
+/** The SQL each status view selects (columns of `gbp_local_post`). */
+function postFilterCondition(
+  sql: TransactionSql,
+  filter: PostListFilter
+): Fragment {
+  switch (filter) {
+    case "all":
+      return sql`true`
+    case "draft":
+      return sql`status = 'draft'`
+    case "awaiting":
+      return sql`status = 'awaiting_approval'`
+    case "published":
+      return sql`status in ('published', 'publishing')`
+    case "attention":
+      return sql`(status in ('failed', 'ambiguous') or (status = 'published' and google_state = 'REJECTED'))`
+  }
+}
+
+function parsePostsCursor(
+  value: string | undefined,
+  locationId: string,
+  filter: PostListFilter
+) {
+  if (!value) return null
+  const cursor = decodePostsCursor(value)
+  if (!cursor)
+    throw new ApiError(400, "invalid_cursor", "The posts cursor is invalid.")
+  if (cursor.locationId !== locationId || cursor.filter !== filter)
+    throw new ApiError(
+      400,
+      "invalid_cursor",
+      "This cursor belongs to another list."
+    )
+  return cursor
+}
+
+/**
+ * One page of the location's posts in one status view, newest first, plus
+ * the counts of every view.
+ *
+ * The first page (no cursor) reconciles against Google's live list before it
+ * reads; later pages read the database only, so loading more does not call
+ * Google once per page. The list is keyset-paged on the materialised sort
+ * time (`sort_at desc nulls last`, then `id`): a post created or edited
+ * between pages sorts above the cursor and does not shift the rows below it.
+ * `post` narrows the read to one post, which is how the ambiguous-post check
+ * asks after a post that may not be on the first page.
+ */
 export async function listLocalPosts(
   organisationId: string,
   session: Session,
-  locationId: string
+  locationId: string,
+  options: PostsListQuery = {}
 ) {
+  const filter: PostListFilter = options.post ? "all" : (options.filter ?? "all")
+  const pageSize = Math.min(
+    MAX_POSTS_PAGE_SIZE,
+    Math.max(1, Math.floor(options.pageSize ?? DEFAULT_POSTS_PAGE_SIZE))
+  )
+  const cursor = options.post
+    ? null
+    : parsePostsCursor(options.cursor, locationId, filter)
   let reconciliationError: string | null = null
-  try {
-    await reconcileLocalPosts(organisationId, session, locationId)
-  } catch (error) {
-    reconciliationError =
-      error && typeof error === "object" && "code" in error
-        ? String(error.code)
-        : "google_posts_reconciliation_failed"
+  if (!cursor) {
+    try {
+      await reconcileLocalPosts(organisationId, session, locationId)
+    } catch (error) {
+      reconciliationError =
+        error && typeof error === "object" && "code" in error
+          ? String(error.code)
+          : "google_posts_reconciliation_failed"
+    }
   }
-  const { posts, timezone } = await withTenant(organisationId, async (sql) => {
+  const { rows, counts, timezone } = await withTenant(organisationId, async (sql) => {
     await requireLocationAccess(sql, session, locationId)
     const [location] = await sql<{ timezone: string }[]>`
       select timezone from location where id = ${locationId}
     `
-    const posts = await sql<PostListRow[]>`
+    const [counts] = await sql<PostCounts[]>`
+      select
+        count(*)::integer as "all",
+        (count(*) filter (where ${postFilterCondition(sql, "draft")}))::integer as draft,
+        (count(*) filter (where ${postFilterCondition(sql, "awaiting")}))::integer as awaiting,
+        (count(*) filter (where ${postFilterCondition(sql, "published")}))::integer as published,
+        (count(*) filter (where ${postFilterCondition(sql, "attention")}))::integer as attention,
+        (count(*) filter (where status = 'published' and google_state = 'LIVE'))::integer as live
+      from gbp_local_post
+      where location_id = ${locationId}
+        and status <> 'deleted'
+    `
+    const after = cursor
+      ? cursor.at === null
+        ? sql`and listed.sort_at is null and listed.id > ${cursor.id}::uuid`
+        : sql`and (
+            listed.sort_at < ${cursor.at}::text::timestamptz
+            or (listed.sort_at = ${cursor.at}::text::timestamptz and listed.id > ${cursor.id}::uuid)
+            or listed.sort_at is null
+          )`
+      : sql``
+    const rows = await sql<(PostListRow & { cursorAt: string | null })[]>`
       with local_edits as (
         select subject_id, max(created_at) as edited_at
         from audit_log
@@ -678,9 +766,25 @@ export async function listLocalPosts(
           and subject_type = 'local_post'
           and action in ('post.draft.created', 'post.updated')
         group by subject_id
+      ),
+      listed as (
+        select
+          gbp_local_post.*,
+          local_edits.edited_at,
+          case
+            when status = 'published' or (status = 'failed' and google_state = 'REJECTED' and (last_error_code = 'google_post_rejected' or local_edits.edited_at is null))
+              then coalesce(provider_update_time, provider_create_time)
+            else local_edits.edited_at
+          end as sort_at
+        from gbp_local_post
+        left join local_edits on local_edits.subject_id = gbp_local_post.id::text
+        where location_id = ${locationId}
+          and status <> 'deleted'
+          and ${postFilterCondition(sql, filter)}
+          ${options.post ? sql`and gbp_local_post.id = ${options.post}::uuid` : sql``}
       )
       select
-        id::text as id,
+        listed.id::text as id,
         topic_type as "topicType",
         language_code as "languageCode",
         summary,
@@ -698,21 +802,37 @@ export async function listLocalPosts(
         updated_at as "updatedAt",
         provider_create_time as "providerCreatedAt",
         provider_update_time as "providerUpdatedAt",
-        local_edits.edited_at as "localEditedAt"
-      from gbp_local_post
-      left join local_edits on local_edits.subject_id = gbp_local_post.id::text
-      where location_id = ${locationId}
-        and status <> 'deleted'
-      order by case
-        when status = 'published' or (status = 'failed' and google_state = 'REJECTED' and (last_error_code = 'google_post_rejected' or local_edits.edited_at is null))
-          then coalesce(provider_update_time, provider_create_time)
-        else local_edits.edited_at
-      end desc nulls last, id
+        edited_at as "localEditedAt",
+        to_char(sort_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "cursorAt"
+      from listed
+      where true ${after}
+      order by sort_at desc nulls last, listed.id
+      limit ${pageSize + 1}
     `
-    return { posts, timezone: location?.timezone ?? "Europe/London" }
+    return { rows, counts, timezone: location?.timezone ?? "Europe/London" }
   })
+  const page = rows.slice(0, pageSize)
+  const last = page.at(-1)
+  const nextCursor =
+    rows.length > pageSize && last
+      ? encodePostsCursor({
+          version: 1,
+          locationId,
+          filter,
+          at: last.cursorAt,
+          id: last.id,
+        })
+      : null
   return {
-    posts,
+    posts: page.map((row): PostListRow => {
+      // The cursor's copy of the sort time is not part of the row contract.
+      const { cursorAt, ...post } = row
+      void cursorAt
+      return post
+    }),
+    counts,
+    filter,
+    nextCursor,
     timezone,
     writesEnabled: gbpWritesEnabled(getServerEnv(), "posts"),
     reconciliationError,
