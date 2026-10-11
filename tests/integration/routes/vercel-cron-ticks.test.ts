@@ -20,7 +20,7 @@ const ticks = [
   "/api/sync/performance?maxOrganisations=100&maxLocations=25",
   "/api/sync/sweep",
   "/api/sync/keywords?maxOrganisations=100&maxLocations=10",
-  "/api/cron/retention?batch_size=100",
+  "/api/cron/retention",
 ]
 
 describeDatabase("vercel cron tick shims", () => {
@@ -153,9 +153,12 @@ describeDatabase("vercel cron tick shims", () => {
   })
 
   it("sweeps retention through GET /api/cron/retention", async () => {
-    const response = await authed("/api/cron/retention?batch_size=100")
+    // The five-minute dispatcher: it works on the day's cycle, or answers
+    // `cycle: null` before 03:00 UTC with nothing running.
+    const response = await authed("/api/cron/retention")
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
+      completed: expect.any(Boolean),
       organisations: expect.any(Array),
       failures: expect.any(Array),
     })

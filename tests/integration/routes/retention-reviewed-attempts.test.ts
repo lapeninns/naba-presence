@@ -35,7 +35,9 @@ describeDatabase("retention of reviewed Place Action attempts", () => {
     let cursor: string | null = null
     do {
       const query = new URLSearchParams({ batch_size: "100" })
-      if (cursor) query.set("cursor", cursor)
+      // A hand-run page (an explicit cursor, empty for the head), so the
+      // walk covers the whole fleet now instead of waiting for the cycle.
+      query.set("cursor", cursor ?? "")
       const response = await fetch(
         `${server.baseUrl}/api/cron/retention?${query}`,
         {

@@ -187,7 +187,7 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
         ('it_purge', ${live}, now(), now() + interval '1 hour', 3)
     `
     const response = await fetch(
-      `${server.baseUrl}/api/cron/retention?batch_size=1`,
+      `${server.baseUrl}/api/cron/retention?batch_size=1&cursor=`,
       {
         method: "POST",
         headers: { authorization: "Bearer route-harness-cron-secret" },

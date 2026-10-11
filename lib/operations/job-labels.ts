@@ -60,8 +60,8 @@ export const SCHEDULED_JOBS: Record<string, ScheduledJobInfo> = {
   retention: {
     label: "Data retention clean-up",
     purpose:
-      "Redacts expired Google content and deletes records past their retention period.",
-    intervalSeconds: DAY,
+      "Works through each day's clean-up, from 03:00 UTC: redacts expired Google content and deletes records past their retention period.",
+    intervalSeconds: 5 * MINUTE,
   },
   health: {
     label: "Health checks",

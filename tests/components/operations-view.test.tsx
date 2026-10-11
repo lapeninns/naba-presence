@@ -208,8 +208,11 @@ describe("job labels", () => {
     expect(humaniseJobKey("presence-resources")).toBe("Presence resources")
     expect(humaniseJobKey("")).toBe("Unnamed job")
     expect(scheduledJobInfo("new_tick").intervalSeconds).toBeNull()
-    expect(describeSchedule(SCHEDULED_JOBS.retention, 172_800)).toBe(
+    expect(describeSchedule(SCHEDULED_JOBS.keywords, 172_800)).toBe(
       "Expected daily · stale after 2 days without a run"
+    )
+    expect(describeSchedule(SCHEDULED_JOBS.retention, 900)).toBe(
+      "Expected every 5 minutes · stale after 15 minutes without a run"
     )
   })
 

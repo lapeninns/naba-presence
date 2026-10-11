@@ -205,7 +205,7 @@ deliberately.
 | `SYNC_ENABLED`              | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                           |
 | `WEBHOOKS_ENABLED`          | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                |
 | `JOBS_ENABLED`              | The background runner claims nothing at all. Due work accumulates and drains when it is turned back on. `PUBLISH_ENABLED` and `SYNC_ENABLED` narrow the same claim by job kind rather than stopping it.                                              |
-| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. On Vercel the retention cron still fires and receives 503 each day, so expect failing fires and a stale `retention` heartbeat for the length of the pause; only the local `scripts/scheduler.mjs` skips registering the tick.                                                                |
+| `RETENTION_ENABLED`         | The retention sweep returns 503 `retention_paused` and deletes nothing. On Vercel the retention cron still fires and receives 503 every five minutes, so expect failing fires for the length of the pause (the tick reports as paused, not stale); only the local `scripts/scheduler.mjs` skips registering the tick.                                                                |
 | `RETENTION_DELETES_ENABLED` | Retention keeps redacting expired provider content but performs no irreversible delete of tenant data (ended abuse-limit counters, which hold none, are still purged). Prefer this to `RETENTION_ENABLED` when the concern is a suspect delete predicate rather than the sweep itself, so the redaction obligation keeps being met. |
 | `NOTIFICATIONS_ENABLED`     | The health tick returns 503 `notifications_paused`: no incidents are evaluated and no alert email is sent. |
 | `GOOGLE_RATE_BUDGET_ENABLED` | Google calls stop drawing from the shared Postgres budget and fall back to per-process pacing only. For a suspected budget fault, not a quota incident. |
@@ -289,9 +289,9 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
 - Production background work runs as eight Vercel Cron entries in
   `vercel.json` (times UTC): `/api/jobs/run` every minute, `/api/sync/reconcile`
   and `/api/sync/presence-resources` every 15 minutes (staggered by 7 minutes),
-  `/api/cron/health` every 15 minutes, `/api/sync/performance` every 6 hours,
-  and `/api/sync/sweep`, `/api/sync/keywords`, `/api/cron/retention` once
-  daily, staggered across 01:30–03:00. Each cron fires an HTTP GET at the
+  `/api/cron/health` every 15 minutes, `/api/cron/retention` every 5 minutes
+  (see "Retention cycle" below), `/api/sync/performance` every 6 hours, and
+  `/api/sync/sweep` and `/api/sync/keywords` once daily at 01:30 and 02:00. Each cron fires an HTTP GET at the
   route's cron-authenticated `GET` handler. `CRON_SECRET` must be set on the
   Vercel project: Vercel sends it as the `Authorization` bearer automatically,
   and without it every tick answers 401 `invalid_cron_token`.
@@ -345,6 +345,31 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   `performance.organisation_failed` / `keywords.organisation_failed` lines with
   503 `sync_paused` appear only on the session and local-scheduler POST paths;
   read them as the pause, not as an incident.
+- Retention cycle. `/api/cron/retention` with no `cursor` is a dispatcher
+  (`lib/server/retention/cycle.ts`). Each five-minute fire resumes the
+  running cycle, or at or after 03:00 UTC opens the day's
+  (`retention_cycle`, one row per UTC day), and works through it for
+  `RETENTION_BUDGET_MS`: pending organisations first, then the next page of
+  the fleet from the persisted `enumeration_cursor`, then, once enumeration
+  has ended, organisations that failed on an earlier fire. Each organisation
+  has a `retention_cycle_org` row with its status, attempts (counted before
+  each run, so a killed fire uses one) and `last_error_code`; after three
+  runs it stays `failed` (`attempts_exhausted` if every run was killed) and
+  stops holding the cycle open. The cycle completes when enumeration has
+  ended and nothing is left to run, and stamps `last_cycle_completed_at` on
+  the `retention` tick (alerted as `tick_cycle_overdue` after 26 hours). A
+  second fire the same day, or any fire before 03:00 with nothing running,
+  answers `cycle: null` and does nothing. Progress:
+  `select cycle_date, status, enumerated, succeeded, failed,
+  enumeration_completed_at from retention_cycle order by cycle_date desc
+  limit 3`, and the failures:
+  `select organisation_id, attempts, last_error_code from retention_cycle_org
+  where status = 'failed' and cycle_id = '<id>'`. A failed organisation is
+  retained again by the next day's cycle; to retain it now, run a hand page
+  `POST /api/cron/retention?cursor=<the organisation id just before it>&batch_size=1`
+  with the cron bearer. A hand page (any `cursor`, empty for the head) never
+  moves the cycle and is recorded as a manual run. Completed cycles older
+  than 35 days are pruned when a new one opens.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
   are the session and scheduler POST paths of reconcile, performance and
@@ -599,8 +624,8 @@ for four tick findings, read from each tick's `ops_heartbeat` run ledger
   when its connection is terminated.
 - `tick_cycle_overdue`: a tick that runs in cycles (retention) has not
   finished a walk over every organisation within `cycleStaleAfterSeconds`.
-  Check `retention.organisation_failed` logs and whether pages return a
-  cursor nothing follows.
+  Read the cycle's progress (see "Retention cycle" below) and the
+  `retention.organisation_failed` logs.
 
 The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that

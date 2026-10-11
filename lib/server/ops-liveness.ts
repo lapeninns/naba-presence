@@ -31,8 +31,11 @@ export const TICK_STALE_AFTER_SECONDS: Record<string, number> = {
   performance: 64_800,
   // 900s tick; notifications and alerts are evaluated on it.
   health: 2_700,
+  // 300s retention dispatcher, three intervals. A fire with no cycle to
+  // work on still completes, so this is the dispatcher's liveness; whether
+  // the walk finishes is TICK_CYCLE_STALE_AFTER_SECONDS below.
+  retention: 900,
   // 86400s ticks, two intervals.
-  retention: 172_800,
   keywords: 172_800,
   sweep: 172_800,
 }
@@ -47,14 +50,14 @@ export const TICK_LOCK_WEDGED_AFTER_SKIPS = 3
 
 /**
  * Ticks whose work spans several runs, and how long each may go without
- * finishing a whole cycle. Only retention reports cycles today: a cycle is
- * one walk over every organisation (app/api/cron/retention/route.ts). The
- * window is two of today's daily intervals; the five-minute retention
- * dispatcher (plan P04-1) tightens it to 26 hours (93_600) when it lands and
- * reports its persisted cycle here through `recordTickCycleCompleted`.
+ * finishing a whole cycle. Only retention reports cycles: its five-minute
+ * dispatcher opens one cycle per UTC day at 03:00 and reports it here through
+ * `recordTickCycleCompleted` when every organisation has been retained
+ * (lib/server/retention/cycle.ts). 26 hours is a day plus two hours for a
+ * large fleet or a slow fire.
  */
 export const TICK_CYCLE_STALE_AFTER_SECONDS: Record<string, number> = {
-  retention: 172_800,
+  retention: 93_600,
 }
 
 const SCHEDULER_STALE_AFTER_SECONDS = TICK_STALE_AFTER_SECONDS.jobs

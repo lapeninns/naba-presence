@@ -580,7 +580,7 @@ interrupted request left behind is settled by whichever request recovers the
 row; a new intent that finds another request's row in flight joins that row
 and settles with it. The paths that settle attempt rows without
 `runGbpWrite` -- the retention cron's stranded-attempt reapers
-(`app/api/cron/retention/route.ts`) and `reapStrandedLocalPosts` /
+(`lib/server/retention/purge.ts`) and `reapStrandedLocalPosts` /
 `settleStrandedLocalPosts` in `lib/server/posts.ts` -- settle the linked
 receipts too (`settleOperationsForAttempts`). States are the shared outcome
 vocabulary: `confirmed_applied` only after
@@ -754,7 +754,7 @@ recovery below.
 Request-driven recovery needs a request to arrive, so it only ever reaches a row somebody
 comes back to under the same key, and the usual repair — edit the canonical
 resource and publish again — mints a different one. The retention cron
-(`app/api/cron/retention/route.ts`) reaps the remainder: a row left in any
+(`lib/server/retention/purge.ts`) reaps the remainder: a row left in any
 in-flight status for twenty-four hours (measured from `started_at`, which
 every GBP attempt table now carries; media gained it in 0093) is settled
 `ambiguous` with
@@ -1007,7 +1007,16 @@ organisation switching.
 Google source payloads, review text, reviewer display names, addresses, and media
 links carry an expiry no later than the organisation’s configured window, which
 is database-constrained to 30 days. `/api/cron/retention` purges expired raw
-content while retaining minimal derived operational metrics. An owner-approved
+content while retaining minimal derived operational metrics. It is a
+five-minute dispatcher over one retention cycle per UTC day, opened at or after
+03:00 (`lib/server/retention/cycle.ts`, migration 0097): each fire resumes the
+running cycle from its persisted enumeration cursor, retains each organisation
+in its own tenant transaction (`lib/server/retention/purge.ts`), records its
+success or failure per organisation, retries a failed organisation on later
+fires up to three runs, and completes the cycle -- reported to the tick ledger
+through `recordTickCycleCompleted` -- once every organisation has succeeded or
+used up its runs. An explicit `?cursor=` runs one hand-run page instead and
+never moves the cycle. An owner-approved
 legal hold from `app/api/legal-holds/route.ts` blocks purge and erasure only for
 its selected review. `app/api/privacy/requests/route.ts` implements attributable
 access, rectification, erasure, and restriction fulfilment;

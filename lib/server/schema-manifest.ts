@@ -105,5 +105,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0094_listing_change_approval",
   "0095_platform_incident_delivery",
   "0096_delivery_may_have_sent",
+  "0097_retention_cycle",
   "20260729000400_remove_local_demo_data",
 ]

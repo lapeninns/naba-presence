@@ -247,24 +247,46 @@ describeDatabase("scheduler advisory leases", () => {
     }
   })
 
-  it("records a retention page that ends the walk as a completed cycle", async () => {
+  it("records the dispatcher finishing a retention cycle as a completed cycle", async () => {
+    // A running cycle resumes at any hour, so the test does not depend on
+    // the wall clock being past 03:00 UTC.
+    await admin`delete from retention_cycle`
+    await admin`
+      insert into retention_cycle (cycle_date) values ('2000-01-01')
+    `
     const before = await ledger("retention")
-    const response = await cronPost("/api/cron/retention?batch_size=100")
-    expect(response.status, await response.clone().text()).toBe(200)
-    const body = (await response.json()) as { nextCursor: string | null }
-    const after = await ledger("retention")
-    expect(after.beatAt).not.toBeNull()
-    if (body.nextCursor === null) {
-      expect(after.lastCycleCompletedAt).not.toBeNull()
-      if (before.lastCycleCompletedAt) {
-        expect(after.lastCycleCompletedAt!.getTime()).toBeGreaterThan(
-          before.lastCycleCompletedAt.getTime()
-        )
+    let completed = false
+    for (let fire = 0; fire < 20 && !completed; fire += 1) {
+      const response = await cronPost("/api/cron/retention")
+      expect(response.status, await response.clone().text()).toBe(200)
+      const body = (await response.json()) as { completed: boolean }
+      completed = body.completed
+      const after = await ledger("retention")
+      expect(after.beatAt).not.toBeNull()
+      if (!completed) {
+        // A fire that did not finish the cycle does not report one.
+        expect(after.lastCycleCompletedAt).toEqual(before.lastCycleCompletedAt)
       }
-    } else {
-      // A page with more organisations after it has not finished the cycle.
-      expect(after.lastCycleCompletedAt).toEqual(before.lastCycleCompletedAt)
     }
+    expect(completed).toBe(true)
+    const after = await ledger("retention")
+    expect(after.lastCycleCompletedAt).not.toBeNull()
+    if (before.lastCycleCompletedAt) {
+      expect(after.lastCycleCompletedAt!.getTime()).toBeGreaterThan(
+        before.lastCycleCompletedAt.getTime()
+      )
+    }
+  })
+
+  it("keeps a hand-run retention page off the cron heartbeat and the cycle", async () => {
+    const before = await ledger("retention")
+    const response = await cronPost("/api/cron/retention?batch_size=100&cursor=")
+    expect(response.status, await response.clone().text()).toBe(200)
+    const after = await ledger("retention")
+    expect(after.lastManualCompletedAt).not.toBeNull()
+    expect(after.beatAt).toEqual(before.beatAt)
+    expect(after.lastStartedAt).toEqual(before.lastStartedAt)
+    expect(after.lastCycleCompletedAt).toEqual(before.lastCycleCompletedAt)
   })
 
   it("keeps a manual refresh off the cron heartbeat", async () => {

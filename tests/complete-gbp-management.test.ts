@@ -97,7 +97,7 @@ describe("gbp_management_mutation.started_at (0088)", () => {
     "utf8"
   )
   const retention = readFileSync(
-    new URL("../app/api/cron/retention/route.ts", import.meta.url),
+    new URL("../lib/server/retention/purge.ts", import.meta.url),
     "utf8"
   )
 

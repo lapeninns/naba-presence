@@ -38,9 +38,11 @@ const expectedCrons: Array<{ path: string; schedule: string }> = [
     path: "/api/sync/keywords?maxOrganisations=100&maxLocations=10",
     schedule: "0 2 * * *",
   },
+  // The retention dispatcher (lib/server/retention/cycle.ts): each fire
+  // resumes the day's persisted cycle, which opens at 03:00 UTC.
   {
-    path: "/api/cron/retention?batch_size=100",
-    schedule: "0 3 * * *",
+    path: "/api/cron/retention",
+    schedule: "*/5 * * * *",
   },
   // Incidents and alert emails (lib/server/notifications).
   { path: "/api/cron/health", schedule: "*/15 * * * *" },
@@ -117,7 +119,8 @@ describe("Vercel Cron scheduler", () => {
 
   it("fires each tick at most as often as the scheduler did", () => {
     // The scheduler's cadences, in fires per day: jobs 1440, reconcile 96,
-    // presence-resources 96, performance 4, sweep 1, keywords 1, retention 1.
+    // presence-resources 96, performance 4, sweep 1, keywords 1, retention
+    // 288 (the five-minute dispatcher).
     // A cron firing more often than its loop's interval would overlap itself
     // behind the advisory lock and only log `lease_held` skips.
     const firesPerDay: Record<string, number> = {
@@ -127,7 +130,7 @@ describe("Vercel Cron scheduler", () => {
       "/api/sync/performance": 4,
       "/api/sync/sweep": 1,
       "/api/sync/keywords": 1,
-      "/api/cron/retention": 1,
+      "/api/cron/retention": 288,
       "/api/cron/health": 96,
     }
     for (const cron of expectedCrons) {
