@@ -1019,6 +1019,22 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     return { owner, seed, request }
   }
 
+  it("refuses to close a parked erasure by status while replies are still live", async () => {
+    const { owner, request } = await parkedErasure(500, "Unclosable")
+
+    for (const status of ["rejected", "completed"] as const) {
+      const response = await changeStatus(owner.cookie, request.id, status)
+      expect(response.status).toBe(409)
+      expect((await response.json()).error).toBe("privacy_withdrawal_pending")
+    }
+    // Still open, still parked, so the job tick keeps retrying it.
+    const parked = await retryState(request.id)
+    expect(parked.status).toBe("in_progress")
+    expect(parked.pendingReviewIds).toHaveLength(1)
+    expect(parked.nextAttemptAt).toBeInstanceOf(Date)
+    stub.reset()
+  })
+
   it("retries a parked withdrawal on the job tick and completes it with an audit", async () => {
     const { owner, seed, request } = await parkedErasure(500, "Background")
 

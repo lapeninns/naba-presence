@@ -16,8 +16,10 @@ export default async function SettingsLayout({
   children: React.ReactNode
 }) {
   const session = await getSession()
-  // settingsCapabilities is a pure role projection, so hydrating it here
-  // costs nothing and saves every settings page its first request.
+  // settingsCapabilities is a role projection plus the organisation's
+  // settings feature switches (one tenant read for an owner or admin, none
+  // for anyone else). Hydrating it here saves every settings page its first
+  // request.
   const state = await prefetch(session, settingsPrefetch())
   return (
     <PageFrame width="standard">

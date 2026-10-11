@@ -381,6 +381,8 @@ const COPY: Record<string, string> = {
   // the request is deliberately left open while the job tick retries it. The
   // 409 fallback ("refresh and try again") hides that half the work is
   // already done and durable.
+  privacy_withdrawal_pending:
+    "This erasure was carried out here but a reply is still live on Google, so it can’t be closed yet. Fulfil it again, or wait for the automatic retry.",
   privacy_reply_withdraw_failed:
     "The reply could not be withdrawn from Google yet. The local records were erased and the request stays open — the withdrawal is retried automatically.",
   legal_hold_not_found: "There’s no active legal hold for that review.",

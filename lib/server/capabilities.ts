@@ -346,6 +346,17 @@ export function settingsCapabilities(
   }
 }
 
+/**
+ * Whether any settings feature switch can change `session`'s capabilities.
+ * Every switch gates an owner/admin area, so for anyone else the answer is
+ * fixed and callers skip the query (and its transaction) entirely.
+ */
+export function settingsFeaturesApply(session: Session): boolean {
+  return isManagerialRole(session.role)
+}
+
+export const NO_SETTINGS_FEATURES = { privacySettings: false } as const
+
 /** The organisation feature switches the settings capabilities read. */
 export async function readSettingsFeatures(
   sql: TransactionSql,

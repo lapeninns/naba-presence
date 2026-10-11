@@ -203,6 +203,49 @@ describe("PrivacyRequestsPanel", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("offers no Reject on an erasure whose replies are still being withdrawn", async () => {
+    stubFetch({
+      "GET /api/privacy/requests": () =>
+        json({
+          requests: [
+            request({
+              id: "r-retry",
+              status: "in_progress",
+              subjectReference: "Retrying Person",
+              withdrawalAttempts: 1,
+              nextAttemptAt: "2099-01-02T00:00:00.000Z",
+            }),
+            request({
+              id: "r-stalled",
+              status: "in_progress",
+              subjectReference: "Stalled Person",
+              withdrawalStalled: true,
+              withdrawalAttempts: 5,
+            }),
+            request({
+              id: "r-started",
+              status: "in_progress",
+              subjectReference: "Started Person",
+            }),
+          ],
+        }),
+    })
+    renderWithProviders(<PrivacyRequestsPanel gating={OWNER} />)
+    await screen.findByRole("table", { name: "Privacy requests" })
+    for (const name of ["Retrying Person", "Stalled Person"]) {
+      expect(
+        screen.getByRole("button", { name: `Fulfil request for ${name}` })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: `Reject request for ${name}` })
+      ).not.toBeInTheDocument()
+    }
+    // In progress with nothing parked at Google can still be rejected.
+    expect(
+      screen.getByRole("button", { name: "Reject request for Started Person" })
+    ).toBeInTheDocument()
+  })
+
   it("lets an admin log requests but not resolve them", async () => {
     stubFetch({
       "GET /api/privacy/requests": () =>
@@ -571,6 +614,33 @@ describe("subject export", () => {
       { subject: "Jane", cursor: "cursor-1" },
       { subject: "Jane", cursor: "cursor-1" },
     ])
+  })
+
+  it("shows a plain error with no resume when the first page fails", async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      "POST /api/privacy/export": () =>
+        json(
+          {
+            error: "privacy_subject_not_found",
+            message: "No reviews match that subject.",
+          },
+          404
+        ),
+    })
+    renderWithProviders(<PrivacyExportForm />)
+    await user.type(screen.getByLabelText("Subject reference"), "Nobody")
+    await user.click(screen.getByRole("button", { name: "Export records" }))
+    expect(
+      await screen.findByText("The export didn’t start")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("No records matched that reference.")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("The export stopped part-way")).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Resume export" })
+    ).not.toBeInTheDocument()
   })
 
   it("warns when reviews arrived during the export", async () => {

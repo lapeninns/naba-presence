@@ -57,6 +57,7 @@ import {
 import type { PrivacyGating } from "@/lib/settings/gating"
 import {
   fulfilDescription,
+  hasPendingWithdrawal,
   isOpenRequest,
   presentPrivacyRequest,
   sortPrivacyRequests,
@@ -139,7 +140,7 @@ function CreateRequestDialog({
           <DialogTitle>Log a privacy request</DialogTitle>
           <DialogDescription>
             Record a request from someone whose review data we hold. It is due
-            one month from today.
+            30 days from today.
           </DialogDescription>
         </DialogHeader>
         <form noValidate onSubmit={onSubmit} className="contents">
@@ -383,7 +384,8 @@ function ResolveDialog({
  * The organisation's data-subject requests (plan P04-7): stalled withdrawals
  * first, then open requests by deadline with overdue ones marked, then
  * resolved ones. Owners fulfil and reject; admins see the list and log new
- * requests.
+ * requests. An erasure with replies still to withdraw offers no Reject: it
+ * was carried out here, and closing it would stop the retry.
  */
 export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
   const query = usePrivacyRequests()
@@ -403,7 +405,7 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
           </h2>
           <p className="text-caption text-ink-muted">
             Access, correction, erasure and restriction requests about
-            reviewers’ data, each due one month after it is logged.
+            reviewers’ data, each due 30 days after it is logged.
           </p>
         </div>
         {gating.canCreateRequests ? (
@@ -499,17 +501,19 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
                           >
                             Fulfil
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-danger-ink"
-                            aria-label={`Reject request for ${request.subjectReference}`}
-                            onClick={() =>
-                              setTarget({ request, mode: "reject" })
-                            }
-                          >
-                            Reject
-                          </Button>
+                          {hasPendingWithdrawal(request) ? null : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-danger-ink"
+                              aria-label={`Reject request for ${request.subjectReference}`}
+                              onClick={() =>
+                                setTarget({ request, mode: "reject" })
+                              }
+                            >
+                              Reject
+                            </Button>
+                          )}
                         </span>
                       ) : null}
                     </TableCell>

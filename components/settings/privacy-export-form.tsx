@@ -53,7 +53,8 @@ function saveJson(result: SubjectExport) {
  * Subject export (plan P04-7), owners only: fetches every keyset page of
  * POST /api/privacy/export in turn and joins them into one JSON file. A
  * page that fails leaves the pages already fetched in place, and Resume
- * carries on from the last cursor received instead of starting again. The
+ * carries on from the last cursor received instead of starting again; a
+ * failed first page has nothing to resume and shows a plain error. The
  * subject is sent in the request body only, and the file name carries none
  * of it.
  */
@@ -153,7 +154,15 @@ export function PrivacyExportForm() {
             {total !== undefined ? ` of ${formatNumber(total)}` : ""} reviews
           </p>
         ) : null}
-        {state.phase === "failed" ? (
+        {state.phase === "failed" && state.pages.length === 0 ? (
+          // Nothing was fetched, so there is nothing to resume: an unknown
+          // subject (`privacy_subject_not_found`) would only fail again.
+          <Alert variant="destructive">
+            <AlertTitle>The export didn’t start</AlertTitle>
+            <AlertDescription>{state.message}</AlertDescription>
+          </Alert>
+        ) : null}
+        {state.phase === "failed" && state.pages.length > 0 ? (
           <Alert variant="destructive">
             <AlertTitle>The export stopped part-way</AlertTitle>
             <AlertDescription className="flex flex-col items-start gap-2.5">

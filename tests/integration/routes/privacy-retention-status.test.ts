@@ -100,7 +100,10 @@ describeDatabase("privacy retention status route", () => {
       values (${tenant.organisationId}, ${reviewId}, 'Litigation pending', ${tenant.userId})
     `
     // Dated far from any cycle another suite leaves: the completed one is
-    // the latest, the running one the oldest.
+    // the latest, the running one the oldest. A dispatcher resumes the
+    // oldest running cycle (lib/server/retention/cycle.ts), so the running
+    // row must not outlive this test: it is deleted in the finally below,
+    // not left to afterAll, and the suite only runs on a throwaway database.
     const [completed] = await admin<{ id: string }[]>`
       insert into retention_cycle (
         cycle_date, status, completed_at, enumeration_completed_at,
@@ -115,7 +118,8 @@ describeDatabase("privacy retention status route", () => {
       returning id::text as id
     `
     cycles.push(completed.id, running.id)
-    await admin`
+    try {
+      await admin`
       insert into retention_cycle_org (
         cycle_id, organisation_id, status, attempts, last_error_code, finished_at
       )
@@ -125,34 +129,38 @@ describeDatabase("privacy retention status route", () => {
         (${running.id}, ${other.organisationId}, 'pending', 0, null, null)
     `
 
-    const response = await status(tenant.cookie)
-    expect(response.status).toBe(200)
-    const body = retentionStatusResponseSchema.parse(await response.json())
-    expect(body.lastCompletedCycle).toMatchObject({
-      cycleDate: "2098-06-01",
-      organisation: { status: "succeeded", attempts: 1, lastErrorCode: null },
-    })
-    expect(body.currentCycle).toMatchObject({
-      cycleDate: "1990-01-01",
-      completedAt: null,
-      organisation: null,
-    })
-    expect(body.heldReviews).toBe(1)
-    expect(body.heldLocations).toBe(0)
-    expect(body.rawContentRetentionDays).toBe(30)
-    expect(typeof body.deletesEnabled).toBe("boolean")
-    // Nothing fleet-wide leaves the route.
-    expect(JSON.stringify(body)).not.toContain("enumerated")
-    expect(JSON.stringify(body)).not.toContain(other.organisationId)
+      const response = await status(tenant.cookie)
+      expect(response.status).toBe(200)
+      const body = retentionStatusResponseSchema.parse(await response.json())
+      expect(body.lastCompletedCycle).toMatchObject({
+        cycleDate: "2098-06-01",
+        organisation: { status: "succeeded", attempts: 1, lastErrorCode: null },
+      })
+      expect(body.currentCycle).toMatchObject({
+        cycleDate: "1990-01-01",
+        completedAt: null,
+        organisation: null,
+      })
+      expect(body.heldReviews).toBe(1)
+      expect(body.heldLocations).toBe(0)
+      expect(body.rawContentRetentionDays).toBe(30)
+      expect(typeof body.deletesEnabled).toBe("boolean")
+      // Nothing fleet-wide leaves the route.
+      expect(JSON.stringify(body)).not.toContain("enumerated")
+      expect(JSON.stringify(body)).not.toContain(other.organisationId)
 
-    const adminUser = await seedMemberUser(admin, {
-      organisationId: tenant.organisationId,
-    })
-    await admin`
+      const adminUser = await seedMemberUser(admin, {
+        organisationId: tenant.organisationId,
+      })
+      await admin`
       update member set role = 'admin'
       where organisation_id = ${tenant.organisationId}
         and user_id = ${adminUser.userId}
     `
-    expect((await status(adminUser.cookie)).status).toBe(200)
+      expect((await status(adminUser.cookie)).status).toBe(200)
+    } finally {
+      await admin`delete from retention_cycle where id in ${admin(cycles)}`
+      cycles.length = 0
+    }
   })
 })

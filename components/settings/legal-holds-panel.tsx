@@ -26,7 +26,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Empty } from "@/components/ui/empty"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -153,6 +158,10 @@ function ApplyHoldDialog({
                     }))
                 }}
               />
+              <FieldDescription>
+                Export the reviewer’s records above: each review in the file
+                carries its identifier as <code>id</code>.
+              </FieldDescription>
               <FieldError>{errors.reviewId}</FieldError>
             </Field>
             <Field error={errors.reason}>

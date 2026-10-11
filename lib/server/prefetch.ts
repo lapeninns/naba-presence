@@ -24,9 +24,11 @@ import { reviewCountsSchema, type ReviewCounts } from "@/lib/contracts/reviews"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
+  NO_SETTINGS_FEATURES,
   locationCapabilities,
   readSettingsFeatures,
   settingsCapabilities,
+  settingsFeaturesApply,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
 import { readListingSummaries } from "@/lib/server/location-summary"
@@ -162,14 +164,17 @@ export async function readListingSummary(
 
 /**
  * What `useSettingsCapabilities()` fetches: a role projection plus the
- * organisation's settings feature switches.
+ * organisation's settings feature switches, read in one tenant transaction
+ * for an owner or admin and skipped for anyone else.
  */
 export async function readSettingsCapabilities(
   session: Session
 ): Promise<SettingsCapabilities> {
-  const features = await withTenant(session.organisationId, (sql) =>
-    readSettingsFeatures(sql, session)
-  )
+  const features = settingsFeaturesApply(session)
+    ? await withTenant(session.organisationId, (sql) =>
+        readSettingsFeatures(sql, session)
+      )
+    : NO_SETTINGS_FEATURES
   const payload = {
     capabilities: settingsCapabilities(session, features),
   } satisfies SettingsCapabilitiesResponse

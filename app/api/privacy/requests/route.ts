@@ -414,6 +414,20 @@ export const PATCH = route({
           "A privacy request cannot move back to that status."
         )
       }
+      if (
+        (input.status === "completed" || input.status === "rejected") &&
+        current.pendingReviewIds.length > 0
+      ) {
+        // An erasure already scrubbed here with replies still live on Google.
+        // Closing it by status would stop the job tick's retry (it claims only
+        // `in_progress` rows) and record a finished or refused erasure while
+        // the reply stays published. Fulfilling again is the way out.
+        throw new ApiError(
+          409,
+          "privacy_withdrawal_pending",
+          "This erasure still has replies to withdraw from Google. Fulfil it again, or wait for the automatic retry."
+        )
+      }
       const [row] = await sql`
         update privacy_request
         set

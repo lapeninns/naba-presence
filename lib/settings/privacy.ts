@@ -19,6 +19,22 @@ export function isOpenRequest(
 }
 
 /**
+ * An erasure already carried out here whose replies are still being
+ * withdrawn from Google, retrying or stalled. It can only be finished by
+ * fulfilling it again (or by the job tick): PATCH refuses to close it by
+ * status (`privacy_withdrawal_pending`), so the panel offers no Reject.
+ */
+export function hasPendingWithdrawal(
+  request: Pick<
+    PrivacyRequest,
+    "status" | "withdrawalStalled" | "nextAttemptAt"
+  >
+): boolean {
+  if (request.withdrawalStalled) return true
+  return request.status === "in_progress" && Boolean(request.nextAttemptAt)
+}
+
+/**
  * Overdue as the server reports it (`overdue`), or, for a row the server
  * has not re-read since its deadline passed, an open request whose `dueAt`
  * is behind `now`.

@@ -205,6 +205,7 @@ describe("describeActionError — merged map", () => {
     expectMapped([
       ["privacy_request_resolved", 409, /already been completed or rejected/i],
       ["privacy_request_transition_invalid", 409, /move back to that status/i],
+      ["privacy_withdrawal_pending", 409, /still live on Google/i],
     ])
   })
 
