@@ -114,7 +114,11 @@ begin
   update bulk_listing_operation set status = 'expired', updated_at = now()
   where (status = 'previewed' and preview_expires_at <= now())
      or (status = 'approved' and coalesce(dispatch_expires_at, now()) <= now());
-  update bulk_listing_child c set status = 'expired', result_code = 'dispatch_expired', finished_at = now(), next_attempt_at = null
+  -- A preview that was never approved expired at the 15-minute stage, not
+  -- at the 24-hour dispatch window, and says so.
+  update bulk_listing_child c set status = 'expired',
+    result_code = case when o.approved_at is null then 'preview_expired' else 'dispatch_expired' end,
+    finished_at = now(), next_attempt_at = null
   from bulk_listing_operation o
   where o.id = c.operation_id
     and c.status in ('previewed', 'queued')

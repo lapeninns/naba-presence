@@ -1631,7 +1631,8 @@ Bulk listing changes are off for an organisation until an operator turns on
 bulk_actions --enable --operator you@example.com`). Turning it off stops new
 claims for that organisation; queued listings wait and expire when their
 24-hour dispatch window closes. A listing showing "Expired, not sent"
-(`dispatch_expired`) or `google_target_changed` was never sent: prepare a new
+(`dispatch_expired`, or `preview_expired` for a preview nobody approved
+within 15 minutes) or `google_target_changed` was never sent: prepare a new
 preview. `resource_busy` means another change to the same listing resource was
 running; the listing is retried a minute later.
 

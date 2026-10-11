@@ -1549,8 +1549,12 @@ with `google_target_changed`. Execution queues children claimed by the job
 tick (`claim_due_bulk_children`, 0260): at most 2 running per organisation
 across batches, never two running for one (location, resource key), and the
 runner holds the per-location advisory lock of that key (the attribute
-editor's `<org>:<location>:attributes`) while it writes and reads back,
-deferring with `resource_busy` when an editor holds it. The hours editor does
+editor's `<org>:<location>:attributes`) from the baseline read through the
+write and readback (an action link also holds the Google account lock), so an
+editor write cannot land between the baseline check and the provider call;
+it defers with `resource_busy` when an editor holds it. A closed window reads
+`expired` per child before the sweep records it (`preview_expired` for a
+preview never approved, `dispatch_expired` after approval). The hours editor does
 not take an hours lock yet; P09-R3 routes bulk hours through the canonical
 hours path. Each child rechecks the approver's grant and the policy, reads
 Google, succeeds without writing when the change is already there, writes once

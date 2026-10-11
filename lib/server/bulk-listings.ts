@@ -92,6 +92,21 @@ const effectiveStatus = (sql: TransactionSql) => sql`case
     when o.status = 'approved' and coalesce(o.dispatch_expires_at, now()) <= now() then 'expired'
     else o.status end`
 
+/**
+ * The same rule per listing: an unsent child of a batch whose window closed
+ * reads `expired` (with the sweep's reason) before the sweep records it, so
+ * a running batch past its 24 hours never shows listings as still queued.
+ */
+const windowClosed = (
+  sql: TransactionSql
+) => sql`c.status in ('previewed', 'queued') and (
+    (o.status = 'previewed' and o.preview_expires_at <= now())
+    or (o.status in ('approved', 'running') and coalesce(o.dispatch_expires_at, now()) <= now()))`
+const effectiveChildStatus = (sql: TransactionSql) =>
+  sql`case when ${windowClosed(sql)} then 'expired' else c.status end`
+const effectiveChildCode = (sql: TransactionSql) =>
+  sql`case when ${windowClosed(sql)} then case when o.approved_at is null then 'preview_expired' else 'dispatch_expired' end else c.result_code end`
+
 function readableReason(error: unknown) {
   return error instanceof ApiError ? error.code : "google_read_failed"
 }
@@ -303,10 +318,11 @@ async function project(
     from bulk_listing_operation o where o.id = ${operationId}`
   if (!operation) throw NOT_FOUND()
   const children = await sql`
-    select c.id::text as id, c.location_id::text as "locationId", l.name as "locationName", c.eligibility, c.skip_reason as "skipReason", c.status,
-      c.confirmation_state as "confirmationState", c.result_code as "resultCode", c.current_value as "currentValue", c.proposed_value as "proposedValue",
+    select c.id::text as id, c.location_id::text as "locationId", l.name as "locationName", c.eligibility, c.skip_reason as "skipReason", ${effectiveChildStatus(sql)} as status,
+      c.confirmation_state as "confirmationState", ${effectiveChildCode(sql)} as "resultCode", c.current_value as "currentValue", c.proposed_value as "proposedValue",
       c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt"
-    from bulk_listing_child c join location l on l.id = c.location_id where c.operation_id = ${operationId} order by l.name, c.id`
+    from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id join location l on l.id = c.location_id
+    where c.operation_id = ${operationId} order by l.name, c.id`
   const counts: Record<string, number> = {}
   for (const child of children)
     counts[child.status as string] = (counts[child.status as string] ?? 0) + 1
@@ -372,7 +388,7 @@ export async function listBulkOperations(session: Session) {
         o.require_two_person_approval as "requiresSecondApprover", coalesce(o.dispatch_expires_at, o.preview_expires_at) as "approvalExpiresAt",
         o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt",
         cardinality(o.target_location_ids) as "targetCount",
-        coalesce((select jsonb_object_agg(status, n) from (select status, count(*)::int as n from bulk_listing_child c where c.operation_id = o.id group by status) s), '{}'::jsonb) as counts
+        coalesce((select jsonb_object_agg(status, n) from (select ${effectiveChildStatus(sql)} as status, count(*)::int as n from bulk_listing_child c where c.operation_id = o.id group by 1) s), '{}'::jsonb) as counts
       from bulk_listing_operation o
       where ${isManagerialRole(session.role) ? sql`true` : sql`o.requested_by = ${session.userId}`}
       order by o.created_at desc limit 50`

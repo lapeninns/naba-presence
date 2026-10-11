@@ -70,6 +70,8 @@ const REASON: Record<string, string> = {
   publishing_paused: "Publishing is paused",
   dispatch_expired:
     "Not sent: the approval lasts 24 hours; prepare a new preview",
+  preview_expired:
+    "Not sent: the preview wasn’t approved within 15 minutes; prepare a new preview",
   google_target_changed:
     "The Google connection changed after the preview; prepare a new preview",
   resource_busy: "Waiting for another change to this listing to finish",
@@ -313,7 +315,15 @@ function Deadline({ operation }: { operation: Operation }) {
     operation.dispatchExpiresAt &&
     (operation.status === "approved" || operation.status === "running")
   )
-    return (
+    // The server reads unsent listings of a closed window as expired before
+    // the sweep records it, so expired with nothing queued means closed.
+    return (operation.counts.expired ?? 0) > 0 &&
+      !(operation.counts.queued ?? 0) ? (
+      <p className="text-caption text-ink-muted">
+        The sending window closed at {localTime(operation.dispatchExpiresAt)};
+        listings not sent by then were not sent.
+      </p>
+    ) : (
       <p className="text-caption text-ink-muted">
         Listings not sent by {localTime(operation.dispatchExpiresAt)} will not
         be sent.
@@ -350,8 +360,7 @@ function ChildDetail({
           {rows.map((row) => (
             <li key={row.label} data-slot="bulk-change-row">
               <span className="font-medium text-ink">{row.label}:</span>{" "}
-              <span>{row.current}</span>{" "}
-              <span aria-hidden>→</span>
+              <span>{row.current}</span> <span aria-hidden>→</span>
               <span className="sr-only">changes to</span>{" "}
               <span className="font-medium text-ink">{row.proposed}</span>
             </li>

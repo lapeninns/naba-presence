@@ -153,6 +153,52 @@ describe("BulkOperationView", () => {
       screen.queryByRole("button", { name: /Retry/ })
     ).not.toBeInTheDocument()
   })
+
+  const serve = (view: Operation) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ operation: view }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+      )
+    )
+
+  it("says a preview that was never approved expired at the 15-minute stage", async () => {
+    serve({
+      ...operation,
+      status: "expired",
+      canApprove: false,
+      counts: { expired: 1 },
+      children: [child({ status: "expired", resultCode: "preview_expired" })],
+    })
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    expect(
+      await screen.findByText(/wasn’t approved within 15 minutes/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/approval lasts 24 hours/)
+    ).not.toBeInTheDocument()
+  })
+
+  it("says a running batch's sending window has closed once it has", async () => {
+    serve({
+      ...operation,
+      status: "running",
+      canApprove: false,
+      approvedBy: operation.requestedBy,
+      dispatchExpiresAt: "2026-10-02T00:00:00.000Z",
+      counts: { expired: 1 },
+      children: [child({ status: "expired", resultCode: "dispatch_expired" })],
+    })
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    expect(
+      await screen.findByText(/^The sending window closed at /)
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/will not be sent/)).not.toBeInTheDocument()
+  })
 })
 
 describe("describeChildChange", () => {

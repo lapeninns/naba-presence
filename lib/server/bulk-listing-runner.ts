@@ -24,7 +24,10 @@ import {
 } from "@/lib/server/gbp-management"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google"
 import { ApiError } from "@/lib/server/http"
-import { requireNoUnresolvedAccountChange, withGoogleAccountChangeLock } from "@/lib/server/google-account-change-lock"
+import {
+  requireNoUnresolvedAccountChange,
+  withGoogleAccountChangeLock,
+} from "@/lib/server/google-account-change-lock"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
@@ -73,7 +76,8 @@ const WRITE_FLAG = {
 async function settle(
   organisationId: string,
   childId: string,
-  status: "succeeded" | "failed" | "conflict" | "ambiguous" | "queued" | "expired",
+  status:
+    "succeeded" | "failed" | "conflict" | "ambiguous" | "queued" | "expired",
   fields: {
     code?: string | null
     confirmation?: "confirmed" | "unresolved" | "unrecorded"
@@ -207,90 +211,150 @@ export async function processBulkChild(
     if (summary) summary.deferred += 1
     return
   }
-  let observed: unknown
-  try {
-    observed = await currentFor(input, gate.linked, child.updateMask)
-  } catch (error) {
-    if (error instanceof ApiError && error.code === "google_rate_limited") {
-      await settle(organisationId, childId, "queued", {
-        code: "google_rate_limited",
+  type Outcome =
+    | "succeeded"
+    | "conflict"
+    | "ambiguous"
+    | "deferred"
+    | "expired"
+    | { failed: string }
+  // Baseline read, comparison, window check, one write and independent
+  // readback, all inside the resource lock: an editor write cannot land
+  // between the baseline read and the provider call. Action links do this
+  // inside the Google account lock too, after the same unresolved-outcome
+  // guard reviewed Place Actions, access and lifecycle changes use.
+  const readCompareWrite = async (): Promise<Outcome> => {
+    if (input.operation === "place_action")
+      await requireNoUnresolvedAccountChange(
+        gate.session,
+        gate.linked.googleAccountId
+      )
+    if (dispatchClosed()) {
+      await settle(organisationId, childId, "expired", {
+        code: "dispatch_expired",
       })
-      if (summary) summary.deferred += 1
-      return
+      return "expired"
     }
-    return fail(error instanceof ApiError ? error.code : "google_read_failed")
-  }
-  if (isApplied(input, observed, child.proposed)) {
-    await settle(organisationId, childId, "succeeded", {
-      confirmation: "confirmed",
-      observed,
-    })
-    if (summary) summary.succeeded += 1
-    return
-  }
-  const baselineUnchanged =
-    input.operation === "place_action"
-      ? stableGoogleHash(observed) === child.baselineHash
-      : comparisonHash(observed) === comparisonHash(child.current)
-  if (!baselineUnchanged) {
-    await settle(organisationId, childId, "conflict", {
-      code: "google_baseline_changed",
-      observed,
-    })
-    if (summary) summary.conflict += 1
-    return
-  }
-  // One write, then independent readback. Action links do both inside the
-  // Google account lock after the same unresolved-outcome guard reviewed
-  // Place Actions, access and lifecycle changes use.
-  const writeAndConfirm = async (): Promise<"succeeded" | "ambiguous" | "deferred" | "expired" | { failed: string }> => {
-    if (input.operation === "place_action") await requireNoUnresolvedAccountChange(gate.session, gate.linked.googleAccountId)
+    let observed: unknown
+    try {
+      observed = await currentFor(input, gate.linked, child.updateMask)
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "google_rate_limited") {
+        await settle(organisationId, childId, "queued", {
+          code: "google_rate_limited",
+        })
+        return "deferred"
+      }
+      return {
+        failed: error instanceof ApiError ? error.code : "google_read_failed",
+      }
+    }
+    if (isApplied(input, observed, child.proposed)) {
+      await settle(organisationId, childId, "succeeded", {
+        confirmation: "confirmed",
+        observed,
+      })
+      return "succeeded"
+    }
+    const baselineUnchanged =
+      input.operation === "place_action"
+        ? stableGoogleHash(observed) === child.baselineHash
+        : comparisonHash(observed) === comparisonHash(child.current)
+    if (!baselineUnchanged) {
+      await settle(organisationId, childId, "conflict", {
+        code: "google_baseline_changed",
+        observed,
+      })
+      return "conflict"
+    }
     // The last check before the provider call: past the window, nothing is sent.
-    if (dispatchClosed()) { await settle(organisationId, childId, "expired", { code: "dispatch_expired" }); return "expired" }
+    if (dispatchClosed()) {
+      await settle(organisationId, childId, "expired", {
+        code: "dispatch_expired",
+      })
+      return "expired"
+    }
     let ambiguous = false
-    try { await applyTarget(input, gate.linked, child.proposed, child.updateMask) }
-    catch (error) {
-      if (error instanceof ApiError && !(error instanceof GoogleMutationAmbiguousError)) {
-        if (error.code === "google_rate_limited") { await settle(organisationId, childId, "queued", { code: error.code }); return "deferred" }
+    try {
+      await applyTarget(input, gate.linked, child.proposed, child.updateMask)
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        !(error instanceof GoogleMutationAmbiguousError)
+      ) {
+        if (error.code === "google_rate_limited") {
+          await settle(organisationId, childId, "queued", { code: error.code })
+          return "deferred"
+        }
         return { failed: `provider_rejected:${error.code}` }
       }
       ambiguous = true
     }
     try {
       const after = await currentFor(input, gate.linked, child.updateMask)
-      if (isApplied(input, after, child.proposed)) { await settle(organisationId, childId, "succeeded", { confirmation: "confirmed", observed: after }); return "succeeded" }
-      await settle(organisationId, childId, "ambiguous", { code: ambiguous ? "response_ambiguous" : "readback_mismatch", confirmation: "unresolved", observed: after })
+      if (isApplied(input, after, child.proposed)) {
+        await settle(organisationId, childId, "succeeded", {
+          confirmation: "confirmed",
+          observed: after,
+        })
+        return "succeeded"
+      }
+      await settle(organisationId, childId, "ambiguous", {
+        code: ambiguous ? "response_ambiguous" : "readback_mismatch",
+        confirmation: "unresolved",
+        observed: after,
+      })
     } catch {
-      await settle(organisationId, childId, "ambiguous", { code: "readback_failed", confirmation: "unresolved" })
+      await settle(organisationId, childId, "ambiguous", {
+        code: "readback_failed",
+        confirmation: "unresolved",
+      })
     }
     return "ambiguous"
   }
   // The same per-location lock the single-listing editors take for this
   // resource (`<org>:<location>:attributes` in business-information.ts), so a
-  // bulk write never interleaves with an editor write or another batch. Held
-  // only while this child writes and reads back; a busy resource defers.
-  const withResourceLock = (work: typeof writeAndConfirm) =>
+  // bulk child never interleaves with an editor write or another batch. Held
+  // from the baseline read through the readback; a busy resource defers.
+  const withResourceLock = (work: () => Promise<Outcome>) =>
     withSessionConnection((connection) =>
-      connection.begin(async (lock) => {
+      connection.begin(async (lock): Promise<Outcome> => {
         const [claim] = await lock<{ acquired: boolean }[]>`
           select pg_try_advisory_xact_lock(hashtextextended(${`${organisationId}:${child.locationId}:${child.resourceKey}`}, 0)) as acquired`
         if (!claim?.acquired) {
-          await settle(organisationId, childId, "queued", { code: "resource_busy" })
-          return "deferred" as const
+          await settle(organisationId, childId, "queued", {
+            code: "resource_busy",
+          })
+          return "deferred"
         }
         return work()
       })
     )
-  let outcome: Awaited<ReturnType<typeof writeAndConfirm>>
+  let outcome: Outcome
   try {
     outcome = await withResourceLock(() =>
       input.operation === "place_action"
-        ? withGoogleAccountChangeLock(gate.session, child.locationId, writeAndConfirm)
-        : writeAndConfirm()
+        ? withGoogleAccountChangeLock(
+            gate.session,
+            child.locationId,
+            readCompareWrite
+          )
+        : readCompareWrite()
     )
   } catch (error) {
-    if (error instanceof ApiError && error.code === "administration_in_progress") { await settle(organisationId, childId, "queued", { code: error.code }); outcome = "deferred" }
-    else outcome = { failed: error instanceof ApiError ? error.code : "google_confirmation_unresolved" }
+    if (
+      error instanceof ApiError &&
+      error.code === "administration_in_progress"
+    ) {
+      await settle(organisationId, childId, "queued", { code: error.code })
+      outcome = "deferred"
+    } else
+      outcome = {
+        failed:
+          error instanceof ApiError
+            ? error.code
+            : "google_confirmation_unresolved",
+      }
   }
   if (typeof outcome === "object") return fail(outcome.failed)
   if (summary) summary[outcome] += 1
@@ -413,6 +477,10 @@ export async function runDueBulkChildren(options: {
     select organisation_id::text as "organisationId", operation_id::text as "operationId"
     from bulk_operations_ready_to_finish(${env.JOBS_BATCH_SIZE})`
   for (const row of settled)
-    await finishOperation(row.organisationId, row.operationId, options.requestId)
+    await finishOperation(
+      row.organisationId,
+      row.operationId,
+      options.requestId
+    )
   return summary
 }

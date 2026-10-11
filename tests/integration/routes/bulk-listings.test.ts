@@ -434,6 +434,20 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     expect(Math.abs(window)).toBeLessThan(60_000)
     await t.api(`/${op.id}/execute`, {})
     await admin`update bulk_listing_operation set dispatch_expires_at = now() - interval '1 second' where id = ${op.id}`
+    // Before any sweep, a reader already sees the closed window per listing.
+    const unswept = await t.status(op)
+    expect(unswept.status).toBe("running")
+    expect(unswept.counts).toEqual({ expired: 2 })
+    expect(unswept.children.map((c) => `${c.status}:${c.resultCode}`)).toEqual([
+      "expired:dispatch_expired",
+      "expired:dispatch_expired",
+    ])
+    const listed = (await (await t.api("")).json()) as {
+      operations: { id: string; counts: Record<string, number> }[]
+    }
+    expect(listed.operations.find((o) => o.id === op.id)?.counts).toEqual({
+      expired: 2,
+    })
     await tick()
     const after = await t.status(op)
     expect(after.status).toBe("completed_with_failures")
@@ -456,9 +470,14 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     const [row] =
       await admin`select status from bulk_listing_operation where id = ${unstarted.id}`
     expect(row.status).toBe("expired")
-    expect((await childRows(unstarted.id)).map((c) => c.status)).toEqual([
-      "expired",
-      "expired",
+    expect(await childRows(unstarted.id)).toEqual([
+      { status: "expired", result_code: "dispatch_expired" },
+      { status: "expired", result_code: "dispatch_expired" },
+    ])
+    // A preview that was never approved says so, not the 24-hour window.
+    expect(await childRows(stale.id)).toEqual([
+      { status: "expired", result_code: "preview_expired" },
+      { status: "expired", result_code: "preview_expired" },
     ])
   })
 
@@ -525,5 +544,70 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       { status: "failed", result_code: "google_target_changed" },
     ])
     expect(patches()).toHaveLength(0)
+  })
+  it("holds the resource lock from the baseline read, so an editor write between claim and dispatch ends in a conflict and nothing is sent", async () => {
+    const editorValue = {
+      specialHourPeriods: [
+        christmas,
+        { startDate: d("2026-12-26"), endDate: d("2026-12-26"), closed: true },
+      ],
+    }
+    // An editor write lands after the claim: the editor holds the lock and
+    // writes, the child defers, and the next run reads the new baseline.
+    const t = await tenant(1)
+    const op = await t.preview()
+    await execute(t, op)
+    const name = t.linked[0].googleLocationName
+    const key = `${t.owner.organisationId}:${t.linked[0].locationId}:hours`
+    await admin.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`
+      listings.get(name)!.specialHours = editorValue
+      await tick()
+    })
+    expect(await childRows(op.id)).toEqual([
+      { status: "queued", result_code: "resource_busy" },
+    ])
+    await admin`update bulk_listing_child set next_attempt_at = now() where operation_id = ${op.id}`
+    await tick()
+    expect(await childRows(op.id)).toEqual([
+      { status: "conflict", result_code: "google_baseline_changed" },
+    ])
+    expect(patches()).toHaveLength(0)
+    expect(listings.get(name)!.specialHours).toEqual(editorValue)
+
+    // An editor arriving while the child reads its baseline cannot take the
+    // lock, so it cannot write between that read and the provider call.
+    const t2 = await tenant(1)
+    const second = await t2.preview()
+    await execute(t2, second)
+    const name2 = t2.linked[0].googleLocationName
+    const key2 = `${t2.owner.organisationId}:${t2.linked[0].locationId}:hours`
+    const editorAttempts: boolean[] = []
+    google.respond({ method: "GET", pathIncludes: name2 }, async () => {
+      const state = listings.get(name2)!
+      const response = {
+        status: 200,
+        json: {
+          specialHours: state.specialHours,
+          regularHours: state.regularHours,
+        },
+      }
+      if (editorAttempts.length === 0) {
+        const acquired = await admin.begin(async (sql) => {
+          const [row] = await sql<{ acquired: boolean }[]>`
+            select pg_try_advisory_xact_lock(hashtextextended(${key2}, 0)) as acquired`
+          if (row?.acquired) state.specialHours = editorValue
+          return row?.acquired ?? false
+        })
+        editorAttempts.push(acquired)
+      }
+      return response
+    })
+    await tick()
+    expect(editorAttempts).toEqual([false])
+    expect(await childRows(second.id)).toEqual([
+      { status: "succeeded", result_code: null },
+    ])
+    expect(patches(name2)).toHaveLength(1)
   })
 })
