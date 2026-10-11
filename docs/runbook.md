@@ -603,8 +603,38 @@ for four tick findings, read from each tick's `ops_heartbeat` run ledger
   cursor nothing follows.
 
 The incident resolves on the first health tick after the condition clears.
-The health tick cannot alert on its own absence; that needs a signal from
-outside the deployment.
+The health tick cannot alert on its own absence; the readiness probe is that
+signal (below).
+
+### Readiness probe failure
+
+`pnpm ops:readiness` (`scripts/ops/readiness-probe.mjs`) exits non-zero and
+prints the reasons from `GET /api/operations/readiness`
+(docs/observability.md, "Readiness"). Triage by the first line:
+
+- `unreachable` or `unreadable`: the deployment or its domain is down, or
+  something other than the app answered. Check the Vercel deployment and its
+  function logs before anything else.
+- `unauthorised`: the probe's token is not the deployment's `CRON_SECRET`
+  (rotated, or the wrong environment).
+- `release_mismatch`: production is not serving the promoted commit (an
+  Instant Rollback, a Git-integration deploy, or a promotion that did not
+  finish). Compare with `docs/release/receipts/`.
+- `database_unreachable`, `schema_incompatible`, `schema_unknown`: as for a
+  failed startup assertion; do not migrate production from here without the
+  release process.
+- `tick_stale`, `tick_never_completed`, `tick_lock_wedged`, `scheduler_silent`:
+  as in "Stale heartbeat" above. `tick_stale (health)` means no alerting has
+  run since the tick stopped: check the Vercel cron for `/api/cron/health`
+  and that `NOTIFICATIONS_ENABLED` is on.
+- `alert_undelivered`: an operator incident is open and nobody was emailed.
+  Read it with `GET /api/operations/health?scope=platform` and the
+  `platform_incident_delivery` rows; fix the provider (`EMAIL_PROVIDER`,
+  `EMAIL_API_KEY`, `EMAIL_FROM`) or `OPS_ALERT_EMAILS`, then handle the
+  incident itself.
+- Degraded only (`pause_active`, `alerting_paused`, `email_not_configured`,
+  `telemetry_disabled`, ...): expected during a deliberate pause; otherwise a
+  configuration gap to close before relying on in-app alerting.
 
 ### Rotating the token encryption key
 

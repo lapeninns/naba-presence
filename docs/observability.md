@@ -3,7 +3,12 @@
 NabaPresence registers OpenTelemetry with service name `nabapresence`.
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` in the Vercel project's Production (and
 staging) environment to the environment's OTLP collector; on Vercel one
-deployment serves both the web functions and the cron routes. Keep tenant identifiers as restricted telemetry
+deployment serves both the web functions and the cron routes. The OTLP metric
+exporter is registered only when an endpoint is set (or
+`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, and neither `OTEL_SDK_DISABLED=true` nor
+`OTEL_METRICS_EXPORTER=none`); without one, startup logs
+`startup.operational_warnings` and the readiness endpoint reports telemetry
+`disabled` instead of the exporter failing unseen. Keep tenant identifiers as restricted telemetry
 attributes and never attach review text, reply bodies, access tokens, or email
 addresses.
 
@@ -147,6 +152,78 @@ certify that work is being done — `jobs.kinds_paused` in the logs is what says
 flag is holding the runner back. Scrape the health endpoint once per minute.
 Treat a missing heartbeat as silent.
 
+## Readiness
+
+`GET /api/operations/readiness` (`app/api/operations/readiness/route.ts`,
+`lib/server/readiness.ts`) answers one question for a probe outside the
+deployment: is this deployment doing its job, and would anyone be told if it
+were not? It exists for what the health tick cannot report: its own absence, a
+paused notifications scope, no alert email, and an alert that never went out.
+
+It takes the cron bearer (`Authorization: Bearer ${CRON_SECRET}`) rather than a
+token of its own: anything trusted to fire the ticks may ask whether they run,
+and a second secret is one more to rotate on the endpoint that must work when
+everything else is quiet. It is bounded: a connectivity check, the migration
+ledger, `ops_heartbeat`, the cached pause snapshot and one aggregate over
+`platform_incident`, each with a 5-second limit; no tenant walk, no tenant
+data. `Cache-Control: no-store`.
+
+The answer is `ready` or `degraded` with 200, `not_ready` with 503, plus the
+inputs: `release` and `schema` (as on the platform health scope), `database`,
+`scheduler`, one entry per tick in `ticks` (`ok`, `paused`, `stale`,
+`never_completed` or `awaiting_first_run`), `pause`, `email`, `telemetry`
+(`disabled`/`configured`/`exporting`/`failing`, per process) and `incidents`.
+Every reason is in `reasons` with a `severity` and, where it applies, a
+`subject`:
+
+| Code                      | Severity  | Means                                                                                  |
+| ------------------------- | --------- | -------------------------------------------------------------------------------------- |
+| `database_unreachable`    | not_ready | `select 1` failed or took over 5 seconds; nothing database-derived is reported         |
+| `schema_incompatible`     | not_ready | a required migration is missing (`subject` names it)                                   |
+| `schema_unknown`          | not_ready | `schema_migration` could not be read                                                   |
+| `scheduler_silent`        | not_ready | the jobs tick's `scheduler` stamp is older than five minutes                           |
+| `scheduler_unknown`       | not_ready | `ops_heartbeat` could not be read                                                      |
+| `tick_stale`              | not_ready | an unpaused tick used to complete and has stopped; `subject: health` is the health tick's own absence |
+| `tick_never_completed`    | not_ready | an unpaused tick has never completed, past its grace from `registeredAt`               |
+| `tick_lock_wedged`        | not_ready | three or more lock skips in a row, paused or not                                       |
+| `alert_undelivered`       | not_ready | an open platform incident whose alert settled with no send (failed or suppressed)      |
+| `tick_awaiting_first_run` | degraded  | a tick has not completed yet but is inside its grace (a fresh database)                |
+| `tick_cycle_overdue`      | degraded  | the retention cycle is overdue                                                         |
+| `pause_active`            | degraded  | a scope is paused, by env flag or operator table (`subject` names it)                  |
+| `alerting_paused`         | degraded  | the notifications scope is paused: no alert of any kind is evaluated or sent           |
+| `pause_state_unknown`     | degraded  | the pause table could not be read                                                      |
+| `email_not_configured`    | degraded  | `EMAIL_PROVIDER` is `none`, or lacks `EMAIL_API_KEY`/`EMAIL_FROM`                       |
+| `ops_recipients_missing`  | degraded  | `OPS_ALERT_EMAILS` is empty                                                            |
+| `telemetry_disabled`      | degraded  | no metric export (`subject`: `no_endpoint`, `sdk_disabled`, `exporter_none`)           |
+| `telemetry_failing`       | degraded  | two or more metric exports in a row failed in the answering process                    |
+| `release_unknown`         | degraded  | neither `NABA_RELEASE_SHA` nor `VERCEL_GIT_COMMIT_SHA` holds a full SHA                 |
+| `google_quota_pressure`   | degraded  | an open Google quota-pressure incident                                                 |
+| `incidents_unknown`       | degraded  | `platform_incident` could not be read                                                  |
+
+`telemetry` is the answering process's own record: on Vercel each function
+instance has its own, and a fresh instance reads `configured` until its first
+export interval has passed.
+
+### The local probe
+
+The probe runs outside the deployment, on an operator's machine (by hand, cron
+or a launchd agent); there is no hosted workflow:
+
+```bash
+READINESS_PROBE_TOKEN=... pnpm ops:readiness --url https://<production> \
+  --expect-promoted --notify
+```
+
+`scripts/ops/readiness-probe.mjs` reads the token from `READINESS_PROBE_TOKEN`
+(or `CRON_SECRET`) in its environment, never from a file, and refuses plain
+http off localhost. It exits 0 for ready (and degraded, unless
+`--fail-on-degraded`), 1 for degraded with `--fail-on-degraded`, 2 for not
+ready, unreachable, 401, an unreadable answer or a SHA mismatch, and 64 for a
+usage error. `--expect-sha <sha>` or `--expect-promoted` (the newest receipt in
+`docs/release/receipts/`) fails a deployment serving another commit; `--json`
+prints one machine-readable line; `--notify` raises a macOS notification on
+any non-zero exit. Run it every five minutes; a non-zero exit is the page.
+
 ## Alert rules
 
 | Alert               | Condition                                                                   | Severity |
@@ -168,6 +245,8 @@ Treat a missing heartbeat as silent.
 | Reconcile behind    | `dueReconcileBacklog` rising for 15 minutes                                 | ticket   |
 | Quota pressure      | any `googleQuota[].blocked`, or a bucket throttled on consecutive scrapes   | ticket   |
 | Listing access lost | `listingsAccessLost > 0` (the tenant is also emailed)                       | ticket   |
+| Not ready           | the readiness probe exits 2 (503, unreachable, 401 or release mismatch)     | page     |
+| Degraded            | readiness `degraded` for longer than a deliberate pause or config change    | ticket   |
 
 The health tick (`/api/cron/health`, every 15 minutes) evaluates the same
 conditions per tenant and emails owners and admins itself (see

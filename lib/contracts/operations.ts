@@ -235,6 +235,105 @@ export const platformReleaseSchema = z.object({
 })
 export type PlatformRelease = z.infer<typeof platformReleaseSchema>
 
+/**
+ * Metric export state in the answering process (lib/server/telemetry-
+ * status.ts). `reason` says why export is `disabled` and is null otherwise.
+ * `lastErrorName` is an error class name, never a message.
+ */
+export const telemetryStatusSchema = z.object({
+  state: z.enum(["disabled", "configured", "exporting", "failing"]),
+  reason: z.enum(["no_endpoint", "sdk_disabled", "exporter_none"]).nullable(),
+  lastExportAt: z.string().nullable(),
+  lastFailureAt: z.string().nullable(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  lastErrorName: z.string().nullable(),
+})
+export type TelemetryStatus = z.infer<typeof telemetryStatusSchema>
+
+export const READINESS_STATUSES = ["ready", "degraded", "not_ready"] as const
+export type ReadinessStatus = (typeof READINESS_STATUSES)[number]
+
+/**
+ * One reason the deployment is not plainly ready. `severity` is the status
+ * it forces on its own: any `not_ready` reason makes the response 503.
+ * `subject` names the tick, pause scope or migration it is about, where one
+ * applies. Codes are listed in docs/observability.md ("Readiness").
+ */
+export const readinessReasonSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["degraded", "not_ready"]),
+  subject: z.string().nullable(),
+})
+export type ReadinessReason = z.infer<typeof readinessReasonSchema>
+
+/** One tick as readiness judged it; the full ledger is on the health scope. */
+export const readinessTickSchema = z.object({
+  name: z.string(),
+  state: z.enum([
+    "ok",
+    "paused",
+    "stale",
+    "never_completed",
+    "awaiting_first_run",
+  ]),
+  lastCompletedAt: z.string().nullable(),
+  staleAfterSeconds: z.number(),
+  lockWedged: z.boolean(),
+  cycleStale: z.boolean(),
+})
+export type ReadinessTick = z.infer<typeof readinessTickSchema>
+
+/**
+ * GET `/api/operations/readiness` (cron bearer). A bounded, platform-level
+ * answer for an external probe: a fixed handful of reads, no tenant walk and
+ * no tenant data. 200 for `ready` and `degraded`, 503 for `not_ready`.
+ *
+ * - `release`/`schema`: the deployed commit and the required-migration check,
+ *   as on the platform health scope (platformReleaseSchema).
+ * - `database.reachable`: false when the database did not answer; every
+ *   database-derived field below is then null or empty.
+ * - `scheduler`: the jobs tick's `scheduler` stamp.
+ * - `ticks`: every scheduled tick, the health tick included: the health tick
+ *   cannot alert on its own absence, so this endpoint is where that shows.
+ * - `pause`: scopes paused now, env flag or operator table, and whether the
+ *   table could be read.
+ * - `email`: whether operator alerts can be emailed at all.
+ * - `incidents`: open platform incidents, how many no operator was told
+ *   about (every delivery failed or was suppressed), and how many are Google
+ *   quota pressure; null when the read failed.
+ */
+export const readinessResponseSchema = z.object({
+  status: z.enum(READINESS_STATUSES),
+  ok: z.boolean(),
+  generatedAt: z.string(),
+  reasons: z.array(readinessReasonSchema),
+  release: platformReleaseSchema.shape.release,
+  schema: platformReleaseSchema.shape.schema,
+  database: z.object({ reachable: z.boolean() }),
+  scheduler: z
+    .object({ heartbeatAt: z.string().nullable(), stale: z.boolean() })
+    .nullable(),
+  ticks: z.array(readinessTickSchema),
+  pause: z.object({
+    scopes: z.array(z.string()),
+    readFailed: z.boolean(),
+  }),
+  email: z.object({
+    provider: z.enum(["none", "resend"]),
+    configured: z.boolean(),
+    opsRecipients: z.number().int().nonnegative(),
+  }),
+  telemetry: telemetryStatusSchema,
+  incidents: z
+    .object({
+      open: z.number().int().nonnegative(),
+      undelivered: z.number().int().nonnegative(),
+      quotaPressure: z.number().int().nonnegative(),
+    })
+    .nullable(),
+})
+export type ReadinessResponse = z.infer<typeof readinessResponseSchema>
+
 export const webhookFailureSchema = z.object({
   id: z.string(),
   eventType: z.string(),

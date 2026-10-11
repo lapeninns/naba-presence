@@ -186,7 +186,8 @@ export type TickFinding = {
  *
  * The health tick is left out: it is the one evaluating, so it cannot report
  * its own absence, and on its very first run it has not completed yet. Its
- * absence needs a signal from outside the deployment.
+ * absence is reported by the readiness endpoint (lib/server/readiness.ts) to
+ * a probe outside the deployment.
  *
  * A paused tick (TICK_PAUSE_SCOPES) raises no stopped, never-completed or
  * overdue-cycle finding: not completing is what a pause is. Its open

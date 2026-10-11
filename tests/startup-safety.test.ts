@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ServerEnv } from "@/lib/server/env"
 import {
   assertProductionSafety,
+  collectOperationalWarnings,
   collectSafetyViolations,
 } from "@/lib/server/startup"
 
@@ -32,6 +33,8 @@ vi.mock("@/lib/server/env", () => ({
     PASSWORD_AUTH_ENABLED: false,
     DATABASE_URL: "postgresql://runtime@127.0.0.1:5432/naba",
     NEXTAUTH_URL: "https://reviews.example.com",
+    EMAIL_PROVIDER: "none",
+    OPS_ALERT_EMAILS: [],
   }),
 }))
 
@@ -265,5 +268,56 @@ describe("assertProductionSafety schema compatibility", () => {
     await expect(
       assertProductionSafety({ enforce: true, requiredMigrations: required })
     ).rejects.toThrow("Could not read schema_migration (42501)")
+  })
+})
+
+describe("collectOperationalWarnings", () => {
+  const configured = {
+    EMAIL_PROVIDER: "resend" as const,
+    EMAIL_API_KEY: "re_test",
+    EMAIL_FROM: "alerts@example.com",
+    OPS_ALERT_EMAILS: ["ops@example.com"],
+  }
+  const telemetry = { OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.example.com" }
+
+  it("is quiet when alert email and metric export are configured", () => {
+    expect(collectOperationalWarnings(configured, telemetry)).toEqual([])
+  })
+
+  it("warns when no alert email can be sent or nobody would receive it", () => {
+    const none = collectOperationalWarnings(
+      { ...configured, EMAIL_PROVIDER: "none", OPS_ALERT_EMAILS: [] },
+      telemetry
+    )
+    expect(none).toHaveLength(2)
+    expect(none.join(" ")).toContain("EMAIL_PROVIDER is none")
+    expect(none.join(" ")).toContain("OPS_ALERT_EMAILS is empty")
+    expect(
+      collectOperationalWarnings(
+        { ...configured, EMAIL_API_KEY: undefined },
+        telemetry
+      ).join(" ")
+    ).toContain("without EMAIL_API_KEY and EMAIL_FROM")
+  })
+
+  it("warns when metrics are not exported", () => {
+    expect(collectOperationalWarnings(configured, {}).join(" ")).toContain(
+      "Metric export is off (no_endpoint)"
+    )
+  })
+
+  it("is logged at startup but never refuses to start", async () => {
+    database.appliedVersions = ["0001_initial"]
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    await expect(
+      assertProductionSafety({
+        enforce: true,
+        requiredMigrations: ["0001_initial"],
+      })
+    ).resolves.toBeUndefined()
+    expect(warn.mock.calls.join(" ")).toContain("startup.operational_warnings")
+    database.appliedVersions = []
+    vi.restoreAllMocks()
   })
 })

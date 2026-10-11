@@ -8,6 +8,7 @@ import {
   readAppliedMigrations,
 } from "@/lib/server/schema-compat"
 import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
+import { telemetryDisabledReason } from "@/lib/server/telemetry-status"
 
 export type DbIdentity = {
   rolSuper: boolean
@@ -95,6 +96,45 @@ export function collectSafetyViolations(
   return violations
 }
 
+/**
+ * Configuration that leaves operators blind without making the deployment
+ * unsafe: no way to email an alert, nobody to email it to, or no metrics
+ * leaving the process. Logged at startup and reported by the readiness
+ * endpoint as `degraded`; never enforced, because refusing to boot over
+ * missing alerting would take the product down to report that alerting is
+ * missing.
+ */
+export function collectOperationalWarnings(
+  env: Pick<
+    ServerEnv,
+    "EMAIL_PROVIDER" | "EMAIL_API_KEY" | "EMAIL_FROM" | "OPS_ALERT_EMAILS"
+  >,
+  processEnv: Record<string, string | undefined> = process.env
+): string[] {
+  const warnings: string[] = []
+  if (env.EMAIL_PROVIDER === "none") {
+    warnings.push(
+      "EMAIL_PROVIDER is none: no alert email is sent, to tenants or operators."
+    )
+  } else if (!env.EMAIL_API_KEY || !env.EMAIL_FROM) {
+    warnings.push(
+      `EMAIL_PROVIDER is ${env.EMAIL_PROVIDER} without EMAIL_API_KEY and EMAIL_FROM: every alert email is suppressed.`
+    )
+  }
+  if (env.OPS_ALERT_EMAILS.length === 0) {
+    warnings.push(
+      "OPS_ALERT_EMAILS is empty: platform incidents are recorded but nobody is emailed."
+    )
+  }
+  const telemetry = telemetryDisabledReason(processEnv)
+  if (telemetry) {
+    warnings.push(
+      `Metric export is off (${telemetry}): set OTEL_EXPORTER_OTLP_ENDPOINT to the environment's collector.`
+    )
+  }
+  return warnings
+}
+
 /** Supabase's pooler serves transaction mode on 6543 and session mode on 5432. */
 export function isTransactionPoolerUrl(url: string): boolean {
   try {
@@ -156,6 +196,12 @@ export async function assertProductionSafety(
     log.warn("startup.schema_incompatible", {
       enforce,
       violations: schemaViolations,
+    })
+  }
+  const operationalWarnings = collectOperationalWarnings(getServerEnv())
+  if (operationalWarnings.length > 0) {
+    log.warn("startup.operational_warnings", {
+      warnings: operationalWarnings,
     })
   }
   const violations = [

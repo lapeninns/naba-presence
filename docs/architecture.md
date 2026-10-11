@@ -25,6 +25,13 @@ migration the code needs. While serving, the cron-bearer platform scope of
 `app/api/operations/health/route.ts` repeats that comparison and reports the
 deployed commit from `lib/server/release.ts` (`NABA_RELEASE_SHA`, stamped by
 `scripts/release/promote.mjs`); the session scope carries neither.
+`app/api/operations/readiness/route.ts` (cron bearer, `lib/server/readiness.ts`)
+reports the same release and schema fields with tick liveness (the health tick
+included), pause state, alert-email configuration, undelivered operator
+incidents and metric export status (`lib/server/telemetry-status.ts`), answering
+503 when not ready; `scripts/ops/readiness-probe.mjs` is the local probe that
+calls it. `startup.ts` also logs operational warnings (no alert email, no
+operator recipients, no metric export) without refusing to start.
 Verified application users are provisioned by the SECURITY DEFINER
 `provision_authenticated_user` database function through
 `lib/server/provisioning.ts`, without giving the runtime role unrestricted
