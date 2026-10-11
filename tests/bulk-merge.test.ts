@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 
+import { bulkPreviewRequestSchema } from "@/lib/contracts/bulk-listings"
 import {
+  BULK_DISPATCH_TTL_MS,
+  BULK_MAX_RUNNING_PER_ORGANISATION,
+  BULK_MAX_TARGETS,
+  BULK_PREVIEW_TTL_MS,
   bulkOperationInputSchema,
+  bulkResourceKey,
   googlePeriod,
   mergeAttributes,
   mergeHours,
@@ -11,6 +17,36 @@ const d = (date: string) => {
   const [year, month, day] = date.split("-").map(Number)
   return { year, month, day }
 }
+
+describe("bulk limits (plan P09)", () => {
+  const input = {
+    operation: "special_hours",
+    dates: [{ action: "closed", date: "2026-12-25" }],
+  }
+  const ids = (count: number) =>
+    Array.from({ length: count }, () => crypto.randomUUID())
+
+  it("caps a batch at 50 listings, with 15-minute previews, 24-hour dispatch and 2 running per organisation", () => {
+    expect(BULK_MAX_TARGETS).toBe(50)
+    expect(BULK_PREVIEW_TTL_MS).toBe(15 * 60_000)
+    expect(BULK_DISPATCH_TTL_MS).toBe(24 * 3_600_000)
+    expect(BULK_MAX_RUNNING_PER_ORGANISATION).toBe(2)
+    expect(
+      bulkPreviewRequestSchema.safeParse({ locationIds: ids(50), input }).success
+    ).toBe(true)
+    expect(
+      bulkPreviewRequestSchema.safeParse({ locationIds: ids(51), input }).success
+    ).toBe(false)
+  })
+
+  it("serialises the three hours families on one resource and keeps attributes and action links apart", () => {
+    expect(bulkResourceKey("regular_hours")).toBe("hours")
+    expect(bulkResourceKey("special_hours")).toBe("hours")
+    expect(bulkResourceKey("more_hours")).toBe("hours")
+    expect(bulkResourceKey("attributes")).toBe("attributes")
+    expect(bulkResourceKey("place_action")).toBe("place_actions")
+  })
+})
 
 describe("bulk merge", () => {
   it("writes overnight periods closing on the next day", () => {

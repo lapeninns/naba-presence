@@ -1526,16 +1526,33 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260)
 
-A preview freezes up to 100 explicit location ids; a batch naming any listing
+Bulk ships dark behind the per-organisation feature `bulk_actions`: every
+`/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
+listings board hides selection and the claim skips the organisation's
+children (they wait and expire with their dispatch window).
+
+A preview freezes up to 50 explicit location ids; a batch naming any listing
 the requester cannot see is refused without saying which. Each listing gets a
 frozen plan (`lib/server/bulk-listing-targets.ts`): eligibility or skip reason,
 the current Google value, the merged value (`lib/domain/bulk-merge.ts`: only the
 chosen dates, hours type or attributes change) and its update mask. Approval
-binds the preview hash and requires acknowledging skipped listings. Execution
-queues children claimed by the job tick (`claim_due_bulk_children`, fair per
-organisation). Each child rechecks the approver's grant and the policy, reads
+binds the preview hash and requires acknowledging skipped listings. A preview
+can be approved for 15 minutes (`preview_expires_at`); approval opens a
+24-hour dispatch window (`dispatch_expires_at`) checked per child at claim and
+again just before the provider write, so a child that misses it ends `expired`
+and is never sent. Each child also freezes its Google target (connection,
+credential generation, location resource name) and its resource key
+(`lib/domain/bulk-merge.ts` `bulkResourceKey`); a relink or reconnect fails it
+with `google_target_changed`. Execution queues children claimed by the job
+tick (`claim_due_bulk_children`, 0260): at most 2 running per organisation
+across batches, never two running for one (location, resource key), and the
+runner holds the per-location advisory lock of that key (the attribute
+editor's `<org>:<location>:attributes`) while it writes and reads back,
+deferring with `resource_busy` when an editor holds it. The hours editor does
+not take an hours lock yet; P09-R3 routes bulk hours through the canonical
+hours path. Each child rechecks the approver's grant and the policy, reads
 Google, succeeds without writing when the change is already there, writes once
 when the baseline is unchanged, and otherwise records a conflict needing a new
 preview. Readback confirms; interrupted children become ambiguous and a retry

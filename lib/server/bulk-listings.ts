@@ -11,6 +11,7 @@ import {
 } from "@/lib/contracts/bulk-listings"
 import {
   bulkOperationInputSchema,
+  bulkResourceKey,
   type BulkOperationInput,
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
@@ -21,6 +22,7 @@ import {
   stableGoogleHash,
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import {
   grantsFor,
   isManagerialRole,
@@ -54,6 +56,42 @@ async function mapLimit<T, R>(
   return results
 }
 
+/**
+ * Bulk listing changes ship dark: every route and the claim
+ * (claim_due_bulk_children, 0260) serve only organisations with the
+ * `bulk_actions` feature on. Off, the routes answer 404 as if the feature
+ * did not exist; queued children of a running batch wait unclaimed and
+ * expire with their dispatch window.
+ */
+const BULK_FEATURE = "bulk_actions" as const
+const FEATURE_DISABLED = () =>
+  new ApiError(
+    404,
+    "feature_disabled",
+    "Bulk changes are not available for this workspace."
+  )
+async function requireBulkFeature(sql: TransactionSql, session: Session) {
+  if (!(await isOrgFeatureEnabled(sql, session.organisationId, BULK_FEATURE)))
+    throw FEATURE_DISABLED()
+}
+
+/** Whether the session's organisation has bulk listing changes on (pages and the board). */
+export async function bulkActionsEnabled(organisationId: string) {
+  return withTenant(organisationId, (sql) =>
+    isOrgFeatureEnabled(sql, organisationId, BULK_FEATURE)
+  )
+}
+
+/**
+ * The status a reader sees. A window that closed is `expired` even before
+ * the next tick's sweep (claim_due_bulk_children) records it, so a paused
+ * runner never leaves an approvable stale preview on screen.
+ */
+const effectiveStatus = (sql: TransactionSql) => sql`case
+    when o.status = 'previewed' and o.preview_expires_at <= now() then 'expired'
+    when o.status = 'approved' and coalesce(o.dispatch_expires_at, now()) <= now() then 'expired'
+    else o.status end`
+
 function readableReason(error: unknown) {
   return error instanceof ApiError ? error.code : "google_read_failed"
 }
@@ -82,6 +120,7 @@ export async function previewBulkOperation(
   const input = bulkOperationInputSchema.parse(body.input)
   const ids = [...body.locationIds]
   const contexts = await withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     // Preparing a bulk change asks for its approval at every target, so it
     // needs that action everywhere, not just visibility.
     const grants = await requireLocationActionForAll(
@@ -101,7 +140,7 @@ export async function previewBulkOperation(
         BULK_TARGETS_UNAVAILABLE.message
       )
     }
-    return Promise.all(
+    const resolved = await Promise.all(
       ids.map(async (locationId) => {
         if (!grants.get(locationId)?.canPublish)
           return { locationId, skip: "publish_not_allowed" as string }
@@ -118,11 +157,46 @@ export async function previewBulkOperation(
         }
       })
     )
+    // The Google target each child is previewed against, frozen so the
+    // runner refuses to write after a relink or reconnect.
+    const connectionIds = [
+      ...new Set(
+        resolved.flatMap((target) =>
+          "context" in target && target.context
+            ? [target.context.connectionId]
+            : []
+        )
+      ),
+    ]
+    const generations = new Map(
+      connectionIds.length
+        ? (
+            await sql<{ id: string; generation: number }[]>`
+              select id::text as id, credential_generation as generation
+              from google_connection where id in ${sql(connectionIds)}`
+          ).map((row) => [row.id, row.generation])
+        : []
+    )
+    return resolved.map((target) =>
+      "context" in target && target.context
+        ? {
+            ...target,
+            frozen: {
+              connectionId: target.context.connectionId,
+              credentialGeneration:
+                generations.get(target.context.connectionId) ?? null,
+              googleLocationName: target.context.googleLocationName,
+            },
+          }
+        : target
+    )
   })
   const plans = await mapLimit(
     contexts,
     PREVIEW_CONCURRENCY,
-    async (target): Promise<{ locationId: string; plan: TargetPlan }> => {
+    async (
+      target
+    ): Promise<{ locationId: string; plan: TargetPlan; frozen?: Frozen }> => {
       if (!("context" in target) || !target.context)
         return {
           locationId: target.locationId,
@@ -132,17 +206,20 @@ export async function previewBulkOperation(
         return {
           locationId: target.locationId,
           plan: await planTarget(input, target.context),
+          frozen: target.frozen,
         }
       } catch (error) {
         return {
           locationId: target.locationId,
           plan: { eligible: false, reason: readableReason(error) },
+          frozen: target.frozen,
         }
       }
     }
   )
-  const children = plans.map(({ locationId, plan }) => ({
+  const children = plans.map(({ locationId, plan, frozen }) => ({
     locationId,
+    frozen: frozen ?? null,
     eligibility: plan.eligible ? ("eligible" as const) : ("skipped" as const),
     skipReason: plan.eligible ? null : plan.reason,
     current: plan.current ?? null,
@@ -161,6 +238,7 @@ export async function previewBulkOperation(
         proposed,
         updateMask,
         baselineHash,
+        frozen,
       }) => ({
         locationId,
         eligibility,
@@ -168,6 +246,7 @@ export async function previewBulkOperation(
         proposed,
         updateMask,
         baselineHash,
+        frozen,
       })
     ),
   })
@@ -179,11 +258,14 @@ export async function previewBulkOperation(
       insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval)
       values (${session.organisationId}, ${input.operation}, ${jsonColumn(sql, input)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy?.required ?? false})
       returning id::text as id`
+    const resourceKey = bulkResourceKey(input.operation)
     for (const child of children) {
       await sql`
-        insert into bulk_listing_child (organisation_id, operation_id, location_id, eligibility, skip_reason, current_value, proposed_value, update_mask, baseline_hash, status)
+        insert into bulk_listing_child (organisation_id, operation_id, location_id, eligibility, skip_reason, current_value, proposed_value, update_mask, baseline_hash, status,
+          resource_key, connection_id, credential_generation, google_location_name)
         values (${session.organisationId}, ${operation.id}, ${child.locationId}, ${child.eligibility}, ${child.skipReason}, ${jsonColumnOrNull(sql, child.current)},
-          ${jsonColumnOrNull(sql, child.proposed)}, ${child.updateMask}, ${child.baselineHash}, ${child.eligibility === "eligible" ? "previewed" : "skipped"})`
+          ${jsonColumnOrNull(sql, child.proposed)}, ${child.updateMask}, ${child.baselineHash}, ${child.eligibility === "eligible" ? "previewed" : "skipped"},
+          ${resourceKey}, ${child.frozen?.connectionId ?? null}, ${child.frozen?.credentialGeneration ?? null}, ${child.frozen?.googleLocationName ?? null})`
     }
     await writeAudit(sql, {
       organisationId: session.organisationId,
@@ -203,15 +285,22 @@ export async function previewBulkOperation(
   })
 }
 
+type Frozen = {
+  connectionId: string
+  credentialGeneration: number | null
+  googleLocationName: string
+}
+
 async function project(
   sql: TransactionSql,
   session: Session,
   operationId: string
 ): Promise<BulkOperationView> {
   const [operation] = await sql`
-    select id::text as id, operation, input, status, preview_hash as "previewHash", requested_by::text as "requestedBy", approved_by::text as "approvedBy",
-      require_two_person_approval as "requiresSecondApprover", approval_expires_at as "approvalExpiresAt", created_at as "createdAt", finished_at as "finishedAt"
-    from bulk_listing_operation where id = ${operationId}`
+    select o.id::text as id, o.operation, o.input, ${effectiveStatus(sql)} as status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy",
+      o.approved_by::text as "approvedBy", o.require_two_person_approval as "requiresSecondApprover", coalesce(o.dispatch_expires_at, o.preview_expires_at) as "approvalExpiresAt",
+      o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt"
+    from bulk_listing_operation o where o.id = ${operationId}`
   if (!operation) throw NOT_FOUND()
   const children = await sql`
     select c.id::text as id, c.location_id::text as "locationId", l.name as "locationName", c.eligibility, c.skip_reason as "skipReason", c.status,
@@ -224,6 +313,9 @@ async function project(
   return bulkOperationSchema.parse({
     ...operation,
     approvalExpiresAt: (operation.approvalExpiresAt as Date).toISOString(),
+    previewExpiresAt: (operation.previewExpiresAt as Date).toISOString(),
+    dispatchExpiresAt:
+      (operation.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
     createdAt: (operation.createdAt as Date).toISOString(),
     finishedAt: (operation.finishedAt as Date | null)?.toISOString() ?? null,
     canApprove:
@@ -246,19 +338,25 @@ async function loadForUpdate(sql: TransactionSql, operationId: string) {
       previewHash: string
       requestedBy: string
       requireTwoPersonApproval: boolean
-      expiresAt: Date
+      previewExpiresAt: Date
+      dispatchExpiresAt: Date | null
       input: BulkOperationInput
     }[]
   >`
     select status, preview_hash as "previewHash", requested_by::text as "requestedBy", require_two_person_approval as "requireTwoPersonApproval",
-      approval_expires_at as "expiresAt", input
+      preview_expires_at as "previewExpiresAt", dispatch_expires_at as "dispatchExpiresAt", input
     from bulk_listing_operation where id = ${operationId} for update`
   if (!row) throw NOT_FOUND()
   return row
 }
 
+/** Whether an approved batch's dispatch window (24 hours after approval) is still open. */
+const dispatchOpen = (row: { dispatchExpiresAt: Date | null }) =>
+  row.dispatchExpiresAt !== null && row.dispatchExpiresAt.getTime() > Date.now()
+
 export async function readBulkOperation(session: Session, operationId: string) {
   return withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     const view = await project(sql, session, operationId)
     if (!isManagerialRole(session.role) && view.requestedBy !== session.userId)
       throw NOT_FOUND()
@@ -268,9 +366,11 @@ export async function readBulkOperation(session: Session, operationId: string) {
 
 export async function listBulkOperations(session: Session) {
   return withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     const rows = await sql`
-      select o.id::text as id, o.operation, o.status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy", o.approved_by::text as "approvedBy",
-        o.require_two_person_approval as "requiresSecondApprover", o.approval_expires_at as "approvalExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt",
+      select o.id::text as id, o.operation, ${effectiveStatus(sql)} as status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy", o.approved_by::text as "approvedBy",
+        o.require_two_person_approval as "requiresSecondApprover", coalesce(o.dispatch_expires_at, o.preview_expires_at) as "approvalExpiresAt",
+        o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt",
         cardinality(o.target_location_ids) as "targetCount",
         coalesce((select jsonb_object_agg(status, n) from (select status, count(*)::int as n from bulk_listing_child c where c.operation_id = o.id group by status) s), '{}'::jsonb) as counts
       from bulk_listing_operation o
@@ -280,6 +380,9 @@ export async function listBulkOperations(session: Session) {
       operations: rows.map((row) => ({
         ...row,
         approvalExpiresAt: (row.approvalExpiresAt as Date).toISOString(),
+        previewExpiresAt: (row.previewExpiresAt as Date).toISOString(),
+        dispatchExpiresAt:
+          (row.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
         createdAt: (row.createdAt as Date).toISOString(),
         finishedAt: (row.finishedAt as Date | null)?.toISOString() ?? null,
         canApprove:
@@ -305,6 +408,7 @@ export async function approveBulkOperation(
       "Only an owner or administrator can approve a bulk change."
     )
   return withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     const row = await loadForUpdate(sql, operationId)
     if (row.status !== "previewed")
       throw new ApiError(
@@ -312,14 +416,14 @@ export async function approveBulkOperation(
         "bulk_not_awaiting_approval",
         "This bulk change is not waiting for approval."
       )
-    if (row.expiresAt.getTime() <= Date.now()) {
-      await sql`update bulk_listing_operation set status = 'expired', updated_at = now() where id = ${operationId}`
+    // Fifteen minutes after the preview read Google. The refusal rolls back,
+    // so the tick's sweep records the expiry; readers already see it.
+    if (row.previewExpiresAt.getTime() <= Date.now())
       throw new ApiError(
         409,
         "approval_expired",
         "This preview expired. Prepare a new one."
       )
-    }
     if (row.previewHash !== input.expectedPreviewHash)
       throw new ApiError(
         409,
@@ -378,7 +482,9 @@ export async function approveBulkOperation(
         "publish_not_allowed",
         "You cannot publish to every listing in this change."
       )
-    await sql`update bulk_listing_operation set status = 'approved', approved_by = ${session.userId}, approved_at = now(), skipped_acknowledged = ${skipped > 0}, updated_at = now() where id = ${operationId}`
+    // Dispatch is open for 24 hours from this approval, per child.
+    await sql`update bulk_listing_operation set status = 'approved', approved_by = ${session.userId}, approved_at = now(), skipped_acknowledged = ${skipped > 0},
+      dispatch_expires_at = now() + interval '24 hours', approval_expires_at = now() + interval '24 hours', updated_at = now() where id = ${operationId}`
     await writeAudit(sql, {
       organisationId: session.organisationId,
       actorUserId: session.userId,
@@ -409,6 +515,7 @@ export async function executeBulkOperation(
       "Only an owner or administrator can start a bulk change."
     )
   return withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     const row = await loadForUpdate(sql, operationId)
     if (row.status === "running") return project(sql, session, operationId)
     if (row.status !== "approved")
@@ -417,7 +524,7 @@ export async function executeBulkOperation(
         "approval_required",
         "Approve this bulk change before starting it."
       )
-    if (row.expiresAt.getTime() <= Date.now())
+    if (!dispatchOpen(row))
       throw new ApiError(
         409,
         "approval_expired",
@@ -450,6 +557,7 @@ export async function cancelBulkOperation(
       "Only an owner or administrator can cancel a bulk change."
     )
   return withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     const row = await loadForUpdate(sql, operationId)
     if (
       ["completed", "completed_with_failures", "cancelled", "expired"].includes(
@@ -495,6 +603,7 @@ export async function retryBulkOperation(
       "Only an owner or administrator can retry a bulk change."
     )
   return withTenant(session.organisationId, async (sql) => {
+    await requireBulkFeature(sql, session)
     const row = await loadForUpdate(sql, operationId)
     if (!["completed_with_failures", "running"].includes(row.status))
       throw new ApiError(
@@ -502,7 +611,7 @@ export async function retryBulkOperation(
         "bulk_not_retryable",
         "Only a bulk change with failed listings can be retried."
       )
-    if (row.expiresAt.getTime() <= Date.now())
+    if (!dispatchOpen(row))
       throw new ApiError(
         409,
         "approval_expired",

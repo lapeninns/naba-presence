@@ -1626,6 +1626,15 @@ no new schedule or bulk child is claimed, and nothing already sent is undone.
 
 ### Partial bulk changes
 
+Bulk listing changes are off for an organisation until an operator turns on
+`bulk_actions` (`pnpm ops:pause feature --organisation <uuid> --feature
+bulk_actions --enable --operator you@example.com`). Turning it off stops new
+claims for that organisation; queued listings wait and expire when their
+24-hour dispatch window closes. A listing showing "Expired, not sent"
+(`dispatch_expired`) or `google_target_changed` was never sent: prepare a new
+preview. `resource_busy` means another change to the same listing resource was
+running; the listing is retried a minute later.
+
 A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and
 ambiguous listings: already-applied listings settle without a write, unchanged

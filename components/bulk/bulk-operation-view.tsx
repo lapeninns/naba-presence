@@ -29,6 +29,7 @@ import type {
   BulkChild,
   BulkOperationView as Operation,
 } from "@/lib/contracts/bulk-listings"
+import { formatDateTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -45,6 +46,7 @@ const CHILD: Record<BulkChild["status"], { label: string; tone: PillTone }> = {
   conflict: { label: "Changed on Google", tone: "warn" },
   ambiguous: { label: "Outcome unknown", tone: "warn" },
   cancelled: { label: "Cancelled", tone: "outline" },
+  expired: { label: "Expired, not sent", tone: "outline" },
 }
 const REASON: Record<string, string> = {
   already_applied: "Already shows this change",
@@ -66,6 +68,12 @@ const REASON: Record<string, string> = {
   readback_failed: "Google couldn’t be read to confirm",
   google_rate_limited: "Waiting for Google quota",
   publishing_paused: "Publishing is paused",
+  dispatch_expired:
+    "Not sent: the approval lasts 24 hours; prepare a new preview",
+  google_target_changed:
+    "The Google connection changed after the preview; prepare a new preview",
+  resource_busy: "Waiting for another change to this listing to finish",
+  feature_disabled: "Bulk changes are switched off for this workspace",
 }
 const reason = (code: string | null) =>
   code
@@ -169,7 +177,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                         ? "Finished with some listings not changed."
                         : op.status === "cancelled"
                           ? "Cancelled. Listings already confirmed keep their change."
-                          : "This preview expired."}{" "}
+                          : "This change expired. Nothing more will be sent; prepare a new preview."}{" "}
               {Object.entries(op.counts)
                 .map(
                   ([status, count]) =>
@@ -177,6 +185,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 )
                 .join(" · ")}
             </p>
+            <Deadline operation={op} />
             {failure ? (
               <p role="alert" className="text-ui text-danger-ink">
                 {failure}
@@ -282,6 +291,35 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       </QueryStates>
     </>
   )
+}
+
+const localTime = (iso: string) =>
+  formatDateTime(iso, Intl.DateTimeFormat().resolvedOptions().timeZone)
+
+/**
+ * The window that applies now: a preview can be approved for 15 minutes
+ * after it read Google, and an approved change sends listings for 24 hours
+ * after approval. Neither is extended; a closed window needs a new preview.
+ */
+function Deadline({ operation }: { operation: Operation }) {
+  if (operation.status === "previewed")
+    return (
+      <p className="text-caption text-ink-muted">
+        Approve by {localTime(operation.previewExpiresAt)}; after that this
+        preview expires and Google must be read again.
+      </p>
+    )
+  if (
+    operation.dispatchExpiresAt &&
+    (operation.status === "approved" || operation.status === "running")
+  )
+    return (
+      <p className="text-caption text-ink-muted">
+        Listings not sent by {localTime(operation.dispatchExpiresAt)} will not
+        be sent.
+      </p>
+    )
+  return null
 }
 
 /**

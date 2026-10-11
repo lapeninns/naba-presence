@@ -261,10 +261,35 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "calendar-month")
     })
 
+    test("hides bulk changes from an organisation without the bulk_actions feature", async ({
+      page,
+    }) => {
+      const f = await backend.fixture(page, 1)
+      await f.goto("/listings")
+      await expect(
+        page.getByRole("link", { name: "Fixture Inn 1" }).first()
+      ).toBeVisible()
+      await expect(
+        page.getByRole("checkbox", {
+          name: "Select Fixture Inn 1 for a bulk change",
+        })
+      ).toHaveCount(0)
+      // The dashboard's loading boundary streams first, so notFound()
+      // renders the not-found page under a 200 rather than a 404 status.
+      await f.goto(`/listings/bulk?ids=${f.linked[0].locationId}`)
+      await expect(
+        page.getByRole("heading", { name: "This page doesn’t exist" })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: "Preview this change" })
+      ).toHaveCount(0)
+    })
+
     test("prepares, approves and runs a bulk special-hours change with per-listing confirmation", async ({
       page,
     }, info) => {
       const f = await backend.fixture(page, 2)
+      await f.enableFeature("bulk_actions")
       await f.goto("/listings")
       await page
         .getByRole("checkbox", {
@@ -291,6 +316,7 @@ for (const width of [375, 768, 1280])
       await expect(
         page.getByText("Waiting for approval.", { exact: false })
       ).toBeVisible()
+      await expect(page.getByText(/^Approve by /)).toBeVisible()
       expect(
         backend.google.calls.filter((call) => call.method === "PATCH")
       ).toHaveLength(0)

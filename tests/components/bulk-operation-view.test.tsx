@@ -52,6 +52,8 @@ const operation: Operation = {
   requiresSecondApprover: false,
   canApprove: true,
   approvalExpiresAt: "2026-10-02T00:00:00.000Z",
+  previewExpiresAt: "2026-10-02T00:00:00.000Z",
+  dispatchExpiresAt: null,
   createdAt: "2026-09-30T00:00:00.000Z",
   finishedAt: null,
   counts: { previewed: 1 },
@@ -113,6 +115,43 @@ describe("BulkOperationView", () => {
       "Sat, 26 Dec 2026: Open 10:00–16:00 →changes to Open 12:00–18:00",
     ])
     expect(screen.queryByText(/specialHours/)).not.toBeInTheDocument()
+    expect(screen.getByText(/^Approve by /)).toBeInTheDocument()
+  })
+
+  it("shows a child whose dispatch window closed as expired and not sent, with no retry", async () => {
+    const expired: Operation = {
+      ...operation,
+      status: "completed_with_failures",
+      approvedBy: operation.requestedBy,
+      dispatchExpiresAt: "2026-10-02T00:00:00.000Z",
+      counts: { expired: 1 },
+      children: [
+        child({
+          status: "expired",
+          resultCode: "dispatch_expired",
+          updateMask: ["specialHours"],
+        }),
+      ],
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ operation: expired }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+      )
+    )
+    renderWithProviders(<BulkOperationView operationId={expired.id} />)
+    expect(await screen.findByText("Expired, not sent")).toBeInTheDocument()
+    expect(
+      screen.getByText(/the approval lasts 24 hours; prepare a new preview/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("1 expired, not sent")
+    expect(
+      screen.queryByRole("button", { name: /Retry/ })
+    ).not.toBeInTheDocument()
   })
 })
 

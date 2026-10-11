@@ -123,9 +123,15 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     ],
   }
 
-  async function tenant(count = 3) {
+  const setFeature = (organisationId: string, enabled: boolean) => admin`
+    insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+    values (${organisationId}, 'bulk_actions', ${enabled}, 'test')
+    on conflict (organisation_id, feature) do update set enabled = excluded.enabled`
+
+  async function tenant(count = 3, options: { feature?: boolean } = {}) {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
+    if (options.feature !== false) await setFeature(owner.organisationId, true)
     const connection = await seedGoogleConnection(admin, {
       organisationId: owner.organisationId,
     })
@@ -344,7 +350,7 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     })
   })
 
-  it("refuses a batch naming a hidden listing without saying which, and more than 100 listings", async () => {
+  it("refuses a batch naming a hidden listing without saying which, and more than 50 listings", async () => {
     const t = await tenant(2)
     const member = await seedMemberUser(admin, {
       organisationId: t.owner.organisationId,
@@ -361,7 +367,7 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       error: "bulk_targets_unavailable",
     })
     const tooMany = await t.api("/preview", {
-      locationIds: Array.from({ length: 101 }, () => crypto.randomUUID()),
+      locationIds: Array.from({ length: 51 }, () => crypto.randomUUID()),
       input,
     })
     expect(tooMany.status).toBe(400)
@@ -373,5 +379,151 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       other.cookie
     )
     expect(foreign.status).toBe(404)
+  })
+  const execute = async (
+    t: Awaited<ReturnType<typeof tenant>>,
+    op: BulkOperationView
+  ) => {
+    await t.read(await t.approve(op))
+    const started = await t.api(`/${op.id}/execute`, {})
+    expect(started.status, await started.clone().text()).toBe(202)
+  }
+  const childRows = (operationId: string) =>
+    admin<{ status: string; result_code: string | null }[]>`
+      select status, result_code from bulk_listing_child where operation_id = ${operationId} order by id`
+
+  it("is invisible without the organisation's bulk_actions feature, and never claims a switched-off organisation's children", async () => {
+    const t = await tenant(1, { feature: false })
+    const refused = await t.api("/preview", {
+      locationIds: [t.linked[0].locationId],
+      input,
+    })
+    expect(refused.status).toBe(404)
+    expect(await refused.json()).toMatchObject({ error: "feature_disabled" })
+    expect((await t.api("")).status).toBe(404)
+    await setFeature(t.owner.organisationId, true)
+    const op = await t.preview()
+    await execute(t, op)
+    await setFeature(t.owner.organisationId, false)
+    expect((await t.api(`/${op.id}`)).status).toBe(404)
+    expect((await t.api(`/${op.id}/cancel`, {})).status).toBe(404)
+    await tick()
+    expect(await childRows(op.id)).toEqual([
+      { status: "queued", result_code: null },
+    ])
+    expect(patches()).toHaveLength(0)
+  })
+
+  it("expires a preview after 15 minutes and dispatch 24 hours after approval, per child, without writing", async () => {
+    const t = await tenant(2)
+    const stale = await t.preview()
+    expect(
+      Date.parse(stale.previewExpiresAt) - Date.parse(stale.createdAt)
+    ).toBe(15 * 60_000)
+    expect(stale.dispatchExpiresAt).toBeNull()
+    await admin`update bulk_listing_operation set preview_expires_at = now() - interval '1 second' where id = ${stale.id}`
+    expect((await t.status(stale)).status).toBe("expired")
+    const late = await t.approve(stale)
+    expect(late.status).toBe(409)
+    expect(await late.json()).toMatchObject({ error: "approval_expired" })
+
+    const op = await t.preview()
+    const approved = await t.read(await t.approve(op))
+    const window =
+      Date.parse(approved.dispatchExpiresAt!) - Date.now() - 24 * 3_600_000
+    expect(Math.abs(window)).toBeLessThan(60_000)
+    await t.api(`/${op.id}/execute`, {})
+    await admin`update bulk_listing_operation set dispatch_expires_at = now() - interval '1 second' where id = ${op.id}`
+    await tick()
+    const after = await t.status(op)
+    expect(after.status).toBe("completed_with_failures")
+    expect(after.children.map((c) => `${c.status}:${c.resultCode}`)).toEqual([
+      "expired:dispatch_expired",
+      "expired:dispatch_expired",
+    ])
+    expect(patches()).toHaveLength(0)
+    const retry = await t.api(`/${op.id}/retry`, {})
+    expect(retry.status).toBe(409)
+    expect(await retry.json()).toMatchObject({ error: "approval_expired" })
+    const [incident] =
+      await admin`select kind from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'bulk_completed_with_failures'`
+    expect(incident).toBeDefined()
+    // The sweep also records an expired approval that was never started.
+    const unstarted = await t.preview()
+    await t.read(await t.approve(unstarted))
+    await admin`update bulk_listing_operation set dispatch_expires_at = now() - interval '1 second' where id = ${unstarted.id}`
+    await tick()
+    const [row] =
+      await admin`select status from bulk_listing_operation where id = ${unstarted.id}`
+    expect(row.status).toBe("expired")
+    expect((await childRows(unstarted.id)).map((c) => c.status)).toEqual([
+      "expired",
+      "expired",
+    ])
+  })
+
+  it("runs at most two children per organisation and one per listing resource, across batches", async () => {
+    const t = await tenant(3)
+    const first = await t.preview()
+    await execute(t, first)
+    const second = await t.read(
+      await t.api("/preview", {
+        locationIds: [t.linked[0].locationId],
+        input: {
+          operation: "special_hours",
+          dates: [{ action: "closed", date: "2026-12-23" }],
+        },
+      })
+    )
+    await execute(t, second)
+    const claim = async () =>
+      (
+        await admin<{ organisation_id: string; child_id: string }[]>`
+          select organisation_id::text, child_id::text from claim_due_bulk_children(500, 60, 5)`
+      ).filter((row) => row.organisation_id === t.owner.organisationId)
+    const claimed = await claim()
+    expect(claimed).toHaveLength(2)
+    const locations = await admin<{ location_id: string }[]>`
+      select location_id::text from bulk_listing_child where id in ${admin(claimed.map((row) => row.child_id))}`
+    expect(new Set(locations.map((row) => row.location_id)).size).toBe(2)
+    expect(await claim()).toHaveLength(0)
+    // The interrupted claim goes back to the queue; one tick drains both
+    // batches two at a time, and the listing both batches name is written
+    // once: the later child sees the earlier write as a moved baseline.
+    await admin`update bulk_listing_child set status = 'queued', attempts = 0, lease_expires_at = null, started_at = null where id in ${admin(claimed.map((row) => row.child_id))}`
+    await tick()
+    const statuses = [
+      ...(await t.status(first)).children,
+      ...(await t.status(second)).children,
+    ].map((c) => c.status)
+    expect(statuses.sort()).toEqual([
+      "conflict",
+      "succeeded",
+      "succeeded",
+      "succeeded",
+    ])
+    expect(patches(t.linked[0].googleLocationName)).toHaveLength(1)
+  })
+
+  it("defers while an editor holds the listing's resource lock, and refuses a reconnected Google target", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await execute(t, op)
+    const key = `${t.owner.organisationId}:${t.linked[0].locationId}:hours`
+    await admin.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`
+      await tick()
+    })
+    expect(await childRows(op.id)).toEqual([
+      { status: "queued", result_code: "resource_busy" },
+    ])
+    expect(patches()).toHaveLength(0)
+    await admin`update google_connection set credential_generation = credential_generation + 1 where id = ${t.connection.connectionId}`
+    await admin`update bulk_listing_child set next_attempt_at = now() where operation_id = ${op.id}`
+    await tick()
+    expect(await childRows(op.id)).toEqual([
+      { status: "failed", result_code: "google_target_changed" },
+    ])
+    expect(patches()).toHaveLength(0)
   })
 })

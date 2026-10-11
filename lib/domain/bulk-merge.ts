@@ -8,7 +8,14 @@ import { z } from "zod"
 
 import { httpUrl } from "@/lib/contracts/http-url"
 
-export const BULK_MAX_TARGETS = 100
+/** Plan P09: one batch covers at most 50 explicitly selected listings. */
+export const BULK_MAX_TARGETS = 50
+/** A preview can be approved for 15 minutes after it was read from Google. */
+export const BULK_PREVIEW_TTL_MS = 15 * 60_000
+/** An approved batch may dispatch for 24 hours after approval, child by child. */
+export const BULK_DISPATCH_TTL_MS = 24 * 60 * 60_000
+/** At most this many bulk children run at once per organisation (enforced in SQL). */
+export const BULK_MAX_RUNNING_PER_ORGANISATION = 2
 const time = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time such as 09:30.")
@@ -114,6 +121,23 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
+
+/**
+ * The provider resource one bulk child writes. Two running children never
+ * share a (location, resource key), across batches, and the runner takes the
+ * per-location advisory lock of the same name the single-listing editors take
+ * (`<org>:<location>:attributes` in lib/server/business-information.ts), so
+ * bulk and editor writes to one resource are serialised. The three hours
+ * families share one key: they patch fields of the same location resource.
+ * The hours editor takes no such lock yet; P09-R3 sends bulk hours through
+ * the canonical hours path instead.
+ */
+export type BulkResourceKey = "hours" | "attributes" | "place_actions"
+export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
+  if (operation === "attributes") return "attributes"
+  if (operation === "place_action") return "place_actions"
+  return "hours"
+}
 
 const DAYS = [
   "SUNDAY",

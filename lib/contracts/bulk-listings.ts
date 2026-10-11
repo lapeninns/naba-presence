@@ -46,6 +46,8 @@ export const BULK_CHILD_STATUSES = [
   "conflict",
   "ambiguous",
   "cancelled",
+  // Its dispatch window (24 hours after approval) closed before it was sent.
+  "expired",
 ] as const
 
 export const bulkChildSchema = z.object({
@@ -81,7 +83,12 @@ export const bulkOperationSchema = z.object({
   approvedBy: z.uuid().nullable(),
   requiresSecondApprover: z.boolean(),
   canApprove: z.boolean(),
+  /** The deadline that applies now: the dispatch deadline once approved, else the preview's. */
   approvalExpiresAt: z.iso.datetime(),
+  /** Approve before this (15 minutes after the preview read Google). */
+  previewExpiresAt: z.iso.datetime(),
+  /** Set at approval: no listing is sent after this (24 hours later). */
+  dispatchExpiresAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   finishedAt: z.iso.datetime().nullable(),
   counts: z.record(z.string(), z.number()),

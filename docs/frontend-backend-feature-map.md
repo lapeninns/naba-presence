@@ -351,7 +351,7 @@ established; see `docs/gbp-operations-acceptance.md`.
 | Notifications | `/notifications` (per-person read state, manager resolve), toolbar unread badge, `/settings/notifications` preferences | `/api/notifications`, `/read`, `/[incidentId]/resolve`, `/preferences`; `/api/webhooks/email` |
 | Operations | `/settings/operations` (owners/admins) | `/api/operations/health` (adds unresolved writes and email evidence), `/api/operations/notification-deliveries/retry` |
 | Scheduled publication | Posts tab: Schedule sheet with exact preview, schedules list with approval, pause/resume/cancel/change; `/calendar` month, week and agenda | `/api/locations/[id]/post-schedules/**`, `/api/post-schedules/occurrences`; job tick |
-| Bulk listing changes | Listings board selection (up to 100), `/listings/bulk` compose, `/listings/bulk/[id]` review, approval, progress, cancel, retry | `/api/listings/bulk/preview`, `/[id]`, `/[id]/approve`, `/[id]/execute` (202), `/[id]/cancel`, `/[id]/retry`; job tick |
+| Bulk listing changes | Behind org feature `bulk_actions`; listings board selection (up to 50), `/listings/bulk` compose, `/listings/bulk/[id]` review, approval, progress, cancel, retry | `/api/listings/bulk/preview`, `/[id]`, `/[id]/approve`, `/[id]/execute` (202), `/[id]/cancel`, `/[id]/retry`; job tick |
 | Report provenance | Google tab, location report and share page: "No data" for missing metrics, prior-window deltas, data-through vs last fetched, coverage, totals CSV, print styles | `/api/analytics/presence` optional `previous`, `fetchedAt`, `coverage`, `dateBasis` |
 
 Wording rule applied: call clicks are "Call button taps", booking clicks are

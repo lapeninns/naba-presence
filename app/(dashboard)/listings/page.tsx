@@ -4,6 +4,7 @@ import Link from "next/link"
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { ListingsBoard } from "@/components/listings/listings-board"
 import { buttonVariants } from "@/components/ui/button"
+import { bulkActionsEnabled } from "@/lib/server/bulk-listings"
 import { getSession } from "@/lib/server/session"
 import { cn } from "@/lib/utils"
 
@@ -17,6 +18,8 @@ export const metadata = { title: "Listings · NabaPresence" }
 export default async function ListingsPage() {
   const session = await getSession()
   const canManage = session?.role === "owner" || session?.role === "admin"
+  const bulkEnabled =
+    canManage && session ? await bulkActionsEnabled(session.organisationId) : false
   return (
     <PageFrame width="wide">
       <PageHeader
@@ -31,7 +34,7 @@ export default async function ListingsPage() {
           ) : null
         }
       />
-      <ListingsBoard role={session?.role ?? null} />
+      <ListingsBoard role={session?.role ?? null} bulkEnabled={bulkEnabled} />
     </PageFrame>
   )
 }
