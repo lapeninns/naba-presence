@@ -25,9 +25,15 @@ begin;
 --   review_media_item     by review, for the expiry join and review cascades
 --   hours_sync_attempt    expiry, as the other attempt tables already have
 --
+-- The review index's predicate is the purge's redaction predicate; a purge
+-- that widens it (P04-3 adds reviewer_profile_photo_url) needs a new partial
+-- index matching the wider predicate, or the planner cannot use this one.
+--
 -- Plain `create index if not exists`: the migration runs in a transaction, so
--- CONCURRENTLY is unavailable. The tables are tenant-sized; the build takes a
--- short write lock on each.
+-- CONCURRENTLY is unavailable. review, review_media_item and
+-- hours_sync_attempt are fleet-wide tables, and each build holds a SHARE lock
+-- that blocks every tenant's writes to that table (review ingest included)
+-- until it finishes. Apply this migration in a low-traffic window.
 -- ---------------------------------------------------------------------------
 
 alter table retention_cycle_org

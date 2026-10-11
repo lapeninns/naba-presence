@@ -43,6 +43,11 @@ type PurgeStep = {
   key: string
   destructive?: boolean
   once?: boolean
+  /**
+   * A step whose rows the named step must clear first: it stays behind for
+   * as long as that step is behind, even when it changed nothing itself.
+   */
+  waitsFor?: string
   run: (sql: TransactionSql, limit: number) => Promise<number>
 }
 
@@ -99,11 +104,13 @@ function rowsStep(
     where: (sql: TransactionSql) => Fragment
     set?: (sql: TransactionSql) => Fragment
     destructive?: boolean
+    waitsFor?: string
   }
 ): PurgeStep {
   return {
     key,
     destructive: options.destructive,
+    waitsFor: options.waitsFor,
     run: async (sql, limit) =>
       (
         await boundedRows(sql, {
@@ -206,6 +213,8 @@ function purgeSteps(organisationId: string): PurgeStep[] {
         )
       `,
     }),
+    // review_unredacted_expiry_idx (0099) is a partial index on exactly
+    // this predicate: widening it needs a matching new index.
     rowsStep("reviews", {
       table: "review",
       where: (sql) => sql`
@@ -246,8 +255,34 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     // review -> external_location and legal_hold -> review are both ON
     // DELETE CASCADE (0001), so without the hold predicate the purge would
     // destroy held reviews and the holds protecting them in one statement.
+    // The row bound applies to the rows a statement selects, not to what
+    // they cascade to, so a disconnected location's reviews (with their
+    // media, replies and holds) are deleted in bounded batches first, and a
+    // location goes only once it has none left. A location with any held
+    // review keeps every review, exactly as it keeps itself.
+    rowsStep("disconnectedReviews", {
+      destructive: true,
+      table: "review",
+      where: (sql) => sql`
+        external_location_id in (
+          select l.id from external_location l
+          where l.google_connection_id in (
+            select id from google_connection
+            where status = 'disconnected'
+              and purge_due_at <= now()
+          )
+            and not exists (
+              select 1 from review r
+              join legal_hold h
+                on h.review_id = r.id and h.released_at is null
+              where r.external_location_id = l.id
+            )
+        )
+      `,
+    }),
     rowsStep("disconnectedLocations", {
       destructive: true,
+      waitsFor: "disconnectedReviews",
       table: "external_location",
       where: (sql) => sql`
         google_connection_id in (
@@ -257,8 +292,6 @@ function purgeSteps(organisationId: string): PurgeStep[] {
         )
         and not exists (
           select 1 from review r
-          join legal_hold h
-            on h.review_id = r.id and h.released_at is null
           where r.external_location_id = external_location.id
         )
       `,
@@ -549,10 +582,14 @@ function nonzero(counts: OrganisationPurgeCounts): OrganisationPurgeCounts {
  * later run (the next dispatcher fire, or a hand page) resumes simply by
  * running again.
  *
- * The round that finds everything caught up also counts locations held back
- * from a disconnected purge and writes the `retention.purge.completed` audit,
- * with the organisation's totals across the cycle (`priorCounts` plus this
- * run), when anything changed. Both the cycle dispatcher
+ * Each round that changed rows writes a `retention.purge.round` audit with
+ * what it changed, in its own transaction. The round that finds everything
+ * caught up also counts locations held back from a disconnected purge and
+ * writes the `retention.purge.completed` audit, a summary with the
+ * organisation's totals across the cycle (`priorCounts` plus this run), when
+ * anything changed. The round audits are the complete record: the summary
+ * misses rounds whose cycle counts were never recorded (a run killed after
+ * committing) or were pruned with their cycle. Both the cycle dispatcher
  * (lib/server/retention/cycle.ts) and a hand-run page (`retainPage`) call it,
  * so the two can never retain differently.
  *
@@ -586,7 +623,36 @@ export async function purgeOrganisation({
       for (const step of pending) {
         const rows = await step.run(sql, limit)
         changed[step.key] = rows
-        if (!step.once && rows >= limit) behind.push(step)
+        if (
+          !step.once &&
+          (rows >= limit ||
+            behind.some((earlier) => earlier.key === step.waitsFor))
+        ) {
+          behind.push(step)
+        }
+      }
+      // Every round that changed rows is audited in its own transaction, so
+      // each committed change is on record in audit_log whatever becomes of
+      // the run afterwards: a later round that fails, a run stopped until
+      // its cycle gives up on it, a hand page nobody resumes, or a kill
+      // before the cycle records the outcome. The completion audit below is
+      // the summary; these rows are the record.
+      const roundChanged = nonzero(changed)
+      if (Object.keys(roundChanged).length) {
+        await writeAudit(sql, {
+          organisationId,
+          action: "retention.purge.round",
+          subjectType: "organisation",
+          subjectId: organisationId,
+          requestId: `${requestId}:${organisationId}:${rounds + 1}`,
+          metadata: {
+            ...roundChanged,
+            round: rounds + 1,
+            deletesEnabled,
+            batchRows: limit,
+            clientRequestId,
+          },
+        })
       }
       if (behind.length) return { changed, behind, held: 0 }
       // A held location keeps its connection past the seven-day promise

@@ -385,10 +385,18 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   it committed), logged as `retention.organisation_partial`, and leaves the
   organisation `pending` in its cycle with `resumes` incremented and the run
   handed back rather than counted as an attempt (up to 48 times, then each
-  stopped run uses an attempt). `retention_cycle_org.counts` sums what each
-  committed round changed, and the single `retention.purge.completed` audit,
-  written by the round that catches up, reports those totals with
-  `batchRows`. A hand page that stops inside an organisation answers a
+  stopped run uses an attempt). Every round that changed rows writes a
+  `retention.purge.round` audit (its counts, `round` and `batchRows`) in the
+  same transaction, so each committed change is in `audit_log` even when the
+  run later fails, is given up on, or is killed. `retention_cycle_org.counts`
+  sums what each committed round changed, and the `retention.purge.completed`
+  audit, written by the round that catches up, reports those totals as a
+  summary; it can undercount a run killed after committing, so reconcile
+  against the round audits. The row bound applies to the rows a statement
+  selects, not to cascades: a disconnected location's reviews are deleted in
+  bounded batches (`disconnectedReviews`) before the location itself goes,
+  but the location's other children (metrics, attempts, posts, media) still
+  go in its cascade. A hand page that stops inside an organisation answers a
   `nextCursor` just before it (the nil UUID at the head of the fleet), so
   following the cursor resumes it. A large backlog after an outage or a raised
   window drains over successive fires; watch
@@ -973,7 +981,7 @@ as JSON or CSV from `/api/audit-log`.
 A legal hold outranks the seven-day disconnect promise, and does so silently:
 the retention sweep refuses to delete an external location while any of its
 reviews carries an unreleased hold, so that location and its connection row
-persist indefinitely. The sweep reports the count as `heldLocationsSkipped` in
+persist indefinitely (its reviews are kept with it). The sweep reports the count as `heldLocationsSkipped` in
 its `retention.purge.completed` audit row and in
 `retention.organisation_purged`. Watch that number: a non-zero value that never
 falls is an unmet deletion obligation waiting on a hold nobody released, not a
