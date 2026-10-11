@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { GateNote } from "@/components/locations/publish-gate"
 import type { IndustryState } from "@/lib/api/location-industry"
-import { buildLodgingProposal } from "@/lib/locations/forms/lodging-draft"
+import { buildLodgingProposal, sameLodgingFields } from "@/lib/locations/forms/lodging-draft"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { LodgingEditor } from "./lodging-editor"
@@ -19,12 +19,16 @@ export function CompleteLodgingSection({ locationId, loaded, suggested, suggeste
   // The revision is Google's lodging hash, or the content itself when there
   // is none: a refetch that returns the same lodging is not a new version,
   // and one that returns different lodging never overwrites unsaved edits
-  // (DraftNotices offers "Load theirs" / "Keep mine").
+  // (DraftNotices offers "Load theirs" / "Keep mine"). Drafts compare by the
+  // editable lodging fields only, the way the review footer does: key order,
+  // an emptied group and Google's own metadata (the `updateTime` a confirmed
+  // publish moves) are not edits.
   const editor = useEditorDraft({
     initial: loaded,
     revision: googleHash ?? JSON.stringify(loaded),
     scope: { resource: "location-lodging", resourceId: locationId, schemaVersion: 1 },
     parseStashed: plainRecord,
+    isEqual: sameLodgingFields,
   })
   const { draft, setDraft, discard } = editor
   const [locked, setLocked] = useState(false)

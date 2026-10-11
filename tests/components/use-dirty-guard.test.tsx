@@ -42,6 +42,19 @@ describe("useDirtyGuard", () => {
     expect(takeStashedDraft("inbox:reply:rev-2")).toBe("draft")
   })
 
+  it("never stashes when the editor has no way to offer a stash back", () => {
+    const addListener = vi.spyOn(window, "addEventListener")
+    const { unmount } = renderHook(() =>
+      useDirtyGuard({ key: "edit-link:loc/1", isDirty: true, snapshot: () => "draft", stash: false })
+    )
+    stashAllDrafts()
+    expect(takeStashedDraft("edit-link:loc/1")).toBeNull()
+    unmount()
+    expect(takeStashedDraft("edit-link:loc/1")).toBeNull()
+    // A reload still warns.
+    expect(addListener).toHaveBeenCalledWith("beforeunload", expect.any(Function))
+  })
+
   it("does not stash on unmount when clean or after a confirmed discard", async () => {
     const clean = renderHook(() =>
       useDirtyGuard({ key: "inbox:reply:rev-3", isDirty: false, snapshot: () => "" })

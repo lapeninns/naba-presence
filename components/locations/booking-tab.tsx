@@ -64,7 +64,6 @@ import {
 } from "@/lib/editors/booking-presentation"
 import { editorGate } from "@/lib/editors/gate"
 import { useCloseGuard } from "@/lib/editors/use-close-guard"
-import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
@@ -744,17 +743,14 @@ function EditLinkDialog({
   }
   const isDirty = link !== null && uri.trim() !== link.uri
 
-  // Warns on a reload and keeps the edit through a forced sign-out; closing
-  // the dialog or leaving the page with it asks first.
-  const draftKey = useDraftKey({
-    resource: "location-place-action-edit",
-    resourceId: `${locationId}/${link?.id ?? ""}`,
-    schemaVersion: 1,
-  })
+  // Warns on a reload; closing the dialog or leaving the page with it asks
+  // first. Nothing offers an edited link back once the dialog is gone, so
+  // the edit is not stashed.
   const { markDiscarded } = useDirtyGuard({
-    key: draftKey,
+    key: `location-place-action-edit/${locationId}/${link?.id ?? ""}`,
     isDirty,
     snapshot: () => JSON.stringify({ uri }),
+    stash: false,
   })
   const close = useCloseGuard({
     isDirty,

@@ -39,6 +39,7 @@ export function useDirtyGuard({
   snapshot,
   askConfirm,
   confirmMessage = DEFAULT_CONFIRM_MESSAGE,
+  stash = true,
 }: {
   key: string
   isDirty: boolean
@@ -46,6 +47,12 @@ export function useDirtyGuard({
   askConfirm?: () => Promise<boolean>
   /** The `window.confirm` fallback's sentence, when no `askConfirm` is given. */
   confirmMessage?: string
+  /**
+   * Stash the edits on unmount and on a forced sign-out (responsibilities 1
+   * and 5). Pass false for an editor that has no way to offer a stash back:
+   * a stash nothing reads only lingers in sessionStorage.
+   */
+  stash?: boolean
 }): {
   confirmDiscard: () => Promise<boolean>
   restore: () => string | null
@@ -84,6 +91,7 @@ export function useDirtyGuard({
       foreign.current = true
     }
     if (next !== null) owner.current = next
+    if (!stash) return
     const unregister = registerDraftSource(key, () =>
       latest.current.isDirty && !foreign.current
         ? latest.current.snapshot()
@@ -95,7 +103,7 @@ export function useDirtyGuard({
         stashDraft(key, latest.current.snapshot())
       }
     }
-  }, [key])
+  }, [key, stash])
 
   useEffect(() => {
     if (!isDirty) return

@@ -367,7 +367,10 @@ while the draft is dirty, keeps the edits and offers "Load theirs" / "Keep
 mine" (the profile, hours, menu, services, lodging, post composer and new
 action link editors). `useLeaveGuard` (`lib/editors/use-leave-guard.ts`)
 holds an in-app link click, the browser's back button (a sentinel history
-entry above a dirty page) and programmatic navigation through
+entry above a dirty page, paired by id with the entry beneath it so only a
+step from that sentinel onto its own base asks, and kept through Next's
+same-address `replaceState` on `router.refresh()`) and programmatic
+navigation through
 `useGuardedRouter` / `guardNavigation` (the command palette and client
 switcher). `useCloseGuard` (`lib/editors/use-close-guard.ts`) asks before a
 sheet or dialog with unsaved edits closes (the post composer and the action

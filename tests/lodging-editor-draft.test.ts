@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildLodgingProposal, lodgingErrorsWithin, lodgingValue, setLodgingValue } from "@/lib/locations/forms/lodging-draft"
+import { buildLodgingProposal, lodgingErrorsWithin, lodgingValue, sameLodgingFields, setLodgingValue } from "@/lib/locations/forms/lodging-draft"
 import { acceptLodgingSuggestion, lodgingSuggestions } from "@/lib/locations/forms/lodging-suggestions"
 
 describe("precise lodging drafts and provider suggestions", () => {
@@ -21,6 +21,15 @@ describe("precise lodging drafts and provider suggestions", () => {
     expect(buildLodgingProposal({}, { property: { roomsCount: "twelve" } }).fieldErrors).toEqual({ "property.roomsCount": "Rooms count: enter a whole number." })
     expect(buildLodgingProposal({}, { guestUnits: [{ codes: ["A"], label: "One" }, { codes: ["A"], label: "Two" }] }).fieldErrors).toEqual({ "guestUnits.1.codes.0": "Guest unit codes must be unique within a lodging listing." })
     for (const message of Object.values(buildLodgingProposal({}, { guestUnits: [{}], property: { roomsCount: "x" } }).fieldErrors)) expect(message).not.toMatch(/supported (array|string|number|int) value/)
+  })
+
+  it("compares drafts by their editable values only", () => {
+    const server = { metadata: { updateTime: "2026-10-01T00:00:00Z" }, policies: { checkinTime: { hours: 15, minutes: 0 } }, pets: { petsAllowed: false } }
+    // Key order, an emptied group and backend metadata are not edits.
+    expect(sameLodgingFields(server, { pets: { petsAllowed: false }, policies: { checkinTime: { hours: 15, minutes: 0 } } })).toBe(true)
+    expect(sameLodgingFields(server, { ...server, services: {} })).toBe(true)
+    expect(sameLodgingFields(server, { ...server, metadata: { updateTime: "2026-10-09T00:00:00Z" } })).toBe(true)
+    expect(sameLodgingFields(server, { ...server, pets: { petsAllowed: true } })).toBe(false)
   })
 
   it("does not flag untouched or absent optional lists", () => {

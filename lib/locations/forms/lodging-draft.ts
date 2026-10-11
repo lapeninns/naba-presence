@@ -61,8 +61,21 @@ export function lodgingEditableFields(nodes: readonly LodgingEditorNode[] = LODG
   return nodes.flatMap((node) => node.kind === "group" ? lodgingEditableFields(node.children) : [node])
 }
 
+function lodgingFieldChanged(before: unknown, after: unknown, node: LodgingEditorNode): boolean {
+  return JSON.stringify(lodgingValue(before, node.path)) !== JSON.stringify(lodgingValue(after, node.path))
+}
+
+/**
+ * Whether two lodging drafts hold the same editable values: what an empty
+ * `buildLodgingProposal(...).updateMask` means, without building the payload.
+ * Key order, an emptied group and backend metadata don't count.
+ */
+export function sameLodgingFields(a: unknown, b: unknown): boolean {
+  return !lodgingEditableFields().some((node) => lodgingFieldChanged(a, b, node))
+}
+
 export function buildLodgingProposal(before: unknown, after: unknown) {
-  const changed = lodgingEditableFields().filter((node) => JSON.stringify(lodgingValue(before, node.path)) !== JSON.stringify(lodgingValue(after, node.path)))
+  const changed = lodgingEditableFields().filter((node) => lodgingFieldChanged(before, after, node))
   const updateMask = changed.map((node) => node.updatePath).sort()
   const payload = changed.reduce<Record<string, unknown>>((result, node) => setLodgingValue(result, node.updatePath, lodgingValue(after, node.path)), {})
   const checked = lodgingSchema.safeParse(payload)

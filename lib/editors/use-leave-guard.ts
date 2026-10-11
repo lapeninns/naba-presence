@@ -68,68 +68,171 @@ type ArmedGuard = {
 const armed: ArmedGuard[] = []
 
 // The back-button sentinel. While any guard is armed, the page sits on an
-// extra history entry with the same address, marked in its state. The
-// browser's back button then lands on the entry beneath it, still this page,
-// where the guard can ask before anything unmounts. `sentinelUrl` is the
-// address of the sentinel this tab believes is above the current entry.
+// extra history entry with the same address. The browser's back button then
+// lands on the entry beneath it, still this page, where the guard can ask
+// before anything unmounts.
+//
+// Both entries carry the same id in their history state: the sentinel under
+// SENTINEL, the entry beneath it (its base) under BASE. A step back is "off
+// the sentinel" only when it goes from a sentinel straight onto its own base,
+// so a later visit to the same address, a sentinel replaced by a navigation
+// or a forward step is never mistaken for one. `sentinelId` is the sentinel
+// the armed guards stand on; `lastState` is the state of the entry the tab
+// was on before the latest history step.
 const SENTINEL = "__npLeaveGuard"
-let sentinelUrl: string | null = null
+const BASE = "__npLeaveBase"
+let sentinelId: string | null = null
+let lastState: unknown = null
+// A back press the prompt is holding: the page sits on the base entry until
+// the operator stays (the sentinel goes back) or leaves.
+let holding = false
 let listening = false
+let restoreHistory: (() => void) | null = null
 
-function isSentinel(state: unknown): boolean {
-  return (
-    typeof state === "object" &&
-    state !== null &&
-    (state as Record<string, unknown>)[SENTINEL] === true
-  )
+function marker(state: unknown, key: string): string | null {
+  if (typeof state !== "object" || state === null) return null
+  const value = (state as Record<string, unknown>)[key]
+  return typeof value === "string" ? value : null
+}
+
+function newId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function pushSentinel() {
+  // Reuse the id of the base the page already stands on (staying after a
+  // back press); otherwise mark this entry as the base of a new sentinel.
+  let id = marker(window.history.state, BASE)
+  if (id === null) {
+    id = newId()
+    const state = window.history.state as Record<string, unknown> | null
+    window.history.replaceState({ ...state, [BASE]: id }, "")
+  }
   // No URL argument: the entry keeps this page's address, and Next's patched
   // pushState copies its own router state into it without dispatching a
   // navigation.
-  window.history.pushState({ [SENTINEL]: true }, "")
-  sentinelUrl = window.location.href
+  window.history.pushState({ [SENTINEL]: id }, "")
+  sentinelId = id
+}
+
+function sameAddress(url: string | URL | null | undefined): boolean {
+  if (url === null || url === undefined) return true
+  try {
+    return new URL(url, window.location.href).href === window.location.href
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Keep the markers on an entry that is rewritten in place. Next replaces the
+ * current entry's state with only its own router state on `router.refresh()`,
+ * on a `router.replace()` to the same address and when it renders a back
+ * navigation; without this the sentinel would stop being one while the page
+ * still stands on it.
+ */
+function keepMarkers(data: unknown, url: string | URL | null | undefined) {
+  const current = window.history.state
+  const sentinel = marker(current, SENTINEL)
+  const base = marker(current, BASE)
+  if (sentinel === null && base === null) return data
+  if (data !== null && data !== undefined && typeof data !== "object")
+    return data
+  if (!sameAddress(url)) return data
+  const next = { ...(data as Record<string, unknown> | null | undefined) }
+  if (sentinel !== null && !(SENTINEL in next)) next[SENTINEL] = sentinel
+  if (base !== null && !(BASE in next)) next[BASE] = base
+  return next
 }
 
 function onPopState(event: PopStateEvent) {
-  // Forward onto a sentinel (or back onto one from a later page): this page,
-  // nothing to hold.
-  if (isSentinel(event.state)) return
-  if (sentinelUrl === null || window.location.href !== sentinelUrl) return
+  const previous = lastState
+  lastState = event.state
+  const id = marker(event.state, BASE)
+  if (id === null || marker(previous, SENTINEL) !== id) return
   // The back button took the page off its sentinel.
-  sentinelUrl = null
-  const guard = armed.at(-1)
+  const guard = id === sentinelId ? armed.at(-1) : undefined
   if (guard) {
+    holding = true
     guard.request({ kind: "back" })
   } else {
     // A sentinel left behind once the edits were saved or the editor closed:
     // the operator meant to go back past it, so carry on to the page before.
+    if (id === sentinelId) sentinelId = null
     window.history.back()
   }
+}
+
+function onHashChange() {
+  lastState = window.history.state
 }
 
 function listen() {
   if (listening || typeof window === "undefined") return
   listening = true
+  const { history } = window
+  const push = history.pushState
+  const replace = history.replaceState
+  // Track the entry the tab is on, which a popstate event no longer tells.
+  const tracked: History["pushState"] = (data, unused, url) => {
+    push.call(history, data, unused, url)
+    lastState = history.state
+  }
+  const kept: History["replaceState"] = (data, unused, url) => {
+    const moved = !sameAddress(url)
+    replace.call(history, keepMarkers(data, url), unused, url)
+    // A rewrite in place is still the same entry. Next makes one while it
+    // renders a back navigation, which can come before the popstate event:
+    // only an entry replaced by another address counts as a new one.
+    if (moved) lastState = history.state
+  }
+  history.pushState = tracked
+  history.replaceState = kept
+  lastState = history.state
   // A reload keeps the history entries but not this module: adopt a sentinel
   // the page was reloaded on.
-  if (isSentinel(window.history.state)) sentinelUrl = window.location.href
-  window.addEventListener("popstate", onPopState)
+  sentinelId = marker(history.state, SENTINEL)
+  // Capture phase, so this runs before Next's own popstate listener.
+  window.addEventListener("popstate", onPopState, true)
+  window.addEventListener("hashchange", onHashChange)
+  restoreHistory = () => {
+    if (history.pushState === tracked) history.pushState = push
+    if (history.replaceState === kept) history.replaceState = replace
+    window.removeEventListener("popstate", onPopState, true)
+    window.removeEventListener("hashchange", onHashChange)
+  }
 }
 
 function arm(guard: ArmedGuard): () => void {
   listen()
   armed.push(guard)
-  if (isSentinel(window.history.state)) sentinelUrl = window.location.href
-  else pushSentinel()
+  const standing = marker(window.history.state, SENTINEL)
+  // Already above a base (a sentinel left behind by an earlier save, or one
+  // another guard pushed), or holding a back press whose Stay restores it.
+  if (standing !== null) sentinelId = standing
+  else if (!holding) pushSentinel()
   // Disarming leaves the sentinel where it is: rewinding history here could
   // race a navigation the editor itself starts after saving. The popstate
   // handler skips a stale sentinel when the operator next goes back.
   return () => {
     const index = armed.indexOf(guard)
     if (index >= 0) armed.splice(index, 1)
+    // The prompt holding a back press went with the last guard.
+    if (armed.length === 0) holding = false
   }
+}
+
+/** Test-only: forget the module state and give `history` its methods back. */
+export function __resetLeaveGuardForTests() {
+  restoreHistory?.()
+  restoreHistory = null
+  listening = false
+  armed.length = 0
+  sentinelId = null
+  lastState = null
+  holding = false
 }
 
 /**
@@ -205,7 +308,10 @@ export function useLeaveGuard({
       if (open) return
       // Staying after the back button: put the sentinel back, so the next
       // back press asks again.
-      if (!confirmed.current && pending?.kind === "back") pushSentinel()
+      if (pending?.kind === "back") {
+        holding = false
+        if (!confirmed.current) pushSentinel()
+      }
       confirmed.current = false
       setPending(null)
     },
@@ -220,6 +326,8 @@ export function useLeaveGuard({
       latestOnLeave.current?.()
     for (const guard of guards) guard.leave()
     if (pending.kind === "back") {
+      holding = false
+      sentinelId = null
       window.history.back()
     } else if (pending.kind === "run") {
       pending.run()

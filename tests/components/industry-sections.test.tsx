@@ -125,6 +125,36 @@ describe("IndustrySections", () => {
     expect(screen.queryByText(/Someone else saved/)).not.toBeInTheDocument()
   })
 
+  it("follows its own confirmed publish silently when the readback moves Google's metadata", async () => {
+    const lodging = { metadata: { updateTime: "2026-10-01T00:00:00Z" }, policies: { checkinTime: { hours: 15, minutes: 0 } }, pets: { petsAllowed: false } }
+    let current: unknown = { industry: { ...INDUSTRY.industry, lodging: available(lodging) } }
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      if (url.includes("/capabilities")) return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+      if (url.includes("/industry")) return jsonResponse(current)
+      return jsonResponse({ id: "m", status: "succeeded", idempotent: false })
+    }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><Toaster><IndustrySections locationId="loc-1" /></Toaster></QueryClientProvider>)
+    expect(await screen.findByRole("region", { name: "Suggested lodging changes" })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole("button", { name: "Apply suggested pets allowed to draft" }))
+    await userEvent.click(screen.getByRole("searchbox"))
+    await userEvent.paste("Pets allowed")
+    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+
+    // Google confirmed the publish: the readback carries a new hash and the
+    // backend's new updateTime, with exactly the values this draft sent.
+    current = { industry: { ...INDUSTRY.industry, lodgingHash: "b".repeat(64), lodging: available({
+      metadata: { updateTime: "2026-10-09T12:00:00Z" },
+      pets: { petsAllowed: true },
+      policies: { checkinTime: { hours: 15, minutes: 0 } },
+    }) } }
+    await act(() => client.invalidateQueries())
+
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes"))
+    expect(screen.queryByText(/Someone else saved/)).not.toBeInTheDocument()
+  })
+
   it("omits retired controls even when an old response contains their data", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<IndustrySections locationId="loc-1" />)
