@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { queryKeys } from "@/lib/queries/keys"
+import { resourcePrefixesForPath } from "@/lib/queries/scope-reset"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import * as locationsApi from "@/lib/api/locations"
 
@@ -81,5 +82,32 @@ describe("location directory cache", () => {
     expect((queryKeys.locationsManagement as readonly unknown[])[0]).toBe(
       directory[0]
     )
+  })
+
+  it("drops one location's cache on lost access without dropping the directory", () => {
+    // A 403/404 on one location removes the roots resourcePrefixesForPath
+    // names; none may be a prefix of the directory key, or one refused
+    // request would empty every listing surface.
+    const directory = queryKeys.locations as readonly unknown[]
+    for (const prefix of resourcePrefixesForPath("/api/locations/loc-1")) {
+      expect(prefix[0]).not.toBe(directory[0])
+      expect(prefix).toContain("loc-1")
+    }
+    // ...and every per-location key the editors read sits under one of them.
+    const roots = resourcePrefixesForPath("/api/locations/loc-1")
+    for (const key of [
+      queryKeys.locationProfile("loc-1"),
+      queryKeys.locationHours("loc-1"),
+      queryKeys.locationMenu("loc-1"),
+      queryKeys.locationMedia("loc-1"),
+      queryKeys.locationCapabilities("loc-1"),
+      queryKeys.listingSummary("loc-1"),
+      queryKeys.listingChangeRequests("loc-1"),
+      queryKeys.postSchedules("loc-1"),
+    ]) {
+      expect(
+        roots.some((root) => root.every((part, index) => key[index] === part))
+      ).toBe(true)
+    }
   })
 })

@@ -241,7 +241,7 @@ function ProfileEditor({
   const valuesDraft = useEditorDraft({
     initial: initialValues,
     revision,
-    key: `location-profile-${locationId}`,
+    scope: { resource: "location-profile", resourceId: locationId, schemaVersion: 1 },
   })
   const {
     draft: values,
@@ -259,7 +259,7 @@ function ProfileEditor({
   const listingDraft = useEditorDraft({
     initial: initialListing,
     revision: business?.locationHash ?? null,
-    key: `location-listing-${locationId}`,
+    scope: { resource: "location-listing", resourceId: locationId, schemaVersion: 1 },
     parseStashed: parseListingDraft,
   })
   const {
@@ -280,7 +280,7 @@ function ProfileEditor({
   const attributesDraft = useEditorDraft<Record<string, GoogleAttribute>>({
     initial: initialAttributes,
     revision: business?.attributesHash ?? null,
-    key: `location-attributes-${locationId}`,
+    scope: { resource: "location-attributes", resourceId: locationId, schemaVersion: 1 },
   })
   const {
     draft: attributes,

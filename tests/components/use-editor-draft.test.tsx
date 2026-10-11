@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { __resetDraftSources, takeStashedDraft } from "@/lib/api/draft-stash"
+import { draftKey } from "@/lib/editors/draft-key"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { parseServiceDraft, serviceDraftRows } from "@/lib/locations/forms/services"
 import { guardedHref, useLeaveGuard } from "@/lib/editors/use-leave-guard"
@@ -18,23 +19,31 @@ beforeEach(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
+// No query client: the identity is unknown, which the key says as "-".
+const TEST_SCOPE = { resource: "test-draft", schemaVersion: 1 }
+const TEST_KEY = draftKey({ userId: null, organisationId: null, ...TEST_SCOPE })
+const SERVICES_SCOPE = { resource: "services-test", schemaVersion: 1 }
+const SERVICES_KEY =
+  "naba:draft:" +
+  draftKey({ userId: null, organisationId: null, ...SERVICES_SCOPE })
+
 type Props = { initial: { name: string }; revision: string | null }
 
 function useDraft(props: Props) {
-  return useEditorDraft({ ...props, key: "test-draft" })
+  return useEditorDraft({ ...props, scope: TEST_SCOPE })
 }
 
 describe("useEditorDraft", () => {
   it("validates service stashes and offers unfinished rows without replacing the server draft", () => {
     const initial = serviceDraftRows([{ structuredServiceItem: { serviceTypeId: "repair" } }])
-    sessionStorage.setItem("naba:draft:services-test", JSON.stringify({ broken: true }))
-    const broken = renderHook(() => useEditorDraft({ initial, revision: "1", key: "services-test", parseStashed: parseServiceDraft }))
+    sessionStorage.setItem(SERVICES_KEY, JSON.stringify({ broken: true }))
+    const broken = renderHook(() => useEditorDraft({ initial, revision: "1", scope: SERVICES_SCOPE, parseStashed: parseServiceDraft }))
     expect(broken.result.current.stashed).toBe(false)
     expect(broken.result.current.draft).toEqual(initial)
     broken.unmount()
     const unfinished = [{ item: { freeFormServiceItem: { category: "gcid:plumber", label: { displayName: "" } } }, priceEdit: { mode: "set", amount: "12.", currency: "GBP" } }]
-    sessionStorage.setItem("naba:draft:services-test", JSON.stringify(unfinished))
-    const valid = renderHook(() => useEditorDraft({ initial, revision: "1", key: "services-test", parseStashed: parseServiceDraft }))
+    sessionStorage.setItem(SERVICES_KEY, JSON.stringify(unfinished))
+    const valid = renderHook(() => useEditorDraft({ initial, revision: "1", scope: SERVICES_SCOPE, parseStashed: parseServiceDraft }))
     expect(valid.result.current.stashed).toBe(true)
     expect(valid.result.current.draft).toEqual(initial)
     act(() => valid.result.current.restoreStashed())
@@ -109,7 +118,7 @@ describe("useEditorDraft", () => {
     act(() => second.result.current.restoreStashed())
     expect(second.result.current.draft).toEqual({ name: "Left behind" })
     expect(second.result.current.stashed).toBe(false)
-    expect(takeStashedDraft("test-draft")).toBeNull()
+    expect(takeStashedDraft(TEST_KEY)).toBeNull()
   })
 
   it("does not stash edits the operator agreed to lose", () => {
@@ -119,7 +128,22 @@ describe("useEditorDraft", () => {
     act(() => first.result.current.setDraft({ name: "Gone" }))
     act(() => first.result.current.forget())
     first.unmount()
-    expect(takeStashedDraft("test-draft")).toBeNull()
+    expect(takeStashedDraft(TEST_KEY)).toBeNull()
+  })
+
+  it("ignores a stash written under an older schema version", () => {
+    sessionStorage.setItem(
+      "naba:draft:" + draftKey({ userId: null, organisationId: null, ...TEST_SCOPE }),
+      JSON.stringify({ name: "Old shape" })
+    )
+    const { result } = renderHook(() =>
+      useEditorDraft({
+        initial: { name: "A" },
+        revision: "1",
+        scope: { ...TEST_SCOPE, schemaVersion: 2 },
+      })
+    )
+    expect(result.current.stashed).toBe(false)
   })
 })
 

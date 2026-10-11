@@ -345,6 +345,17 @@ still be signed in. Any other failure keeps the person signed in on the page
 with a Retry. A confirmed sign-out clears the query cache and every
 `naba:draft:` stash before the full-page navigation.
 
+Client state is bound to the session's scope. Stashed editor drafts are keyed
+by user, organisation, resource, resource id and draft schema version
+(`lib/editors/draft-key.ts`), so a stash is only offered to whoever wrote it
+and a schema bump ignores old ones. The session projection carries an opaque
+`scopeFingerprint` (role, publish right, `location_scope` and location
+grants, hashed in `lib/server/session.ts`); `lib/queries/scope-reset.ts`
+drops every cached query but the session when the user, organisation, role,
+publish right or fingerprint changes, purges stashes of any other identity,
+and drops one location's or client's cache when a request on it is refused
+for access (403, or the 404 a hidden location or client answers).
+
 ## Standalone canonical resources and Google publication
 
 NabaPresence is the sole owner of canonical profile, Hours, and Food Menus

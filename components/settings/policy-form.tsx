@@ -52,6 +52,7 @@ import { editSettingsDisabledReason } from "@/lib/settings/gating"
 import { settingsPolicyFormSchema } from "@/lib/settings/forms/settings-policy"
 import { languageLabel, languageOptionsFor } from "@/lib/settings/languages"
 import { TimezonePicker } from "@/components/settings/timezone-picker"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
 type FormState = {
@@ -209,8 +210,9 @@ export function PolicyForm({ role }: { role: string | null }) {
 
   // Called for its effects only — arms beforeunload while dirty (spec §6). Do NOT
   // bind the return value; the repo lints unused vars as errors.
+  const draftKey = useDraftKey({ resource: "settings-policy", schemaVersion: 1 })
   useDirtyGuard({
-    key: "settings-policy",
+    key: draftKey,
     isDirty,
     snapshot: () => JSON.stringify(current ?? {}),
   })

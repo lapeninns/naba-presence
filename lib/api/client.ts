@@ -174,6 +174,50 @@ async function readPayload(response: Response): Promise<{
   }
 }
 
+/**
+ * An answer that says this session may no longer see or act on what a path
+ * names: a 403 from an access check, or the 404 that a hidden location or
+ * client answers exactly like a missing one (lib/server/permissions.ts).
+ */
+export type AccessLost = { path: string; status: number; code: string }
+
+const ACCESS_LOST_CODES: Readonly<Record<number, ReadonlySet<string>>> = {
+  403: new Set([
+    "permission_denied",
+    "publish_not_allowed",
+    "forbidden",
+    "administration_access_denied",
+    "verification_access_changed",
+  ]),
+  404: new Set(["location_not_found", "client_not_found"]),
+}
+
+let accessLostHandler: ((lost: AccessLost) => void) | null = null
+
+/**
+ * Registers the one handler told about every `AccessLost` answer. The query
+ * provider installs it (lib/queries/scope-reset.ts) so that the cache of the
+ * location or client a request named is dropped: what was readable under a
+ * wider scope must not stay on screen. Returns the unregister function.
+ */
+export function setAccessLostHandler(
+  handler: (lost: AccessLost) => void
+): () => void {
+  accessLostHandler = handler
+  return () => {
+    if (accessLostHandler === handler) accessLostHandler = null
+  }
+}
+
+function reportAccessLost(path: string, status: number, code: string): void {
+  if (!accessLostHandler || !ACCESS_LOST_CODES[status]?.has(code)) return
+  try {
+    accessLostHandler({ path, status, code })
+  } catch {
+    // Dropping a cache is best-effort; the caller still gets its error.
+  }
+}
+
 function handleUnauthorized(): void {
   stashAllDrafts()
   const next = encodeURIComponent(
@@ -245,6 +289,7 @@ export async function apiFetch<T = unknown>(
     ) {
       handleUnauthorized()
     }
+    reportAccessLost(path, response.status, code)
     throw new ApiClientError(
       response.status,
       code,

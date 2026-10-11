@@ -61,6 +61,7 @@ import {
 import type { ClientResponse, ClientSummary } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { formatAddressLine } from "@/lib/locations/address"
 import { queryKeys } from "@/lib/queries/keys"
@@ -948,8 +949,13 @@ function ClientDetailsForm({
 
   // Warns on a tab close or reload while edits are unsaved, and keeps them
   // through a forced sign-out; the page's Back link asks through it too.
+  const draftKey = useDraftKey({
+    resource: "client-details",
+    resourceId: client.id,
+    schemaVersion: 1,
+  })
   const { confirmDiscard } = useDirtyGuard({
-    key: `client-details:${client.id}`,
+    key: draftKey,
     isDirty: dirty && !pending,
     snapshot: () => JSON.stringify({ name, notes, colour }),
     askConfirm: async () =>

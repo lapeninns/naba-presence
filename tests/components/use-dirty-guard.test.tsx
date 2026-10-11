@@ -2,7 +2,13 @@ import { renderHook, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
-import { __resetDraftSources, stashAllDrafts, takeStashedDraft } from "@/lib/api/draft-stash"
+import {
+  __resetDraftSources,
+  purgeForeignDrafts,
+  stashAllDrafts,
+  takeStashedDraft,
+} from "@/lib/api/draft-stash"
+import { draftKey } from "@/lib/editors/draft-key"
 
 beforeEach(() => {
   __resetDraftSources()
@@ -140,5 +146,20 @@ describe("useDirtyGuard", () => {
       await expect(result.current.confirmDiscard()).resolves.toBe(true)
     })
     expect(second).toHaveBeenCalled()
+  })
+
+  it("keeps a scoped stash for its own identity and purges it for anyone else", () => {
+    const scope = { resource: "inbox-reply", resourceId: "rev-5", schemaVersion: 1 }
+    const key = draftKey({ userId: "u1", organisationId: "o1", ...scope })
+    const { unmount } = renderHook(() =>
+      useDirtyGuard({ key, isDirty: true, snapshot: () => "half a reply" })
+    )
+    unmount()
+    purgeForeignDrafts({ userId: "u1", organisationId: "o1" })
+    expect(sessionStorage.getItem(`naba:draft:${key}`)).toBe("half a reply")
+
+    // Someone else signs in on this tab: the stash is removed, not offered.
+    purgeForeignDrafts({ userId: "u2", organisationId: "o1" })
+    expect(takeStashedDraft(key)).toBeNull()
   })
 })

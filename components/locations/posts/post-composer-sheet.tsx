@@ -43,6 +43,7 @@ import {
   type LocalPostActionType,
   type LocalPostTopicType,
 } from "@/lib/contracts/location-posts"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import {
   localPostFormSchema,
@@ -336,10 +337,13 @@ export function PostComposerSheet({
           ? value.trim() !== EMPTY[key]
           : JSON.stringify(value) !== JSON.stringify(EMPTY[key])
       })
+  const draftKey = useDraftKey(
+    post
+      ? { resource: "location-post-edit", resourceId: `${locationId}/${post.id}`, schemaVersion: 1 }
+      : { resource: "location-post-new", resourceId: locationId, schemaVersion: 1 }
+  )
   useDirtyGuard({
-    key: post
-      ? `location-posts-edit-${locationId}-${post.id}`
-      : `location-posts-composer-${locationId}`,
+    key: draftKey,
     isDirty,
     snapshot: () => JSON.stringify(values),
   })

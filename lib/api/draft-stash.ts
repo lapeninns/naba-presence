@@ -1,3 +1,5 @@
+import { draftIdentityPrefix, type DraftIdentity } from "@/lib/editors/draft-key"
+
 const PREFIX = "naba:draft:"
 const sources = new Map<string, () => string | null>()
 // Set once the session that owns every registered draft has ended (a
@@ -82,6 +84,32 @@ export function clearAllStashedDrafts(): void {
     for (let index = 0; index < sessionStorage.length; index += 1) {
       const key = sessionStorage.key(index)
       if (key?.startsWith(PREFIX)) keys.push(key)
+    }
+    for (const key of keys) sessionStorage.removeItem(key)
+  } catch {
+    // Storage unavailable: nothing could have been stashed either.
+  }
+}
+
+/**
+ * Removes every stashed draft that does not belong to `identity` (another
+ * person, another organisation, or written before anyone was known),
+ * best-effort. Called whenever the session's identity becomes known or
+ * changes (lib/queries/scope-reset.ts): a stash outlives the session that
+ * wrote it, and keys already keep it from being offered to anyone else, so
+ * this is what stops it lingering in the tab. With no known identity there is
+ * nothing to keep, but nothing is removed either: the session may simply not
+ * have loaded yet.
+ */
+export function purgeForeignDrafts(identity: DraftIdentity): void {
+  if (typeof window === "undefined") return
+  if (!identity.userId || !identity.organisationId) return
+  const own = PREFIX + draftIdentityPrefix(identity)
+  try {
+    const keys: string[] = []
+    for (let index = 0; index < sessionStorage.length; index += 1) {
+      const key = sessionStorage.key(index)
+      if (key?.startsWith(PREFIX) && !key.startsWith(own)) keys.push(key)
     }
     for (const key of keys) sessionStorage.removeItem(key)
   } catch {

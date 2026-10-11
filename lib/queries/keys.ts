@@ -1,3 +1,20 @@
+/**
+ * Query keys. The scoping contract:
+ *
+ *   * Keys carry no user or organisation segment. One query client serves
+ *     one session's scope: lib/queries/scope-reset.ts drops every cached
+ *     query except `session` when the session's user, organisation, role,
+ *     publish right or scope fingerprint changes, and switching
+ *     organisation reloads the page as well.
+ *   * Everything cached about one location is rooted at one of
+ *     ["locations", id], ["location-capabilities", id], ["listing-summary", id]
+ *     or ["listing-change-requests", id]; everything about one client at
+ *     ["clients", id]. A 403 from an access check, or the 404 a hidden
+ *     location or client answers, on `/api/locations/{id}` or
+ *     `/api/clients/{id}` drops exactly those roots
+ *     (`resourcePrefixesForPath`). A new per-location or per-client key must
+ *     live under one of them, or be added there.
+ */
 export const queryKeys = {
   session: ["session"] as const,
   // One change's receipt (GET /api/mutations/{id}), by operation or intent id.

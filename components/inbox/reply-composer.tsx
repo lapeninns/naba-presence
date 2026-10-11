@@ -29,6 +29,7 @@ import {
 } from "@/components/inbox/dirty-context"
 import { isReviewWorkflowState } from "@/lib/contracts/reviews"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
 import {
@@ -92,7 +93,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   })
   const seededBody = draftBody ?? liveBody ?? ""
 
-  const guardKey = `inbox:reply:${reviewId}`
+  const guardKey = useDraftKey({
+    resource: "inbox-reply",
+    resourceId: reviewId,
+    schemaVersion: 1,
+  })
   const fieldId = useId()
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>(DEFAULT_TONE)

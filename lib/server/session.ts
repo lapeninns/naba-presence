@@ -1,6 +1,7 @@
 import "server-only"
 
 import { cookies } from "next/headers"
+import type { Fragment, TransactionSql } from "postgres"
 import { cache } from "react"
 
 import { sha256 } from "@/lib/server/crypto"
@@ -34,6 +35,42 @@ export type Session = {
    */
   supportActor?: string | null
   impersonationReason?: string | null
+  /**
+   * An opaque token that changes whenever what this membership may see or do
+   * changes: role, publish right, explicit location scope and every location
+   * grant. The client compares it to drop cached data and stashed drafts
+   * from a wider scope (lib/queries/scope-reset.ts). It is derived from the
+   * membership rows today; when memberships carry a security version, it
+   * becomes that version and nothing on the client changes. Optional so
+   * existing `Session` fixtures stay valid; `lookupSession` always sets it.
+   */
+  scopeFingerprint?: string
+}
+
+/**
+ * The `scopeFingerprint` select-list expression for a query that joins the
+ * session's membership as `m`. One definition, so the session lookup and the
+ * organisation switch can never hash different things. The grants are read
+ * in a stable order so the same scope always hashes the same; md5 only keeps
+ * the token short and opaque (it is not a secret, and collisions cost at most
+ * a missed cache reset).
+ */
+export function scopeFingerprintColumn(sql: TransactionSql): Fragment {
+  return sql`md5(concat_ws(
+    '|',
+    m.role,
+    m.can_publish::text,
+    m.location_scope,
+    (
+      select string_agg(
+        lm.location_id::text || ':' || lm.can_publish::text,
+        ',' order by lm.location_id
+      )
+      from location_member lm
+      where lm.organisation_id = m.organisation_id
+        and lm.user_id = m.user_id
+    )
+  ))`
 }
 
 async function lookupSession(rawToken: string): Promise<Session | null> {
@@ -94,7 +131,8 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         m.role,
         m.can_publish as "canPublish",
         s.support_actor as "supportActor",
-        s.impersonation_reason as "impersonationReason"
+        s.impersonation_reason as "impersonationReason",
+        ${scopeFingerprintColumn(sql)} as "scopeFingerprint"
       from app_session s
       join app_user u on u.id = s.user_id
       join organisation o on o.id = s.organisation_id

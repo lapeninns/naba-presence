@@ -83,7 +83,7 @@ function MenuForm({
   const editor = useEditorDraft({
     initial: state.canonicalMenus,
     revision: state.canonicalResource.revision,
-    key: `location-menu-${locationId}`,
+    scope: { resource: "location-menu", resourceId: locationId, schemaVersion: 1 },
   })
   const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)

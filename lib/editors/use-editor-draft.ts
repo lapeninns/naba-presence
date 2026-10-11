@@ -10,6 +10,9 @@ import {
 import { peekStashedDraft } from "@/lib/api/draft-stash"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
+import type { DraftScope } from "./draft-key"
+import { useDraftKey } from "./use-draft-key"
+
 export type EditorDraft<T> = {
   draft: T
   setDraft: Dispatch<SetStateAction<T>>
@@ -72,16 +75,21 @@ function missing(revision: unknown): boolean {
 export function useEditorDraft<T>({
   initial,
   revision,
-  key,
+  scope,
   parseStashed,
 }: {
   initial: T
   /** Token that changes when the SERVER value changes — usually a revision. */
   revision: unknown
-  /** Stash key, unique per location and resource. */
-  key: string
+  /**
+   * What the stash belongs to. The key adds the signed-in user and
+   * organisation (lib/editors/draft-key.ts), so a stash is only ever offered
+   * back to whoever wrote it, and a `schemaVersion` bump ignores old ones.
+   */
+  scope: DraftScope
   parseStashed?: (value: unknown) => T | null
 }): EditorDraft<T> {
+  const key = useDraftKey(scope)
   const [draft, setDraft] = useState(initial)
   // The server value the draft was last seeded from, and whether the next
   // revision change is one this editor is about to cause.
@@ -121,8 +129,12 @@ export function useEditorDraft<T>({
   // consuming it (the editors render on the client only: their data is never
   // prefetched), and offered only when it differs from the server copy.
   // Restoring or dismissing it is what clears it.
-  const [stash, setStash] = useState<{ value: T } | null>(() => {
-    const raw = peekStashedDraft(key)
+  //
+  // Read per key: when the key changes (the session's identity became known
+  // or changed) the stash read under the old key is dropped, never offered
+  // under the new one.
+  const readStash = (forKey: string): { value: T } | null => {
+    const raw = peekStashedDraft(forKey)
     if (raw === null) return null
     try {
       const parsed: unknown = JSON.parse(raw)
@@ -132,7 +144,17 @@ export function useEditorDraft<T>({
       // A corrupt stash is ignored, as if it had never been written.
       return null
     }
-  })
+  }
+  const [stashState, setStashState] = useState(() => ({
+    key,
+    stash: readStash(key),
+  }))
+  if (stashState.key !== key) setStashState({ key, stash: readStash(key) })
+  const stash = stashState.key === key ? stashState.stash : null
+  const setStash = useCallback(
+    (next: null) => setStashState({ key, stash: next }),
+    [key]
+  )
   // Wait for a real server value before offering it, so the seed that
   // follows a missing revision doesn't overwrite what was restored.
   const stashed =
@@ -152,11 +174,11 @@ export function useEditorDraft<T>({
     restore()
     if (stash) setDraft(stash.value)
     setStash(null)
-  }, [restore, stash])
+  }, [restore, setStash, stash])
   const dismissStashed = useCallback(() => {
     restore()
     setStash(null)
-  }, [restore])
+  }, [restore, setStash])
 
   return {
     draft,

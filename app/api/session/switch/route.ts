@@ -7,7 +7,11 @@ import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
-import { setSessionCookie, type Session } from "@/lib/server/session"
+import {
+  scopeFingerprintColumn,
+  setSessionCookie,
+  type Session,
+} from "@/lib/server/session"
 import { createSession } from "@/lib/server/session-store"
 
 export const runtime = "nodejs"
@@ -81,7 +85,8 @@ export const POST = route({
           u.display_name as "displayName",
           u.email,
           m.role,
-          m.can_publish as "canPublish"
+          m.can_publish as "canPublish",
+          ${scopeFingerprintColumn(sql)} as "scopeFingerprint"
         from app_session s
         join app_user u on u.id = s.user_id
         join organisation o on o.id = s.organisation_id

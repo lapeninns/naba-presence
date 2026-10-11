@@ -112,7 +112,7 @@ function HoursForm({
   const editor = useEditorDraft({
     initial: hours.canonical,
     revision: hours.canonicalResource.revision,
-    key: `location-hours-${locationId}`,
+    scope: { resource: "location-hours", resourceId: locationId, schemaVersion: 1 },
   })
   const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)

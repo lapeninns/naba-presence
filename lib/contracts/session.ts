@@ -44,6 +44,14 @@ export const sessionSchema = z.object({
    */
   supportActor: z.string().nullable().optional(),
   impersonationReason: z.string().nullable().optional(),
+  /**
+   * Opaque; changes whenever the membership's role, publish right, location
+   * scope or grants change (lib/server/session.ts `scopeFingerprintColumn`).
+   * The client resets its query cache when it moves
+   * (lib/queries/scope-reset.ts). Optional so a session cached before it
+   * existed still parses.
+   */
+  scopeFingerprint: z.string().optional(),
 })
 export type SessionUser = z.infer<typeof sessionSchema>
 
