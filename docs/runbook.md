@@ -564,9 +564,16 @@ rating and listing only) and `connection_owner_left`. Operators
 (`OPS_ALERT_EMAILS`) get `platform_incident` mail for a tick that used to run
 and stopped, and for sustained Google 429s. Without `EMAIL_PROVIDER`,
 deliveries are recorded `suppressed` (`provider_not_configured`) — check
-`notification_delivery.status` before telling anyone an email went out. A
-delivery is unique per incident and recipient and is claimed before the send,
-so re-running the tick never double-emails.
+`notification_delivery.status` (tenant) or `platform_incident_delivery.status`
+(operators, one row per `OPS_ALERT_EMAILS` address) before telling anyone an
+email went out. A delivery is unique per incident and recipient, is claimed
+before the send and carries its own idempotency key, so re-running the tick
+never double-emails; refused sends retry with back-off up to five attempts.
+`uncertain` means the send timed out or lost its connection after the request
+left: it may have been delivered. It is retried only inside the provider's
+24-hour idempotency window; past that it stays `uncertain` and must not be
+resent blindly — check the provider's dashboard for the recipient first.
+`platform_incident.notify_status` is now only a summary of its deliveries.
 
 ### Stale heartbeat
 

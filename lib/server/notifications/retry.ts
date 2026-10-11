@@ -8,14 +8,16 @@ import type { Session } from "@/lib/server/session"
 
 /**
  * Deliveries an operator may send again. A refused send (failed) is safe to
- * repeat. An unknown one may already have reached the provider, so it is
+ * repeat. An uncertain one (delivery_state unknown; older rows recorded it as
+ * failed) may already have reached the provider, so it is
  * retried only while the provider still honours its idempotency key (24
  * hours; 23 here for margin); after that it stays unknown rather than risk a
  * duplicate. Suppressed and accepted deliveries are never retried.
  */
 export function retryableDelivery(sql: TransactionSql) {
-  return sql`(status = 'failed' and (delivery_state = 'failed'
-    or (delivery_state = 'unknown' and created_at > now() - interval '23 hours')))`
+  return sql`((status = 'failed' and delivery_state = 'failed')
+    or (status in ('failed', 'uncertain') and delivery_state = 'unknown'
+      and created_at > now() - interval '23 hours'))`
 }
 
 /** Requeues retryable deliveries; the send still rechecks membership, access and preference. */

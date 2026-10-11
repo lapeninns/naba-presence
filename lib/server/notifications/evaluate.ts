@@ -4,9 +4,9 @@ import type { TransactionSql } from "postgres"
 
 import { withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import { log } from "@/lib/server/logger"
 import { getAiCredits } from "@/lib/server/ai-credits"
 
+import { runDeliveries, type DeliveryOutcome } from "./delivery"
 import { sendTenantEmail } from "./email"
 import { renderDigestEmail, renderIncidentEmail, type IncidentKind } from "./messages"
 import { canSeeIncident, effectiveMode, loadNotificationMembers, loadPreferences, type ScopedIncident } from "./recipients"
@@ -339,17 +339,12 @@ export async function evaluateOrganisation(
   })
 }
 
-const MAX_DELIVERY_ATTEMPTS = 5
-
-export type DeliveryOutcome = {
-  sent: number
-  suppressed: number
-  failed: number
-}
+export type { DeliveryOutcome } from "./delivery"
 
 type ClaimedDelivery = {
   id: string
   attempts: number
+  createdAt: Date
   userId: string
   incidentId: string | null
   kind: string | null
@@ -359,10 +354,10 @@ type ClaimedDelivery = {
 }
 
 /**
- * Send what is due. Each delivery is claimed (attempt counted, next attempt
- * pushed out) in a committed write BEFORE the provider is called, so a crash
- * mid-send can at worst delay a retry; the settle afterwards is conditional
- * on the row still being pending. Every send carries the delivery's own
+ * Send what is due, through the shared driver (./delivery.ts): each delivery
+ * is claimed (attempt counted, next attempt pushed out) in a committed write
+ * BEFORE the provider is called, the settle afterwards is conditional on the
+ * row still being pending, and every send carries the delivery's own
  * idempotency key, so a retry after a lost response cannot send twice.
  *
  * At send time the recipient must still be a member who can see the
@@ -373,131 +368,116 @@ export async function deliverPending(
   organisationId: string,
   limit = 50
 ): Promise<DeliveryOutcome> {
-  const outcome: DeliveryOutcome = { sent: 0, suppressed: 0, failed: 0 }
   const appUrl = getServerEnv().NEXTAUTH_URL ?? "http://localhost:3000"
-  const claimed = await withTenant(
-    organisationId,
-    (sql) =>
-      sql<ClaimedDelivery[]>`
-      with due as (
-        select d.id
-        from notification_delivery d
-        where d.status = 'pending'
-          and d.next_attempt_at <= now()
-        order by d.next_attempt_at
-        limit ${limit}
-        for update skip locked
-      ),
-      claimed as (
-        update notification_delivery d
-        set attempts = d.attempts + 1,
-            next_attempt_at = now() + interval '10 minutes',
-            idempotency_key = coalesce(d.idempotency_key, 'notification-delivery/' || d.id::text)
-        from due
-        where d.id = due.id
-        returning d.id, d.attempts, d.incident_id, d.digest_id, d.recipient_user_id
+  let claimed: ClaimedDelivery[] = []
+  let context: Promise<{
+    members: Awaited<ReturnType<typeof loadNotificationMembers>>
+    preferences: Awaited<ReturnType<typeof loadPreferences>>
+    digestIncidents: (ScopedIncident & { summary: Record<string, unknown> })[]
+  }> | null = null
+  const loadContext = () =>
+    (context ??= withTenant(organisationId, async (sql) => {
+      const digestIds = [...new Set(claimed.flatMap((delivery) => delivery.digestIncidentIds ?? []))]
+      return {
+        members: await loadNotificationMembers(sql),
+        preferences: await loadPreferences(sql),
+        digestIncidents: digestIds.length
+          ? await sql<(ScopedIncident & { summary: Record<string, unknown> })[]>`
+              select id::text as id, kind, location_id::text as "locationId", summary
+              from notification_incident where id in ${sql(digestIds)}`
+          : [],
+      }
+    }))
+  return runDeliveries<ClaimedDelivery>({
+    name: "notification_delivery",
+    scopes: ["notifications"],
+    claim: async () => {
+      claimed = await withTenant(
+        organisationId,
+        (sql) =>
+          sql<ClaimedDelivery[]>`
+          with due as (
+            select d.id
+            from notification_delivery d
+            where d.status = 'pending'
+              and d.next_attempt_at <= now()
+            order by d.next_attempt_at
+            limit ${limit}
+            for update skip locked
+          ),
+          claimed as (
+            update notification_delivery d
+            set attempts = d.attempts + 1,
+                next_attempt_at = now() + interval '10 minutes',
+                idempotency_key = coalesce(d.idempotency_key, 'notification-delivery/' || d.id::text)
+            from due
+            where d.id = due.id
+            returning d.id, d.attempts, d.created_at, d.incident_id, d.digest_id, d.recipient_user_id
+          )
+          select
+            c.id::text as id,
+            c.attempts,
+            c.created_at as "createdAt",
+            c.recipient_user_id::text as "userId",
+            c.incident_id::text as "incidentId",
+            i.kind,
+            i.location_id::text as "locationId",
+            i.summary,
+            (select array_agg(x::text) from unnest(g.incident_ids) x) as "digestIncidentIds"
+          from claimed c
+          left join notification_incident i on i.id = c.incident_id
+          left join notification_digest g on g.id = c.digest_id
+        `
       )
-      select
-        c.id::text as id,
-        c.attempts,
-        c.recipient_user_id::text as "userId",
-        c.incident_id::text as "incidentId",
-        i.kind,
-        i.location_id::text as "locationId",
-        i.summary,
-        (select array_agg(x::text) from unnest(g.incident_ids) x) as "digestIncidentIds"
-      from claimed c
-      left join notification_incident i on i.id = c.incident_id
-      left join notification_digest g on g.id = c.digest_id
-    `
-  )
-  if (!claimed.length) return outcome
-  const { members, preferences, digestIncidents } = await withTenant(organisationId, async (sql) => {
-    const digestIds = [...new Set(claimed.flatMap((delivery) => delivery.digestIncidentIds ?? []))]
-    return {
-      members: await loadNotificationMembers(sql),
-      preferences: await loadPreferences(sql),
-      digestIncidents: digestIds.length
-        ? await sql<(ScopedIncident & { summary: Record<string, unknown> })[]>`
-            select id::text as id, kind, location_id::text as "locationId", summary
-            from notification_incident where id in ${sql(digestIds)}`
-        : [],
-    }
-  })
-  for (const delivery of claimed) {
-    let status: "sent" | "suppressed" | "failed" | "pending"
-    let errorCode: string | null = null
-    let providerMessageId: string | null = null
-    const member = members.get(delivery.userId)
-    const message = (() => {
-      if (!member) return { suppressed: "recipient_not_member" } as const
-      if (!member.email) return { suppressed: "recipient_has_no_email" } as const
+      return claimed
+    },
+    send: async (delivery) => {
+      const { members, preferences, digestIncidents } = await loadContext()
+      const member = members.get(delivery.userId)
+      if (!member) return { status: "suppressed", reason: "recipient_not_member" }
+      if (!member.email) return { status: "suppressed", reason: "recipient_has_no_email" }
+      let email: { subject: string; text: string }
       if (delivery.incidentId && delivery.kind) {
         const incident = { id: delivery.incidentId, kind: delivery.kind, locationId: delivery.locationId }
-        if (!canSeeIncident(member, incident)) return { suppressed: "recipient_access_revoked" } as const
-        if (effectiveMode(preferences, member, delivery.kind, "email") !== "immediate") return { suppressed: "recipient_preference_off" } as const
-        return { email: renderIncidentEmail(delivery.kind as IncidentKind, delivery.summary ?? {}, appUrl) }
-      }
-      const visible = digestIncidents.filter((incident) => (delivery.digestIncidentIds ?? []).includes(incident.id)
-        && canSeeIncident(member, incident) && effectiveMode(preferences, member, incident.kind, "email") === "digest")
-      if (!visible.length) return { suppressed: "digest_empty_after_recheck" } as const
-      return { email: renderDigestEmail(visible, appUrl) }
-    })()
-    if ("suppressed" in message) {
-      status = "suppressed"
-      errorCode = message.suppressed ?? null
-    } else {
-      const result = await sendTenantEmail({ to: member!.email!, ...message.email }, { idempotencyKey: `notification-delivery/${delivery.id}` })
-      if (result.status === "sent") {
-        status = "sent"
-        providerMessageId = result.providerMessageId
-      } else if (result.status === "suppressed") {
-        status = "suppressed"
-        errorCode = result.reason
+        if (!canSeeIncident(member, incident)) return { status: "suppressed", reason: "recipient_access_revoked" }
+        if (effectiveMode(preferences, member, delivery.kind, "email") !== "immediate") return { status: "suppressed", reason: "recipient_preference_off" }
+        email = renderIncidentEmail(delivery.kind as IncidentKind, delivery.summary ?? {}, appUrl)
       } else {
-        errorCode = result.code
-        status =
-          result.retryable && delivery.attempts < MAX_DELIVERY_ATTEMPTS
-            ? "pending"
-            : "failed"
+        const visible = digestIncidents.filter((incident) => (delivery.digestIncidentIds ?? []).includes(incident.id)
+          && canSeeIncident(member, incident) && effectiveMode(preferences, member, incident.kind, "email") === "digest")
+        if (!visible.length) return { status: "suppressed", reason: "digest_empty_after_recheck" }
+        email = renderDigestEmail(visible, appUrl)
       }
-    }
-    outcome[status === "pending" ? "failed" : status] += 1
-    // A network failure may still have reached the provider: its final state
-    // is unknown, not failed. A provider refusal is failed.
-    const deliveryState = status === "sent" ? "accepted" : status === "suppressed" ? "suppressed"
-      : status === "failed" ? (errorCode === "email_network_error" ? "unknown" : "failed") : "queued"
-    await withTenant(
-      organisationId,
-      (sql) => sql`
-      update notification_delivery
-      set
-        status = ${status},
-        last_error_code = ${errorCode},
-        provider_message_id = ${providerMessageId},
-        sent_at = ${status === "sent" ? sql`now()` : null},
-        delivery_state = case when delivery_state = 'queued' then ${deliveryState} else delivery_state end,
-        delivery_state_at = case when delivery_state = 'queued' then now() else delivery_state_at end,
-        next_attempt_at = ${
-          status === "pending"
-            ? sql`now() + (${2 ** delivery.attempts} * interval '1 minute')`
-            : null
-        }
-      where id = ${delivery.id}
-        and status = 'pending'
-    `
-    )
-    if (status === "failed" || status === "pending") {
-      log.warn("notifications.delivery_failed", {
+      return sendTenantEmail({ to: member.email, ...email }, { idempotencyKey: `notification-delivery/${delivery.id}` })
+    },
+    // The send queue keeps `status`; `delivery_state` is the provider
+    // evidence (0078), moved off `queued` once: an uncertain send is
+    // `unknown`, never `failed`. Webhooks advance it from there.
+    settle: (delivery, settlement) =>
+      withTenant(
         organisationId,
-        deliveryId: delivery.id,
-        errorCode,
-        willRetry: status === "pending",
-      })
-    }
-  }
-  return outcome
+        (sql) => sql`
+        update notification_delivery
+        set
+          status = ${settlement.status},
+          last_error_code = ${settlement.errorCode},
+          provider_message_id = ${settlement.providerMessageId},
+          sent_at = ${settlement.status === "sent" ? sql`now()` : null},
+          delivery_state = case when delivery_state = 'queued' then ${settlement.evidence} else delivery_state end,
+          delivery_state_at = case when delivery_state = 'queued' and ${settlement.evidence} <> 'queued' then now() else delivery_state_at end,
+          next_attempt_at = ${
+            settlement.retryInMinutes === null
+              ? null
+              : sql`now() + (${settlement.retryInMinutes} * interval '1 minute')`
+          }
+        where id = ${delivery.id}
+          and status = 'pending'
+      `
+      ).then(() => undefined),
+    logContext: () => ({ organisationId }),
+  })
 }
+
 
 /** Local hour from which a day's digest is built. */
 export const DIGEST_HOUR = 8

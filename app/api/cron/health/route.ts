@@ -53,6 +53,7 @@ async function runHealthTick(requestId: string) {
       sent: 0,
       suppressed: 0,
       failed: 0,
+      uncertain: 0,
       errors: 0,
     }
     for (const organisation of ordered) {
@@ -69,6 +70,7 @@ async function runHealthTick(requestId: string) {
         totals.sent += delivery.sent
         totals.suppressed += delivery.suppressed
         totals.failed += delivery.failed
+        totals.uncertain += delivery.uncertain
       } catch (error) {
         totals.errors += 1
         log.error("notifications.organisation_failed", {
@@ -89,7 +91,10 @@ async function runHealthTick(requestId: string) {
 // NOTIFICATIONS_ENABLED is the hard override; the operator pause table
 // (lib/server/pause-controls.ts) pauses the same scope without a redeploy.
 // Either way the tick evaluates nothing, and the liveness report shows it as
-// paused rather than stale.
+// paused rather than stale. That includes operator alerts: a pause is how an
+// operator stops a misbehaving email path, so it stops all of it. Noticing a
+// pause left on is the job of the readiness probe outside the app, which
+// needs neither this tick nor email.
 function assertEnabled() {
   return requireScopesEnabled("notifications", {
     code: "notifications_paused",

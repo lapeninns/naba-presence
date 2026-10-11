@@ -980,8 +980,12 @@ owners and admins.
 RLS (`notification_incident`), emails each new one once to owners and admins
 (`notification_delivery`, unique per incident and recipient, claimed before
 sending), and raises `platform_incident` for stopped ticks and sustained quota
-pressure. Email goes through `lib/server/notifications/email.ts`; with no
-provider configured deliveries are recorded `suppressed`.
+pressure, delivered per operator recipient (`platform_incident_delivery`).
+Email goes through `lib/server/notifications/email.ts`; with no provider
+configured deliveries are recorded `suppressed`. Every queue claims, sends and
+settles through one driver, `lib/server/notifications/delivery.ts`: sent,
+suppressed, failed (refused, retried with back-off) and uncertain (a timeout
+after dispatch, retried only under its idempotency key's window).
 
 ## Membership, organisation switching, privacy, and retention
 
