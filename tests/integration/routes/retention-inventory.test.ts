@@ -155,6 +155,115 @@ describeDatabase("retention inventory against the migrated schema", () => {
     }
 
     /**
+     * Rows of a location's own that retention reaches by their own windows:
+     * an expired and a stranded hours attempt, an expired profile snapshot,
+     * a post with an expired provider payload and an expired attempt, and an
+     * expired Place Action change set held back by its live attempt. On a
+     * location the disconnected purge deletes, they go by cascade before
+     * their own steps run.
+     */
+    async function addLocationRows(
+      review: Awaited<ReturnType<typeof seedLinkedReview>>,
+      connectionId: string
+    ) {
+      const organisationId = owner.organisationId
+      const location = review.externalLocationId
+      for (const [status, startedAt, expiresAt] of [
+        ["succeeded", admin`now() - interval '400 days'`, admin`now() - interval '1 day'`],
+        ["publishing", admin`now() - interval '2 days'`, admin`now() + interval '300 days'`],
+      ] as const) {
+        await admin`
+          insert into hours_sync_attempt (
+            organisation_id, external_location_id, status, idempotency_key,
+            pinned_canonical_revision, pinned_canonical_hash, pinned_google_hash,
+            intended_payload, started_at, expires_at
+          )
+          values (
+            ${organisationId}, ${location}, ${status}, ${randomUUID()},
+            '1', 'canonical', 'google', '{}'::jsonb, ${startedAt}, ${expiresAt}
+          )
+        `
+      }
+      await admin`
+        insert into profile_field_state (
+          organisation_id, external_location_id, field_key, policy, status,
+          canonical_hash, google_hash, canonical_revision,
+          canonical_value, google_value, snapshot_expires_at
+        )
+        values (
+          ${organisationId}, ${location}, 'name', 'bidirectional', 'in_sync',
+          'canonical', 'google', '1', '"Name"'::jsonb, '"Name"'::jsonb,
+          now() - interval '1 day'
+        )
+      `
+      const [post] = await admin<{ id: string }[]>`
+        insert into gbp_local_post (
+          organisation_id, location_id, external_location_id, topic_type,
+          provider_payload, provider_payload_expires_at
+        )
+        values (
+          ${organisationId}, ${review.locationId}, ${location}, 'STANDARD',
+          '{}'::jsonb, now() - interval '1 day'
+        )
+        returning id
+      `
+      await admin`
+        insert into gbp_local_post_attempt (
+          organisation_id, post_id, operation, status, idempotency_key,
+          intended_payload, expires_at
+        )
+        values (
+          ${organisationId}, ${post.id}, 'create', 'succeeded', ${randomUUID()},
+          '{}'::jsonb, now() - interval '1 day'
+        )
+      `
+      const [account] = await admin<{ id: string }[]>`
+        select id from google_account
+        where google_connection_id = ${connectionId} limit 1
+      `
+      const payload = {
+        request: {
+          operation: "create",
+          payload: {
+            uri: "https://shop.example.test/retained",
+            placeActionType: "SHOP_ONLINE",
+            isPreferred: false,
+          },
+        },
+        connectionId,
+        credentialGeneration: 0,
+        observedAt: new Date().toISOString(),
+      }
+      const [changeSet] = await admin<{ id: string }[]>`
+        insert into gbp_change_set (
+          organisation_id, location_id, google_account_id, connection_id,
+          target_resource_name, resource_type, requested_by, payload,
+          payload_hash, update_mask, baseline, baseline_hash,
+          require_two_person_approval, expires_at
+        )
+        values (
+          ${organisationId}, ${review.locationId}, ${account.id}, ${connectionId},
+          ${review.googleLocationName}, 'place_action', ${owner.userId},
+          ${admin.json(payload)}, ${"a".repeat(64)}, array[]::text[], '{}'::jsonb,
+          ${"b".repeat(64)}, false, now() - interval '1 day'
+        )
+        returning id
+      `
+      await admin`
+        insert into place_action_mutation (
+          organisation_id, location_id, external_location_id, actor_user_id,
+          google_account_id, operation, status, idempotency_key,
+          requested_payload, change_set_id, execution_state, confirmation_state
+        )
+        values (
+          ${organisationId}, ${review.locationId}, ${location}, ${owner.userId},
+          ${account.id}, 'create', 'succeeded', ${`place_action:${changeSet.id}`},
+          ${admin.json(payload)}, ${changeSet.id}, 'accepted', 'confirmed'
+        )
+      `
+    }
+
+    /**
      * A digest of every row the organisation holds, table by table, leaving
      * out only the dry run's own audits.
      */
@@ -224,6 +333,10 @@ describeDatabase("retention inventory against the migrated schema", () => {
           purge_due_at = now() - interval '1 day'
         where id = ${disconnected.connectionId}
       `
+      // The held location keeps these from the cascade but not from their
+      // own windows; the purgeable one loses them with itself.
+      await addLocationRows(held, disconnected.connectionId)
+      await addLocationRows(disconnectedPurgeable, disconnected.connectionId)
       for (const review of [held, disconnectedPurgeable, expired]) {
         await addMedia(review.reviewId)
         await addAudit("review", review.reviewId)
@@ -295,6 +408,16 @@ describeDatabase("retention inventory against the migrated schema", () => {
         managementMutations: 3,
         strandedManagement: 1,
         appSessions: 1,
+        // Only the held location's: the purgeable location's go with it.
+        hoursAttempts: 1,
+        strandedHours: 1,
+        profileSnapshots: 1,
+        postPayloads: 1,
+        postAttempts: 1,
+        placeActionMutations: 0,
+        // The purgeable location's change set, freed when its attempt goes
+        // with the location; the held one's attempt still holds it back.
+        managementChangeSets: 1,
       })
 
       // Nothing changed but the preview's own audit.

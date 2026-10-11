@@ -36,6 +36,12 @@ export function retentionBatchRows(): number {
 /** What a dry-run count needs to know about the run it predicts. */
 type StepContext = { deletesEnabled: boolean }
 
+/** An expression naming a row's external location id. */
+type LocationOf = (sql: TransactionSql) => Fragment
+
+/** The row's own external_location_id column. */
+const ownLocation: LocationOf = (sql) => sql`external_location_id`
+
 /**
  * One dataset of the purge, on one table of the retention inventory
  * (lib/server/retention/inventory.ts). `run` changes at most `limit` rows
@@ -147,7 +153,10 @@ async function boundedRows(
  * count uses `where`, or `dryRunWhere` when an earlier step in the same
  * round changes what `where` matches (a parent that waits for its children
  * to go, say): then `dryRunWhere` predicts the rows `where` will match once
- * those steps have run.
+ * those steps have run. A step on a table that cascades from
+ * external_location names the row's location in `location`, and the dry run
+ * leaves out the rows disconnectedLocations deletes before it
+ * (notWithDueLocation).
  */
 function rowsStep(
   key: string,
@@ -155,6 +164,7 @@ function rowsStep(
     table: RetentionTable
     where: (sql: TransactionSql) => Fragment
     dryRunWhere?: (sql: TransactionSql, context: StepContext) => Fragment
+    location?: LocationOf
     set?: (sql: TransactionSql) => Fragment
     destructive?: boolean
     waitsFor?: string
@@ -170,9 +180,11 @@ function rowsStep(
       countRows(
         sql,
         options.table,
-        options.dryRunWhere
-          ? options.dryRunWhere(sql, context)
-          : options.where(sql)
+        sql`${
+          options.dryRunWhere
+            ? options.dryRunWhere(sql, context)
+            : options.where(sql)
+        } ${notWithDueLocation(sql, context, options.location)}`
       ),
     run: async (sql, limit) =>
       (
@@ -211,9 +223,12 @@ function strandedStep(
     inFlight,
     errorColumn,
     expired,
+    location,
   }: {
     inFlight: readonly string[]
     errorColumn: string
+    /** As rowsStep's `location`, for a table cascading from a location. */
+    location?: LocationOf
     /**
      * The predicate of the step that deletes this table's expired rows,
      * which runs earlier in the round: the dry run leaves out the in-flight
@@ -230,12 +245,13 @@ function strandedStep(
     key,
     table: attemptTable,
     kind: "reap",
-    count: (sql, { deletesEnabled }) =>
+    count: (sql, context) =>
       countRows(
         sql,
         attemptTable,
-        deletesEnabled
-          ? sql`${stranded(sql)} and not (${expired(sql)})`
+        context.deletesEnabled
+          ? sql`${stranded(sql)} and not (${expired(sql)})
+              ${notWithDueLocation(sql, context, location)}`
           : stranded(sql)
       ),
     run: async (sql, limit) => {
@@ -335,6 +351,31 @@ const locationNotHeld = (sql: TransactionSql, locationId: Fragment) => sql`
   )
 `
 
+/** The locations a disconnected purge removes: due and not held. */
+const dueLocations = (sql: TransactionSql) => sql`
+  select l.id from external_location l
+  where l.google_connection_id in (${disconnectedDue(sql)})
+    and ${locationNotHeld(sql, sql`l.id`)}
+`
+
+/**
+ * For the dry run of a step that runs after disconnectedLocations: leaves
+ * out rows whose location that step deletes first, since ON DELETE CASCADE
+ * removes them before this step runs (hours, profile and food-menu state
+ * and attempts, posts and their attempts, media, place actions, keywords,
+ * import proposals). Only while deletes are on: off, no location goes.
+ * Nothing for a step on a table with no location.
+ */
+function notWithDueLocation(
+  sql: TransactionSql,
+  { deletesEnabled }: StepContext,
+  location: LocationOf | undefined
+): Fragment {
+  return deletesEnabled && location
+    ? sql`and ${location(sql)} not in (${dueLocations(sql)})`
+    : sql``
+}
+
 /**
  * Every dataset the purge retains, in the order each round runs them. The
  * predicates are the retention rules; each runs bounded (see boundedRows).
@@ -432,13 +473,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     rowsStep("disconnectedReviews", {
       destructive: true,
       table: "review",
-      where: (sql) => sql`
-        external_location_id in (
-          select l.id from external_location l
-          where l.google_connection_id in (${disconnectedDue(sql)})
-            and ${locationNotHeld(sql, sql`l.id`)}
-        )
-      `,
+      where: (sql) => sql`external_location_id in (${dueLocations(sql)})`,
     }),
     // Once disconnectedReviews has run, a due location with no held review
     // has no review left, so the dry run counts exactly those.
@@ -453,10 +488,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
           where r.external_location_id = external_location.id
         )
       `,
-      dryRunWhere: (sql) => sql`
-        google_connection_id in (${disconnectedDue(sql)})
-        and ${locationNotHeld(sql, sql`external_location.id`)}
-      `,
+      dryRunWhere: (sql) => sql`id in (${dueLocations(sql)})`,
     }),
     // A one-time reaper, not an ongoing obligation: the Pub/Sub route no
     // longer writes `payload` or `payload_expires_at`, so this only ages out
@@ -472,10 +504,12 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     }),
     rowsStep("hoursAttempts", {
       destructive: true,
+      location: ownLocation,
       table: "hours_sync_attempt",
       where: pastExpiry,
     }),
     rowsStep("keywordHistory", {
+      location: ownLocation,
       destructive: true,
       table: "performance_search_keyword_monthly",
       where: (sql) => sql`
@@ -500,6 +534,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     }),
     rowsStep("placeActionMutations", {
       destructive: true,
+      location: ownLocation,
       table: "place_action_mutation",
       where: pastExpiry,
     }),
@@ -532,14 +567,20 @@ function purgeSteps(organisationId: string): PurgeStep[] {
           where m.change_set_id = gbp_change_set.id
         )
       `,
-      // placeActionMutations runs first in the round, so an attempt it
-      // deletes no longer holds its change set back.
+      // disconnectedLocations (by cascade) and placeActionMutations run
+      // first in the round, so an attempt either deletes no longer holds
+      // its change set back.
       dryRunWhere: (sql, { deletesEnabled }) => sql`
         expires_at <= now()
         and not exists (
           select 1 from place_action_mutation m
           where m.change_set_id = gbp_change_set.id
-            ${deletesEnabled ? sql`and not (${pastExpiry(sql)})` : sql``}
+            ${
+              deletesEnabled
+                ? sql`and not (m.expires_at <= now())
+                    and m.external_location_id not in (${dueLocations(sql)})`
+                : sql``
+            }
         )
       `,
     }),
@@ -555,6 +596,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     // observation, so leave it in place; the value guard keeps the purge
     // idempotent for rows that have already been cleared.
     rowsStep("profileSnapshots", {
+      location: ownLocation,
       table: "profile_field_state",
       where: (sql) => sql`
         snapshot_expires_at <= now()
@@ -564,10 +606,12 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     }),
     rowsStep("profileAttempts", {
       destructive: true,
+      location: ownLocation,
       table: "profile_sync_attempt",
       where: pastExpiry,
     }),
     rowsStep("postPayloads", {
+      location: ownLocation,
       table: "gbp_local_post",
       where: (sql) => sql`
         provider_payload_expires_at <= now()
@@ -579,6 +623,10 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     }),
     rowsStep("postAttempts", {
       destructive: true,
+      location: (sql) => sql`(
+        select p.external_location_id from gbp_local_post p
+        where p.id = gbp_local_post_attempt.post_id
+      )`,
       table: "gbp_local_post_attempt",
       where: pastExpiry,
     }),
@@ -586,6 +634,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     // observation, so leave it in place exactly as profile_field_state above
     // does; the value guard keeps the purge idempotent.
     rowsStep("googleMediaPayloads", {
+      location: ownLocation,
       table: "gbp_media_item",
       where: (sql) => sql`
         payload_expires_at <= now()
@@ -607,16 +656,19 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     }),
     rowsStep("foodMenuStates", {
       destructive: true,
+      location: ownLocation,
       table: "food_menus_state",
       where: pastExpiry,
     }),
     rowsStep("foodMenuAttempts", {
       destructive: true,
+      location: ownLocation,
       table: "food_menus_sync_attempt",
       where: pastExpiry,
     }),
     rowsStep("importProposals", {
       destructive: true,
+      location: ownLocation,
       table: "presence_import_proposal",
       where: pastExpiry,
     }),
@@ -639,7 +691,13 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       kind: "reap",
       once: true,
       run: async (sql) => (await reapStrandedLocalPosts(sql)).count,
-      count: (sql) => countRows(sql, "gbp_local_post", strandedLocalPost(sql)),
+      count: (sql, context) =>
+        countRows(
+          sql,
+          "gbp_local_post",
+          sql`${strandedLocalPost(sql)}
+            ${notWithDueLocation(sql, context, ownLocation)}`
+        ),
     },
     // The same shape one level up, for the GBP write surfaces. runGbpWrite
     // recovers an in-flight row by readback on the next request for the
@@ -661,16 +719,19 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       inFlight: ["validating", "validated", "publishing"],
       errorColumn: "provider_error_code",
       expired: pastExpiry,
+      location: ownLocation,
     }),
     strandedStep("strandedProfiles", "profile_sync_attempt", {
       inFlight: ["validating", "validated", "publishing"],
       errorColumn: "provider_error_code",
       expired: pastExpiry,
+      location: ownLocation,
     }),
     strandedStep("strandedFoodMenus", "food_menus_sync_attempt", {
       inFlight: ["validating", "validated", "publishing"],
       errorColumn: "last_error_code",
       expired: pastExpiry,
+      location: ownLocation,
     }),
     // The remaining three surfaces map every in-flight phase onto 'started'
     // (their CHECK admits no finer vocabulary; gbp_management also has
@@ -688,6 +749,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       inFlight: ["started"],
       errorColumn: "last_error_code",
       expired: pastExpiry,
+      location: ownLocation,
     }),
     strandedStep("strandedManagement", "gbp_management_mutation", {
       inFlight: ["started", "validated"],
@@ -1106,6 +1168,17 @@ export async function retainPage({
   }
 }
 
+/** The longest one dry-run count may take: the runtime role's own timeout. */
+const DRY_RUN_STATEMENT_MS = 30_000
+
+function dryRunBudgetExhausted(): ApiError {
+  return new ApiError(
+    503,
+    "retention_dry_run_budget",
+    "The dry run ran out of time before counting this organisation in full."
+  )
+}
+
 export type OrganisationDryRun = {
   organisationId: string
   /**
@@ -1131,24 +1204,48 @@ export type OrganisationDryRun = {
  * would otherwise reap). The one write is the `retention.dry_run` audit with
  * the counts, so an operator's preview is on record beside the purge it
  * predicts.
+ *
+ * Unlike the purge, each count is a full scan of its predicate, unbounded by
+ * RETENTION_BATCH_ROWS, and the dry run answers to no pause. With a
+ * `deadline`, no count runs past it: each statement's timeout is the time
+ * left, and an organisation the budget cuts short fails with
+ * `retention_dry_run_budget` rather than holding the route past its
+ * maxDuration.
  */
 export async function dryRunOrganisation({
   organisationId,
   requestId,
   clientRequestId,
   deletesEnabled,
+  deadline,
 }: {
   organisationId: string
   requestId: string
   clientRequestId: string | null
   deletesEnabled: boolean
+  deadline?: number
 }): Promise<OrganisationDryRun> {
   const steps = purgeSteps(organisationId)
   return withTenant(organisationId, async (sql) => {
+    const bounded = async <T>(count: () => Promise<T>): Promise<T> => {
+      if (deadline === undefined) return count()
+      const left = Math.min(deadline - Date.now(), DRY_RUN_STATEMENT_MS)
+      if (left <= 0) throw dryRunBudgetExhausted()
+      await sql`select set_config('statement_timeout', ${String(left)}, true)`
+      try {
+        return await count()
+      } catch (error) {
+        throw (error as { code?: string }).code === "57014"
+          ? dryRunBudgetExhausted()
+          : error
+      }
+    }
     const counts: OrganisationPurgeCounts = {}
     for (const step of steps) {
       if (deletesEnabled || !step.destructive) {
-        counts[step.key] = await step.count(sql, { deletesEnabled })
+        counts[step.key] = await bounded(() =>
+          step.count(sql, { deletesEnabled })
+        )
       }
     }
     let deferredDeletes: OrganisationPurgeCounts | null = null
@@ -1156,13 +1253,18 @@ export async function dryRunOrganisation({
       deferredDeletes = {}
       for (const step of steps) {
         if (step.destructive) {
-          deferredDeletes[step.key] = await step.count(sql, {
-            deletesEnabled: true,
-          })
+          deferredDeletes[step.key] = await bounded(() =>
+            step.count(sql, { deletesEnabled: true })
+          )
         }
       }
     }
-    const heldLocationsSkipped = await countHeldDisconnectedLocations(sql)
+    const heldLocationsSkipped = await bounded(() =>
+      countHeldDisconnectedLocations(sql)
+    )
+    if (deadline !== undefined) {
+      await sql`select set_config('statement_timeout', '30000', true)`
+    }
     await writeAudit(sql, {
       organisationId,
       action: "retention.dry_run",
@@ -1188,7 +1290,9 @@ export async function dryRunOrganisation({
  * (the head of the fleet when null), in organisation order, each previewed
  * by dryRunOrganisation. Read-only apart from its audits, so it neither
  * takes the retention lease nor answers to the retention pause: an operator
- * can preview a paused purge before resuming it. RETENTION_DELETES_ENABLED
+ * can preview a paused purge before resuming it, and must page it by hand
+ * with that in mind, since each count scans its whole predicate. The page
+ * budget (RETENTION_BUDGET_MS) bounds every count. RETENTION_DELETES_ENABLED
  * decides which counts are live and which deferred, as it would for the
  * purge. Follow `nextCursor` until it is null to preview the whole fleet.
  */
@@ -1226,10 +1330,18 @@ export async function dryRunPage({
           requestId,
           clientRequestId,
           deletesEnabled,
+          deadline,
         })
       )
     } catch (error) {
       const errorCode = retentionErrorCode(error)
+      // Out of time after other organisations: the next page previews this
+      // one afresh. Alone on its page it cannot finish in any budget, so it
+      // is reported failed and the walk moves on.
+      if (errorCode === "retention_dry_run_budget" && processed > 0) {
+        budgetExhausted = true
+        break
+      }
       failures.push({ organisationId: organisation.id, errorCode })
       log.error("retention.dry_run_failed", {
         requestId,

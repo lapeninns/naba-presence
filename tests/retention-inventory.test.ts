@@ -182,16 +182,32 @@ describe("retention inventory", () => {
         expect(dataset.deletes, `${dataset.table} via ${parentTable}`).toBe(
           parent!.deletes
         )
-        // What a held review keeps, it keeps whole.
-        if (parent!.holdable) {
-          expect(dataset.holdable, `${dataset.table} via ${parentTable}`).toBe(
-            true
+        // A hold that stops the parent's delete stops the cascade from it.
+        if (parent!.hold !== "none") {
+          expect(dataset.hold, `${dataset.table} via ${parentTable}`).not.toBe(
+            "none"
           )
         }
       }
+      // Rows no step of their own touches go only by cascade, so a hold
+      // that stops the cascade keeps them whole; `cascade` is for datasets
+      // whose own window still runs.
+      if (dataset.hold !== "none" && !(dataset.steps ?? []).length) {
+        expect(dataset.hold, dataset.table).toBe("kept")
+      }
     }
-    expect(retentionDataset("review")?.holdable).toBe(true)
-    expect(retentionDataset("audit_log")?.holdable).toBe(true)
+    expect(retentionDataset("review")?.hold).toBe("kept")
+    expect(retentionDataset("audit_log")?.hold).toBe("kept")
+    // Their own windows ignore holds (purge.ts carries no hold predicate on
+    // these steps), so a hold only keeps them from the disconnect cascade.
+    for (const table of [
+      "external_location",
+      "hours_sync_attempt",
+      "profile_field_state",
+      "gbp_local_post",
+    ]) {
+      expect(retentionDataset(table)?.hold, table).toBe("cascade")
+    }
   })
 
   it("names an open decision and an interim keep decision for every pending window", () => {

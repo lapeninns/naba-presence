@@ -59,6 +59,18 @@ export type RetentionApproval =
   | { status: "internal" }
   | { status: "pending"; decision: `D-${number}`; interim: string }
 
+/**
+ * What an unreleased legal hold on a review keeps of a dataset:
+ * - `kept`: every row tied to the held review or its location, whole: no
+ *   retention step or cascade changes them while the hold stands;
+ * - `cascade`: the rows are not deleted with the held review's location on
+ *   disconnect, but the dataset's own window still applies to them (expired
+ *   attempts are deleted and provider payloads redacted as for any
+ *   location);
+ * - `none`: a hold does not reach the dataset.
+ */
+export type RetentionHold = "kept" | "cascade" | "none"
+
 export type RetentionDataset = {
   table: string
   provenance: RetentionProvenance
@@ -75,11 +87,8 @@ export type RetentionDataset = {
   /** A deleter outside the per-organisation purge. */
   handledBy?: string
   deletes: RetentionDeletes
-  /**
-   * Whether an unreleased legal hold on a review keeps the rows: the review
-   * itself, everything tied to it, and the location it belongs to.
-   */
-  holdable: boolean
+  /** What an unreleased legal hold on a review does for the rows. */
+  hold: RetentionHold
   approval: RetentionApproval
 }
 
@@ -108,7 +117,7 @@ export const RETENTION_INVENTORY = [
     steps: ["reviews", "disconnectedReviews"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -119,7 +128,7 @@ export const RETENTION_INVENTORY = [
     steps: ["media"],
     cascadeFrom: ["review"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -129,7 +138,7 @@ export const RETENTION_INVENTORY = [
     window: `raw payload at ${RAW_CONTENT_WINDOW}; the row while its connection exists`,
     steps: ["accounts"],
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "published" },
   },
   {
@@ -139,7 +148,7 @@ export const RETENTION_INVENTORY = [
     window: `raw payload and address at ${RAW_CONTENT_WINDOW}; the row ${DISCONNECT_WINDOW}, unless a review of it is held`,
     steps: ["locations", "disconnectedLocations"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "published" },
   },
   {
@@ -150,7 +159,7 @@ export const RETENTION_INVENTORY = [
       "payload at payload_expires_at (30 days; legacy rows only, new events store no payload); the dedupe row is kept",
     steps: ["webhookPayloads"],
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "published" },
   },
   {
@@ -162,7 +171,7 @@ export const RETENTION_INVENTORY = [
     steps: ["profileSnapshots"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "published" },
   },
   {
@@ -174,7 +183,7 @@ export const RETENTION_INVENTORY = [
     steps: ["googleMediaPayloads"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "published" },
   },
   {
@@ -184,7 +193,7 @@ export const RETENTION_INVENTORY = [
     window: "expires_at (30 days after each observation)",
     steps: ["resourceSnapshots"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "published" },
   },
   {
@@ -195,7 +204,7 @@ export const RETENTION_INVENTORY = [
     steps: ["foodMenuStates"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "published" },
   },
   {
@@ -206,7 +215,7 @@ export const RETENTION_INVENTORY = [
     steps: ["importProposals"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "published" },
   },
   {
@@ -216,7 +225,7 @@ export const RETENTION_INVENTORY = [
     window: KEPT_WITH_LOCATION,
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: {
       status: "pending",
       decision: "D-28",
@@ -231,7 +240,7 @@ export const RETENTION_INVENTORY = [
     window: "expires_at (180 days after it is started)",
     steps: ["onboardingDrafts"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -241,7 +250,7 @@ export const RETENTION_INVENTORY = [
     window: "with its onboarding draft",
     cascadeFrom: ["google_onboarding_draft"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -251,7 +260,7 @@ export const RETENTION_INVENTORY = [
     window: "with its onboarding draft",
     cascadeFrom: ["google_onboarding_draft", "google_onboarding_review"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -261,7 +270,7 @@ export const RETENTION_INVENTORY = [
     window: "with its onboarding draft",
     cascadeFrom: ["google_onboarding_draft"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -271,7 +280,7 @@ export const RETENTION_INVENTORY = [
     window: "with its onboarding draft",
     cascadeFrom: ["google_onboarding_match_link_review"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
 
@@ -283,7 +292,7 @@ export const RETENTION_INVENTORY = [
     window: KEPT_WITH_LOCATION,
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: {
       status: "pending",
       decision: "D-28",
@@ -299,7 +308,7 @@ export const RETENTION_INVENTORY = [
     steps: ["keywordHistory"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: {
       status: "pending",
       decision: "D-28",
@@ -313,7 +322,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the location",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: {
       status: "pending",
       decision: "D-28",
@@ -329,7 +338,7 @@ export const RETENTION_INVENTORY = [
       "13 months after creation, never while its allowance period is open or the row is reserved",
     steps: ["aiUsage"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
 
@@ -340,7 +349,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the account",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -349,7 +358,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the account",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -358,7 +367,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "while the person is a member",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -367,7 +376,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the location",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -376,7 +385,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "while the person is assigned to the location",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -386,7 +395,7 @@ export const RETENTION_INVENTORY = [
     window: KEPT_WITH_LOCATION,
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "lifecycle" },
   },
   {
@@ -395,7 +404,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the client record",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -404,7 +413,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the client and connection",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -413,7 +422,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it is accepted or expires",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep accepted and expired invitations (email, role, inviter) for the life of the organisation"
     ),
@@ -425,7 +434,7 @@ export const RETENTION_INVENTORY = [
     window: `${KEPT_WITH_LOCATION}; scrubbed by privacy erasure`,
     cascadeFrom: ["review"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -435,7 +444,7 @@ export const RETENTION_INVENTORY = [
     window: "with its draft",
     cascadeFrom: ["draft"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -445,7 +454,7 @@ export const RETENTION_INVENTORY = [
     window: "with its review",
     cascadeFrom: ["review"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -455,7 +464,7 @@ export const RETENTION_INVENTORY = [
     window: `${KEPT_WITH_LOCATION}; scrubbed by privacy erasure`,
     cascadeFrom: ["review"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -465,7 +474,7 @@ export const RETENTION_INVENTORY = [
     window: "with its reply",
     cascadeFrom: ["review_reply"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -475,7 +484,7 @@ export const RETENTION_INVENTORY = [
     window: "with its publish attempt (append-only; yields only to retention)",
     cascadeFrom: ["publish_attempt"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -485,7 +494,7 @@ export const RETENTION_INVENTORY = [
     window: "with the review it protects; a released hold stays as its record",
     cascadeFrom: ["review"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "lifecycle" },
   },
   {
@@ -494,7 +503,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it is resolved",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep resolved privacy requests as the record of how each was answered"
     ),
@@ -507,7 +516,7 @@ export const RETENTION_INVENTORY = [
     steps: ["postPayloads", "strandedPosts"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "published" },
   },
   {
@@ -517,7 +526,7 @@ export const RETENTION_INVENTORY = [
     window: "with its post",
     cascadeFrom: ["gbp_local_post"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "lifecycle" },
   },
   {
@@ -526,7 +535,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the location",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep finished and cancelled schedules for the life of the location"
     ),
@@ -537,7 +546,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "with its schedule",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep every occurrence, run or skipped, for the life of its schedule"
     ),
@@ -548,7 +557,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the location",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -557,7 +566,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it finishes",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep finished bulk operations for the life of the organisation"
     ),
@@ -568,7 +577,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "with its bulk operation",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep each location's current and proposed values with its bulk operation"
     ),
@@ -579,7 +588,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it expires or is revoked",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: {
       status: "pending",
       decision: "D-22",
@@ -593,7 +602,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "while the person is a member",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -602,7 +611,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the organisation",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
 
@@ -615,7 +624,7 @@ export const RETENTION_INVENTORY = [
       "organisation.audit_retention_days (default 365) after it is written; never a held review's",
     steps: ["auditLogs"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "published" },
   },
   {
@@ -625,7 +634,7 @@ export const RETENTION_INVENTORY = [
     window: "7 days after it expires",
     steps: ["appSessions"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "published" },
   },
   {
@@ -637,7 +646,7 @@ export const RETENTION_INVENTORY = [
     steps: ["hoursAttempts", "strandedHours"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "internal" },
   },
   {
@@ -649,7 +658,7 @@ export const RETENTION_INVENTORY = [
     steps: ["profileAttempts", "strandedProfiles"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "internal" },
   },
   {
@@ -661,7 +670,7 @@ export const RETENTION_INVENTORY = [
     steps: ["foodMenuAttempts", "strandedFoodMenus"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "internal" },
   },
   {
@@ -672,7 +681,7 @@ export const RETENTION_INVENTORY = [
     steps: ["postAttempts"],
     cascadeFrom: ["gbp_local_post"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "internal" },
   },
   {
@@ -683,7 +692,7 @@ export const RETENTION_INVENTORY = [
       "expires_at (180 days after it is created), except an unresolved uncertain create; in-flight rows aged to ambiguous after 24 hours",
     steps: ["mediaMutations", "strandedMedia"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -695,7 +704,7 @@ export const RETENTION_INVENTORY = [
     steps: ["placeActionMutations", "strandedPlaceActions"],
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "cascade",
     approval: { status: "internal" },
   },
   {
@@ -706,7 +715,7 @@ export const RETENTION_INVENTORY = [
       "expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours",
     steps: ["managementMutations", "strandedManagement"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -717,7 +726,7 @@ export const RETENTION_INVENTORY = [
       "expires_at (180 days after it is requested), once no Place Action attempt refers to it",
     steps: ["managementChangeSets"],
     deletes: "gated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -728,7 +737,7 @@ export const RETENTION_INVENTORY = [
       "for the life of the organisation; approved requests whose dispatch never started are settled failed",
     steps: ["interruptedApprovals"],
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep every operation receipt as the outcome record of the write it answers"
     ),
@@ -739,7 +748,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "with its operation receipt",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -748,7 +757,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the connection",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -758,7 +767,7 @@ export const RETENTION_INVENTORY = [
     window:
       "for the life of the organisation; tokens are cleared on disconnect",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -768,7 +777,7 @@ export const RETENTION_INVENTORY = [
     window: KEPT_WITH_LOCATION,
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "internal" },
   },
   {
@@ -778,7 +787,7 @@ export const RETENTION_INVENTORY = [
     window: KEPT_WITH_LOCATION,
     cascadeFrom: ["external_location"],
     deletes: "gated",
-    holdable: true,
+    hold: "kept",
     approval: { status: "internal" },
   },
   {
@@ -787,7 +796,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "one row per location and resource, for the life of the location",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -796,7 +805,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "for the life of the organisation",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -805,7 +814,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it resolves",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep resolved incidents for the life of the organisation"
     ),
@@ -816,7 +825,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it is sent or fails",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep delivery history for the life of the organisation"
     ),
@@ -827,7 +836,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "with its delivery",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep provider delivery events with their delivery"
     ),
@@ -838,7 +847,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it is sent",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep digest records for the life of the organisation"
     ),
@@ -849,7 +858,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "with its incident; cleared when a person marks it unread",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "lifecycle" },
   },
   {
@@ -858,7 +867,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept after it resolves",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep resolved platform incidents as the operations record"
     ),
@@ -869,7 +878,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "with its incident",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep operator alert deliveries (recipient address included) with their incident"
     ),
@@ -880,7 +889,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "kept as the Cross-Account Protection record",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep received security events as their record"
     ),
@@ -891,7 +900,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "one row per tick, updated in place",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -900,7 +909,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "one row per pause scope, updated in place",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -909,7 +918,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "append-only history of pause changes",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: PENDING_UNDECIDED(
       "keep every pause change as the operator record"
     ),
@@ -920,7 +929,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "one row per walk, updated in place",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -929,7 +938,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "one row per quota bucket, updated in place",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -940,7 +949,7 @@ export const RETENTION_INVENTORY = [
     handledBy:
       "purgeEndedAbuseBuckets (lib/server/retention/purge.ts), once per cycle",
     deletes: "ungated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -952,7 +961,7 @@ export const RETENTION_INVENTORY = [
     handledBy:
       "openOrResumeCycle (lib/server/retention/cycle.ts), when a new cycle opens",
     deletes: "ungated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -962,7 +971,7 @@ export const RETENTION_INVENTORY = [
     window: "with its cycle",
     cascadeFrom: ["retention_cycle"],
     deletes: "ungated",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
   {
@@ -971,7 +980,7 @@ export const RETENTION_INVENTORY = [
     action: "keep",
     window: "one row per applied migration",
     deletes: "none",
-    holdable: false,
+    hold: "none",
     approval: { status: "internal" },
   },
 ] as const satisfies readonly RetentionDataset[]
@@ -999,6 +1008,12 @@ export const GRANDFATHERED_PENDING_DERIVED: readonly string[] = [
   "performance_search_keyword_monthly",
   "food_menu_item_identity",
 ]
+
+const HOLD_LABEL: Record<RetentionHold, string> = {
+  kept: "yes",
+  cascade: "cascade only",
+  none: "no",
+}
 
 function approvalLabel(approval: RetentionApproval): string {
   return approval.status === "pending"
@@ -1030,7 +1045,7 @@ export function renderRetentionInventoryMarkdown(): string {
         ),
         ...(dataset.handledBy ? [dataset.handledBy] : []),
       ].join(", ")
-      return `| \`${dataset.table}\` | ${dataset.provenance} | ${dataset.action} | ${cell(dataset.window)} | ${cell(mechanism || "none")} | ${dataset.deletes} | ${dataset.holdable ? "yes" : "no"} | ${cell(approvalLabel(dataset.approval))} |`
+      return `| \`${dataset.table}\` | ${dataset.provenance} | ${dataset.action} | ${cell(dataset.window)} | ${cell(mechanism || "none")} | ${dataset.deletes} | ${HOLD_LABEL[dataset.hold]} | ${cell(approvalLabel(dataset.approval))} |`
     })
   return [...header, ...rows].join("\n")
 }

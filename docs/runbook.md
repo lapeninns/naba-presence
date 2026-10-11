@@ -991,15 +991,19 @@ A legal hold on a review keeps everything retention would otherwise remove
 for it: the review's redaction and media, its drafts, replies and publish
 attempts (they go only with the review), its location on disconnect, its AI
 usage rows past 13 months, and audit rows whose subject is the review past the
-audit window.
+audit window. It does not freeze the location: the location's own windows
+still run, so its expired sync attempts are deleted and its Google payloads
+(location raw payload and address, profile, post and media content) are
+redacted as for any location. The inventory's Hold column says `yes` for
+rows a hold keeps whole and `cascade only` for these.
 
 ### Retention inventory and dry run
 
 `lib/server/retention/inventory.ts` classifies every table: provenance
 (`google`, `customer`, `derived`, `operational`), action (`redact`,
 `delete`, `keep`), window, the purge steps or cascades that act on it,
-whether `RETENTION_DELETES_ENABLED` gates its deletes, whether a legal hold
-keeps it, and the approval the window stands on (`published` in the privacy
+whether `RETENTION_DELETES_ENABLED` gates its deletes, what a legal hold
+keeps of it, and the approval the window stands on (`published` in the privacy
 notice, `lifecycle` of its owning record, `internal`, or `pending` a named
 decision with the interim keep decision). `tests/retention-inventory.test.ts`
 fails on any table a migration creates without a row, on a purge step its row
@@ -1015,6 +1019,14 @@ would be deleted once it is on), and `heldLocationsSkipped`. It changes
 nothing except one `retention.dry_run` audit per organisation, takes no lease
 and runs while the retention scope is paused. The Vercel cron GET never
 previews.
+
+Neither the pause nor `RETENTION_ENABLED` stops a dry run, and unlike the
+purge its counts are not bounded by `RETENTION_BATCH_ROWS`: each is a full
+scan of its step's predicate. If retention was paused for database load, use
+`batch_size=1` and wait for the load to clear. Every count stops at the page
+budget (`RETENTION_BUDGET_MS`); an organisation cut short is previewed again
+on the next page, and one that cannot be counted within a whole budget is
+listed in `failures` with `retention_dry_run_budget`.
 
 <!-- retention-inventory:start -->
 | Table | Provenance | Action | Window | Mechanism | Deletes | Hold | Approval |
@@ -1032,15 +1044,15 @@ previews.
 | `connection_task` | operational | keep | for the life of the connection | none | none | no | lifecycle |
 | `cron_cursor` | operational | keep | one row per walk, updated in place | none | none | no | internal |
 | `draft` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect; scrubbed by privacy erasure | cascade from `review` | gated | yes | published |
-| `external_location` | google | redact | raw payload and address at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at), unless a review of it is held | `locations`, `disconnectedLocations` | gated | yes | published |
+| `external_location` | google | redact | raw payload and address at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row 7 days after its Google connection is disconnected (purge_due_at), unless a review of it is held | `locations`, `disconnectedLocations` | gated | cascade only | published |
 | `food_menu_item_identity` | derived | keep | for the life of the location | none | none | no | pending D-28: keep the item mapping while the location exists; it is rebuilt on each menu reconcile |
-| `food_menus_state` | google | delete | expires_at (30 days after each observation) | `foodMenuStates`, cascade from `external_location` | gated | yes | published |
-| `food_menus_sync_attempt` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `foodMenuAttempts`, `strandedFoodMenus`, cascade from `external_location` | gated | yes | internal |
+| `food_menus_state` | google | delete | expires_at (30 days after each observation) | `foodMenuStates`, cascade from `external_location` | gated | cascade only | published |
+| `food_menus_sync_attempt` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `foodMenuAttempts`, `strandedFoodMenus`, cascade from `external_location` | gated | cascade only | internal |
 | `gbp_change_set` | operational | delete | expires_at (180 days after it is requested), once no Place Action attempt refers to it | `managementChangeSets` | gated | no | internal |
-| `gbp_local_post` | customer | redact | provider payload at provider_payload_expires_at; the post while its location stays connected; deleted with the external location 7 days after disconnect | `postPayloads`, `strandedPosts`, cascade from `external_location` | gated | yes | published |
-| `gbp_local_post_attempt` | operational | delete | expires_at (180 days after it is created) | `postAttempts`, cascade from `gbp_local_post` | gated | yes | internal |
+| `gbp_local_post` | customer | redact | provider payload at provider_payload_expires_at; the post while its location stays connected; deleted with the external location 7 days after disconnect | `postPayloads`, `strandedPosts`, cascade from `external_location` | gated | cascade only | published |
+| `gbp_local_post_attempt` | operational | delete | expires_at (180 days after it is created) | `postAttempts`, cascade from `gbp_local_post` | gated | cascade only | internal |
 | `gbp_management_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `managementMutations`, `strandedManagement` | gated | no | internal |
-| `gbp_media_item` | google | redact | URLs, description, attribution, dimensions and insights at payload_expires_at (30 days after each observation) | `googleMediaPayloads`, cascade from `external_location` | gated | yes | published |
+| `gbp_media_item` | google | redact | URLs, description, attribution, dimensions and insights at payload_expires_at (30 days after each observation) | `googleMediaPayloads`, cascade from `external_location` | gated | cascade only | published |
 | `gbp_media_mutation` | operational | delete | expires_at (180 days after it is created), except an unresolved uncertain create; in-flight rows aged to ambiguous after 24 hours | `mediaMutations`, `strandedMedia` | gated | no | internal |
 | `gbp_resource_snapshot` | google | delete | expires_at (30 days after each observation) | `resourceSnapshots` | gated | no | published |
 | `google_account` | google | redact | raw payload at raw_content_expires_at: organisation.raw_content_retention_days (default 30, at most 30) after last receipt; the row while its connection exists | `accounts` | none | no | published |
@@ -1051,7 +1063,7 @@ previews.
 | `google_onboarding_match_link_review` | google | delete | with its onboarding draft | cascade from `google_onboarding_draft` | gated | no | internal |
 | `google_onboarding_review` | google | delete | with its onboarding draft | cascade from `google_onboarding_draft` | gated | no | internal |
 | `google_rate_bucket` | operational | keep | one row per quota bucket, updated in place | none | none | no | internal |
-| `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | yes | internal |
+| `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | cascade only | internal |
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
 | `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record | cascade from `review` | gated | yes | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
@@ -1073,21 +1085,21 @@ previews.
 | `organisation_feature` | customer | keep | for the life of the organisation | none | none | no | lifecycle |
 | `organisation_job_route` | operational | keep | for the life of the organisation | none | none | no | internal |
 | `performance_metric_daily` | derived | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | pending D-28: keep daily figures while the location stays connected, as the privacy notice says |
-| `performance_search_keyword_monthly` | derived | delete | 18 months after the metric month | `keywordHistory`, cascade from `external_location` | gated | yes | pending D-28: keep deleting keyword history after 18 months, as the privacy notice says |
+| `performance_search_keyword_monthly` | derived | delete | 18 months after the metric month | `keywordHistory`, cascade from `external_location` | gated | cascade only | pending D-28: keep deleting keyword history after 18 months, as the privacy notice says |
 | `place_action_link` | google | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | pending D-28: keep the mirrored links while the location stays connected; they are refreshed on every read |
-| `place_action_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `placeActionMutations`, `strandedPlaceActions`, cascade from `external_location` | gated | yes | internal |
+| `place_action_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `placeActionMutations`, `strandedPlaceActions`, cascade from `external_location` | gated | cascade only | internal |
 | `platform_incident` | operational | keep | kept after it resolves | none | none | no | pending D-47: keep resolved platform incidents as the operations record |
 | `platform_incident_delivery` | operational | keep | with its incident | none | none | no | pending D-47: keep operator alert deliveries (recipient address included) with their incident |
 | `post_approval_decision` | customer | keep | with its post | cascade from `gbp_local_post` | gated | yes | lifecycle |
 | `post_publication_occurrence` | customer | keep | with its schedule | none | none | no | pending D-47: keep every occurrence, run or skipped, for the life of its schedule |
 | `post_publication_schedule` | customer | keep | for the life of the location | none | none | no | pending D-47: keep finished and cancelled schedules for the life of the location |
 | `presence_canonical_resource` | customer | keep | for the life of the location | none | none | no | lifecycle |
-| `presence_import_proposal` | google | delete | expires_at (90 days after it is raised) | `importProposals`, cascade from `external_location` | gated | yes | published |
+| `presence_import_proposal` | google | delete | expires_at (90 days after it is raised) | `importProposals`, cascade from `external_location` | gated | cascade only | published |
 | `presence_resource_reconcile_state` | operational | keep | one row per location and resource, for the life of the location | none | none | no | internal |
 | `privacy_request` | customer | keep | kept after it is resolved | none | none | no | pending D-47: keep resolved privacy requests as the record of how each was answered |
 | `processed_webhook_event` | google | redact | payload at payload_expires_at (30 days; legacy rows only, new events store no payload); the dedupe row is kept | `webhookPayloads` | none | no | published |
-| `profile_field_state` | google | redact | canonical and Google values at snapshot_expires_at (30 days after each observation) | `profileSnapshots`, cascade from `external_location` | gated | yes | published |
-| `profile_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `profileAttempts`, `strandedProfiles`, cascade from `external_location` | gated | yes | internal |
+| `profile_field_state` | google | redact | canonical and Google values at snapshot_expires_at (30 days after each observation) | `profileSnapshots`, cascade from `external_location` | gated | cascade only | published |
+| `profile_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `profileAttempts`, `strandedProfiles`, cascade from `external_location` | gated | cascade only | internal |
 | `publish_attempt` | operational | keep | with its reply | cascade from `review_reply` | gated | yes | published |
 | `publish_attempt_event` | operational | keep | with its publish attempt (append-only; yields only to retention) | cascade from `publish_attempt` | gated | yes | published |
 | `report_share` | customer | keep | kept after it expires or is revoked | none | none | no | pending D-22: keep expired and revoked share rows (token hash only) for the life of the client |
