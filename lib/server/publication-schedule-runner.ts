@@ -8,6 +8,7 @@ import {
   contentExpired,
   eventOffsetsSchema,
   occurrenceEventDates,
+  scheduleRuleSchema,
   selectDueOccurrences,
 } from "@/lib/domain/publication-schedule"
 import { writeAudit } from "@/lib/server/audit"
@@ -27,6 +28,7 @@ import {
 } from "@/lib/server/pause-controls"
 import { canPublishLocation } from "@/lib/server/permissions"
 import { publishScheduledLocalPost } from "@/lib/server/posts"
+import { schedulingAvailability } from "@/lib/server/publication-schedules"
 import type { Session } from "@/lib/server/session"
 
 type Schedule = {
@@ -35,6 +37,7 @@ type Schedule = {
   locationId: string
   status: string
   revision: number
+  rule: unknown
   timezone: string
   template: Record<string, unknown>
   eventOffsets: unknown
@@ -181,7 +184,7 @@ export async function processSchedule(
   const pauses = await loadPauseSnapshot()
   const plan = await withTenant(organisationId, async (sql) => {
     const [schedule] = await sql<Schedule[]>`
-      select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, timezone, template,
+      select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, rule, timezone, template,
         event_offsets as "eventOffsets", requested_by::text as "requestedBy", approved_by::text as "approvedBy",
         approved_revision as "approvedRevision", require_two_person_approval as "requireTwoPersonApproval"
       from post_publication_schedule where id = ${scheduleId} for update`
@@ -191,7 +194,19 @@ export async function processSchedule(
       from post_publication_occurrence
       where schedule_id = ${scheduleId} and schedule_revision = ${schedule.revision} and status = 'scheduled' and intended_at <= ${now}
       order by intended_at`
-    const problem = await approvalProblem(sql, schedule)
+    // The organisation feature is read in this tenant transaction
+    // (organisation_feature forces RLS). Switched off, a due schedule is
+    // blocked rather than left to publish later: switching the feature back
+    // on does not revive an approval given before it went off.
+    const availability = await schedulingAvailability(
+      sql,
+      organisationId,
+      scheduleRuleSchema.parse(schedule.rule)
+    )
+    const problem =
+      availability !== "ok"
+        ? availability
+        : await approvalProblem(sql, schedule)
     if (problem) {
       await sql`update post_publication_schedule set status = 'blocked', status_reason = ${problem}, updated_at = now() where id = ${scheduleId}`
       await emit(sql, {
@@ -328,7 +343,11 @@ export async function processSchedule(
     if (outcome === "ambiguous") {
       // Never resubmitted automatically: the schedule waits until someone
       // reads the post's saved outcome and resumes it.
-      await sql`update post_publication_schedule set status = 'blocked', status_reason = 'prior_occurrence_unresolved', updated_at = now() where id = ${scheduleId}`
+      // A schedule quarantined for review while this occurrence was in
+      // flight (0240) keeps its needs_review state and wording; it already
+      // never runs, and blocking it would hide why it stopped.
+      const blocked =
+        await sql`update post_publication_schedule set status = 'blocked', status_reason = 'prior_occurrence_unresolved', updated_at = now() where id = ${scheduleId} and status <> 'needs_review' returning id`
       if (attempt)
         await emit(sql, {
           ...base(schedule),
@@ -336,12 +355,13 @@ export async function processSchedule(
           reason: "response_ambiguous",
           source: { type: "attempt", family: "posts", id: attempt },
         })
-      await emit(sql, {
-        ...base(schedule),
-        kind: "schedule_blocked",
-        reason: "prior_occurrence_unresolved",
-        source: { type: "schedule_occurrence", id: run.id, scheduleId },
-      })
+      if (blocked.length > 0)
+        await emit(sql, {
+          ...base(schedule),
+          kind: "schedule_blocked",
+          reason: "prior_occurrence_unresolved",
+          source: { type: "schedule_occurrence", id: run.id, scheduleId },
+        })
     }
     if (summary) summary[outcome] += 1
     if (failure && outcome !== "rejected")

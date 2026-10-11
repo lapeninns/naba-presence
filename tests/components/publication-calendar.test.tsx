@@ -143,3 +143,41 @@ describe("PublicationCalendar month grid", () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe("PublicationCalendar with scheduling switched off", () => {
+  it("says the feature is off instead of a load failure to retry", async () => {
+    const calls: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = String(input)
+        if (url.includes("/api/post-schedules/occurrences")) {
+          calls.push(url)
+          return new Response(
+            JSON.stringify({
+              error: "post_scheduling_unavailable",
+              message:
+                "Scheduled publishing is not switched on for this workspace.",
+            }),
+            { status: 404, headers: { "content-type": "application/json" } }
+          )
+        }
+        if (url.includes("/api/clients"))
+          return jsonResponse({ items: [], unassignedLocationCount: 0 })
+        if (url.includes("/api/session"))
+          return jsonResponse({ session: { role: "owner" } })
+        return jsonResponse({ locations: [] })
+      })
+    )
+    renderWithProviders(<PublicationCalendar />)
+    expect(
+      await screen.findByText(
+        "Scheduled publishing is not switched on for this workspace."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Scheduled publications could not be loaded")
+    ).not.toBeInTheDocument()
+    expect(calls).toHaveLength(1)
+  })
+})

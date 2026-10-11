@@ -23,6 +23,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import {
   canPublishLocation,
   isManagerialRole,
@@ -54,6 +55,68 @@ type Row = {
 const NOT_FOUND = {
   code: "schedule_not_found",
   message: "The schedule was not found.",
+}
+
+export const SCHEDULING_UNAVAILABLE = {
+  code: "post_scheduling_unavailable",
+  message: "Scheduled publishing is not switched on for this workspace.",
+}
+export const RECURRING_UNAVAILABLE = {
+  code: "schedule_recurring_unavailable",
+  message:
+    "Repeating schedules are not available. Schedule a single publication instead.",
+}
+
+/**
+ * Whether the organisation may schedule, and schedule this rule. One-time
+ * publication needs `post_scheduling`; a repeating rule also needs
+ * `post_scheduling_recurring`. Runs in the caller's tenant transaction
+ * (organisation_feature forces RLS); the runner uses the same answer.
+ */
+export async function schedulingAvailability(
+  sql: TransactionSql,
+  organisationId: string,
+  rule?: ScheduleRule
+): Promise<"ok" | "feature_disabled" | "recurring_disabled"> {
+  if (!(await isOrgFeatureEnabled(sql, organisationId, "post_scheduling")))
+    return "feature_disabled"
+  if (
+    rule &&
+    rule.frequency !== "once" &&
+    !(await isOrgFeatureEnabled(
+      sql,
+      organisationId,
+      "post_scheduling_recurring"
+    ))
+  )
+    return "recurring_disabled"
+  return "ok"
+}
+
+/**
+ * The route-side gate for every action that can lead to a publication:
+ * create, approve, revise, resume and the calendar. Listing, pausing and
+ * cancelling stay available with the feature off, so existing schedules can
+ * always be seen and stopped.
+ */
+async function requireScheduling(
+  sql: TransactionSql,
+  organisationId: string,
+  rule?: ScheduleRule
+) {
+  const availability = await schedulingAvailability(sql, organisationId, rule)
+  if (availability === "feature_disabled")
+    throw new ApiError(
+      404,
+      SCHEDULING_UNAVAILABLE.code,
+      SCHEDULING_UNAVAILABLE.message
+    )
+  if (availability === "recurring_disabled")
+    throw new ApiError(
+      422,
+      RECURRING_UNAVAILABLE.code,
+      RECURRING_UNAVAILABLE.message
+    )
 }
 
 /** The content, rule, zone, offsets and target that one approval covers. */
@@ -209,6 +272,7 @@ export async function createPublicationSchedule(
   requestId: string
 ) {
   return withTenant(session.organisationId, async (sql) => {
+    await requireScheduling(sql, session.organisationId, draft.rule)
     // A schedule is a request for approval of the posts it will publish.
     await requireLocationAction(
       sql,
@@ -295,6 +359,11 @@ export async function approvePublicationSchedule(
         "Only an owner or administrator who can publish here can approve a schedule."
       )
     const row = await loadRow(sql, locationId, scheduleId, true)
+    await requireScheduling(
+      sql,
+      session.organisationId,
+      scheduleRuleSchema.parse(row.rule)
+    )
     if (row.status !== "awaiting_approval")
       throw new ApiError(
         409,
@@ -382,6 +451,7 @@ export async function revisePublicationSchedule(
   requestId: string
 ) {
   return withTenant(session.organisationId, async (sql) => {
+    await requireScheduling(sql, session.organisationId, input.rule)
     // A new revision asks for approval again.
     await requireLocationAction(
       sql,
@@ -418,7 +488,12 @@ export async function revisePublicationSchedule(
       timezone: input.timezone,
       eventOffsets: input.eventOffsets,
     })
-    if (payloadHash === row.payloadHash && row.status !== "blocked")
+    // A blocked or quarantined schedule may be submitted again unchanged.
+    if (
+      payloadHash === row.payloadHash &&
+      row.status !== "blocked" &&
+      row.status !== "needs_review"
+    )
       throw new ApiError(
         409,
         "schedule_no_change",
@@ -477,6 +552,11 @@ export async function actOnPublicationSchedule(
           "schedule_not_paused",
           "Only a paused schedule can be resumed."
         )
+      await requireScheduling(
+        sql,
+        session.organisationId,
+        scheduleRuleSchema.parse(row.rule)
+      )
       const [policy] = await sql<
         { required: boolean }[]
       >`select require_two_person_approval as required from organisation limit 1`
@@ -517,6 +597,7 @@ export async function listScheduleOccurrences(
   query: z.infer<typeof occurrencesQuerySchema>
 ) {
   return withTenant(session.organisationId, async (sql) => {
+    await requireScheduling(sql, session.organisationId)
     const rows = await sql`
       select o.id::text as id, o.schedule_id::text as "scheduleId", o.location_id::text as "locationId", l.name as "locationName",
         o.intended_at as "intendedAt", o.local_date::text as "localDate", o.local_time as "localTime", s.timezone, o.adjustment,

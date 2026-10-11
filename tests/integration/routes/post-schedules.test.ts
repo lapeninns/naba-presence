@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import postgres from "postgres"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
@@ -34,6 +36,8 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     posts: [] as Array<Record<string, unknown>>,
     createStatus: 200,
     listStatus: 200,
+    // Runs while the publish request is in flight (before Google answers).
+    onCreate: null as null | (() => Promise<void>),
   }
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 2 })
@@ -55,26 +59,31 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     state.posts = []
     state.createStatus = 200
     state.listStatus = 200
+    state.onCreate = null
     google.reset()
-    google.respond({ method: "POST", pathIncludes: "/localPosts" }, (call) => {
-      const path = new URL(call.path, "https://stub.test").pathname.replace(
-        /^\/v4\//,
-        ""
-      )
-      const post = {
-        ...(call.body as object),
-        name: `${path}/p${state.posts.length + 1}`,
-        state: "LIVE",
+    google.respond(
+      { method: "POST", pathIncludes: "/localPosts" },
+      async (call) => {
+        if (state.onCreate) await state.onCreate()
+        const path = new URL(call.path, "https://stub.test").pathname.replace(
+          /^\/v4\//,
+          ""
+        )
+        const post = {
+          ...(call.body as object),
+          name: `${path}/p${state.posts.length + 1}`,
+          state: "LIVE",
+        }
+        if (state.createStatus === 200) state.posts.push(post)
+        return {
+          status: state.createStatus,
+          json:
+            state.createStatus === 200
+              ? post
+              : { error: { status: "UNAVAILABLE" } },
+        }
       }
-      if (state.createStatus === 200) state.posts.push(post)
-      return {
-        status: state.createStatus,
-        json:
-          state.createStatus === 200
-            ? post
-            : { error: { status: "UNAVAILABLE" } },
-      }
-    })
+    )
     google.respond({ method: "GET", pathIncludes: "/localPosts?" }, () => ({
       status: state.listStatus,
       json:
@@ -104,9 +113,27 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     return response.json() as Promise<{ schedules?: Record<string, number> }>
   }
 
-  async function tenant() {
+  // Scheduling is an organisation feature (P08-R1); repeating rules need
+  // their own on top. Most cases here exercise main's engine, so both are on.
+  const setFeature = (
+    organisationId: string,
+    feature: "post_scheduling" | "post_scheduling_recurring",
+    enabled: boolean
+  ) => admin`
+    insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+    values (${organisationId}, ${feature}, ${enabled}, 'post-schedules test')
+    on conflict (organisation_id, feature) do update set enabled = excluded.enabled`
+
+  async function tenant(
+    features: Array<"post_scheduling" | "post_scheduling_recurring"> = [
+      "post_scheduling",
+      "post_scheduling_recurring",
+    ]
+  ) {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
+    for (const feature of features)
+      await setFeature(owner.organisationId, feature, true)
     const connection = await seedGoogleConnection(admin, {
       organisationId: owner.organisationId,
     })
@@ -197,6 +224,16 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       occurrences,
       age,
       scheduleRow,
+    }
+  }
+  // The migration file carries its own begin/commit, which postgres.js only
+  // accepts on a reserved connection.
+  const runMigration = async (text: string) => {
+    const connection = await admin.reserve()
+    try {
+      await connection.unsafe(text)
+    } finally {
+      connection.release()
     }
   }
   const tomorrow = () =>
@@ -508,5 +545,278 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       ).json()
     )
     expect(scoped.occurrences.map((o) => o.scheduleId)).not.toContain(s.id)
+  })
+  it("refuses to schedule while post_scheduling is off, blocks a due schedule, and keeps listing, pausing and cancelling", async () => {
+    const t = await tenant(["post_scheduling"])
+    const once = (time: string) => ({
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: time,
+    })
+    const pending = await t.schedule(await t.draft(), once("09:00"))
+    const pausable = await t.schedule(await t.draft(), once("10:00"))
+    const due = await t.schedule(await t.draft(), once("11:00"))
+    expect((await t.approve(pausable)).status).toBe(200)
+    expect((await t.approve(due)).status).toBe(200)
+    await setFeature(t.owner.organisationId, "post_scheduling", false)
+    const refused = async (response: Response, status = 404) => {
+      expect(response.status, await response.clone().text()).toBe(status)
+      expect(await response.json()).toMatchObject({
+        error: "post_scheduling_unavailable",
+      })
+    }
+
+    await t.age((await t.occurrences(due.id))[0].id, 0.05)
+    await tick()
+    expect(await t.scheduleRow(due.id)).toEqual({
+      status: "blocked",
+      status_reason: "feature_disabled",
+    })
+    expect(creates()).toHaveLength(0)
+    const [incident] =
+      await admin`select reason from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'`
+    expect(incident?.reason).toBe("feature_disabled")
+
+    await refused(
+      await t.api("/post-schedules", {
+        method: "POST",
+        body: JSON.stringify({
+          postId: await t.draft(),
+          rule: once("12:00"),
+          timezone: "Europe/London",
+        }),
+      })
+    )
+    await refused(await t.approve(pending))
+    await refused(
+      await t.api(`/post-schedules/${pending.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          rule: once("13:00"),
+          timezone: "Europe/London",
+        }),
+      })
+    )
+    await refused(
+      await fetch(
+        `${server.baseUrl}/api/post-schedules/occurrences?${new URLSearchParams(
+          {
+            from: new Date().toISOString(),
+            to: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+          }
+        )}`,
+        { headers: { cookie: t.owner.cookie } }
+      )
+    )
+    const act = (id: string, action: string) =>
+      t.api(`/post-schedules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action }),
+      })
+    expect((await act(pausable.id, "pause")).status).toBe(200)
+    await refused(await act(pausable.id, "resume"))
+
+    const listed = await t.api("/post-schedules")
+    expect(listed.status).toBe(200)
+    const { schedules } = (await listed.json()) as {
+      schedules: PublicationSchedule[]
+    }
+    expect(schedules.map((row) => row.id).sort()).toEqual(
+      [pending.id, pausable.id, due.id].sort()
+    )
+    const cancelled = await act(pending.id, "cancel")
+    expect(cancelled.status).toBe(200)
+    expect(
+      scheduleResponseSchema.parse(await cancelled.json()).schedule.status
+    ).toBe("cancelled")
+    expect(creates()).toHaveLength(0)
+  })
+
+  it("schedules once by default and needs post_scheduling_recurring for a repeating rule", async () => {
+    const t = await tenant(["post_scheduling"])
+    const daily = {
+      frequency: "daily",
+      startDate: tomorrow(),
+      localTime: "09:00",
+      end: { type: "count", count: 2 },
+    }
+    const refused = await t.api("/post-schedules", {
+      method: "POST",
+      body: JSON.stringify({
+        postId: await t.draft(),
+        rule: daily,
+        timezone: "Europe/London",
+      }),
+    })
+    expect(refused.status, await refused.clone().text()).toBe(422)
+    expect(await refused.json()).toMatchObject({
+      error: "schedule_recurring_unavailable",
+    })
+    const once = await t.schedule(await t.draft(), {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    expect(once.status).toBe("awaiting_approval")
+
+    // Approved while repeating schedules were on, due after they went off.
+    await setFeature(t.owner.organisationId, "post_scheduling_recurring", true)
+    const repeating = await t.schedule(await t.draft(), daily)
+    expect((await t.approve(repeating)).status).toBe(200)
+    await setFeature(t.owner.organisationId, "post_scheduling_recurring", false)
+    await t.age((await t.occurrences(repeating.id))[0].id, 0.05)
+    await tick()
+    expect(await t.scheduleRow(repeating.id)).toEqual({
+      status: "blocked",
+      status_reason: "recurring_disabled",
+    })
+    expect(creates()).toHaveLength(0)
+    const reapproval = await t.api(`/post-schedules/${repeating.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ rule: daily, timezone: "Europe/London" }),
+    })
+    expect(reapproval.status).toBe(422)
+    const single = await t.api(`/post-schedules/${repeating.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        rule: { frequency: "once", startDate: inDays(2), localTime: "09:00" },
+        timezone: "Europe/London",
+      }),
+    })
+    expect(single.status, await single.clone().text()).toBe(200)
+    expect(
+      scheduleResponseSchema.parse(await single.json()).schedule
+    ).toMatchObject({ status: "awaiting_approval", revision: 2 })
+  })
+
+  // Last: re-running 0240 touches every tenant's rows in this database.
+  it("0240 quarantines live repeating schedules and legacy post times, and creates no work", async () => {
+    const t = await tenant()
+    const repeating = await t.schedule(await t.draft(), {
+      frequency: "weekly",
+      startDate: tomorrow(),
+      localTime: "09:00",
+      end: { type: "count", count: 3 },
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+    })
+    expect((await t.approve(repeating)).status).toBe(200)
+    const single = await t.schedule(await t.draft(), {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "10:00",
+    })
+    expect((await t.approve(single)).status).toBe(200)
+    const legacyPost = await t.draft()
+    await admin`update gbp_local_post set scheduled_publish_time = now() + interval '3 days' where id = ${legacyPost}`
+    // Work here is an occurrence row or a post row; the migration adds neither.
+    const work = async () =>
+      (
+        await admin<{ occurrences: number; posts: number }[]>`
+          select (select count(*)::int from post_publication_occurrence where organisation_id = ${t.owner.organisationId}) as occurrences,
+            (select count(*)::int from gbp_local_post where organisation_id = ${t.owner.organisationId}) as posts`
+      )[0]
+    const workBefore = await work()
+
+    const migration = await readFile(
+      new URL(
+        "../../../supabase/migrations/0240_post_schedule_quarantine.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    await runMigration(migration)
+
+    expect(await t.scheduleRow(repeating.id)).toEqual({
+      status: "needs_review",
+      status_reason: "recurring_quarantined",
+    })
+    expect(
+      (await t.occurrences(repeating.id)).map(
+        (o) => `${o.status}:${o.status_reason}`
+      )
+    ).toEqual(Array(3).fill("cancelled:schedule_quarantined"))
+    expect(await t.scheduleRow(single.id)).toEqual({
+      status: "active",
+      status_reason: null,
+    })
+    const legacy =
+      await admin`select status from gbp_local_post_legacy_schedule where post_id = ${legacyPost}`
+    expect(legacy).toEqual([{ status: "needs_review" }])
+    expect(await work()).toEqual(workBefore)
+
+    // The API shows it for review; it never runs, and the way out is a
+    // revision or a cancel.
+    const listed = (await (await t.api("/post-schedules")).json()) as {
+      schedules: PublicationSchedule[]
+    }
+    expect(
+      listed.schedules.find((row) => row.id === repeating.id)
+    ).toMatchObject({
+      status: "needs_review",
+      statusReason: "recurring_quarantined",
+    })
+    await tick()
+    expect(creates()).toHaveLength(0)
+    const resumed = await t.api(`/post-schedules/${repeating.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "resume" }),
+    })
+    expect(resumed.status).toBe(409)
+    const revised = await t.api(`/post-schedules/${repeating.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        rule: { frequency: "once", startDate: inDays(2), localTime: "09:00" },
+        timezone: "Europe/London",
+      }),
+    })
+    expect(revised.status, await revised.clone().text()).toBe(200)
+    expect(
+      scheduleResponseSchema.parse(await revised.json()).schedule
+    ).toMatchObject({ status: "awaiting_approval", revision: 2 })
+  })
+  it("keeps a quarantined schedule in review when its in-flight occurrence settles as ambiguous", async () => {
+    const t = await tenant(),
+      s = await t.schedule(await t.draft(), {
+        frequency: "daily",
+        startDate: tomorrow(),
+        localTime: "09:00",
+        end: { type: "count", count: 3 },
+      })
+    expect((await t.approve(s)).status).toBe(200)
+    const [first] = await t.occurrences(s.id)
+    await t.age(first.id, 0.02)
+    const migration = await readFile(
+      new URL(
+        "../../../supabase/migrations/0240_post_schedule_quarantine.sql",
+        import.meta.url
+      ),
+      "utf8"
+    )
+    // 0240 lands while the first occurrence is publishing; Google then
+    // fails without a readable outcome.
+    state.onCreate = async () => {
+      state.onCreate = null
+      await runMigration(migration)
+    }
+    state.createStatus = 503
+    state.listStatus = 503
+    await tick()
+    const rows = await t.occurrences(s.id)
+    expect(rows.map((o) => `${o.status}:${o.status_reason}`)).toEqual([
+      "ambiguous:response_ambiguous",
+      "cancelled:schedule_quarantined",
+      "cancelled:schedule_quarantined",
+    ])
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "needs_review",
+      status_reason: "recurring_quarantined",
+    })
+    const blocked =
+      await admin`select 1 from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'`
+    expect(blocked).toHaveLength(0)
+    state.createStatus = 200
+    state.listStatus = 200
+    await tick()
+    expect(creates()).toHaveLength(1)
   })
 })

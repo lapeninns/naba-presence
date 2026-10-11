@@ -40,6 +40,7 @@ const STATUS: Record<
   active: { label: "Active", tone: "ok" },
   paused: { label: "Paused", tone: "outline" },
   blocked: { label: "Needs attention", tone: "bad" },
+  needs_review: { label: "Needs review", tone: "warn" },
   cancelled: { label: "Cancelled", tone: "outline" },
   completed: { label: "Completed", tone: "outline" },
 }
@@ -48,17 +49,32 @@ const REASON: Record<string, string> = {
     "The approval no longer holds (the approval policy or approver changed). Change the schedule and approve it again.",
   permission_revoked:
     "The approver or requester lost access. Change the schedule and have a current manager approve it.",
+  feature_disabled:
+    "Scheduled publishing was switched off for this workspace, so nothing was published. Change the schedule and approve it again once it is back.",
+  recurring_disabled:
+    "Repeating schedules are no longer available here, so nothing was published. Change it to a single publication, or cancel it.",
+  recurring_quarantined:
+    "Repeating schedules are no longer the default, so this one was stopped before it published again. Change it to a single publication, or cancel it.",
   prior_occurrence_unresolved:
     "A publication was sent but Google's result is unknown. Check the post's saved outcome; nothing more is sent until then.",
 }
 
-/** A location's publication schedules and the actions each allows. */
+/**
+ * A location's publication schedules and the actions each allows. With the
+ * organisation's scheduling feature off (`enabled` false) existing schedules
+ * stay visible and can be paused or cancelled, but nothing can be approved,
+ * changed or resumed, and an empty list shows nothing at all.
+ */
 export function PostSchedules({
   locationId,
   timezone,
+  enabled,
+  recurring,
 }: {
   locationId: string
   timezone: string
+  enabled: boolean
+  recurring: boolean
 }) {
   const role = useSessionRole()
   const manager = role === "owner" || role === "admin"
@@ -108,6 +124,7 @@ export function PostSchedules({
     onError: failed,
   })
   const schedules = query.data ?? []
+  if (!enabled && schedules.length === 0) return null
 
   return (
     <section aria-labelledby="post-schedules" className="flex flex-col gap-3">
@@ -169,7 +186,9 @@ export function PostSchedules({
                   </p>
                 ) : null}
                 <div className="flex flex-wrap gap-1">
-                  {schedule.status === "awaiting_approval" && manager ? (
+                  {schedule.status === "awaiting_approval" &&
+                  manager &&
+                  enabled ? (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -193,7 +212,7 @@ export function PostSchedules({
                       Pause
                     </Button>
                   ) : null}
-                  {schedule.status === "paused" && manager ? (
+                  {schedule.status === "paused" && manager && enabled ? (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -205,10 +224,11 @@ export function PostSchedules({
                       Resume
                     </Button>
                   ) : null}
-                  {open && role !== "viewer" ? (
+                  {open && role !== "viewer" && enabled ? (
                     <SchedulePostSheet
                       locationId={locationId}
                       timezone={timezone}
+                      recurring={recurring}
                       existing={schedule}
                       post={{
                         id: schedule.sourcePostId ?? schedule.id,

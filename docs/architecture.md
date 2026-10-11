@@ -1526,6 +1526,20 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
+Scheduling is behind the organisation feature `post_scheduling`
+(`lib/server/publication-schedules.ts` `schedulingAvailability`). Off, the
+routes refuse to create, approve, revise or resume a schedule and the calendar
+occurrences route answers 404 `post_scheduling_unavailable`; listing, pausing
+and cancelling stay available. One-time is the generally available frequency:
+a repeating rule also needs `post_scheduling_recurring` (422
+`schedule_recurring_unavailable` without it). The runner blocks a due schedule
+whose feature is off (`feature_disabled`, `recurring_disabled`), so turning a
+feature back on needs a fresh approval. Migration 0240 quarantined every
+repeating schedule that could still run as `needs_review`
+(`recurring_quarantined`, its scheduled occurrences cancelled) and copied
+unpublished posts' legacy `scheduled_publish_time`/`recurrence` values into
+`gbp_local_post_legacy_schedule` for review; nothing creates a job from them.
+
 ## Bulk listing changes (WP6, 0080)
 
 A preview freezes up to 100 explicit location ids; a batch naming any listing

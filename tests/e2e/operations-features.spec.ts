@@ -174,6 +174,13 @@ for (const width of [375, 768, 1280])
       page,
     }, info) => {
       const f = await backend.fixture(page, 1)
+      // Scheduling, and repeating schedules on top, are organisation
+      // features that ship off (P08-R1).
+      await backend.admin`
+        insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+        values (${f.owner.organisationId}, 'post_scheduling', true, 'e2e'),
+          (${f.owner.organisationId}, 'post_scheduling_recurring', true, 'e2e')
+        on conflict (organisation_id, feature) do update set enabled = true`
       const created = await page.request.post(
         `${backend.server.baseUrl}/api/locations/${f.linked[0].locationId}/posts`,
         {

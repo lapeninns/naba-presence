@@ -256,6 +256,15 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   a row): `pnpm ops:pause feature --organisation <uuid> --feature
   post_scheduling --enable --operator you@example.com`. The script refuses a
   feature name not listed in `lib/contracts/org-features.ts`.
+- `post_scheduling` switches on one-time scheduled posts for an
+  organisation; `post_scheduling_recurring` additionally allows daily, weekly
+  and monthly schedules. With either off, a due schedule that needs it is
+  blocked (`feature_disabled` / `recurring_disabled`), not deferred: after
+  switching it back on, the schedule is changed and approved again. Repeating
+  schedules quarantined by migration 0240 show as "Needs review"; find them
+  with `select id, organisation_id from post_publication_schedule where
+  status = 'needs_review'`, and legacy per-post times with `select post_id
+  from gbp_local_post_legacy_schedule where status = 'needs_review'`.
 - `listing_change_approvals` makes direct listing writes obey the
   organisation's two-person policy: with both on, a publisher's hours,
   profile, menu and media writes park as change requests that another

@@ -87,6 +87,14 @@ export const locationCapabilitiesSchema = z.object({
    * single-location capabilities answer carries it.
    */
   listingChangeApprovals: z.boolean().optional(),
+  /**
+   * The organisation's `post_scheduling` feature is on: posts can be
+   * scheduled, approved and resumed here. Off, existing schedules can still
+   * be listed, paused and cancelled. Only the single-location answer has it.
+   */
+  postScheduling: z.boolean().optional(),
+  /** `post_scheduling_recurring` is on as well: repeating rules are offered. */
+  postSchedulingRecurring: z.boolean().optional(),
   resourceActions: googleResourceActionsSchema.optional(),
 })
 export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>

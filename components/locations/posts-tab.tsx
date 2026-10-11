@@ -302,8 +302,13 @@ function PostsList({
                             writesEnabled={writesEnabled}
                             timezone={timezone}
                           />
-                          {caps?.canEditCanonical ? (
-                            <SchedulePostSheet locationId={locationId} post={post} timezone={timezone} />
+                          {caps?.canEditCanonical && caps.postScheduling ? (
+                            <SchedulePostSheet
+                              locationId={locationId}
+                              post={post}
+                              timezone={timezone}
+                              recurring={caps.postSchedulingRecurring === true}
+                            />
                           ) : null}
                         </div>
                       }
@@ -315,7 +320,12 @@ function PostsList({
           )}
         </div>
       )}
-      <PostSchedules locationId={locationId} timezone={timezone} />
+      <PostSchedules
+        locationId={locationId}
+        timezone={timezone}
+        enabled={caps?.postScheduling === true}
+        recurring={caps?.postSchedulingRecurring === true}
+      />
     </EditorFrame>
   )
 }

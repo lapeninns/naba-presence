@@ -16,8 +16,18 @@ export const LEGACY_MIGRATION_FILES = [
   "20260729000400_remove_local_demo_data.sql",
 ]
 
-/** Versions that were never used. Git history has no `0021` file. */
-export const KNOWN_VERSION_GAPS = ["0021"]
+/**
+ * Versions that were never used. Git history has no `0021` file.
+ *
+ * INTEGRATION: fan-out stream C (post scheduling) numbers its migrations in
+ * its reserved range 0240-0259, so 0095-0239 are unused on this branch. The
+ * integrator renumbers the streams sequentially after 0094 and removes this
+ * range in the same change.
+ */
+const FANOUT_STREAM_C_GAPS = Array.from({ length: 239 - 95 + 1 }, (_, index) =>
+  String(95 + index).padStart(4, "0")
+)
+export const KNOWN_VERSION_GAPS = ["0021", ...FANOUT_STREAM_C_GAPS]
 
 /** @param {string} file */
 export const versionNumber = (file) => Number(file.slice(0, 4))

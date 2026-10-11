@@ -52,11 +52,17 @@ function currentTime() {
   return Date.now()
 }
 
-function initial(existing: PublicationSchedule | undefined, openedAt: number) {
+function initial(
+  existing: PublicationSchedule | undefined,
+  openedAt: number,
+  recurring: boolean
+) {
   const rule = existing?.rule
   const tomorrow = new Date(openedAt + 86_400_000).toISOString().slice(0, 10)
   return {
-    frequency: (rule?.frequency ?? "once") as Frequency,
+    // Without the repeating feature, a repeating schedule can only be
+    // changed into a single publication.
+    frequency: (recurring ? (rule?.frequency ?? "once") : "once") as Frequency,
     startDate: rule?.startDate ?? tomorrow,
     localTime: rule?.localTime ?? "09:00",
     weekdays: rule?.frequency === "weekly" ? rule.weekdays : [1],
@@ -80,6 +86,9 @@ function initial(existing: PublicationSchedule | undefined, openedAt: number) {
  * Prepares a publication schedule for one post, or a new revision of an
  * existing schedule. The preview is the exact expansion the approver will
  * see; submitting saves it for approval and publishes nothing.
+ *
+ * One-time publication is the only frequency offered unless the
+ * organisation has repeating schedules switched on (`recurring`).
  */
 export function SchedulePostSheet({
   locationId,
@@ -87,17 +96,19 @@ export function SchedulePostSheet({
   timezone,
   existing,
   trigger,
+  recurring = false,
 }: {
   locationId: string
   post: { id: string; topicType: string; summary: string }
   timezone: string
   existing?: PublicationSchedule
   trigger?: (open: () => void) => React.ReactNode
+  recurring?: boolean
 }) {
   const [open, setOpen] = useState(false)
   // Captured when the sheet opens, so rendering stays pure.
   const [openedAt, setOpenedAt] = useState(0)
-  const [form, setForm] = useState(() => initial(existing, 0))
+  const [form, setForm] = useState(() => initial(existing, 0, recurring))
   const [zone, setZone] = useState(existing?.timezone ?? timezone)
   const [failure, setFailure] = useState<string | null>(null)
   const client = useQueryClient()
@@ -200,7 +211,7 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
-    setForm(initial(existing, at))
+    setForm(initial(existing, at, recurring))
     setOpen(true)
   }
 
@@ -233,18 +244,22 @@ export function SchedulePostSheet({
             </SheetDescription>
           </SheetHeader>
           <SheetBody className="flex flex-col gap-5">
-            <SegmentedControl
-              value={form.frequency}
-              onValueChange={(value) => set("frequency", value as Frequency)}
-              aria-label="How often"
-            >
-              <SegmentedControlItem value="once">Once</SegmentedControlItem>
-              <SegmentedControlItem value="daily">Daily</SegmentedControlItem>
-              <SegmentedControlItem value="weekly">Weekly</SegmentedControlItem>
-              <SegmentedControlItem value="monthly">
-                Monthly
-              </SegmentedControlItem>
-            </SegmentedControl>
+            {recurring ? (
+              <SegmentedControl
+                value={form.frequency}
+                onValueChange={(value) => set("frequency", value as Frequency)}
+                aria-label="How often"
+              >
+                <SegmentedControlItem value="once">Once</SegmentedControlItem>
+                <SegmentedControlItem value="daily">Daily</SegmentedControlItem>
+                <SegmentedControlItem value="weekly">
+                  Weekly
+                </SegmentedControlItem>
+                <SegmentedControlItem value="monthly">
+                  Monthly
+                </SegmentedControlItem>
+              </SegmentedControl>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-ui text-ink">
                 {form.frequency === "once" ? "Date" : "Starting"}

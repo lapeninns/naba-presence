@@ -5,8 +5,14 @@
  * any snake_case name, so a slice adding a feature adds it here only.
  */
 export const ORG_FEATURES = [
-  // One-time scheduled posts (plan P08).
+  // One-time scheduled posts (plan P08). Off: the schedule routes refuse
+  // to create, approve, revise or resume, the calendar is unavailable and
+  // the runner blocks a due schedule (lib/server/publication-schedules.ts).
   "post_scheduling",
+  // Repeating (daily, weekly, monthly) publication schedules, on top of
+  // post_scheduling. One-time is the generally available frequency; a
+  // repeating rule is refused, and an active one blocked, without this.
+  "post_scheduling_recurring",
   // Bulk listing and review actions (plan P09).
   "bulk_actions",
   // Two-person approval of direct listing writes (plan P02-S2b): with the

@@ -15,6 +15,10 @@ export const SCHEDULE_STATUSES = [
   "active",
   "paused",
   "blocked",
+  // Quarantined for an owner's review (migration 0240): a repeating schedule
+  // from before one-time became the default. Never runs; a revision or a
+  // cancel is the way out.
+  "needs_review",
   "cancelled",
   "completed",
 ] as const

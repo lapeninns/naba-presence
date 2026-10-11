@@ -38,6 +38,7 @@ import {
   hasPendingListingChanges,
   listingApprovalRequired,
 } from "@/lib/server/listing-changes"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import type { Session } from "@/lib/server/session"
 
 // One capability object per review (shape: ReviewCapabilities in
@@ -310,8 +311,25 @@ export async function locationCapabilities(
   const listingChangeApprovals =
     (await listingApprovalRequired(sql, session.organisationId)) ||
     (await hasPendingListingChanges(sql, session.organisationId, locationId))
+  const postScheduling = await isOrgFeatureEnabled(
+    sql,
+    session.organisationId,
+    "post_scheduling"
+  )
+  const postSchedulingRecurring =
+    postScheduling &&
+    (await isOrgFeatureEnabled(
+      sql,
+      session.organisationId,
+      "post_scheduling_recurring"
+    ))
+  const flags = {
+    listingChangeApprovals,
+    postScheduling,
+    postSchedulingRecurring,
+  }
   const found = map.get(locationId)
-  if (found) return { ...found, listingChangeApprovals }
+  if (found) return { ...found, ...flags }
   return {
     canEditCanonical: false,
     canPublish: false,
@@ -322,7 +340,7 @@ export async function locationCapabilities(
       linked: false,
       publishesEnabled: NO_RESOURCE_WRITES,
     }),
-    listingChangeApprovals,
+    ...flags,
   }
 }
 
