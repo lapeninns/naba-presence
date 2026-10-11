@@ -12,7 +12,7 @@
 // (scripts/ci/postgres.mjs) that it stops afterwards:
 //
 //   frozen install, typecheck, lint, unit, build, migration policy against
-//   the base ref, migrate from scratch + no-op + runtime role + db:status,
+//   the base, migrate from scratch + no-op + runtime role + db:status,
 //   upgrade from the merge base (schema diff), concurrent migrate, integration,
 //   e2e (port 3100 when free), pnpm audit --prod --audit-level high, and
 //   gitleaks over the full history when gitleaks is installed (skipped with a
@@ -25,8 +25,17 @@
 // <file>` accepts only a passing receipt for the commit it deploys. The full
 // output goes to verify.log in the run directory, whose path is printed.
 //
+// The base is what production runs: the SHA in the newest committed
+// promotion receipt (docs/release/receipts/), or --base-ref <production SHA>
+// before the first promotion. Promotion refuses a receipt whose base is not
+// the last promoted commit, or whose merge base is HEAD itself (the policy
+// and upgrade steps would compare HEAD with itself). Without either, the
+// base falls back to origin/main, which suits a branch but not a release.
+//
 // --skip and --fail-fast are for iterating: a receipt with a requested skip
-// or a step that did not run never passes promotion.
+// or a step that did not run never passes promotion. Nor does one written
+// while the invoking checkout has uncommitted edits to the gate's own code
+// (GATE_SOURCE_PATHS), since that code, not the commit's, ran the gate.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import {
@@ -47,8 +56,11 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import {
   GATE_STEPS,
   LOCAL_RECEIPTS_DIR,
+  PROMOTION_RECEIPTS_DIR,
   buildLocalReceipt,
   gateProblems,
+  gateSourceChanges,
+  latestPromotedRelease,
   localReceiptFileName,
 } from "./local-receipt.mjs"
 
@@ -65,31 +77,44 @@ export const CI_PLACEHOLDER_ENV = {
 }
 
 /**
- * Inherited variables that would point the run at another database, port or
- * CI context. The throwaway cluster's URLs replace the database ones.
- * DATABASE_SESSION_URL (advisory locks) is dropped so it cannot reach the
- * shared dev database; CI does not set it either.
+ * The only inherited variables the steps see: what finds the toolchain, the
+ * home and temp directories, and network settings for pnpm. Everything else
+ * is dropped, so provider credentials, database URLs or CI variables sourced
+ * into the operator's shell (a production env file before promoting, say)
+ * never reach integration or e2e; the run sees what ci.yml's jobs see. The
+ * throwaway cluster's URLs and CI_PLACEHOLDER_ENV are added on top.
  */
-export const STRIPPED_ENV = [
-  "DATABASE_URL",
-  "DIRECT_DATABASE_URL",
-  "DATABASE_SESSION_URL",
-  "TEST_RUNTIME_DATABASE_URL",
-  "ALLOW_REMOTE_TEST_DB",
-  "MIGRATIONS_DIR",
-  "DB_MIGRATE_EXPECT_NOOP",
-  "PLAYWRIGHT_PORT",
-  "PLAYWRIGHT_GOOGLE_STUB_PORT",
-  "NABA_PG_DIR",
-  "NABA_PG_PORT",
-  "GITHUB_ENV",
-  "GITHUB_RUN_ID",
-  "GITHUB_JOB",
-  "RUNNER_TEMP",
-  "SHARD",
-  "CI",
-  "NODE_ENV",
-  "NABA_RELEASE_SHA",
+export const INHERITED_ENV = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "TERM",
+  // scripts/ci/postgres.mjs: where PostgreSQL lives, native or docker.
+  "NABA_PG_BIN",
+  "NABA_PG_MODE",
+  "DOCKER_HOST",
+  "DOCKER_CONTEXT",
+  "DOCKER_CONFIG",
+  "PLAYWRIGHT_BROWSERS_PATH",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "NODE_EXTRA_CA_CERTS",
+]
+
+/** Prefixes of inherited toolchain variables (pnpm, corepack, nvm). */
+export const INHERITED_ENV_PREFIXES = [
+  "PNPM_",
+  "npm_config_",
+  "NPM_CONFIG_",
+  "COREPACK_",
+  "NVM_",
+  "XDG_",
 ]
 
 /** Preferred e2e port: the harness origin the same-origin guard expects. */
@@ -102,7 +127,13 @@ export const E2E_PORT = 3100
 export function childEnv(base) {
   const env = /** @type {Record<string, string>} */ ({})
   for (const [key, value] of Object.entries(base)) {
-    if (value !== undefined && !STRIPPED_ENV.includes(key)) env[key] = value
+    if (
+      value !== undefined &&
+      (INHERITED_ENV.includes(key) ||
+        INHERITED_ENV_PREFIXES.some((prefix) => key.startsWith(prefix)))
+    ) {
+      env[key] = value
+    }
   }
   return {
     ...env,
@@ -123,7 +154,7 @@ export function parseArgs(argv) {
   const options = {
     skip: /** @type {string[]} */ ([]),
     failFast: false,
-    baseRef: "origin/main",
+    baseRef: /** @type {string | null} */ (null),
     receiptsDir: /** @type {string | null} */ (null),
     keepWorktree: false,
     list: false,
@@ -150,7 +181,7 @@ export function parseArgs(argv) {
   if (unknown.length > 0) {
     throw new Error(`Unknown step(s) for --skip: ${unknown.join(", ")}`)
   }
-  if (!options.baseRef) throw new Error("--base-ref needs a ref")
+  if (options.baseRef === "") throw new Error("--base-ref needs a ref")
   if (options.receiptsDir === "") throw new Error("--receipts-dir needs a path")
   options.skip = [...new Set(options.skip)]
   return options
@@ -230,6 +261,17 @@ function git(root, ...args) {
   }).trim()
 }
 
+/** Committed promotion receipts at `sha`, as `{ name, content }`. */
+function promotionReceiptsAt(root, sha) {
+  return git(root, "ls-tree", "--name-only", sha, `${PROMOTION_RECEIPTS_DIR}/`)
+    .split("\n")
+    .filter((path) => path.endsWith(".json"))
+    .map((path) => ({
+      name: path,
+      content: git(root, "show", `${sha}:${path}`),
+    }))
+}
+
 function toolVersion(command, args, env) {
   const result = spawnSync(command, args, { encoding: "utf8", env })
   if (result.error || result.status !== 0) return null
@@ -267,21 +309,52 @@ async function main() {
   }
 
   const sha = git(root, "rev-parse", "HEAD")
+  let baseRef = options.baseRef
+  let baseSource = "flag"
+  if (!baseRef) {
+    let previous
+    try {
+      previous = latestPromotedRelease(promotionReceiptsAt(root, sha))
+    } catch (error) {
+      console.error(`verify:release: ${error.message}`)
+      return 2
+    }
+    if (previous) {
+      baseRef = previous.sha
+      baseSource = "promotion-receipt"
+    } else {
+      baseRef = "origin/main"
+      baseSource = "default"
+      console.warn(
+        "verify:release: no promotion receipt is committed, so the base is origin/main. For a release, pass --base-ref <the SHA production runs>."
+      )
+    }
+  }
   let baseSha
   let mergeBase
   try {
-    baseSha = git(root, "rev-parse", "--verify", `${options.baseRef}^{commit}`)
+    baseSha = git(root, "rev-parse", "--verify", `${baseRef}^{commit}`)
     mergeBase = git(root, "merge-base", baseSha, sha)
   } catch {
     console.error(
-      `verify:release: ${options.baseRef} is not a commit with a merge base with HEAD; fetch it first.`
+      `verify:release: ${baseRef} is not a commit with a merge base with HEAD; fetch it first.`
     )
     return 2
+  }
+  if (mergeBase === sha) {
+    console.warn(
+      `verify:release: the merge base with ${baseRef} is HEAD itself, so migration-policy and migrate-upgrade compare HEAD with itself; promotion refuses this receipt.`
+    )
   }
   const uncommitted = git(root, "status", "--porcelain")
     .split("\n")
     .filter(Boolean)
-  if (uncommitted.length > 0) {
+  const gateChanges = gateSourceChanges(uncommitted)
+  if (gateChanges.length > 0) {
+    console.warn(
+      `verify:release: uncommitted changes to the gate's own code (${gateChanges.join(", ")}) run this gate; promotion refuses its receipt.`
+    )
+  } else if (uncommitted.length > 0) {
     console.warn(
       `verify:release tests commit ${sha.slice(0, 12)}; ${uncommitted.length} uncommitted change(s) in this checkout are not part of the run.`
     )
@@ -522,7 +595,8 @@ async function main() {
       return { note }
     },
     integration: async () => {
-      requires("frozen-install")
+      // The suite starts the standalone build (.next/standalone/server.js).
+      requires("frozen-install", "build")
       await freshMigratedDatabase()
       return must("pnpm", ["test:integration"])
     },
@@ -591,7 +665,7 @@ async function main() {
     git(root, "worktree", "add", "--detach", worktree, sha)
     worktreeAdded = true
     write(
-      `verify:release ${sha} (base ${options.baseRef} ${baseSha.slice(0, 12)}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\n`
+      `verify:release ${sha} (base ${baseRef} ${baseSha.slice(0, 12)} from ${baseSource}, merge base ${mergeBase.slice(0, 12)})\nworktree: ${worktree}\n`
     )
 
     let stop = false
@@ -669,7 +743,8 @@ async function main() {
   }
   const receipt = buildLocalReceipt({
     sha,
-    base: { ref: options.baseRef, sha: baseSha, mergeBase },
+    base: { ref: baseRef, sha: baseSha, mergeBase, source: baseSource },
+    gateSource: { clean: gateChanges.length === 0, changed: gateChanges },
     toolchain,
     steps: results,
     options: { skip: options.skip, failFast: options.failFast },

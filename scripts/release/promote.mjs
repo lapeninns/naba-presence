@@ -13,15 +13,19 @@
 //     (`vercel deploy` uploads the directory, not the commit),
 //   - HEAD is exactly origin/main after a fetch,
 //   - the local receipt is for that SHA, ran in a fresh worktree on the
-//     .nvmrc Node major with no requested skips, and every required step
-//     passed (re-judged from its steps, scripts/release/local-receipt.mjs),
+//     .nvmrc Node major with no requested skips and no uncommitted edits to
+//     the gate's own code, its base is the commit the newest committed
+//     promotion receipt shipped (and not HEAD itself), and every required
+//     step passed (re-judged from its steps, scripts/release/local-receipt.mjs),
 //   - `pnpm db:status --expect-current` against the operator's admin URL
 //     reports no pending migration.
 // Then it deploys with NABA_RELEASE_SHA stamped into the build and runtime
 // environment and writes a receipt to docs/release/receipts/: the build (SHA,
-// deployment ID and URL, the local gate's receipt file, sha256 and step
+// deployment ID and URL, the local gate's receipt file, sha256, base and step
 // results), the migrations the commit ships (version and sha256), and the
-// production configuration NAMES. Never values.
+// production configuration NAMES. Never values. The local receipt's exact
+// bytes are copied beside it as `<receipt>.local.json`, to commit with it, so
+// the pinned sha256 stays checkable.
 //
 // The decision is the pure `checkCandidate`, in the style of
 // scripts/vercel-ignore-build.mjs `decide()`; everything that talks to git,
@@ -34,7 +38,11 @@ import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { listMigrationVersions } from "../migration-rules.mjs"
-import { localReceiptProblems } from "./local-receipt.mjs"
+import {
+  PROMOTION_RECEIPTS_DIR,
+  latestPromotedRelease,
+  localReceiptProblems,
+} from "./local-receipt.mjs"
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
 export { secretLikePaths }
@@ -46,6 +54,7 @@ const CONFIG_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
  * @typedef {"current" | "pending" | "unknown"} SchemaStatus
  * @typedef {{ file: string, sha256: string, content: unknown }} LocalReceiptInput
  * @typedef {{ file: string, sha256: string, finishedAt: string,
+ *   base: { ref: string, sha: string, mergeBase: string, source?: string },
  *   steps: { id: string, status: string }[] }} LocalGateEvidence
  */
 
@@ -63,6 +72,7 @@ const CONFIG_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
  *   schemaStatus: SchemaStatus,
  *   localReceipt: LocalReceiptInput | null,
  *   nodeMajor: number,
+ *   previousSha?: string | null,
  * }} input
  * @returns {{ ok: boolean, problems: string[],
  *   evidence: { localGate: LocalGateEvidence } | null }}
@@ -74,6 +84,7 @@ export function checkCandidate({
   schemaStatus,
   localReceipt,
   nodeMajor,
+  previousSha = null,
 }) {
   const problems = []
   if (!SHA_PATTERN.test(sha ?? "")) {
@@ -101,6 +112,7 @@ export function checkCandidate({
     const receiptProblems = localReceiptProblems(localReceipt.content, {
       sha: sha ?? "",
       nodeMajor,
+      previousSha,
     })
     if (receiptProblems.length > 0) {
       problems.push(
@@ -113,6 +125,12 @@ export function checkCandidate({
           file: localReceipt.file,
           sha256: localReceipt.sha256,
           finishedAt: content.finishedAt,
+          base: {
+            ref: content.base.ref,
+            sha: content.base.sha,
+            mergeBase: content.base.mergeBase,
+            ...(content.base.source ? { source: content.base.source } : {}),
+          },
           steps: content.steps.map((step) => ({
             id: step.id,
             status: step.status,
@@ -183,7 +201,11 @@ export function buildReceipt({
     sha,
     deploymentId: deployment.id,
     url: deployment.url,
-    localGate: evidence.localGate,
+    localGate: {
+      ...evidence.localGate,
+      // The local receipt's exact bytes, committed beside this receipt.
+      copy: localReceiptCopyName({ timestamp, sha }),
+    },
     migrations,
     configNames: [...new Set(configNames)].sort(),
     operator,
@@ -201,6 +223,11 @@ export function buildReceipt({
 /** `20261010T120000Z-<sha12>.json`: sorts by time, names the commit. */
 export function receiptFileName(receipt) {
   return timestampedFileName(receipt.timestamp, receipt.sha)
+}
+
+/** `20261010T120000Z-<sha12>.local.json`, beside the promotion receipt. */
+export function localReceiptCopyName(receipt) {
+  return receiptFileName(receipt).replace(/\.json$/, ".local.json")
 }
 
 /**
@@ -358,13 +385,36 @@ async function main() {
   for (const issue of issues) console.error(`worktree: ${issue}`)
 
   let localReceipt = null
+  let localReceiptBytes = null
   if (options.localReceipt) {
     const path = resolve(options.localReceipt)
     try {
-      localReceipt = readLocalReceipt(path, readFileSync(path))
+      localReceiptBytes = readFileSync(path)
+      localReceipt = readLocalReceipt(path, localReceiptBytes)
     } catch (error) {
       console.error(`local receipt: cannot read ${path}: ${error.message}`)
     }
+  }
+  // The committed history in this clean worktree of origin/main; the gate
+  // read the same files at the same commit for its default base.
+  let previousSha = null
+  let previousUnreadable = false
+  try {
+    const dir = join(root, PROMOTION_RECEIPTS_DIR)
+    const previous = latestPromotedRelease(
+      readdirSync(dir).map((name) => ({
+        name,
+        content: name.endsWith(".json")
+          ? readFileSync(join(dir, name), "utf8")
+          : "",
+      }))
+    )
+    previousSha = previous?.sha ?? null
+    if (previous)
+      console.log(`last promoted: ${previous.sha} (${previous.file})`)
+  } catch (error) {
+    previousUnreadable = true
+    console.error(`refused: ${error.message}`)
   }
   const schemaStatus = readSchemaStatus(root)
   const evaluation = checkCandidate({
@@ -374,8 +424,9 @@ async function main() {
     schemaStatus,
     localReceipt,
     nodeMajor: Number(readFileSync(join(root, ".nvmrc"), "utf8").trim()),
+    previousSha,
   })
-  if (!evaluation.ok || !evaluation.evidence) {
+  if (previousUnreadable || !evaluation.ok || !evaluation.evidence) {
     for (const problem of evaluation.problems) {
       console.error(`refused: ${problem}`)
     }
@@ -453,11 +504,15 @@ async function main() {
     options.receiptsDir ?? "docs/release/receipts"
   )
   mkdirSync(receiptsDir, { recursive: true })
+  // The copy first, so a written receipt never names a missing copy.
+  const copyPath = join(receiptsDir, receipt.localGate.copy)
+  writeFileSync(copyPath, /** @type {Buffer} */ (localReceiptBytes))
   const receiptPath = join(receiptsDir, receiptFileName(receipt))
   writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`)
   console.log(`Receipt: ${relative(root, receiptPath)}`)
+  console.log(`Local gate receipt copy: ${relative(root, copyPath)}`)
   console.log(
-    "Next: smoke-check GET /api/operations/health?scope=platform (release.sha must match), then commit the receipt."
+    "Next: smoke-check GET /api/operations/health?scope=platform (release.sha must match), then commit both files."
   )
 }
 

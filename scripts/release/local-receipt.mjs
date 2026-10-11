@@ -7,7 +7,7 @@
 import { secretLikePaths, timestampedFileName } from "./receipt-safety.mjs"
 
 export const LOCAL_RECEIPT_KIND = "naba-local-release-gate"
-export const LOCAL_RECEIPT_VERSION = 1
+export const LOCAL_RECEIPT_VERSION = 2
 
 /**
  * Gitignored: running the gate must not dirty the checkout that promotion
@@ -15,6 +15,23 @@ export const LOCAL_RECEIPT_VERSION = 1
  * results into the committed promotion receipt.
  */
 export const LOCAL_RECEIPTS_DIR = "docs/release/receipts/local"
+
+/** Committed promotion receipts, `<UTC time>-<sha12>.json` (promote.mjs). */
+export const PROMOTION_RECEIPTS_DIR = "docs/release/receipts"
+const PROMOTION_RECEIPT_NAME = /^\d{8}T\d{6}Z-[0-9a-f]{12}\.json$/
+
+/**
+ * Files whose uncommitted edits would change the gate's own behaviour: the
+ * gate runs its logic (this module, verify-local.mjs, the redaction it
+ * imports) from the invoking checkout, not from the worktree it tests.
+ */
+export const GATE_SOURCE_PATHS = [
+  "scripts/release/",
+  "scripts/ci/",
+  "lib/domain/redaction.ts",
+  "package.json",
+  ".nvmrc",
+]
 
 /**
  * Every step of the CI-equivalent run, in the order it runs. `required:
@@ -82,6 +99,59 @@ export const STEP_STATUSES = ["passed", "failed", "skipped", "not-run"]
 const SHA_PATTERN = /^[0-9a-f]{40}$/
 
 /**
+ * The release production last received: the `sha` of the newest committed
+ * promotion receipt (by file name, which sorts by time). Both the gate (its
+ * default upgrade base) and promotion (the base it requires) read it, so a
+ * receipt's migration policy and upgrade steps start from what production
+ * runs. `null` before the first promotion. Throws on an unreadable newest
+ * receipt rather than silently fall back to an older one.
+ *
+ * @param {{ name: string, content: string }[]} files
+ * @returns {{ file: string, sha: string } | null}
+ */
+export function latestPromotedRelease(files) {
+  const newest = files
+    .map((file) => ({ ...file, name: file.name.split("/").pop() ?? "" }))
+    .filter((file) => PROMOTION_RECEIPT_NAME.test(file.name))
+    .sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0))[0]
+  if (!newest) return null
+  let sha
+  try {
+    sha = JSON.parse(newest.content)?.sha
+  } catch {
+    sha = undefined
+  }
+  if (typeof sha !== "string" || !SHA_PATTERN.test(sha)) {
+    throw new Error(
+      `promotion receipt ${newest.name} has no readable commit SHA`
+    )
+  }
+  return { file: newest.name, sha }
+}
+
+/**
+ * Paths from `git status --porcelain` lines that fall under
+ * GATE_SOURCE_PATHS (either side of a rename).
+ * @param {string[]} lines
+ */
+export function gateSourceChanges(lines) {
+  const changed = new Set()
+  for (const line of lines) {
+    for (const raw of line.slice(3).split(" -> ")) {
+      const path = raw.trim().replace(/^"(.*)"$/, "$1")
+      if (
+        GATE_SOURCE_PATHS.some((prefix) =>
+          prefix.endsWith("/") ? path.startsWith(prefix) : path === prefix
+        )
+      ) {
+        changed.add(path)
+      }
+    }
+  }
+  return [...changed].sort()
+}
+
+/**
  * @typedef {"passed" | "failed" | "skipped" | "not-run"} StepStatus
  * @typedef {{ id: string, status: StepStatus, durationMs: number,
  *   exitCode?: number | null, summary?: string[], note?: string }} StepResult
@@ -128,7 +198,8 @@ export function gateProblems(steps) {
  *
  * @param {{
  *   sha: string,
- *   base: { ref: string, sha: string, mergeBase: string },
+ *   base: { ref: string, sha: string, mergeBase: string, source: string },
+ *   gateSource: { clean: boolean, changed: string[] },
  *   toolchain: Record<string, string | null>,
  *   steps: StepResult[],
  *   options: { skip: string[], failFast: boolean },
@@ -139,6 +210,7 @@ export function gateProblems(steps) {
 export function buildLocalReceipt({
   sha,
   base,
+  gateSource,
   toolchain,
   steps,
   options,
@@ -166,6 +238,9 @@ export function buildLocalReceipt({
     // files, untracked files or local build output take part.
     mode: "worktree",
     base,
+    // Uncommitted edits to the gate's own code in the invoking checkout:
+    // the evidence would come from code that is not in the commit.
+    gateSource,
     toolchain,
     options,
     ok: gateProblems(ordered).length === 0,
@@ -190,13 +265,20 @@ export function localReceiptFileName(receipt) {
 /**
  * Why a local receipt cannot stand as promotion evidence for `sha`; empty
  * when it can. The receipt is re-judged from its steps, so a hand-edited
- * `ok: true` over a failed step does not pass.
+ * `ok: true` over a failed step does not pass. `previousSha` is the commit
+ * the newest committed promotion receipt shipped (latestPromotedRelease), or
+ * null before the first promotion; the receipt's base must be it, and in any
+ * case must not be the commit itself, or the migration policy and upgrade
+ * steps compared HEAD with itself.
  *
  * @param {unknown} receipt
- * @param {{ sha: string, nodeMajor: number }} expected
+ * @param {{ sha: string, nodeMajor: number, previousSha?: string | null }} expected
  * @returns {string[]}
  */
-export function localReceiptProblems(receipt, { sha, nodeMajor }) {
+export function localReceiptProblems(
+  receipt,
+  { sha, nodeMajor, previousSha = null }
+) {
   if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
     return ["the local receipt is not a JSON object"]
   }
@@ -217,6 +299,32 @@ export function localReceiptProblems(receipt, { sha, nodeMajor }) {
   }
   if (value.mode !== "worktree") {
     problems.push("the local receipt was not produced in a fresh worktree")
+  }
+  const base = value.base ?? {}
+  if (
+    !SHA_PATTERN.test(base.sha ?? "") ||
+    !SHA_PATTERN.test(base.mergeBase ?? "")
+  ) {
+    problems.push("the local receipt records no base commit")
+  } else {
+    if (base.mergeBase === value.sha) {
+      problems.push(
+        "the local gate's merge base is the commit itself, so the migration policy and upgrade steps tested nothing: run verify:release with --base-ref <production SHA>"
+      )
+    }
+    if (previousSha && base.sha !== previousSha) {
+      problems.push(
+        `the local gate's base is ${base.sha.slice(0, 12)}, not ${previousSha.slice(0, 12)}, the commit the newest promotion receipt shipped`
+      )
+    }
+  }
+  if (value.gateSource?.clean !== true) {
+    const changed = Array.isArray(value.gateSource?.changed)
+      ? value.gateSource.changed.join(", ")
+      : "unknown"
+    problems.push(
+      `the local gate ran with uncommitted changes to its own sources (${changed})`
+    )
   }
   const receiptNode = /^v?(\d+)\./.exec(value.toolchain?.node ?? "")
   if (!receiptNode || Number(receiptNode[1]) !== nodeMajor) {

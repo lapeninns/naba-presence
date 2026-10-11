@@ -193,7 +193,7 @@ Hosted CI is not a release gate: GitHub Actions has not run since about
 | `frozen-install` | `pnpm install --frozen-lockfile` |
 | `typecheck`, `lint`, `unit` | `pnpm typecheck`, `pnpm lint` (zero warnings), `pnpm test` |
 | `build` | `pnpm build` (webpack standalone) |
-| `migration-policy` | `node scripts/ci/migration-policy.mjs` against the base (`origin/main`, `--base-ref` overrides) |
+| `migration-policy` | `node scripts/ci/migration-policy.mjs` against the base (see below) |
 | `migrate-fresh` | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
 | `migrate-upgrade` | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
 | `migrate-concurrent` | two `db:migrate` runs at once; each version recorded exactly once |
@@ -202,15 +202,31 @@ Hosted CI is not a release gate: GitHub Actions has not run since about
 | `audit` | `pnpm audit --prod --audit-level high` |
 | `secret-scan` | `gitleaks git --redact` over the full history; **skipped with a note** when gitleaks is not installed |
 
+The base is what production runs: the `sha` of the newest committed
+promotion receipt in `docs/release/receipts/`, read at `HEAD`. Before the
+first promotion there is none: pass `--base-ref <the SHA production runs>`
+(`release.sha` from the platform health check). Without either it falls back
+to `origin/main`, which suits a branch; on the `origin/main` commit itself the
+merge base is `HEAD`, so `migration-policy` and `migrate-upgrade` would
+compare `HEAD` with itself, and promotion refuses that receipt. The receipt
+records the base and where it came from (`base.source`).
+
 It checks `HEAD` out into a fresh detached worktree under the OS temp
 directory, so no `.env*` file, untracked file or local build output takes
-part (uncommitted changes in your checkout are not tested; it warns). It
-starts its own PostgreSQL 17 with `scripts/ci/postgres.mjs` and stops it at
-the end, even on failure or Ctrl-C, and it drops inherited database, port and
-CI variables (`DATABASE_SESSION_URL` included), so it never reaches the
-shared dev database on 54322. It sets `ci.yml`'s placeholder `env:` values and
-`LC_ALL`/`LANG` (Homebrew Postgres needs a UTF-8 locale). It must run on the
-`.nvmrc` Node major.
+part (uncommitted changes in your checkout are not tested; it warns). The
+gate's own code runs from your checkout, so uncommitted changes under
+`scripts/release/`, `scripts/ci/`, `lib/domain/redaction.ts`, `package.json`
+or `.nvmrc` are recorded in the receipt (`gateSource`) and promotion refuses
+it. It starts its own PostgreSQL 17 with `scripts/ci/postgres.mjs` and stops
+it at the end, even on failure or Ctrl-C. The steps inherit only an allowlist
+of your shell's variables (`PATH`, `HOME`, temp and terminal variables, the
+pnpm, npm config, corepack and nvm ones, `NABA_PG_BIN`/`NABA_PG_MODE`, Docker,
+proxy and Playwright browser locations; `INHERITED_ENV` in
+`scripts/release/verify-local.mjs`), so database URLs, CI variables and any
+provider credentials you have sourced never reach integration or e2e, and it
+never reaches the shared dev database on 54322. It sets `ci.yml`'s
+placeholder `env:` values and `LC_ALL`/`LANG` (Homebrew Postgres needs a
+UTF-8 locale). It must run on the `.nvmrc` Node major.
 
 Every step runs even after a failure, unless `--fail-fast`. A step whose
 prerequisite failed is `not-run`. The full output goes to `verify.log` in the
@@ -342,8 +358,11 @@ purpose.
 
 For a PR that adds a migration:
 
-1. The PR is green, including the Migrations job, and the migration is
-   expand-only.
+1. `pnpm verify:release` has passed for the commit whose migrations you are
+   applying (the branch head when migrating before merge), and the migration
+   is expand-only. Never run `db:migrate` against production before the gate
+   has passed: it is the only check that the migrations apply from scratch
+   and from production's schema.
 2. Take a restorable database snapshot, and note the current production
    deployment (the rollback unit in `docs/runbook.md`).
 3. From your machine, with the admin URL (direct, or session pooler on 5432):
@@ -374,7 +393,8 @@ promotion or require `CI result` through Vercel Deployment Checks.
 ### Promotion (`pnpm release:promote`)
 
 First run the local release gate (§5) on the `origin/main` commit and keep
-the receipt path it prints. Then, from a fresh worktree of `origin/main`
+the receipt path it prints; production migrations (§6) come after it has
+passed, never before. Then, from a fresh worktree of `origin/main`
 (`git worktree add`), with `pnpm install --frozen-lockfile` run, the project
 linked (`vercel link`) and the production admin URL in the environment:
 
@@ -392,7 +412,10 @@ The script refuses, before deploying anything, unless every gate holds
 - `--local-receipt` names a `verify:release` receipt for exactly that SHA,
   produced in a fresh worktree on the `.nvmrc` Node major, with no
   `--skip`, and every required step `passed` (only `secret-scan` may be
-  `skipped`, for a missing gitleaks). The gate re-judges the steps
+  `skipped`, for a missing gitleaks), no uncommitted edits to the gate's own
+  code, and a base equal to the `sha` of the newest committed promotion
+  receipt (with no promotion receipt yet, any base whose merge base is not
+  the commit itself). The gate re-judges the steps
   (`scripts/release/local-receipt.mjs`), so a receipt edited to say `ok`
   over a failed step still refuses. Hosted check runs are not consulted.
 - `db:status --expect-current` against `DIRECT_DATABASE_URL` reports no
@@ -405,7 +428,9 @@ It then runs
 and writes `docs/release/receipts/<UTC time>-<sha12>.json`:
 
 - build: `sha`, `deploymentId`, `url`, and `localGate`: the local receipt's
-  file name, the sha256 of its bytes, its finish time and each step's status;
+  file name, the sha256 of its bytes, its finish time, base and each step's
+  status, and `copy`, the `<receipt>.local.json` file beside it holding the
+  local receipt's exact bytes, so the sha256 stays checkable;
 - migrations: every `supabase/migrations` version the commit ships, with the
   file's sha256;
 - configuration: the production variable **names** from
@@ -417,7 +442,8 @@ The script refuses to write a receipt in which any value would be changed by
 name. It validates a provisional receipt before deploying, so those refusals
 happen before production changes, and prints the deployment ID and URL as soon
 as the deploy returns. If the receipt write still fails after that, roll back
-or write the receipt by hand from the printed values. Commit the receipt.
+or write the receipt by hand from the printed values. Commit the receipt and
+its `.local.json` copy; the next release's gate takes its base from it.
 
 Smoke check: `GET /api/operations/health?scope=platform` with the cron
 bearer returns `release.sha` (equal to the receipt's `sha`, with `source`

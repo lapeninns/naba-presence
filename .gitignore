@@ -72,6 +72,7 @@ next-env.d.ts
 /Library/
 
 # Local release-gate receipts (pnpm verify:release). Running the gate must not
-# dirty the checkout promotion requires clean; the promotion receipt pins each
-# one by sha256. See docs/release/receipts/README.md.
+# dirty the checkout promotion requires clean; promotion pins the one it cites
+# by sha256 and commits a copy beside its receipt. See
+# docs/release/receipts/README.md.
 /docs/release/receipts/local/

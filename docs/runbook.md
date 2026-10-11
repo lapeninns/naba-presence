@@ -37,24 +37,32 @@ Production is promoted only through `pnpm release:promote`
 (`scripts/release/promote.mjs`; full procedure in `docs/ci.md` §7). Merging
 does not deploy. In order:
 
-1. Snapshot the database and note the current production deployment (the
+1. Run `pnpm verify:release` on the `origin/main` commit and keep the receipt
+   path it prints. Its base is the commit the newest committed promotion
+   receipt shipped; before the first promotion, pass
+   `--base-ref <the SHA production runs>` (`release.sha` from the platform
+   health check). Do not touch the production database until it has passed:
+   it is what proves the migrations apply from scratch and from production's
+   schema.
+2. Snapshot the database and note the current production deployment (the
    rollback unit below).
-2. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
+3. `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
    `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`.
-3. Run `pnpm verify:release` on the `origin/main` commit. Then, from a fresh
-   worktree of `origin/main`:
+4. From a fresh worktree of `origin/main`:
    `DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run`,
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
-   with `--skip` or with any required step not passed, and pending
-   migrations. It deploys with
+   with `--skip`, from a base other than the last promoted commit, or with
+   any required step not passed, and pending migrations. It deploys with
    `NABA_RELEASE_SHA=<sha>` and writes a receipt under
-   `docs/release/receipts/`.
-4. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
+   `docs/release/receipts/`, with the local receipt's bytes copied beside it
+   as `<receipt>.local.json`.
+5. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
-5. Commit the receipt and copy its `sha` and
-   `deploymentId` into `docs/live-certification/release-checklist.md`.
+6. Commit both receipt files and copy the receipt's `sha` and
+   `deploymentId` into `docs/live-certification/release-checklist.md`. The
+   next release's gate reads that committed `sha` as its base.
 
 Confirm
 the Supabase project URL/publishable key, email confirmation and recovery

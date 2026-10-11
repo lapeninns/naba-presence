@@ -10,6 +10,7 @@ import {
 import {
   buildReceipt,
   checkCandidate,
+  localReceiptCopyName,
   migrationReceipt,
   parseDeployOutput,
   parseEnvNames,
@@ -39,7 +40,13 @@ const localContent = (overrides: Record<string, unknown> = {}) => ({
   version: LOCAL_RECEIPT_VERSION,
   sha: SHA,
   mode: "worktree",
-  base: { ref: "origin/main", sha: SHA, mergeBase: SHA },
+  base: {
+    ref: OTHER_SHA,
+    sha: OTHER_SHA,
+    mergeBase: OTHER_SHA,
+    source: "promotion-receipt",
+  },
+  gateSource: { clean: true, changed: [] },
   toolchain: { node: "v24.18.0", pnpm: "10.34.5" },
   options: { skip: [], failFast: false },
   ok: true,
@@ -79,12 +86,48 @@ describe("release:promote checkCandidate", () => {
         file: "20261010T112000Z-0123456789ab.json",
         sha256: receipt.sha256,
         finishedAt: "2026-10-10T11:20:00.000Z",
+        base: {
+          ref: OTHER_SHA,
+          sha: OTHER_SHA,
+          mergeBase: OTHER_SHA,
+          source: "promotion-receipt",
+        },
         steps: GATE_STEPS.map((step: { id: string }) => ({
           id: step.id,
           status: "passed",
         })),
       },
     })
+  })
+
+  it("requires the local gate's base to be the last promoted commit", () => {
+    expect(candidate({ previousSha: OTHER_SHA }).ok).toBe(true)
+    const stale = candidate({ previousSha: "1".repeat(40) })
+    expect(stale.ok).toBe(false)
+    expect(stale.problems).toEqual([
+      expect.stringMatching(
+        /^local gate: the local gate's base is fedcba987654, not 111111111111/
+      ),
+    ])
+    const self = candidate({
+      localReceipt: local({
+        base: { ref: "origin/main", sha: SHA, mergeBase: SHA },
+      }),
+    })
+    expect(self.ok).toBe(false)
+    expect(self.problems[0]).toMatch(/merge base is the commit itself/)
+  })
+
+  it("refuses a local receipt written with edited gate sources", () => {
+    const result = candidate({
+      localReceipt: local({
+        gateSource: { clean: false, changed: ["scripts/release/promote.mjs"] },
+      }),
+    })
+    expect(result.ok).toBe(false)
+    expect(result.problems).toEqual([
+      "local gate: the local gate ran with uncommitted changes to its own sources (scripts/release/promote.mjs)",
+    ])
   })
 
   it("pins the local receipt by the sha256 of its exact bytes", () => {
@@ -217,6 +260,7 @@ describe("release:promote receipt", () => {
         file: "20261010T112000Z-0123456789ab.json",
         sha256: sha256("receipt"),
         finishedAt: "2026-10-10T11:20:00.000Z",
+        base: { ref: OTHER_SHA, sha: OTHER_SHA, mergeBase: OTHER_SHA },
         steps: [{ id: "unit", status: "passed" }],
       },
     },
@@ -236,7 +280,10 @@ describe("release:promote receipt", () => {
       sha: SHA,
       deploymentId: "dpl_abc123",
       url: "https://naba-abc.vercel.app",
-      localGate: base.evidence.localGate,
+      localGate: {
+        ...base.evidence.localGate,
+        copy: `20261010T120000Z-${SHA.slice(0, 12)}.local.json`,
+      },
       migrations: [
         { version: "0001_a", sha256: sha256("select 1;") },
         { version: "0002_b", sha256: sha256("select 2;") },
@@ -298,9 +345,11 @@ describe("release:promote receipt", () => {
   })
 
   it("names the file by time and commit", () => {
-    expect(receiptFileName(buildReceipt(base))).toBe(
+    const receipt = buildReceipt(base)
+    expect(receiptFileName(receipt)).toBe(
       `20261010T120000Z-${SHA.slice(0, 12)}.json`
     )
+    expect(localReceiptCopyName(receipt)).toBe(receipt.localGate.copy)
   })
 })
 
