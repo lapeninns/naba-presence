@@ -1172,7 +1172,7 @@ for (const resourceType of ["lodging", "business_info", "attributes"] as const) 
   await page.screenshot({ path: testInfo.outputPath(`${resourceType}-confirmation.png`) })
 })
 
-test("Activity navigates write families with cursors and preserves older page responses", async ({ page }, testInfo) => {
+test("Activity loads older write families by cursor and keeps the newer ones on screen", async ({ page }, testInfo) => {
   await mockShell(page)
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: {}, attributes: {}, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   let cursorRequests = 0
@@ -1180,20 +1180,22 @@ test("Activity navigates write families with cursors and preserves older page re
     const cursor = new URL(route.request().url()).searchParams.get("cursor")
     if (cursor) { expect(cursor).toBe("saved-cursor"); cursorRequests += 1 }
     const families = cursor ? ["posts", "reviews"] : ["hours", "profile", "media", "food_menus", "place_actions"]
-    return route.fulfill({ json: { activity: { canManage: true, items: families.map((resourceType) => ({ id: `${resourceType}:test`, sourceId: "test", resourceType, operation: "publish", status: "succeeded", targetResourceName: null, lastErrorCode: null, updateMask: [], createdAt: "2026-09-29T12:00:00Z", finishedAt: null, actorUserId: null, actorDisplayName: null, confirmationState: "unrecorded" })), total: 12, page: cursor ? 2 : 1, pageSize: 10, nextCursor: cursor ? null : "saved-cursor" } } })
+    return route.fulfill({ json: { activity: { canManage: true, items: families.map((resourceType) => ({ id: `${resourceType}:test`, sourceId: "test", resourceType, operation: "publish", status: "succeeded", targetResourceName: null, lastErrorCode: null, updateMask: [], createdAt: "2026-09-29T12:00:00Z", finishedAt: null, actorUserId: null, actorDisplayName: null, confirmationState: "unrecorded" })), total: 7, pageSize: 10, nextCursor: cursor ? null : "saved-cursor" } } })
   })
   await page.goto("/listings/location-management/profile")
   await page.getByRole("button", { name: "Activity", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Recent activity" })
   await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
-  await dialog.getByRole("button", { name: "Next" }).click()
+  await expect(dialog.getByRole("status").filter({ hasText: "Showing 5 of 7 changes" })).toBeVisible()
+  await dialog.getByRole("button", { name: "Load more changes" }).click()
   await expect(dialog.getByText("Publish · Reviews", { exact: true })).toBeVisible()
+  // The newer page stays: Load more appends rather than replacing.
+  await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
   await expect(dialog.getByText(/Google confirmation:/)).toHaveCount(0)
-  await expect(dialog.getByRole("button", { name: "Next" })).toBeDisabled()
+  await expect(dialog.getByRole("button", { name: "Load more changes" })).toHaveCount(0)
+  await expect(dialog.getByRole("status").filter({ hasText: "Showing all 7 changes" })).toBeVisible()
   expect(cursorRequests).toBe(1)
   await page.screenshot({ path: testInfo.outputPath("unified-activity.png"), fullPage: true })
-  await dialog.getByRole("button", { name: "Previous" }).click()
-  await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
 })
 
 test("Access tab humanises admin roles and gates delete behind a separate review", async ({ page }) => {

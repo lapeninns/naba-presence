@@ -10,6 +10,7 @@ import {
   type PostApprovalOutcome,
   type PostPublishOutcome,
   type PostRow,
+  type PostsListQuery,
   type PostsListResponse,
   type PostUpdateResponse,
 } from "@/lib/contracts/location-posts"
@@ -24,8 +25,19 @@ export type PublishPostResult = PostPublishOutcome
 // outcome instead (see postUpdateResponseSchema).
 export type UpdatePostResult = PostUpdateResponse
 
-export function fetchPosts(id: string, options?: RequestOptions): Promise<PostsState> {
-  return apiFetch(`/api/locations/${id}/posts`, { schema: postsListResponseSchema, ...options })
+/** One page of one status view (or, with `post`, that one post). */
+export function fetchPosts(
+  id: string,
+  params: PostsListQuery = {},
+  options?: RequestOptions
+): Promise<PostsState> {
+  const query = new URLSearchParams()
+  if (params.filter && params.filter !== "all") query.set("filter", params.filter)
+  if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.cursor) query.set("cursor", params.cursor)
+  if (params.post) query.set("post", params.post)
+  const suffix = query.size ? `?${query}` : ""
+  return apiFetch(`/api/locations/${id}/posts${suffix}`, { schema: postsListResponseSchema, ...options })
 }
 
 export function createPost(id: string, input: LocalPostInputValues) {

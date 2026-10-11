@@ -151,8 +151,9 @@ export function PostsActionBar({
   const check = useResourceMutation({
     // The GET is the check: listLocalPosts reconciles against Google's live
     // list first, which is what resolves an ambiguous post one way or the
-    // other. The invalidation is what re-renders the row.
-    mutationFn: () => fetchPosts(locationId),
+    // other. It asks after this post alone, which may not be on the first
+    // page. The invalidation is what re-renders the row.
+    mutationFn: () => fetchPosts(locationId, { post: post.id }),
     invalidate,
     successToast: (state) => checkOutcomeTitle(state, post.id),
     errorContext: "post",

@@ -1,11 +1,13 @@
 /**
- * Photos tab URL state (Sprint 4.2c). Page, ownership and category filters
- * live in the query string so a filtered page survives reload, back/forward
+ * Photos tab URL state (Sprint 4.2c). The ownership and category filters
+ * live in the query string so a filtered view survives reload, back/forward
  * and sharing — the same model as lib/inbox/url-state.ts. Defaults are
  * omitted when serialising, so the plain `/photos` URL stays canonical.
  *
- * Param names match the media API's own query (`page`, `ownership`,
- * `category`) so the URL reads the same as the request it produces.
+ * Param names match the media API's own query (`ownership`, `category`) so
+ * the URL reads the same as the request it produces. The library pages by
+ * cursor ("Load more"), so there is no page in the URL; a `page` left over
+ * in an old link is ignored and dropped on the next change.
  */
 import {
   MEDIA_OWNERSHIPS,
@@ -20,14 +22,11 @@ export type OwnershipFilter = "all" | MediaOwnership
 export type CategoryFilter = "all" | GoogleMediaCategory
 
 export type PhotosState = {
-  /** 1-based; the URL omits page 1. */
-  page: number
   ownership: OwnershipFilter
   category: CategoryFilter
 }
 
 export const DEFAULT_PHOTOS_STATE: PhotosState = {
-  page: 1,
   ownership: "all",
   category: "all",
 }
@@ -51,12 +50,9 @@ function isCategory(value: string): value is GoogleMediaCategory {
 
 /** Unknown or malformed values fall back to the default, never throw. */
 export function parsePhotosState(params: URLSearchParams): PhotosState {
-  const rawPage = Number(params.get("page"))
-  const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1
   const rawOwnership = params.get("ownership") ?? ""
   const rawCategory = params.get("category") ?? ""
   return {
-    page,
     ownership: isOwnership(rawOwnership) ? rawOwnership : "all",
     category: isCategory(rawCategory) ? rawCategory : "all",
   }
@@ -74,7 +70,6 @@ export function serializePhotosState(
   params.delete("page")
   params.delete("ownership")
   params.delete("category")
-  if (state.page > 1) params.set("page", String(state.page))
   if (state.ownership !== "all") params.set("ownership", state.ownership)
   if (state.category !== "all") params.set("category", state.category)
   return params
@@ -87,12 +82,10 @@ export function hasActivePhotoFilters(state: PhotosState): boolean {
 
 /** URL state -> the `useMedia` / `fetchMedia` parameters (`null` = no filter). */
 export function toMediaQuery(state: PhotosState): {
-  page: number
   category: GoogleMediaCategory | null
   ownership: MediaOwnership | null
 } {
   return {
-    page: state.page,
     category: state.category === "all" ? null : state.category,
     ownership: state.ownership === "all" ? null : state.ownership,
   }

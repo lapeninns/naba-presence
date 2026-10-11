@@ -27,9 +27,18 @@ describe("query keys", () => {
     ])
     expect(
       queryKeys
-        .locationMedia("loc-1", { page: 2, category: "FOOD", ownership: null })
+        .locationMedia("loc-1", { category: "FOOD", ownership: null })
         .slice(0, 3)
     ).toEqual([...queryKeys.locationMediaAll("loc-1")])
+    expect(
+      queryKeys.locationPostsView("loc-1", "draft").slice(0, 3)
+    ).toEqual([...queryKeys.locationPosts("loc-1")])
+    expect(
+      queryKeys.locationActivityPages("loc-1", 10).slice(0, 3)
+    ).toEqual([...queryKeys.locationActivity("loc-1")])
+    expect(
+      queryKeys.locationActivityRecent("loc-1", 5).slice(0, 3)
+    ).toEqual([...queryKeys.locationActivity("loc-1")])
     // …and must not swallow the detail key or another location's media.
     expect(queryKeys.reviewDetail("42")[0]).not.toBe(queryKeys.reviewsAll[0])
     expect(queryKeys.locationMediaAll("loc-2")).not.toEqual(

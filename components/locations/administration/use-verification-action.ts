@@ -40,7 +40,7 @@ export function useVerificationAction(locationId: string, workflow: Verification
     void client.invalidateQueries({ queryKey: ["verification-workflows", locationId] })
     void client.invalidateQueries({ queryKey: ["verification-state", locationId] })
     void client.invalidateQueries({ queryKey: queryKeys.locationAdministration(locationId) })
-    void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId).slice(0, -1) })
+    void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
   }
   return { busy: busy || Boolean(workspace?.busy), active: !workspace || workspace.active === workflow,
     activate: () => workspace?.activate(workflow), error, run, invalidate, clearError: () => setError(null) }

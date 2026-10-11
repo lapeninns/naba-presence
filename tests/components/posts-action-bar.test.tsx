@@ -283,7 +283,9 @@ describe("PostsActionBar", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Check Google" }))
 
-    expect(api.fetchPosts).toHaveBeenCalledWith("loc-1")
+    // It asks after this post alone: the list is paged, and the post may not
+    // be on the first page.
+    expect(api.fetchPosts).toHaveBeenCalledWith("loc-1", { post: "p1" })
     await waitFor(() => expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true))
   })
 

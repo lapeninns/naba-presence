@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button"
 import { ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
+import { LoadMore } from "@/components/ui/load-more"
 import type { Post } from "@/lib/api/location-posts"
+import type { PostCounts } from "@/lib/contracts/location-posts"
 import { localPostOutcome } from "@/lib/domain/post-outcome"
 import { describeOutcome } from "@/lib/editors/outcome"
 import {
@@ -31,7 +33,6 @@ import {
   postContentTimestamp,
   postEventTitle,
   postImageUrl,
-  postNeedsAttention,
   postSchedule,
   postStatus,
   type PostFilter,
@@ -40,6 +41,7 @@ import {
   DEFAULT_TIMEZONE,
   postRecurrence,
 } from "@/lib/locations/post-recurrence"
+import type { ListPaging } from "@/lib/queries/paged-list"
 import { usePosts } from "@/lib/queries/use-location-posts"
 
 function headline(post: Post): string {
@@ -118,17 +120,30 @@ function problem(post: Post): React.ReactNode {
 }
 
 export function PostsTab({ locationId }: { locationId: string }) {
+  // The status view is a server filter (each view pages on its own cursor),
+  // so it lives above the shell and is part of the resource query.
+  const [filter, setFilter] = useState<PostFilter>("all")
+  // The view is part of the query key, so the resource hook closes over it.
+  // It always calls the same hook, which is all the shell requires.
+  function usePostsView(id: string) {
+    return usePosts(id, filter)
+  }
   return (
     <LocationTab
       locationId={locationId}
       loadingLabel="posts"
-      useResource={usePosts}
+      useResource={usePostsView}
       resource="posts"
     >
       {({ data: state, caps }) => (
         <PostsList
           locationId={locationId}
           posts={state.posts}
+          counts={state.counts}
+          paging={state.paging}
+          filter={filter}
+          loadedFilter={state.filter}
+          onFilterChange={setFilter}
           writesEnabled={state.writesEnabled}
           timezone={state.timezone ?? DEFAULT_TIMEZONE}
           reconciliationError={state.reconciliationError}
@@ -142,25 +157,38 @@ export function PostsTab({ locationId }: { locationId: string }) {
 function PostsList({
   locationId,
   posts,
+  counts,
+  paging,
+  filter,
+  loadedFilter,
+  onFilterChange: setFilter,
   writesEnabled,
   timezone,
   reconciliationError,
   caps,
 }: {
   locationId: string
+  /** The loaded pages of the `loadedFilter` view. */
   posts: Post[]
+  /** Every view's size and the live count, over all the location's posts. */
+  counts: PostCounts
+  paging: ListPaging
+  filter: PostFilter
+  /** The view `posts` belong to; it lags `filter` while a switch loads. */
+  loadedFilter: PostFilter
+  onFilterChange: (filter: PostFilter) => void
   writesEnabled: boolean
   /** The listing's IANA timezone, for when a repeat ends. */
   timezone: string
   reconciliationError: string | null
   caps: Parameters<typeof PostsActionBar>[0]["caps"]
 }) {
-  const [filter, setFilter] = useState<PostFilter>("all")
   const composeReason = composeDisabledReason(writesEnabled)
-  const live = posts.filter(
-    (post) => post.status === "published" && post.googleState === "LIVE"
-  ).length
-  const attention = posts.filter(postNeedsAttention).length
+  const live = counts.live
+  const attention = counts.attention
+  const switching = loadedFilter !== filter
+  // The server already filtered and ordered the view; the filter here only
+  // hides the previous view's rows while a switch loads.
   const shown = posts.filter((post) => matchesPostFilter(post, filter)).sort((a, b) => {
     const aTime = postContentTimestamp(a)
     const bTime = postContentTimestamp(b)
@@ -172,7 +200,7 @@ function PostsList({
       ? { label: `${attention} need attention`, tone: "attention" as const }
       : live > 0
         ? { label: `${live} live on Google`, tone: "healthy" as const }
-        : posts.length > 0
+        : counts.all > 0
           ? { label: "Nothing live", tone: "neutral" as const }
           : undefined
 
@@ -208,7 +236,7 @@ function PostsList({
         </Alert>
       ) : null}
 
-      {posts.length === 0 ? (
+      {counts.all === 0 ? (
         <div className="rounded-lg border border-line bg-surface">
           <Empty
             icon={<Megaphone aria-hidden />}
@@ -221,9 +249,7 @@ function PostsList({
         <div className="flex flex-col gap-3">
           <ChipRow role="group" aria-label="Filter posts by status">
             {POST_FILTERS.map((option) => {
-              const count = posts.filter((post) =>
-                matchesPostFilter(post, option.value)
-              ).length
+              const count = counts[option.value]
               return (
                 <ToggleChip
                   key={option.value}
@@ -242,7 +268,7 @@ function PostsList({
             })}
           </ChipRow>
 
-          {shown.length === 0 ? (
+          {shown.length === 0 && !switching ? (
             <div className="rounded-lg border border-line bg-surface">
               <Empty
                 icon={<FilterIcon aria-hidden />}
@@ -261,7 +287,7 @@ function PostsList({
               />
             </div>
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-3" aria-busy={switching || undefined}>
               {shown.map((post) => {
                 const status = postStatus(post)
                 const changedAt = postContentTimestamp(post)
@@ -312,6 +338,14 @@ function PostsList({
                 )
               })}
             </ul>
+          )}
+          {switching ? null : (
+            <LoadMore
+              shown={posts.length}
+              total={counts[filter]}
+              noun={["post", "posts"]}
+              paging={paging}
+            />
           )}
         </div>
       )}

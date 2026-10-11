@@ -69,12 +69,13 @@ export const queryKeys = {
   locationProfile: (id: string) => ["locations", id, "profile"] as const,
   locationHours: (id: string) => ["locations", id, "hours"] as const,
   // Prefix of every `locationMedia(id, …)` key: the photos tab invalidates all
-  // pages/filters of one location's media at once after an upload or refresh.
+  // filters of one location's media at once after an upload or refresh.
   locationMediaAll: (id: string) => ["locations", id, "media"] as const,
+  // One filter set's keyset-paged library (an infinite query: its pages
+  // follow cursors, so the key carries the filters only).
   locationMedia: (
     id: string,
     params: {
-      page?: number
       category?: string | null
       ownership?: string | null
     } = {}
@@ -83,18 +84,26 @@ export const queryKeys = {
       "locations",
       id,
       "media",
-      params.page ?? 1,
       params.category ?? null,
       params.ownership ?? null,
     ] as const,
-  locationActivity: (id: string, page = 1) =>
-    ["locations", id, "activity", page] as const,
+  // Prefix of both activity reads: the paged drawer and the recent glance.
+  locationActivity: (id: string) => ["locations", id, "activity"] as const,
+  locationActivityPages: (id: string, pageSize: number) =>
+    ["locations", id, "activity", "pages", pageSize] as const,
+  locationActivityRecent: (id: string, pageSize: number) =>
+    ["locations", id, "activity", "recent", pageSize] as const,
   locationBooking: (id: string) => ["locations", id, "booking"] as const,
   locationMenu: (id: string) => ["locations", id, "menu"] as const,
   locationImportReview: (id: string) =>
     ["locations", id, "import-review"] as const,
   importReviewCounts: ["import-review-counts"] as const,
+  // Prefix of every status view of one location's posts; a post write
+  // invalidates this, so every view and its counts refresh.
   locationPosts: (id: string) => ["locations", id, "posts"] as const,
+  // One status view, keyset-paged (an infinite query).
+  locationPostsView: (id: string, filter: string) =>
+    ["locations", id, "posts", filter] as const,
   locationBusinessInformation: (id: string) =>
     ["locations", id, "business-information"] as const,
   locationIndustry: (id: string) => ["locations", id, "industry"] as const,

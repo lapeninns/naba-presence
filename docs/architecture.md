@@ -1376,11 +1376,22 @@ the source prefix; `sourceId` retains the original attempt ID for recovery.
 No attempt tables are consolidated. Missing historical actors remain null,
 and legacy success states are not upgraded to independent confirmation.
 
-Activity supports the existing page/pageSize interface and an optional cursor.
-The cursor binds to a location and orders by timestamp plus source-prefixed ID.
-It retains PostgreSQL microseconds so ties and same-millisecond attempts are
-not skipped. The client follows returned cursors, with page-number fallback
-for older responses. Future bulk and schedule stores must join this projection
+Activity pages by keyset cursor only (a `page` from an older client is
+ignored and reads the first page). The cursor binds to a location and orders
+by timestamp plus source-prefixed ID. It retains PostgreSQL microseconds so
+ties and same-millisecond attempts are not skipped. The drawer follows
+returned cursors with "Load more" (`useLocationActivityPages`).
+
+The growing per-location lists share that shape (P06-7): opaque cursors from
+`lib/contracts/cursor.ts`, each bound to its location and filters and refused
+elsewhere with 400 `invalid_cursor`, and infinite queries merged by
+`lib/queries/paged-list.ts` behind the `components/ui/load-more.tsx` footer.
+Posts (`listLocalPosts`) materialise their sort time in a CTE and page on
+(`sort_at` desc nulls last, `id`) within one status view, returning per-view
+counts; only the first page reconciles with Google. Media (`loadMedia`) pages
+on (ownership, `google_create_time` desc nulls last, `id`); only the first page
+may re-read Google. No new indexes: both lists filter on the existing
+per-location indexes and stay small per location. Future bulk and schedule stores must join this projection
 when those workflows are implemented.
 
 `lib/contracts/operational-events.ts` defines the next operational event

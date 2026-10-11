@@ -8,6 +8,7 @@
 import type {
   LocalPostActionType,
   LocalPostTopicType,
+  PostListFilter,
   PostRow,
 } from "@/lib/contracts/location-posts"
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
@@ -68,8 +69,8 @@ export function postStatus(
   }
 }
 
-export type PostFilter =
-  "all" | "draft" | "awaiting" | "published" | "attention"
+/** The list's status views; the server filters by the same names. */
+export type PostFilter = PostListFilter
 
 export const POST_FILTERS: ReadonlyArray<{ value: PostFilter; label: string }> =
   [

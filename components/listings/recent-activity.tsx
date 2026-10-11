@@ -49,7 +49,7 @@ function RecentActivity({
   locationId: string
   limit?: number
 }) {
-  const activity = useLocationActivity(locationId, { page: 1, pageSize: limit })
+  const activity = useLocationActivity(locationId, { pageSize: limit })
 
   if (activity.isPending) {
     return (

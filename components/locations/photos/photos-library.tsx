@@ -12,6 +12,7 @@ import { UnresolvedCreates } from "@/components/locations/photos/unresolved-crea
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
+import type { ListPaging } from "@/lib/queries/paged-list"
 import { formatNumber } from "@/lib/format"
 import { isPatchableMediaCategory } from "@/lib/locations/media-labels"
 import {
@@ -39,7 +40,8 @@ export function PhotosLibrary({
   writeReason,
 }: {
   locationId: string
-  media: MediaState
+  /** Every page loaded so far, merged, and how to load the next. */
+  media: MediaState & { paging: ListPaging }
   state: PhotosState
   onStateChange: (partial: Partial<PhotosState>) => void
   writeReason: string | null
@@ -48,16 +50,14 @@ export function PhotosLibrary({
   const [addOpen, setAddOpen] = useState(false)
   const disabled = Boolean(writeReason)
   const query = toMediaQuery(state)
-  const pageCount = Math.max(1, Math.ceil(media.total / media.pageSize))
-  const page = Math.min(state.page, pageCount)
   const filtersActive = hasActivePhotoFilters(state)
 
-  // Re-read page 1 straight from Google, seed its cache entry, then drop every
-  // other page/filter of this location's media so they refetch on demand.
+  // Re-read the first page straight from Google and seed this view with it
+  // alone (the pages loaded after it may have moved), then drop every other
+  // filter of this location's media so they refetch on demand.
   const refresh = useResourceMutation<MediaState>({
     mutationFn: () =>
       fetchMedia(locationId, {
-        page: 1,
         pageSize: DEFAULT_MEDIA_PAGE_SIZE,
         refresh: true,
         category: query.category ?? undefined,
@@ -66,13 +66,11 @@ export function PhotosLibrary({
     onSuccess: (fresh) => {
       queryClient.setQueryData(
         queryKeys.locationMedia(locationId, {
-          page: 1,
           category: query.category,
           ownership: query.ownership,
         }),
-        fresh
+        { pages: [fresh], pageParams: [null] }
       )
-      if (state.page !== 1) onStateChange({ page: 1 })
     },
     invalidate: [queryKeys.locationMediaAll(locationId)],
   })
@@ -120,7 +118,7 @@ export function PhotosLibrary({
             <PhotosEmpty
               filtersActive={filtersActive}
               onClearFilters={() =>
-                onStateChange({ ownership: "all", category: "all", page: 1 })
+                onStateChange({ ownership: "all", category: "all" })
               }
             />
           </div>
@@ -129,13 +127,10 @@ export function PhotosLibrary({
             locationId={locationId}
             items={media.items}
             patchCategories={media.categories.filter(isPatchableMediaCategory)}
-            page={page}
-            pageCount={pageCount}
             total={media.total}
-            pageSize={media.pageSize}
+            paging={media.paging}
             disabled={disabled}
             writeReason={writeReason}
-            onPageChange={(next) => onStateChange({ page: next })}
             onChanged={refreshFromGoogle}
           />
         )}

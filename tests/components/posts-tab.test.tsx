@@ -5,11 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { PostsTab } from "@/components/locations/posts-tab"
 import { Toaster } from "@/components/ui/toast"
-import type { Post, PostsState } from "@/lib/api/location-posts"
+import type { Post } from "@/lib/api/location-posts"
+import type { ListPaging } from "@/lib/queries/paged-list"
+import type { PostsView } from "@/lib/queries/use-location-posts"
+import { matchesPostFilter } from "@/lib/locations/post-display"
 
 const usePostsMock = vi.fn()
 const useCapsMock = vi.fn()
-vi.mock("@/lib/queries/use-location-posts", () => ({ usePosts: () => usePostsMock() }))
+vi.mock("@/lib/queries/use-location-posts", () => ({ usePosts: (...args: unknown[]) => usePostsMock(...args) }))
 vi.mock("@/lib/queries/use-location-capabilities", () => ({ useLocationCapabilities: () => useCapsMock() }))
 
 function post(overrides: Partial<Post> = {}): Post {
@@ -19,8 +22,18 @@ function post(overrides: Partial<Post> = {}): Post {
     createdAt: "2026-08-01T00:00:00.000Z", updatedAt: "2026-08-01T00:00:00.000Z", ...overrides,
   }
 }
-function makeState(overrides: Partial<PostsState> = {}): PostsState {
-  return { posts: [post()], writesEnabled: true, reconciliationError: null, ...overrides }
+const noMore: ListPaging = { hasMore: false, loadingMore: false, loadMoreFailed: false, loadMore: () => {} }
+type View = PostsView & { paging: ListPaging }
+function countsOf(posts: Post[]): View["counts"] {
+  const count = (filter: Parameters<typeof matchesPostFilter>[1]) => posts.filter((row) => matchesPostFilter(row, filter)).length
+  return {
+    all: posts.length, draft: count("draft"), awaiting: count("awaiting"), published: count("published"), attention: count("attention"),
+    live: posts.filter((row) => row.status === "published" && row.googleState === "LIVE").length,
+  }
+}
+function makeState(overrides: Partial<View> = {}): View {
+  const posts = overrides.posts ?? [post()]
+  return { posts, counts: countsOf(posts), filter: "all", paging: noMore, writesEnabled: true, reconciliationError: null, timezone: undefined, ...overrides }
 }
 
 function renderTab() {
@@ -180,4 +193,38 @@ it("shows unavailable dates for legacy published posts and orders by content tim
   expect(screen.getByText("Date unavailable")).toBeInTheDocument()
   const summaries = screen.getAllByText(/^(Newer content|Older content recently reconciled|Provider date missing)$/)
   expect(summaries.map((element) => element.textContent)).toEqual(["Newer content", "Older content recently reconciled", "Provider date missing"])
+})
+
+describe("PostsTab paging and views", () => {
+  it("counts every view from the server, not the loaded page, and loads more with an announced count", async () => {
+    const user = userEvent.setup()
+    const loadMore = vi.fn()
+    usePostsMock.mockReturnValue({
+      data: makeState({
+        posts: [post({ id: "a", summary: "First draft" })],
+        counts: { all: 41, draft: 25, awaiting: 3, published: 10, attention: 3, live: 9 },
+        paging: { ...noMore, hasMore: true, loadMore },
+      }),
+      isPending: false, isError: false, error: null, refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getByRole("button", { name: /Drafts/ })).toHaveTextContent("25")
+    expect(screen.getByText("3 need attention")).toBeInTheDocument()
+    expect(screen.getByText("Showing 1 of 41 posts")).toHaveAttribute("role", "status")
+    await user.click(screen.getByRole("button", { name: "Load more posts" }))
+    expect(loadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it("asks the server for the chosen view and keeps the list while it loads", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(usePostsMock).toHaveBeenLastCalledWith("loc-1", "all")
+    await user.click(screen.getByRole("button", { name: /Drafts/ }))
+    expect(usePostsMock).toHaveBeenLastCalledWith("loc-1", "draft")
+    // The placeholder is still the "all" view: no count claims to describe it.
+    expect(screen.queryByText(/^Showing/)).toBeNull()
+  })
 })

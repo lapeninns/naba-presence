@@ -9,13 +9,14 @@ import {
 } from "@/components/locations/photos-tab"
 import { Toaster } from "@/components/ui/toast"
 import type { MediaState } from "@/lib/api/location-media"
+import type { ListPaging } from "@/lib/queries/paged-list"
 
 const useMediaMock = vi.fn()
 const useCapsMock = vi.fn()
 const updateMediaCategoryMock = vi.fn()
 const resolveMediaCreateMock = vi.fn()
 const replace = vi.fn()
-// The tab reads page/filters from the URL; each test seeds this before render.
+// The tab reads its filters from the URL; each test seeds this before render.
 let searchParams = new URLSearchParams()
 
 vi.mock("next/navigation", () => ({
@@ -44,7 +45,10 @@ vi.mock("@/lib/api/location-media", async () => {
   }
 })
 
-function makeMedia(overrides: Partial<MediaState> = {}): MediaState {
+type MediaView = MediaState & { paging: ListPaging }
+const noMore: ListPaging = { hasMore: false, loadingMore: false, loadMoreFailed: false, loadMore: () => {} }
+
+function makeMedia(overrides: Partial<MediaView> = {}): MediaView {
   const items = overrides.items ?? [
     {
       id: "m1",
@@ -84,11 +88,12 @@ function makeMedia(overrides: Partial<MediaState> = {}): MediaState {
     canPublish: true,
     writesEnabled: true,
     categories: ["COVER", "PROFILE", "ADDITIONAL", "INTERIOR", "EXTERIOR"],
-    page: 1,
     pageSize: 12,
+    nextCursor: null,
     category: null,
     ownership: null,
     unresolvedCreates: [],
+    paging: noMore,
     ...rest,
     items,
     total: overrideTotal ?? items.length,
@@ -113,7 +118,7 @@ afterEach(() => {
   searchParams = new URLSearchParams()
 })
 
-function loaded(media: MediaState) {
+function loaded(media: MediaView) {
   useMediaMock.mockReturnValue({
     data: media,
     isPending: false,
@@ -348,31 +353,53 @@ describe("PhotosTab", () => {
     Reflect.deleteProperty(URL, "revokeObjectURL")
   })
 
-  it("paginates current media instead of rendering every image at once", () => {
-    const items = manyItems(15)
-    useMediaMock.mockReturnValue({
-      data: makeMedia({
-        items: items.slice(0, 12),
+  it("shows a page of media and loads more on request, announcing the count", async () => {
+    const user = userEvent.setup()
+    const loadMore = vi.fn()
+    loaded(
+      makeMedia({
+        items: manyItems(12),
         total: 15,
-        page: 1,
-        pageSize: 12,
-      }),
-      isPending: false,
-      isError: false,
-      error: null,
-      refetch: vi.fn(),
-    })
-    useCapsMock.mockReturnValue({
-      data: { canEditCanonical: true, canPublish: true },
-    })
+        paging: { ...noMore, hasMore: true, loadMore },
+      })
+    )
     renderTab()
     expect(
       screen.getAllByRole("button", { name: /^Preview Additional photo$/ })
     ).toHaveLength(12)
-    expect(screen.getByText("1–12 of 15 · Page 1 of 2")).toBeInTheDocument()
+    expect(screen.getByText("Showing 12 of 15 items")).toHaveAttribute(
+      "role",
+      "status"
+    )
+    await user.click(screen.getByRole("button", { name: "Load more items" }))
+    expect(loadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the loaded media and says so when loading more fails", () => {
+    loaded(
+      makeMedia({
+        items: manyItems(12),
+        total: 15,
+        paging: { ...noMore, hasMore: true, loadMoreFailed: true },
+      })
+    )
+    renderTab()
     expect(
-      screen.getByRole("navigation", { name: "Photo pages" })
+      screen.getAllByRole("button", { name: /^Preview Additional photo$/ })
+    ).toHaveLength(12)
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "We couldn’t load more items. Try again."
+    )
+    expect(
+      screen.getByRole("button", { name: "Load more items" })
     ).toBeInTheDocument()
+  })
+
+  it("offers no Load more once everything is shown", () => {
+    loaded(makeMedia({ items: manyItems(3), total: 3 }))
+    renderTab()
+    expect(screen.getByText("Showing all 3 items")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull()
   })
 
   it("shows ownership and category browse filters", () => {
@@ -453,39 +480,21 @@ describe("PhotosTab", () => {
     expect(isPatchableMediaCategory("INTERIOR")).toBe(true)
   })
 
-  // Sprint 4.2c: page and browse filters live in the URL so a filtered page
-  // survives reload and sharing. Changing a filter resets to page 1; defaults
-  // are dropped so the plain photos URL stays canonical.
-  it("writes an ownership filter to the URL with replace and resets the page", async () => {
+  // Sprint 4.2c: browse filters live in the URL so a filtered view survives
+  // reload and sharing; defaults are dropped so the plain photos URL stays
+  // canonical. Paging is by cursor, so a `page` left in an old link is
+  // dropped on the next change.
+  it("writes an ownership filter to the URL with replace and drops an old page", async () => {
     const user = userEvent.setup()
     searchParams = new URLSearchParams("page=2")
     loaded(makeMedia({ items: manyItems(12), total: 15 }))
     renderTab()
-    expect(screen.getByText("13–15 of 15 · Page 2 of 2")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Customer photos" }))
     expect(replace).toHaveBeenCalledWith(
       "/locations/loc-1/photos?ownership=customer",
       { scroll: false }
     )
-  })
-
-  it("pages through the URL and drops page 1 from it", async () => {
-    const user = userEvent.setup()
-    loaded(makeMedia({ items: manyItems(12), total: 15 }))
-    const first = renderTab()
-    await user.click(screen.getByRole("button", { name: "Next" }))
-    expect(replace).toHaveBeenLastCalledWith("/locations/loc-1/photos?page=2", {
-      scroll: false,
-    })
-    first.unmount()
-
-    searchParams = new URLSearchParams("page=2")
-    renderTab()
-    await user.click(screen.getByRole("button", { name: "Previous" }))
-    expect(replace).toHaveBeenLastCalledWith("/locations/loc-1/photos", {
-      scroll: false,
-    })
   })
 
   it("reflects the URL's filters as pressed and clears them back to the bare URL", async () => {

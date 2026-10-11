@@ -27,8 +27,9 @@ export type MediaMutationResult = MediaMutationOutcome
 export function fetchMedia(
   id: string,
   params: {
-    page?: number
     pageSize?: number
+    /** Where the page starts (the previous page's `nextCursor`). */
+    cursor?: string
     refresh?: boolean
     category?: MediaCategory
     ownership?: MediaOwnership
@@ -36,8 +37,8 @@ export function fetchMedia(
   options?: RequestOptions
 ): Promise<MediaState> {
   const query = new URLSearchParams()
-  if (params.page) query.set("page", String(params.page))
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.cursor) query.set("cursor", params.cursor)
   if (params.refresh) query.set("refresh", "1")
   if (params.category) query.set("category", params.category)
   if (params.ownership) query.set("ownership", params.ownership)

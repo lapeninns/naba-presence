@@ -17,7 +17,6 @@ export function fetchLocationActivity(
   options?: RequestOptions
 ): Promise<LocationActivityState> {
   const query = new URLSearchParams()
-  if (params.page) query.set("page", String(params.page))
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
   if (params.cursor) query.set("cursor", params.cursor)
   const suffix = query.size ? `?${query}` : ""

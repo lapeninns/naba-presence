@@ -60,8 +60,8 @@ describe("tab mutation clients", () => {
           createTime: "2026-08-04T09:00:00.000Z",
         }],
         total: 1,
-        page: 1,
         pageSize: 12,
+        nextCursor: null,
       },
     })))
 
@@ -70,7 +70,7 @@ describe("tab mutation clients", () => {
     expect(media.items[0]?.category).toBe("ADDITIONAL")
   })
 
-  it("fetchMedia forwards category and ownership filters", async () => {
+  it("fetchMedia forwards the cursor and the category and ownership filters", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () =>
       jsonResponse({
         media: {
@@ -79,8 +79,8 @@ describe("tab mutation clients", () => {
           categories: ["INTERIOR"],
           items: [],
           total: 0,
-          page: 2,
           pageSize: 12,
+          nextCursor: null,
           category: "INTERIOR",
           ownership: "merchant",
         },
@@ -89,7 +89,7 @@ describe("tab mutation clients", () => {
     vi.stubGlobal("fetch", fetchMock)
 
     await fetchMedia("loc-1", {
-      page: 2,
+      cursor: "next-page",
       pageSize: 12,
       category: "INTERIOR",
       ownership: "merchant",
@@ -97,7 +97,8 @@ describe("tab mutation clients", () => {
 
     const url = new URL(fetchMock.mock.calls[0][0] as string, "http://t")
     expect(url.pathname).toBe("/api/locations/loc-1/media")
-    expect(url.searchParams.get("page")).toBe("2")
+    expect(url.searchParams.get("cursor")).toBe("next-page")
+    expect(url.searchParams.has("page")).toBe(false)
     expect(url.searchParams.get("pageSize")).toBe("12")
     expect(url.searchParams.get("category")).toBe("INTERIOR")
     expect(url.searchParams.get("ownership")).toBe("merchant")

@@ -26,7 +26,7 @@ export function useServiceReview(locationId: string, onConfirmed: (review: GbpCh
     catch (failure) { setError(failure instanceof ApiClientError ? failure.message : "The response could not be read. Check the saved outcome before another action.") }
     finally {
       claim.current = false; setBusy(false); setSelectionRevision((value) => value + 1)
-      void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId).slice(0, -1) })
+      void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
       void client.invalidateQueries({ queryKey: [...queryKeys.locationBusinessInformation(locationId), "reviews"] })
       void client.invalidateQueries({ queryKey: [...queryKeys.locationBusinessInformation(locationId), "service-workflows"] })
     }
