@@ -5,7 +5,11 @@
  */
 import { z } from "zod"
 
-import { BILLING_STATES } from "@/lib/domain/entitlements"
+import {
+  ACCESS_MODES,
+  ACCESS_REASONS,
+  BILLING_STATES,
+} from "@/lib/domain/entitlements"
 
 export const billingStateSchema = z.enum(BILLING_STATES)
 export type BillingStateValue = z.infer<typeof billingStateSchema>
@@ -33,8 +37,8 @@ export const planSchema = z.object({
 export type Plan = z.infer<typeof planSchema>
 
 export const accessSchema = z.object({
-  mode: z.enum(["full", "grace", "read_only"]),
-  reason: z.string(),
+  mode: z.enum(ACCESS_MODES),
+  reason: z.enum(ACCESS_REASONS),
   canWrite: z.boolean(),
   canUseAi: z.boolean(),
   locationLimit: z.number().int().min(1).nullable(),

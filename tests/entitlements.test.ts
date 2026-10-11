@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { accessSchema } from "@/lib/contracts/billing"
 import {
+  ACCESS_REASONS,
   BILLING_STATES,
   GRACE_PERIOD_DAYS,
   PROVIDER_CONFIRMATION_HOURS,
@@ -146,6 +147,19 @@ describe("deriveAccess", () => {
     ).toMatchObject({ mode: "read_only", reason: "subscription_ended" })
   })
 
+  it("fails closed for an active subscription with no period end", () => {
+    for (const cancelAtPeriodEnd of [false, true]) {
+      expect(
+        derive({ currentPeriodEnd: null, cancelAtPeriodEnd })
+      ).toMatchObject({
+        mode: "read_only",
+        reason: "record_incomplete",
+        canWrite: false,
+        endsAt: null,
+      })
+    }
+  })
+
   it("confirms a silent renewal for a bounded time, then fails closed", () => {
     expect(derive({ currentPeriodEnd: at(-2) })).toMatchObject({
       mode: "full",
@@ -157,10 +171,14 @@ describe("deriveAccess", () => {
   })
 
   it("gives a failed renewal seven days of grace, then read-only", () => {
+    // Stripe has advanced the period: it started at the failed renewal and
+    // ends a full period later.
+    const renewal = at(-2 * DAY)
     for (const state of ["past_due", "grace"] as const) {
       const within = derive({
         state,
-        currentPeriodEnd: at(-2 * DAY),
+        currentPeriodStart: renewal,
+        currentPeriodEnd: at(28 * DAY),
         graceEndsAt: at(5 * DAY),
       })
       expect(within).toMatchObject({
@@ -171,26 +189,54 @@ describe("deriveAccess", () => {
         endsAt: at(5 * DAY),
       })
       expect(
-        derive({ state, currentPeriodEnd: at(-8 * DAY), graceEndsAt: NOW })
+        derive({
+          state,
+          currentPeriodStart: at(-7 * DAY),
+          currentPeriodEnd: at(23 * DAY),
+          graceEndsAt: NOW,
+        })
       ).toMatchObject({ mode: "read_only", reason: "grace_expired" })
     }
   })
 
-  it("counts grace from the failed renewal when no end is recorded", () => {
+  it("never infers grace from the advanced period end", () => {
+    // A failed monthly renewal with no recorded grace end: the period end is
+    // a month away, but that is not grace. Fail closed.
+    for (const state of ["past_due", "grace"] as const) {
+      expect(
+        derive({
+          state,
+          currentPeriodStart: at(-DAY),
+          currentPeriodEnd: at(29 * DAY),
+          graceEndsAt: null,
+        })
+      ).toMatchObject({
+        mode: "read_only",
+        reason: "record_incomplete",
+        endsAt: null,
+      })
+    }
+  })
+
+  it("caps grace at seven days after the failed renewal", () => {
     const renewal = at(-3 * DAY)
-    const access = derive({ state: "past_due", currentPeriodEnd: renewal })
-    expect(access.mode).toBe("grace")
+    const access = derive({
+      state: "past_due",
+      currentPeriodStart: renewal,
+      currentPeriodEnd: at(27 * DAY),
+      // Recorded too far out (e.g. the period end).
+      graceEndsAt: at(27 * DAY),
+    })
+    expect(access).toMatchObject({ mode: "grace", reason: "payment_grace" })
     expect(access.endsAt).toEqual(at((GRACE_PERIOD_DAYS - 3) * DAY))
     expect(
       derive({
         state: "past_due",
-        currentPeriodEnd: at(-GRACE_PERIOD_DAYS * DAY),
+        currentPeriodStart: at(-GRACE_PERIOD_DAYS * DAY),
+        currentPeriodEnd: at(23 * DAY),
+        graceEndsAt: at(23 * DAY),
       })
     ).toMatchObject({ mode: "read_only", reason: "grace_expired" })
-    // No anchor at all fails closed.
-    expect(derive({ state: "past_due", currentPeriodEnd: null })).toMatchObject(
-      { mode: "read_only", reason: "grace_expired" }
-    )
   })
 
   it("makes read_only and canceled read-only", () => {
@@ -259,5 +305,15 @@ describe("deriveAccess", () => {
       expect(wire.mode).toBe(access.mode)
       expect(access.canWrite).toBe(access.mode !== "read_only")
     }
+  })
+
+  it("pins the reason vocabulary in the wire contract", () => {
+    const base = deriveAccess(null, { current: null, pending: null }, NOW)
+    for (const reason of ACCESS_REASONS) {
+      expect(accessSchema.parse({ ...base, reason }).reason).toBe(reason)
+    }
+    expect(() =>
+      accessSchema.parse({ ...base, reason: "something_else" })
+    ).toThrow()
   })
 })

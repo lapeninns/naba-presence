@@ -7,6 +7,7 @@ import type { Access } from "@/lib/domain/entitlements"
 import {
   accessFromView,
   getOrganisationBilling,
+  seedPilotBilling,
 } from "@/lib/server/billing/state"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
@@ -259,6 +260,10 @@ export async function ensureDevelopmentSession(): Promise<Session> {
         ${LOCAL_USER_ID}
       )
     `
+    // provision_local_bootstrap (0005) predates billing and creates the
+    // organisation without a billing row, which derives read-only. Give the
+    // local organisation its explicit pilot record, as provisioning does.
+    await seedPilotBilling(sql, LOCAL_ORGANISATION_ID)
     return createSession(sql, LOCAL_USER_ID, LOCAL_ORGANISATION_ID)
   })
 

@@ -18,7 +18,14 @@
  *   stay available; S3 keeps that list).
  *
  * Everything fails closed: no record, a paid state without its plan, an
- * unknown state, or a grace with no anchor to count from derives read-only.
+ * unknown state, an active subscription with no period end, or a grace with
+ * no recorded end derives read-only.
+ *
+ * current_period_start / current_period_end mirror the provider's
+ * subscription period. Stripe advances both when it creates the renewal
+ * invoice, whatever the payment outcome, so for a failed renewal the period
+ * START is the boundary that failed and the period END is the end of the new,
+ * unpaid period. Grace is therefore never counted from the period end.
  */
 
 export const BILLING_STATES = [
@@ -49,24 +56,28 @@ export const PROVIDER_CONFIRMATION_HOURS = 24
 const DAY_MS = 24 * 60 * 60 * 1000
 const HOUR_MS = 60 * 60 * 1000
 
-export type AccessMode = "full" | "grace" | "read_only"
+export const ACCESS_MODES = ["full", "grace", "read_only"] as const
+export type AccessMode = (typeof ACCESS_MODES)[number]
 
-export type AccessReason =
-  | "pilot"
-  | "trialing"
-  | "active"
-  | "cancel_scheduled"
-  | "confirming_payment"
-  | "payment_grace"
-  | "first_payment_failed"
-  | "trial_ended_unpaid"
-  | "renewal_unconfirmed"
-  | "grace_expired"
-  | "subscription_ended"
-  | "read_only"
-  | "plan_missing"
-  | "record_incomplete"
-  | "billing_missing"
+/** Every reason deriveAccess returns; the wire contract pins this list. */
+export const ACCESS_REASONS = [
+  "pilot",
+  "trialing",
+  "active",
+  "cancel_scheduled",
+  "confirming_payment",
+  "payment_grace",
+  "first_payment_failed",
+  "trial_ended_unpaid",
+  "renewal_unconfirmed",
+  "grace_expired",
+  "subscription_ended",
+  "read_only",
+  "plan_missing",
+  "record_incomplete",
+  "billing_missing",
+] as const
+export type AccessReason = (typeof ACCESS_REASONS)[number]
 
 /** The fields of `organisation_billing` access depends on. */
 export type BillingRecord = {
@@ -186,12 +197,14 @@ export function deriveAccess(
     }
     case "active": {
       const ends = billing.currentPeriodEnd
+      // A paid period with no end would be full access forever.
+      if (!ends) return build("read_only", "record_incomplete", null)
       if (billing.cancelAtPeriodEnd) {
         return passed(ends, now)
           ? build("read_only", "subscription_ended", null)
           : build("full", "cancel_scheduled", ends)
       }
-      if (!ends || !passed(ends, now)) return build("full", "active", ends)
+      if (!passed(ends, now)) return build("full", "active", ends)
       const confirmBy = addMs(ends, PROVIDER_CONFIRMATION_HOURS * HOUR_MS)
       if (!passed(confirmBy, now)) {
         return build("full", "confirming_payment", confirmBy)
@@ -203,14 +216,21 @@ export function deriveAccess(
       if (!billing.firstPaymentSucceeded) {
         return build("read_only", "first_payment_failed", null)
       }
-      // The processor records grace_ends_at; failing that, count from the
-      // renewal that failed. No anchor at all derives read-only.
+      // The processor records grace_ends_at; without it there is nothing
+      // safe to count from (see the period note above), so fail closed.
+      if (!billing.graceEndsAt) {
+        return build("read_only", "record_incomplete", null)
+      }
+      // Never more than the grace period after the failed renewal boundary
+      // (the current period's start), whatever end was recorded.
+      const cap = billing.currentPeriodStart
+        ? addMs(billing.currentPeriodStart, GRACE_PERIOD_DAYS * DAY_MS)
+        : null
       const graceEnds =
-        billing.graceEndsAt ??
-        (billing.currentPeriodEnd
-          ? addMs(billing.currentPeriodEnd, GRACE_PERIOD_DAYS * DAY_MS)
-          : null)
-      if (!graceEnds || passed(graceEnds, now)) {
+        cap && cap.getTime() < billing.graceEndsAt.getTime()
+          ? cap
+          : billing.graceEndsAt
+      if (passed(graceEnds, now)) {
         return build("read_only", "grace_expired", null)
       }
       return build("grace", "payment_grace", graceEnds)

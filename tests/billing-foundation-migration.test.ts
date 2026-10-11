@@ -20,6 +20,7 @@ const read = (name: string) =>
 
 const aiCredits = read("0059_ai_credits.sql")
 const migration = read("0220_billing_foundation.sql")
+const periodChecks = read("0221_billing_period_checks.sql")
 
 const ORG_A = "00000000-0000-4000-8000-00000000000a"
 const ORG_B = "00000000-0000-4000-8000-00000000000b"
@@ -86,6 +87,7 @@ describe("0220 billing foundation migration", () => {
         values ('${ORG_A}', 'draft', 'settled', 1, 'm', '2026-10-01');
       `)
       await db.exec(migration)
+      await db.exec(periodChecks)
       await db.exec(`insert into organisation values ('${ORG_NEW}');`)
     })
 
@@ -244,9 +246,61 @@ describe("0220 billing foundation migration", () => {
          where organisation_id = $1`,
         "update organisation_billing set state = 'frozen' where organisation_id = $1",
         "update organisation_billing set stripe_customer_id = 'acct_1' where organisation_id = $1",
+        // An active subscription says when its period ends.
+        `update organisation_billing set
+           state = 'active', plan_id = (select id from billing_plan limit 1),
+           stripe_customer_id = 'cus_B2', stripe_subscription_id = 'sub_B2',
+           environment = 'test', current_period_end = null
+         where organisation_id = $1`,
+        // A failed renewal records when its grace ends.
+        `update organisation_billing set
+           state = 'past_due', plan_id = (select id from billing_plan limit 1),
+           stripe_customer_id = 'cus_B3', stripe_subscription_id = 'sub_B3',
+           environment = 'test', first_payment_succeeded = true,
+           current_period_start = now(),
+           current_period_end = now() + interval '30 days',
+           grace_ends_at = null
+         where organisation_id = $1`,
       ]
       for (const statement of bad) {
         await expect(db.query(statement, [ORG_B])).rejects.toThrow()
+      }
+    })
+
+    it("accepts paid states once their period and grace ends are recorded", async () => {
+      // Positive controls for the period-end and grace-end checks, so the
+      // rejections above fail for those checks and not something else.
+      const good = [
+        `update organisation_billing set
+           state = 'active', plan_id = (select id from billing_plan limit 1),
+           stripe_customer_id = 'cus_B2', stripe_subscription_id = 'sub_B2',
+           environment = 'test',
+           current_period_end = now() + interval '30 days'
+         where organisation_id = $1`,
+        `update organisation_billing set
+           state = 'past_due', plan_id = (select id from billing_plan limit 1),
+           stripe_customer_id = 'cus_B3', stripe_subscription_id = 'sub_B3',
+           environment = 'test', first_payment_succeeded = true,
+           current_period_start = now(),
+           current_period_end = now() + interval '30 days',
+           grace_ends_at = now() + interval '7 days'
+         where organisation_id = $1`,
+        // A failed first payment has no grace, so it records none.
+        `update organisation_billing set
+           state = 'past_due', plan_id = (select id from billing_plan limit 1),
+           stripe_customer_id = 'cus_B4', stripe_subscription_id = 'sub_B4',
+           environment = 'test', first_payment_succeeded = false,
+           grace_ends_at = null
+         where organisation_id = $1`,
+      ]
+      for (const statement of good) {
+        await db.exec("begin")
+        try {
+          const result = await db.query(statement, [ORG_B])
+          expect(result.affectedRows).toBe(1)
+        } finally {
+          await db.exec("rollback")
+        }
       }
     })
 

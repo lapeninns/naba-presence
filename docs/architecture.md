@@ -663,8 +663,8 @@ live resource is read after the write, both sides are normalised the way
 Google normalises what it stores, and only the written fields are compared, so
 unrelated drift and fields Google adds never fail a write that applied.
 
-| Adapter    | Compares                                                                          | Used by                                                                          |
-| ---------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Adapter    | Compares                                                                         | Used by                                                                          |
+| ---------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `posts.ts` | topic, language, summary, call to action, event title and schedule, offer fields | `matchLivePost` (ambiguous creates, stranded posts) and post update verification |
 
 A post create is still proven by its name alone: settling a named create
@@ -1567,12 +1567,22 @@ later slice), so the app behaves as before.
 
 `lib/domain/entitlements.ts` `deriveAccess(billing, plans, now)` is the one
 pure answer to "what may this organisation do now": `full`, `grace` or
-`read_only`, with a reason, the location limit and the limit new links must
-fit (the lower of the current and a scheduled plan's). Pilots get full access
-with no limits; a failed renewal gets seven days of grace; a failed first
-payment gets none; a missing record or a paid state without its plan derives
-read-only. `lookupSession` attaches the result as `Session.access`
-(informational for now). Wire shapes live in `lib/contracts/billing.ts`.
+`read_only`, with a reason, the location limit and the limit new links must fit
+(the lower of the current and a scheduled plan's). Pilots get full access with
+no limits; a failed renewal gets seven days of grace; a failed first payment
+gets none; a missing record or a paid state without its plan derives read-only.
+The period columns mirror the provider's subscription period, which Stripe
+advances at renewal whatever the payment outcome, so grace is never inferred
+from `current_period_end`: the processor records `grace_ends_at` (migration
+0221 requires it for a failed renewal, and an end for an active period),
+deriveAccess caps it at seven days after `current_period_start` (the failed
+boundary), and a missing grace end or an active period with no end derives
+read-only (`record_incomplete`). The reasons are the `ACCESS_REASONS` list,
+which the wire contract pins. The local bootstrap organisation
+(`provision_local_bootstrap`) gets its pilot record from
+`ensureDevelopmentSession`. `lookupSession` attaches the result as
+`Session.access` (informational for now). Wire shapes live in
+`lib/contracts/billing.ts`.
 
 ## Reporting provenance (WP9)
 
