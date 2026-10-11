@@ -100,13 +100,14 @@ export function renderIncidentEmail(
       const used = typeof summary.used === "number" ? summary.used : null
       const allowance =
         typeof summary.allowance === "number" ? summary.allowance : null
-      const resets = text(summary.resetsOn, "the start of next month")
+      const period = summary.period === "period" ? "period" : "month"
+      const resets = text(summary.resetsOn, `the start of the next ${period}`)
       return {
-        subject: "You have used 80% of this month's AI reply credits",
+        subject: `You have used 80% of this ${period}'s AI reply credits`,
         text: [
           used !== null && allowance !== null
-            ? `${used} of ${allowance} AI reply credits have been used this month.`
-            : "80% of this month's AI reply credits have been used.",
+            ? `${used} of ${allowance} AI reply credits have been used this ${period}.`
+            : `80% of this ${period}'s AI reply credits have been used.`,
           `Credits reset on ${resets}. You can always write a reply yourself.`,
           `Usage: ${link("/settings")}`,
           "",
@@ -115,11 +116,12 @@ export function renderIncidentEmail(
       }
     }
     case "ai_credits_exhausted": {
-      const resets = text(summary.resetsOn, "the start of next month")
+      const period = summary.period === "period" ? "period" : "month"
+      const resets = text(summary.resetsOn, `the start of the next ${period}`)
       return {
-        subject: "You are out of AI reply credits this month",
+        subject: `You are out of AI reply credits this ${period}`,
         text: [
-          `All of this month's AI reply credits have been used. Credits reset on ${resets}.`,
+          `All of this ${period}'s AI reply credits have been used. Credits reset on ${resets}.`,
           "Until then the Generate button is off, but you can still write and publish replies yourself.",
           `Usage: ${link("/settings")}`,
           "",

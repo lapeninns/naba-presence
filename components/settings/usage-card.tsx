@@ -9,13 +9,19 @@ import {
 } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatResetDate } from "@/lib/contracts/ai-credits"
+import {
+  creditPeriodNoun,
+  describeCreditsLeft,
+  formatResetDate,
+} from "@/lib/contracts/ai-credits"
 import { useAiCredits, useAiCreditsDaily } from "@/lib/queries/use-ai-credits"
 
 /**
- * This month's AI reply credits: how many are used, when they reset, and a
+ * The current credit period's AI reply credits (a pilot's calendar month, a
+ * trial or a paid period): how many are used, when the period ends, and a
  * small bar per day. Any member can read it. Replies written by hand are
- * free and are not counted here.
+ * free and are not counted here. An unknown allowance is said in words,
+ * never shown as zero.
  */
 export function UsageCard() {
   const credits = useAiCredits()
@@ -23,37 +29,47 @@ export function UsageCard() {
   const data = credits.data
   const days = daily.data?.days ?? []
   const peak = Math.max(1, ...days.map((day) => day.credits))
-  const exhausted = data ? data.remaining <= 0 : false
+  const exhausted = data
+    ? data.remaining !== null && data.remaining <= 0
+    : false
+  const noun = creditPeriodNoun(data?.periodKind ?? null)
 
   return (
     <Card flush data-slot="usage-card">
       <CardHeader divided>
         <CardTitle as="h2">Usage</CardTitle>
         <CardDescription>
-          AI-written replies this month. Writing a reply yourself is free.
+          AI-written replies in the current period. Writing a reply yourself is
+          free.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
         {credits.isPending ? (
           <Skeleton className="h-10 w-full" />
-        ) : data ? (
+        ) : data && data.allowance !== null && data.canUseAi ? (
           <>
             <p className="m-0 text-body text-ink">
               <strong className="font-semibold">
                 {data.used} of {data.allowance}
               </strong>{" "}
-              credits used this month
+              credits used {noun}
             </p>
             <Progress
-              label="AI credits used this month"
+              label={`AI credits used ${noun}`}
               value={data.used}
               max={Math.max(1, data.allowance)}
               tone={exhausted ? "bad" : "default"}
             />
-            <p className="m-0 text-caption text-ink-muted">
-              Credits reset on {formatResetDate(data.resetsAt)}.
-            </p>
+            {data.periodEnd ? (
+              <p className="m-0 text-caption text-ink-muted">
+                Credits reset on {formatResetDate(data.periodEnd)}.
+              </p>
+            ) : null}
           </>
+        ) : data ? (
+          <p data-slot="usage-unavailable" className="m-0 text-body text-ink">
+            {describeCreditsLeft(data)}
+          </p>
         ) : (
           <p role="alert" className="m-0 text-caption text-danger-ink">
             Usage could not be loaded.
@@ -62,7 +78,7 @@ export function UsageCard() {
         {days.length > 0 ? (
           <div
             role="img"
-            aria-label={`Credits used per day this month: ${
+            aria-label={`Credits used per day ${noun}: ${
               days
                 .filter((day) => day.credits > 0)
                 .map((day) => `${day.date} ${day.credits}`)

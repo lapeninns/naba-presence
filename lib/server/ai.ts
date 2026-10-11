@@ -96,7 +96,7 @@ async function workersAiStructured<T>(
           store: false,
           stream: false,
           reasoning_effort: "low",
-          max_completion_tokens: 4096,
+          max_completion_tokens: env.AI_MAX_OUTPUT_TOKENS,
           response_format: {
             type: "json_schema",
             json_schema: {
@@ -280,6 +280,19 @@ export type SemanticVerificationResult = {
 }
 
 /**
+ * Whether `semanticVerification` would call the provider. Callers reserve
+ * the call's token budget (lib/server/ai-usage.ts) only when it would.
+ */
+export function semanticVerificationEnabled(): boolean {
+  const env = getServerEnv()
+  return Boolean(
+    env.SEMANTIC_VERIFY_ENABLED &&
+      env.WORKERS_AI_API_TOKEN &&
+      env.WORKERS_AI_ACCOUNT_ID
+  )
+}
+
+/**
  * The semantic half of verification.
  *
  * `ran: false` means the pass was deliberately not attempted: the
@@ -297,11 +310,7 @@ export async function semanticVerification(
   input: SemanticInput
 ): Promise<SemanticVerificationResult> {
   const env = getServerEnv()
-  if (
-    !env.SEMANTIC_VERIFY_ENABLED ||
-    !env.WORKERS_AI_API_TOKEN ||
-    !env.WORKERS_AI_ACCOUNT_ID
-  ) {
+  if (!semanticVerificationEnabled()) {
     return { ran: false, reasons: [] }
   }
   const { value: result, usage } = await workersAiStructured(

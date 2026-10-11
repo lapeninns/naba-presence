@@ -101,25 +101,39 @@ export async function queueDeliveries(
   return queued
 }
 
-/** Which credit incidents hold for this month's usage. Pure. */
+/**
+ * Which credit incidents hold for the current credit period's usage. Pure.
+ * The period id is the subject, so each fires once per period; an unknown
+ * allowance (or no period) raises nothing.
+ */
 export function creditUsageFindings(credits: {
   used: number
-  allowance: number
-  periodStart: string
-  resetsAt: string
+  allowance: number | null
+  periodId: string | null
+  periodKind?: string | null
+  periodEnd: string | null
 }): Record<"ai_credits_low" | "ai_credits_exhausted", Finding[]> {
   const none = { ai_credits_low: [], ai_credits_exhausted: [] }
-  if (credits.allowance <= 0) return none
+  if (
+    credits.allowance === null ||
+    credits.allowance <= 0 ||
+    !credits.periodId ||
+    !credits.periodEnd
+  ) {
+    return none
+  }
   const summary = {
     used: credits.used,
     allowance: credits.allowance,
-    resetsOn: new Date(credits.resetsAt).toLocaleDateString("en-GB", {
+    // The email says "this month" for a pilot month, "this period" otherwise.
+    period: credits.periodKind === "pilot_month" ? "month" : "period",
+    resetsOn: new Date(credits.periodEnd).toLocaleDateString("en-GB", {
       day: "numeric",
       month: "long",
       timeZone: "UTC",
     }),
   }
-  const finding = { subjectId: credits.periodStart, summary }
+  const finding = { subjectId: credits.periodId, summary }
   if (credits.used >= credits.allowance) {
     return { ai_credits_low: [], ai_credits_exhausted: [finding] }
   }
@@ -271,19 +285,27 @@ export async function evaluateOrganisation(
       )
     )
 
-    // The month's AI reply credits: a heads-up at 80%, a notice at 100%.
-    // The period start is the subject, so each fires once per month; the
-    // 80% incident resolves when the 100% one takes over. Only settled
+    // The period's AI reply credits: a heads-up at 80%, a notice at 100%.
+    // The credit period id is the subject, so each fires once per period;
+    // the 80% incident resolves when the 100% one takes over. Only settled
     // credits count: a reservation can be released again, and a figure that
     // can fall would resolve and reopen the incident, emailing twice.
+    // Unlinked legacy rows count toward the pilot month they name.
     const credits = await getAiCredits(sql, organisationId)
+    const legacyMonth =
+      credits.periodKind === "pilot_month" && credits.periodStart
+        ? credits.periodStart.slice(0, 10)
+        : null
     const [settled] = await sql<{ used: number }[]>`
       select coalesce(sum(credits), 0)::integer as used
       from ai_usage
       where organisation_id = ${organisationId}
         and kind = 'draft'
         and status = 'settled'
-        and period_start = ${credits.periodStart}::date
+        and (
+          credit_period_id = ${credits.periodId}::uuid
+          or (credit_period_id is null and period_start = ${legacyMonth}::date)
+        )
     `
     const creditFindings = creditUsageFindings({
       ...credits,

@@ -233,11 +233,22 @@ export const serverEnvSchema = z.object({
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
   JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
-  // Monthly AI-written drafts per organisation (one credit per draft); an
-  // organisation.ai_monthly_draft_credits override wins. The token backstop is
-  // a runaway-loop guard across draft and verify calls, not a product limit.
+  // AI-written drafts per pilot month (one credit per draft); an
+  // organisation.ai_monthly_draft_credits override wins. Trial and paid
+  // periods take their allowance from billing (ai_credit_period), never from
+  // here. The token backstop is a runaway-loop guard across draft and verify
+  // calls within a credit period, not a product limit.
   AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
   AI_MONTHLY_TOKEN_BACKSTOP: z.coerce.number().int().min(0).default(20_000_000),
+  // The output cap sent with every provider call (lib/server/ai.ts), and the
+  // per-call share of the backstop a reservation holds until its real token
+  // counts arrive (lib/server/ai-credits.ts callTokenBudget).
+  AI_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(256)
+    .max(32_768)
+    .default(4096),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),

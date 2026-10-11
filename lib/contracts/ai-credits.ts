@@ -3,14 +3,35 @@
  */
 import { z } from "zod"
 
+import { ACCESS_REASONS } from "@/lib/domain/entitlements"
+
+/** The `ai_credit_period.kind` values a balance can come from. */
+export const CREDIT_PERIOD_KINDS = [
+  "pilot_month",
+  "trial",
+  "paid_period",
+] as const
+export type CreditPeriodKind = (typeof CREDIT_PERIOD_KINDS)[number]
+
+/**
+ * The organisation's AI draft balance in its current credit period
+ * (`ai_credit_period`, plan P07). Every instant comes from the period row,
+ * which the server reads against the database clock.
+ */
 export const aiCreditsSchema = z.object({
   used: z.number().int().min(0),
-  allowance: z.number().int().min(0),
-  remaining: z.number().int().min(0),
-  /** First day of the UTC month, `YYYY-MM-DD`. */
-  periodStart: z.string(),
-  /** ISO timestamp when the next period begins. */
-  resetsAt: z.string(),
+  /** null = unknown (no period yet, or one granted without an allowance). */
+  allowance: z.number().int().min(0).nullable(),
+  /** null when the allowance is unknown. */
+  remaining: z.number().int().min(0).nullable(),
+  periodId: z.uuid().nullable(),
+  periodKind: z.enum(CREDIT_PERIOD_KINDS).nullable(),
+  /** ISO timestamps of the period; null with no period. */
+  periodStart: z.string().nullable(),
+  periodEnd: z.string().nullable(),
+  /** False while billing derives read-only: no new AI work at all. */
+  canUseAi: z.boolean(),
+  accessReason: z.enum(ACCESS_REASONS),
 })
 export type AiCredits = z.infer<typeof aiCreditsSchema>
 
@@ -18,6 +39,7 @@ export type AiCredits = z.infer<typeof aiCreditsSchema>
 export const aiCreditsExhaustedDetailsSchema = z.object({
   used: z.number().int().min(0),
   allowance: z.number().int().min(0),
+  /** The period end (ISO). */
   resetsAt: z.string(),
 })
 
@@ -31,7 +53,7 @@ export type AiCreditsOverrideInput = z.infer<
 
 export const aiCreditsOrganisationParamsSchema = z.object({ id: z.uuid() })
 
-/** Credits spent per UTC day of the current period, for the usage chart. */
+/** Credits spent per UTC day of the current credit period, for the usage chart. */
 export const aiCreditsDailySchema = z.object({
   days: z.array(
     z.object({
@@ -65,7 +87,7 @@ export function fillDailyCredits(
   return out
 }
 
-/** "1 Nov" in UTC, matching the UTC billing period. */
+/** "1 Nov" in UTC, matching the UTC period boundaries. */
 export function formatResetDate(resetsAt: string): string {
   return new Date(resetsAt).toLocaleDateString("en-GB", {
     day: "numeric",
@@ -74,14 +96,38 @@ export function formatResetDate(resetsAt: string): string {
   })
 }
 
-/** "7 of 200 credits left this month" / the exhausted sentence. */
-export function describeCreditsLeft(credits: {
-  remaining: number
-  allowance: number
-  resetsAt: string
-}): string {
-  if (credits.remaining <= 0) {
-    return `Out of AI credits until ${formatResetDate(credits.resetsAt)}. You can still write a reply yourself.`
+type CreditsCopyInput = Pick<
+  AiCredits,
+  "remaining" | "allowance" | "periodEnd" | "periodKind" | "canUseAi"
+>
+
+/**
+ * True when Generate must stay off: billing is read-only, the allowance is
+ * unknown, or nothing is left. Manual replies are unaffected.
+ */
+export function aiCreditsBlocked(credits: CreditsCopyInput): boolean {
+  return (
+    !credits.canUseAi || credits.remaining === null || credits.remaining <= 0
+  )
+}
+
+/** "this month" for a pilot calendar month, "this period" otherwise. */
+export function creditPeriodNoun(kind: CreditPeriodKind | null): string {
+  return kind === "pilot_month" ? "this month" : "this period"
+}
+
+/** "7 of 200 credits left this month" / the blocked sentences. */
+export function describeCreditsLeft(credits: CreditsCopyInput): string {
+  if (!credits.canUseAi) {
+    return "AI drafting is unavailable while this workspace's subscription is read-only. You can still write a reply yourself."
   }
-  return `${credits.remaining} of ${credits.allowance} credits left this month`
+  if (credits.allowance === null || credits.remaining === null) {
+    return "Your AI credit allowance is not confirmed yet, so AI drafting is off for now. You can still write a reply yourself."
+  }
+  if (credits.remaining <= 0) {
+    return credits.periodEnd
+      ? `Out of AI credits until ${formatResetDate(credits.periodEnd)}. You can still write a reply yourself.`
+      : "Out of AI credits. You can still write a reply yourself."
+  }
+  return `${credits.remaining} of ${credits.allowance} credits left ${creditPeriodNoun(credits.periodKind)}`
 }

@@ -6,6 +6,7 @@ import type { TransactionSql } from "postgres"
 import {
   draftInputSchema,
   reviewIdParamsSchema,
+  verificationReasonSchema,
   type DraftResult,
 } from "@/lib/contracts/reviews"
 import { ratingOnlyReply } from "@/lib/domain/rating-only"
@@ -14,14 +15,19 @@ import {
   isAllowedReviewTransition,
   type ReviewWorkflowState,
 } from "@/lib/domain/workflow"
-import { AiOutputError, generateReply, type AiUsage } from "@/lib/server/ai"
+import {
+  AiOutputError,
+  generateReply,
+  semanticVerificationEnabled,
+  type AiUsage,
+} from "@/lib/server/ai"
 import {
   releaseDraftCredit,
   reserveDraftCredit,
   settleDraftCredit,
-  tokenBackstopReached,
+  type ExistingGeneration,
 } from "@/lib/server/ai-credits"
-import { recordAiUsageDetached } from "@/lib/server/ai-usage"
+import { finishVerifyUsage, reserveVerifyUsage } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
@@ -31,6 +37,10 @@ import {
 } from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import {
+  intentConflict,
+  requestScopedKeyPart,
+} from "@/lib/server/mutation-operations"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
@@ -106,6 +116,91 @@ function assertDraftable(review: ReviewRecord) {
   }
 }
 
+/**
+ * How long a settled generation may go without its draft before a retry is
+ * told it will not appear: phase three runs straight after the settle, so
+ * past this it failed (a 409 from a concurrent publish, say).
+ */
+const GENERATION_SETTLE_GRACE_SECONDS = 120
+
+/**
+ * A retry of a generation already in the ledger (same generation key). It
+ * never reserves or calls the provider again: the finished draft is
+ * returned as it was stored, a generation still running answers 409
+ * `generation_in_progress` (which the client resends under the same key),
+ * and one that ended without a draft answers 409 `generation_not_repeatable`
+ * so the next click starts a new generation.
+ */
+async function replayGeneration(
+  sql: TransactionSql,
+  reviewId: string,
+  generation: ExistingGeneration
+): Promise<DraftResult> {
+  if (generation.reviewId !== reviewId) throw intentConflict()
+  const inProgress = new ApiError(
+    409,
+    "generation_in_progress",
+    "This reply is still being written. Try again in a moment."
+  )
+  if (generation.status === "reserved") throw inProgress
+  if (generation.status === "settled" && generation.draftId) {
+    const [stored] = await sql<
+      {
+        draftId: string
+        body: string
+        evidenceHash: string | null
+        verificationId: string | null
+        verdict: DraftResult["verification"]["verdict"] | null
+        reasons: unknown
+      }[]
+    >`
+      select
+        d.id::text as "draftId",
+        d.body,
+        d.evidence_hash as "evidenceHash",
+        v.id::text as "verificationId",
+        v.verdict,
+        v.reasons
+      from draft d
+      left join lateral (
+        select id, verdict, reasons
+        from verification_result
+        where draft_id = d.id
+        order by created_at desc
+        limit 1
+      ) v on true
+      where d.id = ${generation.draftId} and d.review_id = ${reviewId}
+    `
+    if (stored?.verificationId && stored.verdict) {
+      return {
+        draftId: stored.draftId,
+        body: stored.body,
+        bodyBytes: Buffer.byteLength(stored.body, "utf8"),
+        evidenceHash: stored.evidenceHash,
+        verification: {
+          id: stored.verificationId,
+          verdict: stored.verdict,
+          reasons: verificationReasonSchema.array().parse(stored.reasons),
+        },
+      }
+    }
+    // Settled moments ago: phase three is still writing the draft.
+    const [recent] = await sql<{ recent: boolean }[]>`
+      select settled_at > now() - make_interval(
+        secs => ${GENERATION_SETTLE_GRACE_SECONDS}
+      ) as recent
+      from ai_usage
+      where id = ${generation.id}
+    `
+    if (recent?.recent) throw inProgress
+  }
+  throw new ApiError(
+    409,
+    "generation_not_repeatable",
+    "That generation did not produce a reply. Generate again."
+  )
+}
+
 export const POST = route({
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
@@ -133,6 +228,11 @@ export const POST = route({
     })
     const { id } = params
     const correlationId = requestId
+    // The stable generation id: the request's Idempotency-Key intent when
+    // the client sent one (a retry resends it), else this request's id. A
+    // retry under the same key finds the first reservation and never pays
+    // a second credit.
+    const generationKey = requestScopedKeyPart(requestId)
 
     // Phase one: the gates and the evidence the provider needs. It COMMITS
     // before the OpenAI calls below - a provider that takes 30 seconds must
@@ -143,33 +243,53 @@ export const POST = route({
     // phase three inserts.
     const draftId = randomUUID()
     // The reservation lives in this transaction too: only an AI-written draft
-    // (no typed body, a review with text) costs a credit.
-    const { review, reservationId, backstopReached } = await tenant(
-      async (sql) => {
-        const record = await loadReview(sql, id)
-        await requireLocationAccess(sql, session, record.location_id)
-        assertDraftable(record)
-        const needsModel = !input.body && Boolean(record.review_text?.trim())
-        const reservation = needsModel
-          ? await reserveDraftCredit(sql, {
-              organisationId: session.organisationId,
-              model: getServerEnv().WORKERS_AI_MODEL,
-              reviewId: id,
-              draftId,
-              requestId: correlationId,
-              userId: session.userId,
-            })
-          : null
-        return {
-          review: record,
-          reservationId: reservation,
-          backstopReached: await tokenBackstopReached(
-            sql,
-            session.organisationId
-          ),
+    // (no typed body, a review with text) costs a credit. The verification
+    // pass reserves its token budget here as well (no credit), so the
+    // backstop holds across every provider call this request makes.
+    const phaseOne = await tenant(async (sql) => {
+      const record = await loadReview(sql, id)
+      await requireLocationAccess(sql, session, record.location_id)
+      assertDraftable(record)
+      const needsModel = !input.body && Boolean(record.review_text?.trim())
+      let reservationId: string | null = null
+      if (needsModel) {
+        const reservation = await reserveDraftCredit(sql, {
+          organisationId: session.organisationId,
+          model: getServerEnv().WORKERS_AI_MODEL,
+          reviewId: id,
+          draftId,
+          generationKey,
+          userId: session.userId,
+        })
+        if (reservation.kind === "existing") {
+          return {
+            replay: await replayGeneration(sql, id, reservation.generation),
+          }
         }
+        reservationId = reservation.id
       }
-    )
+      const verifyReservation = semanticVerificationEnabled()
+        ? await reserveVerifyUsage(sql, {
+            organisationId: session.organisationId,
+            model: getServerEnv().WORKERS_AI_MODEL,
+            reviewId: id,
+            draftId,
+            requestKey: `${correlationId}:verification`,
+            userId: session.userId,
+          })
+        : null
+      return {
+        replay: null,
+        review: record,
+        reservationId,
+        verifyReservationId: verifyReservation?.id ?? null,
+        backstopReached:
+          semanticVerificationEnabled() && verifyReservation === null,
+      }
+    })
+    if (phaseOne.replay) return NextResponse.json(phaseOne.replay)
+    const { review, reservationId, verifyReservationId, backstopReached } =
+      phaseOne
 
     const language =
       input.languageOverride ??
@@ -205,6 +325,9 @@ export const POST = route({
                 usage: error instanceof AiOutputError ? error.usage : undefined,
               })
             }
+            if (verifyReservationId) {
+              await finishVerifyUsage(tenant, { id: verifyReservationId })
+            }
             throw error
           })
     // Settle straight away: the provider was paid for whatever happens to the
@@ -229,27 +352,22 @@ export const POST = route({
           locationName: review.location_name,
           rating: review.rating,
           expectedLanguage: language,
+        }).catch(async (error: unknown) => {
+          if (verifyReservationId) {
+            await finishVerifyUsage(tenant, { id: verifyReservationId })
+          }
+          throw error
         })
 
-    // Verification usage is recorded in its own transaction; a ledger failure
-    // never fails the request.
-    await recordAiUsageDetached(tenant, [
-      ...(semantic.usage && semantic.model
-        ? [
-            {
-              organisationId: session.organisationId,
-              kind: "verify" as const,
-              credits: 0,
-              model: semantic.model,
-              usage: semantic.usage,
-              reviewId: id,
-              draftId,
-              requestId: `${correlationId}:verification`,
-              userId: session.userId,
-            },
-          ]
-        : []),
-    ])
+    // Verification usage is written in its own transaction against the
+    // period it was reserved in; a ledger failure never fails the request.
+    if (verifyReservationId) {
+      await finishVerifyUsage(tenant, {
+        id: verifyReservationId,
+        usage: semantic.usage,
+        model: semantic.model,
+      })
+    }
 
     // Phase three: settle. The review is re-read because a sync can land
     // while the provider is thinking, and the evidence hash has to describe

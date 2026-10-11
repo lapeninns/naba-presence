@@ -129,13 +129,25 @@ const COPY: Record<string, string> = {
   ai_empty_response:
     "The AI returned nothing this time. Try again, or write the reply yourself.",
 
-  // 402 when the month's draft allowance is spent; describeActionError adds
+  // 402 when the period's draft allowance is spent; describeActionError adds
   // the reset date from details.resetsAt when the server sent one.
   ai_credits_exhausted:
-    "You have used all your AI drafts for this month. You can still write a reply yourself.",
-  // 429 that lasts until the month resets, so "wait a moment" would mislead.
+    "You have used all your AI drafts for this period. You can still write a reply yourself.",
+  // 402 while billing derives read-only, and while a trial or paid period
+  // has no confirmed allowance yet: neither is fixed by trying again.
+  billing_read_only:
+    "AI drafting is unavailable while this workspace's subscription is read-only. You can still write a reply yourself.",
+  ai_allowance_unknown:
+    "Your AI credit allowance is not confirmed yet, so AI drafting is off for now. You can still write a reply yourself.",
+  // 429 that lasts until the period resets, so "wait a moment" would mislead.
   ai_token_backstop:
-    "AI drafting is paused for this month because of unusually high usage. You can still write a reply yourself.",
+    "AI drafting is paused for this period because of unusually high usage. You can still write a reply yourself.",
+  // A retried generation (same Idempotency-Key) while the first still runs,
+  // or after it ended without a draft.
+  generation_in_progress:
+    "This reply is still being written. Try again in a moment.",
+  generation_not_repeatable:
+    "That generation did not produce a reply. Generate again.",
 
   // ---- Inbox: drafts, verification, publishing ----------------------------
   verified_draft_required: "Verify a draft before publishing this reply.",
@@ -520,7 +532,7 @@ export function describeActionError(
           month: "long",
           timeZone: "UTC",
         })
-        return `You have used all your AI drafts for this month. They reset on ${formatted}. You can still write a reply yourself.`
+        return `You have used all your AI drafts for this period. They reset on ${formatted}. You can still write a reply yourself.`
       }
     }
     const mapped = APPROVAL_COPY[context][error.code] ?? COPY[error.code]

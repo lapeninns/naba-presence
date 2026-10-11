@@ -1584,6 +1584,39 @@ which the wire contract pins. The local bootstrap organisation
 `Session.access` (informational for now). Wire shapes live in
 `lib/contracts/billing.ts`.
 
+### AI credit periods and generation ids (P07-S2)
+
+`lib/server/ai-credits.ts` accounts AI work against the organisation's current
+`ai_credit_period`, read by the database clock (`now()` in the same
+transaction), never the application's. The billing state picks the kind: a
+pilot uses its UTC calendar month, created lazily and idempotently
+(`source_ref` `pilot:YYYY-MM`, so parallel first requests leave one row) with
+the live allowance `organisation.ai_monthly_draft_credits ??
+AI_MONTHLY_DRAFT_CREDITS`; a trial or paid state uses the period billing
+granted, and without one the allowance is unknown (`null`): AI drafting answers
+402 `ai_allowance_unknown`, manual replies still save. Read-only access
+(`deriveAccess`) answers 402 `billing_read_only`. Usage is summed by
+`credit_period_id`; rows from before periods existed count only toward the
+pilot month their `period_start` names. Every provider call is reserved under
+the organisation row lock before it is made: a draft reserves one credit, a
+verification (`lib/server/ai-usage.ts` `reserveVerifyUsage`) reserves none, and
+both hold `AI_MAX_OUTPUT_TOKENS` plus a fixed prompt estimate against
+`AI_MONTHLY_TOKEN_BACKSTOP` until settled with real counts, so parallel draft
+and verify calls cannot together pass it. `lib/server/ai.ts` sends the same
+`AI_MAX_OUTPUT_TOKENS` cap with every call. A reservation keeps the period it
+was made in, so a settle after a rollover lands in the period that paid.
+
+The drafts route's generation id is the request's `Idempotency-Key` intent
+(`requestScopedKeyPart`, falling back to the request id). A retry under the
+same id never reserves or calls the provider again: a finished generation
+returns its stored draft (200), one still running answers 409
+`generation_in_progress` (which the client resends under the same id, see
+`lib/queries/use-draft-mutations.ts`), and one that ended without a draft
+answers 409 `generation_not_repeatable`. `/api/ai/credits` reports `periodId`,
+`periodKind`, `periodStart`/`periodEnd` from the row, a nullable allowance,
+`canUseAi` and the access reason; credit notifications use the period id as
+their subject and the period end as the reset date.
+
 ## Reporting provenance (WP9)
 
 `loadPresenceReport` returns null (not zero) for a metric Google sent no rows
