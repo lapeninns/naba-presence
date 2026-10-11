@@ -35,7 +35,12 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
+import {
+  jsonColumn,
+  jsonColumnOrNull,
+  withSessionConnection,
+  withTenant,
+} from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   attemptStore,
@@ -708,24 +713,42 @@ const HOURS_PUBLISHING_DISABLED = {
   message: "Hours publishing is currently disabled.",
 }
 
+/**
+ * Publishes the reviewed schedule. The live read, the snapshot checks, the
+ * write and its readback all run under the location's hours lock
+ * (`<org>:<location>:hours`), the key bulk regular, special and more-hours
+ * children take (lib/server/bulk-listing-runner.ts): a bulk child cannot
+ * write between this publish's read and its PATCH, and this publish waits
+ * for a running bulk child, then reads what it left on Google.
+ */
 export async function publishCanonicalHours(input: PublishHoursInput) {
   requireGbpWrite(getServerEnv(), "profileWrites", HOURS_PUBLISHING_DISABLED)
-  const live = await readLiveHours(input.session, input.locationId)
-  requirePublishGrant(live.linked, {
-    code: "publish_permission_required",
-    message: "You cannot publish this location.",
-  })
-  const checked = checkPublishSnapshot(live, input)
-  if (checked.kind !== "proceed") {
-    return { status: checked.kind, idempotent: true }
-  }
-  const result = await publishHoursToGoogle(live, input, checked.plan)
-  return {
-    status: "published" as const,
-    attemptId: result.attemptId,
-    idempotent: result.idempotent,
-    operation: operationSummary(result),
-  }
+  return withSessionConnection((connection) =>
+    connection.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${hoursLockKey(input.session.organisationId, input.locationId)}, 0))`
+      const live = await readLiveHours(input.session, input.locationId)
+      requirePublishGrant(live.linked, {
+        code: "publish_permission_required",
+        message: "You cannot publish this location.",
+      })
+      const checked = checkPublishSnapshot(live, input)
+      if (checked.kind !== "proceed") {
+        return { status: checked.kind, idempotent: true }
+      }
+      const result = await publishHoursToGoogle(live, input, checked.plan)
+      return {
+        status: "published" as const,
+        attemptId: result.attemptId,
+        idempotent: result.idempotent,
+        operation: operationSummary(result),
+      }
+    })
+  )
+}
+
+/** The advisory lock key every hours writer to Google takes for a location. */
+export function hoursLockKey(organisationId: string, locationId: string) {
+  return `${organisationId}:${locationId}:hours`
 }
 
 // ---------------------------------------------------------------------------

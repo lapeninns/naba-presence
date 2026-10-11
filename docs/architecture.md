@@ -1539,7 +1539,8 @@ frozen plan (`lib/server/bulk-listing-targets.ts`): eligibility or skip reason,
 the current Google value, the merged value (`lib/domain/bulk-merge.ts`: only the
 chosen dates, hours type or attributes change) and its update mask. Approval
 binds the preview hash and requires acknowledging skipped listings. A preview
-can be approved for 15 minutes (`preview_expires_at`); approval opens a
+can be approved for 15 minutes from the start of its Google reads
+(`preview_expires_at`, set at insert on the database clock); approval opens a
 24-hour dispatch window (`dispatch_expires_at`) checked per child at claim and
 again just before the provider write, so a child that misses it ends `expired`
 and is never sent. Each child also freezes its Google target (connection,
@@ -1549,14 +1550,19 @@ with `google_target_changed`. Execution queues children claimed by the job
 tick (`claim_due_bulk_children`, 0260): at most 2 running per organisation
 across batches, never two running for one (location, resource key), and the
 runner holds the per-location advisory lock of that key (the attribute
-editor's `<org>:<location>:attributes`) from the baseline read through the
+editor's `<org>:<location>:attributes`, or `<org>:<location>:hours`, which
+`publishCanonicalHours` holds across its live read, snapshot checks, PATCH
+and readback) from the baseline read through the
 write and readback (an action link also holds the Google account lock), so an
 editor write cannot land between the baseline check and the provider call;
 it defers with `resource_busy` when an editor holds it. A closed window reads
 `expired` per child before the sweep records it (`preview_expired` for a
-preview never approved, `dispatch_expired` after approval). The hours editor does
-not take an hours lock yet; P09-R3 routes bulk hours through the canonical
-hours path. Each child rechecks the approver's grant and the policy, reads
+preview never approved, `dispatch_expired` after approval). The sweep finishes a preview or approved
+batch it expires and audits it once (`bulk_listing.expired`, stage `preview`
+or `dispatch`); a running batch is finished by the runner. Only 0260 marks a
+pre-existing batch over the cap `legacy_over_cap`: a trigger refuses the flag
+on any new row or later change, and a grandfathered batch cannot gain
+targets. Each child rechecks the approver's grant and the policy, reads
 Google, succeeds without writing when the change is already there, writes once
 when the baseline is unchanged, and otherwise records a conflict needing a new
 preview. Readback confirms; interrupted children become ambiguous and a retry

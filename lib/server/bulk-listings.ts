@@ -10,6 +10,7 @@ import {
   type BulkOperationView,
 } from "@/lib/contracts/bulk-listings"
 import {
+  BULK_PREVIEW_TTL_MS,
   bulkOperationInputSchema,
   bulkResourceKey,
   type BulkOperationInput,
@@ -206,6 +207,10 @@ export async function previewBulkOperation(
         : target
     )
   })
+  // The 15-minute approval window runs from the Google reads, not from the
+  // insert after them, which can be up to the route's duration later. The
+  // elapsed time is measured here and applied to the database clock.
+  const readsStartedAt = performance.now()
   const plans = await mapLimit(
     contexts,
     PREVIEW_CONCURRENCY,
@@ -269,9 +274,14 @@ export async function previewBulkOperation(
     const [policy] = await sql<
       { required: boolean }[]
     >`select require_two_person_approval as required from organisation limit 1`
+    const readSecondsAgo = Math.max(
+      0,
+      (performance.now() - readsStartedAt) / 1000
+    )
     const [operation] = await sql<{ id: string }[]>`
-      insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval)
-      values (${session.organisationId}, ${input.operation}, ${jsonColumn(sql, input)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy?.required ?? false})
+      insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval, preview_expires_at)
+      values (${session.organisationId}, ${input.operation}, ${jsonColumn(sql, input)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy?.required ?? false},
+        clock_timestamp() - make_interval(secs => ${readSecondsAgo}::float8) + make_interval(secs => ${BULK_PREVIEW_TTL_MS / 1000}::float8))
       returning id::text as id`
     const resourceKey = bulkResourceKey(input.operation)
     for (const child of children) {

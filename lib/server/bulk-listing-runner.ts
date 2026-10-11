@@ -313,7 +313,8 @@ export async function processBulkChild(
     return "ambiguous"
   }
   // The same per-location lock the single-listing editors take for this
-  // resource (`<org>:<location>:attributes` in business-information.ts), so a
+  // resource (`<org>:<location>:attributes` in business-information.ts,
+  // `<org>:<location>:hours` in hours.ts `publishCanonicalHours`), so a
   // bulk child never interleaves with an editor write or another batch. Held
   // from the baseline read through the readback; a busy resource defers.
   const withResourceLock = (work: () => Promise<Outcome>) =>

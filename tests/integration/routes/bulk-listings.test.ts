@@ -42,6 +42,7 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       applyPatch?: boolean
     }
   >()
+  let readDelayMs = 0
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 2 })
     google = await startGoogleStub()
@@ -63,11 +64,13 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     google.reset()
     const nameOf = (path: string) =>
       new URL(path, "https://stub.test").pathname.replace(/^\/v1\//, "")
+    readDelayMs = 0
     google.respond({ method: "GET", pathIncludes: "readMask=" }, (call) => {
       const state = listings.get(nameOf(call.path))
       return state
         ? {
             status: 200,
+            delayMs: readDelayMs,
             json: {
               specialHours: state.specialHours,
               regularHours: state.regularHours,
@@ -417,10 +420,17 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
   it("expires a preview after 15 minutes and dispatch 24 hours after approval, per child, without writing", async () => {
     const t = await tenant(2)
     const stale = await t.preview()
-    expect(
-      Date.parse(stale.previewExpiresAt) - Date.parse(stale.createdAt)
-    ).toBe(15 * 60_000)
+    const window = (op: BulkOperationView) =>
+      Date.parse(op.previewExpiresAt) - Date.parse(op.createdAt)
+    // The window runs from the Google reads, which precede the insert.
+    expect(window(stale)).toBeLessThanOrEqual(15 * 60_000 + 250)
+    expect(window(stale)).toBeGreaterThan(15 * 60_000 - 10_000)
     expect(stale.dispatchExpiresAt).toBeNull()
+    // Slow Google reads come out of the 15 minutes, not on top of them.
+    readDelayMs = 2_000
+    const slow = await t.preview()
+    readDelayMs = 0
+    expect(window(slow)).toBeLessThanOrEqual(15 * 60_000 - 1_500)
     await admin`update bulk_listing_operation set preview_expires_at = now() - interval '1 second' where id = ${stale.id}`
     expect((await t.status(stale)).status).toBe("expired")
     const late = await t.approve(stale)
@@ -429,9 +439,9 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
 
     const op = await t.preview()
     const approved = await t.read(await t.approve(op))
-    const window =
+    const dispatchWindow =
       Date.parse(approved.dispatchExpiresAt!) - Date.now() - 24 * 3_600_000
-    expect(Math.abs(window)).toBeLessThan(60_000)
+    expect(Math.abs(dispatchWindow)).toBeLessThan(60_000)
     await t.api(`/${op.id}/execute`, {})
     await admin`update bulk_listing_operation set dispatch_expires_at = now() - interval '1 second' where id = ${op.id}`
     // Before any sweep, a reader already sees the closed window per listing.
@@ -468,8 +478,9 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     await admin`update bulk_listing_operation set dispatch_expires_at = now() - interval '1 second' where id = ${unstarted.id}`
     await tick()
     const [row] =
-      await admin`select status from bulk_listing_operation where id = ${unstarted.id}`
+      await admin`select status, finished_at from bulk_listing_operation where id = ${unstarted.id}`
     expect(row.status).toBe("expired")
+    expect(row.finished_at).not.toBeNull()
     expect(await childRows(unstarted.id)).toEqual([
       { status: "expired", result_code: "dispatch_expired" },
       { status: "expired", result_code: "dispatch_expired" },
@@ -479,6 +490,47 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       { status: "expired", result_code: "preview_expired" },
       { status: "expired", result_code: "preview_expired" },
     ])
+    // Each operation the sweep expired is finished and audited once; a
+    // second tick adds nothing.
+    await tick()
+    const [staleRow] =
+      await admin`select finished_at from bulk_listing_operation where id = ${stale.id}`
+    expect(staleRow.finished_at).not.toBeNull()
+    const audits =
+      await admin`select subject_id, actor_user_id::text as actor, metadata from audit_log
+        where organisation_id = ${t.owner.organisationId} and action = 'bulk_listing.expired' order by subject_id`
+    // The running batch is finished by the runner instead
+    // (completed_with_failures above); the slow preview is still open.
+    expect(
+      audits.map((a) => ({
+        id: a.subject_id,
+        stage: a.metadata.stage,
+        actor: a.actor,
+      }))
+    ).toEqual(
+      [
+        { id: stale.id, stage: "preview", actor: null },
+        { id: unstarted.id, stage: "dispatch", actor: t.owner.userId },
+      ].sort((a, b) => (a.id < b.id ? -1 : 1))
+    )
+  })
+
+  it("keeps the 50-listing cap for every batch the migration did not grandfather", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await expect(
+      admin`update bulk_listing_operation set legacy_over_cap = true where id = ${op.id}`
+    ).rejects.toThrow(/legacy_over_cap is set only by migration 0260/)
+    await expect(
+      admin`insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval, legacy_over_cap)
+        select organisation_id, operation, input, array_fill(target_location_ids[1], array[51]), preview_hash, requested_by, false, true
+        from bulk_listing_operation where id = ${op.id}`
+    ).rejects.toThrow(/legacy_over_cap is set only by migration 0260/)
+    await expect(
+      admin`insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval)
+        select organisation_id, operation, input, array_fill(target_location_ids[1], array[51]), preview_hash, requested_by, false
+        from bulk_listing_operation where id = ${op.id}`
+    ).rejects.toThrow(/bulk_listing_operation_target_cap/)
   })
 
   it("runs at most two children per organisation and one per listing resource, across batches", async () => {

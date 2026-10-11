@@ -540,6 +540,58 @@ describeDatabase("hours legacy transition and replacement routes", () => {
     ])
   }, 30_000)
 
+  it("publishes under the location's hours lock, the key bulk hours children take", async () => {
+    const f = await fixture()
+    const initial = await f.read()
+    initial.canonical.regular[1].periods[0].opensAt = "10:30"
+    expect((await f.save(initial, initial.canonical)).status).toBe(200)
+    const reviewed = await f.read()
+    const key = `${f.owner.organisationId}:${f.linked.locationId}:hours`
+    const holder = postgres(process.env.DIRECT_DATABASE_URL as string, {
+      max: 1,
+    })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let locked!: () => void
+    const held = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    // A bulk child (or any other hours writer) holds the lock.
+    const holding = holder.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`
+      locked()
+      await released
+    })
+    const patchCount = () =>
+      google.calls.filter((call) => call.method === "PATCH").length
+    try {
+      await held
+      const patchesBefore = patchCount()
+      let settled = false
+      const publishing = f.publish(reviewed).then((response) => {
+        settled = true
+        return response
+      })
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1_500))
+        // Nothing is written while another writer holds the lock.
+        expect(settled).toBe(false)
+        expect(patchCount()).toBe(patchesBefore)
+      } finally {
+        release()
+        await holding
+      }
+      const published = await publishing
+      expect(published.status, await published.clone().text()).toBe(200)
+      expect(patchCount()).toBeGreaterThan(patchesBefore)
+    } finally {
+      release()
+      await holder.end()
+    }
+  }, 30_000)
+
   it("saves an existing local schedule while Google reads are unavailable", async () => {
     const f = await fixture()
     const initial = await f.read()

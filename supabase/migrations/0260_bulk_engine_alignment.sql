@@ -40,13 +40,35 @@ alter table bulk_listing_operation
   add constraint bulk_listing_operation_dispatch_after_approval
     check (dispatch_expires_at is null or approved_at is not null);
 
--- `legacy_over_cap` is set only by this migration; the app never writes it.
+-- `legacy_over_cap` is set only by this migration. The runtime role has
+-- table-wide insert and update (0080), so a trigger keeps it that way: a new
+-- row cannot be legacy, and no row can become legacy later. The cap stays
+-- enforceable for every row this migration did not grandfather.
 alter table bulk_listing_operation
   drop constraint bulk_listing_operation_target_location_ids_check,
   add constraint bulk_listing_operation_target_cap check (
     cardinality(target_location_ids) >= 1
     and (cardinality(target_location_ids) <= 50 or legacy_over_cap)
   );
+
+create function bulk_listing_operation_legacy_guard()
+returns trigger language plpgsql set search_path = public as $$
+begin
+  if new.legacy_over_cap and (tg_op = 'INSERT' or not old.legacy_over_cap) then
+    raise exception 'legacy_over_cap is set only by migration 0260'
+      using errcode = 'check_violation';
+  end if;
+  -- A grandfathered batch keeps its targets; it cannot grow.
+  if tg_op = 'UPDATE' and old.legacy_over_cap
+     and not (new.target_location_ids <@ old.target_location_ids) then
+    raise exception 'a legacy over-cap batch cannot gain targets'
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+create trigger bulk_listing_operation_legacy_guard
+  before insert or update of legacy_over_cap, target_location_ids on bulk_listing_operation
+  for each row execute function bulk_listing_operation_legacy_guard();
 
 alter table bulk_listing_child
   add column resource_key text,
@@ -93,8 +115,9 @@ create index bulk_listing_child_running_idx
 --   1. A running child whose lease ran out may already have reached Google,
 --      so it becomes ambiguous (settled by a later readback), never re-run.
 --   2. Operations past their window expire: a preview after 15 minutes, an
---      approved or running batch 24 hours after approval. Their unstarted
---      children (previewed or queued) become `expired`.
+--      approved or running batch 24 hours after approval. A preview or an
+--      approved batch is finished and audited (`bulk_listing.expired`) here.
+--      Their unstarted children (previewed or queued) become `expired`.
 --   3. Of the queued children whose organisation has `bulk_actions` on and
 --      whose (location, resource key) has nothing running, at most one per
 --      resource is chosen, and at most min(p_per_org, 2) minus what already
@@ -111,9 +134,19 @@ begin
   update bulk_listing_child set status = 'ambiguous', result_code = 'execution_interrupted', finished_at = now(), lease_expires_at = null
   where status = 'running' and lease_expires_at < now();
 
-  update bulk_listing_operation set status = 'expired', updated_at = now()
-  where (status = 'previewed' and preview_expires_at <= now())
-     or (status = 'approved' and coalesce(dispatch_expires_at, now()) <= now());
+  -- An operation that expires before it ran is finished here, with one
+  -- audit row (the status changes once, so it is written once). A running
+  -- batch past its window is finished by the runner (`finishOperation`).
+  with expired as (
+    update bulk_listing_operation set status = 'expired', finished_at = now(), updated_at = now()
+    where (status = 'previewed' and preview_expires_at <= now())
+       or (status = 'approved' and coalesce(dispatch_expires_at, now()) <= now())
+    returning id, organisation_id, approved_by, approved_at
+  )
+  insert into audit_log (organisation_id, actor_user_id, action, subject_type, subject_id, metadata)
+  select e.organisation_id, e.approved_by, 'bulk_listing.expired', 'bulk_listing_operation', e.id::text,
+    jsonb_build_object('stage', case when e.approved_at is null then 'preview' else 'dispatch' end)
+  from expired e;
   -- A preview that was never approved expired at the 15-minute stage, not
   -- at the 24-hour dispatch window, and says so.
   update bulk_listing_child c set status = 'expired',
