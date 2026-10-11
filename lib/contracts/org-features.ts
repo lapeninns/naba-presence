@@ -18,6 +18,10 @@ export const ORG_FEATURES = [
   // requests, legal holds, subject export and retention status at
   // /settings/privacy. The API routes it drives stay served either way.
   "privacy_settings",
+  // Owner switch between business and agency mode (plan P06-5): the
+  // Settings card and PATCH /api/organisations { workspaceMode }. Renames
+  // stay served either way.
+  "workspace_mode_change",
 ] as const
 
 export type OrgFeature = (typeof ORG_FEATURES)[number]

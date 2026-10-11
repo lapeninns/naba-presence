@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { workspaceModeSchema } from "@/lib/contracts/session"
+
 export const emailSchema = z
   .string()
   .trim()
@@ -25,6 +27,12 @@ export const registerSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   inviteToken: z.string().min(1).optional(),
+  /**
+   * The kind of workspace a new owner starts with: one business (the
+   * default) or an agency with clients. Ignored when `inviteToken` is set,
+   * because an invited person joins the inviting organisation as it is.
+   */
+  workspaceMode: workspaceModeSchema.default("business"),
 })
 
 export const resetRequestSchema = z.object({

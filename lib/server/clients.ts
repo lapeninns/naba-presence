@@ -13,6 +13,7 @@ import type {
   ClientSummary,
 } from "@/lib/contracts/clients"
 import { nextIncompleteStep } from "@/lib/contracts/clients"
+import { ApiError } from "@/lib/server/http"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { readListingSummaries } from "@/lib/server/location-summary"
@@ -484,6 +485,28 @@ export async function createHomeClient(
     returning id::text as id
   `
   return home.id
+}
+
+/**
+ * The refusal for a second active client in a business workspace. The
+ * routes check the mode first and answer this themselves; migration 0102's
+ * trigger raises the same rule (23514) when a mode change commits between
+ * that check and the write, and the routes map it here instead of a 500.
+ */
+export function businessSingleClientError(): ApiError {
+  return new ApiError(
+    409,
+    "business_mode_single_client",
+    "This workspace has a single business, so another one cannot be added."
+  )
+}
+
+export function isBusinessSingleClientViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error as { code?: unknown }).code === "23514" &&
+    error.message.includes("only its home client")
+  )
 }
 
 /**

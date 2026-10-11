@@ -76,6 +76,41 @@ describeDatabase("first-tenant provisioning under RLS", () => {
     expect(clients).toEqual([{ isHome: true, archivedAt: null }])
   })
 
+  it("provisions the workspace mode a new owner chose, with a home client only for a business", async () => {
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
+    const shapes: Record<string, unknown> = {}
+    for (const workspaceMode of ["agency", "business", undefined] as const) {
+      const subject = crypto.randomUUID()
+      const result = await provisionAuthenticatedOwner({
+        provider: "supabase",
+        subject,
+        email: `provision-${subject.slice(0, 8)}@example.test`,
+        displayName: "Mode Test",
+        emailVerified: true,
+        ...(workspaceMode ? { workspaceMode } : {}),
+      })
+      createdOrgs.push(result.organisationId)
+      const [shape] = await admin`
+        select
+          o.workspace_mode as mode,
+          (select count(*)::int from client c where c.organisation_id = o.id)
+            as clients,
+          (select count(*)::int from client c
+            where c.organisation_id = o.id and c.is_home) as "homeClients"
+        from organisation o
+        where o.id = ${result.organisationId}
+      `
+      shapes[workspaceMode ?? "default"] = shape
+    }
+    expect(shapes).toEqual({
+      agency: { mode: "agency", clients: 0, homeClients: 0 },
+      business: { mode: "business", clients: 1, homeClients: 1 },
+      default: { mode: "business", clients: 1, homeClients: 1 },
+    })
+  })
+
   it("reuses the default organisation for a returning user", async () => {
     const { provisionOwner } = await import(
       "@/lib/server/provisioning"

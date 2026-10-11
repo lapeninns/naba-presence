@@ -4,6 +4,7 @@ import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
 import type { LocationScope } from "@/lib/contracts/members"
+import type { WorkspaceMode } from "@/lib/contracts/session"
 import {
   grantClientListings,
   grantLocationListings,
@@ -28,6 +29,11 @@ export type AuthenticatedIdentity = {
   email: string
   displayName: string
   emailVerified: boolean
+  /**
+   * The mode a new owner chose at registration. Only read when this
+   * identity creates an organisation; absent means business.
+   */
+  workspaceMode?: WorkspaceMode
 }
 
 function mapIdentityProvisioningError(error: unknown): never {
@@ -158,20 +164,25 @@ export async function provisionAuthenticatedOwner(
         // ORIGINAL organisation already holds the identity-derived slug, so
         // organisation_slug_key would turn the login loop into a permanent
         // 500 instead of fixing it.
+        // Business is the default. Only a business has the hidden home client
+        // (0061); an agency starts with none and adds its clients itself.
+        const workspaceMode = identity.workspaceMode ?? "business"
         await sql`
           insert into organisation (id, slug, name, workspace_mode)
           values (
             ${organisationId},
             ${`${slugBase || "organisation"}-${organisationId.slice(0, 8)}`},
             ${`${identity.displayName}'s organisation`},
-            'business'
+            ${workspaceMode}
           )
         `
-        await createHomeClient(
-          sql,
-          organisationId,
-          `${identity.displayName}'s organisation`
-        )
+        if (workspaceMode === "business") {
+          await createHomeClient(
+            sql,
+            organisationId,
+            `${identity.displayName}'s organisation`
+          )
+        }
         await sql`
           insert into member (
             organisation_id,

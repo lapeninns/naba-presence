@@ -1,6 +1,8 @@
 import { apiFetch, type RequestOptions } from "./client"
 import {
+  organisationModeChangedResponseSchema,
   organisationRenamedResponseSchema,
+  type WorkspaceMode,
   sessionResponseSchema,
 } from "@/lib/contracts/session"
 
@@ -23,4 +25,16 @@ export async function renameOrganisation(name: string) {
     schema: organisationRenamedResponseSchema,
   })
   return organisation
+}
+
+/**
+ * Switches the session's organisation between business and agency mode
+ * (owner only, behind the `workspace_mode_change` feature).
+ */
+export function changeWorkspaceMode(workspaceMode: WorkspaceMode) {
+  return apiFetch("/api/organisations", {
+    method: "PATCH",
+    body: { workspaceMode },
+    schema: organisationModeChangedResponseSchema,
+  })
 }

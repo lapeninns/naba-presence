@@ -26,6 +26,7 @@ export const POST = route({
       email: body.email,
       password: body.password,
       displayName: body.displayName,
+      workspaceMode: body.inviteToken ? undefined : body.workspaceMode,
       redirectTo: confirmationUrl.toString(),
     })
     if (result.identity) {

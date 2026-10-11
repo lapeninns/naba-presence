@@ -2,6 +2,10 @@ import "server-only"
 
 import { z } from "zod"
 
+import {
+  workspaceModeSchema,
+  type WorkspaceMode,
+} from "@/lib/contracts/session"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 
@@ -25,6 +29,12 @@ export type PasswordIdentity = {
   email: string
   displayName: string
   emailVerified: boolean
+  /**
+   * The workspace mode chosen at registration, carried in the provider's
+   * user metadata so it survives the email confirmation round trip. Absent
+   * for invited sign-ups and for accounts created before the choice existed.
+   */
+  workspaceMode?: WorkspaceMode
 }
 
 class AuthProviderError extends Error {
@@ -109,12 +119,17 @@ function identityFromUser(userValue: unknown): PasswordIdentity {
     (typeof metadata.full_name === "string" && metadata.full_name) ||
     user.email.split("@")[0] ||
     "NabaPresence user"
+  // Metadata is user-writable at the provider, so it only ever chooses
+  // between the two modes a new owner may pick anyway; anything else is
+  // ignored and provisioning falls back to business.
+  const workspaceMode = workspaceModeSchema.safeParse(metadata.workspace_mode)
   return {
     provider: "supabase",
     subject: user.id,
     email: user.email.trim().toLowerCase(),
     displayName: displayName.trim().slice(0, 120),
     emailVerified: Boolean(user.email_confirmed_at ?? user.confirmed_at),
+    ...(workspaceMode.success ? { workspaceMode: workspaceMode.data } : {}),
   }
 }
 
@@ -180,6 +195,8 @@ export async function signUpWithPassword(input: {
   email: string
   password: string
   displayName: string
+  /** Stored as provider metadata for provisioning after confirmation. */
+  workspaceMode?: WorkspaceMode
   redirectTo: string
 }): Promise<{
   identity: PasswordIdentity | null
@@ -193,7 +210,12 @@ export async function signUpWithPassword(input: {
         body: JSON.stringify({
           email: input.email.trim().toLowerCase(),
           password: input.password,
-          data: { display_name: input.displayName.trim().slice(0, 120) },
+          data: {
+            display_name: input.displayName.trim().slice(0, 120),
+            ...(input.workspaceMode
+              ? { workspace_mode: input.workspaceMode }
+              : {}),
+          },
         }),
       }
     )

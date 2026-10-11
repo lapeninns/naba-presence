@@ -1036,6 +1036,26 @@ create an unrelated tenant. `app/api/session/switch/route.ts` verifies
 membership, rotates the session, updates the default organisation, and audits
 organisation switching.
 
+Workspace mode (plan P06-5). Registration offers a business (the default) or
+an agency workspace while admission is open (`lib/domain/auth.ts`
+`registerSchema.workspaceMode`); an invited sign-up never chooses. The choice
+travels in the auth provider's user metadata (`workspace_mode`, set by
+`lib/server/password-auth.ts`), so it survives the email confirmation round
+trip, and `provisionAuthenticatedOwner` creates the hidden home client only
+for a business. An owner can switch modes with `PATCH /api/organisations
+{ workspaceMode }` (`app/api/organisations/route.ts`,
+`lib/server/workspace-mode.ts`), dark behind the `workspace_mode_change`
+organisation feature with the Settings card
+`components/settings/workspace-mode-card.tsx`. Business to agency demotes the
+home client to an ordinary visible client; agency to business is refused with
+more than one active client, promotes the sole active client (or creates a
+home client) and refiles every other location under it. Each change is
+audited as `organisation.mode.changed`. Migration 0102's
+`client_guard_business_single` trigger refuses an active non-home client in a
+business workspace and takes FOR SHARE on the organisation row, which the
+switch holds FOR UPDATE, so a concurrent client create cannot slip past the
+count.
+
 Google source payloads, review text, reviewer display names and profile photo
 links, addresses, and media links carry an expiry no later than the
 organisation’s configured window, which is database-constrained to 30 days.

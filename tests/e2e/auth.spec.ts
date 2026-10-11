@@ -10,7 +10,7 @@ const STRUCTURE_RULES = [
 ]
 
 const AUTH_PAGES = [
-  { path: "/sign-in", heading: "Sign in to your clients’ reviews" },
+  { path: "/sign-in", heading: "Sign in to NabaPresence" },
   {
     path: "/sign-in?mode=create-account",
     heading: "Create your NabaPresence account",
@@ -29,6 +29,36 @@ test.describe("auth surfaces", () => {
       expect(await page.getByRole("main").count()).toBe(1)
     })
   }
+
+  // Shared by single businesses and agencies (plan P06-5): no screen may
+  // assume the reader manages clients. The aside is hidden below 901px, so
+  // read the DOM text rather than only what is visible.
+  for (const path of ["/sign-in", "/forgot-password", "/reset-password"]) {
+    test(`${path} never addresses the reader as an agency with clients`, async ({
+      page,
+    }) => {
+      await page.goto(path)
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+      const text = (await page.locator("body").textContent()) ?? ""
+      expect(text).not.toMatch(/\bclients?\b|client’s/i)
+      expect(text).not.toMatch(/your agency|new agency/i)
+    })
+  }
+
+  test("create account offers business or agency, business first", async ({
+    page,
+  }) => {
+    await page.goto("/sign-in?mode=create-account")
+    const group = page.getByRole("radiogroup", {
+      name: "What are you setting up?",
+    })
+    await expect(
+      group.getByRole("radio", { name: "My business" })
+    ).toBeChecked()
+    await group.getByRole("radio", { name: "An agency" }).focus()
+    await page.keyboard.press("Space")
+    await expect(group.getByRole("radio", { name: "An agency" })).toBeChecked()
+  })
 
   test("sign-in form is keyboard operable and password toggling works", async ({
     page,

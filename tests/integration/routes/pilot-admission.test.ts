@@ -92,6 +92,9 @@ describeDatabase("invitation-only pilot admission", () => {
     const email = newEmail()
     const invitation = await invite(email)
     expect((await register(email, invitation.token)).status).toBe(202)
+    // An invited person joins the inviting organisation as it is; the
+    // registration's default workspace mode is never stored for them.
+    expect(auth.users.get(email)?.metadata).not.toHaveProperty("workspace_mode")
     const tokenHash = auth.confirmationToken(email)!
     const confirm = await fetch(
       `${server.baseUrl}/auth/confirm?flow=signup&type=email&token_hash=${tokenHash}&inviteToken=${invitation.token}`,

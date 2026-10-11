@@ -7,6 +7,8 @@ type StubUser = {
   password: string
   displayName: string
   confirmed: boolean
+  /** Signup metadata other than display_name (e.g. workspace_mode). */
+  metadata?: Record<string, unknown>
 }
 
 async function requestBody(request: IncomingMessage) {
@@ -27,7 +29,7 @@ function providerUser(user: StubUser) {
     email_confirmed_at: user.confirmed
       ? "2026-07-30T10:00:00.000Z"
       : null,
-    user_metadata: { display_name: user.displayName },
+    user_metadata: { ...user.metadata, display_name: user.displayName },
   }
 }
 
@@ -76,6 +78,7 @@ export async function startAuthProviderStub() {
     password: string
     displayName?: string
     confirmed?: boolean
+    metadata?: Record<string, unknown>
   }) {
     const user: StubUser = {
       ...input,
@@ -131,6 +134,7 @@ export async function startAuthProviderStub() {
           password: String(body.password ?? ""),
           displayName: String(metadata.display_name ?? "New user"),
           confirmed: false,
+          metadata,
         })
         const tokenHash = `confirmation-token-${user.id}`
         confirmationTokens.set(tokenHash, email)

@@ -195,6 +195,89 @@ describeDatabase("email and password authentication", () => {
     organisations.push(session.session.organisationId)
   })
 
+  async function registerAndConfirm(
+    email: string,
+    extra: Record<string, unknown>
+  ) {
+    const registration = await fetch(
+      `${server.baseUrl}/api/auth/password/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Mode owner",
+          email,
+          password: "Correct horse!42",
+          ...extra,
+        }),
+      }
+    )
+    expect(registration.status).toBe(202)
+    const tokenHash = auth.confirmationToken(email)
+    const confirmation = await fetch(
+      `${server.baseUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`,
+      { redirect: "manual" }
+    )
+    const cookie = sessionCookie(confirmation)
+    const session = (await (
+      await fetch(`${server.baseUrl}/api/session`, { headers: { cookie } })
+    ).json()) as {
+      session: { organisationId: string; workspaceMode: string }
+    }
+    organisations.push(session.session.organisationId)
+    const [shape] = await admin<
+      { mode: string; homeClients: number; clients: number }[]
+    >`
+      select
+        o.workspace_mode as mode,
+        (select count(*)::int from client c
+          where c.organisation_id = o.id and c.is_home) as "homeClients",
+        (select count(*)::int from client c
+          where c.organisation_id = o.id) as clients
+      from organisation o
+      where o.id = ${session.session.organisationId}
+    `
+    return { session: session.session, shape }
+  }
+
+  it("provisions a business with its home client when no mode is chosen", async () => {
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    const { session, shape } = await registerAndConfirm(email, {})
+    expect(session.workspaceMode).toBe("business")
+    expect(shape).toEqual({ mode: "business", homeClients: 1, clients: 1 })
+  })
+
+  it("provisions an agency with no home client when the owner chose one, across email confirmation", async () => {
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    const { session, shape } = await registerAndConfirm(email, {
+      workspaceMode: "agency",
+    })
+    expect(auth.users.get(email)?.metadata).toMatchObject({
+      workspace_mode: "agency",
+    })
+    expect(session.workspaceMode).toBe("agency")
+    expect(shape).toEqual({ mode: "agency", homeClients: 0, clients: 0 })
+  })
+
+  it("refuses an unknown workspace mode at registration", async () => {
+    const response = await fetch(
+      `${server.baseUrl}/api/auth/password/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Mode owner",
+          email: `auth-route-${randomUUID()}@nabapresence.test`,
+          password: "Correct horse!42",
+          workspaceMode: "franchise",
+        }),
+      }
+    )
+    expect(response.status).toBe(400)
+  })
+
   it("uses a uniform reset request and completes recovery", async () => {
     const email = `auth-route-${randomUUID()}@nabapresence.test`
     emails.push(email)

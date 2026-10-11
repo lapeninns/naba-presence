@@ -5,7 +5,12 @@ import {
   type ClientResponse,
 } from "@/lib/contracts/clients"
 import { writeAudit } from "@/lib/server/audit"
-import { loadClientSummary, uniqueClientSlug } from "@/lib/server/clients"
+import {
+  businessSingleClientError,
+  isBusinessSingleClientViolation,
+  loadClientSummary,
+  uniqueClientSlug,
+} from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
 import {
   requireClientAccess,
@@ -92,6 +97,19 @@ export const PATCH = route({
         }
       }
 
+      if (body.archived === false) {
+        // Restoring an archived client into a business workspace would give
+        // it a second active client; migration 0102 refuses it as well.
+        const [organisation] = await sql<{ workspaceMode: string }[]>`
+          select workspace_mode as "workspaceMode"
+          from organisation
+          where id = ${session.organisationId}
+        `
+        if (organisation?.workspaceMode === "business") {
+          throw businessSingleClientError()
+        }
+      }
+
       const slug = body.name ? await uniqueClientSlug(sql, body.name) : null
       await sql`
         update client set
@@ -107,7 +125,12 @@ export const PATCH = route({
                 : null
           }
         where id = ${params.clientId}
-      `
+      `.catch((error: unknown) => {
+        if (isBusinessSingleClientViolation(error)) {
+          throw businessSingleClientError()
+        }
+        throw error
+      })
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,

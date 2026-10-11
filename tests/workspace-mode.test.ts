@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { sessionSchema } from "@/lib/contracts/session"
+import {
+  organisationUpdateSchema,
+  sessionSchema,
+} from "@/lib/contracts/session"
+import { registerSchema } from "@/lib/domain/auth"
 import { clientAccessUpdateSchema } from "@/lib/contracts/client-access"
 import { summariseHealth } from "@/lib/clients/health"
 import {
@@ -310,5 +314,46 @@ describe("planClientAccess workspace mode", () => {
         request: { locations: [{ locationId: "l1" }] },
       })
     ).toMatchObject({ ok: true })
+  })
+})
+
+describe("registration workspace mode", () => {
+  const account = {
+    displayName: "Sam Patel",
+    email: "sam@example.test",
+    password: "Correct horse!42",
+  }
+
+  it("defaults a new owner to business", () => {
+    expect(registerSchema.parse(account).workspaceMode).toBe("business")
+  })
+
+  it("accepts agency and refuses anything else", () => {
+    expect(
+      registerSchema.parse({ ...account, workspaceMode: "agency" })
+        .workspaceMode
+    ).toBe("agency")
+    expect(
+      registerSchema.safeParse({ ...account, workspaceMode: "franchise" })
+        .success
+    ).toBe(false)
+  })
+})
+
+describe("organisationUpdateSchema", () => {
+  it("takes a rename or a mode change, never both", () => {
+    expect(organisationUpdateSchema.parse({ name: " Lapen " })).toEqual({
+      name: "Lapen",
+    })
+    expect(organisationUpdateSchema.parse({ workspaceMode: "agency" })).toEqual(
+      { workspaceMode: "agency" }
+    )
+    expect(
+      organisationUpdateSchema.safeParse({
+        name: "Lapen",
+        workspaceMode: "agency",
+      }).success
+    ).toBe(false)
+    expect(organisationUpdateSchema.safeParse({}).success).toBe(false)
   })
 })
