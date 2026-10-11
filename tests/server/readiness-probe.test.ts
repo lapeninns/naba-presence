@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -25,7 +26,10 @@ const body = (status: string, extra: Record<string, unknown> = {}) => ({
 
 describe("readiness probe arguments", () => {
   it("builds the readiness URL and takes the token from the environment", () => {
-    const options = parseProbeArgs(["--url", "https://app.example.com/x"], TOKEN)
+    const options = parseProbeArgs(
+      ["--url", "https://app.example.com/x"],
+      TOKEN
+    )
     expect(options.url).toBe("https://app.example.com/api/operations/readiness")
     expect(options.token).toBe("probe-token-value")
     expect(
@@ -70,10 +74,40 @@ describe("readiness probe arguments", () => {
   })
 })
 
+describe("readiness probe usage errors", () => {
+  it("treats an unknown flag or a stray argument as usage, not a crash", () => {
+    expect(() =>
+      parseProbeArgs(["--url", "https://a.example", "--bogus"], TOKEN)
+    ).toThrow(UsageError)
+    expect(() =>
+      parseProbeArgs(["--url", "https://a.example", "extra"], TOKEN)
+    ).toThrow(UsageError)
+  })
+
+  it("accepts the `--` pnpm passes through", () => {
+    expect(
+      parseProbeArgs(["--", "--url", "https://a.example"], TOKEN).url
+    ).toBe("https://a.example/api/operations/readiness")
+  })
+
+  it("exits 64 for an unknown flag, distinct from degraded (1)", () => {
+    const result = spawnSync(
+      process.execPath,
+      [
+        "scripts/ops/readiness-probe.mjs",
+        "--url",
+        "http://localhost:1",
+        "--bogus",
+      ],
+      { env: { ...process.env, ...TOKEN }, encoding: "utf8" }
+    )
+    expect(result.status).toBe(EXIT.usage)
+    expect(result.stderr).toContain("readiness-probe:")
+  })
+})
+
 describe("readiness probe verdict", () => {
-  const judge = (
-    input: Partial<Parameters<typeof judgeReadiness>[0]> = {}
-  ) =>
+  const judge = (input: Partial<Parameters<typeof judgeReadiness>[0]> = {}) =>
     judgeReadiness({
       httpStatus: 200,
       body: body("ready"),

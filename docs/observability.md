@@ -165,8 +165,12 @@ token of its own: anything trusted to fire the ticks may ask whether they run,
 and a second secret is one more to rotate on the endpoint that must work when
 everything else is quiet. It is bounded: a connectivity check, the migration
 ledger, `ops_heartbeat`, the cached pause snapshot and one aggregate over
-`platform_incident`, each with a 5-second limit; no tenant walk, no tenant
-data. `Cache-Control: no-store`.
+`platform_incident`, each with a 5-second limit. The connectivity check runs
+first and the other reads together after it, so an answer takes at most about
+10 seconds, inside the probe's 15-second default; with the database
+unreachable nothing else is read and `pause` holds the env layer alone. No
+tenant walk (`tests/integration/readiness-bounded.test.ts` counts the
+statements), no tenant data. `Cache-Control: no-store`.
 
 The answer is `ready` or `degraded` with 200, `not_ready` with 503, plus the
 inputs: `release` and `schema` (as on the platform health scope), `database`,
@@ -199,6 +203,15 @@ Every reason is in `reasons` with a `severity` and, where it applies, a
 | `release_unknown`         | degraded  | neither `NABA_RELEASE_SHA` nor `VERCEL_GIT_COMMIT_SHA` holds a full SHA                 |
 | `google_quota_pressure`   | degraded  | an open Google quota-pressure incident                                                 |
 | `incidents_unknown`       | degraded  | `platform_incident` could not be read                                                  |
+
+A configuration gap escalates once something goes wrong: with
+`OPS_ALERT_EMAILS` empty or no email provider, every platform incident's alert
+settles `suppressed`, so the first incident to open (a long-lived
+`google_quota_pressure` one included) turns `ops_recipients_missing` or
+`email_not_configured` (degraded) into `alert_undelivered` (503) until it
+resolves. That is deliberate: nobody was told. An alert whose send is
+`uncertain` rolls up to `failed` and counts too, since nobody can be shown to
+have been told.
 
 `telemetry` is the answering process's own record: on Vercel each function
 instance has its own, and a fresh instance reads `configured` until its first

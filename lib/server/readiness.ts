@@ -209,7 +209,12 @@ export function evaluateReadiness(
   return { status, reasons, ticks }
 }
 
-/** Database reads give up after this, so a hung pool cannot hang the probe. */
+/**
+ * Each database read gives up after this, so a hung pool cannot hang the
+ * probe. The connectivity check runs first and the remaining reads together
+ * after it, so an answer takes at most two of these: inside the probe's
+ * default --timeout-ms of 15 seconds.
+ */
 export const READINESS_READ_TIMEOUT_MS = 5_000
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -259,9 +264,10 @@ async function readIncidents(): Promise<
 
 /**
  * Every input, read once. Platform-level reads only, all outside withTenant:
- * a connectivity check, the migration ledger, ops_heartbeat (through
- * schedulerLiveness), the cached pause snapshot and one aggregate over
- * platform_incident. Nothing here grows with the number of organisations.
+ * a connectivity check, then together the migration ledger, ops_heartbeat
+ * (through schedulerLiveness), the cached pause snapshot and one aggregate
+ * over platform_incident. Nothing here grows with the number of
+ * organisations (tests/integration/readiness-bounded.test.ts counts them).
  */
 export async function loadReadinessInputs(
   now: Date = new Date()
@@ -273,22 +279,30 @@ export async function loadReadinessInputs(
       return true
     })) ?? false
 
-  const applied = reachable ? await attempt(readAppliedMigrations) : null
+  // With the database unreachable nothing else is read: each read would
+  // only wait out its own connect timeout. Past the connectivity check the
+  // reads are independent, so they run together. The pause snapshot read
+  // reports its own failure as `readFailed`; the limit covers a hang.
+  const [applied, liveness, snapshot, incidents] = reachable
+    ? await Promise.all([
+        attempt(readAppliedMigrations),
+        attempt(() => schedulerLiveness(now)),
+        attempt(loadPauseSnapshot),
+        attempt(readIncidents),
+      ])
+    : ([null, null, null, null] as const)
   const missing = applied ? missingMigrations(applied) : []
   const schema: PlatformRelease["schema"] = {
     compatible: applied ? missing.length === 0 : null,
     requiredCount: REQUIRED_MIGRATIONS.length,
     missing,
   }
-
-  const liveness = reachable
-    ? await attempt(() => schedulerLiveness(now))
-    : null
-  // The snapshot read is cached and never throws: a failed read comes back
-  // as `readFailed`. Scopes are listed with the env layer applied, so an env
-  // flag that is off shows here as well.
-  const snapshot = await loadPauseSnapshot()
-  const incidents = reachable ? await attempt(readIncidents) : null
+  // Scopes are listed with the env layer applied, so an env flag that is off
+  // shows here as well; with the table unread, only that layer is known.
+  const pauseScopes =
+    snapshot && !snapshot.readFailed
+      ? pausedScopes(env, snapshot)
+      : pausedScopesFromEnv(env)
 
   return {
     database: { reachable },
@@ -302,10 +316,8 @@ export async function loadReadinessInputs(
       : null,
     ticks: liveness?.schedulerTicks ?? [],
     pause: {
-      scopes: snapshot.readFailed
-        ? pausedScopesFromEnv(env)
-        : pausedScopes(env, snapshot),
-      readFailed: snapshot.readFailed,
+      scopes: pauseScopes,
+      readFailed: !snapshot || snapshot.readFailed,
     },
     email: {
       provider: env.EMAIL_PROVIDER,

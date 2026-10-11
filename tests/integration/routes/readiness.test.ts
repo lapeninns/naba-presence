@@ -54,7 +54,12 @@ describeDatabase("operations readiness", () => {
   }, 60_000)
 
   beforeEach(async () => {
-    // Every tick (and the scheduler stamp) freshly completed.
+    // Every tick (and the scheduler stamp) freshly completed. On a fresh
+    // database no jobs tick has written the scheduler stamp yet.
+    await admin`
+      insert into ops_heartbeat (name, beat_at) values ('scheduler', now())
+      on conflict (name) do nothing
+    `
     await admin`
       update ops_heartbeat
       set beat_at = now(),
@@ -67,6 +72,9 @@ describeDatabase("operations readiness", () => {
 
   afterAll(async () => {
     await server?.stop()
+    if (!saved.some((row) => row.name === "scheduler")) {
+      await admin`delete from ops_heartbeat where name = 'scheduler'`
+    }
     for (const row of saved) {
       await admin`
         update ops_heartbeat

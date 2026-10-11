@@ -2,7 +2,7 @@
 //   READINESS_PROBE_TOKEN=... node scripts/ops/readiness-probe.mjs \
 //     --url https://app.example.com [--expect-sha <40-hex> | --expect-promoted] \
 //     [--fail-on-degraded] [--notify] [--json] [--timeout-ms 15000]
-//   pnpm ops:readiness -- --url ... (same flags)
+//   pnpm ops:readiness --url ... (same flags; a leading `--` is ignored)
 //
 // The external half of readiness (docs/observability.md, "Readiness"): asks
 // GET /api/operations/readiness and exits non-zero when the deployment is not
@@ -43,23 +43,34 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/
 
 export class UsageError extends Error {}
 
+const PROBE_OPTIONS = {
+  url: { type: "string" },
+  "expect-sha": { type: "string" },
+  "expect-promoted": { type: "boolean", default: false },
+  "fail-on-degraded": { type: "boolean", default: false },
+  notify: { type: "boolean", default: false },
+  json: { type: "boolean", default: false },
+  "timeout-ms": { type: "string", default: "15000" },
+}
+
 /**
  * @param {string[]} argv
  * @param {Record<string, string | undefined>} env
  */
 export function parseProbeArgs(argv, env) {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      url: { type: "string" },
-      "expect-sha": { type: "string" },
-      "expect-promoted": { type: "boolean", default: false },
-      "fail-on-degraded": { type: "boolean", default: false },
-      notify: { type: "boolean", default: false },
-      json: { type: "boolean", default: false },
-      "timeout-ms": { type: "string", default: "15000" },
-    },
-  })
+  // `pnpm ops:readiness -- --url ...` passes the `--` through.
+  const args = argv[0] === "--" ? argv.slice(1) : argv
+  let values
+  try {
+    ;({ values } = parseArgs({ args, options: PROBE_OPTIONS }))
+  } catch (error) {
+    // An unknown flag or a stray argument is a usage error (64), not a
+    // crash: exit 1 is the probe's "degraded".
+    if (String(error?.code ?? "").startsWith("ERR_PARSE_ARGS")) {
+      throw new UsageError(error.message)
+    }
+    throw error
+  }
   const base = values.url ?? env.READINESS_URL
   if (!base) throw new UsageError("--url (or READINESS_URL) is required")
   let url
