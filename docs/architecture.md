@@ -1028,11 +1028,15 @@ purge and erasure only for its selected review.
 `app/api/privacy/requests/route.ts` implements attributable access,
 rectification, erasure, and restriction fulfilment;
 `app/api/privacy/export/route.ts` exports only still-retained content, in
-keyset pages (`update_time desc, id desc`, at most 1000 reviews each) so any
-match size completes: each page returns `nextCursor` (codec
-`lib/contracts/cursor.ts`) until the last, an interrupted download resumes
-from the last cursor received, and every page writes its own audit row with
-its page index. Nothing about an export in progress is stored server-side.
+keyset pages (`create_time desc, id desc`, both immutable, at most 1000
+reviews each) so any match size completes: each page returns `nextCursor`
+(codec `lib/contracts/cursor.ts`, sealed by `sealCursor` in
+`lib/server/crypto.ts` with an HMAC bound to the organisation and subject)
+until the last, an interrupted download resumes from the last cursor
+received, and every page writes its own audit row with its page index and
+starting position. The last page reports `complete: false` with
+`addedDuringExport` when matching reviews were first stored after page 1 and
+sort ahead of it. Nothing about an export in progress is stored server-side.
 
 Disconnect immediately destroys stored OAuth tokens and disables notifications.
 External location data is scheduled for deletion within seven days. Audit rows

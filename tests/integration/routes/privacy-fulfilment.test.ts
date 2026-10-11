@@ -1121,10 +1121,12 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     expect(payload.page).toBe(1)
     expect(payload.truncated).toBe(false)
     expect(payload.nextCursor).toBeNull()
+    expect(payload.complete).toBe(true)
+    expect(payload.addedDuringExport).toBe(0)
     expect(payload.reviews).toHaveLength(2)
     // No row carries the keyset position or a window count out with it.
     expect(payload.reviews[0].totalMatched).toBeUndefined()
-    expect(payload.reviews[0].cursorUpdateTime).toBeUndefined()
+    expect(payload.reviews[0].cursorCreateTime).toBeUndefined()
 
     const audits = await exportAudits(fixture.owner.organisationId)
     expect(audits).toHaveLength(1)
@@ -1139,7 +1141,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
 
   it("exports 1200 matches across keyset pages with no gaps or duplicates and resumes from a cursor", async () => {
     const fixture = await createFixture()
-    // 1199 copies of the fixture review. Every third one shares an update
+    // 1199 copies of the fixture review. Every third one shares a create
     // time with its neighbours (the id breaks the tie) and the rest differ
     // only by microseconds, which a millisecond cursor would skip or repeat.
     await admin`
@@ -1160,9 +1162,10 @@ describeDatabase("privacy fulfilment and audit retention", () => {
         encode(sha256(convert_to('bulk-id-' || g || '-' || r.id, 'UTF8')), 'hex'),
         r.reviewer_display_name, r.reviewer_is_anonymous, r.star_rating,
         r.review_text, r.detected_language_code, r.language_confidence,
-        r.has_media, r.create_time,
+        r.has_media,
         timestamptz '2026-09-01T12:00:00.000000Z'
           - (g / 3) * interval '1 microsecond',
+        r.update_time,
         r.content_hash, r.workflow_status, r.raw_payload
       from review r
       cross join generate_series(1, 1199) as g
@@ -1285,10 +1288,182 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     expect(crossSubject.status).toBe(400)
     expect((await crossSubject.json()).error).toBe("invalid_cursor")
 
+    // The cursor names nothing about the subject, and its page index and
+    // position cannot be edited under the MAC.
+    const separator = nextCursor.lastIndexOf(".")
+    const payload = JSON.parse(
+      Buffer.from(nextCursor.slice(0, separator), "base64url").toString()
+    ) as Record<string, unknown>
+    expect(Object.keys(payload).sort()).toEqual([
+      "createTime",
+      "id",
+      "page",
+      "startedAt",
+      "v",
+    ])
+    const forged = `${Buffer.from(
+      JSON.stringify({ ...payload, page: 9 })
+    ).toString("base64url")}${nextCursor.slice(separator)}`
+    const forgedResponse = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      cursor: forged,
+    })
+    expect(forgedResponse.status).toBe(400)
+    expect((await forgedResponse.json()).error).toBe("invalid_cursor")
+
     const oversized = await exportPage(fixture.owner.cookie, {
       subject: fixture.reviewerName,
       pageSize: 1001,
     })
     expect(oversized.status).toBe(400)
+  })
+
+  /** Seeds one more review for the fixture subject at each create time. */
+  async function seedSubjectReviews(
+    fixture: Awaited<ReturnType<typeof createFixture>>,
+    createTimes: string[]
+  ) {
+    const ids: string[] = []
+    for (const createTime of createTimes) {
+      const seeded = await seedReview(admin, {
+        organisationId: fixture.owner.organisationId,
+      })
+      await admin`
+        update review
+        set reviewer_display_name = ${fixture.reviewerName},
+          create_time = ${createTime}::timestamptz
+        where id = ${seeded.reviewId}
+      `
+      ids.push(seeded.reviewId)
+    }
+    return ids
+  }
+
+  type ExportPayload = {
+    page: number
+    complete: boolean
+    addedDuringExport: number
+    nextCursor: string | null
+    reviews: { id: string }[]
+  }
+
+  it("still serves a review whose update time a sync bumps mid-export", async () => {
+    const fixture = await createFixture()
+    await admin`
+      update review set create_time = '2026-01-01T00:00:00Z'
+      where id = ${fixture.review.reviewId}
+    `
+    const [newest, middle] = await seedSubjectReviews(fixture, [
+      "2026-03-01T00:00:00Z",
+      "2026-02-01T00:00:00Z",
+    ])
+
+    const first = (await (
+      await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 1,
+      })
+    ).json()) as ExportPayload
+    expect(first.reviews.map((review) => review.id)).toEqual([newest])
+
+    // The subject edits the oldest review upstream and a sync rewrites its
+    // update time to now: newer than anything already served.
+    await admin`
+      update review set update_time = now()
+      where id = ${fixture.review.reviewId}
+    `
+
+    const ids = [...first.reviews.map((review) => review.id)]
+    let cursor = first.nextCursor
+    let last = first
+    while (cursor) {
+      const response = await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 1,
+        cursor,
+      })
+      expect(response.status).toBe(200)
+      last = (await response.json()) as ExportPayload
+      ids.push(...last.reviews.map((review) => review.id))
+      cursor = last.nextCursor
+    }
+    expect(ids).toEqual([newest, middle, fixture.review.reviewId])
+    expect(last.complete).toBe(true)
+    expect(last.addedDuringExport).toBe(0)
+  })
+
+  it("reports an export incomplete when a matching review is first stored after page 1", async () => {
+    const fixture = await createFixture()
+    await admin`
+      update review set create_time = '2026-01-01T00:00:00Z'
+      where id = ${fixture.review.reviewId}
+    `
+    const [older] = await seedSubjectReviews(fixture, ["2026-02-01T00:00:00Z"])
+
+    const first = (await (
+      await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 1,
+      })
+    ).json()) as ExportPayload
+    expect(first.reviews.map((review) => review.id)).toEqual([older])
+
+    // A sync imports the subject's newest review, which sorts ahead of the
+    // cursor into ground page 1 already covered.
+    const [added] = await seedSubjectReviews(fixture, ["2026-04-01T00:00:00Z"])
+
+    const second = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 1,
+      cursor: first.nextCursor ?? undefined,
+    })
+    expect(second.status).toBe(200)
+    const payload = (await second.json()) as ExportPayload & {
+      totalMatched: number
+    }
+    expect(payload.nextCursor).toBeNull()
+    expect(payload.reviews.map((review) => review.id)).toEqual([
+      fixture.review.reviewId,
+    ])
+    expect(payload.totalMatched).toBe(3)
+    expect(payload.addedDuringExport).toBe(1)
+    expect(payload.complete).toBe(false)
+
+    const audits = await admin<
+      {
+        metadata: {
+          page: number
+          complete: boolean
+          addedDuringExport: number
+          after: { createTime: string; id: string } | null
+        }
+      }[]
+    >`
+      select metadata
+      from audit_log
+      where organisation_id = ${fixture.owner.organisationId}
+        and action = 'privacy.data.exported'
+      order by created_at, id
+    `
+    expect(audits.map((row) => row.metadata)).toMatchObject([
+      { page: 1, complete: false, addedDuringExport: 0, after: null },
+      {
+        page: 2,
+        complete: false,
+        addedDuringExport: 1,
+        after: { createTime: "2026-02-01T00:00:00.000000Z", id: older },
+      },
+    ])
+
+    // Restarting from page 1 carries the added review.
+    const restarted = (await (
+      await exportPage(fixture.owner.cookie, { subject: fixture.reviewerName })
+    ).json()) as ExportPayload
+    expect(restarted.reviews.map((review) => review.id)).toEqual([
+      added,
+      older,
+      fixture.review.reviewId,
+    ])
+    expect(restarted.complete).toBe(true)
   })
 })

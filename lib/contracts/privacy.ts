@@ -44,7 +44,9 @@ export const privacyRequestCreateSchema = z.object({
   subjectReference: z.string().trim().min(3).max(240),
   reason: z.string().trim().max(2000).optional(),
 })
-export type PrivacyRequestCreateInput = z.infer<typeof privacyRequestCreateSchema>
+export type PrivacyRequestCreateInput = z.infer<
+  typeof privacyRequestCreateSchema
+>
 
 /** PATCH `/api/privacy/requests` body, status-change branch. */
 export const privacyRequestStatusUpdateSchema = z.object({
@@ -88,17 +90,19 @@ export const privacyExportBodySchema = z.object({
 export type PrivacyExportInput = z.input<typeof privacyExportBodySchema>
 
 /**
- * Decoded export cursor: the keyset position (`update_time desc, id desc`)
- * of the last review on the previous page, the index of the page it opens,
- * and a fingerprint of the subject so a cursor cannot continue a different
- * subject's export. The cursor lives only in the client's hands; nothing about
- * an export in progress is stored server-side.
+ * Decoded export cursor payload: the keyset position (`create_time desc, id
+ * desc`, both immutable) of the last review on the previous page, the index
+ * of the page it opens, and when the export's first page was served. The
+ * route seals it with an HMAC bound to the organisation and subject
+ * (`sealCursor`), so it cannot be edited or replayed against another subject
+ * and carries nothing about the subject itself. The cursor lives only in the
+ * client's hands; nothing about an export in progress is stored server-side.
  */
 export const privacyExportCursorSchema = z.object({
-  v: z.literal(1),
-  subject: z.string().regex(/^[0-9a-f]{16}$/),
+  v: z.literal(2),
   page: z.number().int().min(2),
-  updateTime: z.iso.datetime({ offset: true }),
+  startedAt: z.iso.datetime({ offset: true }),
+  createTime: z.iso.datetime({ offset: true }),
   id: z.uuid(),
 })
 export type PrivacyExportCursor = z.infer<typeof privacyExportCursorSchema>
@@ -126,7 +130,9 @@ export type PrivacyRequest = z.infer<typeof privacyRequestSchema>
 export const privacyRequestsResponseSchema = z.object({
   requests: z.array(privacyRequestSchema),
 })
-export type PrivacyRequestsResponse = z.infer<typeof privacyRequestsResponseSchema>
+export type PrivacyRequestsResponse = z.infer<
+  typeof privacyRequestsResponseSchema
+>
 
 /** POST `/api/privacy/requests` response (201). */
 export const privacyRequestCreatedResponseSchema = z.object({
@@ -159,9 +165,13 @@ export type PrivacyRequestResolutionResponse = z.infer<
 
 /**
  * POST `/api/privacy/export` response: one page of the subject's reviews.
- * `totalMatched` counts the whole match set on every page; the export is
- * complete when `nextCursor` is null. `truncated` mirrors `nextCursor !==
- * null` for clients written before pages existed.
+ * `totalMatched` counts the whole match set on every page. `nextCursor` is
+ * null on the last page; the export is complete only when `complete` is true
+ * there. A last page with `addedDuringExport` above 0 found matching reviews
+ * first stored after page 1 was served that sort ahead of it, which earlier
+ * pages may not have carried: restart from page 1 for a complete set.
+ * `truncated` mirrors `nextCursor !== null` for clients written before pages
+ * existed.
  */
 export const privacyExportResponseSchema = z.object({
   generatedAt: z.string(),
@@ -173,6 +183,8 @@ export const privacyExportResponseSchema = z.object({
   totalMatched: z.number().int(),
   returned: z.number().int(),
   truncated: z.boolean(),
+  complete: z.boolean(),
+  addedDuringExport: z.number().int(),
   nextCursor: z.string().nullable(),
   reviews: z.array(z.record(z.string(), z.unknown())),
 })
