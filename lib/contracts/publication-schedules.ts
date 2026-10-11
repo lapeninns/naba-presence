@@ -6,7 +6,9 @@ import { z } from "zod"
 
 import {
   eventOffsetsSchema,
+  offsetMinutesSchema,
   scheduleRuleSchema,
+  SLOT_PROBLEMS,
   timezoneSchema,
 } from "@/lib/domain/publication-schedule"
 
@@ -38,6 +40,11 @@ export const scheduleDraftSchema = z.strictObject({
   rule: scheduleRuleSchema,
   timezone: timezoneSchema.optional(),
   eventOffsets: eventOffsetsSchema.nullable().default(null),
+  /**
+   * The UTC offset of a one-time slot, required when its local time happens
+   * twice (autumn back) and otherwise optional; it must match the time.
+   */
+  offsetMinutes: offsetMinutesSchema.nullable().default(null),
 })
 export type ScheduleDraft = z.infer<typeof scheduleDraftSchema>
 
@@ -52,6 +59,7 @@ export const scheduleRevisionSchema = z.strictObject({
   rule: scheduleRuleSchema,
   timezone: timezoneSchema,
   eventOffsets: eventOffsetsSchema.nullable().default(null),
+  offsetMinutes: offsetMinutesSchema.nullable().default(null),
   /** Re-read the source draft's current content into the template. */
   refreshContent: z.boolean().default(false),
 })
@@ -62,6 +70,8 @@ export const occurrenceSchema = z.object({
   locationId: z.uuid(),
   locationName: z.string(),
   intendedAt: z.iso.datetime(),
+  /** Not started by then, the occurrence is missed (intended + 5 minutes). */
+  deadlineAt: z.iso.datetime(),
   localDate: z.string(),
   localTime: z.string(),
   timezone: z.string(),
@@ -84,6 +94,8 @@ export const scheduleSchema = z.object({
   payloadHash: z.string(),
   rule: scheduleRuleSchema,
   timezone: z.string(),
+  /** The one-time slot's UTC offset; null for repeating or pre-0241 rows. */
+  offsetMinutes: z.number().int().nullable(),
   eventOffsets: eventOffsetsSchema.nullable(),
   template: z.object({ topicType: z.string(), summary: z.string() }).loose(),
   sourcePostId: z.uuid().nullable(),
@@ -105,6 +117,8 @@ export const scheduleSchema = z.object({
     ),
     skippedDates: z.array(z.string()),
     adjusted: z.number().int(),
+    /** Why a one-time slot cannot run as stored: it needs a new time. */
+    problem: z.enum(SLOT_PROBLEMS).nullable(),
   }),
   counts: z.record(z.string(), z.number()),
 })

@@ -30,6 +30,7 @@ const occurrence = (
   locationId: "00000000-0000-4000-8000-000000000002",
   locationName: "Old Crown",
   intendedAt: `${localDate}T00:30:00.000Z`,
+  deadlineAt: `${localDate}T00:35:00.000Z`,
   localDate,
   localTime,
   timezone: "Europe/London",

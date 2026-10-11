@@ -4,9 +4,18 @@ import {
   clockChangeCountNote,
   clockChangeNote,
   contentExpired,
+  describeScheduleRule,
+  DISPATCH_WINDOW_MS,
   expandSchedule,
+  formatUtcOffset,
   occurrenceEventDates,
+  planOnceSlot,
+  resolveLocalSlot,
   resolveLocalTime,
+  SCHEDULE_MAX_LEAD_MS,
+  SCHEDULE_MIN_LEAD_MS,
+  slotProblemMessage,
+  SLOT_PROBLEMS,
   scheduleRuleSchema,
   selectDueOccurrences,
   timezoneSchema,
@@ -43,6 +52,196 @@ describe("resolveLocalTime", () => {
     expect(
       resolveLocalTime("2026-03-29", "01:30", "Asia/Kolkata").instant
     ).toEqual(new Date("2026-03-28T20:00:00Z"))
+  })
+})
+
+describe("resolveLocalSlot (strict, one-time)", () => {
+  it("maps an ordinary time to one instant with its offset", () => {
+    expect(resolveLocalSlot("2026-01-15", "09:30", LONDON)).toEqual({
+      kind: "ok",
+      instant: new Date("2026-01-15T09:30:00Z"),
+      offsetMinutes: 0,
+    })
+    expect(resolveLocalSlot("2026-07-15", "09:30", LONDON)).toEqual({
+      kind: "ok",
+      instant: new Date("2026-07-15T08:30:00Z"),
+      offsetMinutes: 60,
+    })
+  })
+  it("refuses a London spring-forward time instead of moving it", () => {
+    // 29 March 2026: 01:00 GMT becomes 02:00 BST, so 01:30 never happens.
+    expect(resolveLocalSlot("2026-03-29", "01:30", LONDON)).toEqual({
+      kind: "nonexistent",
+    })
+    // Either side of the gap is fine.
+    expect(resolveLocalSlot("2026-03-29", "00:59", LONDON).kind).toBe("ok")
+    expect(resolveLocalSlot("2026-03-29", "02:00", LONDON)).toMatchObject({
+      kind: "ok",
+      instant: new Date("2026-03-29T01:00:00Z"),
+      offsetMinutes: 60,
+    })
+  })
+  it("returns both London autumn-back instants, earlier first", () => {
+    // 25 October 2026: 02:00 BST becomes 01:00 GMT, so 01:30 happens twice.
+    expect(resolveLocalSlot("2026-10-25", "01:30", LONDON)).toEqual({
+      kind: "ambiguous",
+      choices: [
+        { instant: new Date("2026-10-25T00:30:00Z"), offsetMinutes: 60 },
+        { instant: new Date("2026-10-25T01:30:00Z"), offsetMinutes: 0 },
+      ],
+    })
+    expect(resolveLocalSlot("2026-10-25", "02:00", LONDON).kind).toBe("ok")
+  })
+  it("handles New York, a half-hour shift and a zone without DST", () => {
+    expect(
+      resolveLocalSlot("2026-03-08", "02:30", "America/New_York").kind
+    ).toBe("nonexistent")
+    expect(
+      resolveLocalSlot("2026-11-01", "01:30", "America/New_York")
+    ).toMatchObject({
+      kind: "ambiguous",
+      choices: [{ offsetMinutes: -240 }, { offsetMinutes: -300 }],
+    })
+    // Lord Howe Island moves its clocks by 30 minutes: on 5 April 2026
+    // 02:00 (+11:00) becomes 01:30 (+10:30).
+    expect(
+      resolveLocalSlot("2026-04-05", "01:45", "Australia/Lord_Howe")
+    ).toMatchObject({
+      kind: "ambiguous",
+      choices: [{ offsetMinutes: 660 }, { offsetMinutes: 630 }],
+    })
+    expect(resolveLocalSlot("2026-03-29", "01:30", "Asia/Kolkata")).toEqual({
+      kind: "ok",
+      instant: new Date("2026-03-28T20:00:00Z"),
+      offsetMinutes: 330,
+    })
+  })
+})
+
+describe("planOnceSlot", () => {
+  const rule = (startDate: string, localTime: string) => ({
+    startDate,
+    localTime,
+  })
+  const now = new Date("2026-10-11T12:00:00Z")
+  it("plans an ordinary slot with its deadline 5 minutes after", () => {
+    expect(
+      planOnceSlot(rule("2026-10-12", "09:00"), LONDON, null, now)
+    ).toEqual({
+      ok: true,
+      offsetMinutes: 60,
+      deadlineAt: "2026-10-12T08:05:00.000Z",
+      occurrence: {
+        intendedAt: "2026-10-12T08:00:00.000Z",
+        localDate: "2026-10-12",
+        localTime: "09:00",
+        adjustment: "none",
+      },
+    })
+    expect(DISPATCH_WINDOW_MS).toBe(5 * 60_000)
+  })
+  it("refuses a nonexistent time and an ambiguous one without an offset", () => {
+    const spring = new Date("2026-03-01T00:00:00Z")
+    expect(
+      planOnceSlot(rule("2026-03-29", "01:30"), LONDON, null, spring)
+    ).toEqual({ ok: false, problem: "schedule_time_nonexistent", choices: [] })
+    expect(
+      planOnceSlot(rule("2026-10-25", "01:30"), LONDON, null, now)
+    ).toMatchObject({
+      ok: false,
+      problem: "schedule_time_ambiguous",
+      choices: [{ offsetMinutes: 60 }, { offsetMinutes: 0 }],
+    })
+  })
+  it("takes the instant the explicit offset names", () => {
+    const first = planOnceSlot(rule("2026-10-25", "01:30"), LONDON, 60, now)
+    const second = planOnceSlot(rule("2026-10-25", "01:30"), LONDON, 0, now)
+    expect(first).toMatchObject({
+      ok: true,
+      offsetMinutes: 60,
+      occurrence: {
+        intendedAt: "2026-10-25T00:30:00.000Z",
+        adjustment: "none",
+      },
+    })
+    expect(second).toMatchObject({
+      ok: true,
+      offsetMinutes: 0,
+      occurrence: { intendedAt: "2026-10-25T01:30:00.000Z" },
+    })
+  })
+  it("refuses an offset the time does not have", () => {
+    expect(
+      planOnceSlot(rule("2026-10-25", "01:30"), LONDON, 120, now)
+    ).toMatchObject({ ok: false, problem: "schedule_offset_invalid" })
+    // An unambiguous time accepts only its own offset.
+    expect(planOnceSlot(rule("2026-10-12", "09:00"), LONDON, 60, now).ok).toBe(
+      true
+    )
+    expect(
+      planOnceSlot(rule("2026-10-12", "09:00"), LONDON, 0, now)
+    ).toMatchObject({ ok: false, problem: "schedule_offset_invalid" })
+  })
+  it("enforces 5 minutes to 90 days ahead at the edges", () => {
+    // 2026-10-11 12:00Z is 13:00 in London.
+    const at = (instant: number) =>
+      new Date(now.getTime() + instant).toISOString()
+    const plan = (offset: number) => {
+      const target = new Date(now.getTime() + offset)
+      const local = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "UTC",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).formatToParts(target)
+      const part = (type: string) =>
+        local.find((entry) => entry.type === type)!.value
+      return planOnceSlot(
+        rule(
+          `${part("year")}-${part("month")}-${part("day")}`,
+          `${part("hour")}:${part("minute")}`
+        ),
+        "UTC",
+        null,
+        now
+      )
+    }
+    expect(plan(SCHEDULE_MIN_LEAD_MS)).toMatchObject({
+      ok: true,
+      occurrence: { intendedAt: at(SCHEDULE_MIN_LEAD_MS) },
+    })
+    expect(plan(SCHEDULE_MIN_LEAD_MS - 60_000)).toMatchObject({
+      ok: false,
+      problem: "schedule_too_soon",
+    })
+    expect(plan(-60 * 60_000)).toMatchObject({ problem: "schedule_too_soon" })
+    expect(plan(SCHEDULE_MAX_LEAD_MS)).toMatchObject({ ok: true })
+    expect(plan(SCHEDULE_MAX_LEAD_MS + 60_000)).toMatchObject({
+      ok: false,
+      problem: "schedule_too_far",
+    })
+  })
+  it("skips the window when only displaying", () => {
+    expect(
+      planOnceSlot(rule("2020-01-01", "09:00"), LONDON, null, null).ok
+    ).toBe(true)
+  })
+  it("words every problem and formats offsets", () => {
+    for (const problem of SLOT_PROBLEMS)
+      expect(slotProblemMessage(problem)).toMatch(/\.$/)
+    expect(formatUtcOffset(60)).toBe("UTC+01:00")
+    expect(formatUtcOffset(0)).toBe("UTC+00:00")
+    expect(formatUtcOffset(-330)).toBe("UTC−05:30")
+    expect(
+      describeScheduleRule(
+        { frequency: "once", startDate: "2026-10-25", localTime: "01:30" },
+        LONDON,
+        0
+      )
+    ).toBe("Once on 2026-10-25 at 01:30 (Europe/London, UTC+00:00)")
   })
 })
 
@@ -210,7 +409,9 @@ describe("clock-change wording", () => {
 
   it("counts affected runs without claiming they all moved", () => {
     expect(clockChangeCountNote(0)).toBeNull()
-    expect(clockChangeCountNote(1)).toBe("1 falls on a clock change (see each time below)")
+    expect(clockChangeCountNote(1)).toBe(
+      "1 falls on a clock change (see each time below)"
+    )
     expect(clockChangeCountNote(2)).not.toMatch(/moved/)
   })
 })

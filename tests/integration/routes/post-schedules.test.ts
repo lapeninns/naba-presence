@@ -8,6 +8,7 @@ import {
   scheduleResponseSchema,
   type PublicationSchedule,
 } from "@/lib/contracts/publication-schedules"
+import { resolveLocalSlot } from "@/lib/domain/publication-schedule"
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -687,6 +688,281 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     expect(
       scheduleResponseSchema.parse(await single.json()).schedule
     ).toMatchObject({ status: "awaiting_approval", revision: 2 })
+  })
+
+  /** The next last Sunday of `month` (0-based) strictly after today, in UTC. */
+  const nextLastSunday = (month: number) => {
+    const now = new Date()
+    for (const year of [now.getUTCFullYear(), now.getUTCFullYear() + 1]) {
+      const last = new Date(Date.UTC(year, month + 1, 0))
+      const sunday = new Date(last.getTime() - last.getUTCDay() * 86_400_000)
+      if (sunday.getTime() > now.getTime() + 86_400_000)
+        return sunday.toISOString().slice(0, 10)
+    }
+    throw new Error("no last Sunday")
+  }
+  /** A repeated local time 1 to 89 days ahead in one of a few zones, if any. */
+  const ambiguousSlotWithinWindow = () => {
+    const zones = [
+      "Europe/London",
+      "America/New_York",
+      "Australia/Sydney",
+      "America/Santiago",
+      "Australia/Lord_Howe",
+    ]
+    for (let day = 1; day < 90; day += 1)
+      for (const timezone of zones)
+        for (const localTime of ["00:30", "01:30", "01:45", "02:30", "23:30"]) {
+          const startDate = inDays(day)
+          const slot = resolveLocalSlot(startDate, localTime, timezone)
+          if (slot.kind === "ambiguous")
+            return { startDate, localTime, timezone, slot }
+        }
+    return null
+  }
+
+  it("refuses nonexistent and unresolved repeated local times and books an explicit offset (P08-R2)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const create = (body: Record<string, unknown>) =>
+      t.api("/post-schedules", {
+        method: "POST",
+        body: JSON.stringify({ timezone: "Europe/London", ...body }),
+      })
+    const postId = await t.draft()
+    // London's spring-forward gap: 01:30 never happens that day. The time
+    // check comes before the window, so the date may be months away.
+    const gap = await create({
+      postId,
+      rule: {
+        frequency: "once",
+        startDate: nextLastSunday(2),
+        localTime: "01:30",
+      },
+    })
+    expect(gap.status, await gap.clone().text()).toBe(422)
+    expect(await gap.json()).toMatchObject({
+      error: "schedule_time_nonexistent",
+    })
+    const repeated = await create({
+      postId,
+      rule: {
+        frequency: "once",
+        startDate: nextLastSunday(9),
+        localTime: "01:30",
+      },
+    })
+    expect(repeated.status).toBe(422)
+    expect(await repeated.json()).toMatchObject({
+      error: "schedule_time_ambiguous",
+    })
+    const wrongOffset = await create({
+      postId,
+      rule: { frequency: "once", startDate: inDays(3), localTime: "09:00" },
+      offsetMinutes: 180,
+    })
+    expect(wrongOffset.status).toBe(422)
+    expect(await wrongOffset.json()).toMatchObject({
+      error: "schedule_offset_invalid",
+    })
+    const daily = await create({
+      postId,
+      rule: {
+        frequency: "daily",
+        startDate: inDays(3),
+        localTime: "09:00",
+        end: { type: "count", count: 2 },
+      },
+      offsetMinutes: 0,
+    })
+    // Repeating rules are off here, and the feature check comes first.
+    expect(daily.status).toBe(422)
+    expect(creates()).toHaveLength(0)
+
+    const found = ambiguousSlotWithinWindow()
+    if (!found) return // No clock change in the next 90 days in these zones.
+    const later = found.slot.choices[1]
+    const choices = await create({
+      postId,
+      rule: {
+        frequency: "once",
+        startDate: found.startDate,
+        localTime: found.localTime,
+      },
+      timezone: found.timezone,
+    })
+    expect(choices.status).toBe(422)
+    expect(await choices.json()).toMatchObject({
+      error: "schedule_time_ambiguous",
+      details: {
+        choices: found.slot.choices.map((choice) => ({
+          offsetMinutes: choice.offsetMinutes,
+          intendedAt: choice.instant.toISOString(),
+        })),
+      },
+    })
+    const s = await t.schedule(
+      postId,
+      {
+        frequency: "once",
+        startDate: found.startDate,
+        localTime: found.localTime,
+      },
+      { timezone: found.timezone, offsetMinutes: later.offsetMinutes }
+    )
+    expect(s).toMatchObject({
+      offsetMinutes: later.offsetMinutes,
+      preview: {
+        total: 1,
+        problem: null,
+        first: [{ intendedAt: later.instant.toISOString() }],
+      },
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    const [row] = await admin<
+      { intended_at: Date; deadline_at: Date; offset_minutes: number }[]
+    >`
+      select o.intended_at, o.deadline_at, s.offset_minutes from post_publication_occurrence o
+      join post_publication_schedule s on s.id = o.schedule_id where o.schedule_id = ${s.id}`
+    expect(row.intended_at.toISOString()).toBe(later.instant.toISOString())
+    expect(row.deadline_at.getTime() - row.intended_at.getTime()).toBe(
+      5 * 60_000
+    )
+    expect(row.offset_minutes).toBe(later.offsetMinutes)
+  })
+
+  it("keeps a one-time slot 5 minutes to 90 days ahead at create, revise and approve (P08-R2)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const utc = (offsetMs: number) => {
+      const at = new Date(Date.now() + offsetMs).toISOString()
+      return {
+        frequency: "once",
+        startDate: at.slice(0, 10),
+        localTime: at.slice(11, 16),
+      }
+    }
+    const create = (rule: Record<string, unknown>) =>
+      t.api("/post-schedules", {
+        method: "POST",
+        body: JSON.stringify({ postId: postId, rule, timezone: "UTC" }),
+      })
+    const postId = await t.draft()
+    const soon = await create(utc(2 * 60_000))
+    expect(soon.status).toBe(422)
+    expect(await soon.json()).toMatchObject({ error: "schedule_too_soon" })
+    const far = await create(utc(91 * 86_400_000))
+    expect(far.status).toBe(422)
+    expect(await far.json()).toMatchObject({ error: "schedule_too_far" })
+    const s = await t.schedule(postId, utc(2 * 86_400_000), {
+      timezone: "UTC",
+    })
+    expect(s).toMatchObject({ offsetMinutes: 0, preview: { problem: null } })
+
+    const revise = (rule: Record<string, unknown>) =>
+      t.api(`/post-schedules/${s.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ rule, timezone: "UTC" }),
+      })
+    const revisedSoon = await revise(utc(60_000))
+    expect(revisedSoon.status).toBe(422)
+    expect(await revisedSoon.json()).toMatchObject({
+      error: "schedule_too_soon",
+    })
+    const revisedGap = await t.api(`/post-schedules/${s.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        rule: {
+          frequency: "once",
+          startDate: nextLastSunday(2),
+          localTime: "01:30",
+        },
+        timezone: "Europe/London",
+      }),
+    })
+    expect(revisedGap.status).toBe(422)
+    expect(await revisedGap.json()).toMatchObject({
+      error: "schedule_time_nonexistent",
+    })
+
+    // Time passes between request and approval: the stored slot is now 2
+    // minutes away, so approval is refused and nothing is materialised.
+    await admin`update post_publication_schedule set rule = ${admin.json(utc(2 * 60_000))} where id = ${s.id}`
+    const listed = (await (await t.api("/post-schedules")).json()) as {
+      schedules: PublicationSchedule[]
+    }
+    expect(listed.schedules.find((row) => row.id === s.id)).toMatchObject({
+      preview: { total: 0, problem: "schedule_too_soon" },
+    })
+    const late = await t.approve(s)
+    expect(late.status).toBe(409)
+    expect(await late.json()).toMatchObject({ error: "schedule_too_soon" })
+
+    // A row from before 0241 with a repeated time and no stored offset needs
+    // a new revision; approval never guesses the earlier instant.
+    await admin`update post_publication_schedule set offset_minutes = null, timezone = 'Europe/London',
+      rule = ${admin.json({ frequency: "once", startDate: nextLastSunday(9), localTime: "01:30" })} where id = ${s.id}`
+    const guessed = await t.approve(s)
+    expect(guessed.status).toBe(409)
+    expect(await guessed.json()).toMatchObject({
+      error: "schedule_time_ambiguous",
+    })
+    expect(await t.occurrences(s.id)).toHaveLength(0)
+    expect(creates()).toHaveLength(0)
+  })
+
+  it("approves a one-time schedule from before 0241 with its offset, and an unchanged resubmit is no change (P08-R2)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const rule = { frequency: "once", startDate: inDays(3), localTime: "09:00" }
+    const s = await t.schedule(await t.draft(), rule)
+    const slot = resolveLocalSlot(
+      rule.startDate,
+      rule.localTime,
+      "Europe/London"
+    )
+    if (slot.kind !== "ok") throw new Error("expected a single 09:00")
+    // As stored before 0241: no offset, and a hash that never covered one.
+    await admin`update post_publication_schedule set offset_minutes = null where id = ${s.id}`
+    const approved = await t.approve(s)
+    expect(approved.status, await approved.clone().text()).toBe(200)
+    expect(
+      scheduleResponseSchema.parse(await approved.json()).schedule
+    ).toMatchObject({
+      status: "active",
+      offsetMinutes: slot.offsetMinutes,
+      payloadHash: s.payloadHash,
+      preview: { total: 1, problem: null },
+    })
+    const [stored] = await admin<
+      { offset_minutes: number | null; payload_hash: string }[]
+    >`select offset_minutes, payload_hash from post_publication_schedule where id = ${s.id}`
+    expect(stored).toEqual({
+      offset_minutes: slot.offsetMinutes,
+      payload_hash: s.payloadHash,
+    })
+
+    // The sheet sends no offset for a time that happens once; the server
+    // resolves the stored one, and the approved hash still matches.
+    const resubmit = await t.api(`/post-schedules/${s.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ rule, timezone: "Europe/London" }),
+    })
+    expect(resubmit.status).toBe(409)
+    expect(await resubmit.json()).toMatchObject({ error: "schedule_no_change" })
+    const explicit = await t.api(`/post-schedules/${s.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        rule,
+        timezone: "Europe/London",
+        offsetMinutes: slot.offsetMinutes,
+      }),
+    })
+    expect(explicit.status).toBe(409)
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "active",
+      status_reason: null,
+    })
+    expect((await t.occurrences(s.id)).map((o) => o.status)).toEqual([
+      "scheduled",
+    ])
   })
 
   // Last: re-running 0240 touches every tenant's rows in this database.

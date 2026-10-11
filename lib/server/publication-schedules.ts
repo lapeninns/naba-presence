@@ -14,9 +14,16 @@ import {
 import { localPostInputSchema } from "@/lib/contracts/location-posts"
 import {
   DEFAULT_SCHEDULE_TIMEZONE,
+  DISPATCH_WINDOW_MS,
   eventOffsetsSchema,
   expandSchedule,
+  formatUtcOffset,
+  planOnceSlot,
+  resolveLocalSlot,
+  SCHEDULE_MIN_LEAD_MS,
   scheduleRuleSchema,
+  slotProblemMessage,
+  type PlannedOccurrence,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
 import { writeAudit } from "@/lib/server/audit"
@@ -43,6 +50,7 @@ type Row = {
   payloadHash: string
   rule: unknown
   timezone: string
+  offsetMinutes: number | null
   eventOffsets: unknown
   template: Record<string, unknown>
   sourcePostId: string | null
@@ -119,13 +127,21 @@ async function requireScheduling(
     )
 }
 
-/** The content, rule, zone, offsets and target that one approval covers. */
+/**
+ * The content, rule, zone, slot offset, event offsets and target that one
+ * approval covers. The slot offset is hashed only for a one-time time that
+ * happens twice, the one case where it adds anything: elsewhere the rule and
+ * zone already fix the instant. So a repeating schedule's hash, and the hash
+ * of a one-time schedule stored before 0241 (which 0241 or its approval gives
+ * an offset), is the hash the server computes for the same content now.
+ */
 export function schedulePayloadHash(input: {
   locationId: string
   template: unknown
   rule: ScheduleRule
   timezone: string
   eventOffsets: unknown
+  offsetMinutes?: number | null
 }) {
   return stableGoogleHash({
     locationId: input.locationId,
@@ -133,6 +149,12 @@ export function schedulePayloadHash(input: {
     rule: input.rule,
     timezone: input.timezone,
     eventOffsets: input.eventOffsets ?? null,
+    ...(input.offsetMinutes != null &&
+    input.rule.frequency === "once" &&
+    resolveLocalSlot(input.rule.startDate, input.rule.localTime, input.timezone)
+      .kind === "ambiguous"
+      ? { offsetMinutes: input.offsetMinutes }
+      : {}),
   })
 }
 
@@ -144,7 +166,7 @@ async function loadRow(
 ) {
   const [row] = await sql<Row[]>`
     select s.id::text as id, s.location_id::text as "locationId", l.name as "locationName", s.status, s.status_reason as "statusReason",
-      s.revision, s.payload_hash as "payloadHash", s.rule, s.timezone, s.event_offsets as "eventOffsets", s.template,
+      s.revision, s.payload_hash as "payloadHash", s.rule, s.timezone, s.offset_minutes as "offsetMinutes", s.event_offsets as "eventOffsets", s.template,
       s.source_post_id::text as "sourcePostId", s.requested_by::text as "requestedBy", s.approved_by::text as "approvedBy",
       s.approved_at as "approvedAt", s.approved_revision as "approvedRevision", s.require_two_person_approval as "requireTwoPersonApproval"
     from post_publication_schedule s join location l on l.id = s.location_id
@@ -160,7 +182,29 @@ async function project(
   row: Row
 ): Promise<PublicationSchedule> {
   const rule = scheduleRuleSchema.parse(row.rule)
-  const expansion = expandSchedule(rule, row.timezone)
+  // A one-time slot is shown as the strict plan would run it; a waiting one
+  // is also checked against the bookable window, since approval needs that.
+  // A live one-time row always has its offset or is waiting or in review
+  // (0241); an ended one from before 0241 without one is shown as the
+  // lenient rules ran it, since that is what happened.
+  const ended = row.status === "cancelled" || row.status === "completed"
+  const once =
+    rule.frequency === "once" && !(ended && row.offsetMinutes === null)
+      ? planOnceSlot(
+          rule,
+          row.timezone,
+          row.offsetMinutes,
+          row.status === "awaiting_approval" ? new Date() : null
+        )
+      : null
+  const expansion =
+    once === null
+      ? expandSchedule(rule, row.timezone)
+      : {
+          occurrences: once.ok ? [once.occurrence] : [],
+          skippedDates: [],
+          truncated: false,
+        }
   const counts = await sql<{ status: string; count: number }[]>`
     select status, count(*)::int as count from post_publication_occurrence where schedule_id = ${row.id} and schedule_revision = ${row.revision} group by status`
   return scheduleSchema.parse({
@@ -185,6 +229,7 @@ async function project(
       adjusted: expansion.occurrences.filter(
         (occurrence) => occurrence.adjustment !== "none"
       ).length,
+      problem: once && !once.ok ? once.problem : null,
     },
     counts: Object.fromEntries(counts.map((row) => [row.status, row.count])),
   })
@@ -254,15 +299,66 @@ function validateShape(
   if (eventOffsets) eventOffsetsSchema.parse(eventOffsets)
 }
 
-function futureOccurrences(
+type SlotPlan = {
+  occurrences: PlannedOccurrence[]
+  /** Set for a one-time slot; null for a repeating rule. */
+  offsetMinutes: number | null
+}
+
+/**
+ * The occurrences a rule would materialise now, under the rules its
+ * frequency gets (P08-R2). One-time: the strict slot, 5 minutes to 90 days
+ * ahead, no nonexistent time, an explicit offset for a repeated one. A
+ * repeating rule keeps its lenient clock-change rules, and only occurrences
+ * at least 5 minutes ahead count. Throws `status` (422 on input, 409 at
+ * approval, where time has passed or the stored slot no longer resolves).
+ */
+function planSlots(
   rule: ScheduleRule,
   timezone: string,
+  offsetMinutes: number | null,
+  status: 409 | 422,
   now = new Date()
-) {
-  const expansion = expandSchedule(rule, timezone)
-  return expansion.occurrences.filter(
-    (occurrence) => Date.parse(occurrence.intendedAt) > now.getTime()
+): SlotPlan {
+  if (rule.frequency === "once") {
+    const plan = planOnceSlot(rule, timezone, offsetMinutes, now)
+    if (!plan.ok)
+      throw new ApiError(
+        status,
+        plan.problem,
+        slotProblemMessage(plan.problem),
+        {
+          details:
+            plan.choices.length > 0
+              ? {
+                  choices: plan.choices.map((choice) => ({
+                    offsetMinutes: choice.offsetMinutes,
+                    utcOffset: formatUtcOffset(choice.offsetMinutes),
+                    intendedAt: choice.instant.toISOString(),
+                  })),
+                }
+              : undefined,
+        }
+      )
+    return { occurrences: [plan.occurrence], offsetMinutes: plan.offsetMinutes }
+  }
+  if (offsetMinutes !== null)
+    throw new ApiError(
+      status,
+      "schedule_offset_not_applicable",
+      "Only a single publication takes a UTC offset."
+    )
+  const occurrences = expandSchedule(rule, timezone).occurrences.filter(
+    (occurrence) =>
+      Date.parse(occurrence.intendedAt) >= now.getTime() + SCHEDULE_MIN_LEAD_MS
   )
+  if (!occurrences.length)
+    throw new ApiError(
+      status,
+      "schedule_in_past",
+      "Every publication time in this schedule has already passed."
+    )
+  return { occurrences, offsetMinutes: null }
 }
 
 export async function createPublicationSchedule(
@@ -288,12 +384,12 @@ export async function createPublicationSchedule(
       draft.timezone ?? location?.timezone ?? DEFAULT_SCHEDULE_TIMEZONE
     const template = await frozenTemplate(sql, locationId, draft.postId)
     validateShape(template, draft.rule, draft.eventOffsets)
-    if (!futureOccurrences(draft.rule, timezone).length)
-      throw new ApiError(
-        422,
-        "schedule_in_past",
-        "Every publication time in this schedule has already passed."
-      )
+    const { offsetMinutes } = planSlots(
+      draft.rule,
+      timezone,
+      draft.offsetMinutes,
+      422
+    )
     const [policy] = await sql<
       { required: boolean }[]
     >`select require_two_person_approval as required from organisation limit 1`
@@ -303,11 +399,12 @@ export async function createPublicationSchedule(
       rule: draft.rule,
       timezone,
       eventOffsets: draft.eventOffsets,
+      offsetMinutes,
     })
     const [created] = await sql<{ id: string }[]>`
-      insert into post_publication_schedule (organisation_id, location_id, source_post_id, template, event_offsets, rule, timezone, payload_hash, requested_by, require_two_person_approval)
+      insert into post_publication_schedule (organisation_id, location_id, source_post_id, template, event_offsets, rule, timezone, offset_minutes, payload_hash, requested_by, require_two_person_approval)
       values (${session.organisationId}, ${locationId}, ${draft.postId}, ${jsonColumn(sql, template)}, ${jsonColumnOrNull(sql, draft.eventOffsets)},
-        ${jsonColumn(sql, draft.rule)}, ${timezone}, ${payloadHash}, ${session.userId}, ${policy?.required ?? false})
+        ${jsonColumn(sql, draft.rule)}, ${timezone}, ${offsetMinutes}, ${payloadHash}, ${session.userId}, ${policy?.required ?? false})
       returning id::text as id`
     await writeAudit(sql, {
       organisationId: session.organisationId,
@@ -402,22 +499,24 @@ export async function approvePublicationSchedule(
         "approval_actor_access_changed",
         "The person who requested this schedule is no longer a member."
       )
-    const occurrences = futureOccurrences(
+    // The slot is checked again now: the window has moved since the request,
+    // and a one-time slot must still resolve to the offset its hash covers
+    // (a row from before 0241 has none stored and must be unambiguous). The
+    // resolved offset is stored: for such a row the time happens once, so it
+    // is not a guess and its hash, which leaves that offset out, still holds.
+    const { occurrences, offsetMinutes } = planSlots(
       scheduleRuleSchema.parse(row.rule),
-      row.timezone
+      row.timezone,
+      row.offsetMinutes,
+      409
     )
-    if (!occurrences.length)
-      throw new ApiError(
-        409,
-        "schedule_in_past",
-        "Every publication time in this schedule has already passed."
-      )
     await sql`
       update post_publication_schedule set status = 'active', status_reason = null, approved_by = ${session.userId}, approved_at = now(),
-        approved_revision = revision, updated_at = now() where id = ${scheduleId}`
+        approved_revision = revision, offset_minutes = ${offsetMinutes}, updated_at = now() where id = ${scheduleId}`
     await sql`
-      insert into post_publication_occurrence (organisation_id, schedule_id, location_id, schedule_revision, intended_at, local_date, local_time, adjustment)
-      select ${session.organisationId}, ${scheduleId}, ${locationId}, ${row.revision}, x.intended_at, x.local_date, x.local_time, x.adjustment
+      insert into post_publication_occurrence (organisation_id, schedule_id, location_id, schedule_revision, intended_at, deadline_at, local_date, local_time, adjustment)
+      select ${session.organisationId}, ${scheduleId}, ${locationId}, ${row.revision}, x.intended_at, x.intended_at + ${`${DISPATCH_WINDOW_MS / 1000} seconds`}::interval,
+        x.local_date, x.local_time, x.adjustment
       from unnest(${occurrences.map((o) => o.intendedAt)}::timestamptz[], ${occurrences.map((o) => o.localDate)}::date[],
         ${occurrences.map((o) => o.localTime)}::text[], ${occurrences.map((o) => o.adjustment)}::text[]) as x(intended_at, local_date, local_time, adjustment)
       on conflict (schedule_id, schedule_revision, intended_at) do nothing`
@@ -472,12 +571,12 @@ export async function revisePublicationSchedule(
         ? await frozenTemplate(sql, locationId, row.sourcePostId)
         : localPostInputSchema.parse(row.template)
     validateShape(template, input.rule, input.eventOffsets)
-    if (!futureOccurrences(input.rule, input.timezone).length)
-      throw new ApiError(
-        422,
-        "schedule_in_past",
-        "Every publication time in this schedule has already passed."
-      )
+    const { offsetMinutes } = planSlots(
+      input.rule,
+      input.timezone,
+      input.offsetMinutes,
+      422
+    )
     const [policy] = await sql<
       { required: boolean }[]
     >`select require_two_person_approval as required from organisation limit 1`
@@ -487,6 +586,7 @@ export async function revisePublicationSchedule(
       rule: input.rule,
       timezone: input.timezone,
       eventOffsets: input.eventOffsets,
+      offsetMinutes,
     })
     // A blocked or quarantined schedule may be submitted again unchanged.
     if (
@@ -503,7 +603,7 @@ export async function revisePublicationSchedule(
       update post_publication_occurrence set status = 'cancelled', status_reason = 'approval_invalidated', finished_at = now()
       where schedule_id = ${scheduleId} and status = 'scheduled'`
     await sql`
-      update post_publication_schedule set template = ${jsonColumn(sql, template)}, rule = ${jsonColumn(sql, input.rule)}, timezone = ${input.timezone},
+      update post_publication_schedule set template = ${jsonColumn(sql, template)}, rule = ${jsonColumn(sql, input.rule)}, timezone = ${input.timezone}, offset_minutes = ${offsetMinutes},
         event_offsets = ${jsonColumnOrNull(sql, input.eventOffsets)}, payload_hash = ${payloadHash}, revision = revision + 1,
         status = 'awaiting_approval', status_reason = null, approved_by = null, approved_at = null, approved_revision = null,
         requested_by = ${session.userId}, require_two_person_approval = ${policy?.required ?? false}, updated_at = now()
@@ -600,7 +700,7 @@ export async function listScheduleOccurrences(
     await requireScheduling(sql, session.organisationId)
     const rows = await sql`
       select o.id::text as id, o.schedule_id::text as "scheduleId", o.location_id::text as "locationId", l.name as "locationName",
-        o.intended_at as "intendedAt", o.local_date::text as "localDate", o.local_time as "localTime", s.timezone, o.adjustment,
+        o.intended_at as "intendedAt", o.deadline_at as "deadlineAt", o.local_date::text as "localDate", o.local_time as "localTime", s.timezone, o.adjustment,
         o.status, o.status_reason as "statusReason", o.post_id::text as "postId",
         coalesce(s.template ->> 'summary', '') as summary, coalesce(s.template ->> 'topicType', '') as "topicType"
       from post_publication_occurrence o
@@ -616,6 +716,7 @@ export async function listScheduleOccurrences(
       occurrences: rows.map((row) => ({
         ...row,
         intendedAt: (row.intendedAt as Date).toISOString(),
+        deadlineAt: (row.deadlineAt as Date).toISOString(),
       })),
     })
   })

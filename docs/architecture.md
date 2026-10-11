@@ -1523,8 +1523,28 @@ occurrence inside 24 hours (older ones are missed), never publishes ended event
 or offer content, and creates one post row per occurrence so a retry reuses the
 same publish idempotency key. An ambiguous publish blocks the schedule; nothing
 is resubmitted automatically. Edits create a new revision and cancel pending
-occurrences. Spring-forward times run at the first valid local time; repeated
-autumn times run once, at the earlier instant; absent month days are skipped.
+occurrences. For repeating rules, spring-forward times run at the first valid
+local time, repeated autumn times run once at the earlier instant, and absent
+month days are skipped.
+
+One-time slots are strict (P08-R2, migration 0241; `resolveLocalSlot` and
+`planOnceSlot` in `lib/domain/publication-schedule.ts`). Create, revise and
+approve each require the slot to be 5 minutes to 90 days ahead
+(`schedule_too_soon`, `schedule_too_far`). A time the clocks skip is refused
+(`schedule_time_nonexistent`). A time that happens twice needs `offsetMinutes`
+naming one of its two UTC offsets (`schedule_time_ambiguous`, with both choices
+in `details`). An offset the time does not have is `schedule_offset_invalid`.
+The resolved offset is stored as `post_publication_schedule.offset_minutes`;
+the payload hash covers it only for a time that happens twice, since elsewhere
+the rule and zone already fix the instant (so hashes stored before 0241 stay
+valid). Each occurrence carries `deadline_at` (intended + 5 minutes, defaulted
+by a trigger for writers that omit it). 0241 backfills the offset from an
+unadjusted run of the current revision; an active or paused one-time schedule
+whose run a clock change moved goes to `needs_review` /
+`slot_needs_new_time` (its waiting run cancelled `schedule_quarantined`).
+Approving a schedule from before 0241 resolves its stored slot strictly, stores
+the offset and never guesses the earlier instant. Repeating rules materialise
+only occurrences at least 5 minutes ahead.
 
 Scheduling is behind the organisation feature `post_scheduling`
 (`lib/server/publication-schedules.ts` `schedulingAvailability`). Off, the

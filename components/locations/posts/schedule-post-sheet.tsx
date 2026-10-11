@@ -38,7 +38,11 @@ import {
   describeScheduleRule,
   eventOffsetsSchema,
   expandSchedule,
+  formatUtcOffset,
+  planOnceSlot,
+  resolveLocalSlot,
   scheduleRuleSchema,
+  slotProblemMessage,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
 import { queryKeys } from "@/lib/queries/keys"
@@ -79,6 +83,8 @@ function initial(
         : tomorrow,
     startDays: existing?.eventOffsets?.startDays ?? 0,
     endDays: existing?.eventOffsets?.endDays ?? 0,
+    /** A one-time slot's chosen UTC offset, for a time that happens twice. */
+    offsetMinutes: existing?.offsetMinutes ?? null,
   }
 }
 
@@ -160,7 +166,30 @@ export function SchedulePostSheet({
           endDays: form.endDays,
         })
       : null
-  const expansion = parsed.success ? expandSchedule(parsed.data, zone) : null
+  // One-time slots are strict (P08-R2): a time the clocks skip is refused
+  // and a time that happens twice needs its UTC offset chosen.
+  const slot =
+    parsed.success && parsed.data.frequency === "once"
+      ? resolveLocalSlot(parsed.data.startDate, parsed.data.localTime, zone)
+      : null
+  const offsetMinutes =
+    slot?.kind === "ambiguous" &&
+    slot.choices.some((choice) => choice.offsetMinutes === form.offsetMinutes)
+      ? form.offsetMinutes
+      : null
+  const once =
+    parsed.success && parsed.data.frequency === "once"
+      ? planOnceSlot(parsed.data, zone, offsetMinutes, new Date(openedAt))
+      : null
+  const expansion = !parsed.success
+    ? null
+    : once
+      ? {
+          occurrences: once.ok ? [once.occurrence] : [],
+          skippedDates: [],
+          truncated: false,
+        }
+      : expandSchedule(parsed.data, zone)
   const future =
     expansion?.occurrences.filter(
       (occurrence) => Date.parse(occurrence.intendedAt) > openedAt
@@ -169,9 +198,11 @@ export function SchedulePostSheet({
     ? (parsed.error.issues[0]?.message ?? "Check the schedule.")
     : offsets && !offsets.success
       ? (offsets.error.issues[0]?.message ?? "Check the event dates.")
-      : future.length === 0
-        ? "Every time in this schedule has already passed."
-        : null
+      : once && !once.ok
+        ? slotProblemMessage(once.problem)
+        : future.length === 0
+          ? "Every time in this schedule has already passed."
+          : null
 
   const save = useMutation({
     mutationFn: () => {
@@ -182,12 +213,14 @@ export function SchedulePostSheet({
             rule,
             timezone: zone,
             eventOffsets,
+            offsetMinutes,
           })
         : createPostSchedule(locationId, {
             postId: post.id,
             rule,
             timezone: zone,
             eventOffsets,
+            offsetMinutes,
           })
     },
     onSuccess: () => {
@@ -305,6 +338,30 @@ export function SchedulePostSheet({
                 </SelectContent>
               </Select>
             </div>
+            {slot?.kind === "ambiguous" ? (
+              <div className="flex flex-col gap-1.5">
+                <span id={`${id}-offset`} className="text-ui text-ink">
+                  Which {form.localTime}
+                </span>
+                <SegmentedControl
+                  value={offsetMinutes === null ? "" : String(offsetMinutes)}
+                  onValueChange={(value) =>
+                    set("offsetMinutes", value === "" ? null : Number(value))
+                  }
+                  aria-labelledby={`${id}-offset`}
+                >
+                  {slot.choices.map((choice, index) => (
+                    <SegmentedControlItem
+                      key={choice.offsetMinutes}
+                      value={String(choice.offsetMinutes)}
+                    >
+                      {index === 0 ? "First" : "Second"} (
+                      {formatUtcOffset(choice.offsetMinutes)})
+                    </SegmentedControlItem>
+                  ))}
+                </SegmentedControl>
+              </div>
+            ) : null}
             {form.frequency === "weekly" ? (
               <fieldset className="flex flex-col gap-2">
                 <legend className="text-ui text-ink">On</legend>
@@ -437,7 +494,11 @@ export function SchedulePostSheet({
               ) : parsed.success && expansion ? (
                 <>
                   <p className="text-ui text-ink">
-                    {describeScheduleRule(parsed.data, zone)}
+                    {describeScheduleRule(
+                      parsed.data,
+                      zone,
+                      once?.ok ? once.offsetMinutes : null
+                    )}
                   </p>
                   <p className="text-caption text-ink-muted">
                     {future.length}{" "}

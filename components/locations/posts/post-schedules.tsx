@@ -27,6 +27,7 @@ import {
   clockChangeCountNote,
   clockChangeNote,
   describeScheduleRule,
+  slotProblemMessage,
 } from "@/lib/domain/publication-schedule"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -55,6 +56,8 @@ const REASON: Record<string, string> = {
     "Repeating schedules are no longer available here, so nothing was published. Change it to a single publication, or cancel it.",
   recurring_quarantined:
     "Repeating schedules are no longer the default, so this one was stopped before it published again. Change it to a single publication, or cancel it.",
+  slot_needs_new_time:
+    "Its time was moved or picked automatically because of a clock change, which single publications no longer do, so it was stopped before it published. Choose a new time, or cancel it.",
   prior_occurrence_unresolved:
     "A publication was sent but Google's result is unknown. Check the post's saved outcome; nothing more is sent until then.",
 }
@@ -279,8 +282,18 @@ export function PostSchedules({
                 {review.template.summary || "(No text)"}
               </p>
               <p className="text-ui text-ink-secondary">
-                {describeScheduleRule(review.rule, review.timezone)}
+                {describeScheduleRule(
+                  review.rule,
+                  review.timezone,
+                  review.offsetMinutes
+                )}
               </p>
+              {review.preview.problem ? (
+                <p role="alert" className="text-ui text-danger-ink">
+                  {slotProblemMessage(review.preview.problem)} Change the
+                  schedule before approving it.
+                </p>
+              ) : null}
               {review.eventOffsets ? (
                 <p className="text-ui text-ink-secondary">
                   Event runs from {review.eventOffsets.startDays} to{" "}
@@ -329,7 +342,7 @@ export function PostSchedules({
               Close
             </Button>
             <Button
-              disabled={!review?.canApprove}
+              disabled={!review?.canApprove || Boolean(review.preview.problem)}
               pending={approve.isPending}
               onClick={() => review && approve.mutate(review)}
             >
