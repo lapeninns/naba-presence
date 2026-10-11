@@ -54,6 +54,7 @@ export async function createTestTenant(
   await admin`
     insert into organisation_billing (organisation_id, state)
     values (${organisationId}, 'pilot')
+    on conflict (organisation_id) do nothing
   `
   if (options.workspaceMode === "business") {
     await admin`

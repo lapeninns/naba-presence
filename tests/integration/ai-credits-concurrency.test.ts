@@ -27,6 +27,7 @@ describeDatabase("AI credit reservation under parallel requests", () => {
     await admin`
       insert into organisation_billing (organisation_id, state)
       values (${org.id}, 'pilot')
+      on conflict (organisation_id) do nothing
     `
     organisations.push(org.id)
     return org.id

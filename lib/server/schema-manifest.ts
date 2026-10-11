@@ -106,4 +106,5 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "20260729000400_remove_local_demo_data",
   "0220_billing_foundation",
   "0221_billing_period_checks",
+  "0222_billing_integrity",
 ]

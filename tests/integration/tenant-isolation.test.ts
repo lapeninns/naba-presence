@@ -51,6 +51,7 @@ describeDatabase("database tenant isolation", () => {
     await admin`
       insert into organisation_billing (organisation_id, state)
       values (${organisationA}, 'pilot'), (${organisationB}, 'pilot')
+      on conflict (organisation_id) do nothing
     `
     await admin`
       insert into ai_credit_period (

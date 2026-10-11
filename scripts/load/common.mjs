@@ -195,6 +195,7 @@ export async function createLoadTenant(
   await admin`
     insert into organisation_billing (organisation_id, state)
     values (${organisationId}, 'pilot')
+    on conflict (organisation_id) do nothing
   `
   await admin`
     insert into app_user (id, email, display_name, default_organisation_id)

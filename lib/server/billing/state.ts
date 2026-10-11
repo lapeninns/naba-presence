@@ -167,7 +167,9 @@ export function accessFromView(
 /**
  * Gives a new organisation its explicit pilot record. Called in the same
  * transaction that inserts the organisation, under its tenant context.
- * Idempotent: an existing record is left as it is.
+ * Idempotent: an existing record is left as it is. Since 0222 the
+ * organisation insert trigger seeds the same row first, so on a migrated
+ * database this is a belt-and-braces no-op.
  */
 export async function seedPilotBilling(
   sql: TransactionSql,

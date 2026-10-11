@@ -375,3 +375,157 @@ describe("0220 billing foundation migration", () => {
     })
   })
 })
+
+const integrity = read("0222_billing_integrity.sql")
+
+describe("0222 billing integrity migration", () => {
+  const ORG_OLD = "00000000-0000-4000-8000-0000000000a1"
+  const ORG_GAP = "00000000-0000-4000-8000-0000000000a2"
+  const ORG_LATER = "00000000-0000-4000-8000-0000000000a3"
+  const ORG_AGENCY = "00000000-0000-4000-8000-0000000000a4"
+  let db: PGlite
+
+  beforeAll(async () => {
+    db = new PGlite()
+    await db.exec(`
+      create role naba_app_runtime;
+      create table schema_migration (version text primary key);
+      create table organisation (
+        id uuid primary key,
+        workspace_mode text not null default 'business'
+      );
+      create table app_user (id uuid primary key);
+      insert into organisation (id) values ('${ORG_OLD}');
+    `)
+    await db.exec(aiCredits)
+    await db.exec(migration)
+    await db.exec(periodChecks)
+    // Created by the previous app release after 0220 ran: no billing row.
+    await db.exec(`insert into organisation (id) values ('${ORG_GAP}');`)
+    await db.exec(integrity)
+  })
+
+  afterAll(async () => {
+    await db.close()
+  })
+
+  const states = async () =>
+    (
+      await db.query<{ id: string; state: string }>(
+        "select organisation_id::text as id, state from organisation_billing order by 1"
+      )
+    ).rows
+
+  it("is listed in the manifest and fails fast on locks", () => {
+    expect(REQUIRED_MIGRATIONS).toContain("0222_billing_integrity")
+    expect(integrity).toMatch(/set local lock_timeout = '\d+s'/)
+  })
+
+  it("backfills an organisation created after 0220 without a row", async () => {
+    expect(await states()).toEqual([
+      { id: ORG_OLD, state: "pilot" },
+      { id: ORG_GAP, state: "pilot" },
+    ])
+  })
+
+  it("gives every new organisation a pilot row, whoever creates it", async () => {
+    await db.exec(`
+      insert into organisation (id, workspace_mode)
+      values ('${ORG_LATER}', 'business'), ('${ORG_AGENCY}', 'agency');
+    `)
+    // Provisioning's own seed stays a harmless no-op.
+    await db.query(
+      `insert into organisation_billing (organisation_id, state)
+       values ($1, 'pilot') on conflict (organisation_id) do nothing`,
+      [ORG_LATER]
+    )
+    expect(await states()).toEqual([
+      { id: ORG_OLD, state: "pilot" },
+      { id: ORG_GAP, state: "pilot" },
+      { id: ORG_LATER, state: "pilot" },
+      { id: ORG_AGENCY, state: "pilot" },
+    ])
+  })
+
+  async function plan(code: string, environment: string, mode: string) {
+    const result = await db.query<{ id: string }>(
+      `insert into billing_plan
+         (code, version, workspace_mode, environment, name, location_limit,
+          ai_draft_credits_per_period, is_test_offer, stripe_price_id)
+       values ($1, 1, $3, $2, $1, 5, 100, $2 = 'test', $4)
+       returning id::text as id`,
+      [code, environment, mode, `price_${code.replace(/_/g, "")}`]
+    )
+    return result.rows[0].id
+  }
+
+  const subscribe = (
+    org: string,
+    planId: string,
+    environment: string,
+    extra = ""
+  ) =>
+    db.query(
+      `update organisation_billing set
+         state = 'active', plan_id = $2, environment = $3,
+         stripe_customer_id = 'cus_' || substr(md5($1::text), 1, 8),
+         stripe_subscription_id = 'sub_' || substr(md5($1::text), 1, 8),
+         first_payment_succeeded = true,
+         current_period_end = now() + interval '30 days'${extra}
+       where organisation_id = $1`,
+      [org, planId, environment]
+    )
+
+  it("ties a subscription's plans to its environment and workspace mode", async () => {
+    const liveBusiness = await plan("live_business", "live", "business")
+    const testBusiness = await plan("test_business", "test", "business")
+    const liveAgency = await plan("live_agency", "live", "agency")
+
+    // A live subscription cannot name a test-environment (test offer) plan.
+    await expect(subscribe(ORG_OLD, testBusiness, "live")).rejects.toThrow(
+      /billing_plan_environment_mismatch/
+    )
+    // Nor a plan for the other workspace mode.
+    await expect(subscribe(ORG_OLD, liveAgency, "live")).rejects.toThrow(
+      /billing_plan_workspace_mode_mismatch/
+    )
+    // The scheduled plan is held to the same rules.
+    await expect(
+      subscribe(
+        ORG_OLD,
+        liveBusiness,
+        "live",
+        `, pending_plan_id = '${testBusiness}',
+           pending_effective_at = now() + interval '30 days'`
+      )
+    ).rejects.toThrow(/billing_plan_environment_mismatch/)
+
+    // Positive controls.
+    expect((await subscribe(ORG_OLD, liveBusiness, "live")).affectedRows).toBe(1)
+    expect((await subscribe(ORG_GAP, testBusiness, "test")).affectedRows).toBe(1)
+    expect((await subscribe(ORG_AGENCY, liveAgency, "live")).affectedRows).toBe(1)
+
+    // Changing only the environment under a subscription is refused too.
+    await expect(
+      db.query(
+        "update organisation_billing set environment = 'test' where organisation_id = $1",
+        [ORG_OLD]
+      )
+    ).rejects.toThrow(/billing_plan_environment_mismatch/)
+
+    // An ended subscription keeps its history after a mode switch.
+    await db.query(
+      "update organisation_billing set state = 'canceled' where organisation_id = $1",
+      [ORG_AGENCY]
+    )
+    await db.query(
+      "update organisation set workspace_mode = 'business' where id = $1",
+      [ORG_AGENCY]
+    )
+    const touched = await db.query(
+      "update organisation_billing set state = 'read_only' where organisation_id = $1",
+      [ORG_AGENCY]
+    )
+    expect(touched.affectedRows).toBe(1)
+  })
+})

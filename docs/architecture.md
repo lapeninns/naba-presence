@@ -1558,7 +1558,15 @@ later slice), so the app behaves as before.
   `lib/server/provisioning.ts` seeds the same row in the transaction that
   creates an organisation (`seedPilotBilling` in
   `lib/server/billing/state.ts`, which also holds the plain and `FOR UPDATE`
-  reads).
+  reads). Migration `0222_billing_integrity` makes the row a database
+  guarantee: an `AFTER INSERT` trigger on `organisation` seeds the pilot row
+  whatever code creates the organisation (an older app release, an operator
+  script), and it backfills any organisation created between 0220 and 0222.
+  The same migration requires a subscription state's current and scheduled
+  plan to match the record's `environment` and the organisation's
+  `workspace_mode`, so a live subscription can never name a test offer. It
+  sets `lock_timeout`; 0220 does not, so whoever renumbers 0220 for release
+  should add `set local lock_timeout` to it.
 - `ai_credit_period` is one allowance grant (pilot month, trial, paid period,
   adjustment), idempotent per organisation, kind and `source_ref`; a null
   allowance means unknown. `ai_usage.credit_period_id` links usage to its
