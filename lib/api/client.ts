@@ -178,8 +178,14 @@ async function readPayload(response: Response): Promise<{
  * An answer that says this session may no longer see or act on what a path
  * names: a 403 from an access check, or the 404 that a hidden location or
  * client answers exactly like a missing one (lib/server/permissions.ts).
+ * `method` lets the handler tell a refused read from a refused action.
  */
-export type AccessLost = { path: string; status: number; code: string }
+export type AccessLost = {
+  path: string
+  method: string
+  status: number
+  code: string
+}
 
 const ACCESS_LOST_CODES: Readonly<Record<number, ReadonlySet<string>>> = {
   403: new Set([
@@ -189,7 +195,11 @@ const ACCESS_LOST_CODES: Readonly<Record<number, ReadonlySet<string>>> = {
     "administration_access_denied",
     "verification_access_changed",
   ]),
-  404: new Set(["location_not_found", "client_not_found"]),
+  // `review_not_found` is the default code of the location access checks
+  // (requireLocationAccess and friends), which many /api/locations/{id}/*
+  // reads use without naming their own; the handler only acts on location
+  // and client paths, so the same code on /api/reviews/* changes nothing.
+  404: new Set(["location_not_found", "client_not_found", "review_not_found"]),
 }
 
 let accessLostHandler: ((lost: AccessLost) => void) | null = null
@@ -209,10 +219,15 @@ export function setAccessLostHandler(
   }
 }
 
-function reportAccessLost(path: string, status: number, code: string): void {
+function reportAccessLost(
+  path: string,
+  method: string,
+  status: number,
+  code: string
+): void {
   if (!accessLostHandler || !ACCESS_LOST_CODES[status]?.has(code)) return
   try {
-    accessLostHandler({ path, status, code })
+    accessLostHandler({ path, method, status, code })
   } catch {
     // Dropping a cache is best-effort; the caller still gets its error.
   }
@@ -289,7 +304,7 @@ export async function apiFetch<T = unknown>(
     ) {
       handleUnauthorized()
     }
-    reportAccessLost(path, response.status, code)
+    reportAccessLost(path, method, response.status, code)
     throw new ApiClientError(
       response.status,
       code,

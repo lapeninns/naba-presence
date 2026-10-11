@@ -6,14 +6,18 @@
  *     query except `session` when the session's user, organisation, role,
  *     publish right or scope fingerprint changes, and switching
  *     organisation reloads the page as well.
- *   * Everything cached about one location is rooted at one of
+ *   * Per-location editor and resource keys are rooted at one of
  *     ["locations", id], ["location-capabilities", id], ["listing-summary", id]
- *     or ["listing-change-requests", id]; everything about one client at
- *     ["clients", id]. A 403 from an access check, or the 404 a hidden
- *     location or client answers, on `/api/locations/{id}` or
- *     `/api/clients/{id}` drops exactly those roots
- *     (`resourcePrefixesForPath`). A new per-location or per-client key must
- *     live under one of them, or be added there.
+ *     or ["listing-change-requests", id]; per-client keys at ["clients", id].
+ *     A refused or hidden read on `/api/locations/{id}` or `/api/clients/{id}`
+ *     (a 403 from an access check, or the 404 a hidden location or client
+ *     answers) drops exactly those roots (`resourcePrefixesForPath`); a 403
+ *     to a write refetches them in place. A new per-location or per-client
+ *     key must live under one of them, or be added there.
+ *   * Cross-location lists (reviews, review counts, review detail, analytics,
+ *     schedule occurrences) are not dropped by a per-location answer. They
+ *     follow the session: every access-lost answer refetches it, and a
+ *     changed scope token then clears them with everything else.
  */
 export const queryKeys = {
   session: ["session"] as const,

@@ -10,7 +10,7 @@ import {
 import { peekStashedDraft } from "@/lib/api/draft-stash"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
-import type { DraftScope } from "./draft-key"
+import { draftKeyOwner, type DraftScope } from "./draft-key"
 import { useDraftKey } from "./use-draft-key"
 
 export type EditorDraft<T> = {
@@ -115,6 +115,23 @@ export function useEditorDraft<T>({
     } else {
       setIncoming(true)
     }
+  }
+
+  // The signed-in identity the draft was written under. When the key names
+  // someone else (another account signed in from a second tab, without a
+  // reload), the in-memory edits are the previous person's: go back to the
+  // server value rather than show them, or stash them, as the new person's.
+  // A first known identity after an unknown one adopts the draft.
+  const owner = draftKeyOwner(key)
+  const [draftOwner, setDraftOwner] = useState(owner)
+  if (owner !== draftOwner) {
+    if (draftOwner !== null) {
+      setDraft(initial)
+      setBase({ revision, initial })
+      setOwnSave(false)
+      setIncoming(false)
+    }
+    setDraftOwner(owner)
   }
 
   const isDirty = !same(draft, initial)

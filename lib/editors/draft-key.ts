@@ -53,3 +53,17 @@ export function draftKey({
     `r:${encodeURIComponent(resource)}:${segment(resourceId)}:v${schemaVersion}`
   )
 }
+
+const IDENTITY_PREFIX = /^u:([^:]*):o:([^:]*):/
+
+/**
+ * Who a draft key belongs to: its `draftIdentityPrefix` when it names a
+ * signed-in user and organisation, or null for a key written before the
+ * session was known (or one not built by `draftKey`). Segments are
+ * URI-encoded, so a `:` inside an id cannot shift the match.
+ */
+export function draftKeyOwner(key: string): string | null {
+  const match = IDENTITY_PREFIX.exec(key)
+  if (!match || match[1] === UNKNOWN || match[2] === UNKNOWN) return null
+  return match[0]
+}

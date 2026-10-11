@@ -174,7 +174,7 @@ describe("access lost", () => {
     expect(resourcePrefixesForPath("/api/reviews/r1")).toEqual([])
   })
 
-  it("drops the location's cache on a 403 and leaves other locations alone", async () => {
+  it("drops the location's cache on a refused read and leaves other locations alone", async () => {
     const { client } = setup()
     client.setQueryData(queryKeys.locationHours("loc-1"), { hours: 1 })
     client.setQueryData(queryKeys.locationCapabilities("loc-1"), { canEdit: true })
@@ -184,12 +184,69 @@ describe("access lost", () => {
       json({ error: "permission_denied", message: "No." }, 403)
     )
     await expect(
-      apiFetch("/api/locations/loc-1/hours", { method: "PATCH", body: {} })
+      apiFetch("/api/locations/loc-1/insights")
     ).rejects.toMatchObject({ status: 403 })
     expect(client.getQueryData(queryKeys.locationHours("loc-1"))).toBeUndefined()
     expect(client.getQueryData(queryKeys.locationCapabilities("loc-1"))).toBeUndefined()
     expect(client.getQueryData(queryKeys.listingSummary("loc-1"))).toBeUndefined()
     expect(client.getQueryData(queryKeys.locationHours("loc-2"))).toEqual({ hours: 2 })
+  })
+
+  it("refetches in place, keeping the data, when an action is refused", async () => {
+    const { client } = setup()
+    client.setQueryData(queryKeys.locationHours("loc-1"), { hours: 1 })
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      json({ error: "publish_not_allowed", message: "No." }, 403)
+    )
+    await expect(
+      apiFetch("/api/locations/loc-1/hours", { method: "PATCH", body: {} })
+    ).rejects.toMatchObject({ status: 403 })
+    expect(client.getQueryData(queryKeys.locationHours("loc-1"))).toEqual({ hours: 1 })
+    expect(client.getQueryState(queryKeys.locationHours("loc-1"))?.isInvalidated).toBe(true)
+  })
+
+  it("drops a location's posts on the default 404 of a location access check", async () => {
+    const { client } = setup()
+    client.setQueryData(queryKeys.locationPosts("loc-1"), { posts: ["hidden"] })
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      json({ error: "review_not_found", message: "Not found." }, 404)
+    )
+    await expect(apiFetch("/api/locations/loc-1/posts")).rejects.toMatchObject({
+      status: 404,
+    })
+    expect(client.getQueryData(queryKeys.locationPosts("loc-1"))).toBeUndefined()
+  })
+
+  it("refetches the session on an access-lost answer, which resets a changed scope", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    setSession(client, BASE)
+    client.setQueryData(queryKeys.members, ["someone"])
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input) === "/api/session"
+        ? json({ session: { ...BASE, scopeFingerprint: "fp-2" } })
+        : json({ error: "permission_denied", message: "No." }, 403)
+    )
+    function Probe() {
+      useScopeReset(client)
+      useQuery({
+        queryKey: queryKeys.session,
+        queryFn: () => apiFetch<SessionResponse>("/api/session"),
+      })
+      return null
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <Probe />
+      </QueryClientProvider>
+    )
+    await expect(apiFetch("/api/locations/loc-1/insights")).rejects.toMatchObject({
+      status: 403,
+    })
+    await waitFor(() =>
+      expect(client.getQueryData(queryKeys.members)).toBeUndefined()
+    )
   })
 
   it("drops a client's cache on its hidden-client 404 and refreshes the directories", async () => {
@@ -224,8 +281,8 @@ describe("access lost", () => {
     let reads = 0
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
-      .mockImplementation(async (_input, init) => {
-        if (init?.method === "PATCH") {
+      .mockImplementation(async (input) => {
+        if (String(input).endsWith("/insights")) {
           return json({ error: "permission_denied", message: "No." }, 403)
         }
         reads += 1
@@ -248,7 +305,7 @@ describe("access lost", () => {
     )
     await screen.findByText("wide")
     await expect(
-      apiFetch("/api/locations/loc-1/hours", { method: "PATCH", body: {} })
+      apiFetch("/api/locations/loc-1/insights")
     ).rejects.toMatchObject({ status: 403 })
     // The old data goes; the refetch is refused and leaves nothing to reset.
     await screen.findByText("error")

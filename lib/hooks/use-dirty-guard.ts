@@ -8,6 +8,7 @@ import {
   stashDraft,
   takeStashedDraft,
 } from "@/lib/api/draft-stash"
+import { draftKeyOwner } from "@/lib/editors/draft-key"
 
 // The one shared dirty guard (spec §6). Used by the reply composer now and the
 // hours/menu/post editors later. Responsibilities:
@@ -57,8 +58,18 @@ export function useDirtyGuard({
   // consumer of `latest.current` below only runs from an event/effect, by
   // which point this effect has already committed the newest values.
   const latest = useRef({ isDirty, snapshot, askConfirm, confirmMessage })
+  // Edits made under one signed-in identity whose key now names another
+  // (another account signed in from a second tab and the session refetched
+  // without a reload). They are never stashed or handed to the 401 stash
+  // under the new identity, where its owner would be offered someone else's
+  // text as their own. They stop being foreign once the content is clean
+  // again (the editor reseeded or the operator discarded them).
+  const foreign = useRef(false)
+  // The signed-in identity the current content was written under.
+  const owner = useRef<string | null>(null)
   useEffect(() => {
     latest.current = { isDirty, snapshot, askConfirm, confirmMessage }
+    if (!isDirty) foreign.current = false
   })
 
   // Set once `confirmDiscard` resolves true, so the unmount that follows a
@@ -68,12 +79,19 @@ export function useDirtyGuard({
 
   useEffect(() => {
     discarded.current = false
+    const next = draftKeyOwner(key)
+    if (latest.current.isDirty && owner.current !== null && next !== owner.current) {
+      foreign.current = true
+    }
+    if (next !== null) owner.current = next
     const unregister = registerDraftSource(key, () =>
-      latest.current.isDirty ? latest.current.snapshot() : null
+      latest.current.isDirty && !foreign.current
+        ? latest.current.snapshot()
+        : null
     )
     return () => {
       unregister()
-      if (latest.current.isDirty && !discarded.current) {
+      if (latest.current.isDirty && !discarded.current && !foreign.current) {
         stashDraft(key, latest.current.snapshot())
       }
     }

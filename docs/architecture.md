@@ -353,8 +353,12 @@ and a schema bump ignores old ones. The session projection carries an opaque
 grants, hashed in `lib/server/session.ts`); `lib/queries/scope-reset.ts`
 drops every cached query but the session when the user, organisation, role,
 publish right or fingerprint changes, purges stashes of any other identity,
-and drops one location's or client's cache when a request on it is refused
-for access (403, or the 404 a hidden location or client answers).
+and drops one location's or client's cache when a read of it is refused for
+access (403, or the 404 a hidden location or client answers); a 403 to a write
+refetches that cache in place instead, and every such answer refetches the
+session so a real scope change resets the rest at once. Unsaved edits held in
+memory when the signed-in identity changes are never stashed under the new
+identity (`lib/hooks/use-dirty-guard.ts`), and `useEditorDraft` reseeds them.
 
 ## Standalone canonical resources and Google publication
 

@@ -7,12 +7,18 @@ import {
   __resetDraftSources,
   peekStashedDraft,
   purgeForeignDrafts,
+  stashAllDrafts,
   stashDraft,
 } from "@/lib/api/draft-stash"
 import type { SessionResponse } from "@/lib/contracts/session"
-import { draftIdentityPrefix, draftKey } from "@/lib/editors/draft-key"
+import {
+  draftIdentityPrefix,
+  draftKey,
+  draftKeyOwner,
+} from "@/lib/editors/draft-key"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
+import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { queryKeys } from "@/lib/queries/keys"
 
 beforeEach(() => {
@@ -68,6 +74,17 @@ describe("draftKey", () => {
     const forged = draftKey({ userId: "u1:o:o2", organisationId: "o1", ...HOURS })
     expect(forged.startsWith(draftIdentityPrefix({ userId: "u1", organisationId: "o2" }))).toBe(false)
     expect(forged).toContain("u1%3Ao%3Ao2")
+  })
+
+  it("reads the owner back from a key, or null when the identity is unknown", () => {
+    const key = draftKey({ userId: "u:1", organisationId: "o1", ...HOURS })
+    expect(draftKeyOwner(key)).toBe(
+      draftIdentityPrefix({ userId: "u:1", organisationId: "o1" })
+    )
+    expect(
+      draftKeyOwner(draftKey({ userId: null, organisationId: null, ...HOURS }))
+    ).toBeNull()
+    expect(draftKeyOwner("legacy-unscoped")).toBeNull()
   })
 
   it("marks an unknown identity, which no signed-in prefix matches", () => {
@@ -187,5 +204,71 @@ describe("useEditorDraft stash scoping", () => {
     expect(result.current.stashed).toBe(true)
     act(() => client.setQueryData(queryKeys.session, session("u2", "o1")))
     expect(result.current.stashed).toBe(false)
+  })
+
+  it("never keeps one person's unsaved edits for the next person in the tab", () => {
+    const { client, wrapper } = withSession(session("u1", "o1"))
+    const { result, unmount } = renderHook(
+      () => useEditorDraft({ initial, revision: "1", scope: HOURS }),
+      { wrapper }
+    )
+    act(() => result.current.setDraft({ name: "u1's edit" }))
+    expect(result.current.isDirty).toBe(true)
+    act(() => client.setQueryData(queryKeys.session, session("u2", "o1")))
+    expect(result.current.draft).toEqual(initial)
+    expect(result.current.isDirty).toBe(false)
+    stashAllDrafts()
+    unmount()
+    expect(
+      peekStashedDraft(draftKey({ userId: "u2", organisationId: "o1", ...HOURS }))
+    ).toBeNull()
+  })
+
+  it("adopts edits made before the session was known", () => {
+    const { client, wrapper } = withSession(null)
+    const { result } = renderHook(
+      () => useEditorDraft({ initial, revision: "1", scope: HOURS }),
+      { wrapper }
+    )
+    act(() => result.current.setDraft({ name: "Typed early" }))
+    act(() => client.setQueryData(queryKeys.session, session("u1", "o1")))
+    expect(result.current.draft).toEqual({ name: "Typed early" })
+  })
+})
+
+describe("useDirtyGuard across an identity change", () => {
+  function useGuard(text: string) {
+    const key = useDraftKey(HOURS)
+    useDirtyGuard({ key, isDirty: text !== "", snapshot: () => text })
+  }
+
+  it("does not stash the previous person's edits under the new identity", () => {
+    const { client, wrapper } = withSession(session("u1", "o1"))
+    const { rerender, unmount } = renderHook(useGuard, {
+      initialProps: "u1's reply",
+      wrapper,
+    })
+    act(() => client.setQueryData(queryKeys.session, session("u2", "o1")))
+    const theirs = draftKey({ userId: "u2", organisationId: "o1", ...HOURS })
+    stashAllDrafts()
+    expect(peekStashedDraft(theirs)).toBeNull()
+    rerender("u1's reply, edited further")
+    unmount()
+    expect(peekStashedDraft(theirs)).toBeNull()
+  })
+
+  it("stashes the new person's own edits once the old ones are gone", () => {
+    const { client, wrapper } = withSession(session("u1", "o1"))
+    const { rerender, unmount } = renderHook(useGuard, {
+      initialProps: "u1's reply",
+      wrapper,
+    })
+    act(() => client.setQueryData(queryKeys.session, session("u2", "o1")))
+    rerender("")
+    rerender("u2's reply")
+    unmount()
+    expect(
+      peekStashedDraft(draftKey({ userId: "u2", organisationId: "o1", ...HOURS }))
+    ).toBe("u2's reply")
   })
 })

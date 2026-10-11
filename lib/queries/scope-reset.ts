@@ -75,8 +75,16 @@ export function resourcePrefixesForPath(path: string): QueryKey[] {
 }
 
 /**
- * Drops the cache of the location or client an `AccessLost` answer named.
- * A 404 also refreshes the directories, which may no longer list it.
+ * Acts on an `AccessLost` answer about a location or client:
+ *   * a refused action (a 403 to a write) is not by itself a loss of read
+ *     scope, so that resource's queries are refetched in place, keeping what
+ *     is on screen (and the editor that is open) until the server says more;
+ *   * a refused or hidden read, or a 404 to anything, drops that resource's
+ *     cache, so what was readable under a wider scope is not shown again;
+ *   * either way the session is refetched, so a real change of role or
+ *     grants resets every other cached query now (useScopeReset) rather than
+ *     at the next window focus. A 404 also refreshes the directories, which
+ *     may no longer list it.
  */
 export function dropResourceQueries(
   client: QueryClient,
@@ -84,7 +92,18 @@ export function dropResourceQueries(
 ): void {
   const prefixes = resourcePrefixesForPath(lost.path)
   if (prefixes.length === 0) return
+  // One session refetch however many answers arrive together.
+  void client
+    .invalidateQueries({ queryKey: queryKeys.session }, { cancelRefetch: false })
+    .catch(() => undefined)
+  const refusedAction = lost.status === 403 && lost.method !== "GET"
   for (const queryKey of prefixes) {
+    if (refusedAction) {
+      void client
+        .invalidateQueries({ queryKey }, { cancelRefetch: false })
+        .catch(() => undefined)
+      continue
+    }
     client.removeQueries({
       queryKey,
       predicate: (query) => query.getObserversCount() === 0,
@@ -117,7 +136,8 @@ export function dropResourceQueries(
  *     cached query but the session is dropped;
  *   * once an identity is known, stashed drafts that belong to anyone else
  *     are purged;
- *   * an `AccessLost` answer drops that location's or client's cache.
+ *   * an `AccessLost` answer drops (or, for a refused action, refetches)
+ *     that location's or client's cache and refetches the session.
  *
  * The session is read from the cache (the dashboard layout hydrates it and
  * the shell keeps it fresh), never fetched here. A session that goes away
