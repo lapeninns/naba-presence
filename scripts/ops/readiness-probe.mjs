@@ -205,10 +205,13 @@ async function ask(options) {
     return { httpStatus: response.status, body }
   } catch (error) {
     const name = error instanceof Error ? error.name : "Error"
-    const code =
+    // fetch wraps the socket error; an AggregateError (several addresses
+    // tried) carries the codes on its members.
+    const cause =
       error && typeof error === "object" && "cause" in error
-        ? error.cause?.code
+        ? error.cause
         : undefined
+    const code = cause?.code ?? cause?.errors?.[0]?.code
     return { httpStatus: null, body: null, error: code ?? name }
   }
 }
