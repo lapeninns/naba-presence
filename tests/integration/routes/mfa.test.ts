@@ -479,6 +479,77 @@ describeDatabase("two-step verification (P02-S8)", () => {
     expect(cookies.has("naba_mfa_ticket")).toBe(true)
   })
 
+  it("shows the code screen for an invitation link opened in a signed-in browser, then accepts it", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const other = newUser()
+    const otherCookie = setCookies(await login(other.email)).get(
+      "naba_session"
+    )!
+    expect((await sessionOf(otherCookie)).session).not.toBeNull()
+
+    const email = `mfa-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    const invited = await post(
+      "/api/invitations",
+      { email, role: "member", canPublish: false },
+      owner.cookie
+    )
+    expect(invited.status).toBe(201)
+    const { inviteUrl } = (await invited.json()) as { inviteUrl: string }
+    const inviteToken = new URL(inviteUrl).pathname.split("/").at(-1)!
+    const registered = await post("/api/auth/password/register", {
+      email,
+      password: PASSWORD,
+      displayName: "Invited person",
+    })
+    expect(registered.status).toBe(202)
+    auth.addFactor(email)
+
+    const confirm = await fetch(
+      `${server.baseUrl}/auth/confirm?token_hash=${auth.confirmationToken(email)}&type=email&inviteToken=${encodeURIComponent(inviteToken)}`,
+      { headers: { cookie: otherCookie }, redirect: "manual" }
+    )
+    expect(confirm.status).toBe(307)
+    expect(new URL(confirm.headers.get("location")!).pathname).toBe(
+      "/sign-in/verify"
+    )
+    const cleared = confirm.headers
+      .getSetCookie()
+      .find((header) => header.startsWith("naba_session="))
+    expect(cleared).toMatch(/^naba_session=;/)
+    expect((await sessionOf(otherCookie)).session).toBeNull()
+    const ticket = setCookies(confirm).get("naba_mfa_ticket")
+    expect(ticket).toBeDefined()
+
+    // The code screen renders even for a browser still sending the old
+    // cookie, instead of redirecting into the other person's inbox.
+    const page = await fetch(`${server.baseUrl}/sign-in/verify`, {
+      headers: { cookie: otherCookie },
+      redirect: "manual",
+    })
+    expect(page.status).toBe(200)
+
+    const [pending] = await admin<{ acceptedAt: Date | null }[]>`
+      select accepted_at as "acceptedAt" from invitation
+      where organisation_id = ${owner.organisationId} and email = ${email}
+    `
+    expect(pending.acceptedAt).toBeNull()
+    const verify = await post(
+      "/api/auth/mfa/verify",
+      { code: STUB_TOTP_CODE },
+      ticket
+    )
+    expect(verify.status).toBe(200)
+    const session = await sessionOf(setCookies(verify).get("naba_session")!)
+    expect(session.session?.organisationId).toBe(owner.organisationId)
+    const [accepted] = await admin<{ acceptedAt: Date | null }[]>`
+      select accepted_at as "acceptedAt" from invitation
+      where organisation_id = ${owner.organisationId} and email = ${email}
+    `
+    expect(accepted.acceptedAt).toBeInstanceOf(Date)
+  })
+
   it("carries assurance across a workspace switch and ends sessions on a security_version bump", async () => {
     const { email } = newUser({ enrolled: true })
     const cookie = await signInWithCode(email)
