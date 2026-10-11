@@ -17,7 +17,9 @@ import type { SendResult } from "./email"
  *     attempt and pushes next_attempt_at out, so a crash mid-send only delays
  *     the retry;
  *   - every send carries the row's own idempotency key;
- *   - the settle is conditional on the row still being pending.
+ *   - the settle is conditional on the row still being pending;
+ *   - once any attempt was uncertain the row keeps may_have_sent, and is
+ *     never sent again outside the idempotency window nor settled failed.
  *
  * States: sent (the provider accepted it), suppressed (deliberately not
  * sent), failed (the provider certainly did not accept it, and will not on a
@@ -39,6 +41,11 @@ export type Settlement = {
   providerMessageId: string | null
   /** Minutes until the next attempt; set only when status is pending. */
   retryInMinutes: number | null
+  /**
+   * Whether this or any earlier attempt may have reached the provider. Sticky:
+   * the settle ORs it into the row's may_have_sent, never clears it.
+   */
+  mayHaveSent: boolean
 }
 
 export const MAX_DELIVERY_ATTEMPTS = 5
@@ -55,6 +62,26 @@ export type ClaimedAttempt = {
   attempts: number
   /** When the row was queued, which bounds its idempotency window. */
   createdAt: Date
+  /** An earlier attempt was uncertain (the row's may_have_sent). */
+  mayHaveSent: boolean
+}
+
+/** The error code of a row not sent because its idempotency key expired. */
+export const IDEMPOTENCY_WINDOW_EXPIRED = "email_idempotency_window_expired"
+
+function insideIdempotencyWindow(attempt: ClaimedAttempt, now: Date) {
+  return now.getTime() - attempt.createdAt.getTime() < IDEMPOTENCY_WINDOW_MS
+}
+
+function unknownOutcome(errorCode: string): Settlement {
+  return {
+    status: "uncertain",
+    evidence: "unknown",
+    errorCode,
+    providerMessageId: null,
+    retryInMinutes: null,
+    mayHaveSent: true,
+  }
 }
 
 /**
@@ -65,6 +92,11 @@ export type ClaimedAttempt = {
  * protects it (the provider answers a repeat with the first send); once the
  * limit or the window is spent it settles uncertain, never failed: a timeout
  * after the request went out is not evidence that nobody was emailed.
+ *
+ * Uncertainty is sticky: once an earlier attempt may have sent, a later
+ * refusal or suppression proves nothing about that one (a re-rendered payload
+ * under the same key even draws a 409), so the row is retried only inside the
+ * window and otherwise settles uncertain, never failed or suppressed.
  */
 export function settleSend(
   result: SendResult,
@@ -75,6 +107,7 @@ export function settleSend(
   const now = options.now ?? new Date()
   const backoff = 2 ** attempt.attempts
   const canRetry = attempt.attempts < maxAttempts
+  const protectedRetry = insideIdempotencyWindow(attempt, now)
   switch (result.status) {
     case "sent":
       return {
@@ -83,34 +116,46 @@ export function settleSend(
         errorCode: null,
         providerMessageId: result.providerMessageId,
         retryInMinutes: null,
+        mayHaveSent: true,
       }
     case "suppressed":
+      // Not sent now, but an earlier attempt may have been: still unknown.
+      if (attempt.mayHaveSent) return unknownOutcome(result.reason)
       return {
         status: "suppressed",
         evidence: "suppressed",
         errorCode: result.reason,
         providerMessageId: null,
         retryInMinutes: null,
+        mayHaveSent: false,
       }
-    case "failed":
-      return result.retryable && canRetry
-        ? {
-            status: "pending",
-            evidence: "queued",
-            errorCode: result.code,
-            providerMessageId: null,
-            retryInMinutes: backoff,
-          }
+    case "failed": {
+      const retry =
+        result.retryable &&
+        canRetry &&
+        (!attempt.mayHaveSent || protectedRetry)
+      if (retry) {
+        return {
+          status: "pending",
+          evidence: "queued",
+          errorCode: result.code,
+          providerMessageId: null,
+          retryInMinutes: backoff,
+          mayHaveSent: attempt.mayHaveSent,
+        }
+      }
+      return attempt.mayHaveSent
+        ? unknownOutcome(result.code)
         : {
             status: "failed",
             evidence: "failed",
             errorCode: result.code,
             providerMessageId: null,
             retryInMinutes: null,
+            mayHaveSent: false,
           }
-    case "uncertain": {
-      const protectedRetry =
-        now.getTime() - attempt.createdAt.getTime() < IDEMPOTENCY_WINDOW_MS
+    }
+    case "uncertain":
       return canRetry && protectedRetry
         ? {
             status: "pending",
@@ -118,15 +163,9 @@ export function settleSend(
             errorCode: result.code,
             providerMessageId: null,
             retryInMinutes: backoff,
+            mayHaveSent: true,
           }
-        : {
-            status: "uncertain",
-            evidence: "unknown",
-            errorCode: result.code,
-            providerMessageId: null,
-            retryInMinutes: null,
-          }
-    }
+        : unknownOutcome(result.code)
   }
 }
 
@@ -176,16 +215,20 @@ export async function runDeliveries<T extends ClaimedAttempt & { id: string }>(
   }
   const claimed = await queue.claim()
   for (const item of claimed) {
-    const result = await queue.send(item)
-    const settlement = settleSend(result, item, {
-      maxAttempts: queue.maxAttempts,
-    })
+    // A row that may already have gone out is sent again only under its
+    // idempotency key's protection. A claim can come long after the requeue
+    // (a pause, a skipped tick, an operator retry), so check it here, not
+    // only when the last attempt settled.
+    const expired =
+      item.mayHaveSent && !insideIdempotencyWindow(item, new Date())
+    const result = expired ? null : await queue.send(item)
+    const settlement = result
+      ? settleSend(result, item, { maxAttempts: queue.maxAttempts })
+      : unknownOutcome(IDEMPOTENCY_WINDOW_EXPIRED)
     const counted =
-      result.status === "sent"
-        ? "sent"
-        : result.status === "suppressed"
-          ? "suppressed"
-          : result.status === "uncertain"
+      settlement.status === "sent" || settlement.status === "suppressed"
+        ? settlement.status
+        : settlement.mayHaveSent
             ? "uncertain"
             : "failed"
     outcome[counted] += 1

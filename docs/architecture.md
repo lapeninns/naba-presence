@@ -985,7 +985,8 @@ Email goes through `lib/server/notifications/email.ts`; with no provider
 configured deliveries are recorded `suppressed`. Every queue claims, sends and
 settles through one driver, `lib/server/notifications/delivery.ts`: sent,
 suppressed, failed (refused, retried with back-off) and uncertain (a timeout
-after dispatch, retried only under its idempotency key's window).
+after dispatch, retried only under its idempotency key's window, checked
+again at claim time; sticky through later attempts via `may_have_sent`).
 
 ## Membership, organisation switching, privacy, and retention
 

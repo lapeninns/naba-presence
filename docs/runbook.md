@@ -573,6 +573,10 @@ never double-emails; refused sends retry with back-off up to five attempts.
 left: it may have been delivered. It is retried only inside the provider's
 24-hour idempotency window; past that it stays `uncertain` and must not be
 resent blindly — check the provider's dashboard for the recipient first.
+Once any attempt was uncertain the row keeps `may_have_sent` (0096): a later
+refusal or suppression settles it `uncertain`, never `failed`, and a requeued
+row claimed after the window (a pause, a skipped tick) settles
+`email_idempotency_window_expired` without sending.
 `platform_incident.notify_status` is now only a summary of its deliveries.
 
 ### Stale heartbeat

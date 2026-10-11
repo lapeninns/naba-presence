@@ -137,6 +137,7 @@ type ClaimedPlatformDelivery = {
   id: string
   attempts: number
   createdAt: Date
+  mayHaveSent: boolean
   incidentId: string
   recipient: string
   kind: PlatformIncidentKind
@@ -181,12 +182,13 @@ export async function deliverPlatformPending(
               next_attempt_at = now() + interval '10 minutes'
           from due
           where d.id = due.id
-          returning d.id, d.attempts, d.created_at, d.incident_id, d.recipient
+          returning d.id, d.attempts, d.created_at, d.may_have_sent, d.incident_id, d.recipient
         )
         select
           c.id::text as id,
           c.attempts,
           c.created_at as "createdAt",
+          c.may_have_sent as "mayHaveSent",
           c.incident_id::text as "incidentId",
           c.recipient,
           i.kind,
@@ -221,6 +223,7 @@ export async function deliverPlatformPending(
         set
           status = ${settlement.status},
           last_error_code = ${settlement.errorCode},
+          may_have_sent = may_have_sent or ${settlement.mayHaveSent},
           provider_message_id = ${settlement.providerMessageId},
           sent_at = ${settlement.status === "sent" ? database`now()` : null},
           next_attempt_at = ${

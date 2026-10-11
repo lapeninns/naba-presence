@@ -234,6 +234,72 @@ describeDatabase("operational notifications", () => {
     expect(sent).toEqual({ status: "sent", providerMessageId: "retried" })
   }, 120_000)
 
+  it("retries a possibly-sent email only inside its idempotency window", async () => {
+    const tenant = await tenantWithLogin()
+    const organisationId = tenant.owner.organisationId
+    await breakLogin(organisationId, tenant.connectionId)
+    await runTick()
+    expect(sentTo(tenant.owner.email)).toHaveLength(1)
+    const delivery = () => admin<
+      {
+        status: string
+        deliveryState: string
+        mayHaveSent: boolean
+        code: string | null
+      }[]
+    >`
+      select status, delivery_state as "deliveryState",
+        may_have_sent as "mayHaveSent", last_error_code as code
+      from notification_delivery
+      where organisation_id = ${organisationId}
+    `
+    const markUncertain = (age: string) => admin`
+      update notification_delivery
+      set status = 'uncertain', delivery_state = 'unknown', may_have_sent = true,
+          last_error_code = 'email_timeout', next_attempt_at = null,
+          created_at = now() - ${age}::interval
+      where organisation_id = ${organisationId}
+    `
+    const retry = async () => {
+      const response = await fetch(
+        `${server.baseUrl}/api/operations/notification-deliveries/retry`,
+        { method: "POST", headers: { cookie: tenant.owner.cookie } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (await response.json()) as { requeued: number }
+    }
+
+    // Inside the window the operator may requeue it; the mark stays.
+    await markUncertain("2 hours")
+    expect(await retry()).toEqual({ requeued: 1 })
+    expect(await delivery()).toEqual([
+      { status: "pending", deliveryState: "queued", mayHaveSent: true, code: null },
+    ])
+
+    // Claimed only after the window has passed (a pause, a skipped tick), it
+    // is not sent again: the provider would no longer deduplicate it.
+    await admin`
+      update notification_delivery set created_at = now() - interval '24 hours'
+      where organisation_id = ${organisationId}
+    `
+    email.reset()
+    await runTick()
+    expect(sentTo(tenant.owner.email)).toHaveLength(0)
+    expect(await delivery()).toEqual([
+      {
+        status: "uncertain",
+        deliveryState: "unknown",
+        mayHaveSent: true,
+        code: "email_idempotency_window_expired",
+      },
+    ])
+
+    // Outside the window the operator retry leaves it alone.
+    await markUncertain("24 hours")
+    expect(await retry()).toEqual({ requeued: 0 })
+    expect((await delivery())[0]).toMatchObject({ status: "uncertain" })
+  }, 120_000)
+
   it("flags a listing with no successful check for six hours, not a fresh one", async () => {
     const tenant = await tenantWithLogin()
     const stale = await seedLinkedReview(admin, {
@@ -520,6 +586,47 @@ describeDatabase("operational notifications", () => {
         where name = 'presence-resources'
       `
       await admin`delete from platform_incident where subject = 'presence-resources'`
+    }
+  }, 120_000)
+
+  it("suppresses an operator alert whose incident resolved before it went out", async () => {
+    const [incident] = await admin<{ id: string }[]>`
+      insert into platform_incident (kind, subject, status, resolved_at)
+      values ('stale_heartbeat', 'presence-resources', 'resolved', now())
+      returning id::text as id
+    `
+    await admin`
+      insert into platform_incident_delivery (incident_id, recipient)
+      values (${incident.id}, ${OPS})
+    `
+    try {
+      await runTick()
+      const [delivery] = await admin<
+        { status: string; code: string | null; attempts: number }[]
+      >`
+        select status, last_error_code as code, attempts
+        from platform_incident_delivery where incident_id = ${incident.id}
+      `
+      expect(delivery).toEqual({
+        status: "suppressed",
+        code: "incident_resolved",
+        attempts: 1,
+      })
+      const [summary] = await admin<
+        { notifyStatus: string; notifyError: string }[]
+      >`
+        select notify_status as "notifyStatus", notify_error as "notifyError"
+        from platform_incident where id = ${incident.id}
+      `
+      expect(summary).toEqual({
+        notifyStatus: "suppressed",
+        notifyError: "incident_resolved",
+      })
+      expect(
+        sentTo(OPS).filter((mail) => mail.subject.includes("presence-resources"))
+      ).toHaveLength(0)
+    } finally {
+      await admin`delete from platform_incident where id = ${incident.id}`
     }
   }, 120_000)
 

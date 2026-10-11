@@ -25,7 +25,9 @@ vi.mock("@/lib/server/logger", () => ({
 }))
 
 import {
+  IDEMPOTENCY_WINDOW_EXPIRED,
   IDEMPOTENCY_WINDOW_MS,
+  MAX_DELIVERY_ATTEMPTS,
   runDeliveries,
   settleSend,
   type Settlement,
@@ -145,7 +147,11 @@ describe("sendEmail failure classification", () => {
 
 describe("settleSend", () => {
   const now = new Date("2026-10-11T12:00:00Z")
-  const fresh = { attempts: 1, createdAt: new Date(now.getTime() - 60_000) }
+  const fresh = {
+    attempts: 1,
+    createdAt: new Date(now.getTime() - 60_000),
+    mayHaveSent: false,
+  }
 
   it("settles sent and suppressed at once", () => {
     expect(
@@ -156,6 +162,7 @@ describe("settleSend", () => {
       errorCode: null,
       providerMessageId: "m-1",
       retryInMinutes: null,
+      mayHaveSent: true,
     })
     expect(
       settleSend(
@@ -206,7 +213,7 @@ describe("settleSend", () => {
       retryInMinutes: 2,
     })
     const old = {
-      attempts: 1,
+      ...fresh,
       createdAt: new Date(now.getTime() - IDEMPOTENCY_WINDOW_MS),
     }
     expect(settleSend(uncertain, old, { now })).toEqual({
@@ -215,6 +222,7 @@ describe("settleSend", () => {
       errorCode: "email_timeout",
       providerMessageId: null,
       retryInMinutes: null,
+      mayHaveSent: true,
     })
     expect(
       settleSend(uncertain, { ...fresh, attempts: 5 }, { now })
@@ -223,11 +231,84 @@ describe("settleSend", () => {
       evidence: "unknown",
     })
   })
+
+  it("keeps an earlier uncertain attempt: refusals until the limit end uncertain", () => {
+    const timeout = settleSend(
+      { status: "uncertain", code: "email_timeout" },
+      fresh,
+      { now }
+    )
+    expect(timeout).toMatchObject({ status: "pending", mayHaveSent: true })
+    const refused: SendResult = {
+      status: "failed",
+      code: "email_connect_failed",
+      retryable: true,
+    }
+    let attempt = { ...fresh, mayHaveSent: timeout.mayHaveSent }
+    for (let attempts = 2; attempts < MAX_DELIVERY_ATTEMPTS; attempts += 1) {
+      attempt = { ...attempt, attempts }
+      const retry = settleSend(refused, attempt, { now })
+      expect(retry).toMatchObject({ status: "pending", mayHaveSent: true })
+      attempt = { ...attempt, mayHaveSent: retry.mayHaveSent }
+    }
+    expect(
+      settleSend(
+        refused,
+        { ...attempt, attempts: MAX_DELIVERY_ATTEMPTS },
+        { now }
+      )
+    ).toEqual({
+      status: "uncertain",
+      evidence: "unknown",
+      errorCode: "email_connect_failed",
+      providerMessageId: null,
+      retryInMinutes: null,
+      mayHaveSent: true,
+    })
+    const maybeSent = { ...fresh, attempts: 2, mayHaveSent: true }
+    // A 409 for a re-rendered payload under the same key, or a suppression,
+    // does not undo the first attempt.
+    expect(
+      settleSend(
+        { status: "failed", code: "email_http_409", retryable: false },
+        maybeSent,
+        { now }
+      )
+    ).toMatchObject({ status: "uncertain", evidence: "unknown" })
+    expect(
+      settleSend(
+        { status: "suppressed", reason: "incident_resolved" },
+        maybeSent,
+        { now }
+      )
+    ).toMatchObject({ status: "uncertain", evidence: "unknown" })
+    // Outside the window even a retryable refusal is not retried.
+    expect(
+      settleSend(
+        refused,
+        {
+          ...maybeSent,
+          createdAt: new Date(now.getTime() - IDEMPOTENCY_WINDOW_MS),
+        },
+        { now }
+      )
+    ).toMatchObject({ status: "uncertain" })
+  })
 })
 
 describe("runDeliveries", () => {
-  type Row = { id: string; attempts: number; createdAt: Date }
-  const row = (id: string): Row => ({ id, attempts: 1, createdAt: new Date() })
+  type Row = {
+    id: string
+    attempts: number
+    createdAt: Date
+    mayHaveSent: boolean
+  }
+  const row = (id: string): Row => ({
+    id,
+    attempts: 1,
+    createdAt: new Date(),
+    mayHaveSent: false,
+  })
 
   beforeEach(() => {
     settings.paused = false
@@ -287,6 +368,48 @@ describe("runDeliveries", () => {
       b: "suppressed",
       c: "pending",
       d: "pending",
+    })
+  })
+
+  it("never sends a possibly-sent row claimed after its idempotency window", async () => {
+    const stale: Row = {
+      id: "late",
+      attempts: 1,
+      createdAt: new Date(Date.now() - IDEMPOTENCY_WINDOW_MS - 60_000),
+      mayHaveSent: true,
+    }
+    const unsent: Row = { ...stale, id: "never-tried", mayHaveSent: false }
+    const send = vi.fn(
+      async (): Promise<SendResult> => ({
+        status: "sent",
+        providerMessageId: "m",
+      })
+    )
+    const settled: Record<string, Settlement> = {}
+    const outcome = await runDeliveries<Row>({
+      name: "test",
+      claim: async () => [stale, unsent],
+      send,
+      settle: async (item, settlement) => {
+        settled[item.id] = settlement
+      },
+    })
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledWith(unsent)
+    expect(settled.late).toEqual({
+      status: "uncertain",
+      evidence: "unknown",
+      errorCode: IDEMPOTENCY_WINDOW_EXPIRED,
+      providerMessageId: null,
+      retryInMinutes: null,
+      mayHaveSent: true,
+    })
+    expect(outcome).toEqual({
+      sent: 1,
+      suppressed: 0,
+      failed: 0,
+      uncertain: 1,
+      paused: false,
     })
   })
 })

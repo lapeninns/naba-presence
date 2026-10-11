@@ -345,6 +345,7 @@ type ClaimedDelivery = {
   id: string
   attempts: number
   createdAt: Date
+  mayHaveSent: boolean
   userId: string
   incidentId: string | null
   kind: string | null
@@ -412,12 +413,13 @@ export async function deliverPending(
                 idempotency_key = coalesce(d.idempotency_key, 'notification-delivery/' || d.id::text)
             from due
             where d.id = due.id
-            returning d.id, d.attempts, d.created_at, d.incident_id, d.digest_id, d.recipient_user_id
+            returning d.id, d.attempts, d.created_at, d.may_have_sent, d.incident_id, d.digest_id, d.recipient_user_id
           )
           select
             c.id::text as id,
             c.attempts,
             c.created_at as "createdAt",
+            c.may_have_sent as "mayHaveSent",
             c.recipient_user_id::text as "userId",
             c.incident_id::text as "incidentId",
             i.kind,
@@ -461,6 +463,7 @@ export async function deliverPending(
         set
           status = ${settlement.status},
           last_error_code = ${settlement.errorCode},
+          may_have_sent = may_have_sent or ${settlement.mayHaveSent},
           provider_message_id = ${settlement.providerMessageId},
           sent_at = ${settlement.status === "sent" ? sql`now()` : null},
           delivery_state = case when delivery_state = 'queued' then ${settlement.evidence} else delivery_state end,
