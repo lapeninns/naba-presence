@@ -77,6 +77,7 @@ export function useEditorDraft<T>({
   revision,
   scope,
   parseStashed,
+  isEqual = same,
 }: {
   initial: T
   /** Token that changes when the SERVER value changes — usually a revision. */
@@ -88,6 +89,12 @@ export function useEditorDraft<T>({
    */
   scope: DraftScope
   parseStashed?: (value: unknown) => T | null
+  /**
+   * When two drafts count as the same edits. Defaults to the JSON shape; an
+   * editor whose untouched form isn't byte-equal to its seed (a new post's
+   * type picker, whitespace-only text) passes its own.
+   */
+  isEqual?: (a: T, b: T) => boolean
 }): EditorDraft<T> {
   const key = useDraftKey(scope)
   const [draft, setDraft] = useState(initial)
@@ -104,9 +111,9 @@ export function useEditorDraft<T>({
   // when a prop changes"), so there is never a frame that shows the old
   // draft against the new value.
   if (!Object.is(base.revision, revision)) {
-    const hadEdits = !same(draft, base.initial)
+    const hadEdits = !isEqual(draft, base.initial)
     const follow =
-      !hadEdits || ownSave || missing(base.revision) || same(draft, initial)
+      !hadEdits || ownSave || missing(base.revision) || isEqual(draft, initial)
     setBase({ revision, initial })
     setOwnSave(false)
     if (follow) {
@@ -134,7 +141,7 @@ export function useEditorDraft<T>({
     setDraftOwner(owner)
   }
 
-  const isDirty = !same(draft, initial)
+  const isDirty = !isEqual(draft, initial)
 
   const { confirmDiscard, markDiscarded, restore } = useDirtyGuard({
     key,
@@ -175,7 +182,7 @@ export function useEditorDraft<T>({
   // Wait for a real server value before offering it, so the seed that
   // follows a missing revision doesn't overwrite what was restored.
   const stashed =
-    stash !== null && !missing(revision) && !same(stash.value, initial)
+    stash !== null && !missing(revision) && !isEqual(stash.value, initial)
 
   const discard = useCallback(() => {
     setDraft(initial)
