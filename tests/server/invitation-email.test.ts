@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const settings = vi.hoisted(() => ({
   env: {} as Record<string, unknown>,
   paused: false,
+  featureOn: true,
   claimed: [] as Record<string, unknown>[],
   queries: [] as { text: string; values: unknown[] }[],
 }))
@@ -31,6 +32,9 @@ vi.mock("@/lib/server/db", () => {
   function sql(strings: TemplateStringsArray, ...values: unknown[]) {
     const text = strings.join("?")
     settings.queries.push({ text, values })
+    if (text.includes("from organisation_feature")) {
+      return Promise.resolve([{ enabled: settings.featureOn }])
+    }
     return Promise.resolve(text.includes("with due as") ? settings.claimed : [])
   }
   return {
@@ -93,6 +97,7 @@ const fetchMock = vi.fn()
 beforeEach(() => {
   settings.env = configuredEnv()
   settings.paused = false
+  settings.featureOn = true
   settings.claimed = [claimedRow()]
   settings.queries = []
   fetchMock.mockReset()
@@ -235,5 +240,19 @@ describe("deliverInvitationEmails", () => {
     expect(outcome.paused).toBe(true)
     expect(settings.queries).toHaveLength(0)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("suppresses queued rows instead of claiming them once the feature is off", async () => {
+    settings.featureOn = false
+    const outcome = await deliverInvitationEmails(ORG)
+    expect(outcome).toMatchObject({ sent: 0, suppressed: 0, paused: false })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(
+      settings.queries.some((query) => query.text.includes("with due as"))
+    ).toBe(false)
+    const suppress = settings.queries.find((query) =>
+      query.text.includes("set status = 'suppressed'")
+    )
+    expect(suppress?.values).toContain("invitation_email_disabled")
   })
 })

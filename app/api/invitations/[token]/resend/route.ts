@@ -5,7 +5,6 @@ import {
   type InvitationResentResponse,
 } from "@/lib/contracts/invitations"
 import type { MemberRole } from "@/lib/contracts/members"
-import { takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
 import {
@@ -27,7 +26,8 @@ export const runtime = "nodejs"
  * Refused while an earlier email for it is still queued (409
  * `invitation_email_pending`), once it was accepted or has expired, and over
  * the `invitation_email` abuse limit (429, counted per invitee address, per
- * inviter and per organisation). A Resend is a new delivery with its own
+ * inviter and per organisation, and spent only by a Resend that queues an
+ * email). A Resend is a new delivery with its own
  * idempotency key, sent inline like the first; 202 answers with where it
  * stands, which may still be `pending` (paused, or retrying).
  */
@@ -36,7 +36,11 @@ export const POST = route({
   params: invitationResendParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
     const invitationId = params.token
-    const invitation = await tenant(async (sql) => {
+    // One transaction, the invitation locked: a revoke waits for the queued
+    // row (and then takes it with the invitation) rather than racing the
+    // insert, and concurrent Resends see each other's pending row before
+    // either spends the abuse budget.
+    const deliveryId = await tenant(async (sql) => {
       if (!(await invitationEmailEnabled(sql, session.organisationId))) {
         throw new ApiError(
           403,
@@ -59,6 +63,7 @@ export const POST = route({
           accepted_at is not null as accepted
         from invitation
         where id = ${invitationId}
+        for update
       `
       if (!row) {
         throw new ApiError(404, "invitation_not_found", "Invitation not found.")
@@ -78,17 +83,12 @@ export const POST = route({
         )
       }
       assertRoleChangeAllowed(session.role, row.role)
-      return row
-    })
-    await takeAbuseBudget("invitation_email", {
-      email: invitation.email,
-      user: session.userId,
-      organisation: session.organisationId,
-    })
-    const deliveryId = await tenant(async (sql) => {
-      const id = await enqueueInvitationDelivery(sql, {
+      // Refuses a pending row (409) before counting, and over the limit
+      // (429) without queueing.
+      const { id } = await enqueueInvitationDelivery(sql, {
         organisationId: session.organisationId,
         invitationId,
+        email: row.email,
         requestedBy: session.userId,
         kind: "resend",
       })

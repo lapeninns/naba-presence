@@ -3,6 +3,8 @@ import "server-only"
 import { createHmac } from "node:crypto"
 import { isIP } from "node:net"
 
+import type { Sql, TransactionSql } from "postgres"
+
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
@@ -273,10 +275,16 @@ export type AbuseDecision = { allowed: boolean; retryAfterSeconds: number }
  * answers whether all of them fit. Kinds the scope does not limit, and keys
  * that are empty, are ignored. Off (ABUSE_LIMITS_ENABLED=false) counts nothing
  * and allows everything.
+ *
+ * `sql` counts inside the caller's transaction instead of on the pool, so the
+ * hit commits or rolls back with the work it pays for (invitation email:
+ * counted only when a row is actually queued, and the decision written with
+ * it).
  */
 export async function checkAbuseBudget(
   scope: AbuseScope,
-  subject: AbuseSubject
+  subject: AbuseSubject,
+  sql?: Sql | TransactionSql
 ): Promise<AbuseDecision> {
   const env = getServerEnv()
   if (!env.ABUSE_LIMITS_ENABLED) return { allowed: true, retryAfterSeconds: 0 }
@@ -287,7 +295,7 @@ export async function checkAbuseBudget(
     const window = policy[kind]
     const value = subject[kind]
     if (!window || !value || value.trim() === "") continue
-    const [row] = await getDatabase()<
+    const [row] = await (sql ?? getDatabase())<
       { allowed: boolean; retryAfterSeconds: number }[]
     >`
       select allowed, retry_after_seconds as "retryAfterSeconds"
@@ -324,9 +332,10 @@ export function abuseLimitedError(
 /** checkAbuseBudget, throwing the 429 when any key is over its limit. */
 export async function takeAbuseBudget(
   scope: AbuseScope,
-  subject: AbuseSubject
+  subject: AbuseSubject,
+  sql?: Sql | TransactionSql
 ): Promise<void> {
-  const decision = await checkAbuseBudget(scope, subject)
+  const decision = await checkAbuseBudget(scope, subject, sql)
   if (!decision.allowed) {
     throw abuseLimitedError(scope, decision.retryAfterSeconds)
   }

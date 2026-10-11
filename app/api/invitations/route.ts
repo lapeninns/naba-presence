@@ -238,9 +238,10 @@ export const POST = route({
     assertRoleChangeAllowed(session.role, input.role)
     const token = randomToken()
     let invitation: InvitationCreatedResponse["invitation"]
-    // Set when the organisation emails its invitations: the row queued in
-    // the same transaction as the invitation, sent once it commits.
-    let deliveryId: string | null = null
+    // Set when the organisation emails its invitations: the row written in
+    // the same transaction as the invitation (and counted against the abuse
+    // limit there), sent once it commits unless the limit suppressed it.
+    let queued: { id: string; queued: boolean } | null = null
     try {
       invitation = await tenant(async (sql) => {
         // Invitations are for people who are not in the organisation yet.
@@ -342,9 +343,10 @@ export const POST = route({
           },
         })
         if (await invitationEmailEnabled(sql, session.organisationId)) {
-          deliveryId = await enqueueInvitationDelivery(sql, {
+          queued = await enqueueInvitationDelivery(sql, {
             organisationId: session.organisationId,
             invitationId: row.id,
+            email: input.email,
             requestedBy: session.userId,
             kind: "initial",
           })
@@ -379,16 +381,20 @@ export const POST = route({
       }
       throw error
     }
-    if (deliveryId) {
+    // Read through a const: TypeScript does not see the assignment inside
+    // the transaction callback.
+    const delivery = queued as { id: string; queued: boolean } | null
+    if (delivery) {
       // Inline, so the inviter sees Sent (or why not) straight away. The
       // invitation is committed either way; a send this request does not
       // settle is the job tick's.
-      await attemptInvitationDelivery({
-        organisationId: session.organisationId,
-        deliveryId,
-        limit: { email: input.email, userId: session.userId },
-        requestId,
-      })
+      if (delivery.queued) {
+        await attemptInvitationDelivery({
+          organisationId: session.organisationId,
+          deliveryId: delivery.id,
+          requestId,
+        })
+      }
       const invitationId = invitation.id
       invitation = {
         ...invitation,

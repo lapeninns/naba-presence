@@ -361,6 +361,57 @@ describeDatabase("invitation email delivery", () => {
     expect(sentTo(created.address)).toHaveLength(5)
   })
 
+  it("spends no abuse budget on a resend refused as still pending", async () => {
+    const owner = await tenant()
+    email.reset()
+    respondWith(503)
+    // The creation spends one of the address's five an hour.
+    const created = await invite(owner)
+    expect(created.invitation.delivery).toMatchObject({ status: "pending" })
+    for (let index = 0; index < 5; index += 1) {
+      const refused = await resend(owner.cookie, created.invitation.id)
+      expect(refused.status, `resend ${index + 1}`).toBe(409)
+    }
+    await admin`
+      update invitation_delivery set status = 'failed', next_attempt_at = null
+      where invitation_id = ${created.invitation.id}
+    `
+    email.reset()
+    respondWith(200)
+    // Had the five refusals counted, this would be the sixth and answer 429.
+    const response = await resend(owner.cookie, created.invitation.id)
+    expect(response.status).toBe(202)
+    expect(sentTo(created.address)).toHaveLength(1)
+  })
+
+  it("stops queued and retrying email once the feature is turned off", async () => {
+    const owner = await tenant()
+    email.reset()
+    respondWith(503)
+    const created = await invite(owner)
+    expect(created.invitation.delivery).toMatchObject({ status: "pending" })
+
+    await admin`
+      update organisation_feature set enabled = false
+      where organisation_id = ${owner.organisationId}
+        and feature = 'invitation_email'
+    `
+    await admin`
+      update invitation_delivery set next_attempt_at = now() - interval '1 second'
+      where invitation_id = ${created.invitation.id}
+    `
+    email.reset()
+    respondWith(200)
+    await jobsTick()
+    expect(sentTo(created.address)).toEqual([])
+    const [row] = await deliveries(created.invitation.id)
+    expect(row).toMatchObject({
+      status: "suppressed",
+      lastErrorCode: "invitation_email_disabled",
+      nextAttemptAt: null,
+    })
+  })
+
   it("holds invitation email while the invitation_email scope is paused", async () => {
     const owner = await tenant()
     await setPause(true)

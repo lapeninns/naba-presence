@@ -885,7 +885,13 @@ the `invitation_email` feature on (`scripts/ops-pause.mjs`, default off), and
 only once the email adapter below is configured and `TENANT_EMAIL_ENABLED` is
 on; otherwise the delivery is recorded `suppressed` and Team says to copy the
 link. Delivery state is `invitation_delivery.status` (migration 0104);
-`invitation_email` pauses it. Invitees join that organisation. Signup checks token validity, expiry, prior use and the invited
+`invitation_email` pauses it, and turning the feature off for an organisation
+also stops its email already queued or retrying (rows are suppressed
+`invitation_email_disabled`). Before enabling the feature, get security and
+product sign-off on two risks: the email carries the token-bearing link, and
+its subject and body carry the organisation's own name, which a tenant can set
+to free text (fake URLs or instructions) sent from the platform's sending
+domain to any address, bounded only by the `invitation_email` abuse limits. Invitees join that organisation. Signup checks token validity, expiry, prior use and the invited
 email before sending confirmation. Confirmation/acceptance checks again under
 a database row lock. Existing members can still sign in and recover without
 an invitation, while identities with no membership cannot create a workspace.

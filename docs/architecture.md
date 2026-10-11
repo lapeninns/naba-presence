@@ -1048,10 +1048,13 @@ link rebuilt from the encrypted token and `NEXTAUTH_URL` at send time (never
 logged). The job tick (`runDueJobs`) drains retries and rows the inline
 attempt did not settle, across tenants through
 `invitation_delivery_due_organisations`, under the `jobs` and
-`invitation_email` pause scopes. `TENANT_EMAIL_ENABLED=false` or no provider
-records the row `suppressed`; the `invitation_email` abuse limit
-(`lib/server/abuse-limits.ts`) suppresses a creation over it and answers a
-Resend with 429. `GET /api/invitations` returns each invitation's latest
+`invitation_email` pause scopes; every claim reads the feature again, and
+rows found pending once it is off are suppressed (`invitation_email_disabled`).
+`TENANT_EMAIL_ENABLED=false` or no provider records the row `suppressed`; the
+`invitation_email` abuse limit (`lib/server/abuse-limits.ts`) is counted in
+the transaction that queues the row, so only a queued email spends it: a
+creation over it is written `suppressed`, a Resend answers 429, and a Resend
+refused as still pending counts nothing. `GET /api/invitations` returns each invitation's latest
 delivery and `emailDelivery`; Team shows the state, Resend and Copy link as
 the fallback (`components/settings/invitations-panel.tsx`,
 `lib/settings/invitation-delivery.ts`).

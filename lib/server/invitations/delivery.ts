@@ -7,7 +7,7 @@ import type {
   InvitationDeliveryStatus,
 } from "@/lib/contracts/invitations"
 import type { MemberRole } from "@/lib/contracts/members"
-import { checkAbuseBudget } from "@/lib/server/abuse-limits"
+import { abuseLimitedError, checkAbuseBudget } from "@/lib/server/abuse-limits"
 import { decryptSecret } from "@/lib/server/crypto"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -27,9 +27,11 @@ import { isScopeEnabled } from "@/lib/server/pause-controls"
  * App-sent invitation email (plan P06-6; migration 0104).
  *
  * Behind the organisation's `invitation_email` feature (default off): off,
- * an invitation is a link the inviter copies, as before, and nothing here
- * runs. On, creating an invitation queues one invitation_delivery row and
- * tries it inline; Resend queues another. Every row goes through the shared
+ * an invitation is a link the inviter copies, as before, and nothing is
+ * queued. On, creating an invitation queues one invitation_delivery row and
+ * tries it inline; Resend queues another. The feature is read again at every
+ * claim, so turning it off also stops email already queued or retrying: those
+ * rows are suppressed (`invitation_email_disabled`), never sent later. Every row goes through the shared
  * email driver (lib/server/notifications/delivery.ts): claimed before the
  * send, sent with its own idempotency key, retried with back-off, and a
  * timeout kept uncertain rather than failed.
@@ -40,7 +42,9 @@ import { isScopeEnabled } from "@/lib/server/pause-controls"
  *     nothing is claimed, rows stay pending and go out after the pause;
  *   - TENANT_EMAIL_ENABLED=false, and no provider configured: the row is
  *     suppressed with that reason (sendTenantEmail);
- *   - the `invitation_email` abuse limit: a creation over it is suppressed
+ *   - the `invitation_email` abuse limit, counted in the transaction that
+ *     queues the row, so only a queued email spends it and every queued row
+ *     was counted: a creation over it is written suppressed
  *     (`invitation_email_rate_limited`), a Resend answers 429.
  *
  * The email holds the invitation link, which carries the token: it is
@@ -51,6 +55,9 @@ export const INVITATION_EMAIL_FEATURE = "invitation_email" as const
 
 /** The suppression reason of a creation over the abuse limit. */
 export const INVITATION_EMAIL_RATE_LIMITED = "invitation_email_rate_limited"
+
+/** The suppression reason of a row found queued once the feature is off. */
+export const INVITATION_EMAIL_DISABLED = "invitation_email_disabled"
 
 /**
  * How long the inline attempt owns a new row before the job tick may claim
@@ -119,92 +126,96 @@ export async function latestDelivery(
 }
 
 /**
- * Queues one invitation email, inside the caller's tenant transaction. At
- * most one row per invitation is pending (0104): a second is refused with
- * 409 `invitation_email_pending`.
+ * Queues one invitation email, inside the caller's tenant transaction, and
+ * counts it against the `invitation_email` abuse limit in that same
+ * transaction: the hit commits only with a queued row, and a refusal never
+ * leaves an uncounted row for the job tick to send.
+ *
+ * At most one row per invitation is pending (0104): a second is refused with
+ * 409 `invitation_email_pending` before anything is counted. A Resend over
+ * the limit answers 429; a creation over it is still made, its email written
+ * suppressed (`invitation_email_rate_limited`).
  */
 export async function enqueueInvitationDelivery(
   sql: TransactionSql,
   input: {
     organisationId: string
     invitationId: string
+    email: string
     requestedBy: string
     kind: "initial" | "resend"
   }
-): Promise<string> {
-  const [row] = await sql<{ id: string }[]>`
-    insert into invitation_delivery (
-      organisation_id, invitation_id, requested_by, kind, next_attempt_at
-    )
-    values (
-      ${input.organisationId},
-      ${input.invitationId},
-      ${input.requestedBy},
-      ${input.kind},
-      now() + ${INLINE_GRACE}::interval
-    )
-    on conflict (invitation_id) where status = 'pending' do nothing
-    returning id::text as id
-  `
-  if (!row) {
-    throw new ApiError(
+): Promise<{ id: string; queued: boolean }> {
+  const pendingError = () =>
+    new ApiError(
       409,
       "invitation_email_pending",
       "An email for this invitation is still being sent. Wait a moment before resending."
     )
-  }
-  return row.id
-}
-
-/**
- * Settles a still-pending row as not sent, for a reason decided before any
- * send (the abuse limit on creation).
- */
-async function suppressPending(
-  organisationId: string,
-  deliveryId: string,
-  reason: string
-) {
-  await withTenant(
-    organisationId,
-    (sql) => sql`
-      update invitation_delivery
-      set status = 'suppressed', last_error_code = ${reason},
-          next_attempt_at = null
-      where id = ${deliveryId}
-        and status = 'pending'
-    `
+  const [pending] = await sql`
+    select 1 from invitation_delivery
+    where invitation_id = ${input.invitationId}
+      and status = 'pending'
+  `
+  if (pending) throw pendingError()
+  const decision = await checkAbuseBudget(
+    "invitation_email",
+    {
+      email: input.email,
+      user: input.requestedBy,
+      organisation: input.organisationId,
+    },
+    sql
   )
+  if (!decision.allowed && input.kind === "resend") {
+    throw abuseLimitedError("invitation_email", decision.retryAfterSeconds)
+  }
+  const [row] = decision.allowed
+    ? await sql<{ id: string }[]>`
+        insert into invitation_delivery (
+          organisation_id, invitation_id, requested_by, kind, next_attempt_at
+        )
+        values (
+          ${input.organisationId},
+          ${input.invitationId},
+          ${input.requestedBy},
+          ${input.kind},
+          now() + ${INLINE_GRACE}::interval
+        )
+        on conflict (invitation_id) where status = 'pending' do nothing
+        returning id::text as id
+      `
+    : await sql<{ id: string }[]>`
+        insert into invitation_delivery (
+          organisation_id, invitation_id, requested_by, kind, status,
+          last_error_code, next_attempt_at
+        )
+        values (
+          ${input.organisationId},
+          ${input.invitationId},
+          ${input.requestedBy},
+          ${input.kind},
+          'suppressed',
+          ${INVITATION_EMAIL_RATE_LIMITED},
+          null
+        )
+        returning id::text as id
+      `
+  if (!row) throw pendingError()
+  return { id: row.id, queued: decision.allowed }
 }
 
 /**
- * The inline attempt after a row was queued: counts the abuse limit when
- * `limit` names the recipient (creation), then sends the row now. Never
+ * The inline attempt after a queued row committed: sends it now. Never
  * throws: the invitation already exists, and a row this could not settle is
  * the job tick's after INLINE_GRACE.
  */
 export async function attemptInvitationDelivery(input: {
   organisationId: string
   deliveryId: string
-  limit?: { email: string; userId: string }
   requestId?: string
 }): Promise<void> {
   try {
-    if (input.limit) {
-      const decision = await checkAbuseBudget("invitation_email", {
-        email: input.limit.email,
-        user: input.limit.userId,
-        organisation: input.organisationId,
-      })
-      if (!decision.allowed) {
-        await suppressPending(
-          input.organisationId,
-          input.deliveryId,
-          INVITATION_EMAIL_RATE_LIMITED
-        )
-        return
-      }
-    }
     await deliverInvitationEmails(input.organisationId, {
       deliveryId: input.deliveryId,
     })
@@ -238,6 +249,11 @@ type ClaimedInvitationDelivery = {
  * or only `deliveryId` (the inline attempt, which does not wait for the row
  * to fall due). Paused by the `invitation_email` scope.
  *
+ * The organisation's `invitation_email` feature is read inside the claim:
+ * off, the rows it would claim are suppressed (`invitation_email_disabled`)
+ * instead, so back-off retries and rows an inline attempt never settled stop
+ * too, and the organisation is not due on every later tick.
+ *
  * Rechecked at send: an invitation accepted or expired since it was queued
  * is suppressed, and a revoked one has taken its rows with it.
  */
@@ -250,9 +266,25 @@ export async function deliverInvitationEmails(
     name: "invitation_delivery",
     scopes: ["invitation_email"],
     claim: () =>
-      withTenant(
-        organisationId,
-        (sql) => sql<ClaimedInvitationDelivery[]>`
+      withTenant(organisationId, async (sql) => {
+        if (!(await invitationEmailEnabled(sql, organisationId))) {
+          const suppressed = await sql`
+            update invitation_delivery d
+            set status = 'suppressed',
+                last_error_code = ${INVITATION_EMAIL_DISABLED},
+                next_attempt_at = null
+            where d.status = 'pending'
+              ${options.deliveryId ? sql`and d.id = ${options.deliveryId}` : sql``}
+          `
+          if (suppressed.count > 0) {
+            log.info("invitations.delivery_feature_off", {
+              organisationId,
+              suppressed: suppressed.count,
+            })
+          }
+          return []
+        }
+        return sql<ClaimedInvitationDelivery[]>`
           with due as (
             select d.id
             from invitation_delivery d
@@ -291,7 +323,7 @@ export async function deliverInvitationEmails(
           join invitation i on i.id = c.invitation_id
           join organisation o on o.id = i.organisation_id
         `
-      ),
+      }),
     send: async (delivery) => {
       if (delivery.acceptedAt) {
         return { status: "suppressed", reason: "invitation_accepted" }
