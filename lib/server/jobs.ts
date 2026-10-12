@@ -92,7 +92,12 @@ import {
 import { syncDuePerformance } from "@/lib/server/performance"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
-import { runDueSchedules, type ScheduleTickSummary } from "@/lib/server/publication-schedule-runner"
+import {
+  runDueSchedules,
+  sweepScheduledOccurrences,
+  type ScheduleSweepSummary,
+  type ScheduleTickSummary,
+} from "@/lib/server/publication-schedule-runner"
 import { runDueBulkChildren, type BulkTickSummary } from "@/lib/server/bulk-listing-runner"
 import {
   runDueInvitationDeliveries,
@@ -150,6 +155,8 @@ export type JobSummary = {
   recoveries: number
   /** Scheduled post publication, when publishing is on. */
   schedules?: ScheduleTickSummary
+  /** Scheduled occurrences recorded missed or settled from receipts, every tick. */
+  scheduleSweep?: ScheduleSweepSummary
   /** Bulk listing children, when publishing is on. */
   bulk?: BulkTickSummary
   /** Parked privacy erasures retried in the background (plan P04-5). */
@@ -1032,6 +1039,20 @@ export async function runDueJobs(options: {
   }
 
   const pauses = await loadPauseSnapshot()
+
+  // Before any pause check (P08-R3): a scheduled post whose 5-minute window
+  // closed is recorded missed even while publishing is paused, so a pause
+  // never turns into a late publish once it lifts, and an unresolved one
+  // settles from its receipt. Neither step sends anything to Google.
+  try {
+    summary.scheduleSweep = await sweepScheduledOccurrences()
+  } catch (error) {
+    log.error("post_schedule.sweep_failed", {
+      requestId: options.requestId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
   const kinds = claimableKinds(env, pauses)
   if (kinds.length < JOB_KINDS.length) {
     log.warn("jobs.kinds_paused", {

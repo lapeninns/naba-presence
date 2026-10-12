@@ -6,7 +6,14 @@
  * stored in local terms with an IANA timezone; each occurrence is also
  * stored as the UTC instant it runs.
  *
- * Local-time rules, shown to the approver:
+ * One-time publication (the generally available frequency, P08-R2) is
+ * strict: the slot is at least 5 minutes and at most 90 days ahead, a local
+ * time that does not exist (spring forward) is refused, and a local time that
+ * happens twice (autumn back) needs the UTC offset chosen explicitly. See
+ * `resolveLocalSlot` and `planOnceSlot`.
+ *
+ * Repeating rules (behind `post_scheduling_recurring`) keep the earlier
+ * lenient rules, shown to the approver:
  * - A local time that does not exist (spring forward) runs at the first valid
  *   local time after it, the moment the clocks change.
  * - A local time that happens twice (autumn back) runs once, at the earlier
@@ -17,8 +24,19 @@ import { z } from "zod"
 
 export const DEFAULT_SCHEDULE_TIMEZONE = "Europe/London"
 export const MAX_SCHEDULE_OCCURRENCES = 366
-/** How late a missed occurrence may still publish. Older ones are recorded as missed. */
-export const MISSED_RUN_GRACE_MS = 24 * 60 * 60 * 1000
+/** The earliest a slot may be when it is created, revised or approved. */
+export const SCHEDULE_MIN_LEAD_MS = 5 * 60 * 1000
+/** The latest a one-time slot may be, from now. */
+export const SCHEDULE_MAX_LEAD_MS = 90 * 24 * 60 * 60 * 1000
+/** An occurrence that has not started by intended + this is missed (deadline_at). */
+export const DISPATCH_WINDOW_MS = 5 * 60 * 1000
+
+/** Minutes a zone is ahead of UTC; real zones lie within ±14 h. */
+export const offsetMinutesSchema = z
+  .number()
+  .int()
+  .min(-14 * 60)
+  .max(14 * 60)
 
 const isoDate = z
   .string()
@@ -173,12 +191,12 @@ export type LocalResolution = {
   adjustment: "none" | "moved_forward" | "earlier_of_repeated"
 }
 
-/** The UTC instant for a local wall time under the rules above. */
-export function resolveLocalTime(
-  date: string,
-  time: string,
-  timeZone: string
-): LocalResolution {
+/**
+ * Every UTC instant whose wall time in the zone is exactly `date time`,
+ * earliest first: none inside a spring-forward gap, two in an autumn-back
+ * overlap, otherwise one.
+ */
+function wallMatches(date: string, time: string, timeZone: string) {
   const [year, month, day] = date.split("-").map(Number),
     [hour, minute] = time.split(":").map(Number)
   const target = Date.UTC(year, month - 1, day, hour, minute)
@@ -191,6 +209,16 @@ export function resolveLocalTime(
     .map((offset) => target - offset * 60_000)
     .filter((instant) => wallMs(wallAt(instant, timeZone)) === target)
     .sort((a, b) => a - b)
+  return { target, offsets, matches }
+}
+
+/** The UTC instant for a local wall time under the lenient (repeating) rules above. */
+export function resolveLocalTime(
+  date: string,
+  time: string,
+  timeZone: string
+): LocalResolution {
+  const { target, offsets, matches } = wallMatches(date, time, timeZone)
   if (matches.length)
     return {
       instant: new Date(matches[0]),
@@ -205,6 +233,149 @@ export function resolveLocalTime(
     else low = middle
   }
   return { instant: new Date(high), adjustment: "moved_forward" }
+}
+
+/**
+ * The local date (YYYY-MM-DD) and time (HH:MM) an instant shows in a zone:
+ * the inverse of resolveLocalSlot, used to suggest a slot from a stored
+ * instant (a legacy per-post time) without moving it.
+ */
+export function localWallTime(instant: Date | string, timeZone: string) {
+  const wall = wallAt(new Date(instant).getTime(), timeZone)
+  return {
+    date: `${wall.year}-${pad(wall.month)}-${pad(wall.day)}`,
+    time: `${pad(wall.hour)}:${pad(wall.minute)}`,
+  }
+}
+
+export type SlotChoice = { instant: Date; offsetMinutes: number }
+export type LocalSlot =
+  | ({ kind: "ok" } & SlotChoice)
+  | { kind: "nonexistent" }
+  | { kind: "ambiguous"; choices: [SlotChoice, SlotChoice] }
+
+/**
+ * The strict reading of a local wall time (one-time publication): it maps to
+ * exactly one instant, to none (spring forward: refused), or to two (autumn
+ * back: the caller must pick one by its UTC offset). Never moves a time.
+ */
+export function resolveLocalSlot(
+  date: string,
+  time: string,
+  timeZone: string
+): LocalSlot {
+  const { target, matches } = wallMatches(date, time, timeZone)
+  const choice = (instant: number): SlotChoice => ({
+    instant: new Date(instant),
+    offsetMinutes: (target - instant) / 60_000,
+  })
+  if (!matches.length) return { kind: "nonexistent" }
+  if (matches.length === 1) return { kind: "ok", ...choice(matches[0]) }
+  return {
+    kind: "ambiguous",
+    choices: [choice(matches[0]), choice(matches[matches.length - 1])],
+  }
+}
+
+/** "UTC+01:00", "UTC−05:30", "UTC+00:00". */
+export function formatUtcOffset(offsetMinutes: number) {
+  const sign = offsetMinutes < 0 ? "−" : "+",
+    absolute = Math.abs(offsetMinutes)
+  return `UTC${sign}${pad(Math.floor(absolute / 60))}:${pad(absolute % 60)}`
+}
+
+export const SLOT_PROBLEMS = [
+  "schedule_time_nonexistent",
+  "schedule_time_ambiguous",
+  "schedule_offset_invalid",
+  "schedule_too_soon",
+  "schedule_too_far",
+] as const
+export type SlotProblem = (typeof SLOT_PROBLEMS)[number]
+
+/** Whether an instant is inside the bookable window from `now`. */
+export function slotWindowProblem(
+  instant: Date,
+  now: Date
+): "schedule_too_soon" | "schedule_too_far" | null {
+  const lead = instant.getTime() - now.getTime()
+  if (lead < SCHEDULE_MIN_LEAD_MS) return "schedule_too_soon"
+  if (lead > SCHEDULE_MAX_LEAD_MS) return "schedule_too_far"
+  return null
+}
+
+export type OnceSlotPlan =
+  | {
+      ok: true
+      occurrence: PlannedOccurrence
+      offsetMinutes: number
+      deadlineAt: string
+    }
+  | { ok: false; problem: SlotProblem; choices: SlotChoice[] }
+
+/**
+ * The one occurrence a one-time rule publishes, under the strict rules:
+ * a nonexistent local time is refused; an ambiguous one needs
+ * `offsetMinutes` naming one of its two offsets; an explicit offset on an
+ * unambiguous time must be that time's offset; and the instant must be 5
+ * minutes to 90 days after `now`. `now` null skips the window (display).
+ */
+export function planOnceSlot(
+  rule: { startDate: string; localTime: string },
+  timeZone: string,
+  offsetMinutes: number | null,
+  now: Date | null
+): OnceSlotPlan {
+  const slot = resolveLocalSlot(rule.startDate, rule.localTime, timeZone)
+  if (slot.kind === "nonexistent")
+    return { ok: false, problem: "schedule_time_nonexistent", choices: [] }
+  const candidates = slot.kind === "ok" ? [slot] : slot.choices
+  const chosen =
+    offsetMinutes === null
+      ? slot.kind === "ok"
+        ? slot
+        : null
+      : (candidates.find((c) => c.offsetMinutes === offsetMinutes) ?? null)
+  if (!chosen)
+    return {
+      ok: false,
+      problem:
+        offsetMinutes === null
+          ? "schedule_time_ambiguous"
+          : "schedule_offset_invalid",
+      choices: slot.kind === "ambiguous" ? slot.choices : [],
+    }
+  const window = now ? slotWindowProblem(chosen.instant, now) : null
+  if (window) return { ok: false, problem: window, choices: [] }
+  return {
+    ok: true,
+    offsetMinutes: chosen.offsetMinutes,
+    deadlineAt: new Date(
+      chosen.instant.getTime() + DISPATCH_WINDOW_MS
+    ).toISOString(),
+    occurrence: {
+      intendedAt: chosen.instant.toISOString(),
+      localDate: rule.startDate,
+      localTime: rule.localTime,
+      adjustment: "none",
+    },
+  }
+}
+
+/** What a strict slot problem means, in the scheduler's words. */
+export function slotProblemMessage(problem: SlotProblem) {
+  switch (problem) {
+    case "schedule_time_nonexistent":
+      return "This time doesn’t exist that day because the clocks go forward. Choose another time."
+    case "schedule_time_ambiguous":
+      return "This time happens twice that day because the clocks go back. Choose which one."
+    case "schedule_offset_invalid":
+      return "That UTC offset doesn’t match this time. Choose the time again."
+    case "schedule_too_soon":
+      return "Choose a time at least 5 minutes from now."
+    case "schedule_too_far":
+      return "Choose a time within the next 90 days."
+  }
 }
 
 /**
@@ -322,23 +493,47 @@ export function expandSchedule(
 }
 
 /**
- * Which due occurrences publish now. Only the most recent one inside the
- * grace period runs; every other due occurrence is recorded as missed.
+ * Which due occurrences publish now. An occurrence may start only inside its
+ * dispatch window (intended_at <= now < deadline_at, 5 minutes); there is no
+ * late catch-up. The latest one still inside its window runs; every other
+ * due occurrence is recorded as missed.
  */
-export function selectDueOccurrences<T extends { intendedAt: string }>(
-  due: readonly T[],
-  now: Date
-) {
+export function selectDueOccurrences<
+  T extends { intendedAt: string; deadlineAt: string },
+>(due: readonly T[], now: Date) {
   const ordered = [...due].sort((a, b) =>
     a.intendedAt.localeCompare(b.intendedAt)
   )
   const latest = ordered.at(-1)
   const run =
     latest &&
-    now.getTime() - Date.parse(latest.intendedAt) <= MISSED_RUN_GRACE_MS
+    Date.parse(latest.intendedAt) <= now.getTime() &&
+    now.getTime() < Date.parse(latest.deadlineAt)
       ? latest
       : null
   return { run, missed: ordered.filter((occurrence) => occurrence !== run) }
+}
+
+/**
+ * The intent a scheduled occurrence's publish runs under: derived from the
+ * occurrence id alone, so a retried tick (or a crash between claiming the
+ * occurrence and settling it) records into the same mutation_operation
+ * receipt rather than a second one. A UUID (version 8, name-based from
+ * SHA-256), because intents are UUIDs (mutation_operation.intent_id).
+ */
+export function scheduledPublishIntentId(
+  occurrenceId: string,
+  sha256Hex: (input: string) => string
+): string {
+  const hex = sha256Hex(`post_publication_occurrence:${occurrenceId}`)
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `8${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join("-")
 }
 
 /** Event dates for an occurrence, from its local date and the frozen offsets. */
@@ -379,8 +574,12 @@ const ordinal = (value: number) =>
   `${value}${value % 10 === 1 && value !== 11 ? "st" : value % 10 === 2 && value !== 12 ? "nd" : value % 10 === 3 && value !== 13 ? "rd" : "th"}`
 
 /** "Every Monday and Wednesday at 09:30 (Europe/London), 4 times" and similar. */
-export function describeScheduleRule(rule: ScheduleRule, timeZone: string) {
-  const at = `at ${rule.localTime} (${timeZone})`
+export function describeScheduleRule(
+  rule: ScheduleRule,
+  timeZone: string,
+  offsetMinutes: number | null = null
+) {
+  const at = `at ${rule.localTime} (${timeZone}${offsetMinutes === null ? "" : `, ${formatUtcOffset(offsetMinutes)}`})`
   const ending =
     rule.frequency === "once"
       ? ""

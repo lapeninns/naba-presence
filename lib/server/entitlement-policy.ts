@@ -125,6 +125,9 @@ export const READ_ONLY_BACKGROUND_WORK = {
   billing: "runs",
   bulk: "held",
   schedules: "held",
+  // The scheduled post sweep (0118/0119) only records passed slots as missed
+  // and settles occurrences from their receipts; it never sends anything.
+  scheduleSweep: "runs",
   privacy: "runs",
   invitations: "runs",
   // Cron ticks.

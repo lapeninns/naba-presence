@@ -114,12 +114,14 @@ function SidebarNav({
   rail,
   role,
   mode,
+  hideCalendar,
 }: {
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail: boolean
   role: string | null
   mode: WorkspaceMode
+  hideCalendar: boolean
 }) {
   const clients = useClients()
   const needsReply = useNeedsReplyCount()
@@ -128,6 +130,7 @@ function SidebarNav({
     <Nav
       role={role}
       mode={mode}
+      hideCalendar={hideCalendar}
       scopeClientId={mode === "business" ? null : remembered}
       onNavigate={onNavigate}
       layout={layout}
@@ -158,6 +161,7 @@ function SidebarBody({
   organisationName,
   role,
   mode,
+  hideCalendar,
   onNavigate,
   layout,
   rail = false,
@@ -168,6 +172,7 @@ function SidebarBody({
   organisationName: string | null
   role: string | null
   mode: WorkspaceMode
+  hideCalendar: boolean
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail?: boolean
@@ -216,6 +221,7 @@ function SidebarBody({
             rail={rail}
             role={role}
             mode={mode}
+            hideCalendar={hideCalendar}
           />
         ) : null}
       </div>
@@ -298,9 +304,15 @@ function NavigationSheet({
 function AppShell({
   session,
   rememberedClientId = null,
+  hideCalendar = false,
   children,
 }: {
   session: ShellSession | null
+  /**
+   * The organisation's `post_scheduling` feature is off (the layout reads
+   * it), so the Calendar destination is left out of the navigation.
+   */
+  hideCalendar?: boolean
   /**
    * The client-scope cookie as the layout read it (lib/clients/scope.ts),
    * so the sidebar's links and the switcher render the same on the server
@@ -371,6 +383,7 @@ function AppShell({
               organisationName={organisationName}
               role={role}
               mode={mode}
+              hideCalendar={hideCalendar}
               layout="responsive"
               rail={rail}
             />
@@ -388,6 +401,7 @@ function AppShell({
                 organisationName={organisationName}
                 role={role}
                 mode={mode}
+                hideCalendar={hideCalendar}
                 layout="full"
                 onNavigate={() => setMobileNavOpen(false)}
                 closeButton={closeButton}

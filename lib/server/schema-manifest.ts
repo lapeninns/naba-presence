@@ -124,5 +124,12 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0113_billing_event_hardening",
   "0114_billing_checkout_session",
   "0115_ai_credit_adjustments",
+  "0116_post_schedule_quarantine",
+  "0117_post_schedule_strict_slot",
+  "0118_post_schedule_dispatch",
+  "0119_post_schedule_settle",
+  "0120_post_schedule_source_revision",
+  "0121_post_schedule_operations",
+  "0122_post_schedule_operations_review",
   "20260729000400_remove_local_demo_data",
 ]

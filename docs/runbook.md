@@ -498,6 +498,15 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   a row): `pnpm ops:pause feature --organisation <uuid> --feature
   post_scheduling --enable --operator you@example.com`. The script refuses a
   feature name not listed in `lib/contracts/org-features.ts`.
+- `post_scheduling` switches on one-time scheduled posts for an
+  organisation; `post_scheduling_recurring` additionally allows daily, weekly
+  and monthly schedules. With either off, a due schedule that needs it is
+  blocked (`feature_disabled` / `recurring_disabled`), not deferred: after
+  switching it back on, the schedule is changed and approved again. Repeating
+  schedules quarantined by migration 0116 show as "Needs review"; find them
+  with `select id, organisation_id from post_publication_schedule where
+  status = 'needs_review'`, and legacy per-post times with `select post_id
+  from gbp_local_post_legacy_schedule where status = 'needs_review'`.
 - `listing_change_approvals` makes direct listing writes obey the
   organisation's two-person policy: with both on, a publisher's hours,
   profile, menu and media writes park as change requests that another
@@ -1372,6 +1381,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `gbp_change_set` | operational | delete | expires_at (180 days after it is requested), once no Place Action attempt refers to it | `managementChangeSets` | gated | no | internal |
 | `gbp_local_post` | customer | redact | provider payload at provider_payload_expires_at; the post while its location stays connected; deleted with the external location 7 days after disconnect | `postPayloads`, `strandedPosts`, cascade from `external_location` | gated | cascade only | published |
 | `gbp_local_post_attempt` | operational | delete | expires_at (180 days after it is created) | `postAttempts`, cascade from `gbp_local_post` | gated | cascade only | internal |
+| `gbp_local_post_legacy_schedule` | customer | delete | 180 days after an owner or admin dismissed it; one nobody reviewed is kept; with its post (while its location stays connected; deleted with the external location 7 days after disconnect) | `legacyPostSchedules`, cascade from `gbp_local_post` | gated | cascade only | pending D-47: delete dismissed old per-post times 180 days after review (P08-R6 default) until D-47 sets the period |
 | `gbp_management_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `managementMutations`, `strandedManagement` | gated | no | internal |
 | `gbp_media_item` | google | redact | URLs, description, attribution, dimensions and insights at payload_expires_at (30 days after each observation) | `googleMediaPayloads`, cascade from `external_location` | gated | cascade only | published |
 | `gbp_media_mutation` | operational | delete | expires_at (180 days after it is created), except an unresolved uncertain create; in-flight rows aged to ambiguous after 24 hours | `mediaMutations`, `strandedMedia` | gated | no | internal |
@@ -1415,8 +1425,8 @@ listed in `failures` with `retention_dry_run_budget`.
 | `platform_incident` | operational | keep | kept after it resolves | none | none | no | pending D-47: keep resolved platform incidents as the operations record |
 | `platform_incident_delivery` | operational | keep | with its incident | none | none | no | pending D-47: keep operator alert deliveries (recipient address included) with their incident |
 | `post_approval_decision` | customer | keep | with its post | cascade from `gbp_local_post` | gated | yes | lifecycle |
-| `post_publication_occurrence` | customer | keep | with its schedule | none | none | no | pending D-47: keep every occurrence, run or skipped, for the life of its schedule |
-| `post_publication_schedule` | customer | keep | for the life of the location | none | none | no | pending D-47: keep finished and cancelled schedules for the life of the location |
+| `post_publication_occurrence` | customer | delete | 180 days after it ended (published, rejected, missed or cancelled), or with its schedule; an unresolved one, and any of a schedule in review or blocked, is kept however old | `scheduleOccurrences`, cascade from `post_publication_schedule` | gated | no | pending D-47: delete ended occurrences 180 days after they end (P08-R6 default) until D-47 sets the period |
+| `post_publication_schedule` | customer | delete | 180 days after it ended (cancelled or completed), once none of its occurrences is live or ended within that period; a schedule awaiting approval, active, paused, blocked or in review is kept however old | `publicationSchedules` | gated | no | pending D-47: delete ended schedules 180 days after they end (P08-R6 default) until D-47 sets the period |
 | `presence_canonical_resource` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `presence_import_proposal` | google | delete | expires_at (90 days after it is raised) | `importProposals`, cascade from `external_location` | gated | cascade only | published |
 | `presence_resource_reconcile_state` | operational | keep | one row per location and resource, for the life of the location | none | none | no | internal |
@@ -2187,12 +2197,94 @@ A schedule shows "Needs attention" with its reason:
 - `approval_invalid` / `permission_revoked`: change the schedule (a new
   revision) and have a current owner or admin approve it.
 - `prior_occurrence_unresolved`: a publish was sent but its result is unknown.
-  Check the post's saved outcome, then change and re-approve the schedule.
-Missed occurrences (older than 24 hours, or with ended event/offer content) are
-recorded as missed and raise `schedule_missed`; they are never published late.
+  `mutation_recover` reads Google back for its receipt; the next tick settles
+  the occurrence from that receipt and the schedule carries on. Nothing is
+  resent. If recovery gives up (the receipt stays `uncertain`), check the post
+  on Google, then change and re-approve the schedule. A publish interrupted
+  before it recorded a receipt was never sent: once its window has closed
+  (plus a minute) the sweep records it missed (`outside_dispatch_window`), so
+  a repeating schedule carries on and a one-time one asks for a new time.
+- `prior_occurrence_unverified` ("Needs review"): an unresolved occurrence from
+  before migration 0118 (no intent, so no receipt) whose post is neither
+  published nor failed. Its occurrence is cancelled as `outcome_unverified`.
+  Check the location's posts on Google, then choose a new time or cancel.
+- `connection_changed`: the location was relinked or its Google connection
+  reconnected after approval. Change the schedule and approve it again.
+- `source_changed` ("Awaiting approval", or "Needs review" when the rule no
+  longer fits the content): the post was edited after the schedule was set up.
+  The schedule now holds the edited text as a new revision; review and approve
+  it, or cancel it. Nothing was or will be published from the old approval.
+  A paused schedule stays paused with this reason: resuming it moves it to
+  "Awaiting approval", and only an approval makes it active. A blocked schedule
+  keeps its block reason; submit it again once the block is cleared.
+  A one-time slot that comes due while the post is being published by hand
+  waits inside its 5-minute window rather than ending; if that publish fails
+  it goes out, and otherwise it is superseded or missed.
+- `source_superseded`: the post was published another way or deleted before a
+  one-time slot came due. The schedule ended without sending anything; schedule
+  a new draft if another publication is wanted.
+An occurrence may start only within 5 minutes of its time. One that could not
+(runner down, publishing paused, link missing) is recorded missed by the next
+tick, even while paused, and raises `schedule_missed` (`outside_dispatch_window`,
+or `paused_when_due` when its schedule was paused); one with ended event/offer
+content is missed as `expired_content`. Missed occurrences are never published
+late. A one-time schedule with a missed slot shows "Needs review": resuming it
+answers `schedule_missed`, so choose a new time by editing it.
 Pausing keeps occurrences; cancelling stops every pending one. To stop all
 scheduled publishing at once, turn off `PUBLISH_ENABLED` (or `JOBS_ENABLED`):
 no new schedule or bulk child is claimed, and nothing already sent is undone.
+
+Notifications (P08-R6): `schedule_missed` emails immediately and
+`schedule_blocked` goes in the digest, each with the reason in the Posts tab's
+words (in the immediate email, and on an indented line under its digest
+entry). `schedule_blocked` is also raised when an approved, active schedule
+will no longer publish because its post was edited (`source_changed`) or was
+published another way or deleted (`source_superseded`), and when the sweep
+sends a schedule to review as `prior_occurrence_unverified`. The jobs tick
+logs `post_schedule.tick` (published, rejected, ambiguous, missed, blocked,
+superseded, sourceChanged, sourceInFlight) and `post_schedule.sweep` (missed,
+resolved, unverified) whenever either did anything.
+
+### Scheduled post alerts
+
+The health tick opens a `platform_incident` per organisation (the subject is
+the organisation id; details hold counts and instants only) and emails
+`OPS_ALERT_EMAILS`:
+
+- `scheduled_post_stuck`: an occurrence still `publishing` 10 minutes after it
+  started, with its schedule's lease gone. The next claim
+  (`claim_due_publication_schedules`) would have made it `ambiguous`, so the
+  jobs tick or its scheduled post path is not running: check the `jobs`
+  heartbeat, `post_schedule.process_failed` logs, and the `jobs`, `publish`
+  and `scheduled_post` pauses. Not raised while one of those scopes is
+  paused (the pause is what holds the claim). Once the tick runs, the
+  occurrence becomes unresolved and is settled from its receipt; nothing is
+  resent.
+- `scheduled_post_overdue`: an occurrence still `scheduled` more than three
+  minutes after its 5-minute window closed. The sweep runs on every jobs tick
+  before any pause check, but only inside the `naba:jobs` lock, so one tick
+  that overran its budget can delay it by about two minutes; three minutes
+  allows for that. Past it, the jobs tick is not running, its lock is held
+  (see `tick_lock_wedged`) or `post_schedule.sweep_failed` is in the logs. It will not publish late
+  either way; the alert is that nobody has been told it was missed.
+
+Both read `post_schedule_health()` (migrations 0121 and 0122; every affected
+organisation is reported) and resolve on the first health tick after the
+condition clears. Neither changes an occurrence.
+
+Retention: the daily retention cycle runs the scheduled post datasets
+(`scheduleOccurrences`, `publicationSchedules`, `legacyPostSchedules`) for each
+organisation through `purge_post_schedule_dataset` (0122), in bounded batches
+like every other dataset, and the dry run previews them. It deletes ended occurrences (published, rejected,
+missed, cancelled) 180 days after they ended, ended schedules (cancelled,
+completed) 180 days after their last change once none of their occurrences
+is live or recent, and old per-post times an owner dismissed 180 days after
+the dismissal. An `ambiguous` occurrence, a schedule awaiting approval, in
+review, paused or blocked, every occurrence of a schedule in review or blocked
+(it names the post and slot to check), and an old per-post time nobody
+reviewed are kept however old. `RETENTION_DELETES_ENABLED=false` stops it with the other
+deletes; the counts are `scheduleOccurrences`, `publicationSchedules` and
+`legacyPostSchedules` in the `retention.purge.completed` audit row.
 
 ### Partial bulk changes
 

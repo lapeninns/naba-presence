@@ -39,6 +39,7 @@ export const queryKeys = {
   notificationPreferences: ["operational-notifications", "preferences"] as const,
   operationsHealth: ["operations", "health"] as const,
   postSchedules: (locationId: string) => ["locations", locationId, "post-schedules"] as const,
+  legacyPostSchedules: (locationId: string) => ["locations", locationId, "legacy-post-schedules"] as const,
   bulkChanges: ["bulk-changes"] as const,
   bulkChange: (id: string) => ["bulk-changes", id] as const,
   scheduleOccurrencesAll: ["schedule-occurrences"] as const,

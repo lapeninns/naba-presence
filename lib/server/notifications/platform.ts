@@ -4,8 +4,10 @@ import { getDatabase } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 import {
+  scheduledPostHealth,
   schedulerLiveness,
   tickFindings,
+  type ScheduledPostFinding,
   type TickFinding,
 } from "@/lib/server/ops-liveness"
 import { retentionCycleFailureFinding } from "@/lib/server/retention/cycle"
@@ -14,7 +16,10 @@ import { runDeliveries, type DeliveryOutcome } from "./delivery"
 import { sendEmail } from "./email"
 import { renderPlatformEmail } from "./messages"
 
-export type PlatformIncidentKind = TickFinding["kind"] | "google_quota_pressure"
+export type PlatformIncidentKind =
+  | TickFinding["kind"]
+  | ScheduledPostFinding["kind"]
+  | "google_quota_pressure"
 
 const PLATFORM_INCIDENT_KINDS: readonly PlatformIncidentKind[] = [
   "stale_heartbeat",
@@ -23,6 +28,8 @@ const PLATFORM_INCIDENT_KINDS: readonly PlatformIncidentKind[] = [
   "tick_cycle_overdue",
   "tick_cycle_failures",
   "google_quota_pressure",
+  "scheduled_post_stuck",
+  "scheduled_post_overdue",
 ]
 
 type PlatformFinding = {
@@ -52,6 +59,11 @@ export type PlatformEvaluation = {
  * A cycle that completed with organisations it could not retain is its own
  * finding (retentionCycleFailureFinding): completing stamps the ledger, so
  * the overdue check never sees a tenant that fails every day.
+ *
+ * Scheduled post findings (P08-R6, ops-liveness.ts scheduledPostHealth) are
+ * per organisation: an occurrence stuck `publishing` past its lease, or
+ * still `scheduled` three minutes past its deadline. They report only; nothing
+ * here publishes, resends or settles an occurrence.
  */
 export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   const database = getDatabase()
@@ -68,6 +80,15 @@ export async function evaluatePlatform(): Promise<PlatformEvaluation> {
     where last_throttled_at >= now() - interval '15 minutes'
       and bucket not like 'edit:%'
   `
+  // A failed read must not stop the tick alerts, nor resolve open scheduled
+  // post incidents it could not check: their kinds are left as they are.
+  const unchecked = new Set<PlatformIncidentKind>()
+  try {
+    findings.push(...(await scheduledPostHealth()))
+  } catch (error) {
+    unchecked.add("scheduled_post_stuck").add("scheduled_post_overdue")
+    log.error("ops.scheduled_post_health_failed", { error })
+  }
   for (const row of throttled) {
     findings.push({
       kind: "google_quota_pressure",
@@ -92,6 +113,7 @@ export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   }
   let resolved = 0
   for (const kind of PLATFORM_INCIDENT_KINDS) {
+    if (unchecked.has(kind)) continue
     const current = findings
       .filter((finding) => finding.kind === kind)
       .map((finding) => finding.subject)

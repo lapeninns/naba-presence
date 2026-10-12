@@ -1779,13 +1779,176 @@ explicit event-date offsets; approval binds its payload hash and revision.
 Approval materialises future occurrences once (`unique (schedule_id,
 schedule_revision, intended_at)`). The job tick claims due schedules with a
 lease (`claim_due_publication_schedules`), rechecks approval, policy, requester
-and approver grants, connection and kill switches, publishes at most the latest
-occurrence inside 24 hours (older ones are missed), never publishes ended event
-or offer content, and creates one post row per occurrence so a retry reuses the
-same publish idempotency key. An ambiguous publish blocks the schedule; nothing
+and approver grants, connection and kill switches, publishes an occurrence only
+inside its 5-minute dispatch window (P08-R3, below), never publishes ended event
+or offer content, and for a repeating rule creates one post row per occurrence
+so a retry reuses the same publish idempotency key (a one-time occurrence
+publishes its source draft itself, P08-R4 below). An ambiguous publish blocks the schedule; nothing
 is resubmitted automatically. Edits create a new revision and cancel pending
-occurrences. Spring-forward times run at the first valid local time; repeated
-autumn times run once, at the earlier instant; absent month days are skipped.
+occurrences. For repeating rules, spring-forward times run at the first valid
+local time, repeated autumn times run once at the earlier instant, and absent
+month days are skipped.
+
+One-time slots are strict (P08-R2, migration 0117; `resolveLocalSlot` and
+`planOnceSlot` in `lib/domain/publication-schedule.ts`). Create, revise and
+approve each require the slot to be 5 minutes to 90 days ahead
+(`schedule_too_soon`, `schedule_too_far`). A time the clocks skip is refused
+(`schedule_time_nonexistent`). A time that happens twice needs `offsetMinutes`
+naming one of its two UTC offsets (`schedule_time_ambiguous`, with both choices
+in `details`). An offset the time does not have is `schedule_offset_invalid`.
+The resolved offset is stored as `post_publication_schedule.offset_minutes`;
+the payload hash covers it only for a time that happens twice, since elsewhere
+the rule and zone already fix the instant (so hashes stored before 0117 stay
+valid). Each occurrence carries `deadline_at` (intended + 5 minutes, defaulted
+by a trigger for writers that omit it). 0117 backfills the offset from an
+unadjusted run of the current revision; an active or paused one-time schedule
+whose run a clock change moved goes to `needs_review` /
+`slot_needs_new_time` (its waiting run cancelled `schedule_quarantined`).
+Approving a schedule from before 0117 resolves its stored slot strictly, stores
+the offset and never guesses the earlier instant. Repeating rules materialise
+only occurrences at least 5 minutes ahead.
+
+Dispatch is strict (P08-R3, migration 0118;
+`lib/server/publication-schedule-runner.ts`). Approval freezes the Google target
+(`target_google_connection_id`, `target_credential_generation`,
+`target_google_location_name`) and the approval policy
+(`approved_approval_required`), and records the approver's assurance (0106:
+`approved_aal`, `approved_mfa_verified_at`, `approved_security_version`). Approving
+needs an active link (409 `schedule_location_not_linked`). Before each publish
+the runner calls `recheckAuthorisation` (`lib/server/authz/actor.ts`) for the
+approver with the frozen connection, generation, policy and security version,
+so a relink, reconnect, policy change or an operator MFA recovery of the
+approver since approval blocks the schedule (`connection_changed`,
+`approval_invalid`) instead of publishing through whatever is linked now; the
+publish's attempt records the approval's assurance; `publishScheduledLocalPost` refuses a
+moved link again with nothing sent. An occurrence starts only while
+`intended_at <= now() < deadline_at`: `claim_due_publication_schedules` skips one
+past its deadline, and `publishScheduledLocalPost` checks the deadline before
+anything is written and again immediately before the provider call
+(`schedule_deadline_passed`). Every tick, before any pause check,
+`mark_missed_post_occurrences()` records a passed slot as missed
+(`paused_when_due` when the schedule was paused, otherwise
+`outside_dispatch_window`) and raises `schedule_missed`; a one-time schedule then
+goes to `needs_review` with that reason, and resume answers 409
+`schedule_missed` (choose a new time by editing it). Each publish runs under an
+intent derived from the occurrence id (`scheduledPublishIntentId`, stored as
+`post_publication_occurrence.intent_id`), so it records a `mutation_operation`
+receipt and `mutation_recover` reads back an uncertain create.
+`settle_post_occurrences_from_receipts()` (also every tick, redefined in 0119)
+settles an `ambiguous` occurrence from its own receipt (surface `local_post`,
+target its own post; another write that took the intent does not count):
+published, rejected with `provider_rejected` / `publish_failed`, or missed
+(`outside_dispatch_window`) for `schedule_deadline_passed`. One with no receipt
+of its own was never sent and settles missed once its window has closed plus a
+minute. One from before 0118 (no intent) settles from its post, or is cancelled
+(`outcome_unverified`) with its schedule sent to review
+(`prior_occurrence_unverified`). A one-time schedule whose slot settled missed
+goes to `needs_review`; a schedule blocked only by unresolved occurrences
+returns to active (or completed). `mark_missed_post_occurrences()` raises
+`schedule_missed` only for active or paused schedules, so a blocked repeating
+schedule does not raise an incident per day. Recovery never sends anything,
+so a create proven not to have landed is never made late. Event-date offsets
+apply to repeating schedules only; a one-time schedule publishes its approved
+content as is.
+
+A schedule is bound to its source draft (P08-R4, migration 0120). Create and
+revise freeze the draft's `content_revision` (0081) and `postContentHash`
+(`lib/server/post-content.ts`, the hash a post approval binds) as
+`source_content_revision` / `source_content_hash` with the template. An edit to
+the draft (`updateLocalPostDraft`) re-freezes every live schedule made from it
+in the same transaction: a new revision with the new text, approval and frozen
+target cleared, status `awaiting_approval` / `source_changed`, its waiting
+occurrences cancelled `source_changed` (a schedule whose rule no longer fits the
+content goes to `needs_review`). A paused schedule stays `paused` (reason
+`source_changed`) and resuming it asks for the approval again; a blocked one
+keeps its block and reason. Re-saving identical text keeps the revision
+and changes nothing. Every path that locks a draft's schedules and the draft
+(the editor, the runner, create, revise) first locks all the draft's live
+schedules in id order, then the draft, so none of them can deadlock another. Approval refuses a draft that moved on some other way
+(409 `schedule_source_changed`). A one-time occurrence publishes the source post
+itself instead of a copy, and `publishScheduledLocalPost` sends it only at the
+frozen revision and hash (`schedule_source_changed`, nothing sent; the publish
+claim also requires the revision it read). A draft already on Google, being
+published or deleted cannot be scheduled once (409
+`schedule_source_unavailable`). Only an end state (on Google, or deleted)
+supersedes a due occurrence: the occurrence and schedule end `cancelled` /
+`source_superseded`, nothing sent. A manual publish still in flight
+(`publishing`, or `ambiguous` with no Google name) leaves the occurrence
+`scheduled`; a later tick inside the window publishes it if that publish
+failed, and past the window it is missed. A draft has at most one live
+one-time schedule (409 `schedule_source_already_scheduled`); create and revise
+lock the draft for the check, so concurrent requests cannot both pass. The
+runner re-freezes a schedule whose draft changed without the editor and sends
+nothing. 0120 binds live rows whose template is their draft's current content
+(revision only, no hash); a live one-time schedule it cannot bind goes to
+`needs_review` (`source_changed`, or `source_superseded` when the draft is gone
+or on Google). The unique index on an occurrence's post now covers only
+`scheduled`, `publishing`, `published` and `ambiguous` occurrences, so a later
+revision can publish a draft an earlier one missed. A repeating schedule still
+publishes copies of its frozen template.
+
+Scheduling is behind the organisation feature `post_scheduling`
+(`lib/server/publication-schedules.ts` `schedulingAvailability`). Off, the
+routes refuse to create, approve, revise or resume a schedule and the calendar
+occurrences route answers 404 `post_scheduling_unavailable`; listing, pausing
+and cancelling stay available. One-time is the generally available frequency:
+a repeating rule also needs `post_scheduling_recurring` (422
+`schedule_recurring_unavailable` without it). The runner blocks a due schedule
+whose feature is off (`feature_disabled`, `recurring_disabled`), so turning a
+feature back on needs a fresh approval. Migration 0116 quarantined every
+repeating schedule that could still run as `needs_review`
+(`recurring_quarantined`, its scheduled occurrences cancelled) and copied
+unpublished posts' legacy `scheduled_publish_time`/`recurrence` values into
+`gbp_local_post_legacy_schedule` for review; nothing creates a job from them.
+
+The Posts tab (P08-R5) shows a draft "Publish now" beside "Schedule" (one-time
+only unless repeating is on) while `post_scheduling` is on, and nothing about
+scheduling while it is off: no Schedule button, no old-time review and no
+Calendar destination (the dashboard layout reads the feature and passes
+`hideCalendar` to the shell). Existing schedules stay listed so they can be
+paused or cancelled. A post with a live one-time schedule shows it and is not
+offered Schedule again; publishing it by hand says the scheduled run will not
+happen. Badges and actions come from `lib/locations/schedule-display.ts`: a
+slot missed while paused or outside the window reads "Missed" and offers only
+"Choose a new time" or cancel, never resume or retry. Owners and administrators
+review old per-post times through
+`app/api/locations/[id]/legacy-post-schedules/route.ts` (list) and
+`app/api/locations/[id]/legacy-post-schedules/[legacyId]/route.ts` (dismiss),
+both 404 with the feature off and 403 for any other role. An owner or
+administrator scheduling the post closes its review row in the same
+transaction; a member's schedule request leaves it open until a manager
+approves that schedule (closed then) or dismisses the old time. A post that
+already has a live one-time schedule is listed as not schedulable
+(`alreadyScheduled`), so only Dismiss is offered. The sheet pre-fills the old
+time only while it is at least 5 minutes and at most 90 days ahead in the
+sheet's zone. Either way only the review columns change and an audit row
+(`post_schedule.legacy_reviewed`) records the outcome.
+
+Operations (P08-R6, migrations 0121 and 0122). The health tick
+(`lib/server/notifications/platform.ts`) reads `post_schedule_health()` through
+`scheduledPostHealth` in `lib/server/ops-liveness.ts` and opens one
+`platform_incident` per organisation for an occurrence still `publishing` past
+its schedule's lease (`scheduled_post_stuck`, 10 minutes after it started; not
+while the `jobs`, `publish` or `scheduled_post` pause holds the claim) or still
+`scheduled` three minutes past its deadline (`scheduled_post_overdue`; one
+jobs tick that overran its budget can delay the sweep about two minutes). Both only
+report. The retention purge (`lib/server/retention/purge.ts`, steps
+`scheduleOccurrences`, `publicationSchedules` and `legacyPostSchedules`,
+behind `RETENTION_DELETES_ENABLED`) calls
+`purge_post_schedule_dataset(dataset, 180, limit)` in each tenant, bounded like
+every other dataset, and its dry run asks the same function for a count:
+ended occurrences and schedules and dismissed per-post times age off after
+180 days; anything unresolved, awaiting approval or in review is kept,
+including every occurrence of a schedule in review or blocked (0122).
+`purge_post_schedule_history(180)` is the unbounded run of all three. Both
+refuse without a tenant or below 30 days, and the runtime role has no DELETE
+on the three tables. `schedule_blocked` also carries `prior_occurrence_unverified`,
+`source_changed` and `source_superseded`
+(`lib/contracts/operational-events.ts`), raised only for a schedule that was
+going to publish; incident emails and digest lines add the reason's wording
+from `lib/locations/schedule-display.ts`. The event is written in a savepoint,
+so a failed incident insert rolls back only the event, never the post edit. The runner logs `post_schedule.tick` and
+`post_schedule.sweep` summaries.
 
 ## Bulk listing changes (WP6, 0080)
 
@@ -1878,11 +2041,15 @@ With the env flag on, an organisation with no billing row is enforced too.
   (`publish.retry_held_billing`, `lib/server/jobs.ts`); a bulk listing child
   is re-queued for an hour with that result code
   (`lib/server/bulk-listing-runner.ts`); a scheduled post is held like a
-  publishing pause (`schedule_blocked` with reason `billing_read_only`,
-  `lib/server/publication-schedule-runner.ts`): there is no hour-long hold,
-  every tick re-checks it, a due occurrence is missed once it leaves the
-  grace period, and the incident opens once per occurrence (its subject is
-  the occurrence), not once per tick. Read-backs (`recover`,
+  publishing pause (`scheduledPostEntitlement` in
+  `lib/server/publication-schedule-runner.ts`, `schedule_blocked` with reason
+  `billing_read_only`, counted as `readOnly` in the tick summary): nothing is
+  claimed or sent, there is no hour-long hold, every tick re-checks it inside
+  the occurrence's 5-minute window, a slot still held when the window closes
+  is recorded missed (`outside_dispatch_window`) and never publishes late, and
+  the incident opens once per occurrence (its subject is the occurrence), not
+  once per tick. The scheduled post sweep (`scheduleSweep`) runs: it only
+  records missed slots and settles from receipts. Read-backs (`recover`,
   `mutation_recover`) and the syncs, which only read, keep running.
   `READ_ONLY_BACKGROUND_WORK` records the decision for every job kind, job
   tick runner and cron tick: only `retry`, `bulk` and `schedules` are held.

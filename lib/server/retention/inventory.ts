@@ -538,26 +538,47 @@ export const RETENTION_INVENTORY = [
     hold: "kept",
     approval: { status: "lifecycle" },
   },
+  // Scheduled post history (P08-R6, 0121/0122 purge_post_schedule_dataset):
+  // 180 days is the engineering default, applied behind
+  // RETENTION_DELETES_ENABLED while D-47 decides the period.
   {
     table: "post_publication_schedule",
     provenance: "customer",
-    action: "keep",
-    window: "for the life of the location",
-    deletes: "none",
+    action: "delete",
+    window:
+      "180 days after it ended (cancelled or completed), once none of its occurrences is live or ended within that period; a schedule awaiting approval, active, paused, blocked or in review is kept however old",
+    steps: ["publicationSchedules"],
+    deletes: "gated",
     hold: "none",
     approval: PENDING_UNDECIDED(
-      "keep finished and cancelled schedules for the life of the location"
+      "delete ended schedules 180 days after they end (P08-R6 default) until D-47 sets the period"
     ),
   },
   {
     table: "post_publication_occurrence",
     provenance: "customer",
-    action: "keep",
-    window: "with its schedule",
-    deletes: "none",
+    action: "delete",
+    window:
+      "180 days after it ended (published, rejected, missed or cancelled), or with its schedule; an unresolved one, and any of a schedule in review or blocked, is kept however old",
+    steps: ["scheduleOccurrences"],
+    cascadeFrom: ["post_publication_schedule"],
+    deletes: "gated",
     hold: "none",
     approval: PENDING_UNDECIDED(
-      "keep every occurrence, run or skipped, for the life of its schedule"
+      "delete ended occurrences 180 days after they end (P08-R6 default) until D-47 sets the period"
+    ),
+  },
+  {
+    table: "gbp_local_post_legacy_schedule",
+    provenance: "customer",
+    action: "delete",
+    window: `180 days after an owner or admin dismissed it; one nobody reviewed is kept; with its post (${KEPT_WITH_LOCATION})`,
+    steps: ["legacyPostSchedules"],
+    cascadeFrom: ["gbp_local_post"],
+    deletes: "gated",
+    hold: "cascade",
+    approval: PENDING_UNDECIDED(
+      "delete dismissed old per-post times 180 days after review (P08-R6 default) until D-47 sets the period"
     ),
   },
   {

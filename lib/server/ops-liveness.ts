@@ -335,3 +335,110 @@ export async function schedulerLiveness(
     schedulerTicks: tickLiveness(rows, now, paused),
   }
 }
+
+/**
+ * A `publishing` occurrence is reaped to `ambiguous` by the next claim once
+ * its schedule's lease (the jobs tick budget plus a minute, under two
+ * minutes) has run out. Ten minutes past its start with the lease gone means
+ * the claim has not run for several ticks.
+ */
+export const SCHEDULED_POST_STUCK_AFTER_SECONDS = 600
+/**
+ * The every-tick sweep records a `scheduled` occurrence missed at its
+ * deadline, but only inside the `naba:jobs` advisory lock: a tick that
+ * overruns its 45 s budget makes the next minute's run skip the lock, so the
+ * sweep can lag about two minutes for a transient reason. Three minutes (two
+ * jobs periods plus the budget, rounded up) keeps one slow tick from paging
+ * operators; a lock that stays held is `tick_lock_wedged`'s alert.
+ */
+export const SCHEDULED_POST_OVERDUE_AFTER_SECONDS = 180
+/** The scopes the scheduled post path runs under in the jobs tick. */
+export const SCHEDULED_POST_PAUSE_SCOPES: readonly PauseScope[] = [
+  "jobs",
+  "publish",
+  "scheduled_post",
+]
+
+export type ScheduledPostHealthRow = {
+  organisationId: string
+  stuckPublishing: number
+  oldestStartedAt: Date | null
+  overdueScheduled: number
+  oldestDeadlineAt: Date | null
+}
+
+export type ScheduledPostFinding = {
+  kind: "scheduled_post_stuck" | "scheduled_post_overdue"
+  subject: string
+  details: Record<string, unknown>
+}
+
+/**
+ * Scheduled post occurrences the job tick should have moved on and has not
+ * (P08-R6), one finding per organisation and kind; the subject is the
+ * organisation id, and the details hold counts and instants only.
+ *
+ * An overdue `scheduled` occurrence is reported whatever the pauses say: the
+ * sweep that records it missed runs before any pause check. A stuck
+ * `publishing` one is not reported while the scheduled post path is paused,
+ * because the claim that reaps it is held by that pause; it is reaped (and
+ * becomes unresolved, never resent) once the pause lifts, and reported if
+ * it still is not.
+ */
+export function scheduledPostFindings(
+  rows: readonly ScheduledPostHealthRow[],
+  scheduledPostPaused: boolean
+): ScheduledPostFinding[] {
+  const findings: ScheduledPostFinding[] = []
+  for (const row of rows) {
+    if (row.stuckPublishing > 0 && !scheduledPostPaused) {
+      findings.push({
+        kind: "scheduled_post_stuck",
+        subject: row.organisationId,
+        details: {
+          occurrences: row.stuckPublishing,
+          oldestStartedAt: iso(row.oldestStartedAt),
+          stuckAfterSeconds: SCHEDULED_POST_STUCK_AFTER_SECONDS,
+        },
+      })
+    }
+    if (row.overdueScheduled > 0) {
+      findings.push({
+        kind: "scheduled_post_overdue",
+        subject: row.organisationId,
+        details: {
+          occurrences: row.overdueScheduled,
+          oldestDeadlineAt: iso(row.oldestDeadlineAt),
+          overdueAfterSeconds: SCHEDULED_POST_OVERDUE_AFTER_SECONDS,
+        },
+      })
+    }
+  }
+  return findings
+}
+
+/**
+ * Reads post_schedule_health() (0121), across tenants through its security
+ * definer like the tick's sweep, and turns it into findings. An unreadable
+ * pause table counts as not paused, as for the tick findings.
+ */
+export async function scheduledPostHealth(): Promise<ScheduledPostFinding[]> {
+  const rows = await getDatabase()<ScheduledPostHealthRow[]>`
+    select organisation_id::text as "organisationId",
+      stuck_publishing as "stuckPublishing",
+      oldest_started_at as "oldestStartedAt",
+      overdue_scheduled as "overdueScheduled",
+      oldest_deadline_at as "oldestDeadlineAt"
+    from post_schedule_health(
+      ${SCHEDULED_POST_STUCK_AFTER_SECONDS},
+      ${SCHEDULED_POST_OVERDUE_AFTER_SECONDS}
+    )
+  `
+  const paused = !scopesEnabled(
+    getServerEnv(),
+    await loadPauseSnapshot(),
+    SCHEDULED_POST_PAUSE_SCOPES,
+    "open"
+  )
+  return scheduledPostFindings(rows, paused)
+}

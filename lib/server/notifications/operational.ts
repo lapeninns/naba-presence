@@ -56,6 +56,11 @@ export async function recordOperationalEvent(
         }
       : {}),
     ...(event.kind === "schedule_missed" ? { dueAt: event.dueAt } : {}),
+    // The email says why a schedule stopped (messages.ts); a reason code,
+    // never provider text.
+    ...(event.kind === "schedule_missed" || event.kind === "schedule_blocked"
+      ? { reason: event.reason }
+      : {}),
   }
   const [row] = await sql<{ id: string; inserted: boolean }[]>`
     insert into notification_incident (organisation_id, kind, subject_type, subject_id, summary, location_id, reason, opened_at, last_seen_at)

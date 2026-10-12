@@ -30,6 +30,7 @@ const occurrence = (
   locationId: "00000000-0000-4000-8000-000000000002",
   locationName: "Old Crown",
   intendedAt: `${localDate}T00:30:00.000Z`,
+  deadlineAt: `${localDate}T00:35:00.000Z`,
   localDate,
   localTime,
   timezone: "Europe/London",
@@ -141,5 +142,80 @@ describe("PublicationCalendar month grid", () => {
     expect(
       screen.queryByText(/moved by a clock change/)
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("PublicationCalendar with scheduling switched off", () => {
+  it("says the feature is off instead of a load failure to retry", async () => {
+    const calls: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = String(input)
+        if (url.includes("/api/post-schedules/occurrences")) {
+          calls.push(url)
+          return new Response(
+            JSON.stringify({
+              error: "post_scheduling_unavailable",
+              message:
+                "Scheduled publishing is not switched on for this workspace.",
+            }),
+            { status: 404, headers: { "content-type": "application/json" } }
+          )
+        }
+        if (url.includes("/api/clients"))
+          return jsonResponse({ items: [], unassignedLocationCount: 0 })
+        if (url.includes("/api/session"))
+          return jsonResponse({ session: { role: "owner" } })
+        return jsonResponse({ locations: [] })
+      })
+    )
+    renderWithProviders(<PublicationCalendar />)
+    expect(
+      await screen.findByText(
+        "Scheduled publishing is not switched on for this workspace."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Scheduled publications could not be loaded")
+    ).not.toBeInTheDocument()
+    expect(calls).toHaveLength(1)
+  })
+
+  // P08-R5: a run that did not publish says why, and that it is not retried.
+  it("says why a missed run did not publish", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = String(input)
+        if (url.includes("/api/post-schedules/occurrences"))
+          return jsonResponse({
+            occurrences: [
+              {
+                ...OCCURRENCES[1],
+                status: "missed",
+                statusReason: "paused_when_due",
+              },
+            ],
+          })
+        if (url.includes("/api/clients"))
+          return jsonResponse({ items: [], unassignedLocationCount: 0 })
+        if (url.includes("/api/session"))
+          return jsonResponse({ session: { role: "owner" } })
+        return jsonResponse({ locations: [] })
+      })
+    )
+    renderWithProviders(<PublicationCalendar />)
+    await screen.findByRole("region", { name: "Calendar grid" })
+    await userEvent.click(screen.getByRole("tab", { name: "Agenda" }))
+    const agenda = await screen.findByRole("list", {
+      name: "Scheduled publications",
+    })
+    expect(within(agenda).getByText("Missed")).toBeInTheDocument()
+    expect(
+      within(agenda).getByText(
+        /Paused when due: nothing published\. Choose a new time on the listing\./
+      )
+    ).toBeInTheDocument()
   })
 })

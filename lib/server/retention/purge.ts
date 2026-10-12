@@ -323,6 +323,65 @@ export function aiUsageInClosedPeriod(sql: TransactionSql): Fragment {
   `
 }
 
+/**
+ * How long ended scheduled post history is kept (P08-R6): ended occurrences
+ * and schedules, and old per-post times an owner dismissed. The same 180
+ * days as the other publish records here (change sets, management and Place
+ * Action mutations).
+ */
+export const SCHEDULE_HISTORY_RETENTION_DAYS = 180
+
+/**
+ * One scheduled post history dataset (0122 purge_post_schedule_dataset). The
+ * runtime role has no DELETE on these tables, so the rule lives in that
+ * tenant-scoped definer: the run changes at most `limit` rows, and the dry
+ * run asks the same function for a count. An unresolved occurrence, a
+ * schedule in review, awaiting approval, paused or blocked (and the
+ * occurrences it names), and an old per-post time nobody reviewed are kept
+ * however old.
+ */
+function scheduleHistoryStep(
+  key: string,
+  table: RetentionTable,
+  dataset: "occurrences" | "schedules" | "legacy_schedules",
+  location?: LocationOf
+): PurgeStep {
+  const call = async (
+    sql: TransactionSql,
+    limit: number | null,
+    dryRun: boolean
+  ) => {
+    const [row] = await sql<{ count: number }[]>`
+      select purge_post_schedule_dataset(
+        ${dataset}, ${SCHEDULE_HISTORY_RETENTION_DAYS}, ${limit}::integer, ${dryRun}
+      ) as count
+    `
+    return row?.count ?? 0
+  }
+  return {
+    key,
+    table,
+    kind: "delete",
+    destructive: true,
+    // A table whose rows go by cascade with a location the disconnect purge
+    // deletes earlier in the round (the legacy times, through their post)
+    // leaves those rows out of the preview, as rowsStep does: the function's
+    // count is less the rows of due locations it would also count.
+    count: async (sql, context) => {
+      const due = await call(sql, null, true)
+      if (!location || !context.deletesEnabled) return due
+      const [cascaded] = await sql<{ count: number }[]>`
+        select count(*)::int as count from ${sql(table)}
+        where ${location(sql)} in (${dueLocations(sql)})
+          and status = 'dismissed'
+          and reviewed_at <= now() - make_interval(days => ${SCHEDULE_HISTORY_RETENTION_DAYS})
+      `
+      return due - (cascaded?.count ?? 0)
+    },
+    run: (sql, limit) => call(sql, limit, false),
+  }
+}
+
 /** An attempt or cache row past its own expiry. */
 const pastExpiry = (sql: TransactionSql) => sql`expires_at <= now()`
 
@@ -676,6 +735,29 @@ function purgeSteps(organisationId: string): PurgeStep[] {
       table: "food_menus_sync_attempt",
       where: pastExpiry,
     }),
+    // Scheduled post history (0121/0122): occurrences first, then the
+    // schedules they no longer hold back, then dismissed old per-post times.
+    scheduleHistoryStep(
+      "scheduleOccurrences",
+      "post_publication_occurrence",
+      "occurrences"
+    ),
+    scheduleHistoryStep(
+      "publicationSchedules",
+      "post_publication_schedule",
+      "schedules"
+    ),
+    // An old per-post time goes with its post (ON DELETE CASCADE), and the
+    // post with its external location on disconnect.
+    scheduleHistoryStep(
+      "legacyPostSchedules",
+      "gbp_local_post_legacy_schedule",
+      "legacy_schedules",
+      (sql) => sql`(
+        select p.external_location_id from gbp_local_post p
+        where p.id = gbp_local_post_legacy_schedule.post_id
+      )`
+    ),
     rowsStep("importProposals", {
       destructive: true,
       location: ownLocation,
