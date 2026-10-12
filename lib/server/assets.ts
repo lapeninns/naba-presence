@@ -150,7 +150,9 @@ export async function createAsset(
 }
 
 type FinaliseResult =
-  { kind: "ready"; asset: AssetView } | { kind: "rejected"; code: string }
+  | { kind: "ready"; asset: AssetView }
+  | { kind: "rejected"; code: string }
+  | { kind: "gone" }
 
 const REJECTION_MESSAGE: Record<string, string> = {
   asset_type_unsupported: "The file is not a JPEG or PNG photo.",
@@ -165,13 +167,89 @@ const REJECTION_MESSAGE: Record<string, string> = {
     "The uploaded file is not the one that was declared. Upload it again.",
 }
 
+const NOT_STAGING = () =>
+  new ApiError(
+    409,
+    "asset_not_staging",
+    "This upload can no longer be finished. Upload the photo again."
+  )
+
+type CheckedStaging =
+  | {
+      ok: true
+      key: string
+      digest: string
+      byteLength: number
+      image: { contentType: string; width: number; height: number }
+    }
+  | { ok: false; code: string }
+
+/**
+ * Reads the staged bytes, checks them and writes exactly those bytes once
+ * to the asset's final key. Storage only: no transaction is open meanwhile.
+ * The write is idempotent (an existing final key must hold these bytes), so
+ * two finalises of one asset may both get here.
+ */
+async function checkAndStore(
+  storage: AssetStorage,
+  organisationId: string,
+  row: AssetRow
+): Promise<CheckedStaging> {
+  let bytes: Uint8Array | null
+  try {
+    bytes = await storage.read(row.stagingKey, ASSET_PHOTO_MAX_BYTES)
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "asset_too_large")
+      return { ok: false, code: "asset_too_large" }
+    throw error
+  }
+  if (!bytes)
+    throw new ApiError(
+      409,
+      "asset_not_uploaded",
+      "The photo has not been uploaded yet."
+    )
+  const digest = sha256(Buffer.from(bytes))
+  const check = checkPhotoBytes(bytes, digest, {
+    contentType: row.declaredContentType,
+    byteLength: row.declaredByteLength,
+    sha256: row.declaredSha256,
+  })
+  if (!check.ok) return { ok: false, code: check.code }
+  const key = finalKey(organisationId, digest, row.id)
+  const written = await storage.writeOnce(key, bytes, check.image.contentType)
+  if (written === "exists") {
+    // Only a finalise of this asset writes this key; an earlier one that
+    // stopped after the write left exactly these bytes, or it is refused.
+    const existing = await storage.read(key, ASSET_PHOTO_MAX_BYTES)
+    if (!existing || sha256(Buffer.from(existing)) !== digest)
+      throw new ApiError(
+        500,
+        "asset_final_conflict",
+        "The photo could not be stored. Upload it again."
+      )
+  }
+  return {
+    ok: true,
+    key,
+    digest,
+    byteLength: bytes.length,
+    image: check.image,
+  }
+}
+
 /**
  * Checks the staged bytes and makes the asset `ready`: the bytes the server
  * read and hashed (never what the client declared) are written once to the
  * asset's immutable key, `assets/<org>/<sha256>/<id>`. A failed check
  * rejects the asset for good (422); upload the file again as a new asset.
- * Runs under the asset's row lock, so two finalises cannot interleave, and
- * a finalised asset answers with itself.
+ *
+ * Three steps, so no database connection or row lock is held across storage
+ * calls: a short transaction checks access and the asset's state, the
+ * storage read, check and write run outside any transaction, and a second
+ * short transaction settles the asset under its row lock only if it is
+ * still `staging`. A finalised asset answers with itself, so a concurrent
+ * or repeated finalise settles once.
  */
 export async function finaliseAsset(
   session: Session,
@@ -179,108 +257,85 @@ export async function finaliseAsset(
   requestId: string
 ): Promise<AssetView> {
   const storage = requireAssetStorage()
+  const organisationId = session.organisationId
+  const start = await withTenant(organisationId, async (sql) => {
+    await requireAssetAccess(sql, session)
+    const [row] = await sql<(AssetRow & { expired: boolean })[]>`
+      select ${assetColumns(sql)}, staging_expires_at <= now() as expired
+      from media_asset where id = ${assetId}`
+    if (!row) throw NOT_FOUND()
+    if (row.status === "ready")
+      return { kind: "ready" as const, asset: view(row) }
+    if (row.status !== "staging") throw NOT_STAGING()
+    if (row.expired)
+      throw new ApiError(
+        409,
+        "asset_staging_expired",
+        "This upload expired. Upload the photo again."
+      )
+    return { kind: "staging" as const, row }
+  })
+  if (start.kind === "ready") return start.asset
+  const row = start.row
+  const checked = await checkAndStore(storage, organisationId, row)
   const result = await withTenant(
-    session.organisationId,
+    organisationId,
     async (sql): Promise<FinaliseResult> => {
-      await requireAssetAccess(sql, session)
-      const [row] = await sql<(AssetRow & { expired: boolean })[]>`
-        select ${assetColumns(sql)}, staging_expires_at <= now() as expired
-        from media_asset where id = ${assetId} for update`
-      if (!row) throw NOT_FOUND()
-      if (row.status === "ready") return { kind: "ready", asset: view(row) }
-      if (row.status !== "staging")
-        throw new ApiError(
-          409,
-          "asset_not_staging",
-          "This upload can no longer be finished. Upload the photo again."
-        )
-      if (row.expired)
-        throw new ApiError(
-          409,
-          "asset_staging_expired",
-          "This upload expired. Upload the photo again."
-        )
-      const reject = async (code: string) => {
+      const [current] = await sql<AssetRow[]>`
+        select ${assetColumns(sql)} from media_asset where id = ${row.id} for update`
+      if (!current) throw NOT_FOUND()
+      if (current.status === "ready")
+        return { kind: "ready", asset: view(current) }
+      // Rejected by a concurrent finalise, or purged by retention meanwhile.
+      if (current.status !== "staging") return { kind: "gone" }
+      if (!checked.ok) {
         await sql`
-          update media_asset set status = 'rejected', rejection_code = ${code},
+          update media_asset set status = 'rejected', rejection_code = ${checked.code},
             updated_at = now()
           where id = ${row.id}`
         await writeAudit(sql, {
-          organisationId: session.organisationId,
+          organisationId,
           actorUserId: session.userId,
           action: "asset.rejected",
           subjectType: "media_asset",
           subjectId: row.id,
           requestId,
-          metadata: { code },
+          metadata: { code: checked.code },
         })
-        await removeStaging(sql, storage, row)
-        return { kind: "rejected" as const, code }
-      }
-      let bytes: Uint8Array | null
-      try {
-        bytes = await storage.read(row.stagingKey, ASSET_PHOTO_MAX_BYTES)
-      } catch (error) {
-        if (error instanceof ApiError && error.code === "asset_too_large")
-          return reject("asset_too_large")
-        throw error
-      }
-      if (!bytes)
-        throw new ApiError(
-          409,
-          "asset_not_uploaded",
-          "The photo has not been uploaded yet."
-        )
-      const digest = sha256(Buffer.from(bytes))
-      const check = checkPhotoBytes(bytes, digest, {
-        contentType: row.declaredContentType,
-        byteLength: row.declaredByteLength,
-        sha256: row.declaredSha256,
-      })
-      if (!check.ok) return reject(check.code)
-      const key = finalKey(session.organisationId, digest, row.id)
-      const written = await storage.writeOnce(
-        key,
-        bytes,
-        check.image.contentType
-      )
-      if (written === "exists") {
-        // Only a finalise of this asset writes this key; an earlier one that
-        // stopped after the write left exactly these bytes, or it is refused.
-        const existing = await storage.read(key, ASSET_PHOTO_MAX_BYTES)
-        if (!existing || sha256(Buffer.from(existing)) !== digest)
-          throw new ApiError(
-            500,
-            "asset_final_conflict",
-            "The photo could not be stored. Upload it again."
-          )
+        return { kind: "rejected", code: checked.code }
       }
       const [ready] = await sql<AssetRow[]>`
-        update media_asset set status = 'ready', final_key = ${key},
-          sha256 = ${digest}, content_type = ${check.image.contentType},
-          byte_length = ${bytes.length}, width = ${check.image.width},
-          height = ${check.image.height}, finalised_at = now(), updated_at = now()
+        update media_asset set status = 'ready', final_key = ${checked.key},
+          sha256 = ${checked.digest}, content_type = ${checked.image.contentType},
+          byte_length = ${checked.byteLength}, width = ${checked.image.width},
+          height = ${checked.image.height}, finalised_at = now(), updated_at = now()
         where id = ${row.id}
         returning ${assetColumns(sql)}`
       await writeAudit(sql, {
-        organisationId: session.organisationId,
+        organisationId,
         actorUserId: session.userId,
         action: "asset.finalised",
         subjectType: "media_asset",
         subjectId: row.id,
         requestId,
         metadata: {
-          sha256: digest,
-          contentType: check.image.contentType,
-          byteLength: bytes.length,
-          width: check.image.width,
-          height: check.image.height,
+          sha256: checked.digest,
+          contentType: checked.image.contentType,
+          byteLength: checked.byteLength,
+          width: checked.image.width,
+          height: checked.image.height,
         },
       })
-      await removeStaging(sql, storage, row)
       return { kind: "ready", asset: view(ready) }
     }
   )
+  if (result.kind === "gone") {
+    // Nothing will ever read this asset's final object: no other asset
+    // writes its key, and a rejected or purged asset never becomes ready.
+    if (checked.ok) await removeBestEffort(storage, row.id, [checked.key])
+    throw NOT_STAGING()
+  }
+  await removeBestEffort(storage, row.id, [row.stagingKey])
   if (result.kind === "rejected")
     throw new ApiError(
       422,
@@ -291,19 +346,24 @@ export async function finaliseAsset(
 }
 
 /**
- * Deletes the staged object, best effort: the bytes now live at the final
- * key (or were refused). One left behind is the retention cron's to delete.
+ * Deletes objects nothing reads any more, best effort. The staged object
+ * goes as soon as the asset settles, but `staging_purged_at` stays unset:
+ * the signed upload URL outlives that delete (Supabase signs upload URLs
+ * for 2 hours), and with the object gone `x-upsert: false` no longer
+ * refuses a second PUT through it. The retention sweep deletes the staging
+ * key once more after `staging_expires_at` (24 hours, well past the URL's
+ * lifetime) and only then records it purged, so nothing uploaded through
+ * that URL outlives the 24 hours.
  */
-async function removeStaging(
-  sql: TransactionSql,
+async function removeBestEffort(
   storage: AssetStorage,
-  row: Pick<AssetRow, "id" | "stagingKey">
+  assetId: string,
+  keys: string[]
 ) {
   try {
-    await storage.remove([row.stagingKey])
-    await sql`update media_asset set staging_purged_at = now() where id = ${row.id}`
+    await storage.remove(keys)
   } catch (error) {
-    log.warn("asset.staging_remove_failed", { assetId: row.id, error })
+    log.warn("asset.staging_remove_failed", { assetId, error })
   }
 }
 
@@ -379,11 +439,20 @@ export async function readAssetBytes(asset: ReadyAsset): Promise<Uint8Array> {
 }
 
 /**
- * Retention (app/api/cron/retention): deletes staged objects 24 hours after
- * the upload started, for every asset still holding one. An asset that was
- * never finalised becomes `purged`; ready and rejected ones keep their
- * status. Rows being finalised right now are skipped (row lock). Returns
- * null when storage is not configured, so nothing is touched.
+ * Retention (app/api/cron/retention): deletes the staging key 24 hours after
+ * the upload started, for every asset not yet recorded purged. That
+ * includes finalised and rejected assets, whose staged object finalise
+ * already deleted: by now the signed upload URL has expired, so this last
+ * delete also catches anything a second PUT through it left (see
+ * `removeBestEffort`). An asset that was never finalised becomes `purged`;
+ * ready and rejected ones keep their status.
+ *
+ * The rows are read, the objects deleted and the rows marked in that order,
+ * with no transaction open during the storage call. A finalise cannot start
+ * on an expired asset, and one already under way settles only a `staging`
+ * row, so it either finishes first (the asset stays ready) or finds the
+ * asset purged and deletes its own final object. Returns null when storage
+ * is not configured, so nothing is touched.
  */
 export async function purgeExpiredStagingAssets(
   organisationId: string,
@@ -391,20 +460,24 @@ export async function purgeExpiredStagingAssets(
 ): Promise<number | null> {
   const storage = assetStorage()
   if (!storage) return null
-  return withTenant(organisationId, async (sql) => {
-    const due = await sql<{ id: string; stagingKey: string }[]>`
+  const due = await withTenant(
+    organisationId,
+    (sql) => sql<{ id: string; stagingKey: string }[]>`
       select id::text as id, staging_key as "stagingKey" from media_asset
       where staging_purged_at is null and staging_expires_at <= now()
       order by staging_expires_at
-      limit ${limit}
-      for update skip locked`
-    if (!due.length) return 0
-    await storage.remove(due.map((row) => row.stagingKey))
-    await sql`
+      limit ${limit}`
+  )
+  if (!due.length) return 0
+  // A missing object is fine to delete; a failure leaves the rows due.
+  await storage.remove(due.map((row) => row.stagingKey))
+  await withTenant(
+    organisationId,
+    (sql) => sql`
       update media_asset set staging_purged_at = now(),
         status = case when status = 'staging' then 'purged' else status end,
         updated_at = now()
-      where id in ${sql(due.map((row) => row.id))}`
-    return due.length
-  })
+      where id in ${sql(due.map((row) => row.id))} and staging_purged_at is null`
+  )
+  return due.length
 }

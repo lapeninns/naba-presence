@@ -1730,16 +1730,27 @@ storage (no photo passes through a route body), then
 bytes, size (10 KB to 5 MB), dimensions (at least 250 × 250) and SHA-256
 against the declaration (`lib/domain/media-sniff.ts`), and writes exactly
 those bytes once to `assets/<org>/<sha256>/<asset>`; a trigger keeps a
-`ready` asset's content columns immutable. The retention cron deletes staged
-objects 24 hours after the upload started (`purgeExpiredStagingAssets`).
+`ready` asset's content columns immutable. Finalise holds no transaction or
+row lock across storage calls: a short transaction checks the asset, the
+read, check and idempotent write run outside it, and a second short
+transaction settles the asset only if it is still `staging`. The retention
+cron deletes the staging key of every asset 24 hours after the upload started
+(`purgeExpiredStagingAssets`), finalised ones included: finalise deletes the
+staged object at once, but the signed upload URL (2 hours) could put a new
+one there, so the sweep deletes it once more after the URL expired, with no
+transaction open during the storage call.
 Everything fails closed: without `MEDIA_ASSET_STORAGE=supabase`, the secret
 key and the bucket, the asset routes answer 503 `asset_storage_unavailable`
 and photo previews skip every listing. The photos family
 (`lib/server/bulk-families/photos.ts`) adds one asset per change, at most 10
 per batch (10 new photos per listing), under the key `media`. The preview
 freezes the asset's SHA-256, type, size and dimensions and skips a listing
-that already shows the asset (`already_applied`, from
-`media_asset_publication.google_media_name` and the live media list). The
+that already shows the photo (`already_applied`, from
+`media_asset_publication.google_media_name` and the live media list). A photo
+is its bytes: a publication of another asset with the same SHA-256 counts, so
+the same file uploaded twice is added to a listing once (the dispatch claim
+answers `photo_already_added`, under an advisory lock per listing and
+SHA-256). The
 child re-reads the bytes from the immutable key, re-hashes them and sends them
 through the media editor's checkpointed upload (`uploadMediaFromAsset`) with
 the child's intent and approval ref, so the receipt, the unresolved-create

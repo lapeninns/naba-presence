@@ -30,27 +30,42 @@ import { assetStorage } from "@/lib/server/storage/asset-storage"
 
 type Publication = {
   id: string
+  assetId: string
   status: "pending" | "published"
   childId: string | null
   childStatus: string | null
   googleMediaName: string | null
 }
 
-const livePublication = (
+/**
+ * The live (pending or published) publications at a listing of this asset
+ * or of any other asset with the same bytes (SHA-256): the same file
+ * uploaded twice is two assets but one photo, so it is never added to a
+ * listing twice. This asset's own row comes first.
+ */
+const livePublicationsSql = (
+  sql: TransactionSql,
+  asset: { id: string; sha256: string },
+  locationId: string
+) => sql<Publication[]>`
+  select p.id::text as id, p.asset_id::text as "assetId", p.status,
+    p.bulk_listing_child_id::text as "childId", c.status as "childStatus",
+    p.google_media_name as "googleMediaName"
+  from media_asset_publication p
+  join media_asset a on a.organisation_id = p.organisation_id and a.id = p.asset_id
+  left join bulk_listing_child c on c.id = p.bulk_listing_child_id
+  where p.location_id = ${locationId} and a.sha256 = ${asset.sha256}
+    and p.status in ('pending', 'published')
+  order by (p.asset_id = ${asset.id}) desc, p.created_at`
+
+const livePublications = (
   organisationId: string,
-  assetId: string,
+  asset: { id: string; sha256: string },
   locationId: string
 ) =>
-  withTenant(organisationId, async (sql) => {
-    const [row] = await sql<Publication[]>`
-      select p.id::text as id, p.status, p.bulk_listing_child_id::text as "childId",
-        c.status as "childStatus", p.google_media_name as "googleMediaName"
-      from media_asset_publication p
-      left join bulk_listing_child c on c.id = p.bulk_listing_child_id
-      where p.asset_id = ${assetId} and p.location_id = ${locationId}
-        and p.status in ('pending', 'published')`
-    return row ?? null
-  })
+  withTenant(organisationId, (sql) =>
+    livePublicationsSql(sql, asset, locationId)
+  )
 
 /** A child whose publication may still land: its write is out or unresolved. */
 const STILL_OPEN = new Set(["queued", "running", "ambiguous"])
@@ -65,8 +80,9 @@ const STILL_OPEN = new Set(["queued", "running", "ambiguous"])
  * dimensions; dispatch sends only bytes read from the asset's immutable key
  * that still hash to it. Each listing's Google media name is recorded on
  * the asset's publication there (media_asset_publication), so the same
- * asset is never added to a listing twice: a listing that already shows it
- * is `already_applied`.
+ * photo is never added to a listing twice: a listing that already shows it,
+ * from this asset or another asset with the same SHA-256, is
+ * `already_applied`.
  */
 export const photosFamily: BulkFamily<BulkPhotoInput> = {
   operations: ["photos"],
@@ -83,15 +99,19 @@ export const photosFamily: BulkFamily<BulkPhotoInput> = {
     if (!assetStorage())
       return { eligible: false, reason: "asset_storage_unavailable" }
     const asset = loaded.asset
-    const publication = await livePublication(
+    const publications = await livePublications(
       linked.organisationId,
-      asset.id,
+      asset,
       linked.locationId
     )
     let previousMediaName: string | null = null
-    if (publication?.status === "pending")
+    if (publications.some((row) => row.status === "pending"))
       return { eligible: false, reason: "photo_publication_pending" }
-    if (publication?.status === "published") {
+    if (publications.length > 1)
+      // The same bytes published here more than once: it is there.
+      return { eligible: false, reason: "already_applied" }
+    const [publication] = publications
+    if (publication) {
       // A person may have adopted it without a name: it is there.
       if (!publication.googleMediaName)
         return { eligible: false, reason: "already_applied" }
@@ -130,34 +150,42 @@ export const photosFamily: BulkFamily<BulkPhotoInput> = {
     )
       return { kind: "conflict", code: "asset_changed" }
     const asset = loaded.asset
-    // Claim the asset's publication at this listing for this child: one
-    // pending or published row per (asset, listing), under its row lock.
+    // Claim the photo's publication at this listing for this child: one
+    // pending or published row per (bytes, listing). The advisory lock
+    // serialises claims of the same bytes at one listing across assets (the
+    // unique index only covers one asset); the row locks cover the rows.
     const claim = await withTenant(organisationId, async (sql) => {
-      const [live] = await sql<Publication[]>`
-        select p.id::text as id, p.status, p.bulk_listing_child_id::text as "childId",
-          c.status as "childStatus", p.google_media_name as "googleMediaName"
-        from media_asset_publication p
-        left join bulk_listing_child c on c.id = p.bulk_listing_child_id
-        where p.asset_id = ${asset.id} and p.location_id = ${locationId}
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`${organisationId}:${locationId}:photo:${asset.sha256}`}, 0))`
+      const live = await sql<{ id: string }[]>`
+        select p.id::text as id from media_asset_publication p
+        join media_asset a on a.organisation_id = p.organisation_id and a.id = p.asset_id
+        where p.location_id = ${locationId} and a.sha256 = ${asset.sha256}
           and p.status in ('pending', 'published')
         for update of p`
-      if (live?.childId === childId)
-        return live.status === "published" ? "done" : "reclaimed"
-      if (live?.status === "published") {
-        // The one the preview saw gone from Google is superseded; any other
-        // was added after the preview.
-        if (
-          !current.previousMediaName ||
-          live.googleMediaName !== current.previousMediaName
-        )
-          return "added_since"
-        await sql`update media_asset_publication set status = 'removed' where id = ${live.id}`
-      } else if (live) {
-        if (live.childStatus && STILL_OPEN.has(live.childStatus))
+      const rows = live.length
+        ? await livePublicationsSql(sql, asset, locationId)
+        : []
+      const own = rows.find((row) => row.childId === childId)
+      if (own) return own.status === "published" ? "done" : "reclaimed"
+      for (const row of rows) {
+        if (row.status === "published") {
+          // The one the preview saw gone from Google is superseded; any
+          // other was added after the preview.
+          if (
+            !current.previousMediaName ||
+            row.googleMediaName !== current.previousMediaName
+          )
+            return "added_since"
+        } else if (row.childStatus && STILL_OPEN.has(row.childStatus))
           return "pending_elsewhere"
-        // A pending row whose child settled without sending (or vanished).
-        await sql`update media_asset_publication set status = 'failed' where id = ${live.id}`
       }
+      for (const row of rows)
+        // Superseded (deleted on Google since), or a pending row whose child
+        // settled without sending (or vanished).
+        await sql`
+          update media_asset_publication
+          set status = ${row.status === "published" ? "removed" : "failed"}
+          where id = ${row.id}`
       await sql`
         insert into media_asset_publication (
           organisation_id, asset_id, location_id, bulk_listing_child_id, category

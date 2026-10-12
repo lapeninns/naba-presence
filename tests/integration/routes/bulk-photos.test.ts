@@ -17,6 +17,7 @@ import {
   destroyTenants,
   seedGoogleConnection,
   seedLinkedLocation,
+  seedMemberUser,
 } from "../helpers/tenant"
 
 const describeDatabase =
@@ -183,7 +184,7 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
         body: bytes as BodyInit,
       })
       expect(put.status, await put.clone().text()).toBe(200)
-      return started.asset
+      return { ...started.asset, upload: started.upload }
     }
     const finalise = (id: string, cookie = owner.cookie) =>
       call(`/assets/${id}/finalise`, {}, cookie)
@@ -219,6 +220,39 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     }
     const status = async (op: BulkOperationView) =>
       read(await call(`/listings/bulk/${op.id}`))
+    const resolveCreate = async (resolution: "adopted" | "abandoned") => {
+      const [attempt] = await admin<{ id: string }[]>`
+        select id::text as id from gbp_media_mutation
+        where organisation_id = ${owner.organisationId}
+          and status = 'needs_resolution'`
+      expect(attempt, "an attempt needing a person").toBeDefined()
+      const response = await fetch(
+        `${server.baseUrl}/api/locations/${linked[0].locationId}/media/resolutions/${attempt.id}`,
+        {
+          method: "POST",
+          headers: { cookie: owner.cookie, "content-type": "application/json" },
+          body: JSON.stringify({
+            resolution,
+            confirmation: "resolve_google_media",
+          }),
+        }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+    }
+    /** Puts an operation's children back in the queue, as a crashed tick or a retry leaves them. */
+    const requeue = async (op: BulkOperationView) => {
+      await admin`
+        update bulk_listing_child set status = 'queued', next_attempt_at = now()
+        where operation_id = ${op.id}`
+      await admin`
+        update bulk_listing_operation set status = 'running', finished_at = null
+        where id = ${op.id}`
+    }
+    const attempts = async (op: BulkOperationView) =>
+      (
+        await admin<{ attempts: number }[]>`
+          select attempts from bulk_listing_child where operation_id = ${op.id}`
+      ).map((row) => row.attempts)
     const publications = (assetId: string) =>
       admin<
         { locationId: string; status: string; googleMediaName: string | null }[]
@@ -238,6 +272,9 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
       run,
       status,
       publications,
+      resolveCreate,
+      requeue,
+      attempts,
     }
   }
 
@@ -312,6 +349,17 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     const asset = await t.stage(pngBytes(640, 480))
     const ready = await t.readyAsset(jpegBytes(640, 480))
     const staging = `staging/${t.owner.organisationId}/${asset.id}`
+    // Finalise deleted the staged object, but the signed URL still works:
+    // a second PUT through it lands again, and the sweep deletes that too.
+    const readyStaging = `staging/${t.owner.organisationId}/${ready.id}`
+    expect(storage.objects.has(readyStaging)).toBe(false)
+    const again = await fetch(ready.upload.url, {
+      method: "PUT",
+      headers: ready.upload.headers,
+      body: jpegBytes(640, 480) as BodyInit,
+    })
+    expect(again.status, await again.clone().text()).toBe(200)
+    expect(storage.objects.has(readyStaging)).toBe(true)
     await admin`
       update media_asset set staging_expires_at = now() - interval '1 minute'
       where id in ${admin([asset.id, ready.id])}`
@@ -321,6 +369,7 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     })
     expect(response.status, await response.clone().text()).toBe(200)
     expect(storage.objects.has(staging)).toBe(false)
+    expect(storage.objects.has(readyStaging)).toBe(false)
     const rows = await admin<{ id: string; status: string; purged: boolean }[]>`
       select id::text as id, status, staging_purged_at is not null as purged
       from media_asset where id in ${admin([asset.id, ready.id])}`
@@ -331,7 +380,13 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     // A finalised asset keeps its status and its final object.
     expect(rows.find((row) => row.id === ready.id)).toMatchObject({
       status: "ready",
+      purged: true,
     })
+    expect(
+      storage.objects.has(
+        `assets/${t.owner.organisationId}/${ready.sha256}/${ready.id}`
+      )
+    ).toBe(true)
     expect((await t.finalise(asset.id)).status).toBe(409)
   })
 
@@ -453,6 +508,20 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     expect(creates(name)).toHaveLength(1)
     const [pub] = await t.publications(asset.id)
     expect(pub.status).toBe("pending")
+    const firstReceipt = pending.children[0].mutationOperationId
+    expect(firstReceipt).toBeTruthy()
+    // Re-claimed (a crashed tick): it waits on the first claim's receipt
+    // and sends nothing.
+    await t.requeue(op)
+    await tick()
+    const reclaimed = await t.status(op)
+    expect(reclaimed.children[0]).toMatchObject({
+      status: "ambiguous",
+      resultCode: "media_create_unresolved",
+      mutationOperationId: firstReceipt,
+    })
+    expect(await t.attempts(op)).toEqual([2])
+    expect(creates(name)).toHaveLength(1)
     // Another batch for the same asset and listing waits on it.
     const blocked = await t.preview([
       { operation: "photos", assetId: asset.id, category: "INTERIOR" },
@@ -465,22 +534,7 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     expect(creates(name)).toHaveLength(1)
 
     // A person checks Google and says it is there.
-    const [attempt] = await admin<{ id: string }[]>`
-      select id::text as id from gbp_media_mutation
-      where organisation_id = ${t.owner.organisationId}
-        and status = 'needs_resolution'`
-    const resolve = await fetch(
-      `${server.baseUrl}/api/locations/${t.linked[0].locationId}/media/resolutions/${attempt.id}`,
-      {
-        method: "POST",
-        headers: { cookie: t.owner.cookie, "content-type": "application/json" },
-        body: JSON.stringify({
-          resolution: "adopted",
-          confirmation: "resolve_google_media",
-        }),
-      }
-    )
-    expect(resolve.status, await resolve.clone().text()).toBe(200)
+    await t.resolveCreate("adopted")
     await tick()
     const settled = await t.status(op)
     expect(settled.children[0].status).toBe("succeeded")
@@ -503,12 +557,167 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
       resultCode: "asset_storage_unavailable",
     })
     expect(creates()).toHaveLength(0)
+    // The first claim recorded a pending publication and sent nothing; the
+    // re-claim finds it as its own and sends exactly once.
+    expect((await t.publications(asset.id)).map((row) => row.status)).toEqual([
+      "pending",
+    ])
     storage.down = false
     await admin`update bulk_listing_child set next_attempt_at = now() where operation_id = ${op.id}`
     await tick()
     expect((await t.status(op)).children[0].status).toBe("succeeded")
+    expect(await t.attempts(op)).toEqual([2])
+    expect(creates()).toHaveLength(1)
+    expect((await t.publications(asset.id)).map((row) => row.status)).toEqual([
+      "published",
+    ])
     await expect(
       admin`update bulk_listing_child set resource_key = 'photos_x' where operation_id = ${op.id}`
     ).rejects.toThrow(/resource_key_check/)
+  })
+
+  it("settles a re-claimed child from its first claim's confirmed receipt without sending again", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const asset = await t.readyAsset()
+    const op = await t.preview([
+      { operation: "photos", assetId: asset.id, category: "INTERIOR" },
+    ])
+    await t.run(op)
+    await tick()
+    const first = await t.status(op)
+    expect(first.children[0].status).toBe("succeeded")
+    const receipt = first.children[0].mutationOperationId!
+    const [published] = await t.publications(asset.id)
+    expect(creates(name)).toHaveLength(1)
+    // A tick that crashed after the create's receipt settled but before the
+    // child and its publication did.
+    await admin`
+      update media_asset_publication set status = 'pending',
+        google_media_name = null, gbp_media_mutation_id = null, published_at = null
+      where asset_id = ${asset.id}`
+    await admin`
+      update bulk_listing_child set mutation_operation_id = null
+      where operation_id = ${op.id}`
+    await t.requeue(op)
+    await tick()
+    const settled = await t.status(op)
+    expect(settled.status).toBe("completed")
+    expect(settled.children[0]).toMatchObject({
+      status: "succeeded",
+      mutationOperationId: receipt,
+    })
+    expect(await t.attempts(op)).toEqual([2])
+    expect(creates(name)).toHaveLength(1)
+    expect(await t.publications(asset.id)).toEqual([
+      {
+        locationId: t.linked[0].locationId,
+        status: "published",
+        googleMediaName: published.googleMediaName,
+      },
+    ])
+    expect(published.googleMediaName).toContain(name)
+  })
+
+  it("holds a second batch while a create is unresolved and frees the listing once a person says it did not land", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const asset = await t.readyAsset()
+    const item = {
+      operation: "photos",
+      assetId: asset.id,
+      category: "INTERIOR",
+    }
+    const first = await t.preview([item])
+    const second = await t.preview([item])
+    listings.get(name)!.loseCreate = true
+    await t.run(first)
+    await tick()
+    expect((await t.status(first)).children[0].status).toBe("ambiguous")
+    // Previewed before the first was sent: its claim finds the pending one.
+    await t.run(second)
+    await tick()
+    expect((await t.status(second)).children[0]).toMatchObject({
+      status: "conflict",
+      resultCode: "photo_publication_pending",
+    })
+    expect(creates(name)).toHaveLength(1)
+
+    // A person checks Google: it is not there.
+    await t.resolveCreate("abandoned")
+    await tick()
+    const settled = await t.status(first)
+    expect(settled.children[0].status).toBe("failed")
+    expect(settled.children[0].resultCode).toMatch(/^recovered_not_applied/)
+    expect((await t.publications(asset.id)).map((row) => row.status)).toEqual([
+      "failed",
+    ])
+    // The listing may get the photo again.
+    const again = await t.preview([item])
+    expect(again.children[0].eligibility).toBe("eligible")
+  })
+
+  it("treats the same bytes uploaded twice as one photo per listing", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const bytes = pngBytes(900, 700)
+    const original = await t.readyAsset(bytes)
+    const copy = await t.readyAsset(bytes)
+    expect(copy.id).not.toBe(original.id)
+    const byOriginal = await t.preview([
+      { operation: "photos", assetId: original.id, category: "INTERIOR" },
+    ])
+    const byCopy = await t.preview([
+      { operation: "photos", assetId: copy.id, category: "EXTERIOR" },
+    ])
+    const originalAgain = await t.preview([
+      { operation: "photos", assetId: original.id, category: "INTERIOR" },
+    ])
+    await t.run(byOriginal)
+    await tick()
+    expect((await t.status(byOriginal)).children[0].status).toBe("succeeded")
+    // Both were previewed before the photo landed: each claim finds it.
+    for (const op of [byCopy, originalAgain]) {
+      await t.run(op)
+      await tick()
+      expect((await t.status(op)).children[0]).toMatchObject({
+        status: "conflict",
+        resultCode: "photo_already_added",
+      })
+    }
+    expect(creates(name)).toHaveLength(1)
+    expect(await t.publications(copy.id)).toEqual([])
+    // A new preview of the copy sees the photo already there.
+    const later = await t.preview([
+      { operation: "photos", assetId: copy.id, category: "EXTERIOR" },
+    ])
+    expect(later.children[0].skipReason).toBe("already_applied")
+  })
+
+  it("refuses a viewer on both asset routes", async () => {
+    const t = await tenant(1)
+    const viewer = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+      role: "viewer",
+    })
+    const started = await t.call(
+      "/assets",
+      {
+        fileName: "photo.png",
+        contentType: "image/png",
+        byteLength: 20_000,
+        sha256: "c".repeat(64),
+      },
+      viewer.cookie
+    )
+    expect(started.status).toBe(403)
+    expect((await started.json()).error).toBe("permission_denied")
+    const staged = await t.stage(pngBytes(500, 500))
+    const finalised = await t.finalise(staged.id, viewer.cookie)
+    expect(finalised.status).toBe(403)
+    expect((await finalised.json()).error).toBe("permission_denied")
+    const [row] = await admin<{ status: string }[]>`
+      select status from media_asset where id = ${staged.id}`
+    expect(row.status).toBe("staging")
   })
 })
