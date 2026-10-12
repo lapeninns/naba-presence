@@ -30,7 +30,9 @@ import {
 import { googleAttributeMetadataRequest } from "@/lib/domain/google-contract"
 import { GOOGLE_LOCATION_FIELDS } from "@/lib/domain/google-capabilities"
 import { GOOGLE_LODGING_BOOLEAN_PATHS } from "@/lib/domain/google-lodging"
+import { lodgingNotFound } from "@/lib/server/bulk-families/industry"
 import { planReads } from "@/lib/server/bulk-families/shared"
+import { ApiError } from "@/lib/server/http"
 
 const parse = (value: Record<string, unknown>) =>
   bulkOperationInputSchema.safeParse(value)
@@ -427,6 +429,61 @@ describe("bulk lodging (P09-R5)", () => {
     expect(body.payload.metadata).toEqual({
       updateTime: "2026-10-12T10:00:00.000Z",
     })
+  })
+
+  it("compares a group path exactly, so a sibling the write would clear is not applied", () => {
+    const parsed = bulkOperationInputSchema.parse({
+      operation: "lodging",
+      updateMask: ["pools", "policies.checkinTime"],
+      payload: {
+        pools: { pool: true },
+        policies: { checkinTime: { hours: 15 } },
+      },
+    })
+    if (parsed.operation !== "lodging") throw new Error("parse")
+    const time = { checkinTime: { hours: 15, minutes: 0 } }
+    // The listing still holds hotTub: the same PATCH would clear it.
+    expect(
+      lodgingApplied(
+        { pools: { pool: true, hotTub: true }, policies: time },
+        parsed
+      )
+    ).toBe(false)
+    // `false` is a value, so it is a sibling the write would clear too.
+    expect(
+      lodgingApplied(
+        { pools: { pool: true, hotTub: false }, policies: time },
+        parsed
+      )
+    ).toBe(false)
+    expect(
+      lodgingApplied({ pools: { pool: true }, policies: time }, parsed)
+    ).toBe(true)
+    // Fields a client cannot write are ignored, and a TimeOfDay is one value.
+    expect(
+      lodgingApplied(
+        { pools: { pool: true, readOnlyEcho: 1 }, policies: time },
+        parsed
+      )
+    ).toBe(true)
+  })
+
+  it("skips a listing for Google's missing lodging, never for a lost connection", () => {
+    expect(lodgingNotFound(new ApiError(404, "NOT_FOUND", "No lodging."))).toBe(
+      true
+    )
+    expect(
+      lodgingNotFound(
+        new ApiError(
+          404,
+          "connection_not_found",
+          "Google connection not found."
+        )
+      )
+    ).toBe(false)
+    expect(lodgingNotFound(new ApiError(403, "PERMISSION_DENIED", "No."))).toBe(
+      false
+    )
   })
 
   it("has no healthcare family (pending D-24)", () => {

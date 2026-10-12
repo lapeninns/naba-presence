@@ -17,6 +17,7 @@ import {
   containsExpected,
   isEmptyValue,
   isRecord,
+  isTimeOfDay,
   valueAtPath,
 } from "@/lib/domain/readback/compare"
 
@@ -135,9 +136,35 @@ export function lodgingProposed(
 }
 
 /**
+ * Whether the value at a masked path matches what the change sends. A group
+ * path (`pools`) is replaced whole by Google, so its writable fields the
+ * change leaves out must read back empty: a listing that still holds
+ * `pools.hotTub` does not show a `pools: { pool: true }` write. Leaf values
+ * (and a TimeOfDay, which is one value) compare the way Google echoes them.
+ * Fields Google does not let a client write are ignored.
+ */
+function lodgingValueMatches(
+  actual: unknown,
+  expected: unknown,
+  path: string
+): boolean {
+  if (!isRecord(expected) || isTimeOfDay(expected))
+    return containsExpected(actual, expected)
+  if (!isRecord(actual)) return isEmptyValue(expected) && isEmptyValue(actual)
+  const keys = new Set([...Object.keys(expected), ...Object.keys(actual)])
+  return [...keys].every((key) => {
+    const child = `${path}.${key}`
+    if (key in expected)
+      return lodgingValueMatches(actual[key], expected[key], child)
+    return !GOOGLE_LODGING_UPDATE_PATHS.has(child) || isEmptyValue(actual[key])
+  })
+}
+
+/**
  * Whether a listing's lodging shows the change: a cleared path holds
  * nothing, a set path holds the value (`false` is a value, never unset;
- * text and times are compared the way Google echoes them).
+ * text and times are compared the way Google echoes them), and a set group
+ * holds exactly the fields the change gives it.
  */
 export function lodgingApplied(
   lodging: unknown,
@@ -146,9 +173,10 @@ export function lodgingApplied(
   return input.updateMask.every((path) =>
     input.clear.includes(path)
       ? isEmptyValue(valueAtPath(lodging, path))
-      : containsExpected(
+      : lodgingValueMatches(
           valueAtPath(lodging, path),
-          valueAtPath(input.payload, path)
+          valueAtPath(input.payload, path),
+          path
         )
   )
 }

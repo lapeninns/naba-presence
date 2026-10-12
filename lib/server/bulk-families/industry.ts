@@ -16,6 +16,7 @@ import type { BulkFamily } from "@/lib/server/bulk-families/types"
 import { runBulkWrite } from "@/lib/server/bulk-families/write-attempts"
 import type { GbpLocationContext } from "@/lib/server/gbp-management"
 import { googleLodgingApi } from "@/lib/server/google"
+import { isConnectionBlockedError } from "@/lib/server/google/connection-failures"
 import { ApiError } from "@/lib/server/http"
 
 async function readLodging(linked: GbpLocationContext) {
@@ -23,6 +24,19 @@ async function readLodging(linked: GbpLocationContext) {
     await linked.accessToken(),
     { locationName: linked.googleLocationName, operation: "get" },
     { connectionKey: linked.connectionId }
+  )
+}
+
+/**
+ * Whether Google keeps no lodging resource for the listing: its 404 for the
+ * lodging read. A 404 from loading the listing's Google connection (a
+ * disconnected connection) is a connection error, not a missing resource.
+ */
+export function lodgingNotFound(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 404 &&
+    !isConnectionBlockedError(error)
   )
 }
 
@@ -47,7 +61,7 @@ export const lodgingFamily: BulkFamily<BulkLodgingInput> = {
     try {
       lodging = await reads.once("lodging", () => readLodging(linked))
     } catch (error) {
-      if (error instanceof ApiError && error.status === 404)
+      if (lodgingNotFound(error))
         return { eligible: false, reason: "lodging_not_available" }
       throw error
     }

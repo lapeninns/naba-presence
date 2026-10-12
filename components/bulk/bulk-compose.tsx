@@ -55,6 +55,12 @@ const OPERATIONS: Array<{ value: BulkOperation; label: string }> = [
 ]
 type FieldEdit = { mode: "keep" | "set" | "clear"; value: string }
 type LodgingRow = { path: string; value: "true" | "false" | "clear" }
+/** Labels typed as a comma-separated list. */
+const labelList = (text: string) =>
+  text
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
 const categoryList = (text: string) =>
   text
     .split(/[\s,]+/)
@@ -132,6 +138,7 @@ export function BulkCompose() {
     mode: "keep",
     value: "",
   })
+  const [labels, setLabels] = useState<FieldEdit>({ mode: "keep", value: "" })
   const [openStatus, setOpenStatus] = useState<
     "keep" | "OPEN" | "CLOSED_TEMPORARILY"
   >("keep")
@@ -221,6 +228,17 @@ export function BulkCompose() {
                               }
                             : { field: "profile.description", action: "clear" },
                         ]),
+                    ...(labels.mode === "keep"
+                      ? []
+                      : [
+                          labels.mode === "set"
+                            ? {
+                                field: "labels",
+                                action: "set",
+                                value: labelList(labels.value),
+                              }
+                            : { field: "labels", action: "clear" },
+                        ]),
                     ...(openStatus === "keep"
                       ? []
                       : [
@@ -261,9 +279,12 @@ export function BulkCompose() {
   const problem =
     ids.length === 0
       ? "Select listings on the Listings board first."
-      : parsed.success
-        ? null
-        : (parsed.error.issues[0]?.message ?? "Check the change.")
+      : operation === "categories" &&
+          categoryList(categories.primary).length > 1
+        ? "Name one primary category."
+        : parsed.success
+          ? null
+          : (parsed.error.issues[0]?.message ?? "Check the change.")
   const preview = useMutation({
     mutationFn: () =>
       previewBulkChange({
@@ -605,6 +626,7 @@ export function BulkCompose() {
               [
                 ["Website", website, setWebsite, "url"],
                 ["Description", description, setDescription, "text"],
+                ["Labels", labels, setLabels, "text"],
               ] as const
             ).map(([label, edit, setEdit, type]) => (
               <div
@@ -645,6 +667,11 @@ export function BulkCompose() {
                   <Input
                     type={type}
                     aria-label={`New ${label.toLowerCase()}`}
+                    placeholder={
+                      label === "Labels"
+                        ? "Comma-separated, up to 10"
+                        : undefined
+                    }
                     value={edit.value}
                     onChange={(e) =>
                       setEdit({ ...edit, value: e.target.value })

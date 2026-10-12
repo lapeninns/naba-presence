@@ -182,6 +182,8 @@ describeDatabase(
       )
       google.respond({ method: "GET", pathIncludes: "/lodging" }, (call) => {
         const state = listings.get(nameOf(call.path))
+        if (state?.readsFail)
+          return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
         return state?.lodging
           ? { status: 200, json: state.lodging }
           : { status: 404, json: { error: { status: "NOT_FOUND" } } }
@@ -193,6 +195,11 @@ describeDatabase(
           url(call.path).searchParams.get("updateMask") ?? ""
         ).split(","))
           setPath(state.lodging, mask, getPath(call.body, mask))
+        if (state.lostResponse) {
+          state.lostResponse = false
+          state.readsFail = true
+          return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+        }
         return { status: 200, json: state.lodging }
       })
     })
@@ -532,6 +539,18 @@ describeDatabase(
         name: "attributes/has_beer_garden",
         values: [true],
       })
+      // The service hours offered only under the new primary category are
+      // written after it, and land.
+      expect(after.children.find((c) => c.id === hours.id)).toMatchObject({
+        status: "succeeded",
+        confirmationState: "confirmed",
+      })
+      expect(order("updateMask=moreHours")).toBeGreaterThan(
+        order("updateMask=categories")
+      )
+      expect(listings.get(first)!.location.moreHours).toEqual([
+        expect.objectContaining({ hoursTypeId: "HAPPY_HOURS" }),
+      ])
       const categoryReceipt = after.children.find(
         (c) => c.id === categories.id
       )!.mutationOperationId!
@@ -641,6 +660,180 @@ describeDatabase(
         join mutation_operation m on m.attempt_id = a.id
         where m.id = ${child.mutationOperationId!}`
       expect(attempt).toEqual({ family: "lodging", status: "succeeded" })
+    })
+
+    // A lost response for each Google surface the new families write:
+    // recovery reads the listing back and settles the child, never resending.
+    for (const family of ["business_info", "lodging"] as const)
+      it(`does not send a ${family} change again when its response was lost: recovery settles it`, async () => {
+        const t = await tenant(1)
+        const name = t.linked[0].googleLocationName
+        const state = listings.get(name)!
+        state.lodging = { name: `${name}/lodging`, pools: { pool: true } }
+        state.lostResponse = true
+        const op = await t.preview([
+          family === "business_info"
+            ? {
+                operation: "business_info",
+                changes: [
+                  {
+                    field: "websiteUri",
+                    action: "set",
+                    value: "https://new.example",
+                  },
+                ],
+              }
+            : {
+                operation: "lodging",
+                updateMask: ["pools.pool"],
+                payload: { pools: { pool: false } },
+              },
+        ])
+        await t.run(op)
+        await tick()
+        const [unresolved] = (await t.status(op)).children
+        expect(unresolved.status).toBe("ambiguous")
+        expect(unresolved.mutationOperationId).not.toBeNull()
+        const [receipt] = await admin<{ surface: string; family: string }[]>`
+          select m.surface, a.family from mutation_operation m
+          join bulk_listing_write_attempt a on a.id = m.attempt_id
+          where m.id = ${unresolved.mutationOperationId!}`
+        expect(receipt).toEqual({ surface: family, family })
+        await t.api(`/${op.id}/retry`, {})
+        state.readsFail = false
+        await admin`update mutation_operation set next_recovery_at = now() - interval '1 second'
+          where id = ${unresolved.mutationOperationId!}`
+        await tick()
+        await tick()
+        expect((await t.status(op)).children[0]).toMatchObject({
+          status: "succeeded",
+        })
+        expect(await t.receipt(unresolved.mutationOperationId!)).toMatchObject({
+          outcome: "confirmed_applied",
+        })
+        expect(
+          realPatches(family === "lodging" ? "/lodging" : "updateMask=")
+        ).toHaveLength(1)
+      })
+
+    it("replaces a lodging group whole: a listing holding another field of the group is not already applied", async () => {
+      const t = await tenant(1)
+      const name = t.linked[0].googleLocationName
+      listings.get(name)!.lodging = {
+        name: `${name}/lodging`,
+        pools: { pool: true, hotTub: true },
+      }
+      const op = await t.preview([
+        {
+          operation: "lodging",
+          updateMask: ["pools"],
+          payload: { pools: { pool: true } },
+        },
+      ])
+      expect(op.children[0]).toMatchObject({
+        eligibility: "eligible",
+        currentValue: { pools: { pool: true, hotTub: true } },
+        proposedValue: { pools: { pool: true } },
+      })
+      await t.run(op)
+      await tick()
+      expect((await t.status(op)).children[0]).toMatchObject({
+        status: "succeeded",
+        confirmationState: "confirmed",
+      })
+      expect(listings.get(name)!.lodging!.pools).toEqual({ pool: true })
+      expect(realPatches("/lodging")).toHaveLength(1)
+    })
+
+    it("publishes a profile under the business-information lock bulk children take", async () => {
+      const t = await tenant(1)
+      const [linked] = t.linked
+      const root = `${server.baseUrl}/api/locations/${linked.locationId}/profile`
+      const headers = (key: string) => ({
+        cookie: t.owner.cookie,
+        "content-type": "application/json",
+        "x-request-id": key,
+      })
+      const load = async () => {
+        const response = await fetch(root, {
+          headers: { cookie: t.owner.cookie },
+        })
+        expect(response.status, await response.clone().text()).toBe(200)
+        return (
+          (await response.json()) as {
+            profile: {
+              canonicalResource: { revision: string }
+              canonicalHash: string
+              googleHash: string
+            }
+          }
+        ).profile
+      }
+      const initial = await load()
+      const saved = await fetch(root, {
+        method: "PUT",
+        headers: headers("save-profile"),
+        body: JSON.stringify({
+          expectedCanonicalRevision: initial.canonicalResource.revision,
+          values: { website: "https://profile.example" },
+        }),
+      })
+      expect(saved.status, await saved.clone().text()).toBe(200)
+      const reviewed = await load()
+      const key = `${t.owner.organisationId}:${linked.locationId}:business_info`
+      const holder = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+      let release!: () => void
+      const released = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let locked!: () => void
+      const held = new Promise<void>((resolve) => {
+        locked = resolve
+      })
+      // A bulk business-information child holds the lock.
+      const holding = holder.begin(async (lock) => {
+        await lock`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`
+        locked()
+        await released
+      })
+      try {
+        await held
+        let settled = false
+        const publishing = fetch(root, {
+          method: "POST",
+          headers: headers("publish-profile"),
+          body: JSON.stringify({
+            direction: "to_google",
+            confirmation: "publish_nabapresence_profile_to_google",
+            selectedFields: ["website"],
+            expectedCanonicalRevision: reviewed.canonicalResource.revision,
+            expectedCanonicalHash: reviewed.canonicalHash,
+            expectedGoogleHash: reviewed.googleHash,
+            confirmOverwriteGoogleChanges: false,
+            confirmOverwriteCanonicalChanges: false,
+          }),
+        }).then((response) => {
+          settled = true
+          return response
+        })
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1_500))
+          // Nothing is read or written while the bulk child holds the lock.
+          expect(settled).toBe(false)
+          expect(realPatches("updateMask=")).toHaveLength(0)
+        } finally {
+          release()
+          await holding
+        }
+        const published = await publishing
+        expect(published.status, await published.clone().text()).toBe(200)
+        expect(
+          listings.get(linked.googleLocationName)!.location.websiteUri
+        ).toBe("https://profile.example")
+      } finally {
+        release()
+        await holder.end()
+      }
     })
 
     it("holds the new families to the table's checks", async () => {

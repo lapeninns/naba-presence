@@ -1658,8 +1658,14 @@ the named fields are frozen and compared, so an edit to another field is not
 a conflict. Categories change by stable ID (a new primary, additional ones
 added or removed; at most 9 additional) and each listing's result is checked
 against Google's category list for its region (`categories.batchGet`). Both
-patch the location resource under the business-information editor's lock
-(`business_info` resource key) with Google's validateOnly check first. A
+patch the location resource under the business-information lock
+(`business_info` resource key) with Google's validateOnly check first. The
+business-information editor and the profile publisher
+(`publishProfileToGoogle`, which also writes website and description) take
+the same lock, so neither can write between a bulk child's baseline read and
+its PATCH. A bulk website or description write does not go through the
+canonical profile, so the profile editor shows those fields as changed on
+Google until it is refreshed. A
 category change must be listed before the service-hours and attribute
 changes that depend on it: their preview is planned under the proposed
 categories (`PlanReads.propose`; attribute metadata by `categoryName`), and
@@ -1667,8 +1673,11 @@ they are sent only once it applied. Lodging (`lib/domain/bulk-lodging.ts`,
 the industry family) takes paths from the typed lodging allowlist
 (`GOOGLE_LODGING_UPDATE_PATHS`, minus `metadata` and `guestUnits`) with typed
 values, each set or explicitly cleared; nothing outside the mask may be in
-the payload, `false` reads back as `false`, `metadata.updateTime` is stamped
-at the send, and a listing without a lodging resource is skipped. It runs
+the payload, `false` reads back as `false`, a group path (`pools`) replaces
+the group, so it reads back as applied only when the group's other writable
+fields are empty, `metadata.updateTime` is stamped at the send, and a listing
+without a lodging resource is skipped (a lost Google connection is a
+connection error, not a skip). It runs
 under the lodging editor's lock. All three record attempts in
 `bulk_listing_write_attempt` with receipts (surfaces `business_info` and
 `lodging`), read back by their recovery adapters. Healthcare is not a bulk

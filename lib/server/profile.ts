@@ -24,7 +24,7 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, withTenant } from "@/lib/server/db"
+import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   attemptStore,
@@ -628,7 +628,25 @@ async function prepareProfilePublish(input: PublishProfileInput) {
   return { selected, live, patch }
 }
 
+/**
+ * Publishes the selected canonical fields. The live read, the snapshot and
+ * overwrite checks, the PATCH and its readback all run under the location's
+ * business-information lock (`<org>:<location>:business_info`), the key the
+ * business-information editor and bulk business-information and category
+ * children take (lib/server/bulk-listing-runner.ts): a bulk website or
+ * description write cannot land between this publish's read and its PATCH,
+ * and this publish waits for a running bulk child, then reads what it left.
+ */
 export async function publishProfileToGoogle(input: PublishProfileInput) {
+  return withSessionConnection((connection) =>
+    connection.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:business_info`}, 0))`
+      return publishProfileLocked(input)
+    })
+  )
+}
+
+async function publishProfileLocked(input: PublishProfileInput) {
   const { selected, live, patch } = await prepareProfilePublish(input)
   const organisationId = input.session.organisationId
   const patchGoogle = (validateOnly: boolean) =>

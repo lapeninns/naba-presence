@@ -36,8 +36,13 @@ export async function readBusinessLocation(linked: GbpLocationContext) {
  * those fields are frozen at preview and compared at dispatch, so an edit
  * to another field of the listing is never a conflict. Provider-owned and
  * per-listing fields are not offered at all. Sent through runGbpWrite with
- * Google's validateOnly check first, under the business-information
- * editor's lock (`<org>:<location>:business_info`).
+ * Google's validateOnly check first, under the location's
+ * business-information lock (`<org>:<location>:business_info`), which the
+ * business-information editor and the profile publisher (lib/server/profile.ts,
+ * website and description) also take, so none of them interleaves with a
+ * bulk child. A bulk website or description write goes to Google directly,
+ * not through the canonical profile, so the profile editor afterwards shows
+ * those fields as changed on Google until it is refreshed.
  */
 export const businessInfoFamily: BulkFamily<BulkBusinessInfoInput> = {
   operations: ["business_info"],

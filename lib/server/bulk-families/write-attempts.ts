@@ -258,6 +258,8 @@ export const bulkLodgingRecoveryAdapter: RecoveryAdapter<BulkAttempt> = {
   async readback({ attempt, link }) {
     if (moved(attempt, link))
       return { kind: "unverifiable", errorCode: "target_changed" }
+    if (attempt.family !== "lodging")
+      return { kind: "unverifiable", errorCode: "family_mismatch" }
     const observed = await googleLodgingApi(
       await link.accessToken(),
       { locationName: link.googleLocationName, operation: "get" },
