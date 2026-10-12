@@ -27,6 +27,8 @@ describeDatabase("Stripe billing events", () => {
   /** customer id -> the subscriptions Stripe "has" for it right now. */
   const provider = new Map<string, Array<Record<string, unknown>>>()
   const calls: string[] = []
+  /** customer id -> how long Stripe takes to answer for it. */
+  const delays = new Map<string, number>()
   const nowSeconds = Math.floor(Date.now() / 1000)
   const startedAt = new Date()
   const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 10)
@@ -52,6 +54,8 @@ describeDatabase("Stripe billing events", () => {
       })
     if (url.pathname === "/v1/subscriptions") {
       const customer = url.searchParams.get("customer") ?? ""
+      const delay = delays.get(customer)
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
       return json({
         object: "list",
         has_more: false,
@@ -512,6 +516,48 @@ describeDatabase("Stripe billing events", () => {
     expect(await periods(org.id)).toEqual([])
   })
 
+  it("releases the events it did not reach when its budget runs out", async () => {
+    const orgs = [await organisation("active"), await organisation("active")]
+    const eventIds: string[] = []
+    for (const [index, org] of orgs.entries()) {
+      provider.set(org.customer, [
+        subscription(`sub_slow${index}${suffix}`, "active", {
+          start: nowSeconds - DAY,
+          end: nowSeconds + 29 * DAY,
+        }),
+      ])
+      delays.set(org.customer, 500)
+      eventIds.push(await receive("invoice.paid", org.customer))
+    }
+    try {
+      // One slow sync outlasts the budget, so the other organisation's sync
+      // never starts: its event goes back unattempted instead of waiting
+      // out its lease in 'processing'.
+      const summary = await modules.processBillingEvents({
+        budgetMs: 100,
+        requestId: crypto.randomUUID(),
+        stripe,
+      })
+      expect(summary.released).toBeGreaterThanOrEqual(1)
+      expect(summary.failed).toBe(0)
+      const rows = await Promise.all(eventIds.map((id) => event(id)))
+      expect(rows.map((row) => row.status).sort()).toEqual([
+        "processed",
+        "received",
+      ])
+      expect(rows.map((row) => row.retryCount)).toEqual([0, 0])
+    } finally {
+      for (const org of orgs) delays.delete(org.customer)
+    }
+    await tick()
+    for (const id of eventIds) {
+      expect(await event(id)).toMatchObject({
+        status: "processed",
+        retryCount: 0,
+      })
+    }
+  })
+
   it("serialises concurrent syncs of one organisation", async () => {
     const org = await organisation("active")
     provider.set(org.customer, [
@@ -558,5 +604,38 @@ describeDatabase("Stripe billing events", () => {
       cursor = result.nextCursor
     }
     expect(seen).toBe(true)
+  }, 120_000)
+
+  it("walks past one page within a fire while its budget lasts", async () => {
+    const orgs = [await organisation("active"), await organisation("active")]
+    for (const [index, org] of orgs.entries()) {
+      provider.set(org.customer, [
+        subscription(`sub_walk${index}${suffix}`, "active", {
+          start: nowSeconds - DAY,
+          end: nowSeconds + 29 * DAY,
+        }),
+      ])
+    }
+    const fire = await modules.reconcileBillingPage({
+      input: { maxOrganisations: 1 },
+      requestId: crypto.randomUUID(),
+      budgetMs: 30_000,
+      environment: "test",
+      stripe,
+    })
+    // Pages of one, yet the fire did not stop after the first.
+    expect(fire.processed).toBeGreaterThanOrEqual(2)
+
+    // With no budget it still makes progress: one organisation, then the
+    // cursor to resume from.
+    const starved = await modules.reconcileBillingPage({
+      input: { maxOrganisations: 50 },
+      requestId: crypto.randomUUID(),
+      budgetMs: 0,
+      environment: "test",
+      stripe,
+    })
+    expect(starved.processed).toBe(1)
+    expect(starved.nextCursor).not.toBeNull()
   }, 120_000)
 })

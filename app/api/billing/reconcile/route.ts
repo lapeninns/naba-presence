@@ -21,16 +21,29 @@ const BILLING_PAUSED = {
   message: "Billing processing is paused.",
 }
 
+/**
+ * No sync starts after the budget and one sync takes at most about 24s, so
+ * 30s keeps the fire inside maxDuration (60s).
+ */
+const DEFAULT_BUDGET_MS = 30_000
+
 function budgetMs() {
-  const configured = Number(process.env.BILLING_RECONCILE_BUDGET_MS ?? 45_000)
-  return Number.isFinite(configured) && configured >= 0 ? configured : 45_000
+  const configured = Number(
+    process.env.BILLING_RECONCILE_BUDGET_MS ?? DEFAULT_BUDGET_MS
+  )
+  return Number.isFinite(configured) && configured >= 0
+    ? configured
+    : DEFAULT_BUDGET_MS
 }
 
 /**
  * Hourly Stripe reconciliation (plan P07-S4), Vercel Cron. Walks every
- * organisation with a Stripe customer, a page per fire resumed through
- * cron_cursor ('billing'), and syncs each from Stripe's current state, so a
- * webhook that never arrived is repaired within the hour. Independent of the
+ * organisation with a Stripe customer, as many pages as fit in the fire's
+ * budget, resumed through cron_cursor ('billing'), and syncs each from
+ * Stripe's current state. A webhook that never arrived is repaired by the
+ * next full pass: within the hour while every linked organisation fits in
+ * one fire, otherwise within ceil(organisations / per-fire) hours (see
+ * docs/runbook.md). Independent of the
  * Google sync flags. The operator `billing` pause answers 503 (reported as
  * paused, not stale). While billing is disabled or unconfigured the tick
  * still completes, reconciling nothing, so its heartbeat keeps meaning the

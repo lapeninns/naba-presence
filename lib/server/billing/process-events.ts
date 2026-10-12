@@ -44,8 +44,11 @@ import {
  * never trusted or stored, and duplicate or reordered events converge.
  *
  * The hourly reconciliation (/api/billing/reconcile) runs the same sync for
- * every organisation with a Stripe customer, so a lost webhook is repaired
- * within the hour. Neither depends on the Google sync flags.
+ * every organisation with a Stripe customer, as many as fit in each fire's
+ * budget and resuming from a cursor, so a lost webhook is repaired by the
+ * next full pass: within the hour while the fleet fits in one fire, and
+ * within ceil(organisations / per-fire) hours beyond that. Neither depends
+ * on the Google sync flags.
  *
  * Everything fails closed: billing disabled or misconfigured, or the
  * `billing` pause scope paused, processes nothing (receipts wait); an
@@ -56,7 +59,18 @@ import {
 
 /** Attempts before an event is dead-lettered. */
 export const BILLING_EVENT_MAX_RETRIES = 8
-/** Covers the slowest sync: three Stripe calls of 10s, with one retry each. */
+/**
+ * Stripe calls made while the billing row lock is held: a short timeout and
+ * no SDK network retry, so the slowest sync (three calls) takes at most
+ * 3 x 8s. A transient failure fails the event, which retries with back-off.
+ */
+const SYNC_REQUEST_OPTIONS = { timeout: 8_000, maxNetworkRetries: 0 } as const
+/**
+ * A worker starts no organisation's sync after its budget, so a claimed
+ * event is settled within the budget plus one slowest sync (about 24s). The
+ * lease covers that with a wide margin; an event the worker does not reach
+ * is released, not left to expire.
+ */
 const LEASE_SECONDS = 120
 const CLAIM_BATCH = 10
 /** An event for a customer no organisation has yet. */
@@ -119,12 +133,15 @@ export async function fetchProviderSubscription(
   >,
   now: Date = new Date()
 ): Promise<ProviderSubscription | null> {
-  const list = await stripe.subscriptions.list({
-    customer: customerId,
-    status: "all",
-    limit: 20,
-    expand: ["data.latest_invoice"],
-  })
+  const list = await stripe.subscriptions.list(
+    {
+      customer: customerId,
+      status: "all",
+      limit: 20,
+      expand: ["data.latest_invoice"],
+    },
+    SYNC_REQUEST_OPTIONS
+  )
   const subscription = chooseSubscription(
     list.data,
     record.stripeSubscriptionId
@@ -144,11 +161,14 @@ export async function fetchProviderSubscription(
     !paymentSucceeded &&
     (subscription.status === "past_due" || subscription.status === "unpaid")
   ) {
-    const paid = await stripe.invoices.list({
-      subscription: subscription.id,
-      status: "paid",
-      limit: 24,
-    })
+    const paid = await stripe.invoices.list(
+      {
+        subscription: subscription.id,
+        status: "paid",
+        limit: 24,
+      },
+      SYNC_REQUEST_OPTIONS
+    )
     paymentSucceeded = paid.data.some(
       (invoice) =>
         invoice.amount_paid > 0 ||
@@ -159,7 +179,11 @@ export async function fetchProviderSubscription(
   let pending: ProviderSubscription["pending"] = null
   const scheduleId = idOf(subscription.schedule)
   if (scheduleId) {
-    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId)
+    const schedule = await stripe.subscriptionSchedules.retrieve(
+      scheduleId,
+      {},
+      SYNC_REQUEST_OPTIONS
+    )
     const next = schedule.phases
       .filter((phase) => phase.start_date * 1000 > now.getTime())
       .sort((a, b) => a.start_date - b.start_date)[0]
@@ -476,13 +500,17 @@ export type BillingTickSummary = {
   reason?: string
   processed: number
   held: number
+  /** Held events that can never resolve, or were held too long (0226). */
+  ignored: number
   failed: number
   dead: number
+  /** Claimed but not reached before the budget ran out; due again now. */
+  released: number
 }
 
 async function settle(
   eventId: string,
-  outcome: "processed" | "held" | "failed",
+  outcome: "processed" | "held" | "failed" | "released",
   errorCode: string | null,
   retrySeconds: number
 ): Promise<string> {
@@ -519,7 +547,11 @@ export function billingWorkGate(
 /**
  * Processes due Stripe events within `budgetMs`. One sync per organisation
  * per claimed batch however many of its events were claimed; an event with
- * no organisation yet is held, never dropped.
+ * no organisation yet is held (it does not use up its retry budget), and
+ * one that can never resolve, or has been held for 7 days, is ignored. No
+ * organisation's sync starts after the budget: its claimed events are
+ * released, due again at once and with no attempt counted, so the tick runs
+ * over its budget by at most one sync and nothing outlives its lease.
  */
 export async function processBillingEvents(options: {
   budgetMs: number
@@ -531,8 +563,10 @@ export async function processBillingEvents(options: {
     status: "ran",
     processed: 0,
     held: 0,
+    ignored: 0,
     failed: 0,
     dead: 0,
+    released: 0,
   }
   const gate = billingWorkGate(options.pauses ?? (await loadPauseSnapshot()))
   if (!gate.ok) return { ...summary, status: gate.status, reason: gate.reason }
@@ -561,12 +595,20 @@ export async function processBillingEvents(options: {
         // customer before Stripe can send anything about it, so this is a
         // foreign or early event. Kept and retried; reconciliation covers
         // the organisation once it is linked.
-        await settle(event.id, "held", "customer_unknown", HELD_RETRY_SECONDS)
-        summary.held += 1
-        log.warn("billing.event_held", {
-          eventId: event.externalEventId,
-          eventType: event.eventType,
-        })
+        const status = await settle(
+          event.id,
+          "held",
+          "customer_unknown",
+          HELD_RETRY_SECONDS
+        )
+        if (status === "ignored") summary.ignored += 1
+        else summary.held += 1
+        log.warn(
+          status === "ignored"
+            ? "billing.event_unroutable"
+            : "billing.event_held",
+          { eventId: event.externalEventId, eventType: event.eventType }
+        )
         continue
       }
       const group = byOrganisation.get(event.organisationId) ?? []
@@ -575,6 +617,13 @@ export async function processBillingEvents(options: {
     }
 
     for (const [organisationId, events] of byOrganisation) {
+      if (Date.now() >= deadline) {
+        for (const event of events) {
+          await settle(event.id, "released", null, 0)
+          summary.released += 1
+        }
+        continue
+      }
       try {
         await syncOrganisationBilling({
           stripe,
@@ -636,9 +685,12 @@ export type ReconcilePageResult = {
 }
 
 /**
- * One page of the hourly reconciliation walk over every organisation with a
- * Stripe customer, from `organisationCursor`. A page that runs out of budget
- * or fills `maxOrganisations` returns the cursor to resume from.
+ * One fire of the hourly reconciliation walk over every organisation with a
+ * Stripe customer, from `organisationCursor`: pages of `maxOrganisations`,
+ * one after another, until the walk ends or the budget runs out. A fire
+ * that runs out of budget returns the cursor to resume from; null means the
+ * walk reached its end. No sync starts after the budget, so a fire runs
+ * over it by at most one sync (about 24s; see SYNC_REQUEST_OPTIONS).
  */
 export async function reconcileBillingPage(options: {
   input: { maxOrganisations: number; organisationCursor?: string }
@@ -650,43 +702,48 @@ export async function reconcileBillingPage(options: {
   const { input, requestId, environment } = options
   const stripe = options.stripe ?? getStripe()
   const deadline = Date.now() + Math.max(0, options.budgetMs)
-  const rows = await getDatabase()<{ id: string }[]>`
-    select organisation_id::text as id
-    from billing_reconcile_page(
-      ${input.organisationCursor ?? null}::uuid,
-      ${input.maxOrganisations}
-    )
-  `
   const failures: ReconcilePageResult["failures"] = []
   let processed = 0
-  let budgetExhausted = false
   let last: string | null = input.organisationCursor ?? null
-  for (const { id } of rows) {
-    if (processed > 0 && Date.now() >= deadline) {
-      budgetExhausted = true
+  let walkEnded = false
+
+  walk: for (;;) {
+    const rows = await getDatabase()<{ id: string }[]>`
+      select organisation_id::text as id
+      from billing_reconcile_page(${last}::uuid, ${input.maxOrganisations})
+    `
+    for (const { id } of rows) {
+      if (processed > 0 && Date.now() >= deadline) break walk
+      try {
+        await syncOrganisationBilling({
+          stripe,
+          organisationId: id,
+          environment,
+          trigger: { kind: "reconcile" },
+          requestId: `${requestId}:${id}`,
+        })
+      } catch (error) {
+        const errorCode = syncErrorCode(error)
+        failures.push({ organisationId: id, errorCode })
+        log.error("billing.reconcile_failed", {
+          organisationId: id,
+          errorCode,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+      processed += 1
+      last = id
+    }
+    if (rows.length < input.maxOrganisations) {
+      walkEnded = true
       break
     }
-    try {
-      await syncOrganisationBilling({
-        stripe,
-        organisationId: id,
-        environment,
-        trigger: { kind: "reconcile" },
-        requestId: `${requestId}:${id}`,
-      })
-    } catch (error) {
-      const errorCode = syncErrorCode(error)
-      failures.push({ organisationId: id, errorCode })
-      log.error("billing.reconcile_failed", {
-        organisationId: id,
-        errorCode,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    }
-    processed += 1
-    last = id
+    if (Date.now() >= deadline) break
   }
-  const nextCursor =
-    budgetExhausted || rows.length === input.maxOrganisations ? last : null
-  return { enabled: true, processed, nextCursor, failures }
+  return {
+    enabled: true,
+    processed,
+    nextCursor: walkEnded ? null : last,
+    failures,
+  }
 }

@@ -267,7 +267,12 @@ nothing is lost).
 
 Receipts are processed on the job tick, and the hourly
 `/api/billing/reconcile` cron re-syncs every organisation with a Stripe
-customer. To stop processing without a redeploy, pause the `billing` scope
+customer. Each fire syncs as many organisations as fit in its 30-second
+budget (`BILLING_RECONCILE_BUDGET_MS`) and resumes from its cursor the next
+hour, so a full pass, and with it the repair of a lost webhook, takes
+ceil(linked organisations / per-fire count) hours; watch
+`select organisation_cursor from cron_cursor where name = 'billing'`: null
+between fires means the last fire finished the walk. To stop processing without a redeploy, pause the `billing` scope
 (`pnpm ops:pause`); receipts keep being recorded and are processed after the
 pause lifts. Look at the inbox from the operator connection:
 
@@ -277,7 +282,12 @@ from billing_event group by 1, 2 order by 1, 2;
 ```
 
 `held` with `customer_unknown` is an event for a customer no organisation has
-(it keeps retrying every 15 minutes). `dead` needs a look: `billing_plan_unknown`
+(it retries every 15 minutes; holds do not use up its eight attempts). After
+7 days held it becomes `ignored` with `customer_unknown`, and a handled event
+that names no customer is `ignored` with `customer_missing` from the start;
+reconciliation still covers any organisation linked later. A `received`
+event can also be one a worker claimed and released unattempted when its
+budget ran out; it is due again at once and no attempt was counted. `dead` needs a look: `billing_plan_unknown`
 means a subscription bills a price with no catalog row for this environment;
 add the plan version, then re-arm the event:
 

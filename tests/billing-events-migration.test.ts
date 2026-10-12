@@ -10,6 +10,7 @@ const read = (name: string) =>
   readFileSync(join(process.cwd(), "supabase/migrations", name), "utf8")
 
 const migration = read("0225_billing_events.sql")
+const hardening = read("0226_billing_event_hardening.sql")
 
 const ORG = "00000000-0000-4000-8000-0000000000e1"
 const OTHER = "00000000-0000-4000-8000-0000000000e2"
@@ -18,6 +19,21 @@ const HASH = "a".repeat(64)
 describe("0225 billing events migration", () => {
   it("is listed in the required-migrations manifest", () => {
     expect(REQUIRED_MIGRATIONS).toContain("0225_billing_events")
+    expect(REQUIRED_MIGRATIONS).toContain("0226_billing_event_hardening")
+  })
+
+  it("keeps the redefined functions runtime-only in 0226", () => {
+    for (const fn of ["record_billing_event", "settle_billing_event"]) {
+      expect(hardening).toMatch(
+        new RegExp(`revoke all on function ${fn}\\([^)]*\\)\\s*from public`)
+      )
+      expect(hardening).toMatch(
+        new RegExp(
+          `grant execute on function ${fn}\\([^)]*\\)\\s*to naba_app_runtime`
+        )
+      )
+    }
+    expect(hardening).not.toMatch(/grant [^;]* on billing_event to/)
   })
 
   it("gives the runtime no table privilege, only the functions", () => {
@@ -114,6 +130,7 @@ describe("0225 billing events migration", () => {
       await db.exec(read("0220_billing_foundation.sql"))
       await db.exec(read("0221_billing_period_checks.sql"))
       await db.exec(migration)
+      await db.exec(hardening)
       await db.exec(`
         update organisation_billing set stripe_customer_id = 'cus_known'
         where organisation_id = '${ORG}';
@@ -172,14 +189,100 @@ describe("0225 billing events migration", () => {
       expect(await claim()).toEqual([])
       expect(await settle(known.id, "processed")).toBe("processed")
       expect(await settle(known.id, "processed")).toBe("stale")
-      // An unknown customer is held, never dead, however often it recurs.
+      // An unknown customer is held, never dead, however often it recurs,
+      // and the holds do not use up its retry budget.
       for (let attempt = 0; attempt < 5; attempt += 1) {
         expect(await settle(unknown.id, "held")).toBe("held")
         await due(unknown.id)
         expect((await claim()).map((r) => r.id)).toEqual([unknown.id])
       }
       expect(await settle(unknown.id, "held")).toBe("held")
-      expect((await row(unknown.id)).status).toBe("held")
+      expect(await row(unknown.id)).toMatchObject({
+        status: "held",
+        retry_count: 0,
+      })
+    })
+
+    it("keeps the full retry budget for an event held many times, then linked", async () => {
+      const customer = "cus_latelink"
+      const event = await record("evt_latelink", customer)
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const [claimed] = await claim(10, 60, 8)
+        expect(claimed).toMatchObject({ id: event.id, organisation_id: null })
+        expect(await settle(event.id, "held", 8)).toBe("held")
+        await due(event.id)
+      }
+      expect((await row(event.id)).retry_count).toBe(0)
+      // The customer is linked; the first real failure is retried, not dead.
+      await db.query(
+        `update organisation_billing set stripe_customer_id = $1 where organisation_id = $2`,
+        [customer, OTHER]
+      )
+      const [linked] = await claim(10, 60, 8)
+      expect(linked).toMatchObject({ id: event.id, organisation_id: OTHER })
+      expect(await settle(event.id, "failed", 8)).toBe("failed")
+      expect(await row(event.id)).toMatchObject({
+        status: "failed",
+        retry_count: 1,
+      })
+      // So does a worker that dies on its next attempt.
+      await due(event.id)
+      await claim(10, 60, 8)
+      await db.query(
+        `update billing_event set lease_expires_at = now() - interval '1 second' where id = $1`,
+        [event.id]
+      )
+      expect(await claim(10, 60, 8)).toEqual([
+        expect.objectContaining({ id: event.id, retry_count: 2 }),
+      ])
+      expect(await settle(event.id, "processed", 8)).toBe("processed")
+      await db.query(
+        `update organisation_billing set stripe_customer_id = null where organisation_id = $1`,
+        [OTHER]
+      )
+    })
+
+    it("ignores an event that can never resolve and ends a long hold", async () => {
+      // No customer id: nothing could ever route it.
+      const orphan = await record("evt_nocustomer", null)
+      expect(orphan.status).toBe("ignored")
+      expect(await row(orphan.id)).toMatchObject({
+        status: "ignored",
+        last_error_code: "customer_missing",
+      })
+
+      const stale = await record("evt_stalehold", "cus_neverlinked")
+      await db.query(
+        `update billing_event set received_at = now() - interval '8 days' where id = $1`,
+        [stale.id]
+      )
+      expect((await claim()).map((r) => r.id)).toEqual([stale.id])
+      expect(await settle(stale.id, "held")).toBe("ignored")
+      expect(await row(stale.id)).toMatchObject({
+        status: "ignored",
+        last_error_code: "code",
+        retry_count: 0,
+      })
+      await due(stale.id)
+      expect(await claim()).toEqual([])
+    })
+
+    it("releases a claimed event unattempted, due again at once", async () => {
+      const event = await record("evt_release", "cus_known")
+      await claim()
+      expect(await settle(event.id, "failed", 8)).toBe("failed")
+      await due(event.id)
+      await claim()
+      expect(await settle(event.id, "released", 8)).toBe("received")
+      expect(await row(event.id)).toMatchObject({
+        status: "received",
+        retry_count: 1,
+        last_error_code: "code",
+      })
+      // Due now, and the lease is gone.
+      expect((await claim()).map((r) => r.id)).toEqual([event.id])
+      expect(await settle(event.id, "processed")).toBe("processed")
+      await expect(settle(event.id, "bogus")).rejects.toThrow(/unknown/)
     })
 
     it("retries a failure and dead-letters it after the last attempt", async () => {
@@ -234,6 +337,39 @@ describe("0225 billing events migration", () => {
       expect(after.rows).toEqual([])
     })
 
+    it("lets a pilot month be shortened and no period be extended", async () => {
+      await db.exec(`
+        insert into ai_credit_period (organisation_id, kind, starts_at, ends_at, allowance, source_ref)
+        values
+          ('${OTHER}', 'pilot_month', now() - interval '1 day', now() + interval '20 days', 10, 'pilot:guard'),
+          ('${OTHER}', 'paid_period', now() - interval '1 day', now() + interval '29 days', 40, 'sub_guard:1'),
+          ('${OTHER}', 'trial', now() - interval '1 day', now() + interval '13 days', 40, 'sub_guard:trial');
+      `)
+      const update = (sourceRef: string, change: string) =>
+        db.query(
+          `update ai_credit_period set ends_at = ${change} where source_ref = $1`,
+          [sourceRef]
+        )
+      await expect(
+        update("pilot:guard", "ends_at + interval '1 day'")
+      ).rejects.toThrow(/ai_credit_period_window_fixed/)
+      await expect(
+        update("sub_guard:1", "ends_at + interval '30 days'")
+      ).rejects.toThrow(/ai_credit_period_window_fixed/)
+      await expect(
+        update("sub_guard:1", "ends_at - interval '1 day'")
+      ).rejects.toThrow(/ai_credit_period_window_fixed/)
+      await expect(
+        update("sub_guard:trial", "ends_at + interval '1 day'")
+      ).rejects.toThrow(/ai_credit_period_window_fixed/)
+      // Closing the pilot month (conversion) is allowed.
+      await update("pilot:guard", "now()")
+      // Other columns are not the trigger's business (no runtime grant).
+      await db.exec(
+        `update ai_credit_period set allowance = 41 where source_ref = 'sub_guard:1'`
+      )
+    })
+
     it("lets the runtime close a period but read no receipt", async () => {
       await db.exec(`
         grant usage on schema public to naba_app_runtime;
@@ -252,6 +388,21 @@ describe("0225 billing events migration", () => {
         await expect(
           db.query(`update ai_credit_period set allowance = 1`)
         ).rejects.toThrow(/permission denied/)
+        // Inside its tenant it may close a pilot month, never extend a grant.
+        await db.query(`select set_config('app.organisation_id', $1, false)`, [
+          OTHER,
+        ])
+        await expect(
+          db.query(
+            `update ai_credit_period set ends_at = ends_at + interval '1 day'
+             where source_ref = 'sub_guard:1'`
+          )
+        ).rejects.toThrow(/ai_credit_period_window_fixed/)
+        const closed = await db.query(
+          `update ai_credit_period set ends_at = ends_at - interval '1 second'
+           where kind = 'pilot_month' returning id`
+        )
+        expect(closed.rows).toHaveLength(1)
       } finally {
         await db.exec(`reset role`)
       }

@@ -1034,6 +1034,9 @@ export async function runDueJobs(options: {
       claiming: kinds,
     })
   }
+  // The whole tick, billing included, fits in one budget: the billing
+  // slice's time is not added on top (the route's maxDuration is fixed).
+  const deadline = Date.now() + Math.max(0, options.budgetMs)
   // Stripe events (P07-S4) first, on a small slice of the budget: they
   // decide what every organisation may do, and none of the Google flags
   // holds them. Off unless billing is enabled, configured and not paused
@@ -1062,7 +1065,6 @@ export async function runDueJobs(options: {
     })
   })
 
-  const deadline = Date.now() + Math.max(0, options.budgetMs)
   const tick: Tick = { requestId: options.requestId, summary, deadline }
 
   // The lease must outlive the slowest item in a batch. Google calls are

@@ -110,4 +110,5 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0223_entitlement_enforcement",
   "0224_location_limit_hardening",
   "0225_billing_events",
+  "0226_billing_event_hardening",
 ]

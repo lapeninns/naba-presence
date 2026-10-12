@@ -1648,7 +1648,7 @@ With the env flag on, an organisation with no billing row is enforced too.
   write flags off while read-only, so the UI disables what the routes refuse
   (`lib/locations/gating.ts` explains the billing block first).
 
-### Stripe webhooks, lifecycle processing and reconciliation (P07-S4, 0225)
+### Stripe webhooks, lifecycle processing and reconciliation (P07-S4, 0225, 0226)
 
 Off unless `BILLING_ENABLED` is on and `STRIPE_SECRET_KEY`,
 `STRIPE_WEBHOOK_SECRET` and `BILLING_ENVIRONMENT` are set and agree (the key's
@@ -1656,7 +1656,9 @@ Off unless `BILLING_ENABLED` is on and `STRIPE_SECRET_KEY`,
 `lib/server/billing/stripe.ts` `billingConfig` decides, and every billing
 entry point fails closed with 503 `billing_unavailable` otherwise. The client
 uses the official `stripe` SDK pinned to the API version its types describe
-(`STRIPE_API_VERSION`), with a 10-second timeout.
+(`STRIPE_API_VERSION`), with a 10-second timeout; the sync's own calls, made
+while the billing row lock is held, use 8 seconds and no SDK retry, so one
+sync (at most three calls) takes at most about 24 seconds.
 
 - Receipt: `app/api/webhooks/stripe/route.ts` (public, Node runtime) reads the
   raw body, verifies `Stripe-Signature` with `constructEvent`
@@ -1674,7 +1676,16 @@ uses the official `stripe` SDK pinned to the API version its types describe
   due rows and resolves each organisation from `stripe_customer_id`; an
   expired lease (a worker that died) is reclaimed and counted as an attempt.
   An event whose customer no organisation has is `held` and retried every 15
-  minutes, never dropped or dead-lettered. Per organisation, one sync covers
+  minutes; a hold is not an attempt, so it never uses up the event's retry
+  budget (0226). A handled event without a customer id is recorded as
+  `ignored` (`customer_missing`), and a held event that has waited 7 days
+  settles as `ignored` (`customer_unknown`): the backlog is bounded and the
+  hourly reconciliation still covers an organisation linked later. No
+  organisation's sync starts after the budget; the events it claimed for
+  the rest are released (`settle_billing_event` outcome `released`: due
+  again at once, no attempt counted), so the tick overruns its budget by at
+  most one sync and no event outlives its 120-second lease. The billing
+  slice's time comes out of the tick's overall budget. Per organisation, one sync covers
   all its claimed events: under `lockOrganisationBilling` it lists the
   customer's subscriptions from Stripe (the newest running one wins), runs the
   pure reducer `lib/domain/billing-lifecycle.ts`, writes the record, closes a
@@ -1697,12 +1708,21 @@ uses the official `stripe` SDK pinned to the API version its types describe
   Stripe customer through its owner's checkout (P07-S5), so a pilot reaching
   any running subscription is an owner-initiated conversion, the only thing
   that closes its calendar month (0225 grants the runtime `update (ends_at)`
-  on `ai_credit_period` for that alone).
+  on `ai_credit_period` for that alone, and the 0226 trigger
+  `ai_credit_period_window_guard` refuses, for every role, any change of
+  `ends_at` other than shortening a `pilot_month`: 23514
+  `ai_credit_period_window_fixed`).
 - Reconciliation: `app/api/billing/reconcile/route.ts` (Vercel Cron, hourly,
   `naba:billing-reconcile` lease, `cron_cursor` walk `billing`) runs the same
   sync for every organisation with a Stripe customer (`billing_reconcile_page`
-  returns ids only), so a lost webhook is repaired within the hour. It
-  completes doing nothing while billing is disabled; the `billing` pause
+  returns ids only). Each fire walks page after page (`maxOrganisations` per
+  page) until its 30-second budget runs out (`BILLING_RECONCILE_BUDGET_MS`;
+  no sync starts after it, so a fire ends by about 54 seconds, inside
+  `maxDuration` 60) and resumes from the cursor next hour. A lost webhook is
+  therefore repaired within the hour while every linked organisation fits
+  in one fire (roughly 30 seconds of syncs, typically 50 or more
+  organisations), and otherwise within ceil(linked organisations / per-fire
+  count) hours. It completes doing nothing while billing is disabled; the `billing` pause
   answers 503 and is reported as paused, not stale.
 
 ### AI credit periods and generation ids (P07-S2)
