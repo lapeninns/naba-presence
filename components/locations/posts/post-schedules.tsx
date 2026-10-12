@@ -68,6 +68,10 @@ const REASON: Record<string, string> = {
     "The schedule was paused when its time came, so nothing was published and nothing will publish late. Choose a new time, or cancel it.",
   outside_dispatch_window:
     "It could not start within 5 minutes of its time, so nothing was published and nothing will publish late. Choose a new time, or cancel it.",
+  source_changed:
+    "The post was edited after this schedule was set up, so nothing publishes until the new text is approved. Approve it again, or change or cancel the schedule.",
+  source_superseded:
+    "The post was published another way or deleted, so this schedule will not publish it again.",
 }
 
 /**

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import {
   occurrencesResponseSchema,
   scheduleResponseSchema,
+  schedulesResponseSchema,
   type PublicationSchedule,
 } from "@/lib/contracts/publication-schedules"
 import {
@@ -1250,6 +1251,185 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     expect((await t.occurrences(s.id)).map((o) => o.status)).toEqual([
       "scheduled",
     ])
+  })
+
+  it("re-freezes an approved schedule when its draft is edited and publishes the draft itself at the approved revision (P08-R4)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const body = {
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Sunday roast is back",
+      media: [],
+    }
+    const postId = await t.draft(body)
+    const s = await t.schedule(postId, {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    const [{ revision: frozen }] = await admin<{ revision: number }[]>`
+      select content_revision::int as revision from gbp_local_post where id = ${postId}`
+    expect(s.sourceContentRevision).toBe(frozen)
+    expect((await t.approve(s)).status).toBe(200)
+    const edit = (summary: string) =>
+      t.api(`/posts/${postId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...body, summary }),
+      })
+
+    // Saving the same text changes no revision, so the approval stands.
+    expect((await edit("Sunday roast is back")).status).toBe(200)
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "active",
+      status_reason: null,
+    })
+
+    // An edit re-freezes the schedule from the new text, in the edit's own
+    // transaction, as a new revision that needs approving again.
+    const edited = await edit("Roast and sticky toffee pudding")
+    expect(edited.status, await edited.clone().text()).toBe(200)
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "awaiting_approval",
+      status_reason: "source_changed",
+    })
+    expect(
+      (await t.occurrences(s.id)).map((o) => `${o.status}:${o.status_reason}`)
+    ).toEqual(["cancelled:source_changed"])
+    const stale = await t.approve(s)
+    expect(stale.status).toBe(409)
+    expect(await stale.json()).toMatchObject({ error: "approval_stale" })
+    const listed = schedulesResponseSchema
+      .parse(await (await t.api("/post-schedules")).json())
+      .schedules.find((row) => row.id === s.id)!
+    expect(listed).toMatchObject({
+      revision: 2,
+      sourceContentRevision: frozen + 1,
+      template: { summary: "Roast and sticky toffee pudding" },
+    })
+    expect(listed.payloadHash).not.toBe(s.payloadHash)
+
+    // Approved again, the occurrence publishes the draft itself, at exactly
+    // the approved revision: no second copy of the post is left behind.
+    expect((await t.approve(listed)).status).toBe(200)
+    const slot = (await t.occurrences(s.id)).find(
+      (o) => o.status === "scheduled"
+    )!
+    await t.age(slot.id, 1)
+    await tick()
+    expect(creates()).toHaveLength(1)
+    expect(creates()[0].body).toMatchObject({
+      summary: "Roast and sticky toffee pudding",
+    })
+    expect(
+      (await t.occurrences(s.id)).find((o) => o.id === slot.id)
+    ).toMatchObject({ status: "published", post_id: postId })
+    const posts = await admin<
+      { id: string; status: string; revision: number }[]
+    >`
+      select id::text as id, status, content_revision::int as revision from gbp_local_post
+      where organisation_id = ${t.owner.organisationId}`
+    expect(posts).toEqual([
+      { id: postId, status: "published", revision: frozen + 1 },
+    ])
+    const [receipt] = await admin<
+      { state: string; target_ref: string; expected_revision: string }[]
+    >`
+      select m.state, m.target_ref, m.expected_revision from mutation_operation m
+      join post_publication_occurrence o on o.organisation_id = m.organisation_id and o.intent_id = m.intent_id
+      where o.id = ${slot.id}`
+    expect(receipt).toEqual({
+      state: "confirmed_applied",
+      target_ref: postId,
+      expected_revision: String(frozen + 1),
+    })
+    expect(await t.scheduleRow(s.id)).toMatchObject({ status: "completed" })
+  })
+
+  it("never publishes a draft changed some other way, and supersedes one published first (P08-R4)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const rule = {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    }
+
+    // Waiting: approval refuses text the request did not freeze.
+    const waitingPost = await t.draft()
+    const waiting = await t.schedule(waitingPost, rule)
+    await admin`update gbp_local_post set summary = 'Changed underneath' where id = ${waitingPost}`
+    const refused = await t.approve(waiting)
+    expect(refused.status).toBe(409)
+    expect(await refused.json()).toMatchObject({
+      error: "schedule_source_changed",
+    })
+
+    // Approved: the runner finds the change, re-freezes and sends nothing.
+    const changedPost = await t.draft()
+    const changed = await t.schedule(changedPost, rule)
+    expect((await t.approve(changed)).status).toBe(200)
+    await admin`update gbp_local_post set summary = 'Changed underneath' where id = ${changedPost}`
+    const [changedSlot] = await t.occurrences(changed.id)
+    await t.age(changedSlot.id, 1)
+    await tick()
+    expect(creates()).toHaveLength(0)
+    expect(await t.scheduleRow(changed.id)).toEqual({
+      status: "awaiting_approval",
+      status_reason: "source_changed",
+    })
+    expect((await t.occurrences(changed.id))[0]).toMatchObject({
+      status: "cancelled",
+      status_reason: "source_changed",
+    })
+
+    // A draft publishes once, so it takes one live one-time schedule.
+    const second = await t.api("/post-schedules", {
+      method: "POST",
+      body: JSON.stringify({
+        postId: changedPost,
+        rule,
+        timezone: "Europe/London",
+      }),
+    })
+    expect(second.status).toBe(409)
+    expect(await second.json()).toMatchObject({
+      error: "schedule_source_already_scheduled",
+    })
+
+    // Published by hand first: the occurrence is superseded, not re-sent.
+    const publishedPost = await t.draft()
+    const published = await t.schedule(publishedPost, rule)
+    expect((await t.approve(published)).status).toBe(200)
+    const now = await t.api(`/posts/${publishedPost}/publish`, {
+      method: "POST",
+    })
+    expect(now.status, await now.clone().text()).toBe(200)
+    expect(creates()).toHaveLength(1)
+    const [publishedSlot] = await t.occurrences(published.id)
+    await t.age(publishedSlot.id, 1)
+    await tick()
+    expect(creates()).toHaveLength(1)
+    expect((await t.occurrences(published.id))[0]).toMatchObject({
+      status: "cancelled",
+      status_reason: "source_superseded",
+    })
+    expect(await t.scheduleRow(published.id)).toEqual({
+      status: "cancelled",
+      status_reason: "source_superseded",
+    })
+
+    // And a draft already on Google cannot be scheduled once.
+    const again = await t.api("/post-schedules", {
+      method: "POST",
+      body: JSON.stringify({
+        postId: publishedPost,
+        rule,
+        timezone: "Europe/London",
+      }),
+    })
+    expect(again.status).toBe(409)
+    expect(await again.json()).toMatchObject({
+      error: "schedule_source_unavailable",
+    })
   })
 
   // Last: re-running 0240 touches every tenant's rows in this database.

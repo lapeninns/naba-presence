@@ -1639,6 +1639,13 @@ A schedule shows "Needs attention" with its reason:
   Check the location's posts on Google, then choose a new time or cancel.
 - `connection_changed`: the location was relinked or its Google connection
   reconnected after approval. Change the schedule and approve it again.
+- `source_changed` ("Awaiting approval", or "Needs review" when the rule no
+  longer fits the content): the post was edited after the schedule was set up.
+  The schedule now holds the edited text as a new revision; review and approve
+  it, or cancel it. Nothing was or will be published from the old approval.
+- `source_superseded`: the post was published another way or deleted before a
+  one-time slot came due. The schedule ended without sending anything; schedule
+  a new draft if another publication is wanted.
 An occurrence may start only within 5 minutes of its time. One that could not
 (runner down, publishing paused, link missing) is recorded missed by the next
 tick, even while paused, and raises `schedule_missed` (`outside_dispatch_window`,

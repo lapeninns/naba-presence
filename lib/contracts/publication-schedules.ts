@@ -99,6 +99,13 @@ export const scheduleSchema = z.object({
   eventOffsets: eventOffsetsSchema.nullable(),
   template: z.object({ topicType: z.string(), summary: z.string() }).loose(),
   sourcePostId: z.uuid().nullable(),
+  /**
+   * The source draft's content revision the template was frozen from
+   * (P08-R4). An edit to the draft re-freezes the schedule and asks for
+   * approval again; a one-time schedule publishes the draft at exactly this
+   * revision. Null for a row from before 0244 that could not be bound.
+   */
+  sourceContentRevision: z.number().int().nullable(),
   requestedBy: z.uuid(),
   approvedBy: z.uuid().nullable(),
   approvedAt: z.iso.datetime().nullable(),

@@ -1520,8 +1520,9 @@ schedule_revision, intended_at)`). The job tick claims due schedules with a
 lease (`claim_due_publication_schedules`), rechecks approval, policy, requester
 and approver grants, connection and kill switches, publishes an occurrence only
 inside its 5-minute dispatch window (P08-R3, below), never publishes ended event
-or offer content, and creates one post row per occurrence so a retry reuses the
-same publish idempotency key. An ambiguous publish blocks the schedule; nothing
+or offer content, and for a repeating rule creates one post row per occurrence
+so a retry reuses the same publish idempotency key (a one-time occurrence
+publishes its source draft itself, P08-R4 below). An ambiguous publish blocks the schedule; nothing
 is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. For repeating rules, spring-forward times run at the first valid
 local time, repeated autumn times run once at the earlier instant, and absent
@@ -1586,6 +1587,34 @@ schedule does not raise an incident per day. Recovery never sends anything,
 so a create proven not to have landed is never made late. Event-date offsets
 apply to repeating schedules only; a one-time schedule publishes its approved
 content as is.
+
+A schedule is bound to its source draft (P08-R4, migration 0244). Create and
+revise freeze the draft's `content_revision` (0081) and `postContentHash`
+(`lib/server/post-content.ts`, the hash a post approval binds) as
+`source_content_revision` / `source_content_hash` with the template. An edit to
+the draft (`updateLocalPostDraft`) re-freezes every live schedule made from it
+in the same transaction: a new revision with the new text, approval and frozen
+target cleared, status `awaiting_approval` / `source_changed`, its waiting
+occurrences cancelled `source_changed` (a schedule whose rule no longer fits the
+content goes to `needs_review`). Re-saving identical text keeps the revision
+and changes nothing. The edit locks those schedules before the post, the order
+the runner takes them in. Approval refuses a draft that moved on some other way
+(409 `schedule_source_changed`). A one-time occurrence publishes the source post
+itself instead of a copy, and `publishScheduledLocalPost` sends it only at the
+frozen revision and hash (`schedule_source_changed`, nothing sent; the publish
+claim also requires the revision it read). A draft already on Google, being
+published or deleted cannot be scheduled once (409
+`schedule_source_unavailable`) and supersedes a due occurrence: the occurrence
+and schedule end `cancelled` / `source_superseded`, nothing sent. A draft has at
+most one live one-time schedule (409 `schedule_source_already_scheduled`). The
+runner re-freezes a schedule whose draft changed without the editor and sends
+nothing. 0244 binds live rows whose template is their draft's current content
+(revision only, no hash); a live one-time schedule it cannot bind goes to
+`needs_review` (`source_changed`, or `source_superseded` when the draft is gone
+or on Google). The unique index on an occurrence's post now covers only
+`scheduled`, `publishing`, `published` and `ambiguous` occurrences, so a later
+revision can publish a draft an earlier one missed. A repeating schedule still
+publishes copies of its frozen template.
 
 Scheduling is behind the organisation feature `post_scheduling`
 (`lib/server/publication-schedules.ts` `schedulingAvailability`). Off, the

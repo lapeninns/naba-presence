@@ -108,4 +108,5 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0241_post_schedule_strict_slot",
   "0242_post_schedule_dispatch",
   "0243_post_schedule_settle",
+  "0244_post_schedule_source_revision",
 ]

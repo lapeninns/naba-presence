@@ -33,9 +33,14 @@ import {
 import {
   publishScheduledLocalPost,
   SCHEDULE_DEADLINE_PASSED,
+  SCHEDULE_SOURCE_CHANGED,
   SCHEDULE_TARGET_CHANGED,
 } from "@/lib/server/posts"
-import { schedulingAvailability } from "@/lib/server/publication-schedules"
+import {
+  invalidateSourceSchedules,
+  publishableSource,
+  schedulingAvailability,
+} from "@/lib/server/publication-schedules"
 import type { Session } from "@/lib/server/session"
 
 type Schedule = {
@@ -48,6 +53,10 @@ type Schedule = {
   timezone: string
   template: Record<string, unknown>
   eventOffsets: unknown
+  /** The draft a one-time schedule publishes, at its frozen revision (P08-R4). */
+  sourcePostId: string | null
+  sourceContentRevision: number | null
+  sourceContentHash: string | null
   requestedBy: string
   approvedBy: string | null
   approvedRevision: number | null
@@ -77,6 +86,8 @@ export type ScheduleTickSummary = {
   ambiguous: number
   missed: number
   blocked: number
+  /** One-time occurrences whose source draft was published another way or deleted. */
+  superseded: number
 }
 export type ScheduleSweepSummary = { missed: number; resolved: number }
 
@@ -174,6 +185,37 @@ async function markMissed(
     },
   })
   if (summary) summary.missed += 1
+}
+
+/**
+ * A one-time occurrence whose source draft is no longer a publishable draft
+ * (P08-R4): it was published another way, is being published, or was
+ * deleted. Nothing is sent; the occurrence and its schedule end as
+ * superseded rather than publishing the content a second time.
+ */
+async function supersede(
+  sql: TransactionSql,
+  schedule: Schedule,
+  occurrence: Pick<Due, "id">,
+  requestId: string,
+  summary?: ScheduleTickSummary
+) {
+  await sql`
+    update post_publication_occurrence set status = 'cancelled', status_reason = 'source_superseded', finished_at = now()
+    where schedule_id = ${schedule.id} and status = 'scheduled'`
+  await sql`
+    update post_publication_schedule set status = 'cancelled', status_reason = 'source_superseded', updated_at = now()
+    where id = ${schedule.id} and status = 'active'`
+  await writeAudit(sql, {
+    organisationId: schedule.organisationId,
+    actorUserId: null,
+    action: "post_schedule.superseded",
+    subjectType: "post_schedule",
+    subjectId: schedule.id,
+    requestId,
+    metadata: { occurrenceId: occurrence.id, postId: schedule.sourcePostId },
+  })
+  if (summary) summary.superseded += 1
 }
 
 /**
@@ -311,7 +353,9 @@ export async function processSchedule(
   const plan = await withTenant(organisationId, async (sql) => {
     const [schedule] = await sql<Schedule[]>`
       select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, rule, timezone, template,
-        event_offsets as "eventOffsets", requested_by::text as "requestedBy", approved_by::text as "approvedBy",
+        event_offsets as "eventOffsets", source_post_id::text as "sourcePostId",
+        source_content_revision::integer as "sourceContentRevision", source_content_hash as "sourceContentHash",
+        requested_by::text as "requestedBy", approved_by::text as "approvedBy",
         approved_revision as "approvedRevision", require_two_person_approval as "requireTwoPersonApproval",
         target_google_connection_id::text as "targetConnectionId", target_credential_generation as "targetGeneration",
         target_google_location_name as "targetLocationName", approved_approval_required as "approvedApprovalRequired",
@@ -389,10 +433,53 @@ export async function processSchedule(
       await markMissed(sql, schedule, run, "expired_content", summary)
       return { schedule, run: null }
     }
-    // Claim the occurrence and create its own post in one transaction, so a
-    // retried tick finds the same post (and the same publish idempotency
-    // key). A post left by an earlier claim that sent nothing is reused.
+    // A one-time occurrence publishes its source draft (P08-R4), at the
+    // revision the approval covered, rather than a copy that would leave the
+    // draft behind. The draft is locked after the schedule (the order an
+    // edit takes them in), so an edit waits for this claim or lands first.
     let postId = run.postId
+    let source: { revision: number; hash: string | null } | null = null
+    if (scheduleRuleSchema.parse(schedule.rule).frequency === "once") {
+      const [post] = schedule.sourcePostId
+        ? await sql<
+            {
+              revision: number
+              status: string
+              googlePostName: string | null
+            }[]
+          >`
+            select content_revision::integer as revision, status, google_post_name as "googlePostName"
+            from gbp_local_post where id = ${schedule.sourcePostId} and location_id = ${schedule.locationId}
+            for update`
+        : []
+      if (!post || !publishableSource(post)) {
+        await supersede(sql, schedule, run, requestId, summary)
+        return { schedule, run: null }
+      }
+      if (post.revision !== schedule.sourceContentRevision) {
+        // Changed some way other than the editor (which re-freezes in its
+        // own transaction), or bound before 0244: re-freeze it for a fresh
+        // approval and send nothing.
+        await invalidateSourceSchedules(sql, {
+          organisationId,
+          locationId: schedule.locationId,
+          postId: schedule.sourcePostId!,
+          actorUserId: null,
+          requestId,
+        })
+        if (summary) summary.blocked += 1
+        return { schedule, run: null }
+      }
+      postId = schedule.sourcePostId
+      source = {
+        revision: post.revision,
+        hash: schedule.sourceContentHash,
+      }
+    }
+    // Claim the occurrence and, for a repeating schedule, create its own
+    // post in one transaction, so a retried tick finds the same post (and
+    // the same publish idempotency key). A post left by an earlier claim
+    // that sent nothing is reused.
     if (!postId) {
       const [external] = await sql<
         { id: string }[]
@@ -425,7 +512,7 @@ export async function processSchedule(
     })
     return {
       schedule,
-      run: { ...run, postId, intentId },
+      run: { ...run, postId, intentId, source },
       session: await approverSession(sql, schedule),
     }
   })
@@ -450,6 +537,7 @@ export async function processSchedule(
       },
       approvalRef: `post_schedule:${schedule.id}:${schedule.revision}`,
       securityVersion: schedule.approvedSecurityVersion,
+      source: run.source,
     })
   } catch (error) {
     failure = error
@@ -471,9 +559,34 @@ export async function processSchedule(
         and surface = 'local_post' and target_ref = ${run.postId}`
     if (!receipt) {
       // No receipt of its own: the publish stopped before it was recorded,
-      // so nothing reached Google. Inside the window the occurrence waits
-      // for the next tick; past it, it is missed. A moved link needs a fresh
-      // approval.
+      // so nothing reached Google.
+      // The source draft moved on after the claim: refused before the
+      // provider call (or by the publish claim, approval_post_changed). The
+      // edit re-froze the schedule for a fresh approval; this occurrence
+      // belonged to the old approval, so it ends here.
+      if (
+        run.source &&
+        (failureCode === SCHEDULE_SOURCE_CHANGED ||
+          failureCode === "approval_post_changed")
+      ) {
+        await sql`update post_publication_occurrence set status = 'cancelled', status_reason = 'source_changed', finished_at = now()
+          where id = ${run.id} and status = 'publishing'`
+        await invalidateSourceSchedules(sql, {
+          organisationId,
+          locationId: schedule.locationId,
+          postId: run.postId,
+          actorUserId: null,
+          requestId,
+        })
+        log.warn("post_schedule.source_changed", {
+          organisationId,
+          scheduleId,
+          occurrenceId: run.id,
+        })
+        return
+      }
+      // Otherwise the occurrence waits for the next tick inside its window;
+      // past it, it is missed. A moved link needs a fresh approval.
       if (failureCode === SCHEDULE_TARGET_CHANGED) {
         await sql`update post_publication_schedule set status = 'blocked', status_reason = 'connection_changed', updated_at = now() where id = ${scheduleId} and status = 'active'`
         await emit(sql, {
@@ -675,6 +788,7 @@ export async function runDueSchedules(options: {
     ambiguous: 0,
     missed: 0,
     blocked: 0,
+    superseded: 0,
   }
   const env = getServerEnv()
   const deadline = Date.now() + options.budgetMs

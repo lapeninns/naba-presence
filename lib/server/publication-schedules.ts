@@ -31,6 +31,7 @@ import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
+import { postContentHash, type PostContent } from "@/lib/server/post-content"
 import {
   canPublishLocation,
   isManagerialRole,
@@ -54,6 +55,8 @@ type Row = {
   eventOffsets: unknown
   template: Record<string, unknown>
   sourcePostId: string | null
+  /** The source draft's content revision the template was frozen from (P08-R4). */
+  sourceContentRevision: number | null
   requestedBy: string
   approvedBy: string | null
   approvedAt: Date | null
@@ -179,7 +182,7 @@ async function loadRow(
   const [row] = await sql<Row[]>`
     select s.id::text as id, s.location_id::text as "locationId", l.name as "locationName", s.status, s.status_reason as "statusReason",
       s.revision, s.payload_hash as "payloadHash", s.rule, s.timezone, s.offset_minutes as "offsetMinutes", s.event_offsets as "eventOffsets", s.template,
-      s.source_post_id::text as "sourcePostId", s.requested_by::text as "requestedBy", s.approved_by::text as "approvedBy",
+      s.source_post_id::text as "sourcePostId", s.source_content_revision::integer as "sourceContentRevision", s.requested_by::text as "requestedBy", s.approved_by::text as "approvedBy",
       s.approved_at as "approvedAt", s.approved_revision as "approvedRevision", s.require_two_person_approval as "requireTwoPersonApproval"
     from post_publication_schedule s join location l on l.id = s.location_id
     where s.id = ${scheduleId} and s.location_id = ${locationId}
@@ -263,18 +266,71 @@ async function requireCurrentManager(
     )
 }
 
-async function frozenTemplate(
+/** The statuses a schedule can still publish from (or be approved into). */
+const LIVE_STATUSES = ["awaiting_approval", "active", "paused", "blocked"]
+
+const SOURCE_UNAVAILABLE = {
+  code: "schedule_source_unavailable",
+  message:
+    "This post is already on Google, being published or deleted, so it cannot be scheduled. Schedule a draft instead.",
+}
+const sourceChanged = () =>
+  new ApiError(
+    409,
+    "schedule_source_changed",
+    "The post changed after this schedule was requested. Submit the schedule again so the new content is reviewed."
+  )
+
+/**
+ * Whether a one-time schedule can publish this post: a draft (waiting for a
+ * post approval, or whose own publish failed) that Google does not hold.
+ * Anything else was published another way, is being published or was
+ * deleted, and a one-time occurrence publishing it is superseded.
+ */
+export function publishableSource(post: {
+  status: string
+  googlePostName: string | null
+}) {
+  return (
+    ["draft", "awaiting_approval", "failed"].includes(post.status) &&
+    post.googlePostName === null
+  )
+}
+
+type SourceSnapshot = {
+  template: z.infer<typeof localPostInputSchema>
+  /** gbp_local_post.content_revision (0081). */
+  revision: number
+  /** postContentHash: what a publish of the post sends. */
+  hash: string
+  publishable: boolean
+}
+
+/**
+ * The source draft as a schedule freezes it: its content as a template, its
+ * content revision and the hash an approval of the post would bind (P08-R4).
+ * Throws 404 for a missing post and 422 for one not finished enough to
+ * schedule.
+ */
+async function sourceSnapshot(
   sql: TransactionSql,
   locationId: string,
   postId: string
-) {
-  const [post] = await sql<Array<Record<string, unknown> & { status: string }>>`
+): Promise<SourceSnapshot> {
+  const [post] = await sql<
+    Array<
+      PostContent & {
+        status: string
+        googlePostName: string | null
+        revision: number
+      }
+    >
+  >`
     select topic_type as "topicType", language_code as "languageCode", summary, call_to_action as "callToAction",
-      event, offer, media, status
+      event, offer, media, status, google_post_name as "googlePostName", content_revision::integer as revision
     from gbp_local_post where id = ${postId} and location_id = ${locationId} and status <> 'deleted'`
   if (!post) throw new ApiError(404, "post_not_found", "Post not found.")
-  const { status: _status, ...content } = post
-  void _status
+  const { status, googlePostName, revision, ...content } = post
   const parsed = localPostInputSchema.safeParse(
     Object.fromEntries(
       Object.entries(content).filter(([, value]) => value !== null)
@@ -286,7 +342,193 @@ async function frozenTemplate(
       "schedule_content_invalid",
       "Finish the post before scheduling it."
     )
-  return parsed.data
+  return {
+    template: parsed.data,
+    revision,
+    hash: postContentHash(content),
+    publishable: publishableSource({ status, googlePostName }),
+  }
+}
+
+/**
+ * A draft publishes once, so it has at most one live one-time schedule: a
+ * second would only ever be superseded by the first.
+ */
+async function requireOnlyOnceSchedule(
+  sql: TransactionSql,
+  postId: string,
+  exceptScheduleId: string | null
+) {
+  const [other] = await sql`
+    select 1 from post_publication_schedule
+    where source_post_id = ${postId} and rule ->> 'frequency' = 'once'
+      and status = any(${LIVE_STATUSES}::text[])
+      ${exceptScheduleId ? sql`and id <> ${exceptScheduleId}` : sql``}
+    limit 1`
+  if (other)
+    throw new ApiError(
+      409,
+      "schedule_source_already_scheduled",
+      "This post already has a publication scheduled. Change or cancel that schedule instead."
+    )
+}
+
+/**
+ * Approval-time check that the source draft is still what the schedule
+ * froze (P08-R4). A one-time schedule also needs the draft still
+ * publishable. A repeating schedule from before 0244 (no revision) publishes
+ * its frozen copy and is left as it was.
+ */
+async function requireSourceAsFrozen(
+  sql: TransactionSql,
+  locationId: string,
+  row: Row
+) {
+  const once = scheduleRuleSchema.parse(row.rule).frequency === "once"
+  if (!row.sourcePostId) {
+    if (once)
+      throw new ApiError(
+        409,
+        SOURCE_UNAVAILABLE.code,
+        SOURCE_UNAVAILABLE.message
+      )
+    return
+  }
+  const [post] = await sql<
+    { revision: number; status: string; googlePostName: string | null }[]
+  >`
+    select content_revision::integer as revision, status, google_post_name as "googlePostName"
+    from gbp_local_post where id = ${row.sourcePostId} and location_id = ${locationId}`
+  if (once && (!post || !publishableSource(post)))
+    throw new ApiError(409, SOURCE_UNAVAILABLE.code, SOURCE_UNAVAILABLE.message)
+  if (
+    post &&
+    post.status !== "deleted" &&
+    (once || row.sourceContentRevision !== null) &&
+    post.revision !== row.sourceContentRevision
+  )
+    throw sourceChanged()
+}
+
+/**
+ * Locks the live schedules made from a post, before the post itself is
+ * written. The runner locks a schedule and then its source post, so an edit
+ * taking them in the same order cannot deadlock with it.
+ */
+export async function lockSourceSchedules(sql: TransactionSql, postId: string) {
+  await sql`
+    select id from post_publication_schedule
+    where source_post_id = ${postId} and status = any(${LIVE_STATUSES}::text[])
+    order by id for update`
+}
+
+/**
+ * An edit to a schedule's source draft (P08-R4), in the edit's own
+ * transaction: every live schedule frozen from another revision of the post
+ * is re-frozen from its current content as a new revision that needs a
+ * fresh approval (status_reason `source_changed`), and its not-yet-run
+ * occurrences are cancelled. What was approved therefore never publishes
+ * text nobody approved, and the approver reviews the text that will. One
+ * whose rule no longer fits the content (a repeating event needs its date
+ * offsets) goes to review instead. `actorUserId` is the editor, who becomes
+ * the requester; null (the runner finding a change made some other way)
+ * keeps the requester. Returns the schedules it changed.
+ */
+export async function invalidateSourceSchedules(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    locationId: string
+    postId: string
+    actorUserId: string | null
+    requestId: string
+  }
+): Promise<string[]> {
+  const rows = await sql<
+    {
+      id: string
+      revision: number
+      rule: unknown
+      timezone: string
+      offsetMinutes: number | null
+      eventOffsets: unknown
+    }[]
+  >`
+    select s.id::text as id, s.revision, s.rule, s.timezone, s.offset_minutes as "offsetMinutes", s.event_offsets as "eventOffsets"
+    from post_publication_schedule s
+    join gbp_local_post p on p.id = s.source_post_id
+    where s.source_post_id = ${input.postId} and s.location_id = ${input.locationId}
+      and s.status = any(${LIVE_STATUSES}::text[])
+      and s.source_content_revision is distinct from p.content_revision
+    order by s.id for update of s`
+  if (!rows.length) return []
+  let source: SourceSnapshot | null = null
+  try {
+    source = await sourceSnapshot(sql, input.locationId, input.postId)
+  } catch (error) {
+    // Deleted, or no longer finished enough to schedule: nothing can be
+    // re-frozen, so each schedule goes to review below.
+    if (!(error instanceof ApiError)) throw error
+  }
+  const [policy] = await sql<
+    { required: boolean }[]
+  >`select require_two_person_approval as required from organisation limit 1`
+  for (const row of rows) {
+    const rule = scheduleRuleSchema.parse(row.rule)
+    let payloadHash: string | null = null
+    if (source && (rule.frequency !== "once" || source.publishable)) {
+      try {
+        validateShape(source.template, rule, row.eventOffsets)
+        payloadHash = schedulePayloadHash({
+          locationId: input.locationId,
+          template: source.template,
+          rule,
+          timezone: row.timezone,
+          eventOffsets: row.eventOffsets,
+          offsetMinutes: row.offsetMinutes,
+        })
+      } catch {
+        // The rule no longer fits the content: reviewed below.
+        payloadHash = null
+      }
+    }
+    await sql`
+      update post_publication_occurrence set status = 'cancelled', status_reason = 'source_changed', finished_at = now()
+      where schedule_id = ${row.id} and status = 'scheduled'`
+    if (source && payloadHash) {
+      await sql`
+        update post_publication_schedule set template = ${jsonColumn(sql, source.template)},
+          source_content_revision = ${source.revision}, source_content_hash = ${source.hash},
+          payload_hash = ${payloadHash}, revision = revision + 1,
+          status = 'awaiting_approval', status_reason = 'source_changed',
+          approved_by = null, approved_at = null, approved_revision = null,
+          target_google_connection_id = null, target_credential_generation = null, target_google_location_name = null,
+          approved_approval_required = null, approved_security_version = null,
+          requested_by = coalesce(${input.actorUserId}::uuid, requested_by),
+          require_two_person_approval = ${policy?.required ?? false}, updated_at = now()
+        where id = ${row.id}`
+    } else {
+      await sql`
+        update post_publication_schedule set status = 'needs_review', updated_at = now(),
+          status_reason = ${source && !source.publishable && rule.frequency === "once" ? "source_superseded" : "source_changed"}
+        where id = ${row.id}`
+    }
+    await writeAudit(sql, {
+      organisationId: input.organisationId,
+      actorUserId: input.actorUserId,
+      action: "post_schedule.source_changed",
+      subjectType: "post_schedule",
+      subjectId: row.id,
+      requestId: input.requestId,
+      metadata: {
+        postId: input.postId,
+        previousRevision: row.revision,
+        sourceContentRevision: source?.revision ?? null,
+        payloadHash,
+      },
+    })
+  }
+  return rows.map((row) => row.id)
 }
 
 function validateShape(
@@ -394,7 +636,18 @@ export async function createPublicationSchedule(
     >`select timezone from location where id = ${locationId}`
     const timezone =
       draft.timezone ?? location?.timezone ?? DEFAULT_SCHEDULE_TIMEZONE
-    const template = await frozenTemplate(sql, locationId, draft.postId)
+    const source = await sourceSnapshot(sql, locationId, draft.postId)
+    // A one-time schedule publishes the draft itself (P08-R4), so the draft
+    // must not already be on Google; a repeating one publishes copies.
+    if (draft.rule.frequency === "once" && !source.publishable)
+      throw new ApiError(
+        409,
+        SOURCE_UNAVAILABLE.code,
+        SOURCE_UNAVAILABLE.message
+      )
+    if (draft.rule.frequency === "once")
+      await requireOnlyOnceSchedule(sql, draft.postId, null)
+    const template = source.template
     validateShape(template, draft.rule, draft.eventOffsets)
     const { offsetMinutes } = planSlots(
       draft.rule,
@@ -414,8 +667,8 @@ export async function createPublicationSchedule(
       offsetMinutes,
     })
     const [created] = await sql<{ id: string }[]>`
-      insert into post_publication_schedule (organisation_id, location_id, source_post_id, template, event_offsets, rule, timezone, offset_minutes, payload_hash, requested_by, require_two_person_approval)
-      values (${session.organisationId}, ${locationId}, ${draft.postId}, ${jsonColumn(sql, template)}, ${jsonColumnOrNull(sql, draft.eventOffsets)},
+      insert into post_publication_schedule (organisation_id, location_id, source_post_id, source_content_revision, source_content_hash, template, event_offsets, rule, timezone, offset_minutes, payload_hash, requested_by, require_two_person_approval)
+      values (${session.organisationId}, ${locationId}, ${draft.postId}, ${source.revision}, ${source.hash}, ${jsonColumn(sql, template)}, ${jsonColumnOrNull(sql, draft.eventOffsets)},
         ${jsonColumn(sql, draft.rule)}, ${timezone}, ${offsetMinutes}, ${payloadHash}, ${session.userId}, ${policy?.required ?? false})
       returning id::text as id`
     await writeAudit(sql, {
@@ -511,6 +764,11 @@ export async function approvePublicationSchedule(
         "approval_actor_access_changed",
         "The person who requested this schedule is no longer a member."
       )
+    // The approval covers the source draft as it was frozen (P08-R4). An
+    // edit re-freezes the schedule as a new revision, so a mismatch here is
+    // a change that bypassed that (or a row from before 0244 without a
+    // revision): it needs submitting again, never an approval of other text.
+    await requireSourceAsFrozen(sql, locationId, row)
     // The slot is checked again now: the window has moved since the request,
     // and a one-time slot must still resolve to the offset its hash covers
     // (a row from before 0241 has none stored and must be unambiguous). The
@@ -610,10 +868,29 @@ export async function revisePublicationSchedule(
         "schedule_closed",
         "This schedule has ended. Create a new one."
       )
+    // A one-time schedule publishes its source draft, so its template is
+    // always the draft as it is now (P08-R4); a repeating one re-reads the
+    // draft only when asked.
+    const once = input.rule.frequency === "once"
+    if (once && !row.sourcePostId)
+      throw new ApiError(
+        409,
+        SOURCE_UNAVAILABLE.code,
+        SOURCE_UNAVAILABLE.message
+      )
+    const source =
+      row.sourcePostId && (once || input.refreshContent)
+        ? await sourceSnapshot(sql, locationId, row.sourcePostId)
+        : null
+    if (once && !source?.publishable)
+      throw new ApiError(
+        409,
+        SOURCE_UNAVAILABLE.code,
+        SOURCE_UNAVAILABLE.message
+      )
+    if (once) await requireOnlyOnceSchedule(sql, row.sourcePostId!, scheduleId)
     const template =
-      input.refreshContent && row.sourcePostId
-        ? await frozenTemplate(sql, locationId, row.sourcePostId)
-        : localPostInputSchema.parse(row.template)
+      source?.template ?? localPostInputSchema.parse(row.template)
     validateShape(template, input.rule, input.eventOffsets)
     const { offsetMinutes } = planSlots(
       input.rule,
@@ -647,7 +924,10 @@ export async function revisePublicationSchedule(
       update post_publication_occurrence set status = 'cancelled', status_reason = 'approval_invalidated', finished_at = now()
       where schedule_id = ${scheduleId} and status = 'scheduled'`
     await sql`
-      update post_publication_schedule set template = ${jsonColumn(sql, template)}, rule = ${jsonColumn(sql, input.rule)}, timezone = ${input.timezone}, offset_minutes = ${offsetMinutes},
+      update post_publication_schedule set template = ${jsonColumn(sql, template)},
+        source_content_revision = ${source ? source.revision : sql`source_content_revision`},
+        source_content_hash = ${source ? source.hash : sql`source_content_hash`},
+        rule = ${jsonColumn(sql, input.rule)}, timezone = ${input.timezone}, offset_minutes = ${offsetMinutes},
         event_offsets = ${jsonColumnOrNull(sql, input.eventOffsets)}, payload_hash = ${payloadHash}, revision = revision + 1,
         status = 'awaiting_approval', status_reason = null, approved_by = null, approved_at = null, approved_revision = null,
         target_google_connection_id = null, target_credential_generation = null, target_google_location_name = null,
