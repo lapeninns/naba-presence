@@ -235,6 +235,13 @@ describe("database migration contract", () => {
     )
   })
 
+  // Tables the runtime reaches only through SECURITY DEFINER functions, by
+  // design: it gets no table privilege at all, and the migration must say so.
+  const DEFINER_ONLY_TABLES: Record<string, string> = {
+    // Stripe webhook receipts (P07-S4): record/claim/settle functions only.
+    billing_event: "0225_billing_events.sql",
+  }
+
   it("every migration after 0003 grants new tables to naba_app_runtime", async () => {
     const directory = new URL("../supabase/migrations/", import.meta.url)
     const files = (await readdir(directory)).filter(
@@ -246,6 +253,14 @@ describe("database migration contract", () => {
         ...text.matchAll(/create table (?:if not exists )?(\w+)/g),
       ]
       for (const [, table] of created) {
+        if (DEFINER_ONLY_TABLES[table] === file) {
+          expect(text).toContain(`revoke all on ${table} from public`)
+          expect(text).toMatch(/grant execute on function [^;]+to naba_app_runtime/)
+          expect(text).not.toMatch(
+            new RegExp(`grant[^;]+on ${table}[^;]+to naba_app_runtime`)
+          )
+          continue
+        }
         expect(text, `${file} must grant ${table} to naba_app_runtime`).toMatch(
           new RegExp(`grant[^;]+on ${table}[^;]+to naba_app_runtime`)
         )

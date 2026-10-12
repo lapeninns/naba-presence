@@ -31,6 +31,10 @@ export const TICK_STALE_AFTER_SECONDS: Record<string, number> = {
   performance: 64_800,
   // 900s tick; notifications and alerts are evaluated on it.
   health: 2_700,
+  // 3600s tick, three intervals. It completes while billing is disabled
+  // too (nothing to reconcile), so its absence is always a fault unless
+  // the operator `billing` scope pauses it.
+  "billing-reconcile": 10_800,
   // 86400s ticks, two intervals.
   retention: 172_800,
   keywords: 172_800,
@@ -76,6 +80,7 @@ export const TICK_PAUSE_SCOPES: Record<string, readonly PauseScope[]> = {
   sweep: ["sync"],
   retention: ["retention"],
   health: ["notifications"],
+  "billing-reconcile": ["billing"],
 }
 
 /**

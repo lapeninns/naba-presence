@@ -69,6 +69,12 @@ export const SCHEDULED_JOBS: Record<string, ScheduledJobInfo> = {
       "Evaluates every organisation for incidents and sends due notifications.",
     intervalSeconds: 15 * MINUTE,
   },
+  "billing-reconcile": {
+    label: "Billing check",
+    purpose:
+      "Brings every subscription in line with Stripe, in case a billing event was missed.",
+    intervalSeconds: HOUR,
+  },
 }
 
 /** "presence-resources" -> "Presence resources". */

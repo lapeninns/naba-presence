@@ -60,6 +60,10 @@ import type { TransactionSql } from "postgres"
 
 import { retryDelayMs } from "@/lib/domain/retry"
 import { releaseStaleReservations } from "@/lib/server/ai-credits"
+import {
+  processBillingEvents,
+  type BillingTickSummary,
+} from "@/lib/server/billing/process-events"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
@@ -140,6 +144,8 @@ export type JobSummary = {
   schedules?: ScheduleTickSummary
   /** Bulk listing children, when publishing is on. */
   bulk?: BulkTickSummary
+  /** Stripe event receipts processed (P07-S4), when billing is on. */
+  billing?: BillingTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -709,6 +715,8 @@ async function settleRecoveryFailure(
  * re-claim the row every tick.
  */
 const BILLING_HOLD_MS = 60 * 60_000
+/** The most of a tick Stripe event processing may use. */
+const BILLING_BUDGET_MS = 15_000
 
 /**
  * Central billing enforcement for a publish retry (plan P07-S3): a retry is
@@ -1026,6 +1034,23 @@ export async function runDueJobs(options: {
       claiming: kinds,
     })
   }
+  // Stripe events (P07-S4) first, on a small slice of the budget: they
+  // decide what every organisation may do, and none of the Google flags
+  // holds them. Off unless billing is enabled, configured and not paused
+  // (processBillingEvents); a billing fault never stops the tick.
+  if (scopesEnabled(env, pauses, ["jobs"])) {
+    summary.billing = await processBillingEvents({
+      budgetMs: Math.min(BILLING_BUDGET_MS, Math.max(0, options.budgetMs / 4)),
+      requestId: options.requestId,
+      pauses,
+    }).catch((error: unknown) => {
+      log.error("billing.tick_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
+  }
+
   if (kinds.length === 0) return summary
 
   await reclaimExpired()

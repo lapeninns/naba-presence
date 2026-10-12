@@ -345,6 +345,7 @@ describeDatabase("operations health alerting", () => {
       "presence-resources",
       "sweep",
       "health",
+      "billing-reconcile",
     ])
     // beforeAll ran one jobs tick, and its advisory lease stamped the row.
     const jobs = health.schedulerTicks.find(

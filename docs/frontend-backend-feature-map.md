@@ -349,6 +349,7 @@ established; see `docs/gbp-operations-acceptance.md`.
 | --- | --- | --- |
 | Reviewed action links | Booking tab: review sheet, separate approve / consent / send, saved work, "Managed in Google" for provider-owned and future-type links | `/api/locations/[id]/place-action-reviews/**` |
 | Notifications | `/notifications` (per-person read state, manager resolve), toolbar unread badge, `/settings/notifications` preferences | `/api/notifications`, `/read`, `/[incidentId]/resolve`, `/preferences`; `/api/webhooks/email` |
+| Billing (P07-S4, no UI yet) | none: billing state is read by entitlements; the Billing and Usage screens are P07-S5/S6 | `/api/webhooks/stripe` (signed receipts, `app/api/webhooks/stripe/route.ts`), `/api/billing/reconcile` (hourly cron, `app/api/billing/reconcile/route.ts`); processing in `lib/server/billing/process-events.ts` |
 | Operations | `/settings/operations` (owners/admins) | `/api/operations/health` (adds unresolved writes and email evidence), `/api/operations/notification-deliveries/retry` |
 | Scheduled publication | Posts tab: Schedule sheet with exact preview, schedules list with approval, pause/resume/cancel/change; `/calendar` month, week and agenda | `/api/locations/[id]/post-schedules/**`, `/api/post-schedules/occurrences`; job tick |
 | Bulk listing changes | Listings board selection (up to 100), `/listings/bulk` compose, `/listings/bulk/[id]` review, approval, progress, cancel, retry | `/api/listings/bulk/preview`, `/[id]`, `/[id]/approve`, `/[id]/execute` (202), `/[id]/cancel`, `/[id]/retry`; job tick |

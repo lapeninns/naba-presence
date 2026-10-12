@@ -1648,6 +1648,63 @@ With the env flag on, an organisation with no billing row is enforced too.
   write flags off while read-only, so the UI disables what the routes refuse
   (`lib/locations/gating.ts` explains the billing block first).
 
+### Stripe webhooks, lifecycle processing and reconciliation (P07-S4, 0225)
+
+Off unless `BILLING_ENABLED` is on and `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET` and `BILLING_ENVIRONMENT` are set and agree (the key's
+`sk_test_`/`sk_live_` mode must be the environment);
+`lib/server/billing/stripe.ts` `billingConfig` decides, and every billing
+entry point fails closed with 503 `billing_unavailable` otherwise. The client
+uses the official `stripe` SDK pinned to the API version its types describe
+(`STRIPE_API_VERSION`), with a 10-second timeout.
+
+- Receipt: `app/api/webhooks/stripe/route.ts` (public, Node runtime) reads the
+  raw body, verifies `Stripe-Signature` with `constructEvent`
+  (`lib/server/billing/webhook.ts`), refuses the other Stripe mode and Connect
+  events, writes a `billing_event` row through `record_billing_event` and only
+  then answers 200. The row is content-free: event id and type, mode, the
+  customer id it routes by and a SHA-256 of the body; the payload is never
+  stored. Redeliveries are idempotent on the event id. The runtime role has
+  no privilege on the table; it records, claims and settles only through the
+  SECURITY DEFINER functions of `supabase/migrations/0225_billing_events.sql`.
+- Processing: the job tick (`lib/server/jobs.ts`) calls
+  `processBillingEvents` (`lib/server/billing/process-events.ts`) first, on at
+  most 15 seconds, gated by `jobs`, `BILLING_ENABLED` and the operator
+  `billing` scope but none of the Google flags. `claim_billing_events` leases
+  due rows and resolves each organisation from `stripe_customer_id`; an
+  expired lease (a worker that died) is reclaimed and counted as an attempt.
+  An event whose customer no organisation has is `held` and retried every 15
+  minutes, never dropped or dead-lettered. Per organisation, one sync covers
+  all its claimed events: under `lockOrganisationBilling` it lists the
+  customer's subscriptions from Stripe (the newest running one wins), runs the
+  pure reducer `lib/domain/billing-lifecycle.ts`, writes the record, closes a
+  converting pilot's open `pilot_month` period and inserts at most one
+  `ai_credit_period` (`trial` with `source_ref` `<sub>:trial`, or
+  `paid_period` with `<sub>:<period start>`, `on conflict do nothing`). The
+  event payload is never trusted, so duplicates and reordering converge on
+  provider state. Failures settle `failed` with back-off (one minute doubling
+  to an hour) and go `dead` after eight attempts, audited as
+  `billing.event_dead`. An unknown price, the other environment or a
+  subscription with more than one item fails the event and leaves the record
+  alone.
+- Lifecycle: `trialing` grants the trial allowance; `active` grants a paid
+  period once its latest invoice is paid; `past_due` after a successful first
+  payment records `grace_ends_at` = current period start + 7 days and grants
+  nothing, a failed first payment records no grace (read-only); `unpaid` and
+  `paused` become `read_only`; `canceled` becomes `canceled`; `incomplete`
+  changes nothing, so a pilot whose checkout never completed stays a pilot.
+  Recovery to `active` grants the recovered period once. A pilot only gets a
+  Stripe customer through its owner's checkout (P07-S5), so a pilot reaching
+  any running subscription is an owner-initiated conversion, the only thing
+  that closes its calendar month (0225 grants the runtime `update (ends_at)`
+  on `ai_credit_period` for that alone).
+- Reconciliation: `app/api/billing/reconcile/route.ts` (Vercel Cron, hourly,
+  `naba:billing-reconcile` lease, `cron_cursor` walk `billing`) runs the same
+  sync for every organisation with a Stripe customer (`billing_reconcile_page`
+  returns ids only), so a lost webhook is repaired within the hour. It
+  completes doing nothing while billing is disabled; the `billing` pause
+  answers 503 and is reported as paused, not stale.
+
 ### AI credit periods and generation ids (P07-S2)
 
 `lib/server/ai-credits.ts` accounts AI work against the organisation's current

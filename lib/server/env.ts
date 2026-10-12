@@ -164,6 +164,23 @@ export const serverEnvSchema = z.object({
   // a link written outside withTenant (operator SQL, scripts) follows the
   // organisation's own flag alone (docs/runbook.md).
   BILLING_ENFORCEMENT_ENABLED: featureFlag(false),
+  // Stripe billing (plan P07-S4). Off by default. Off, the webhook receiver
+  // answers 503 (Stripe keeps retrying), no event is processed and the
+  // hourly reconciliation does nothing. On, the values below must also be
+  // set and agree, or billing stays unavailable (lib/server/billing/stripe.ts
+  // billingConfig). The operator `billing` pause scope
+  // (lib/server/pause-controls.ts) holds processing off without a redeploy.
+  BILLING_ENABLED: featureFlag(false),
+  // The Stripe environment this deployment bills in. The secret key's mode
+  // (sk_test_/rk_test_ or sk_live_/rk_live_) must match it, and webhook
+  // events from the other mode are refused.
+  BILLING_ENVIRONMENT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["test", "live"]).default("test")
+  ),
+  STRIPE_SECRET_KEY: optionalText,
+  // Signing secret (whsec_…) of the /api/webhooks/stripe endpoint.
+  STRIPE_WEBHOOK_SECRET: optionalText,
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),

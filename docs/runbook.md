@@ -252,6 +252,41 @@ set local app.billing_enforcement = 'off';
 commit;
 ```
 
+### Stripe billing (P07-S4)
+
+Billing is off unless `BILLING_ENABLED=true`. Turning it on needs, all from
+the operator, none of it in code: a Stripe account, the catalog rows in
+`billing_plan` (with their `price_...` ids), `STRIPE_SECRET_KEY` (a test key
+with `BILLING_ENVIRONMENT=test`, a live key only with `live`), and a webhook
+endpoint registered at `/api/webhooks/stripe` whose signing secret is
+`STRIPE_WEBHOOK_SECRET`. Subscribe it to `customer.subscription.*`,
+`invoice.*`, `checkout.session.*` and `subscription_schedule.*`; other types
+are stored as `ignored`. A missing or mismatched value leaves billing
+unavailable (webhooks answer 503, so Stripe keeps retrying for three days and
+nothing is lost).
+
+Receipts are processed on the job tick, and the hourly
+`/api/billing/reconcile` cron re-syncs every organisation with a Stripe
+customer. To stop processing without a redeploy, pause the `billing` scope
+(`pnpm ops:pause`); receipts keep being recorded and are processed after the
+pause lifts. Look at the inbox from the operator connection:
+
+```sql
+select status, last_error_code, count(*)
+from billing_event group by 1, 2 order by 1, 2;
+```
+
+`held` with `customer_unknown` is an event for a customer no organisation has
+(it keeps retrying every 15 minutes). `dead` needs a look: `billing_plan_unknown`
+means a subscription bills a price with no catalog row for this environment;
+add the plan version, then re-arm the event:
+
+```sql
+update billing_event
+set status = 'failed', retry_count = 0, next_attempt_at = now()
+where status = 'dead' and external_event_id = '<evt_...>';
+```
+
 ### Operator pauses
 
 `ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one

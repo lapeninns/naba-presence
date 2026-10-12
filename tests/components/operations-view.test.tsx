@@ -238,6 +238,7 @@ describe("job intervals match the deployed cron schedule", () => {
     "/api/sync/keywords": "keywords",
     "/api/cron/retention": "retention",
     "/api/cron/health": "health",
+    "/api/billing/reconcile": "billing-reconcile",
   }
 
   // Covers the shapes vercel.json uses: "*", "*/n", "a,b,c" (evenly spaced)

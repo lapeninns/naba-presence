@@ -4,7 +4,13 @@ import { getDatabase } from "@/lib/server/db"
 import { log } from "@/lib/server/logger"
 
 /** The cursor-walked ticks whose GET shims resume from `cron_cursor`. */
-export type CronWalk = "reconcile" | "presence-resources" | "performance" | "keywords"
+export type CronWalk =
+  | "reconcile"
+  | "presence-resources"
+  | "performance"
+  | "keywords"
+  // The hourly Stripe reconciliation (app/api/billing/reconcile).
+  | "billing"
 
 /**
  * Fires that may start from the same stored cursor without finishing before

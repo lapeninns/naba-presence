@@ -44,6 +44,12 @@ const expectedCrons: Array<{ path: string; schedule: string }> = [
   },
   // Incidents and alert emails (lib/server/notifications).
   { path: "/api/cron/health", schedule: "*/15 * * * *" },
+  // Hourly Stripe reconciliation (lib/server/billing/process-events.ts),
+  // off the top of the hour.
+  {
+    path: "/api/billing/reconcile?maxOrganisations=100",
+    schedule: "17 * * * *",
+  },
 ]
 
 const fieldRanges: Array<[number, number]> = [
@@ -105,7 +111,7 @@ function assertValidSchedule(schedule: string) {
 }
 
 describe("Vercel Cron scheduler", () => {
-  it("drives all eight scheduler ticks", () => {
+  it("drives all nine scheduler ticks", () => {
     expect(vercelJson.crons).toEqual(expectedCrons)
   })
 
@@ -129,6 +135,7 @@ describe("Vercel Cron scheduler", () => {
       "/api/sync/keywords": 1,
       "/api/cron/retention": 1,
       "/api/cron/health": 96,
+      "/api/billing/reconcile": 24,
     }
     for (const cron of expectedCrons) {
       const [minute, hour, dayOfMonth, month, dayOfWeek] =

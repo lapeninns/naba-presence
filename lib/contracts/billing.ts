@@ -49,3 +49,13 @@ export const accessSchema = z.object({
   endsAt: z.string().nullable(),
 })
 export type AccessView = z.infer<typeof accessSchema>
+
+/**
+ * GET `/api/billing/reconcile` query (the hourly Vercel Cron page). The
+ * walk resumes from `cron_cursor` ('billing') when no cursor is given.
+ */
+export const billingReconcileSchema = z.object({
+  organisationCursor: z.uuid().optional(),
+  maxOrganisations: z.number().int().min(1).max(500).default(100),
+})
+export type BillingReconcileInput = z.input<typeof billingReconcileSchema>

@@ -39,6 +39,9 @@ const keywordIntervalMs =
 const presenceResourceIntervalMs =
   interval("PRESENCE_RESOURCE_RECONCILE_INTERVAL_SECONDS", 900, 300) * 1000
 const sweepIntervalMs = interval("SWEEP_INTERVAL_SECONDS", 86400, 3600) * 1000
+// Matches vercel.json's hourly /api/billing/reconcile.
+const billingReconcileIntervalMs =
+  interval("BILLING_RECONCILE_INTERVAL_SECONDS", 3600, 600) * 1000
 // Matches vercel.json's */15 schedule for /api/cron/health.
 const healthIntervalMs = interval("HEALTH_INTERVAL_SECONDS", 900, 300) * 1000
 // The two flags the scheduler reads. The GBP surfaces return a benign no-op
@@ -70,6 +73,24 @@ async function post(path, body) {
       "x-request-id": crypto.randomUUID(),
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(55_000),
+  })
+  const result = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(
+      `${path} returned ${response.status}: ${result?.error ?? "request_failed"}`
+    )
+  }
+  return result
+}
+
+/** A cron GET tick (the routes that only have a Vercel Cron entry point). */
+async function get(path) {
+  const response = await fetch(new URL(path, baseUrl), {
+    headers: {
+      authorization: `Bearer ${cronSecret}`,
+      "x-request-id": crypto.randomUUID(),
+    },
     signal: AbortSignal.timeout(55_000),
   })
   const result = await response.json().catch(() => null)
@@ -260,6 +281,25 @@ async function runHealth() {
     sent: result?.sent ?? 0,
     failed: result?.failed ?? 0,
     errors: result?.errors ?? 0,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
+/**
+ * The hourly Stripe reconciliation (P07-S4): one page per tick, resumed by
+ * the route from cron_cursor, as on Vercel. It completes doing nothing while
+ * billing is disabled.
+ */
+async function runBillingReconcile() {
+  const startedAt = performance.now()
+  const result = await get("/api/billing/reconcile?maxOrganisations=100")
+  if (result?.skipped === true) return noteSkip("billing_reconcile")
+  noteRun("billing_reconcile")
+  log("info", "billing_reconcile.completed", {
+    enabled: result?.enabled ?? null,
+    processed: result?.processed ?? 0,
+    failures: result?.failures?.length ?? 0,
+    nextCursor: result?.nextCursor ?? null,
     durationMs: Math.round(performance.now() - startedAt),
   })
 }
@@ -517,6 +557,13 @@ const stopSweep = recurring(
   DAILY_RETRIES
 )
 
+const stopBillingReconcile = recurring(
+  "billing_reconcile",
+  runBillingReconcile,
+  billingReconcileIntervalMs,
+  55_000
+)
+
 function shutdown(signal) {
   stopReconciliation()
   stopRetention()
@@ -526,6 +573,7 @@ function shutdown(signal) {
   stopKeywords()
   stopPresenceResources()
   stopSweep()
+  stopBillingReconcile()
   log("info", "scheduler.stopped", { signal })
   process.exit(0)
 }
@@ -543,4 +591,5 @@ log("info", "scheduler.started", {
   keywordIntervalSeconds: keywordIntervalMs / 1000,
   presenceResourceIntervalSeconds: presenceResourceIntervalMs / 1000,
   sweepIntervalSeconds: sweepIntervalMs / 1000,
+  billingReconcileIntervalSeconds: billingReconcileIntervalMs / 1000,
 })
