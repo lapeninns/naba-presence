@@ -30,7 +30,7 @@ import { StatusPill } from "@/components/ui/status-pill"
 import type { BillingOverview } from "@/lib/api/billing"
 import {
   billingStatus,
-  describeAccess,
+  describeBilling,
   describeLocationUsage,
   formatBillingDate,
   isSubscribed,
@@ -97,7 +97,15 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
     : "Only the workspace owner can change billing, and not from a support session."
   const linkNote = pendingLinkLimitNote(overview)
   const actionError = portal.error ?? cancel.error ?? keep.error
-  const periodEnd = overview.currentPeriodEnd ?? overview.trialEndsAt
+  // When full access ends if the subscription is cancelled now: the trial
+  // end while trialing, the grace end after a failed payment, else the
+  // period end.
+  const periodEnd =
+    overview.state === "trialing"
+      ? (overview.trialEndsAt ?? overview.currentPeriodEnd)
+      : overview.access.mode === "grace"
+        ? overview.access.endsAt
+        : (overview.currentPeriodEnd ?? overview.trialEndsAt)
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
@@ -115,7 +123,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
       <Card flush data-slot="billing-card">
         <CardHeader divided>
           <CardTitle as="h2">Subscription</CardTitle>
-          <CardDescription>{describeAccess(overview.access)}</CardDescription>
+          <CardDescription>{describeBilling(overview)}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 py-(--np-card-pad)">
           <dl className="m-0 grid gap-4 sm:grid-cols-2">
@@ -139,7 +147,9 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
               )}
             </Fact>
             {overview.state === "trialing" && overview.trialEndsAt ? (
-              <Fact term="Trial ends">
+              <Fact
+                term={overview.cancelAtPeriodEnd ? "Access ends" : "Trial ends"}
+              >
                 {formatBillingDate(overview.trialEndsAt)}
               </Fact>
             ) : null}
@@ -213,7 +223,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
                 Cancel subscription
               </Button>
             ) : null}
-            {overview.cancelAtPeriodEnd && overview.state === "active" ? (
+            {subscribed && overview.cancelAtPeriodEnd ? (
               <Button
                 variant="outline"
                 disabledReason={manageBlocked}
@@ -250,7 +260,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
           <AlertDialogTitle>Cancel the subscription?</AlertDialogTitle>
           <AlertDialogDescription>
             {periodEnd
-              ? `Full access continues until ${formatBillingDate(periodEnd)}. After that the workspace becomes read-only: you can still view and export everything.`
+              ? `Full access continues until ${formatBillingDate(periodEnd)}${overview.state === "trialing" ? " and nothing is charged" : ""}. After that the workspace becomes read-only: you can still view and export everything.`
               : "Full access continues until the end of the period. After that the workspace becomes read-only: you can still view and export everything."}
             {overview.pendingPlan
               ? ` The scheduled change to ${overview.pendingPlan.name} is dropped.`

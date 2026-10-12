@@ -15,7 +15,7 @@ import { Spinner } from "@/components/ui/spinner"
 import {
   CONFIRMATION_POLL_MS,
   confirmationPhase,
-  describeAccess,
+  describeBilling,
 } from "@/lib/billing/presentation"
 import { useBilling } from "@/lib/queries/use-billing"
 
@@ -46,8 +46,9 @@ export function BillingConfirming({
       confirmationPhase({
         state: latest.state,
         providerSyncedAt: latest.providerSyncedAt,
+        accessMode: latest.access.mode,
         elapsedMs: 0,
-      }) === "confirmed"
+      }) !== "confirming"
         ? false
         : CONFIRMATION_POLL_MS,
   })
@@ -55,11 +56,12 @@ export function BillingConfirming({
   const phase = confirmationPhase({
     state: data?.state ?? null,
     providerSyncedAt: data?.providerSyncedAt ?? null,
+    accessMode: data?.access.mode ?? null,
     elapsedMs: elapsed,
   })
 
   React.useEffect(() => {
-    if (phase === "confirmed") return
+    if (phase === "confirmed" || phase === "attention") return
     const timer = setInterval(
       () => setElapsed(now() - startedAt),
       CONFIRMATION_POLL_MS
@@ -68,23 +70,30 @@ export function BillingConfirming({
   }, [phase, now, startedAt])
 
   const confirmed = phase === "confirmed"
+  const attention = phase === "attention"
 
   return (
     <Card flush data-slot="billing-confirming" data-phase={phase}>
       <CardHeader divided>
         <CardTitle as="h2">
-          {confirmed ? "Subscription confirmed" : "Confirming subscription"}
+          {confirmed
+            ? "Subscription confirmed"
+            : attention
+              ? "Subscription needs attention"
+              : "Confirming subscription"}
         </CardTitle>
         <CardDescription>
           {confirmed
             ? "Stripe has confirmed the subscription."
-            : "We are waiting for Stripe to confirm the subscription. Nothing changes in this workspace until it does."}
+            : attention
+              ? "Stripe has the subscription, but its payment did not go through. Billing shows what to do next."
+              : "We are waiting for Stripe to confirm the subscription. Nothing changes in this workspace until it does."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
         <div role="status" aria-live="polite" className="text-body text-ink">
-          {confirmed && data ? (
-            <p className="m-0">{describeAccess(data.access)}</p>
+          {(confirmed || attention) && data ? (
+            <p className="m-0">{describeBilling(data)}</p>
           ) : phase === "delayed" ? (
             <p className="m-0">
               Stripe has not confirmed the subscription yet. This can take a few
@@ -108,7 +117,7 @@ export function BillingConfirming({
           <Link
             href={BILLING_PATH}
             className={buttonVariants({
-              variant: confirmed ? "default" : "outline",
+              variant: confirmed || attention ? "default" : "outline",
             })}
           >
             Back to Billing

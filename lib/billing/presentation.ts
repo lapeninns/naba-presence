@@ -63,7 +63,10 @@ export function billingStatus(
     return { label, tone: "bad" }
   }
   if (access.mode === "grace") return { label: "Payment failed", tone: "warn" }
-  if (access.reason === "cancel_scheduled")
+  if (
+    access.reason === "cancel_scheduled" ||
+    (overview.cancelAtPeriodEnd && access.reason === "trialing")
+  )
     return { label: "Ending", tone: "warn" }
   if (access.reason === "confirming_payment") {
     return { label: "Confirming payment", tone: "info" }
@@ -114,6 +117,23 @@ export function describeAccess(access: AccessView): string {
       "This workspace has no billing record, so it is read-only. Contact support.",
   }
   return copy[access.reason]
+}
+
+/**
+ * describeAccess for the whole overview. deriveAccess reports a cancelled
+ * trial as plain "trialing" (access is the same until the trial ends), but
+ * Stripe takes no payment then: the subscription ends with the trial.
+ */
+export function describeBilling(
+  overview: Pick<BillingOverview, "access" | "cancelAtPeriodEnd">
+): string {
+  const { access } = overview
+  if (overview.cancelAtPeriodEnd && access.reason === "trialing") {
+    return access.endsAt
+      ? `Cancelled during the trial. Full access continues until ${formatBillingDate(access.endsAt)} with no charge, then the workspace becomes read-only.`
+      : "Cancelled during the trial. Nothing is charged and the workspace becomes read-only when the trial ends."
+  }
+  return describeAccess(access)
 }
 
 /** "3 of 5 locations linked" / "3 locations linked, no limit". */
@@ -177,7 +197,12 @@ export function describeCheckoutUnavailable(
   return "Subscriptions are not available yet. Nothing has been charged."
 }
 
-/** Why a plan cannot be picked right now; null when it can. */
+/**
+ * Why a plan cannot be switched to; null when it can. The server refuses a
+ * plan CHANGE below the linked locations (409 location_limit_exceeded);
+ * Checkout has no such rule, so a first subscription uses
+ * planLimitWarning instead.
+ */
 export function planUnavailableReason(
   overview: Pick<BillingOverview, "billableLocations">,
   plan: Pick<Plan, "locationLimit">
@@ -186,6 +211,18 @@ export function planUnavailableReason(
     return `${overview.billableLocations} locations are linked and this plan allows ${plan.locationLimit}. Unlink locations first.`
   }
   return null
+}
+
+/**
+ * What subscribing to a plan smaller than the linked locations means; null
+ * when it fits. Nothing is unlinked: new links wait until there is room.
+ */
+export function planLimitWarning(
+  overview: Pick<BillingOverview, "billableLocations">,
+  plan: Pick<Plan, "locationLimit">
+): string | null {
+  if (plan.locationLimit >= overview.billableLocations) return null
+  return `${overview.billableLocations} locations are linked and this plan allows ${plan.locationLimit}. None are unlinked, but no new location can be linked until fewer than ${plan.locationLimit} are linked.`
 }
 
 /**
@@ -231,22 +268,29 @@ export const CONFIRMATION_PATIENCE_MS = 3 * 60 * 1000
 /** Poll interval while confirming. */
 export const CONFIRMATION_POLL_MS = 2_000
 
-export type ConfirmationPhase = "confirming" | "confirmed" | "delayed"
+export type ConfirmationPhase =
+  "confirming" | "confirmed" | "attention" | "delayed"
 
 /**
  * Where the "Confirming subscription" screen stands. Confirmed only once the
  * record holds a subscription Stripe reported (the processor sets the state
  * and advances `providerSyncedAt`); the return from Checkout alone grants
- * nothing. After the patience window it says the confirmation is late
- * instead of spinning forever.
+ * nothing. A synced subscription whose payment failed (past_due, grace) or
+ * whose access is already read-only is "attention", never "confirmed".
+ * After the patience window it says the confirmation is late instead of
+ * spinning forever.
  */
 export function confirmationPhase(input: {
   state: BillingState | null
   providerSyncedAt: string | null
+  accessMode: AccessView["mode"] | null
   elapsedMs: number
 }): ConfirmationPhase {
   if (isSubscribed(input.state) && input.providerSyncedAt !== null) {
-    return "confirmed"
+    return (input.state === "trialing" || input.state === "active") &&
+      input.accessMode !== "read_only"
+      ? "confirmed"
+      : "attention"
   }
   return input.elapsedMs >= CONFIRMATION_PATIENCE_MS ? "delayed" : "confirming"
 }

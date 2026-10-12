@@ -9,6 +9,7 @@ import {
   formatBillingDate,
   formatBillingDateTime,
   isSubscribed,
+  planLimitWarning,
   planUnavailableReason,
 } from "@/lib/billing/presentation"
 import { describeActionError } from "@/lib/errors/action-errors"
@@ -49,6 +50,12 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
     ? null
     : "Only the workspace owner can change billing, and not from a support session."
   const pending = overview.checkoutPending
+  // A change starts at the next boundary: the trial end while trialing,
+  // otherwise the end of the paid period.
+  const boundary =
+    overview.state === "trialing"
+      ? (overview.trialEndsAt ?? overview.currentPeriodEnd)
+      : overview.currentPeriodEnd
   const busy = checkout.isPending || change.isPending
   const error = checkout.error ?? change.error
 
@@ -63,7 +70,7 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
   const subscribedBlock = subscribed
     ? changeable
       ? null
-      : overview.cancelAtPeriodEnd
+      : overview.state === "trialing" || overview.state === "active"
         ? "Resume the subscription before changing plan."
         : "Plans can be changed during a trial or while the subscription is active. Fix the payment first."
     : null
@@ -76,14 +83,14 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
             ? `New subscriptions start with a ${overview.trialDays}-day free trial. Stripe asks for a card and shows the price before anything is charged.`
             : "Billing starts when you subscribe. Stripe shows the price before anything is charged."}
         </p>
-      ) : (
+      ) : changeable ? (
         <p className="m-0 text-ui text-ink-secondary">
           A new plan starts at the next renewal
-          {overview.access.endsAt
-            ? ` (${formatBillingDate(overview.access.endsAt)})`
-            : ""}
-          . Nothing is prorated or charged now.
+          {boundary ? ` (${formatBillingDate(boundary)})` : ""}. Nothing is
+          prorated or charged now.
         </p>
+      ) : (
+        <p className="m-0 text-ui text-ink-secondary">{subscribedBlock}</p>
       )}
       {pending ? (
         <p
@@ -102,6 +109,11 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
           const current = overview.plan?.id === plan.id
           const scheduled = overview.pendingPlan?.id === plan.id
           const tooSmall = planUnavailableReason(overview, plan)
+          // Checkout is not refused for a small plan (the server does not
+          // refuse it either); it says what the limit will mean instead.
+          const limitWarning = subscribed
+            ? null
+            : planLimitWarning(overview, plan)
           const label = subscribed
             ? current
               ? overview.pendingPlan
@@ -123,7 +135,7 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
                   : current
                     ? null
                     : tooSmall))
-            : (manageBlocked ?? checkoutBlocked ?? tooSmall)
+            : (manageBlocked ?? checkoutBlocked)
           return (
             <li
               key={plan.id}
@@ -147,6 +159,14 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
                 </p>
                 {reason && !(current && !overview.pendingPlan) && !scheduled ? (
                   <p className="m-0 text-caption text-ink-muted">{reason}</p>
+                ) : null}
+                {limitWarning && !reason ? (
+                  <p
+                    data-slot="plan-limit-warning"
+                    className="m-0 text-caption text-warning-ink"
+                  >
+                    {limitWarning}
+                  </p>
                 ) : null}
               </div>
               <Button

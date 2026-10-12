@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
   billingStatus,
-  describeAccess,
+  describeBilling,
   describeLocationUsage,
   pendingLinkLimitNote,
 } from "@/lib/billing/presentation"
@@ -53,7 +53,7 @@ export function PlanUsageCard() {
               </span>
             </p>
             <p className="m-0 text-ui text-ink-secondary">
-              {describeAccess(data.access)}
+              {describeBilling(data)}
             </p>
             <p className="m-0 text-body text-ink">
               <strong className="font-semibold">

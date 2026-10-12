@@ -151,16 +151,20 @@ describe("BillingCard", () => {
       expect(within(plan(code)).getByText("Test offer")).toBeVisible()
     }
     expect(screen.getByText(/14-day free trial/)).toBeVisible()
-    // Small allows 2 and 3 are linked: refused before Stripe is asked.
+    // Small allows 2 and 3 are linked. Checkout does not refuse that (nor
+    // does the server); the plan says what the limit will mean.
+    const small = within(plan("small")).getByRole("button", {
+      name: /Subscribe to Small/,
+    })
+    expect(small).not.toHaveAttribute("aria-disabled")
     expect(
-      within(plan("small")).getByRole("button", { name: /Subscribe to Small/ })
-    ).toHaveAttribute("aria-disabled", "true")
-    expect(
-      within(plan("small")).getByRole("button", { name: /Subscribe to Small/ })
-    ).toHaveAccessibleDescription(/3 locations are linked/)
-    expect(
-      within(plan("small")).getAllByText(/3 locations are linked/)[0]
+      within(plan("small")).getByText(
+        /3 locations are linked and this plan allows 2\. None are unlinked, but no new location can be linked until fewer than 2 are linked\./
+      )
     ).toBeVisible()
+    await user.click(small)
+    expect(checkout.mutate).toHaveBeenCalledWith(SMALL.id)
+    expect(within(plan("large")).queryByText(/are linked/)).toBeNull()
     await user.click(
       within(plan("large")).getByRole("button", { name: "Subscribe to Large" })
     )
@@ -291,6 +295,133 @@ describe("BillingCard", () => {
     expect(cancel.mutate).toHaveBeenCalledWith(false)
   })
 
+  it("still refuses a plan change below the linked locations", () => {
+    mockBilling({ ...ACTIVE, billableLocations: 3 })
+    render(<BillingCard />)
+    expect(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    ).toHaveAccessibleDescription(
+      /3 locations are linked.*Unlink locations first/
+    )
+  })
+
+  it("lets an owner cancel during the trial with no charge, then resume", async () => {
+    const user = userEvent.setup()
+    const trial: BillingOverview = {
+      ...ACTIVE,
+      state: "trialing",
+      trialEndsAt: "2026-10-26T08:00:00.000Z",
+      currentPeriodEnd: "2026-10-26T08:00:00.000Z",
+      access: {
+        ...ACTIVE.access,
+        reason: "trialing",
+        endsAt: "2026-10-26T08:00:00.000Z",
+      },
+    }
+    const first = mockBilling(trial)
+    const { unmount } = render(<BillingCard />)
+    await user.click(
+      screen.getByRole("button", { name: "Cancel subscription" })
+    )
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent(
+      /Full access continues until 26 October 2026 and nothing is charged\..*You can resume before then\./
+    )
+    await user.click(
+      within(dialog).getByRole("button", { name: "Cancel subscription" })
+    )
+    expect(first.cancel.mutate).toHaveBeenCalledWith(true, expect.anything())
+    unmount()
+    vi.restoreAllMocks()
+
+    // The record after the cancellation: still trialing, ending at trial end.
+    const { cancel } = mockBilling({ ...trial, cancelAtPeriodEnd: true })
+    render(<BillingCard />)
+    expect(screen.getByText("Ending")).toBeVisible()
+    expect(screen.getByText("Access ends")).toBeVisible()
+    expect(
+      screen.getByText(
+        "Cancelled during the trial. Full access continues until 26 October 2026 with no charge, then the workspace becomes read-only."
+      )
+    ).toBeVisible()
+    expect(screen.queryByText(/first payment is taken/)).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Cancel subscription" })
+    ).toBeNull()
+    expect(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    ).toHaveAccessibleDescription(
+      "Resume the subscription before changing plan."
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Resume subscription" })
+    )
+    expect(cancel.mutate).toHaveBeenCalledWith(false)
+  })
+
+  it("offers Resume for a cancellation scheduled while a payment has failed", async () => {
+    const user = userEvent.setup()
+    const { cancel } = mockBilling({
+      ...ACTIVE,
+      state: "past_due",
+      cancelAtPeriodEnd: true,
+      access: {
+        ...ACTIVE.access,
+        mode: "grace",
+        reason: "payment_grace",
+        endsAt: "2026-10-19T08:00:00.000Z",
+      },
+    })
+    render(<BillingCard />)
+    expect(screen.getByText("Payment failed")).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Cancel subscription" })
+    ).toBeNull()
+    expect(
+      within(plan("small")).getByRole("button", { name: "Switch to Small" })
+    ).toHaveAccessibleDescription(/Fix the payment first/)
+    await user.click(
+      screen.getByRole("button", { name: "Resume subscription" })
+    )
+    expect(cancel.mutate).toHaveBeenCalledWith(false)
+  })
+
+  it("never calls the grace deadline a renewal", () => {
+    mockBilling({
+      ...ACTIVE,
+      state: "past_due",
+      access: {
+        ...ACTIVE.access,
+        mode: "grace",
+        reason: "payment_grace",
+        endsAt: "2026-10-19T08:00:00.000Z",
+      },
+    })
+    render(<BillingCard />)
+    expect(screen.queryByText(/next renewal/)).toBeNull()
+    expect(screen.getAllByText(/Fix the payment first/)[0]).toBeVisible()
+  })
+
+  it("says the trial end is when a plan change starts", () => {
+    mockBilling({
+      ...ACTIVE,
+      state: "trialing",
+      trialEndsAt: "2026-10-26T08:00:00.000Z",
+      currentPeriodEnd: "2026-10-26T08:00:00.000Z",
+      access: {
+        ...ACTIVE.access,
+        reason: "trialing",
+        endsAt: "2026-10-26T08:00:00.000Z",
+      },
+    })
+    render(<BillingCard />)
+    expect(
+      screen.getByText(
+        /A new plan starts at the next renewal \(26 October 2026\)/
+      )
+    ).toBeVisible()
+  })
+
   it("disables every billing action in a support session", () => {
     mockBilling({ ...ACTIVE, canManage: false })
     render(<BillingCard />)
@@ -299,7 +430,10 @@ describe("BillingCard", () => {
       /Cancel subscription/,
       /Switch to Small/,
     ]) {
-      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-disabled", "true")
+      expect(screen.getByRole("button", { name })).toHaveAttribute(
+        "aria-disabled",
+        "true"
+      )
     }
   })
 
@@ -421,6 +555,34 @@ describe("BillingConfirming", () => {
     expect(poll(PILOT)).toBeGreaterThan(0)
     expect(poll({ ...ACTIVE, providerSyncedAt: null })).toBeGreaterThan(0)
     expect(poll(ACTIVE)).toBe(false)
+    expect(
+      poll({
+        ...ACTIVE,
+        state: "past_due",
+        access: {
+          ...ACTIVE.access,
+          mode: "read_only",
+          reason: "first_payment_failed",
+        },
+      })
+    ).toBe(false)
+  })
+
+  it("does not call a subscription whose first payment failed confirmed", () => {
+    mockBilling({
+      ...ACTIVE,
+      state: "past_due",
+      access: READ_ONLY_ACCESS,
+    })
+    render(<BillingConfirming />)
+    expect(
+      screen.getByRole("heading", { name: "Subscription needs attention" })
+    ).toBeVisible()
+    expect(screen.queryByText(/Stripe has confirmed/)).toBeNull()
+    expect(screen.getByText(/payment did not go through/)).toBeVisible()
+    expect(
+      screen.getByRole("link", { name: "Back to Billing" })
+    ).toHaveAttribute("href", "/settings/billing")
   })
 
   it("confirms once the processor has applied the subscription", () => {

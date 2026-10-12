@@ -9,10 +9,13 @@ import {
   canChangePlan,
   confirmationPhase,
   describeAccess,
+  describeBilling,
   describeCheckoutUnavailable,
   describeLocationUsage,
   isStripeHostedUrl,
   pendingLinkLimitNote,
+  planLimitWarning,
+  planUnavailableReason,
 } from "@/lib/billing/presentation"
 import { ACCESS_REASONS } from "@/lib/domain/entitlements"
 import { describeActionError } from "@/lib/errors/action-errors"
@@ -181,6 +184,7 @@ describe("billing presentation (P07-S6)", () => {
       confirmationPhase({
         state: "pilot",
         providerSyncedAt: null,
+        accessMode: null,
         elapsedMs: 0,
       })
     ).toBe("confirming")
@@ -188,6 +192,7 @@ describe("billing presentation (P07-S6)", () => {
       confirmationPhase({
         state: "canceled",
         providerSyncedAt: at,
+        accessMode: "full",
         elapsedMs: 0,
       })
     ).toBe("confirming")
@@ -195,6 +200,7 @@ describe("billing presentation (P07-S6)", () => {
       confirmationPhase({
         state: "trialing",
         providerSyncedAt: null,
+        accessMode: null,
         elapsedMs: 0,
       })
     ).toBe("confirming")
@@ -202,6 +208,7 @@ describe("billing presentation (P07-S6)", () => {
       confirmationPhase({
         state: "trialing",
         providerSyncedAt: at,
+        accessMode: "full",
         elapsedMs: 0,
       })
     ).toBe("confirmed")
@@ -209,9 +216,69 @@ describe("billing presentation (P07-S6)", () => {
       confirmationPhase({
         state: "pilot",
         providerSyncedAt: null,
+        accessMode: null,
         elapsedMs: CONFIRMATION_PATIENCE_MS,
       })
     ).toBe("delayed")
+    for (const [state, accessMode] of [
+      ["past_due", "grace"],
+      ["grace", "grace"],
+      ["past_due", "read_only"],
+      ["active", "read_only"],
+    ] as const) {
+      expect(
+        confirmationPhase({
+          state,
+          providerSyncedAt: at,
+          accessMode,
+          elapsedMs: 0,
+        }),
+        `${state}/${accessMode}`
+      ).toBe("attention")
+    }
+  })
+
+  it("never promises a payment for a trial that was cancelled", () => {
+    const trial = {
+      ...ACCESS,
+      reason: "trialing" as const,
+      endsAt: "2026-10-26T08:00:00.000Z",
+    }
+    expect(describeBilling({ access: trial, cancelAtPeriodEnd: false })).toBe(
+      "Free trial until 26 October 2026. The first payment is taken then."
+    )
+    expect(describeBilling({ access: trial, cancelAtPeriodEnd: true })).toBe(
+      "Cancelled during the trial. Full access continues until 26 October 2026 with no charge, then the workspace becomes read-only."
+    )
+    expect(
+      billingStatus({
+        state: "trialing",
+        access: trial,
+        cancelAtPeriodEnd: true,
+      })
+    ).toEqual({ label: "Ending", tone: "warn" })
+    expect(
+      billingStatus({
+        state: "trialing",
+        access: trial,
+        cancelAtPeriodEnd: false,
+      })
+    ).toEqual({ label: "Trial", tone: "ok" })
+  })
+
+  it("refuses only plan changes below the linked locations, and warns at checkout", () => {
+    expect(
+      planUnavailableReason({ billableLocations: 3 }, { locationLimit: 2 })
+    ).toMatch(/Unlink locations first/)
+    expect(
+      planUnavailableReason({ billableLocations: 2 }, { locationLimit: 2 })
+    ).toBeNull()
+    expect(
+      planLimitWarning({ billableLocations: 3 }, { locationLimit: 2 })
+    ).toMatch(/None are unlinked/)
+    expect(
+      planLimitWarning({ billableLocations: 2 }, { locationLimit: 2 })
+    ).toBeNull()
   })
 
   it("maps billing errors to words, naming the limit when the server sent it", () => {
