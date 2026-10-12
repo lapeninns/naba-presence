@@ -18,6 +18,7 @@ import {
 import { previewedParts } from "@/lib/server/bulk-families/hours"
 import {
   bulkIntentId,
+  outcomeOfAnsweredWrite,
   reconcileFromReceipt,
 } from "@/lib/server/bulk-families/shared"
 
@@ -217,6 +218,50 @@ describe("bulk receipts (P09-R3)", () => {
       reconcileFromReceipt({ state: "uncertain", errorCode: null })
     ).toBeNull()
     expect(reconcileFromReceipt({ state: "sent", errorCode: null })).toBeNull()
+  })
+
+  it("treats a rejected receipt on a succeeded attempt as landed, in dispatch and in reconcile alike", () => {
+    // Google holds the change and does not show it: the write applied.
+    expect(
+      reconcileFromReceipt({
+        state: "rejected",
+        errorCode: null,
+        attemptStatus: "succeeded",
+      })
+    ).toEqual({ kind: "succeeded", confirmation: "unrecorded" })
+    expect(outcomeOfAnsweredWrite("rejected")).toEqual({
+      kind: "succeeded",
+      confirmation: "unrecorded",
+    })
+    // A rejected attempt did not apply.
+    expect(
+      reconcileFromReceipt({
+        state: "rejected",
+        errorCode: "google_rejected",
+        attemptStatus: "failed",
+      })
+    ).toEqual({
+      kind: "failed",
+      code: "recovered_not_applied:google_rejected",
+    })
+    expect(outcomeOfAnsweredWrite("confirmed_applied")).toEqual({
+      kind: "succeeded",
+      confirmation: "confirmed",
+    })
+    expect(outcomeOfAnsweredWrite("awaiting_confirmation")).toEqual({
+      kind: "succeeded",
+      confirmation: "unrecorded",
+    })
+    // An answered write still waiting on Google is left to recovery, for
+    // hours as for attributes and action links.
+    expect(outcomeOfAnsweredWrite("uncertain")).toEqual({
+      kind: "ambiguous",
+      code: "readback_failed",
+    })
+    expect(outcomeOfAnsweredWrite("sent")).toEqual({
+      kind: "ambiguous",
+      code: "readback_failed",
+    })
   })
 
   it("pins only the selected hours parts as previewed, absent ones as null", () => {

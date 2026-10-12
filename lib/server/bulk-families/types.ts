@@ -1,5 +1,7 @@
 import "server-only"
 
+import type { TransactionSql } from "postgres"
+
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import type {
   BulkOperation,
@@ -86,5 +88,16 @@ export type BulkFamily<TInput extends BulkOperationInput = BulkOperationInput> =
     reconcile(receipt: {
       state: OperationOutcome
       errorCode: string | null
+      /** The attempt's status as the receipt recorded it. */
+      attemptStatus: string | null
     }): ReconcileOutcome | null
+    /**
+     * Undoes what the dispatch saved locally for a write the receipt now
+     * says did not apply, inside the reconcile transaction. Returns audit
+     * metadata.
+     */
+    undoNotApplied?(
+      sql: TransactionSql,
+      child: { organisationId: string; childId: string; locationId: string }
+    ): Promise<Record<string, unknown>>
   }

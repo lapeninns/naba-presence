@@ -15,12 +15,19 @@ import {
   type GoogleLocationHours,
 } from "@/lib/domain/hours"
 import {
+  outcomeOfAnsweredWrite,
   outcomeOfThrownWrite,
   reconcileFromReceipt,
 } from "@/lib/server/bulk-families/shared"
 import type { BulkFamily } from "@/lib/server/bulk-families/types"
+import { jsonColumn } from "@/lib/server/db"
 import { getGoogleLocation } from "@/lib/server/google"
-import { publishHoursSelectionLocked } from "@/lib/server/hours"
+import {
+  publishHoursSelectionLocked,
+  readSavedHours,
+  restoreHoursRevision,
+  type HoursRestore,
+} from "@/lib/server/hours"
 
 type HoursInput = Extract<
   BulkOperationInput,
@@ -94,8 +101,14 @@ export const hoursFamily: BulkFamily<HoursInput> = {
     }
     const google = normalizeGoogleHours(location)
     const selection = bulkHoursSelection(input)
+    // Built from the saved schedule, as the dispatch builds it
+    // (`publishHoursSelectionLocked`): the selected parts come from the
+    // change either way, but a saved schedule the hours editor must
+    // reconcile first (a legacy period with no confirmed closing day)
+    // blocks every send, so the listing is skipped here instead.
+    const saved = await readSavedHours(linked.organisationId, linked.locationId)
     const patch = buildGoogleHoursPatch({
-      canonical: applyBulkHours(input, google),
+      canonical: applyBulkHours(input, saved ?? google),
       googleLocation: location,
       selection,
     })
@@ -133,6 +146,11 @@ export const hoursFamily: BulkFamily<HoursInput> = {
         approvalRef: context.approvalRef,
         requestId: context.requestId,
         stillOpen: context.stillOpen,
+        // Kept on the child until it settles: a write recovery reads back
+        // as not applied puts the saved schedule back (`undoNotApplied`).
+        recordRestore: (sql, restore) => sql`
+          update bulk_listing_child set hours_restore = ${jsonColumn(sql, restore)}
+          where id = ${context.childId}`,
       })
       const observed = fieldOf(input, result.google)
       switch (result.status) {
@@ -143,9 +161,7 @@ export const hoursFamily: BulkFamily<HoursInput> = {
         case "closed":
           return { kind: "expired" }
         case "published":
-          return result.outcome === "confirmed_applied"
-            ? { kind: "succeeded", confirmation: "confirmed" }
-            : { kind: "succeeded", confirmation: "unrecorded" }
+          return outcomeOfAnsweredWrite(result.outcome)
       }
     } catch (error) {
       return outcomeOfThrownWrite(
@@ -156,4 +172,16 @@ export const hoursFamily: BulkFamily<HoursInput> = {
     }
   },
   reconcile: reconcileFromReceipt,
+  async undoNotApplied(sql, child) {
+    const [row] = await sql<{ restore: HoursRestore | null }[]>`
+      select hours_restore as restore from bulk_listing_child where id = ${child.childId}`
+    if (!row?.restore) return {}
+    const restored = await restoreHoursRevision(sql, {
+      organisationId: child.organisationId,
+      locationId: child.locationId,
+      restore: row.restore,
+    })
+    await sql`update bulk_listing_child set hours_restore = null where id = ${child.childId}`
+    return { savedRevision: row.restore.revision, restored }
+  },
 }

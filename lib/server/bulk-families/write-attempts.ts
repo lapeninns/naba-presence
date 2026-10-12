@@ -9,7 +9,10 @@ import {
   type PlaceActionPlan,
 } from "@/lib/domain/bulk-place-actions"
 import type { BulkOperationInput } from "@/lib/domain/bulk-merge"
-import { outcomeOfThrownWrite } from "@/lib/server/bulk-families/shared"
+import {
+  outcomeOfAnsweredWrite,
+  outcomeOfThrownWrite,
+} from "@/lib/server/bulk-families/shared"
 import type {
   DispatchContext,
   DispatchOutcome,
@@ -227,11 +230,7 @@ export async function runBulkWrite<TResponse, TReadback>(
         },
       }),
     })
-    return result.outcome === "confirmed_applied"
-      ? { kind: "succeeded", confirmation: "confirmed" }
-      : result.outcome === "awaiting_confirmation"
-        ? { kind: "succeeded", confirmation: "unrecorded" }
-        : { kind: "ambiguous", code: "readback_failed" }
+    return outcomeOfAnsweredWrite(result.outcome)
   } catch (error) {
     return outcomeOfThrownWrite(context.organisationId, context.intentId, error)
   }

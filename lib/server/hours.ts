@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 import { ZodError } from "zod"
 
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import {
   buildGoogleHoursPatch,
   classifyHoursDrift,
@@ -772,6 +773,63 @@ export type HoursSelectionChange = {
   requestId: string
   /** Asked once more just before anything is saved or sent. */
   stillOpen: () => boolean
+  /**
+   * Called in the transaction that saves the change, before anything is
+   * sent: the caller keeps the restore point, so a write that recovery
+   * later reads back as not applied can be undone (`restoreHoursRevision`).
+   */
+  recordRestore?: (
+    sql: TransactionSql,
+    restore: HoursRestore
+  ) => Promise<unknown>
+}
+
+/** The canonical revision a change saved, and the schedule it replaced. */
+export type HoursRestore = { revision: string; payload: StoredHours }
+
+/**
+ * Puts back the schedule a change replaced, only while the revision that
+ * change saved is still current: a later edit wins. Returns whether it did.
+ */
+export async function restoreHoursRevision(
+  sql: TransactionSql,
+  input: { organisationId: string; locationId: string; restore: HoursRestore }
+): Promise<boolean> {
+  try {
+    await updateCanonicalResource<StoredHours>({
+      sql,
+      organisationId: input.organisationId,
+      locationId: input.locationId,
+      resourceType: "hours",
+      expectedRevision: input.restore.revision,
+      payload: input.restore.payload,
+    })
+    return true
+  } catch (stale) {
+    if (!(stale instanceof ApiError)) throw stale
+    return false
+  }
+}
+
+/**
+ * The saved (canonical) schedule of a location, or null when none is saved
+ * yet (a first publish starts it from Google). Read only.
+ */
+export async function readSavedHours(
+  organisationId: string,
+  locationId: string
+): Promise<NormalizedHours | null> {
+  const [row] = await withTenant(
+    organisationId,
+    (sql) => sql<{ payload: StoredHours }[]>`
+      select payload from presence_canonical_resource
+      where organisation_id = ${organisationId}
+        and location_id = ${locationId} and resource_type = 'hours'`
+  )
+  if (!row) return null
+  const { boundaryBaseline, ...hours } = row.payload
+  void boundaryBaseline
+  return hours
 }
 
 export type HoursSelectionResult =
@@ -784,7 +842,7 @@ export type HoursSelectionResult =
       status: "published"
       google: GoogleLocationHours
       operationId: string | null
-      outcome: string
+      outcome: OperationOutcome
     }
 
 /**
@@ -804,7 +862,9 @@ export type HoursSelectionResult =
  *     back as Google holds them.
  *   - A write that definitely did not apply puts the saved schedule back,
  *     so the editor does not show the batch's value as a local change. An
- *     uncertain one keeps it: recovery decides.
+ *     uncertain one keeps it, with the restore point the caller recorded
+ *     (`recordRestore`): when recovery reads it back as not applied, the
+ *     caller puts it back (`restoreHoursRevision`).
  */
 export async function publishHoursSelectionLocked(
   change: HoursSelectionChange
@@ -838,9 +898,14 @@ export async function publishHoursSelectionLocked(
       ? { boundaryBaseline: live.resource.payload.boundaryBaseline }
       : {}),
   }
-  const saveTarget = () =>
+  const saveTarget = (options: { restorable: boolean }) =>
     withTenant(session.organisationId, async (sql) => {
       const updated = await save(sql, live.resource.revision, stored)
+      if (options.restorable)
+        await change.recordRestore?.(sql, {
+          revision: updated.revision,
+          payload: live.resource.payload,
+        })
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,
@@ -858,7 +923,8 @@ export async function publishHoursSelectionLocked(
     })
   const targetParts = hoursPartHashes(target)
   if (keys.every((key) => live.googleParts[key] === targetParts[key])) {
-    if (hashHours(target) !== live.canonicalHash) await saveTarget()
+    if (hashHours(target) !== live.canonicalHash)
+      await saveTarget({ restorable: false })
     return { status: "applied", google }
   }
   if (
@@ -885,7 +951,9 @@ export async function publishHoursSelectionLocked(
       patch.blockingIssues.join(" ")
     )
   const saved =
-    hashHours(target) === live.canonicalHash ? null : await saveTarget()
+    hashHours(target) === live.canonicalHash
+      ? null
+      : await saveTarget({ restorable: true })
   const published: LiveHours = saved
     ? {
         ...live,
@@ -914,11 +982,11 @@ export async function publishHoursSelectionLocked(
           where organisation_id = ${session.organisationId} and intent_id = ${change.intentId}`
         if (receipt && !["failed", "rejected"].includes(receipt.state)) return
         // Only the revision this change saved is put back; a later edit wins.
-        await save(sql, saved.revision, live.resource.payload).catch(
-          (stale: unknown) => {
-            if (!(stale instanceof ApiError)) throw stale
-          }
-        )
+        await restoreHoursRevision(sql, {
+          organisationId: session.organisationId,
+          locationId,
+          restore: { revision: saved.revision, payload: live.resource.payload },
+        })
       })
     }
     throw error

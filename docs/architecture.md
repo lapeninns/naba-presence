@@ -1600,11 +1600,15 @@ Every write goes through a surface pipeline under a receipt: hours through the
 hours editor's own path (`publishHoursSelectionLocked` in
 `lib/server/hours.ts`, which saves the change as a new canonical revision and
 publishes that revision's selected parts, putting the revision back if the
-write definitely did not apply), attributes and action links through
+write definitely did not apply; an uncertain one keeps the restore point on
+the child, `hours_restore`, and the revision is put back if recovery reads it
+back as not applied, unless a later edit has saved over it), attributes and
+action links through
 `runGbpWrite` on `bulk_listing_write_attempt` (their editors run reviewed
 change sets and record no receipts). Each claim of a child has its own
-deterministic intent (`bulkIntentId`), the child stores the receipt
-(`mutation_operation_id`, composite tenant key, 0262), and
+deterministic intent (`bulkIntentId`), the child stores the receipt of its
+latest send only (`mutation_operation_id`, composite tenant key, cleared on
+each claim, 0262), and
 `GET /api/mutations/{id}` answers for it. An uncertain write is left to
 `mutation_recover` (the hours adapter, or the two bulk adapters in
 `lib/server/mutation-recovery-registry.ts`); once its receipt settles, the

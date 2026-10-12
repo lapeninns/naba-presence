@@ -80,7 +80,11 @@ async function settle(
     code?: string | null
     confirmation?: "confirmed" | "unresolved" | "unrecorded"
     observed?: unknown
-    /** The receipt this claim's write went out under, when it got that far. */
+    /**
+     * The receipt this claim's write went out under, when it got that far.
+     * The claim cleared the previous claim's (0262), so this is only ever
+     * the latest send's receipt.
+     */
     operationId?: string | null
   } = {}
 ) {
@@ -92,7 +96,7 @@ async function settle(
       finished_at = ${status === "queued" ? null : sql`now()`},
       next_attempt_at = ${status === "queued" ? sql`now() + interval '1 minute'` : null},
       current_value = case when ${fields.observed !== undefined} then ${fields.observed === undefined ? null : jsonColumn(sql, fields.observed)} else current_value end,
-      mutation_operation_id = coalesce(${fields.operationId ?? null}::uuid, mutation_operation_id)
+      mutation_operation_id = ${fields.operationId ?? null}::uuid
     where id = ${childId} and status = 'running'`
   )
 }
@@ -363,13 +367,25 @@ export async function processBulkChild(
     ) {
       await settle(organisationId, childId, "queued", { code: error.code })
       outcome = "deferred"
-    } else
-      outcome = {
-        failed:
-          error instanceof ApiError
-            ? error.code
-            : "google_confirmation_unresolved",
-      }
+    } else {
+      // A write that recorded a receipt may have reached Google: the child
+      // waits for that receipt (reconciled once recovery settles it).
+      const receipt = await receiptFor(organisationId, intentId)
+      if (receipt) {
+        await settle(organisationId, childId, "ambiguous", {
+          code: "execution_interrupted",
+          confirmation: "unresolved",
+          operationId: receipt.id,
+        })
+        outcome = "ambiguous"
+      } else
+        outcome = {
+          failed:
+            error instanceof ApiError
+              ? error.code
+              : "google_confirmation_unresolved",
+        }
+    }
   }
   if (typeof outcome === "object") return fail(outcome.failed)
   if (summary) summary[outcome] += 1
@@ -398,28 +414,44 @@ async function reconcileResolvedChildren(
       const [child] = await sql<
         {
           operationId: string
+          locationId: string
           operation: BulkOperationInput["operation"]
           state: OperationOutcome
           errorCode: string | null
+          attemptStatus: string | null
         }[]
       >`
-        select c.operation_id::text as "operationId", o.operation, m.state, m.error_code as "errorCode"
+        select c.operation_id::text as "operationId", c.location_id::text as "locationId", o.operation,
+          m.state, m.error_code as "errorCode", m.receipt->>'attemptStatus' as "attemptStatus"
         from bulk_listing_child c
         join bulk_listing_operation o on o.id = c.operation_id
         join mutation_operation m on m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
         where c.id = ${row.childId} and c.status = 'ambiguous'
         for update of c`
       if (!child) return null
-      const verdict = bulkFamily(child.operation).reconcile({
+      const family = bulkFamily(child.operation)
+      const verdict = family.reconcile({
         state: child.state,
         errorCode: child.errorCode,
+        attemptStatus: child.attemptStatus,
       })
       if (!verdict) return null
+      // A write that did not apply leaves nothing behind locally either
+      // (an hours child puts back the schedule it saved).
+      const undone =
+        verdict.kind === "failed" && family.undoNotApplied
+          ? await family.undoNotApplied(sql, {
+              organisationId: row.organisationId,
+              childId: row.childId,
+              locationId: child.locationId,
+            })
+          : {}
       await sql`
         update bulk_listing_child set
           status = ${verdict.kind},
           result_code = ${verdict.kind === "failed" ? verdict.code : null},
           confirmation_state = ${verdict.kind === "succeeded" ? verdict.confirmation : "unrecorded"},
+          hours_restore = null,
           finished_at = now()
         where id = ${row.childId}`
       await writeAudit(sql, {
@@ -433,6 +465,7 @@ async function reconcileResolvedChildren(
           operationId: child.operationId,
           outcome: verdict.kind,
           receiptState: child.state,
+          ...undone,
         },
       })
       return child.operationId
@@ -507,6 +540,27 @@ async function finishOperation(
   })
 }
 
+/**
+ * A claim that threw past its own handling: the child is unresolved, and
+ * points at this claim's receipt when the write got that far, so it settles
+ * from what this send did rather than from nothing.
+ */
+async function interrupted(organisationId: string, childId: string) {
+  const [child] = await withTenant(
+    organisationId,
+    (sql) => sql<{ attempts: number }[]>`
+      select attempts from bulk_listing_child where id = ${childId}`
+  )
+  const receipt = child
+    ? await receiptFor(organisationId, bulkIntentId(childId, child.attempts))
+    : null
+  await settle(organisationId, childId, "ambiguous", {
+    code: "execution_interrupted",
+    confirmation: "unresolved",
+    operationId: receipt?.id ?? null,
+  })
+}
+
 /** Called from the job runner tick while its budget lasts. */
 export async function runDueBulkChildren(options: {
   budgetMs: number
@@ -548,10 +602,9 @@ export async function runDueBulkChildren(options: {
             childId: row.childId,
             error,
           })
-          await settle(row.organisationId, row.childId, "ambiguous", {
-            code: "execution_interrupted",
-            confirmation: "unresolved",
-          }).catch(() => undefined)
+          await interrupted(row.organisationId, row.childId).catch(
+            () => undefined
+          )
         }
         const [owner] = await withTenant(
           row.organisationId,

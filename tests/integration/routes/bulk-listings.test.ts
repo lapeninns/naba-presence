@@ -5,6 +5,10 @@ import {
   bulkOperationResponseSchema,
   type BulkOperationView,
 } from "@/lib/contracts/bulk-listings"
+import {
+  normalizeGoogleHours,
+  type GoogleLocationHours,
+} from "@/lib/domain/hours"
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -54,6 +58,7 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       PUBLISH_ENABLED: "true",
       JOBS_ENABLED: "true",
       GBP_PROFILE_WRITES_ENABLED: "true",
+      GBP_PLACE_ACTIONS_ENABLED: "true",
     })
   })
   afterAll(async () => {
@@ -412,9 +417,10 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
   })
   const execute = async (
     t: Awaited<ReturnType<typeof tenant>>,
-    op: BulkOperationView
+    op: BulkOperationView,
+    acknowledgeSkipped = false
   ) => {
-    await t.read(await t.approve(op))
+    await t.read(await t.approve(op, acknowledgeSkipped))
     const started = await t.api(`/${op.id}/execute`, {})
     expect(started.status, await started.clone().text()).toBe(202)
   }
@@ -963,5 +969,532 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       join mutation_operation m on m.attempt_id = a.id
       where m.id = ${child.mutationOperationId!}`
     expect(attempt).toEqual({ status: "succeeded", family: "attributes" })
+  })
+
+  /** Lets `mutation_recover` read the receipt back now, then runs it. */
+  const recoverNow = async (receiptId: string) => {
+    await admin`update mutation_operation set next_recovery_at = now() - interval '1 second'
+      where id = ${receiptId}`
+    await tick()
+    await tick()
+  }
+
+  it("puts the saved schedule back when recovery reads an uncertain hours child back as not applied", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const location = t.linked[0].locationId
+    const before = structuredClone(listings.get(name)!.specialHours)
+    listings.get(name)!.lostResponse = true
+    const op = await t.preview()
+    await execute(t, op)
+    await tick()
+    const [unresolved] = (await t.status(op)).children
+    expect(unresolved).toMatchObject({
+      status: "ambiguous",
+      resultCode: "readback_failed",
+    })
+    const saved = async () =>
+      (
+        await admin<
+          {
+            revision: string
+            payload: {
+              special: { effectiveDate: string; isClosed: boolean }[]
+            }
+          }[]
+        >`select revision::text as revision, payload from presence_canonical_resource
+          where location_id = ${location} and resource_type = 'hours'`
+      )[0]
+    // While unresolved, the batch's value stays saved (recovery decides).
+    const pending = await saved()
+    expect(pending.payload.special.map((entry) => entry.effectiveDate)).toEqual(
+      ["2026-12-24", "2026-12-25"]
+    )
+    // The write did not land after all: Google still holds the old schedule.
+    listings.get(name)!.specialHours = before
+    listings.get(name)!.readsFail = false
+    await recoverNow(unresolved.mutationOperationId!)
+    expect(await receiptOf(t, unresolved.mutationOperationId!)).toMatchObject({
+      outcome: "failed",
+    })
+    const after = await t.status(op)
+    expect(after.children[0]).toMatchObject({
+      status: "failed",
+      resultCode: "recovered_not_applied:google_readback_mismatch",
+    })
+    // The saved schedule is the pre-batch one again, as a new revision, so
+    // the editor shows no local change waiting to publish.
+    const restored = await saved()
+    expect(Number(restored.revision)).toBe(Number(pending.revision) + 1)
+    expect(
+      restored.payload.special.map((entry) => [
+        entry.effectiveDate,
+        entry.isClosed,
+      ])
+    ).toEqual([["2026-12-25", true]])
+    const [audit] = await admin`select metadata from audit_log
+      where organisation_id = ${t.owner.organisationId} and action = 'bulk_listing.child_reconciled'`
+    expect(audit.metadata).toMatchObject({
+      outcome: "failed",
+      savedRevision: pending.revision,
+      restored: true,
+    })
+    expect(patches(name)).toHaveLength(1)
+  })
+
+  it("keeps a later edit when recovery reads an uncertain hours child back as not applied", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const location = t.linked[0].locationId
+    const before = structuredClone(listings.get(name)!.specialHours)
+    listings.get(name)!.lostResponse = true
+    const op = await t.preview()
+    await execute(t, op)
+    await tick()
+    const [unresolved] = (await t.status(op)).children
+    // Someone saves the schedule again before recovery runs.
+    await admin`update presence_canonical_resource set revision = revision + 1
+      where location_id = ${location} and resource_type = 'hours'`
+    const [edited] = await admin<{ revision: string; payload: unknown }[]>`
+      select revision::text as revision, payload from presence_canonical_resource
+      where location_id = ${location} and resource_type = 'hours'`
+    listings.get(name)!.specialHours = before
+    listings.get(name)!.readsFail = false
+    await recoverNow(unresolved.mutationOperationId!)
+    expect((await t.status(op)).children[0]).toMatchObject({
+      status: "failed",
+    })
+    const [now] = await admin<{ revision: string; payload: unknown }[]>`
+      select revision::text as revision, payload from presence_canonical_resource
+      where location_id = ${location} and resource_type = 'hours'`
+    expect(now).toEqual(edited)
+  })
+
+  it("skips at preview a listing whose saved schedule the hours editor must reconcile first", async () => {
+    const t = await tenant(2)
+    // A legacy saved period with no confirmed closing date (overnight, no
+    // endDate): every publish of this schedule is blocked, so the batch
+    // must not offer the listing as eligible.
+    const saved = normalizeGoogleHours({
+      specialHours: { specialHourPeriods: [christmas] },
+    } as GoogleLocationHours)
+    saved.special.push({
+      effectiveDate: "2026-11-05",
+      isClosed: false,
+      opensAt: "18:00",
+      closesAt: "02:00",
+    } as (typeof saved.special)[number])
+    await admin`insert into presence_canonical_resource (organisation_id, location_id, resource_type, payload, created_by)
+      values (${t.owner.organisationId}, ${t.linked[0].locationId}, 'hours', ${admin.json(saved as never)}, ${t.owner.userId})`
+    const op = await t.preview()
+    const of = (index: number) =>
+      op.children.find(
+        (child) => child.locationId === t.linked[index].locationId
+      )!
+    expect(of(0)).toMatchObject({
+      eligibility: "skipped",
+      skipReason: "hours_reconciliation_required",
+    })
+    expect(of(1)).toMatchObject({ eligibility: "eligible" })
+  })
+
+  /** A listing's attributes on the stub, with metadata offering two booleans. */
+  const stubAttributes = (
+    name: string,
+    initial: unknown[],
+    behaviour: { lostResponse?: boolean } = {}
+  ) => {
+    const state = {
+      attributes: initial,
+      lostResponse: behaviour.lostResponse ?? false,
+      readsFail: false,
+    }
+    google.respond({ method: "GET", pathIncludes: "/v1/attributes?" }, () => ({
+      status: 200,
+      json: {
+        attributeMetadata: [
+          { parent: "attributes/has_wifi", valueType: "BOOL" },
+          { parent: "attributes/has_seating_outdoors", valueType: "BOOL" },
+        ],
+      },
+    }))
+    google.respond({ method: "GET", pathIncludes: `${name}/attributes` }, () =>
+      state.readsFail
+        ? { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+        : {
+            status: 200,
+            json: { name: `${name}/attributes`, attributes: state.attributes },
+          }
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: `${name}/attributes` },
+      (call) => {
+        const mask = (
+          new URL(call.path, "https://stub.test").searchParams.get(
+            "attributeMask"
+          ) ?? ""
+        ).split(",")
+        const sent = (call.body as { attributes: { name: string }[] })
+          .attributes
+        state.attributes = [
+          ...(state.attributes as { name: string }[]).filter(
+            (attribute) => !mask.includes(attribute.name)
+          ),
+          ...sent,
+        ]
+        if (state.lostResponse) {
+          state.lostResponse = false
+          state.readsFail = true
+          return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+        }
+        return { status: 200, json: { attributes: state.attributes } }
+      }
+    )
+    return state
+  }
+
+  it("settles an uncertain attribute child through bulk_listing_write_attempt recovery, with one PATCH in total", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const state = stubAttributes(
+      name,
+      [{ name: "attributes/has_wifi", values: [true] }],
+      { lostResponse: true }
+    )
+    const op = await t.read(
+      await t.api("/preview", {
+        locationIds: [t.linked[0].locationId],
+        input: {
+          operation: "attributes",
+          changes: [{ name: "attributes/has_wifi", values: [false] }],
+        },
+      })
+    )
+    await execute(t, op)
+    await tick()
+    const [unresolved] = (await t.status(op)).children
+    expect(unresolved).toMatchObject({
+      status: "ambiguous",
+      confirmationState: "unresolved",
+    })
+    const receiptId = unresolved.mutationOperationId!
+    expect(await receiptOf(t, receiptId)).toMatchObject({
+      surface: "attributes",
+      outcome: "uncertain",
+    })
+    const [pending] = await admin<{ status: string }[]>`
+      select a.status from bulk_listing_write_attempt a
+      join mutation_operation m on m.attempt_id = a.id and m.attempt_table = 'bulk_listing_write_attempt'
+      where m.id = ${receiptId}`
+    expect(pending.status).toBe("ambiguous")
+    state.readsFail = false
+    await recoverNow(receiptId)
+    expect(await receiptOf(t, receiptId)).toMatchObject({
+      outcome: "confirmed_applied",
+    })
+    const [settled] = await admin<
+      { status: string; provider_response_hash: string | null }[]
+    >`
+      select a.status, a.provider_response_hash from bulk_listing_write_attempt a
+      join mutation_operation m on m.attempt_id = a.id
+      where m.id = ${receiptId}`
+    expect(settled.status).toBe("succeeded")
+    expect(settled.provider_response_hash).toBeTruthy()
+    const after = await t.status(op)
+    expect(after.children[0]).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(after.status).toBe("completed")
+    expect(
+      google.calls.filter(
+        (call) =>
+          call.method === "PATCH" && call.path.includes(`${name}/attributes`)
+      )
+    ).toHaveLength(1)
+  })
+
+  /** Action links per listing on the stub, keyed by Google location name. */
+  const stubPlaceActions = (
+    initial: Record<string, Record<string, unknown>[]>
+  ) => {
+    const links = new Map(Object.entries(initial))
+    const behaviour = { lostCreate: false, readsFail: false, created: 0 }
+    const locationOf = (path: string) =>
+      new URL(path, "https://stub.test").pathname
+        .replace(/^\/v1\//, "")
+        .replace(/\/placeActionLinks.*$/, "")
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionTypeMetadata" },
+      () => ({
+        status: 200,
+        json: {
+          placeActionTypeMetadata: [
+            {
+              placeActionType: "DINING_RESERVATION",
+              displayName: "Dining reservation",
+            },
+          ],
+        },
+      })
+    )
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionLinks" },
+      (call) =>
+        behaviour.readsFail
+          ? { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+          : {
+              status: 200,
+              json: {
+                placeActionLinks: links.get(locationOf(call.path)) ?? [],
+              },
+            }
+    )
+    google.respond(
+      { method: "POST", pathIncludes: "/placeActionLinks" },
+      (call) => {
+        const location = locationOf(call.path)
+        behaviour.created += 1
+        const created = {
+          name: `${location}/placeActionLinks/created-${behaviour.created}`,
+          providerType: "MERCHANT",
+          isEditable: true,
+          ...(call.body as Record<string, unknown>),
+          createTime: "2026-10-12T10:00:00Z",
+          updateTime: "2026-10-12T10:00:00Z",
+        }
+        links.set(location, [...(links.get(location) ?? []), created])
+        if (behaviour.lostCreate) {
+          behaviour.lostCreate = false
+          behaviour.readsFail = true
+          return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+        }
+        return { status: 200, json: created }
+      }
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: "/placeActionLinks/" },
+      (call) => {
+        const name = new URL(call.path, "https://stub.test").pathname.replace(
+          /^\/v1\//,
+          ""
+        )
+        const location = locationOf(call.path)
+        const body = call.body as Record<string, unknown>
+        links.set(
+          location,
+          (links.get(location) ?? []).map((link) =>
+            link.name === name
+              ? {
+                  ...link,
+                  uri: body.uri,
+                  isPreferred: body.isPreferred,
+                  updateTime: "2026-10-12T11:00:00Z",
+                }
+              : link
+          )
+        )
+        return {
+          status: 200,
+          json: (links.get(location) ?? []).find((link) => link.name === name),
+        }
+      }
+    )
+    google.respond(
+      { method: "DELETE", pathIncludes: "/placeActionLinks/" },
+      (call) => {
+        const name = new URL(call.path, "https://stub.test").pathname.replace(
+          /^\/v1\//,
+          ""
+        )
+        const location = locationOf(call.path)
+        links.set(
+          location,
+          (links.get(location) ?? []).filter((link) => link.name !== name)
+        )
+        return { status: 200, json: {} }
+      }
+    )
+    return { links, behaviour }
+  }
+  const merchantLink = (location: string, id: string, uri: string) => ({
+    name: `${location}/placeActionLinks/${id}`,
+    providerType: "MERCHANT",
+    isEditable: true,
+    placeActionType: "DINING_RESERVATION",
+    uri,
+    isPreferred: false,
+    createTime: "2026-10-01T10:00:00Z",
+    updateTime: "2026-10-01T10:00:00Z",
+  })
+  const linkWrites = () =>
+    google.calls.filter(
+      (call) => call.method !== "GET" && call.path.includes("/placeActionLinks")
+    )
+
+  it("creates, updates and deletes action links by Google link name, and skips a listing with several links of the type", async () => {
+    const t = await tenant(4)
+    const [fresh, single, several, removed] = t.linked.map(
+      (l) => l.googleLocationName
+    )
+    const stub = stubPlaceActions({
+      [fresh]: [],
+      [single]: [merchantLink(single, "one", "https://old.example/book")],
+      [several]: [
+        merchantLink(several, "a", "https://a.example/book"),
+        merchantLink(several, "b", "https://b.example/book"),
+      ],
+      [removed]: [merchantLink(removed, "gone", "https://gone.example/book")],
+    })
+    const upsert = await t.read(
+      await t.api("/preview", {
+        locationIds: t.linked.slice(0, 3).map((l) => l.locationId),
+        input: {
+          operation: "place_action",
+          action: "upsert",
+          placeActionType: "DINING_RESERVATION",
+          uri: "https://book.example/table",
+        },
+      })
+    )
+    const byLocation = (op: BulkOperationView, index: number) =>
+      op.children.find(
+        (child) => child.locationId === t.linked[index].locationId
+      )!
+    expect(byLocation(upsert, 0)).toMatchObject({ eligibility: "eligible" })
+    expect(byLocation(upsert, 1)).toMatchObject({
+      eligibility: "eligible",
+      updateMask: [`${single}/placeActionLinks/one`],
+    })
+    expect(byLocation(upsert, 2)).toMatchObject({
+      eligibility: "skipped",
+      skipReason: "multiple_links_for_type",
+    })
+    await execute(t, upsert, true)
+    await tick()
+    // Both listings share one Google account: action links take its change
+    // lock, so the second child defers (administration_in_progress) and runs
+    // on the next tick.
+    await admin`update bulk_listing_child set next_attempt_at = now() where operation_id = ${upsert.id} and status = 'queued'`
+    await tick()
+    const done = await t.status(upsert)
+    expect(byLocation(done, 0)).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(byLocation(done, 1)).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    // A new link was created on the listing that had none; the existing
+    // link was updated in place under its own name, whatever its old URI.
+    expect(stub.links.get(fresh)).toEqual([
+      expect.objectContaining({
+        name: `${fresh}/placeActionLinks/created-1`,
+        uri: "https://book.example/table",
+      }),
+    ])
+    expect(stub.links.get(single)).toEqual([
+      expect.objectContaining({
+        name: `${single}/placeActionLinks/one`,
+        uri: "https://book.example/table",
+      }),
+    ])
+    expect(stub.links.get(several)).toHaveLength(2)
+    expect(
+      await receiptOf(t, byLocation(done, 1).mutationOperationId!)
+    ).toMatchObject({
+      surface: "place_actions",
+      action: "update",
+      outcome: "confirmed_applied",
+    })
+    expect(
+      await receiptOf(t, byLocation(done, 0).mutationOperationId!)
+    ).toMatchObject({
+      surface: "place_actions",
+      action: "create",
+      outcome: "confirmed_applied",
+    })
+
+    const deletion = await t.read(
+      await t.api("/preview", {
+        locationIds: [t.linked[3].locationId],
+        input: {
+          operation: "place_action",
+          action: "delete",
+          placeActionType: "DINING_RESERVATION",
+        },
+      })
+    )
+    expect(deletion.children[0]).toMatchObject({
+      eligibility: "eligible",
+      updateMask: [`${removed}/placeActionLinks/gone`],
+    })
+    await execute(t, deletion)
+    await tick()
+    expect((await t.status(deletion)).children[0]).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(stub.links.get(removed)).toEqual([])
+    const writes = linkWrites()
+    expect(writes.map((call) => call.method).sort()).toEqual([
+      "DELETE",
+      "PATCH",
+      "POST",
+    ])
+    expect(writes.find((call) => call.method === "DELETE")!.path).toContain(
+      `${removed}/placeActionLinks/gone`
+    )
+    expect(writes.find((call) => call.method === "PATCH")!.path).toContain(
+      `${single}/placeActionLinks/one`
+    )
+  })
+
+  it("recovers an uncertain action-link create as a new link name of the type, without creating it twice", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    const stub = stubPlaceActions({ [name]: [] })
+    stub.behaviour.lostCreate = true
+    const op = await t.read(
+      await t.api("/preview", {
+        locationIds: [t.linked[0].locationId],
+        input: {
+          operation: "place_action",
+          action: "upsert",
+          placeActionType: "DINING_RESERVATION",
+          uri: "https://book.example/table",
+        },
+      })
+    )
+    await execute(t, op)
+    await tick()
+    const [unresolved] = (await t.status(op)).children
+    expect(unresolved).toMatchObject({
+      status: "ambiguous",
+      confirmationState: "unresolved",
+    })
+    const receiptId = unresolved.mutationOperationId!
+    expect(await receiptOf(t, receiptId)).toMatchObject({
+      surface: "place_actions",
+      action: "create",
+      outcome: "uncertain",
+    })
+    // Retry leaves it to recovery.
+    await t.read(await t.api(`/${op.id}/retry`, {}))
+    await tick()
+    stub.behaviour.readsFail = false
+    await recoverNow(receiptId)
+    expect(await receiptOf(t, receiptId)).toMatchObject({
+      outcome: "confirmed_applied",
+    })
+    const after = await t.status(op)
+    expect(after.children[0]).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(after.status).toBe("completed")
+    expect(stub.links.get(name)).toHaveLength(1)
+    expect(linkWrites()).toHaveLength(1)
   })
 })

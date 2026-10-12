@@ -109,21 +109,52 @@ export async function outcomeOfThrownWrite(
 }
 
 /**
+ * What a write the pipeline answered (rather than threw) means for the
+ * child, the same for every family. `rejected` there is only ever a
+ * replayed receipt on a succeeded attempt: Google holds the change and
+ * does not show it (lib/server/gbp-write.ts `replayReceipt`), so it landed,
+ * unconfirmed. Anything not yet settled waits for recovery.
+ */
+export function outcomeOfAnsweredWrite(
+  outcome: OperationOutcome
+): DispatchOutcome {
+  switch (outcome) {
+    case "confirmed_applied":
+      return { kind: "succeeded", confirmation: "confirmed" }
+    case "awaiting_confirmation":
+    case "rejected":
+      return { kind: "succeeded", confirmation: "unrecorded" }
+    case "failed":
+      return { kind: "failed", code: "provider_rejected" }
+    default:
+      return { kind: "ambiguous", code: "readback_failed" }
+  }
+}
+
+/**
  * The shared reconcile: an unresolved child follows its receipt once
  * recovery (lib/server/mutation-recovery.ts) has read Google back. It is
- * never sent again from here.
+ * never sent again from here. A `rejected` receipt whose attempt succeeded
+ * landed (see `outcomeOfAnsweredWrite`).
  */
 export function reconcileFromReceipt(receipt: {
   state: OperationOutcome
   errorCode: string | null
+  attemptStatus?: string | null
 }): ReconcileOutcome | null {
   switch (receipt.state) {
     case "confirmed_applied":
       return { kind: "succeeded", confirmation: "confirmed" }
     case "awaiting_confirmation":
       return { kind: "succeeded", confirmation: "unrecorded" }
-    case "failed":
     case "rejected":
+      if (receipt.attemptStatus === "succeeded")
+        return { kind: "succeeded", confirmation: "unrecorded" }
+      return {
+        kind: "failed",
+        code: `recovered_not_applied${receipt.errorCode ? `:${receipt.errorCode}` : ""}`,
+      }
+    case "failed":
       return {
         kind: "failed",
         code: `recovered_not_applied${receipt.errorCode ? `:${receipt.errorCode}` : ""}`,
