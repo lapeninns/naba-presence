@@ -22,13 +22,21 @@ import {
 export type VerifyReservation = { id: string; periodId: string | null }
 
 /**
+ * Why no reservation was made. `backstop`: the call could take the period
+ * past the token backstop, so the caller skips the semantic pass.
+ * `duplicate`: the request key is already in the ledger, which only a
+ * caller reusing one key for two calls can cause; the pass did not run and
+ * the caller must not treat the draft as checked.
+ */
+export type VerifyRefusal = { refused: "backstop" | "duplicate" }
+
+/**
  * Reserves one verification call (status `reserved`, credits 0) in the
- * current credit period, or returns null when the call could take the
- * period past the token backstop; the caller then skips the semantic pass
- * and the draft stays unverified. Runs in the caller's tenant transaction.
+ * current credit period, or refuses it. Runs in the caller's tenant
+ * transaction.
  *
  * `requestKey` names the call; the unique (organisation, kind, request_id)
- * key means a key already in the ledger reserves nothing (null).
+ * key means a key already in the ledger reserves nothing (`duplicate`).
  */
 export async function reserveVerifyUsage(
   sql: TransactionSql,
@@ -40,11 +48,11 @@ export async function reserveVerifyUsage(
     requestKey: string
     userId: string | null
   }
-): Promise<VerifyReservation | null> {
+): Promise<VerifyReservation | VerifyRefusal> {
   const ledger = await readCreditLedger(sql, input.organisationId, {
     lock: true,
   })
-  if (backstopWouldBeExceeded(ledger)) return null
+  if (backstopWouldBeExceeded(ledger)) return { refused: "backstop" }
   const periodId = ledger.period?.id ?? null
   const [row] = await sql<{ id: string }[]>`
     insert into ai_usage (
@@ -61,7 +69,7 @@ export async function reserveVerifyUsage(
     do nothing
     returning id::text as id
   `
-  return row ? { id: row.id, periodId } : null
+  return row ? { id: row.id, periodId } : { refused: "duplicate" }
 }
 
 /**

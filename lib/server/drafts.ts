@@ -68,7 +68,7 @@ export type SemanticOutcome = {
   model?: string
 }
 
-const SEMANTIC_UNAVAILABLE: VerificationReason = {
+export const SEMANTIC_UNAVAILABLE: VerificationReason = {
   code: "semantic_verification_unavailable",
   severity: "warn",
   message:

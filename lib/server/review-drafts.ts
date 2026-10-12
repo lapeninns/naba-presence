@@ -33,6 +33,7 @@ import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
   runSemanticVerification,
+  SEMANTIC_UNAVAILABLE,
   verifyStoredDraft,
   type SemanticOutcome,
 } from "@/lib/server/drafts"
@@ -311,14 +312,18 @@ export async function createReviewDraft({
       replay: null,
       review: record,
       reservationId,
-      verifyReservationId: verifyReservation?.id ?? null,
-      backstopReached:
-        semanticVerificationEnabled() && verifyReservation === null,
+      verifyReservationId:
+        verifyReservation && "id" in verifyReservation
+          ? verifyReservation.id
+          : null,
+      verifyRefused:
+        verifyReservation && "refused" in verifyReservation
+          ? verifyReservation.refused
+          : null,
     }
   })
   if (phaseOne.replay) return { ...phaseOne.replay, replayed: true }
-  const { review, reservationId, verifyReservationId, backstopReached } =
-    phaseOne
+  const { review, reservationId, verifyReservationId, verifyRefused } = phaseOne
 
   const language =
     input.languageOverride ??
@@ -370,23 +375,28 @@ export async function createReviewDraft({
     })
   }
   const source = input.body ? "human" : isRatingOnly ? "template" : "ai"
-  // Past the token backstop semantic verification is skipped. The draft then
-  // stays `pending`, so it still cannot be published unverified.
-  const semantic: SemanticOutcome = backstopReached
-    ? { status: "skipped", reasons: [] }
-    : await runSemanticVerification({
-        body: generated.reply,
-        reviewText: review.review_text,
-        reviewerName: review.reviewer_name,
-        locationName: review.location_name,
-        rating: review.rating,
-        expectedLanguage: language,
-      }).catch(async (error: unknown) => {
-        if (verifyReservationId) {
-          await finishVerifyUsage(tenant, { id: verifyReservationId })
-        }
-        throw error
-      })
+  // Past the token backstop semantic verification is skipped. A request key
+  // already in the ledger (one key reused for two calls) is never read as
+  // the backstop: the pass did not run, so the draft is left `pending`
+  // (`unavailable`) rather than settled on the rule checks alone.
+  const semantic: SemanticOutcome =
+    verifyRefused === "backstop"
+      ? { status: "skipped", reasons: [] }
+      : verifyRefused === "duplicate"
+        ? { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
+        : await runSemanticVerification({
+            body: generated.reply,
+            reviewText: review.review_text,
+            reviewerName: review.reviewer_name,
+            locationName: review.location_name,
+            rating: review.rating,
+            expectedLanguage: language,
+          }).catch(async (error: unknown) => {
+            if (verifyReservationId) {
+              await finishVerifyUsage(tenant, { id: verifyReservationId })
+            }
+            throw error
+          })
 
   // Verification usage is written in its own transaction against the
   // period it was reserved in; a ledger failure never fails the request.

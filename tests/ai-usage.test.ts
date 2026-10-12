@@ -107,11 +107,11 @@ describe("verification usage", () => {
 
   it("links a verify row to the current period and settles it at no credit", async () => {
     const reservation = await reserve()
-    expect(reservation).not.toBeNull()
+    if ("refused" in reservation) throw new Error("expected a reservation")
     const { periodId } = await getAiCredits(sql, ORG)
-    expect(reservation?.periodId).toBe(periodId)
+    expect(reservation.periodId).toBe(periodId)
     await finishVerifyUsage(tenant, {
-      id: reservation!.id,
+      id: reservation.id,
       usage: { inputTokens: 10, outputTokens: 5 },
       model: "m2",
     })
@@ -136,23 +136,25 @@ describe("verification usage", () => {
 
   it("releases a reservation the provider returned no usage for", async () => {
     const reservation = await reserve()
-    await finishVerifyUsage(tenant, { id: reservation!.id })
+    if ("refused" in reservation) throw new Error("expected a reservation")
+    await finishVerifyUsage(tenant, { id: reservation.id })
     const { rows } = await db.query("select status, credits from ai_usage")
     expect(rows).toEqual([{ status: "released", credits: 0 }])
   })
 
-  it("reserves nothing for a repeated request key", async () => {
-    expect(await reserve("same")).not.toBeNull()
-    expect(await reserve("same")).toBeNull()
+  it("reserves nothing for a repeated request key, and says so", async () => {
+    expect(await reserve("same")).toHaveProperty("id")
+    // A reused key is told apart from the backstop: the caller fails closed.
+    expect(await reserve("same")).toEqual({ refused: "duplicate" })
     const { rows } = await db.query("select count(*)::int as n from ai_usage")
     expect(rows).toEqual([{ n: 1 }])
   })
 
   it("refuses a call that could pass the backstop", async () => {
     env.AI_MONTHLY_TOKEN_BACKSTOP = callTokenBudget()
-    expect(await reserve()).not.toBeNull()
+    expect(await reserve()).not.toHaveProperty("refused")
     // The first call's budget is still held, so a second would pass it.
-    expect(await reserve()).toBeNull()
+    expect(await reserve()).toEqual({ refused: "backstop" })
   })
 
   it("records against no period when the organisation has none", async () => {

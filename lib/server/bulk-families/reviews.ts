@@ -389,7 +389,10 @@ export const reviewTemplateReplyFamily: BulkFamily<BulkReviewTemplateInput> = {
           session: context.session,
           reviewId,
           input: draftInputSchema.parse({}),
-          requestId: context.requestId,
+          // One key per child claim: the tick's request id is shared by
+          // every child it runs, and the verification call's ledger key is
+          // derived from this one, so a shared id would collide.
+          requestId: `${context.requestId}:${context.intentId}`,
           tenant: (work) => withTenant(context.organisationId, work),
           draftId,
           templateOnly: true,
