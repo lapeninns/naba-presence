@@ -2289,7 +2289,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     }
   )
 
-  it("purges ended schedule history after 180 days and keeps anything still open (P08-R6)", async () => {
+  it("keeps ended schedule history however old while D-47 is open (P08-R6)", async () => {
     const t = await tenant(["post_scheduling"])
     const rule = {
       frequency: "once",
@@ -2301,7 +2301,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
         method: "PATCH",
         body: JSON.stringify({ action }),
       })
-    // Cancelled long ago: goes, with its cancelled occurrence.
+    // Cancelled long ago: kept, with its cancelled occurrence.
     const ended = await t.schedule(await t.draft(), rule)
     expect((await t.approve(ended)).status).toBe(200)
     expect((await act(ended.id, "cancel")).status).toBe(200)
@@ -2340,24 +2340,33 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       if (own) Object.assign(counts, own)
       cursor = page.nextCursor
     } while (cursor)
-    expect(counts).toMatchObject({
-      scheduleOccurrences: 1,
-      publicationSchedules: 1,
-      legacyPostSchedules: 0,
-    })
+    // decision-log.md D-47 keeps every schedule, occurrence and old
+    // per-post time until a period is decided: no step counts or deletes
+    // them, even with deletes enabled and the rows 200 to 300 days old.
+    expect(Object.keys(counts).length).toBeGreaterThan(0)
+    for (const key of [
+      "scheduleOccurrences",
+      "publicationSchedules",
+      "legacyPostSchedules",
+    ]) {
+      expect(counts, key).not.toHaveProperty(key)
+    }
     const left = await admin<{ id: string }[]>`
       select id::text as id from post_publication_schedule
       where organisation_id = ${t.owner.organisationId} order by id`
     expect(left.map((row) => row.id).sort()).toEqual(
-      [recent.id, open.id].sort()
+      [ended.id, recent.id, open.id].sort()
     )
+    expect(await t.occurrences(ended.id)).toHaveLength(1)
     expect(await t.occurrences(open.id)).toHaveLength(1)
     const audit = await admin`
       select metadata from audit_log
       where organisation_id = ${t.owner.organisationId} and action = 'retention.purge.completed'`
-    expect(audit[0]?.metadata).toMatchObject({
-      scheduleOccurrences: 1,
-      publicationSchedules: 1,
-    })
+    // Nothing of this tenant aged off, so the cycle may write no purge row;
+    // any it writes names no schedule dataset.
+    for (const row of audit) {
+      expect(row.metadata).not.toHaveProperty("publicationSchedules")
+      expect(row.metadata).not.toHaveProperty("scheduleOccurrences")
+    }
   })
 })

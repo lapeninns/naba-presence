@@ -1381,7 +1381,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `gbp_change_set` | operational | delete | expires_at (180 days after it is requested), once no Place Action attempt refers to it | `managementChangeSets` | gated | no | internal |
 | `gbp_local_post` | customer | redact | provider payload at provider_payload_expires_at; the post while its location stays connected; deleted with the external location 7 days after disconnect | `postPayloads`, `strandedPosts`, cascade from `external_location` | gated | cascade only | published |
 | `gbp_local_post_attempt` | operational | delete | expires_at (180 days after it is created) | `postAttempts`, cascade from `gbp_local_post` | gated | cascade only | internal |
-| `gbp_local_post_legacy_schedule` | customer | delete | 180 days after an owner or admin dismissed it; one nobody reviewed is kept; with its post (while its location stays connected; deleted with the external location 7 days after disconnect) | `legacyPostSchedules`, cascade from `gbp_local_post` | gated | cascade only | pending D-47: delete dismissed old per-post times 180 days after review (P08-R6 default) until D-47 sets the period |
+| `gbp_local_post_legacy_schedule` | customer | keep | with its post (while its location stays connected; deleted with the external location 7 days after disconnect); a dismissed one is kept too | cascade from `gbp_local_post` | gated | yes | pending D-47: keep every old per-post time, reviewed or not, for the life of its post |
 | `gbp_management_mutation` | operational | delete | expires_at (180 days after it is created); in-flight rows aged to ambiguous after 24 hours | `managementMutations`, `strandedManagement` | gated | no | internal |
 | `gbp_media_item` | google | redact | URLs, description, attribution, dimensions and insights at payload_expires_at (30 days after each observation) | `googleMediaPayloads`, cascade from `external_location` | gated | cascade only | published |
 | `gbp_media_mutation` | operational | delete | expires_at (180 days after it is created), except an unresolved uncertain create; in-flight rows aged to ambiguous after 24 hours | `mediaMutations`, `strandedMedia` | gated | no | internal |
@@ -1425,8 +1425,8 @@ listed in `failures` with `retention_dry_run_budget`.
 | `platform_incident` | operational | keep | kept after it resolves | none | none | no | pending D-47: keep resolved platform incidents as the operations record |
 | `platform_incident_delivery` | operational | keep | with its incident | none | none | no | pending D-47: keep operator alert deliveries (recipient address included) with their incident |
 | `post_approval_decision` | customer | keep | with its post | cascade from `gbp_local_post` | gated | yes | lifecycle |
-| `post_publication_occurrence` | customer | delete | 180 days after it ended (published, rejected, missed or cancelled), or with its schedule; an unresolved one, and any of a schedule in review or blocked, is kept however old | `scheduleOccurrences`, cascade from `post_publication_schedule` | gated | no | pending D-47: delete ended occurrences 180 days after they end (P08-R6 default) until D-47 sets the period |
-| `post_publication_schedule` | customer | delete | 180 days after it ended (cancelled or completed), once none of its occurrences is live or ended within that period; a schedule awaiting approval, active, paused, blocked or in review is kept however old | `publicationSchedules` | gated | no | pending D-47: delete ended schedules 180 days after they end (P08-R6 default) until D-47 sets the period |
+| `post_publication_occurrence` | customer | keep | with its schedule | none | none | no | pending D-47: keep every occurrence, run or skipped, for the life of its schedule |
+| `post_publication_schedule` | customer | keep | for the life of the location | none | none | no | pending D-47: keep finished and cancelled schedules for the life of the location |
 | `presence_canonical_resource` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `presence_import_proposal` | google | delete | expires_at (90 days after it is raised) | `importProposals`, cascade from `external_location` | gated | cascade only | published |
 | `presence_resource_reconcile_state` | operational | keep | one row per location and resource, for the life of the location | none | none | no | internal |
@@ -2272,19 +2272,17 @@ Both read `post_schedule_health()` (migrations 0121 and 0122; every affected
 organisation is reported) and resolve on the first health tick after the
 condition clears. Neither changes an occurrence.
 
-Retention: the daily retention cycle runs the scheduled post datasets
-(`scheduleOccurrences`, `publicationSchedules`, `legacyPostSchedules`) for each
-organisation through `purge_post_schedule_dataset` (0122), in bounded batches
-like every other dataset, and the dry run previews them. It deletes ended occurrences (published, rejected,
-missed, cancelled) 180 days after they ended, ended schedules (cancelled,
-completed) 180 days after their last change once none of their occurrences
-is live or recent, and old per-post times an owner dismissed 180 days after
-the dismissal. An `ambiguous` occurrence, a schedule awaiting approval, in
-review, paused or blocked, every occurrence of a schedule in review or blocked
-(it names the post and slot to check), and an old per-post time nobody
-reviewed are kept however old. `RETENTION_DELETES_ENABLED=false` stops it with the other
-deletes; the counts are `scheduleOccurrences`, `publicationSchedules` and
-`legacyPostSchedules` in the `retention.purge.completed` audit row.
+Retention: the daily retention cycle does not purge scheduled post history.
+Schedules, their occurrences and old per-post times are pending D-47
+(`docs/release/decision-log.md`), whose interim is keep until decided, so the
+purge has no step for them and `RETENTION_DELETES_ENABLED` does not reach them
+(an old per-post time still goes with its post when its location is purged on
+disconnect). `purge_post_schedule_dataset` (0122) holds the P08-R6 proposal
+for when D-47 sets a period: ended occurrences (published, rejected, missed,
+cancelled) and ended schedules (cancelled, completed) 180 days after they
+ended, dismissed old per-post times 180 days after the dismissal, and anything
+unresolved, awaiting approval, in review, paused or blocked kept however old.
+Nothing calls it until D-47 is decided and the inventory row changes.
 
 ### Partial bulk changes
 

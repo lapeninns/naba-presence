@@ -1932,14 +1932,14 @@ its schedule's lease (`scheduled_post_stuck`, 10 minutes after it started; not
 while the `jobs`, `publish` or `scheduled_post` pause holds the claim) or still
 `scheduled` three minutes past its deadline (`scheduled_post_overdue`; one
 jobs tick that overran its budget can delay the sweep about two minutes). Both only
-report. The retention purge (`lib/server/retention/purge.ts`, steps
-`scheduleOccurrences`, `publicationSchedules` and `legacyPostSchedules`,
-behind `RETENTION_DELETES_ENABLED`) calls
-`purge_post_schedule_dataset(dataset, 180, limit)` in each tenant, bounded like
-every other dataset, and its dry run asks the same function for a count:
-ended occurrences and schedules and dismissed per-post times age off after
-180 days; anything unresolved, awaiting approval or in review is kept,
-including every occurrence of a schedule in review or blocked (0122).
+report. The retention purge (`lib/server/retention/purge.ts`) has no step
+for scheduled post history: D-47 keeps it until a period is decided
+(`lib/server/retention/inventory.ts`, `tests/retention-inventory.test.ts`).
+0122 adds the proposed rule for when it is, uncalled until then:
+`purge_post_schedule_dataset(dataset, 180, limit)` in each tenant, with a dry
+run count, ages off ended occurrences and schedules and dismissed per-post
+times after 180 days; anything unresolved, awaiting approval or in review is
+kept, including every occurrence of a schedule in review or blocked.
 `purge_post_schedule_history(180)` is the unbounded run of all three. Both
 refuse without a tenant or below 30 days, and the runtime role has no DELETE
 on the three tables. `schedule_blocked` also carries `prior_occurrence_unverified`,

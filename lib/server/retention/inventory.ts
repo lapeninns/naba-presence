@@ -538,47 +538,42 @@ export const RETENTION_INVENTORY = [
     hold: "kept",
     approval: { status: "lifecycle" },
   },
-  // Scheduled post history (P08-R6, 0121/0122 purge_post_schedule_dataset):
-  // 180 days is the engineering default, applied behind
-  // RETENTION_DELETES_ENABLED while D-47 decides the period.
+  // Scheduled post history: D-47 is open and its interim is keep, so no
+  // purge step runs on these tables. 0122 purge_post_schedule_dataset holds
+  // the P08-R6 180-day rule ready for when D-47 sets a period; nothing calls
+  // it until then (tests/retention-inventory.test.ts).
   {
     table: "post_publication_schedule",
     provenance: "customer",
-    action: "delete",
-    window:
-      "180 days after it ended (cancelled or completed), once none of its occurrences is live or ended within that period; a schedule awaiting approval, active, paused, blocked or in review is kept however old",
-    steps: ["publicationSchedules"],
-    deletes: "gated",
+    action: "keep",
+    window: "for the life of the location",
+    deletes: "none",
     hold: "none",
     approval: PENDING_UNDECIDED(
-      "delete ended schedules 180 days after they end (P08-R6 default) until D-47 sets the period"
+      "keep finished and cancelled schedules for the life of the location"
     ),
   },
   {
     table: "post_publication_occurrence",
     provenance: "customer",
-    action: "delete",
-    window:
-      "180 days after it ended (published, rejected, missed or cancelled), or with its schedule; an unresolved one, and any of a schedule in review or blocked, is kept however old",
-    steps: ["scheduleOccurrences"],
-    cascadeFrom: ["post_publication_schedule"],
-    deletes: "gated",
+    action: "keep",
+    window: "with its schedule",
+    deletes: "none",
     hold: "none",
     approval: PENDING_UNDECIDED(
-      "delete ended occurrences 180 days after they end (P08-R6 default) until D-47 sets the period"
+      "keep every occurrence, run or skipped, for the life of its schedule"
     ),
   },
   {
     table: "gbp_local_post_legacy_schedule",
     provenance: "customer",
-    action: "delete",
-    window: `180 days after an owner or admin dismissed it; one nobody reviewed is kept; with its post (${KEPT_WITH_LOCATION})`,
-    steps: ["legacyPostSchedules"],
+    action: "keep",
+    window: `with its post (${KEPT_WITH_LOCATION}); a dismissed one is kept too`,
     cascadeFrom: ["gbp_local_post"],
     deletes: "gated",
-    hold: "cascade",
+    hold: "kept",
     approval: PENDING_UNDECIDED(
-      "delete dismissed old per-post times 180 days after review (P08-R6 default) until D-47 sets the period"
+      "keep every old per-post time, reviewed or not, for the life of its post"
     ),
   },
   {

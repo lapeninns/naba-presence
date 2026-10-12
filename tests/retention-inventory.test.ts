@@ -228,6 +228,51 @@ describe("retention inventory", () => {
     }
   })
 
+  it("deletes nothing a pending decision says to keep until decided (D-47)", () => {
+    // A pending row answers to its decision's starting position in
+    // decision-log.md. Where that is "Keep each until decided" (D-47), the
+    // row is kept whole: no delete action and no destructive step of its own,
+    // so turning RETENTION_DELETES_ENABLED on cannot purge it before the
+    // decision. It may still go with a parent (cascadeFrom). A decision whose
+    // position allows deletes (D-28: the privacy notice's windows) is not
+    // held to this.
+    const decisionLog = readFileSync(
+      new URL("../docs/release/decision-log.md", import.meta.url),
+      "utf8"
+    )
+    const position = (decision: string): string => {
+      const line = decisionLog
+        .split("\n")
+        .find((row) => row.startsWith(`| ${decision} |`))
+      return line?.split("|")[4]?.trim() ?? ""
+    }
+    expect(position("D-47")).toMatch(/^Keep each until decided/)
+    let kept = 0
+    for (const dataset of inventory) {
+      if (dataset.approval.status !== "pending") continue
+      if (!/^Keep\b/.test(position(dataset.approval.decision))) continue
+      kept += 1
+      expect(dataset.action, dataset.table).toBe("keep")
+      expect(dataset.handledBy, dataset.table).toBeUndefined()
+      const destructive = (dataset.steps ?? []).filter(
+        (key) => catalog.find((step) => step.key === key)?.destructive
+      )
+      expect(destructive, dataset.table).toEqual([])
+    }
+    expect(kept).toBeGreaterThan(0)
+    for (const table of [
+      "post_publication_schedule",
+      "post_publication_occurrence",
+      "gbp_local_post_legacy_schedule",
+    ]) {
+      expect(retentionDataset(table)?.approval, table).toMatchObject({
+        status: "pending",
+        decision: "D-47",
+      })
+      expect(retentionDataset(table)?.action, table).toBe("keep")
+    }
+  })
+
   it("adds no derived dataset without an approved window", () => {
     // Stops new persistent derived aggregates while D-28 is open: a derived
     // dataset is either published in the privacy notice or one of the few
