@@ -1,3 +1,6 @@
+> Historical migration record: OpenAI was restored on 12 October 2026.
+> See [the active OpenAI configuration](openai.md).
+
 # Review AI on Cloudflare Workers AI
 
 Draft generation and semantic verification use `@cf/zai-org/glm-5.3-flash`

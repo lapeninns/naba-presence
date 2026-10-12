@@ -9,15 +9,24 @@ import { ApiError } from "@/lib/server/http"
 
 type JsonSchema = Record<string, unknown>
 
-const completionSchema = z.object({
-  choices: z
+const responseSchema = z.object({
+  status: z.string(),
+  output_text: z.string().optional(),
+  output: z
     .array(
       z.object({
-        finish_reason: z.string(),
-        message: z.object({ content: z.string().nullable() }),
+        type: z.string(),
+        content: z
+          .array(
+            z.object({
+              type: z.string(),
+              text: z.string().optional(),
+            })
+          )
+          .optional(),
       })
     )
-    .min(1),
+    .optional(),
 })
 
 /** Token counts from a provider payload; null when the provider sent none. */
@@ -62,7 +71,7 @@ export function extractUsage(payload: Record<string, unknown>): AiUsage {
   }
 }
 
-async function workersAiStructured<T>(
+async function openAiStructured<T>(
   model: string,
   name: string,
   schema: JsonSchema,
@@ -70,7 +79,7 @@ async function workersAiStructured<T>(
   validator: z.ZodType<T>
 ): Promise<{ value: T; usage: AiUsage }> {
   const env = getServerEnv()
-  if (!env.WORKERS_AI_API_TOKEN || !env.WORKERS_AI_ACCOUNT_ID) {
+  if (!env.OPENAI_API_KEY) {
     throw new ApiError(
       503,
       "ai_not_configured",
@@ -80,26 +89,25 @@ async function workersAiStructured<T>(
   let payload: unknown
   try {
     const response = await fetch(
-      new URL(
-        `/client/v4/accounts/${env.WORKERS_AI_ACCOUNT_ID}/ai/v1/chat/completions`,
-        env.WORKERS_AI_BASE_URL
-      ),
+      new URL("/v1/responses", env.OPENAI_BASE_URL),
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${env.WORKERS_AI_API_TOKEN}`,
+          authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          ...(env.OPENAI_ORG_ID
+            ? { "OpenAI-Organization": env.OPENAI_ORG_ID }
+            : {}),
           "content-type": "application/json",
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: input }],
+          input,
           store: false,
           stream: false,
-          reasoning_effort: "low",
-          max_completion_tokens: 4096,
-          response_format: {
-            type: "json_schema",
-            json_schema: {
+          max_output_tokens: 4096,
+          text: {
+            format: {
+              type: "json_schema",
               name,
               strict: true,
               schema,
@@ -107,14 +115,14 @@ async function workersAiStructured<T>(
           },
         }),
         cache: "no-store",
-        signal: AbortSignal.timeout(env.WORKERS_AI_TIMEOUT_MS),
+        signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS),
       }
     )
     if (!response.ok) {
       throw new ApiError(
         response.status === 429 ? 429 : 502,
         "ai_provider_error",
-        "Cloudflare Workers AI rejected the request."
+        "OpenAI rejected the request."
       )
     }
     payload = await response.json()
@@ -150,7 +158,7 @@ async function workersAiStructured<T>(
     payload && typeof payload === "object"
       ? extractUsage(payload as Record<string, unknown>)
       : { inputTokens: null, outputTokens: null }
-  const envelope = completionSchema.safeParse(payload)
+  const envelope = responseSchema.safeParse(payload)
   if (!envelope.success) {
     throw new AiOutputError(
       "The AI provider returned an invalid response.",
@@ -159,16 +167,7 @@ async function workersAiStructured<T>(
       "ai_invalid_response"
     )
   }
-  const completion = envelope.data.choices[0]
-  if (!completion?.message.content) {
-    throw new AiOutputError(
-      "The AI provider returned no text.",
-      usage,
-      model,
-      "ai_empty_response"
-    )
-  }
-  if (completion.finish_reason !== "stop") {
+  if (envelope.data.status !== "completed") {
     throw new AiOutputError(
       "The AI provider did not complete the response.",
       usage,
@@ -176,9 +175,25 @@ async function workersAiStructured<T>(
       "ai_incomplete_response"
     )
   }
+  const text =
+    envelope.data.output_text ??
+    envelope.data.output
+      ?.filter((item) => item.type === "message")
+      .flatMap((item) => item.content ?? [])
+      .filter((block) => block.type === "output_text")
+      .map((block) => block.text ?? "")
+      .join("")
+  if (!text) {
+    throw new AiOutputError(
+      "The AI provider returned no text.",
+      usage,
+      model,
+      "ai_empty_response"
+    )
+  }
   try {
     return {
-      value: validator.parse(JSON.parse(completion.message.content)),
+      value: validator.parse(JSON.parse(text)),
       usage,
     }
   } catch {
@@ -190,7 +205,6 @@ async function workersAiStructured<T>(
     )
   }
 }
-
 
 const draftResultSchema = z.object({
   reply: z.string().trim().min(1).max(4096),
@@ -206,8 +220,8 @@ export async function generateReply(input: {
   tone: DraftTone
   businessContext?: string | null
 }) {
-  const model = getServerEnv().WORKERS_AI_MODEL
-  const { value, usage } = await workersAiStructured(
+  const model = getServerEnv().OPENAI_MODEL_DRAFT
+  const { value, usage } = await openAiStructured(
     model,
     "google_review_reply",
     {
@@ -285,7 +299,7 @@ export type SemanticVerificationResult = {
  * `ran: false` means the pass was deliberately not attempted: the
  * `SEMANTIC_VERIFY_ENABLED` kill switch is off (the degraded mode
  * docs/runbook.md prescribes for a provider incident) or this install has no
- * Workers AI credentials (a keyless deployment is supported, and
+ * OpenAI credentials (a keyless deployment is supported, and
  * the integration harness is one). The caller must not then record a
  * checks_version claiming this layer ran.
  *
@@ -297,15 +311,11 @@ export async function semanticVerification(
   input: SemanticInput
 ): Promise<SemanticVerificationResult> {
   const env = getServerEnv()
-  if (
-    !env.SEMANTIC_VERIFY_ENABLED ||
-    !env.WORKERS_AI_API_TOKEN ||
-    !env.WORKERS_AI_ACCOUNT_ID
-  ) {
+  if (!env.SEMANTIC_VERIFY_ENABLED || !env.OPENAI_API_KEY) {
     return { ran: false, reasons: [] }
   }
-  const { value: result, usage } = await workersAiStructured(
-    env.WORKERS_AI_MODEL,
+  const { value: result, usage } = await openAiStructured(
+    env.OPENAI_MODEL_VERIFY,
     "review_reply_verification",
     {
       type: "object",
@@ -327,7 +337,7 @@ export async function semanticVerification(
   return {
     ran: true,
     usage,
-    model: env.WORKERS_AI_MODEL,
+    model: env.OPENAI_MODEL_VERIFY,
     reasons: [
       ...result.unsupportedClaims.map((claim) => ({
         code: "unsupported_claim",

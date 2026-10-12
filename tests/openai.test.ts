@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { generateReply, semanticVerification } from "@/lib/server/ai"
 import { runSemanticVerification } from "@/lib/server/drafts"
-import { serverEnvSchema } from "@/lib/server/env"
 
 const { settings } = vi.hoisted(() => ({ settings: { values: {} } }))
 vi.mock("@/lib/server/env", async (importOriginal) => {
@@ -18,8 +17,7 @@ const baseEnv = {
   NEXTAUTH_SECRET: "n".repeat(32),
   TOKEN_ENCRYPTION_KEY: "t".repeat(32),
   CRON_SECRET: "c".repeat(16),
-  WORKERS_AI_API_TOKEN: "test-workers-ai-token",
-  WORKERS_AI_ACCOUNT_ID: "a".repeat(32),
+  OPENAI_API_KEY: "test-openai-key",
 }
 const draftInput = {
   reviewText: "The pie was lovely.",
@@ -44,15 +42,16 @@ const verdict = {
 }
 const fetchMock = vi.fn<typeof fetch>()
 
-function completion(value: unknown, finishReason = "stop") {
+function completion(value: unknown, status = "completed") {
   return Response.json({
-    choices: [
+    status,
+    output: [
       {
-        finish_reason: finishReason,
-        message: { content: JSON.stringify(value) },
+        type: "message",
+        content: [{ type: "output_text", text: JSON.stringify(value) }],
       },
     ],
-    usage: { prompt_tokens: 120, completion_tokens: 33 },
+    usage: { input_tokens: 120, output_tokens: 33 },
   })
 }
 
@@ -65,49 +64,49 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe("Workers AI review integration", () => {
-  it("sends structured GLM requests directly to the account with no gateway or OpenAI credentials", async () => {
-    settings.values = { ...baseEnv, OPENAI_API_KEY: "must-never-be-used" }
+describe("OpenAI review integration", () => {
+  it("sends structured Responses requests with the existing OpenAI credentials", async () => {
+    settings.values = { ...baseEnv, OPENAI_ORG_ID: "org-test" }
     fetchMock.mockResolvedValue(completion(draft))
     expect(await generateReply(draftInput)).toEqual({
       ...draft,
       usage: { inputTokens: 120, outputTokens: 33 },
-      model: "@cf/zai-org/glm-5.3-flash",
+      model: "gpt-4.1-nano",
     })
     const call = fetchMock.mock.calls[0]
     expect(call).toBeDefined()
     if (!call) throw new Error("Expected a provider call")
     const [url, options] = call
-    expect(String(url)).toBe(
-      `https://api.cloudflare.com/client/v4/accounts/${baseEnv.WORKERS_AI_ACCOUNT_ID}/ai/v1/chat/completions`
-    )
+    expect(String(url)).toBe("https://api.openai.com/v1/responses")
     expect(options?.headers).toEqual({
-      authorization: "Bearer test-workers-ai-token",
+      authorization: "Bearer test-openai-key",
       "content-type": "application/json",
+      "OpenAI-Organization": "org-test",
     })
     expect(options?.cache).toBe("no-store")
     expect(options?.signal).toBeInstanceOf(AbortSignal)
     const body = JSON.parse(String(options?.body))
     expect(body).toMatchObject({
-      model: "@cf/zai-org/glm-5.3-flash",
+      model: "gpt-4.1-nano",
       store: false,
       stream: false,
-      reasoning_effort: "low",
-      max_completion_tokens: 4096,
-      response_format: {
-        type: "json_schema",
-        json_schema: {
+      max_output_tokens: 4096,
+      text: {
+        format: {
+          type: "json_schema",
           name: "google_review_reply",
           strict: true,
           schema: { required: ["reply", "language"] },
         },
       },
     })
-    expect(body.messages[0].content).toContain("The pie was lovely.")
+    expect(body.reasoning).toBeUndefined()
+    expect(body.input).toContain("The pie was lovely.")
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("uses the same model for semantic verification and preserves verdict reasons", async () => {
+    settings.values = { ...baseEnv, OPENAI_MODEL_VERIFY: "gpt-4.1-mini" }
     fetchMock.mockResolvedValue(
       completion({
         unsupportedClaims: ["Invented refund"],
@@ -125,9 +124,7 @@ describe("Workers AI review integration", () => {
     expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
       '"name":"review_reply_verification"'
     )
-    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
-      serverEnvSchema.parse(baseEnv).WORKERS_AI_MODEL
-    )
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain("gpt-4.1-mini")
   })
 
   it("keeps a successful semantic result distinguishable from a skipped check", async () => {
@@ -136,7 +133,7 @@ describe("Workers AI review integration", () => {
       ran: true,
       reasons: [],
       usage: { inputTokens: 120, outputTokens: 33 },
-      model: "@cf/zai-org/glm-5.3-flash",
+      model: "gpt-4.1-nano",
     })
     settings.values = { ...baseEnv, SEMANTIC_VERIFY_ENABLED: "false" }
     expect(await semanticVerification(verificationInput)).toEqual({
@@ -146,13 +143,14 @@ describe("Workers AI review integration", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it.each(["WORKERS_AI_API_TOKEN", "WORKERS_AI_ACCOUNT_ID"])(
+  it.each(["OPENAI_API_KEY"])(
     "does not call a provider when %s is absent",
     async (key) => {
       settings.values = {
         ...baseEnv,
         [key]: "",
-        OPENAI_API_KEY: "must-never-be-used",
+        WORKERS_AI_API_TOKEN: "must-never-be-used",
+        WORKERS_AI_ACCOUNT_ID: "a".repeat(32),
       }
       await expect(generateReply(draftInput)).rejects.toMatchObject({
         status: 503,
@@ -175,7 +173,7 @@ describe("Workers AI review integration", () => {
       await expect(generateReply(draftInput)).rejects.toMatchObject({
         status: status === 429 ? 429 : 502,
         code: "ai_provider_error",
-        message: "Cloudflare Workers AI rejected the request.",
+        message: "OpenAI rejected the request.",
       })
       expect(fetchMock).toHaveBeenCalledTimes(1)
     }
@@ -184,7 +182,7 @@ describe("Workers AI review integration", () => {
   it.each([
     [
       "malformed envelope",
-      () => Response.json({ choices: [] }),
+      () => Response.json({ output: [] }),
       "ai_invalid_response",
     ],
     [
@@ -199,14 +197,15 @@ describe("Workers AI review integration", () => {
     ],
     [
       "truncated output",
-      () => completion(draft, "length"),
+      () => completion(draft, "incomplete"),
       "ai_incomplete_response",
     ],
     [
       "empty output",
       () =>
         Response.json({
-          choices: [{ finish_reason: "stop", message: { content: null } }],
+          status: "completed",
+          output: [],
         }),
       "ai_empty_response",
     ],
@@ -214,7 +213,8 @@ describe("Workers AI review integration", () => {
       "invalid content JSON",
       () =>
         Response.json({
-          choices: [{ finish_reason: "stop", message: { content: "```json" } }],
+          status: "completed",
+          output_text: "```json",
         }),
       "ai_invalid_response",
     ],
@@ -223,6 +223,34 @@ describe("Workers AI review integration", () => {
     await expect(generateReply(draftInput)).rejects.toMatchObject({
       status: 502,
       code,
+    })
+  })
+
+  it("retains billed usage on an incomplete response", async () => {
+    fetchMock.mockResolvedValue(completion(draft, "incomplete"))
+    await expect(generateReply(draftInput)).rejects.toMatchObject({
+      code: "ai_incomplete_response",
+      model: "gpt-4.1-nano",
+      usage: { inputTokens: 120, outputTokens: 33 },
+    })
+  })
+
+  it("does not accept a refusal as generated content", async () => {
+    fetchMock.mockResolvedValue(
+      Response.json({
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [{ type: "refusal", refusal: "Refused" }],
+          },
+        ],
+        usage: { input_tokens: 120, output_tokens: 33 },
+      })
+    )
+    await expect(generateReply(draftInput)).rejects.toMatchObject({
+      code: "ai_empty_response",
+      usage: { inputTokens: 120, outputTokens: 33 },
     })
   })
 
