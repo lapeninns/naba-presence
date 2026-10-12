@@ -1694,7 +1694,9 @@ node, or appends one under a parent, and skips a listing where a named ID is
 missing or repeated, where a node is added under the wrong level, or where a
 change falls inside a removed node. The preview freezes Google's menus hash
 and lists every node each listing loses, adds and updates; a listing whose
-saved menus hold an unpublished edit is skipped. The child is sent through
+saved menus hold an unpublished edit is skipped, and so is one whose saved
+menus were edited after the preview, even when Google already shows the
+result (both settle as a `food_menus_local_changes` conflict). The child is sent through
 the menu editor's own path (`publishFoodMenusChangeLocked` in
 `lib/server/food-menus.ts`): the result is saved as a new canonical
 revision, then published as the editor's full replacement on
@@ -1702,7 +1704,10 @@ revision, then published as the editor's full replacement on
 and settled by the existing Food Menus recovery adapter. The restore point
 (the revision saved and the menus it replaced) is kept in
 `bulk_listing_child.hours_restore`, so a write recovery reads back as not
-applied puts the saved menus back. The editor's publish (`publishFoodMenus`)
+applied puts the saved menus back. A re-claim that finds its own earlier save
+(the claim clears the restore point) records it again: the menus that save
+replaced matched the preview's Google menus, which Google still shows. The
+editor's publish (`publishFoodMenus`)
 now holds the same `<org>:<location>:food_menus` lock as bulk children.
 Post drafts (`lib/server/bulk-families/posts.ts`) send nothing to Google:
 each listing gets one independent local draft (`insertLocalPostDraft`),

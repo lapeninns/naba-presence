@@ -27,6 +27,10 @@ type Listing = {
   /** The next menu PATCH answers 503 (applied or not), and reads fail until cleared. */
   lostResponse?: "landed" | "not_landed"
   readsFail?: boolean
+  /** Menu PATCHes are refused outright (400): definitely not applied. */
+  reject?: boolean
+  /** Food Menus reads wait this long before answering. */
+  readDelayMs?: number
 }
 
 const label = (displayName: string) => [{ displayName }]
@@ -88,6 +92,11 @@ describeDatabase("bulk menus and post drafts", { timeout: 60_000 }, () => {
     google.respond({ method: "PATCH", pathIncludes: "/foodMenus" }, (call) => {
       const state = listings.get(listingOf(call.path))
       if (!state) return { status: 404, json: {} }
+      if (state.reject)
+        return {
+          status: 400,
+          json: { error: { code: 400, status: "INVALID_ARGUMENT" } },
+        }
       const lost = state.lostResponse
       if (lost !== "not_landed")
         state.menus = (call.body as { menus: Menus }).menus
@@ -101,13 +110,18 @@ describeDatabase("bulk menus and post drafts", { timeout: 60_000 }, () => {
     // One GET handler: the Food Menus read carries a readMask too.
     google.respond(
       { method: "GET", pathIncludes: "locations/stub-" },
-      (call) => {
+      async (call) => {
         const name = listingOf(call.path)
         const state = listings.get(name)
         if (!state) return { status: 404, json: {} }
         if (state.readsFail) return UNAVAILABLE
-        if (call.path.includes("/foodMenus"))
+        if (call.path.includes("/foodMenus")) {
+          if (state.readDelayMs)
+            await new Promise((resolve) =>
+              setTimeout(resolve, state.readDelayMs)
+            )
           return { status: 200, json: { menus: state.menus } }
+        }
         return {
           status: 200,
           json: {
@@ -213,6 +227,22 @@ describeDatabase("bulk menus and post drafts", { timeout: 60_000 }, () => {
         }
       ).foodMenus
     }
+    /** An editor save of the listing's menus (unpublished). */
+    const saveMenus = async (locationId: string, menus: Menus) => {
+      const current = await menusApi(locationId)
+      const response = await fetch(
+        `${server.baseUrl}/api/locations/${locationId}/food-menus`,
+        {
+          method: "PUT",
+          headers: { cookie: owner.cookie, "content-type": "application/json" },
+          body: JSON.stringify({
+            expectedCanonicalRevision: current.canonicalResource.revision,
+            menus,
+          }),
+        }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+    }
     const childOf = (op: BulkOperationView, index: number) =>
       op.children.find(
         (child) => child.locationId === linked[index].locationId
@@ -226,6 +256,7 @@ describeDatabase("bulk menus and post drafts", { timeout: 60_000 }, () => {
       status,
       receipt,
       menusApi,
+      saveMenus,
       childOf,
     }
   }
@@ -429,6 +460,123 @@ describeDatabase("bulk menus and post drafts", { timeout: 60_000 }, () => {
       }
     })
   }
+
+  it("settles each dispatch-time menu state: already applied, an editor's edit made after the preview, and a refused write", async () => {
+    const t = await tenant(4)
+    const [a, b, , d] = t.linked.map((l) => l.googleLocationName)
+    const next: Menus = [{ labels: label("Brunch") }]
+    const op = await t.preview([
+      { operation: "food_menus", mode: "replace", menus: next },
+    ])
+    expect(op.children.every((child) => child.eligibility === "eligible")).toBe(
+      true
+    )
+    await t.run(op)
+    // A: Google already shows the result; the saved menus are untouched.
+    listings.get(a)!.menus = next
+    // B: Google already shows the result, but an editor then saved a
+    // further, unpublished edit. It must never be overwritten.
+    listings.get(b)!.menus = next
+    const draft: Menus = [...next, { labels: label("Dinner") }]
+    await t.saveMenus(t.linked[1].locationId, draft)
+    // C: an unpublished editor edit made after the preview; Google unchanged.
+    await t.saveMenus(t.linked[2].locationId, [...lunch(), ...draft])
+    // D: Google refuses the write outright.
+    listings.get(d)!.reject = true
+    await tick()
+    const after = await t.status(op)
+    expect(t.childOf(after, 0)).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(t.childOf(after, 1)).toMatchObject({
+      status: "conflict",
+      resultCode: "food_menus_local_changes",
+    })
+    expect(t.childOf(after, 2)).toMatchObject({
+      status: "conflict",
+      resultCode: "food_menus_local_changes",
+    })
+    expect(t.childOf(after, 3).status).toBe("failed")
+    // Only D was sent, once.
+    expect(menuPatches()).toHaveLength(1)
+    expect(menuPatches(d)).toHaveLength(1)
+    const saved = await Promise.all(
+      t.linked.map((l) => t.menusApi(l.locationId))
+    )
+    expect(saved[0].canonicalMenus).toEqual(next)
+    expect(saved[0].status).toBe("in_sync")
+    expect(saved[1].canonicalMenus).toEqual(draft)
+    expect(saved[2].canonicalMenus).toEqual([...lunch(), ...draft])
+    // The refused write put D's saved menus back.
+    expect(saved[3].canonicalMenus).toEqual(lunch())
+    expect(listings.get(d)!.menus).toEqual(lunch())
+  })
+
+  for (const ending of ["rejected", "not_landed"] as const) {
+    it(`keeps a restore point when a re-claim finds its own earlier save (${ending})`, async () => {
+      const t = await tenant(1)
+      const [linked] = t.linked
+      const name = linked.googleLocationName
+      const next: Menus = [{ labels: label("Brunch") }]
+      const op = await t.preview([
+        { operation: "food_menus", mode: "replace", menus: next },
+      ])
+      await t.run(op)
+      // An earlier claim saved the result, then stopped before a receipt;
+      // the re-claim cleared its restore point.
+      await t.saveMenus(linked.locationId, next)
+      if (ending === "rejected") listings.get(name)!.reject = true
+      else listings.get(name)!.lostResponse = "not_landed"
+      await tick()
+      if (ending === "not_landed") {
+        const [unresolved] = (await t.status(op)).children
+        expect(unresolved.status).toBe("ambiguous")
+        listings.get(name)!.readsFail = false
+        await admin`update mutation_operation set next_recovery_at = now() - interval '1 second'
+          where id = ${unresolved.mutationOperationId!}`
+        await tick()
+        await tick()
+      }
+      const [settled] = (await t.status(op)).children
+      expect(settled.status).toBe("failed")
+      expect(menuPatches(name)).toHaveLength(1)
+      expect(listings.get(name)!.menus).toEqual(lunch())
+      // The saved menus are back to what Google showed at the preview.
+      const saved = await t.menusApi(linked.locationId)
+      expect(saved.canonicalMenus).toEqual(lunch())
+      expect(saved.status).toBe("in_sync")
+    })
+  }
+
+  it("expires a child whose dispatch window closes while it reads Google, with nothing saved or sent", async () => {
+    const t = await tenant(1)
+    const [linked] = t.linked
+    const name = linked.googleLocationName
+    const op = await t.preview([
+      {
+        operation: "food_menus",
+        mode: "replace",
+        menus: [{ labels: label("Brunch") }],
+      },
+    ])
+    await t.run(op)
+    const before = await t.menusApi(linked.locationId)
+    // The window closes during the dispatch's own Google read.
+    await admin`update bulk_listing_operation set dispatch_expires_at = now() + interval '3 seconds'
+      where id = ${op.id}`
+    listings.get(name)!.readDelayMs = 4_500
+    await tick()
+    listings.get(name)!.readDelayMs = undefined
+    const [child] = (await t.status(op)).children
+    expect(child.status).toBe("expired")
+    expect(menuPatches(name)).toHaveLength(0)
+    const saved = await t.menusApi(linked.locationId)
+    expect(saved.canonicalResource.revision).toBe(
+      before.canonicalResource.revision
+    )
+    expect(saved.canonicalMenus).toEqual(lunch())
+  })
 
   it("publishes the menu editor's change under the Food Menus lock bulk children take", async () => {
     const t = await tenant(1)

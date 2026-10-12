@@ -565,8 +565,9 @@ export type FoodMenusChangeResult = { googleHash: string } & (
  * editor sends, under the caller's intent, with its receipt, readback and
  * recovery (food_menus_sync_attempt). The caller holds `foodMenusLockKey`.
  *
- *   - Google already shows the result: the saved menus are brought in line,
- *     nothing is sent (`applied`).
+ *   - Google already shows the result: the saved menus are brought in line
+ *     unless they hold an unpublished edit (`refused`), nothing is sent
+ *     (`applied`).
  *   - Google's menus changed since the preview, or the saved menus hold an
  *     unpublished edit (neither Google's menus nor this change's result):
  *     nothing is saved or sent (`conflict`).
@@ -622,19 +623,49 @@ export async function publishFoodMenusChangeLocked(
       })
       return updated
     })
+  // An unpublished menu edit is the editor's to publish or discard; a bulk
+  // change never overwrites it. The preview only offered listings whose
+  // saved menus matched Google's (`expectedGoogleHash`), so saved menus that
+  // are now neither that nor this change's result were edited since.
+  const localEdit =
+    canonicalHash !== change.expectedGoogleHash && canonicalHash !== targetHash
   if (googleHash === targetHash) {
-    if (canonicalHash !== targetHash) await saveTarget(false)
+    if (canonicalHash === targetHash) return { status: "applied", googleHash }
+    if (localEdit)
+      return {
+        status: "refused",
+        reason: "food_menus_local_changes",
+        googleHash,
+      }
+    await saveTarget(false)
     return { status: "applied", googleHash }
   }
   if (googleHash !== change.expectedGoogleHash)
     return { status: "conflict", googleHash }
-  // An unpublished menu edit is the editor's to publish or discard; a bulk
-  // change never overwrites it. A canonical already at this change's result
-  // is this change's own earlier save (a retry after an unsent claim).
-  if (canonicalHash !== googleHash && canonicalHash !== targetHash)
+  if (localEdit)
     return { status: "refused", reason: "food_menus_local_changes", googleHash }
   if (!change.stillOpen()) return { status: "closed", googleHash }
-  const saved = canonicalHash === targetHash ? null : await saveTarget(true)
+  // Saved menus already at this change's result are this change's own
+  // earlier save (a re-claim after a claim that saved, then stopped before
+  // a receipt; the claim cleared its restore point). The menus that save
+  // replaced matched the preview's Google menus, which Google still shows,
+  // so they are recorded again as the restore point.
+  let saved: Awaited<ReturnType<typeof saveTarget>> | null = null
+  let restore: FoodMenusRestore
+  if (canonicalHash === targetHash) {
+    restore = {
+      revision: live.canonicalResource.revision,
+      payload: live.state.googleMenus,
+    }
+    const { recordRestore } = change
+    if (recordRestore)
+      await withTenant(session.organisationId, (sql) =>
+        recordRestore(sql, restore)
+      )
+  } else {
+    saved = await saveTarget(true)
+    restore = { revision: saved.revision, payload: live.state.canonicalMenus }
+  }
   const published: LiveFoodMenus = saved
     ? {
         ...live,
@@ -662,22 +693,17 @@ export async function publishFoodMenusChangeLocked(
     })
     return { status: "published", outcome: result.outcome, googleHash }
   } catch (error) {
-    if (saved) {
-      await withTenant(session.organisationId, async (sql) => {
-        const [receipt] = await sql<{ state: string }[]>`
-          select state from mutation_operation
-          where organisation_id = ${session.organisationId} and intent_id = ${change.intentId}`
-        if (receipt && !["failed", "rejected"].includes(receipt.state)) return
-        await restoreFoodMenusRevision(sql, {
-          organisationId: session.organisationId,
-          locationId,
-          restore: {
-            revision: saved.revision,
-            payload: live.state.canonicalMenus,
-          },
-        })
+    await withTenant(session.organisationId, async (sql) => {
+      const [receipt] = await sql<{ state: string }[]>`
+        select state from mutation_operation
+        where organisation_id = ${session.organisationId} and intent_id = ${change.intentId}`
+      if (receipt && !["failed", "rejected"].includes(receipt.state)) return
+      await restoreFoodMenusRevision(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        restore,
       })
-    }
+    })
     throw error
   }
 }
