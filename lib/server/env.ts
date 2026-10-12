@@ -155,10 +155,14 @@ export const serverEnvSchema = z.object({
   // Central billing enforcement (plan P07-S3): read-only organisations get
   // 402 billing_read_only on new work, the job runner holds their new
   // provider dispatch, and the location limit binds new links. Off by
-  // default and a hard override: off, nothing is enforced whatever an
-  // organisation's own organisation_billing.enforcement_enabled says. On,
-  // only organisations with that flag (or with no billing row at all) are
-  // enforced (lib/server/entitlement-policy.ts).
+  // default and a hard override for the app: off, nothing the app does is
+  // enforced whatever an organisation's own
+  // organisation_billing.enforcement_enabled says. On, only organisations
+  // with that flag (or with no billing row at all) are enforced
+  // (lib/server/entitlement-policy.ts). The location-limit trigger sees this
+  // flag only through withTenant (app.billing_enforcement, lib/server/db.ts);
+  // a link written outside withTenant (operator SQL, scripts) follows the
+  // organisation's own flag alone (docs/runbook.md).
   BILLING_ENFORCEMENT_ENABLED: featureFlag(false),
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,

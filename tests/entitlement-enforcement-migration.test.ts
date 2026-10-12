@@ -17,6 +17,7 @@ const read = (name: string) =>
   readFileSync(join(process.cwd(), "supabase/migrations", name), "utf8")
 
 const migration = read("0223_entitlement_enforcement.sql")
+const hardening = read("0224_location_limit_hardening.sql")
 
 const ORG = "00000000-0000-4000-8000-0000000000a1"
 const OTHER = "00000000-0000-4000-8000-0000000000b2"
@@ -24,6 +25,7 @@ const OTHER = "00000000-0000-4000-8000-0000000000b2"
 describe("0223 entitlement enforcement migration", () => {
   it("is listed in the required-migrations manifest", () => {
     expect(REQUIRED_MIGRATIONS).toContain("0223_entitlement_enforcement")
+    expect(REQUIRED_MIGRATIONS).toContain("0224_location_limit_hardening")
   })
 
   it("adds the per-organisation flag off by default and never deletes links", () => {
@@ -91,6 +93,7 @@ describe("0223 entitlement enforcement migration", () => {
       await db.exec(read("0220_billing_foundation.sql"))
       await db.exec(read("0221_billing_period_checks.sql"))
       await db.exec(migration)
+      await db.exec(hardening)
       const plan = async (code: string, limit: number) =>
         (
           await db.query<{ id: string }>(
@@ -238,6 +241,57 @@ describe("0223 entitlement enforcement migration", () => {
           )
         ).rejects.toMatchObject({ message: "location_limit_reached" })
       })
+    })
+
+    it("refuses billable_location_count to the runtime role", async () => {
+      await db.query(
+        `insert into location_link (organisation_id, location_id, external_location_id)
+         values ($1, gen_random_uuid(), $2)`,
+        [OTHER, ext(9)]
+      )
+      await db.transaction(async (tx) => {
+        await tx.query("set local role naba_app_runtime")
+        await expect(
+          tx.query("select billable_location_count($1) as n", [OTHER])
+        ).rejects.toMatchObject({ code: "42501" })
+      })
+    })
+
+    it("treats a missing billing row as the app does", async () => {
+      await db.exec(
+        `delete from organisation_billing where organisation_id = '${ORG}'`
+      )
+      // No setting (an operator connection): no flag to read, so it passes.
+      await link(ext(1))
+      expect(await active()).toBe(1)
+      // The app's tenant transaction with enforcement on: limit 0.
+      await db.transaction(async (tx) => {
+        await tx.query(
+          "select set_config('app.billing_enforcement', 'on', true)"
+        )
+        await expect(
+          tx.query(
+            `insert into location_link (organisation_id, location_id, external_location_id)
+             values ($1, gen_random_uuid(), $2)`,
+            [ORG, ext(2)]
+          )
+        ).rejects.toMatchObject({
+          message: "location_limit_reached",
+          detail: "0",
+        })
+      })
+      // ... and 'off' passes.
+      await db.transaction(async (tx) => {
+        await tx.query(
+          "select set_config('app.billing_enforcement', 'off', true)"
+        )
+        await tx.query(
+          `insert into location_link (organisation_id, location_id, external_location_id)
+           values ($1, gen_random_uuid(), $2)`,
+          [ORG, ext(2)]
+        )
+      })
+      expect(await active()).toBe(2)
     })
 
     it("counts only the organisation's own links", async () => {

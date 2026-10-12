@@ -5,7 +5,7 @@ import { googleOnboardingDraftSchema, googleOnboardingReviewSchema } from "@/lib
 import { onboardingMatchLinkOperationSchema, onboardingMatchLinkReviewSchema } from "@/lib/contracts/google-onboarding-match-link"
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
-import { createTestTenant, destroyTenants, seedGoogleConnection, seedMemberUser } from "../helpers/tenant"
+import { createTestTenant, destroyTenants, seedGoogleConnection, seedLinkedLocation, seedMemberUser } from "../helpers/tenant"
 
 const database = process.env.RUN_DB_TESTS === "true" ? describe : describe.skip
 
@@ -14,8 +14,12 @@ database("standalone exact match-link reviews", () => {
   let google: GoogleStub
   let server: Awaited<ReturnType<typeof startAppServer>>
   const organisations: string[] = []
+  const planCodes: string[] = []
+  // BILLING_ENFORCEMENT_ENABLED applies only to organisations whose own flag
+  // is on: every tenant here is a pilot with it off, except the
+  // location-limit cases.
   function bootServer() {
-    return startAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GOOGLE_REQUESTS_PER_SECOND: "100", DATABASE_SESSION_URL: process.env.TEST_RUNTIME_DATABASE_URL ?? "", DATABASE_POOL_MAX: "1", PUBLISH_ENABLED: "true", GBP_PROFILE_WRITES_ENABLED: "true" })
+    return startAppServer({ GOOGLE_API_PROXY_BASE: google.baseUrl, GOOGLE_REQUESTS_PER_SECOND: "100", DATABASE_SESSION_URL: process.env.TEST_RUNTIME_DATABASE_URL ?? "", DATABASE_POOL_MAX: "1", PUBLISH_ENABLED: "true", GBP_PROFILE_WRITES_ENABLED: "true", BILLING_ENFORCEMENT_ENABLED: "true" })
   }
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL ?? "", { max: 1 })
@@ -26,6 +30,7 @@ database("standalone exact match-link reviews", () => {
     await server.stop()
     await google.stop()
     await destroyTenants(admin, organisations)
+    if (planCodes.length) await admin`delete from billing_plan where code in ${admin(planCodes)}`
     await admin.end()
   })
 
@@ -220,6 +225,50 @@ database("standalone exact match-link reviews", () => {
     const saved = await review(owner)
     await admin`delete from google_onboarding_draft where id = ${owner.draft.id}`
     expect(await admin`select id from google_onboarding_match_link_review where id = ${saved.id}`).toHaveLength(0)
+  })
+
+  /** An active, enforced one-location plan with its one seat already taken. */
+  async function atLocationLimit(owner: Awaited<ReturnType<typeof fixture>>) {
+    const code = `p07s3_${randomUUID().replaceAll("-", "").slice(0, 16)}`
+    planCodes.push(code)
+    const [plan] = await admin<{ id: string }[]>`insert into billing_plan (code, version, workspace_mode, environment, name, stripe_price_id, location_limit, ai_draft_credits_per_period, is_test_offer)
+      values (${code}, 1, 'agency', 'test', 'Limit test', ${`price_${code.replaceAll("_", "")}`}, 1, 10, true) returning id::text as id`
+    const id = randomUUID().replaceAll("-", "")
+    await admin`update organisation_billing set state = 'active', plan_id = ${plan.id}, environment = 'test', stripe_customer_id = ${`cus_${id}`}, stripe_subscription_id = ${`sub_${id}`},
+      current_period_start = now() - interval '1 day', current_period_end = now() + interval '29 days', first_payment_succeeded = true, enforcement_enabled = true
+      where organisation_id = ${owner.organisationId}`
+    return seedLinkedLocation(admin, { organisationId: owner.organisationId, connectionId: owner.connectionId, googleAccountName: owner.googleAccountName })
+  }
+
+  it("records location_limit_reached when the plan's limit refuses the link, and links on retry once a seat frees", async () => {
+    const owner = await fixture()
+    const taken = await atLocationLimit(owner)
+    const saved = await approvedReview(owner)
+    const response = await operation(owner, saved)
+    expect(response.status, await response.clone().text()).toBe(200)
+    const failed = onboardingMatchLinkOperationSchema.parse(await response.json())
+    expect(failed).toMatchObject({ state: "failed", attemptGeneration: 1, locationId: null, errorCode: "location_limit_reached" })
+    expect(await admin`select id from location_link where organisation_id = ${owner.organisationId} and is_active`).toHaveLength(1)
+    await admin`update location_link set is_active = false where external_location_id = ${taken.externalLocationId}`
+    const retried = await operation(owner, saved)
+    expect(retried.status, await retried.clone().text()).toBe(200)
+    expect(onboardingMatchLinkOperationSchema.parse(await retried.json())).toMatchObject({ id: failed.id, state: "linked", attemptGeneration: 2, errorCode: null })
+  })
+
+  it("refuses creation at the location limit before creating anything in Google", async () => {
+    const owner = await fixture()
+    await atLocationLimit(owner)
+    let creations = 0
+    google.respond({ method: "POST", pathIncludes: `/v1/${owner.googleAccountName}/locations?` }, (call) => {
+      if (new URL(call.path, google.baseUrl).searchParams.get("validateOnly") !== "true") creations++
+      return { status: 200, json: {} }
+    })
+    const createReview = await creationReview(owner)
+    const response = await fetch(`${server.baseUrl}${owner.path}/creation`, { method: "POST", headers: { cookie: owner.cookie, "content-type": "application/json" }, body: JSON.stringify({ reviewId: createReview.id, expectedReviewHash: createReview.reviewHash }) })
+    expect(response.status, await response.clone().text()).toBe(402)
+    expect(await response.json()).toMatchObject({ error: "location_limit_reached", details: { limit: 1 } })
+    expect(creations).toBe(0)
+    expect(await admin`select id from google_onboarding_creation where organisation_id = ${owner.organisationId}`).toHaveLength(0)
   })
 
   it("atomically links one exact resource and restores the same result when submit is repeated", async () => {

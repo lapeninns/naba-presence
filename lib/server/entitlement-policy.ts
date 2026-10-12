@@ -9,7 +9,7 @@ import {
   type OrganisationBillingView,
 } from "@/lib/server/billing/state"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, locationLimitReachedError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -23,6 +23,9 @@ import type { Session } from "@/lib/server/session"
  *   - organisation_billing.enforcement_enabled, per organisation (0223,
  *     default off). An organisation with no billing row at all is enforced
  *     whenever the env flag is on: a missing record never grants anything.
+ *     The location-limit trigger agrees (0224): with no billing row it
+ *     applies a limit of 0 when the app's tenant transaction says
+ *     enforcement is on.
  *
  * Where it applies:
  *   - routes: lib/server/route.ts refuses every session mutation (any method
@@ -81,7 +84,12 @@ export const ENTITLEMENT_EXEMPT_ROUTES = [
   "POST notifications/[incidentId]/resolve",
 ] as const
 
-/** Route directories whose every session mutation is exempt. */
+/**
+ * Route directories whose every session mutation must declare
+ * `entitlement: "exempt"` (route() cannot see its own path, so the prefix
+ * exempts nothing by itself); tests/route-entitlements.test.ts fails on a
+ * session mutation under one of them that does not.
+ */
 export const ENTITLEMENT_EXEMPT_PREFIXES = ["billing/"] as const
 
 export const BILLING_READ_ONLY_MESSAGE =
@@ -143,4 +151,32 @@ export async function organisationWriteBlock(
   if (!enforcementApplies(view)) return null
   const access = accessFromView(view, now)
   return access.canWrite ? null : access
+}
+
+/**
+ * The seat check the 0223/0224 location_link_enforce_limit trigger makes,
+ * for flows that must know before an irreversible provider write (creating
+ * a Google location) whether they will be able to link the result. Throws
+ * 402 `location_limit_reached` when a new Google location would not fit.
+ * The trigger still decides at link time; this only fails early. Runs
+ * inside the organisation's tenant transaction (the count is under RLS).
+ */
+export async function assertNewLocationSeat(
+  sql: TransactionSql,
+  organisationId: string,
+  now: Date = new Date()
+): Promise<void> {
+  const view = await getOrganisationBilling(sql, organisationId)
+  if (!enforcementApplies(view)) return
+  // As the trigger: a pilot has no limit; any other state, or no record,
+  // takes the lower of the current and scheduled plan's limit (0 without a
+  // plan).
+  if (view.billing?.state === "pilot") return
+  const limit = accessFromView(view, now).newLinkLimit ?? 0
+  const [row] = await sql<{ n: number }[]>`
+    select count(distinct external_location_id)::int as n
+    from location_link
+    where organisation_id = ${organisationId} and is_active
+  `
+  if ((row?.n ?? 0) >= limit) throw locationLimitReachedError(limit)
 }

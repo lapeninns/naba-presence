@@ -251,6 +251,13 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     await t.age(occurrence.id, 0.1)
     await tick()
     expect(creates()).toHaveLength(0)
+    // Re-checked every tick, but the incident's subject is the held
+    // occurrence, so later ticks update this one open incident (the
+    // notification_incident upsert) rather than open another per tick.
+    const incidents = await admin<{ reason: string; subject_id: string }[]>`select reason, subject_id from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'`
+    expect(incidents).toHaveLength(1)
+    expect(incidents[0].reason).toBe("billing_read_only")
+    expect(incidents[0].subject_id).toContain(`schedule_occurrence:${occurrence.id}`)
     const [held] = await t.occurrences(s.id)
     expect(held.status).toBe("scheduled")
     expect(await t.scheduleRow(s.id)).toMatchObject({ status: "active" })

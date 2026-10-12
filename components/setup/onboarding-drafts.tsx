@@ -1196,7 +1196,9 @@ function CreationStatus({
         <p className="text-ui text-ink-muted">
           {value.errorCode === "onboarding_local_name_conflict"
             ? "A local listing already uses this name. Choose a different local name to finish linking."
-            : "Refresh the outcome to check for new evidence. A refresh will not repeat Google creation."}
+            : value.errorCode === "location_limit_reached"
+              ? "This workspace has reached its plan's location limit. Unlink a location or change plan, then link again. Google creation will not be repeated."
+              : "Refresh the outcome to check for new evidence. A refresh will not repeat Google creation."}
         </p>
       )}
       <Button variant="secondary" className="self-start" onClick={onRefresh}>

@@ -119,6 +119,23 @@ describe("route entitlements: static scan of app/api", () => {
     expect([...exempt].filter((key) => !declared.includes(key))).toEqual([])
   })
 
+  it("declares exempt on every session mutation under an exempt prefix", () => {
+    // route() cannot see its own path, so a billing route (checkout, the
+    // portal) that left out `entitlement: "exempt"` would refuse exactly the
+    // read-only customers who need it. The prefix is a list of routes that
+    // must declare it, not an exemption by itself.
+    const undeclared = session
+      .filter(
+        (handler) =>
+          exemptByPrefix(handler.path) && handler.entitlement !== "exempt"
+      )
+      .map((handler) => handler.key)
+    expect(undeclared).toEqual([])
+    expect(exemptByPrefix("billing/checkout")).toBe(true)
+    expect(exemptByPrefix("billing")).toBe(true)
+    expect(exemptByPrefix("billing-history")).toBe(false)
+  })
+
   it("uses only the known entitlement values", () => {
     const unknown = all.filter(
       (handler) =>

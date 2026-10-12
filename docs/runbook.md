@@ -226,11 +226,31 @@ where organisation_id = '<organisation id>';
 ```
 
 An enforced read-only organisation gets 402 `billing_read_only` on new work;
-its publish retries, bulk children and scheduled posts wait (an hour at a
-time) instead of reaching Google, and its read-backs and syncs keep running.
-Linking past the plan's location limit answers 402 `location_limit_reached`;
-nothing is ever unlinked automatically. To stop enforcing at once, set the
-env flag to `false` and redeploy, or clear the organisation's flag.
+its publish retries and bulk children wait an hour at a time instead of
+reaching Google, and its scheduled posts are held like a publishing pause:
+each runner tick re-checks the schedule, a due occurrence waits while it is
+inside its grace period and is then marked missed. The `schedule_blocked`
+incident (reason `billing_read_only`) opens once per occurrence, not per
+tick. Its read-backs and syncs keep running.
+Linking past the plan's location limit answers 402 `location_limit_reached`
+(the onboarding creation and match links record it as their error code and
+can be retried once a seat frees; creating a new Google location is refused
+before Google is called); nothing is ever unlinked automatically. To stop
+enforcing at once, set the env flag to `false` and redeploy, or clear the
+organisation's flag.
+
+The env flag reaches the location-limit trigger only through the app's
+tenant transaction. A link written from an operator connection or a script
+follows the organisation's own `enforcement_enabled` flag alone, even with
+the env flag off. To link past the limit deliberately from the operator
+connection, turn the trigger off for that one transaction:
+
+```sql
+begin;
+set local app.billing_enforcement = 'off';
+-- insert into location_link ... / update location_link set is_active = true ...
+commit;
+```
 
 ### Operator pauses
 

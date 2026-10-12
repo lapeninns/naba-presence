@@ -22,6 +22,7 @@ export function OnboardingMatchLinkStatus({ value, refreshing, onRefresh, onRevi
       : value.state === "pending"
         ? "The saved operation is still pending. Refresh its status before taking another action. An interrupted operation can be recovered after its pending claim expires."
         : "The mapping transaction did not complete. Restore its review to retry the same intent, or resolve conflicts and generate a fresh review. No new public Google listing was created by this operation."}</p>
+    {value.errorCode === "location_limit_reached" && <p className="text-ui text-ink-muted">This workspace has reached its plan&apos;s location limit. Unlink a location or change plan, then link again.</p>}
     {value.errorCode && <p className="font-mono text-caption break-all text-ink-muted">Recovery reason: {value.errorCode}</p>}
     <div className="flex flex-wrap gap-2">
       <Button variant="secondary" pending={refreshing} pendingLabel="Refreshing link status…" onClick={onRefresh}>Refresh link status</Button>

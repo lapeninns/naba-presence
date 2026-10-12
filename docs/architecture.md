@@ -1617,8 +1617,10 @@ With the env flag on, an organisation with no billing row is enforced too.
   is re-queued for an hour with that result code
   (`lib/server/bulk-listing-runner.ts`); a scheduled post is held like a
   publishing pause (`schedule_blocked` with reason `billing_read_only`,
-  `lib/server/publication-schedule-runner.ts`), so a due occurrence is
-  missed once it leaves the grace period. Read-backs (`recover`,
+  `lib/server/publication-schedule-runner.ts`): there is no hour-long hold,
+  every tick re-checks it, a due occurrence is missed once it leaves the
+  grace period, and the incident opens once per occurrence (its subject is
+  the occurrence), not once per tick. Read-backs (`recover`,
   `mutation_recover`) and the syncs, which only read, keep running.
 - Location limit: the `location_link_enforce_limit` trigger refuses a new
   active link (an insert, or an inactive link turned active) once the
@@ -1630,7 +1632,15 @@ With the env flag on, an organisation with no billing row is enforced too.
   revoked still counts until unlinked; a disconnect deactivates links, and
   reactivating one goes back through the trigger. The env override reaches
   the trigger as the transaction setting `app.billing_enforcement`, which
-  `withTenant` sets (`lib/server/db.ts`). `apiError` maps the trigger's error
+  `withTenant` sets (`lib/server/db.ts`); a write outside `withTenant`
+  (operator SQL, scripts) has no setting and follows the organisation's own
+  flag alone. With no billing row the trigger applies a limit of 0 when the
+  setting is `on` (0224), as the app does. `billable_location_count` is the
+  trigger's alone: 0224 revoked it from the runtime role, because as a
+  SECURITY DEFINER function it would read any tenant's count. Onboarding
+  creation checks the seat (`assertNewLocationSeat`) before it creates the
+  Google location, and the creation and match links record the trigger's
+  refusal as `location_limit_reached`. `apiError` maps the trigger's error
   to 402 `location_limit_reached` with the limit (`locationLimitError` in
   `lib/server/http.ts`); after a Google login the automatic link reports
   `location_limit_reached` as its setup outcome and keeps the connection.
