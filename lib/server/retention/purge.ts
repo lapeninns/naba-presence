@@ -855,6 +855,12 @@ export type OrganisationPurgeResult = {
   complete: boolean
   /** Rows this run changed, per dataset, plus heldLocationsSkipped. */
   counts: OrganisationPurgeCounts
+  /**
+   * Staged photo objects (media_asset, P09-R7) removed from private storage
+   * after the rounds (0 or absent when none). Not a row dataset, so the dry
+   * run does not preview it.
+   */
+  stagingAssets?: number
   /** Transactions this run committed. */
   rounds: number
 }
@@ -1037,7 +1043,8 @@ export async function purgeOrganisation({
   )
   return {
     complete,
-    counts: { ...counts, heldLocationsSkipped, stagingAssets },
+    counts: { ...counts, heldLocationsSkipped },
+    stagingAssets,
     rounds,
   }
 }
@@ -1193,7 +1200,11 @@ export async function retainPage({
         budgetExhausted = true
         break
       }
-      results.push({ organisationId: organisation.id, ...purged.counts })
+      results.push({
+        organisationId: organisation.id,
+        ...purged.counts,
+        stagingAssets: purged.stagingAssets ?? 0,
+      })
     } catch (error) {
       // One tenant's failure must not starve every organisation ordered
       // after it on the page.
