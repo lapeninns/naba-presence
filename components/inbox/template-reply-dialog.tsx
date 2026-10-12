@@ -1,6 +1,7 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
+import Link from "next/link"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
@@ -17,9 +18,13 @@ import { Progress } from "@/components/ui/progress"
 import { ApiClientError } from "@/lib/api/client"
 import { generateOrSaveDraft } from "@/lib/api/drafts"
 import { publishReview } from "@/lib/api/publish"
-import type { ReviewRow } from "@/lib/contracts/reviews"
+import { runBulkReviewAction } from "@/lib/api/review-bulk"
+import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import { ratingOnlyReply } from "@/lib/domain/rating-only"
-import { describeActionError } from "@/lib/errors/action-errors"
+import {
+  describeActionError,
+  describeErrorCode,
+} from "@/lib/errors/action-errors"
 import {
   partitionForTemplate,
   runPool,
@@ -30,7 +35,15 @@ import {
 } from "@/lib/inbox/template-batch"
 import { queryKeys } from "@/lib/queries/keys"
 
-type Phase = "setup" | "drafting" | "review" | "publishing" | "done"
+type Phase =
+  | "setup"
+  | "drafting"
+  | "review"
+  | "publishing"
+  | "done"
+  // Bulk engine: the batch was handed to the job runner.
+  | "starting"
+  | "queued"
 
 type Outcome = {
   draftId?: string
@@ -68,11 +81,18 @@ function TemplateReplyDialog({
   onOpenChange,
   rows,
   onFinished,
+  bulkEngine = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The selected rows; ineligible ones are listed and left alone. */
   rows: ReviewRow[]
+  /**
+   * The organisation has bulk changes on: one confirmation hands the batch
+   * to the job runner, which drafts, checks and publishes (or submits)
+   * each reply, and the batch page follows it after this tab closes.
+   */
+  bulkEngine?: boolean
   /** Called with the ids that were sent, so the selection can drop them. */
   onFinished: (sentIds: string[]) => void
 }) {
@@ -93,7 +113,9 @@ function TemplateReplyDialog({
   const { eligible, skipped } = partitionForTemplate(rows, {
     includeLowRatings,
   })
-  const running = phase === "drafting" || phase === "publishing"
+  const running =
+    phase === "drafting" || phase === "publishing" || phase === "starting"
+  const [queued, setQueued] = React.useState<BulkReviewResult | null>(null)
 
   const record = (id: string, patch: Outcome) =>
     setOutcomes((current) => ({
@@ -154,6 +176,27 @@ function TemplateReplyDialog({
     setPhase("review")
   }
 
+  // Bulk engine: one request queues the whole batch; the job runner does
+  // the drafting, checking and publishing, a review at a time.
+  const queueBatch = async () => {
+    setBatch(eligible)
+    setHalted(null)
+    setPhase("starting")
+    try {
+      const result = await runBulkReviewAction({
+        action: "template_reply",
+        reviewIds: eligible.map((row) => row.id),
+        includeLowRatings,
+      })
+      setQueued(result)
+      refresh()
+      setPhase("queued")
+    } catch (error) {
+      setHalted(describeActionError(error))
+      setPhase("setup")
+    }
+  }
+
   const readyRows = batch.filter((row) => outcomes[row.id]?.ready)
 
   const publishDrafts = async () => {
@@ -192,9 +235,11 @@ function TemplateReplyDialog({
   // Everything that was sent leaves the selection; anything that needs a
   // look stays selected so the operator can find it.
   const finish = () => {
-    const sentIds = batch
-      .filter((row) => outcomes[row.id]?.sent)
-      .map((row) => row.id)
+    const sentIds = queued
+      ? queued.results
+          .filter((row) => row.status === "queued")
+          .map((row) => row.reviewId)
+      : batch.filter((row) => outcomes[row.id]?.sent).map((row) => row.id)
     onFinished(sentIds)
     onOpenChange(false)
   }
@@ -234,7 +279,10 @@ function TemplateReplyDialog({
       // is the way out, and it lets in-flight calls finish.
       onOpenChange={(next) => {
         if (!next && running) return
-        if (!next && (phase === "review" || phase === "done")) {
+        if (
+          !next &&
+          (phase === "review" || phase === "done" || phase === "queued")
+        ) {
           finish()
           return
         }
@@ -318,7 +366,11 @@ function TemplateReplyDialog({
           </div>
         ) : null}
 
-        {running ? (
+        {phase === "queued" && queued ? (
+          <QueuedSummary result={queued} rows={batch} />
+        ) : null}
+
+        {running && phase !== "starting" ? (
           <div className="flex flex-col gap-2" aria-live="polite">
             <p className="text-body">
               {phase === "drafting"
@@ -395,14 +447,17 @@ function TemplateReplyDialog({
                     ? "None of the selected reviews can take a template reply."
                     : undefined
                 }
-                onClick={() => void createDrafts()}
+                onClick={() =>
+                  void (bulkEngine ? queueBatch() : createDrafts())
+                }
               >
-                Create {eligible.length}{" "}
-                {eligible.length === 1 ? "draft" : "drafts"}
+                {bulkEngine
+                  ? `Reply to ${eligible.length}`
+                  : `Create ${eligible.length} ${eligible.length === 1 ? "draft" : "drafts"}`}
               </Button>
             </>
           ) : null}
-          {running ? (
+          {running && phase !== "starting" ? (
             <Button
               variant="secondary"
               disabled={stopping}
@@ -433,10 +488,59 @@ function TemplateReplyDialog({
               </Button>
             </>
           ) : null}
-          {phase === "done" ? <Button onClick={finish}>Done</Button> : null}
+          {phase === "done" || phase === "queued" ? (
+            <Button onClick={finish}>Done</Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * What the server queued, and what it left out and why. The batch page
+ * (`/listings/bulk/{id}`) follows each reply to its end.
+ */
+function QueuedSummary({
+  result,
+  rows,
+}: {
+  result: BulkReviewResult
+  rows: ReviewRow[]
+}) {
+  const queued = result.results.filter((row) => row.status === "queued")
+  const left = result.results.filter((row) => row.status !== "queued")
+  const name = (reviewId: string) => {
+    const row = rows.find((entry) => entry.id === reviewId)
+    return row ? `${reviewerName(row)} · ${row.location.name}` : "A review"
+  }
+  return (
+    <div className="flex flex-col gap-2" role="status">
+      <p className="text-body">
+        <strong className="tabular-nums">{queued.length}</strong>{" "}
+        {queued.length === 1 ? "reply is" : "replies are"} queued. Each is
+        drafted, checked and published (or submitted for approval) in the
+        background; you can close this tab.{" "}
+        {result.operationId ? (
+          <Link
+            href={`/listings/bulk/${result.operationId}`}
+            className="font-semibold underline underline-offset-2"
+          >
+            Follow this batch
+          </Link>
+        ) : null}
+      </p>
+      {left.length > 0 ? (
+        <ul className="flex flex-col gap-1 text-caption">
+          {left.map((row) => (
+            <li key={row.reviewId}>
+              <span className="font-semibold">{name(row.reviewId)}</span>:{" "}
+              {row.code ? describeErrorCode(row.code) : "Left out."}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   )
 }
 

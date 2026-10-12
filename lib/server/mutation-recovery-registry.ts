@@ -1,5 +1,11 @@
 import "server-only"
 
+import {
+  bulkAttributesRecoveryAdapter,
+  bulkBusinessInfoRecoveryAdapter,
+  bulkLodgingRecoveryAdapter,
+  bulkPlaceActionRecoveryAdapter,
+} from "@/lib/server/bulk-families/write-attempts"
 import { foodMenusRecoveryAdapter } from "@/lib/server/food-menus"
 import { hoursRecoveryAdapter } from "@/lib/server/hours"
 import { mediaRecoveryAdapter } from "@/lib/server/media"
@@ -19,9 +25,13 @@ import { profileRecoveryAdapter } from "@/lib/server/profile"
  * new surface that writes receipts must add its adapter
  * (tests/mutation-recovery.test.ts checks the list against the surfaces).
  * Business information, attributes, lodging and Place Action links record
- * no receipts: their reviewed change sets keep their own execution and
- * confirmation states (lib/server/gbp-confirmation.ts,
- * lib/server/place-action-execution.ts).
+ * no receipts from their editors: their reviewed change sets keep their own
+ * execution and confirmation states (lib/server/gbp-confirmation.ts,
+ * lib/server/place-action-execution.ts). Bulk attribute and action-link
+ * writes, and bulk business-information, category and lodging writes, do
+ * record them, on bulk_listing_write_attempt
+ * (lib/server/bulk-families/write-attempts.ts); bulk hours use the hours
+ * adapter.
  */
 export const RECOVERY_ADAPTERS = [
   hoursRecoveryAdapter,
@@ -29,6 +39,10 @@ export const RECOVERY_ADAPTERS = [
   foodMenusRecoveryAdapter,
   localPostRecoveryAdapter,
   mediaRecoveryAdapter,
+  bulkAttributesRecoveryAdapter,
+  bulkPlaceActionRecoveryAdapter,
+  bulkBusinessInfoRecoveryAdapter,
+  bulkLodgingRecoveryAdapter,
 ] as unknown as ReadonlyArray<RecoveryAdapter<never>>
 
 let deps: RecoveryDeps | undefined

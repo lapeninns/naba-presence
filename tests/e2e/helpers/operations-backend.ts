@@ -149,6 +149,10 @@ export async function startOperationsBackend() {
         connection,
         linked,
         incident,
+        /** Turns a per-organisation product flag (organisation_feature) on. */
+        enableFeature: (feature: string) => admin`
+          insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+          values (${owner.organisationId}, ${feature}, true, 'e2e')`,
         goto: (path: string) => page.goto(`${server.baseUrl}${path}`),
       }
     },

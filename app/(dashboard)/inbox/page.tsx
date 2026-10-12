@@ -5,6 +5,7 @@ import { InboxView } from "@/components/inbox/inbox-view"
 import { ShortcutsButton } from "@/components/inbox/shortcuts-button"
 import { SyncReviewsButton } from "@/components/inbox/sync-reviews-button"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
+import { bulkActionsEnabled } from "@/lib/server/bulk-listings"
 import { inboxPrefetch, prefetch } from "@/lib/server/prefetch"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
 import { getSession } from "@/lib/server/session"
@@ -24,6 +25,11 @@ export default async function InboxPage() {
     resolvePrimaryLocation(),
   ])
   const state = await prefetch(session, inboxPrefetch())
+  // Bulk approve and template replies run on the bulk engine (and survive
+  // the tab closing) where the organisation has bulk changes on.
+  const bulkEngine = session
+    ? await bulkActionsEnabled(session.organisationId)
+    : false
   // The inbox draws its own compact toolbar (title, search, queues and
   // filters in one band), so the page hands it the actions rather than
   // rendering a PageHeader above it.
@@ -35,6 +41,7 @@ export default async function InboxPage() {
       <HydrationBoundary state={state}>
         <InboxView
           showLocationFilter={locationCount > 1}
+          bulkEngine={bulkEngine}
           actions={
             <>
               <ShortcutsButton />

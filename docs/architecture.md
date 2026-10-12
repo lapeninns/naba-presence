@@ -287,6 +287,8 @@ anything is recorded. Row outcomes are truthful about the two commits an
 approval spans (`lib/server/review-bulk-outcome.ts`): `skipped`/`failed`
 before the decision commits, `approved_not_published` or `uncertain` after it,
 and an unexpected fault on one row is that row's outcome, not the batch's.
+With `bulk_actions` on, approvals are recorded the same way and the publishes
+run as a bulk batch instead (see "Bulk listing changes", P09-R8).
 
 Two-person approval holds on every publication path. For replies,
 `has_qualifying_approval` (`lib/server/publishing/intent.ts`) counts only an
@@ -324,7 +326,17 @@ create/patch/delete) call `submitListingChange`
 Business information, attributes, lodging and Place Action links do not:
 every one of their writes already needs a reviewed change set whose
 approval applies the two-person policy itself (see "Management execution
-and confirmation evidence" and "Reviewed Place Actions" below). For a
+and confirmation evidence" and "Reviewed Place Actions" below).
+`updateBusinessInformation` refuses any update without an approved change
+set (409 `approval_required`) before Google is read, and accepting Google's
+suggested update (`lib/server/location-administration.ts`), which has no
+review step, is refused with 409 `business_info_review_required` while
+two-person approval is on. Change sets, bulk batches, scheduled posts and
+both runners share one approval-policy helper
+(`lib/server/authz/approval-policy.ts`):
+the organisation's current policy and manager read by organisation and
+user, the second-approver rule, and `recheckApprovedWork`, which a worker
+calls before dispatch. For a
 publisher, `parkListingChange` (`lib/server/listing-changes.ts`) sends
 nothing: it records a change request
 as a `mutation_operation` receipt in the outcome state `awaiting_approval`
@@ -1814,12 +1826,19 @@ Dispatch is strict (P08-R3, migration 0118;
 `target_google_location_name`) and the approval policy
 (`approved_approval_required`), and records the approver's assurance (0106:
 `approved_aal`, `approved_mfa_verified_at`, `approved_security_version`). Approving
-needs an active link (409 `schedule_location_not_linked`). Before each publish
-the runner calls `recheckAuthorisation` (`lib/server/authz/actor.ts`) for the
-approver with the frozen connection, generation, policy and security version,
-so a relink, reconnect, policy change or an operator MFA recovery of the
-approver since approval blocks the schedule (`connection_changed`,
-`approval_invalid`) instead of publishing through whatever is linked now; the
+needs an active link (409 `schedule_location_not_linked`). Approve and resume
+apply the shared approval rules (`lib/server/authz/approval-policy.ts`: the
+frozen two-person flag, the second approver, and on resume a current manager
+holding the security version the approval recorded). Before each publish
+the runner calls the shared `recheckApprovedWork` (the same recheck as bulk
+batches): the requester may still `request_approval` at the listing, and the
+approver (`recheckAuthorisation`, `lib/server/authz/actor.ts`) may still
+publish there as an owner or admin with the frozen connection, generation,
+policy (both flags) and security version, and under two-person approval is
+not the requester. So a lost right (`permission_revoked`), a relink,
+reconnect, policy change or an operator MFA recovery of the approver since
+approval blocks the schedule (`connection_changed`, `approval_invalid`)
+instead of publishing through whatever is linked now; the
 publish's attempt records the approval's assurance; `publishScheduledLocalPost` refuses a
 moved link again with nothing sent. An occurrence starts only while
 `intended_at <= now() < deadline_at`: `claim_due_publication_schedules` skips one
@@ -1950,21 +1969,303 @@ from `lib/locations/schedule-display.ts`. The event is written in a savepoint,
 so a failed incident insert rolls back only the event, never the post edit. The runner logs `post_schedule.tick` and
 `post_schedule.sweep` summaries.
 
-## Bulk listing changes (WP6, 0080)
+## Bulk listing changes (WP6, 0080; P09-R1, 0123; P09-R2, 0124; P09-R3, 0125; P09-R4, 0126; P09-R5, 0127; P09-R6, 0128; P09-R7, 0129; P09-R8, 0130; P09-R9 UI)
 
-A preview freezes up to 100 explicit location ids; a batch naming any listing
+Bulk ships dark behind the per-organisation feature `bulk_actions`: every
+`/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
+listings board hides selection and the claim skips the organisation's
+children (they wait and expire with their dispatch window).
+
+A preview freezes up to 50 explicit location ids; a batch naming any listing
 the requester cannot see is refused without saying which. Each listing gets a
-frozen plan (`lib/server/bulk-listing-targets.ts`): eligibility or skip reason,
-the current Google value, the merged value (`lib/domain/bulk-merge.ts`: only the
-chosen dates, hours type or attributes change) and its update mask. Approval
-binds the preview hash and requires acknowledging skipped listings. Execution
-queues children claimed by the job tick (`claim_due_bulk_children`, fair per
-organisation). Each child rechecks the approver's grant and the policy, reads
-Google, succeeds without writing when the change is already there, writes once
-when the baseline is unchanged, and otherwise records a conflict needing a new
-preview. Readback confirms; interrupted children become ambiguous and a retry
-re-reads before any write, so succeeded children are never replayed. Cancelling
+frozen plan from its family (`lib/server/bulk-families/*`, reached through
+`lib/server/bulk-listing-targets.ts`): eligibility or skip reason, the current
+Google value, the value to send and its update mask. Hours families plan a
+selective publish (`lib/domain/bulk-merge.ts` `bulkHoursSelection`): only the
+chosen weekdays (seven is a whole week), dates or service type change, and
+everything else in the field is written back as Google holds it. Attributes
+change by stable ID with typed values (an empty answer clears the masked name;
+`[false]` is an answer). Action links are matched by type and addressed by
+their Google link name, never by URI (`lib/domain/bulk-place-actions.ts`); a
+listing with several editable links of the type is skipped. Approval
+binds the preview hash and requires acknowledging skipped listings. A preview
+can be approved for 15 minutes from the start of its Google reads
+(`preview_expires_at`, set at insert on the database clock); approval opens a
+24-hour dispatch window (`dispatch_expires_at`) checked per child at claim and
+again just before the provider write, so a child that misses it ends `expired`
+and is never sent. Each child also freezes its Google target (connection,
+credential generation, location resource name) and its resource key
+(`lib/domain/bulk-merge.ts` `bulkResourceKey`); a relink or reconnect fails it
+with `google_target_changed`. Execution queues children claimed by the job
+tick (`claim_due_bulk_children`, 0123): at most 2 running per organisation
+across batches, never two running for one (location, resource key), and the
+runner holds the per-location advisory lock of that key (the attribute
+editor's `<org>:<location>:attributes`, or `<org>:<location>:hours`, which
+`publishCanonicalHours` holds across its live read, snapshot checks, PATCH
+and readback) from the baseline read through the
+write and readback (an action link also holds the Google account lock), so an
+editor write cannot land between the baseline check and the provider call;
+it defers with `resource_busy` when an editor holds it. A closed window reads
+`expired` per child before the sweep records it (`preview_expired` for a
+preview never approved, `dispatch_expired` after approval). The sweep finishes a preview or approved
+batch it expires and audits it once (`bulk_listing.expired`, stage `preview`
+or `dispatch`); a running batch is finished by the runner. Only 0123 marks a
+pre-existing batch over the cap `legacy_over_cap`: a trigger refuses the flag
+on any new row or later change, and a grandfathered batch cannot gain
+targets. Under two-person approval the requester can never approve their
+own batch: the approve route refuses it and the table's CHECK
+(`bulk_listing_operation_second_approver`, 0124) refuses any writer
+recording it; a pre-existing self-approved batch is flagged
+`legacy_self_approved` by 0124 only and the runner sends none of it. Before
+dispatch each child calls `recheckApprovedWork`
+(`lib/server/authz/approval-policy.ts`): the frozen two-person flag still
+holds with two different people, the requester may still
+`request_approval` at the listing, the approver may still `publish` there
+as an owner or admin (`recheckAuthorisation`), and the listing is still
+linked through the frozen connection and credential generation. A lost
+right fails the child `permission_revoked`, a relink or reconnect
+`google_target_changed`, and an operator MFA recovery of the approver since
+the approval `approval_invalid`: approval records the approver's assurance in
+0106's `approved_aal`, `approved_mfa_verified_at` and
+`approved_security_version` (a review batch records its starter's, who
+decides it; 0124 refuses assurance on a batch nobody approved), the runner
+passes the version to `recheckAuthorisation`, and each write's attempt
+records the approval's assurance. While the organisation is read-only
+(`deriveAccess` through `organisationWriteBlock`, with billing enforcement's
+rollout flags) a child is held queued with `billing_read_only` for an hour at
+a time and nothing is sent; its 24-hour dispatch window still applies. Then
+the child's family reads Google, succeeds without writing when the change is
+already there, writes once when its baseline is unchanged (for hours, the
+selected parts only), and otherwise records a conflict needing a new preview.
+Every write goes through a surface pipeline under a receipt: hours through the
+hours editor's own path (`publishHoursSelectionLocked` in
+`lib/server/hours.ts`, which saves the change as a new canonical revision and
+publishes that revision's selected parts, putting the revision back if the
+write definitely did not apply; an uncertain one keeps the restore point on
+the child, `hours_restore`, and the revision is put back if recovery reads it
+back as not applied, unless a later edit has saved over it), attributes and
+action links through
+`runGbpWrite` on `bulk_listing_write_attempt` (their editors run reviewed
+change sets and record no receipts). Each claim of a child has its own
+deterministic intent (`bulkIntentId`), the child stores the receipt of its
+latest send only (`mutation_operation_id`, composite tenant key, cleared on
+each claim, 0125), and
+`GET /api/mutations/{id}` answers for it. An uncertain write is left to
+`mutation_recover` (the hours adapter, or the two bulk adapters in
+`lib/server/mutation-recovery-registry.ts`); once its receipt settles, the
+runner settles the child from it (`bulk_children_to_reconcile`, 0125; audit
+`bulk_listing.child_reconciled`) and re-finishes the batch, without sending
+anything. Retry leaves such a child alone while recovery is still reading it
+back, so succeeded and uncertain children are never replayed. Cancelling
 stops only queued children.
+
+A batch holds an ordered change list (`items`, 1-50 changes; P09-R4, 0126).
+Each child is one (listing, change) pair, keyed `<seq>:<family>`
+(`item_key`, unique per batch and listing), and carries its own change
+(`input`); the batch's `operation` is the shared family or `mixed`. A batch
+holds at most 500 children (listings x changes), in the request contract and
+the table (`bulk_listing_operation_item_cap`). Two changes of one batch never
+touch the same part of a listing (weekday, date, service hours type,
+attribute, action-link type; `bulkChangeParts`), because a listing's children
+are previewed against one Google read per resource, shared across that
+listing's changes (`planReads`), and each pins only its own parts. A preview
+plans five listings at a time and each listing's changes in list order, so a
+full batch costs a few reads per listing, not per change. At each
+listing a change waits for every earlier eligible change (`depends_on`), so
+the listing's changes reach Google in list order; the claim skips a child
+while any dependency is previewed, queued or running. Hard prerequisites
+(`requires_applied`, a subset of `depends_on`; the rule is
+`BULK_PREREQUISITES` in `lib/domain/bulk-merge.ts`: a category change
+before service hours and attributes) must have applied: a
+dependent waits while one is unresolved and fails `dependency_not_applied`,
+unsent, when one ends otherwise (or is skipped at preview with it; blocking
+carries down a chain of prerequisites). Retry requeues such a dependent
+together with its prerequisite when the prerequisite is retryable (failed, or
+ambiguous with recovery finished); a dependent whose prerequisite, directly or
+through a chain, ended conflict, expired, cancelled or skipped stays failed
+and needs a new preview. A trigger
+(`bulk_listing_child_dependency_guard`) holds dependencies to earlier changes
+at the same listing of the same batch.
+
+Business information, categories and lodging (P09-R5, 0127) are field-mask
+patches. Business information (`lib/domain/bulk-business-info.ts`) offers only
+fields that make sense across listings and that Google lets a client write:
+website, description, labels and the open status (open or temporarily
+closed). Each is set or explicitly cleared (a clear is in the mask and absent
+from the body); provider-owned fields and per-listing identity (title,
+address, phones, store code, service area, relationships, services) are
+refused by the contract, and a permanently closed listing is skipped. Only
+the named fields are frozen and compared, so an edit to another field is not
+a conflict. Categories change by stable ID (a new primary, additional ones
+added or removed; at most 9 additional) and each listing's result is checked
+against Google's category list for its region (`categories.batchGet`). Both
+patch the location resource under the business-information lock
+(`business_info` resource key) with Google's validateOnly check first. The
+business-information editor and the profile publisher
+(`publishProfileToGoogle`, which also writes website and description) take
+the same lock, so neither can write between a bulk child's baseline read and
+its PATCH. A bulk website or description write does not go through the
+canonical profile, so the profile editor shows those fields as changed on
+Google until it is refreshed. A
+category change must be listed before the service-hours and attribute
+changes that depend on it: their preview is planned under the proposed
+categories (`PlanReads.propose`; attribute metadata by `categoryName`), and
+they are sent only once it applied. Lodging (`lib/domain/bulk-lodging.ts`,
+the industry family) takes paths from the typed lodging allowlist
+(`GOOGLE_LODGING_UPDATE_PATHS`, minus `metadata` and `guestUnits`) with typed
+values, each set or explicitly cleared; nothing outside the mask may be in
+the payload, `false` reads back as `false`, a group path (`pools`) replaces
+the group, so it reads back as applied only when the group's other writable
+fields are empty, `metadata.updateTime` is stamped at the send, and a listing
+without a lodging resource is skipped (a lost Google connection is a
+connection error, not a skip). It runs
+under the lodging editor's lock. All three record attempts in
+`bulk_listing_write_attempt` with receipts (surfaces `business_info` and
+`lodging`), read back by their recovery adapters. Healthcare is not a bulk
+family, pending decision D-24.
+
+Food Menus and post drafts (P09-R6, 0128). A menus change
+(`lib/domain/bulk-menus.ts`) is a full replacement or a merge by stable node
+ID; nodes are never matched by label. A node's ID (`menuNodeId`,
+`lib/domain/food-menus.ts`) hashes its kind (menu, section or item), its own
+content without its child nodes and its parent's ID, so the same node has
+the same ID at every listing that holds it, and a node that is merely named
+the same is another node. A merge updates named fields of a node, removes a
+node, or appends one under a parent, and skips a listing where a named ID is
+missing or repeated, where a node is added under the wrong level, or where a
+change falls inside a removed node. The preview freezes Google's menus hash
+and lists every node each listing loses, adds and updates; a listing whose
+saved menus hold an unpublished edit is skipped, and so is one whose saved
+menus were edited after the preview, even when Google already shows the
+result (both settle as a `food_menus_local_changes` conflict). The child is sent through
+the menu editor's own path (`publishFoodMenusChangeLocked` in
+`lib/server/food-menus.ts`): the result is saved as a new canonical
+revision, then published as the editor's full replacement on
+`food_menus_sync_attempt` with the child's intent and a receipt, read back,
+and settled by the existing Food Menus recovery adapter. The restore point
+(the revision saved and the menus it replaced) is kept in
+`bulk_listing_child.hours_restore`, so a write recovery reads back as not
+applied puts the saved menus back. A re-claim that finds its own earlier save
+(the claim clears the restore point) records it again: the menus that save
+replaced matched the preview's Google menus, which Google still shows. The
+editor's publish (`publishFoodMenus`)
+now holds the same `<org>:<location>:food_menus` lock as bulk children.
+Post drafts (`lib/server/bulk-families/posts.ts`) send nothing to Google:
+each listing gets one independent local draft (`insertLocalPostDraft`),
+authored by the batch's requester, whose id is stored on the child
+(`bulk_listing_child.local_post_id`) in the same transaction so a re-run
+claim never drafts twice. Each draft is published from the listing's posts
+with its own approval (`requestOrPublishLocalPost`), so under two-person
+approval its author cannot publish it alone.
+
+Photos and private assets (P09-R7, 0129). A bulk photo is an owned asset
+(`media_asset`, lib/server/assets.ts) in a private storage bucket reached only
+through the server-only adapter (`lib/server/storage/asset-storage.ts`,
+Supabase Storage over REST in `lib/server/storage/supabase-storage.ts`). The
+app checks the tenant itself: every asset row is read under the tenant's RLS,
+and storage keys are built from the organisation and asset ids, never from a
+request. Upload is `POST /api/assets` (a staging row and a signed URL for one
+staging object; abuse scope `asset_upload`), a browser PUT straight to
+storage (no photo passes through a route body), then
+`POST /api/assets/{id}/finalise`, which reads the staged bytes, checks magic
+bytes, size (10 KB to 5 MB), dimensions (at least 250 × 250) and SHA-256
+against the declaration (`lib/domain/media-sniff.ts`), and writes exactly
+those bytes once to `assets/<org>/<sha256>/<asset>`; a trigger keeps a
+`ready` asset's content columns immutable. Finalise holds no transaction or
+row lock across storage calls: a short transaction checks the asset, the
+read, check and idempotent write run outside it, and a second short
+transaction settles the asset only if it is still `staging`. The retention
+purge (`purgeOrganisation` in `lib/server/retention/purge.ts`, once an
+organisation's rounds are complete and only while `RETENTION_DELETES_ENABLED`
+is on; a storage failure is logged and retried next run) deletes the staging
+key of every asset 24 hours after the upload started
+(`purgeExpiredStagingAssets`, counted as `stagingAssets`), finalised ones included: finalise deletes the
+staged object at once, but the signed upload URL (2 hours) could put a new
+one there, so the sweep deletes it once more after the URL expired, with no
+transaction open during the storage call.
+Everything fails closed: without `MEDIA_ASSET_STORAGE=supabase`, the secret
+key and the bucket, the asset routes answer 503 `asset_storage_unavailable`
+and photo previews skip every listing. The photos family
+(`lib/server/bulk-families/photos.ts`) adds one asset per change, at most 10
+per batch (10 new photos per listing), under the key `media`. The preview
+freezes the asset's SHA-256, type, size and dimensions and skips a listing
+that already shows the photo (`already_applied`, from
+`media_asset_publication.google_media_name` and the live media list). A photo
+is its bytes: a publication of another asset with the same SHA-256 counts, so
+the same file uploaded twice is added to a listing once (the dispatch claim
+answers `photo_already_added`, under an advisory lock per listing and
+SHA-256). The
+child re-reads the bytes from the immutable key, re-hashes them and sends them
+through the media editor's checkpointed upload (`uploadMediaFromAsset`) with
+the child's intent and approval ref, so the receipt, the unresolved-create
+guard and media recovery all apply. The listing's Google media name is
+recorded on the asset's publication in the create's settle transaction. A
+re-claimed child settles from its earlier receipt instead of sending again;
+an unconfirmed create waits for recovery or a person's resolution on the
+listing's photos tab, and the bulk reconcile then records the publication
+(`afterReconcile`).
+
+Bulk review work (P09-R8, 0130). With `bulk_actions` on, the inbox's bulk
+approve and its template replies run on this engine
+(`lib/server/bulk-reviews.ts`, families in
+`lib/server/bulk-families/reviews.ts`): `POST /api/reviews/bulk` answers with
+the batch (`operationId`) and rows `queued`, the job runner sends each
+review, and the batch page (`/listings/bulk/[id]`) shows each outcome after
+the tab closes. Without the feature, approve stays the synchronous per-row
+loop and template replies stay the inbox's own two-step run; assign and "no
+reply needed" are always synchronous. A review batch is one child per
+review at its location (up to 100, `seq` 0..99, resource key `reviews`), and
+is started and decided by one person, so it carries no batch-level
+two-person flag: the runner's recheck is per item (`perItemApproval` in
+`lib/server/authz/approval-policy.ts`, with each family's own actions), and
+each review's approval rules apply at publish as they always have. Approvals
+are recorded when the batch starts, one savepoint per row, by
+`recordApprovalDecision` with the draft and review version shown; a child
+publishes only while that decision is still the review's latest (a
+rejection or newer decision since is `approval_withdrawn`). A template child
+drafts through `createReviewDraft` (`lib/server/review-drafts.ts`, the drafts
+route's own code, template only) under a draft id derived from the child, so
+a re-run claim finds its draft, and checks it before publishing or
+submitting it for approval (`submitted_for_approval`). Every send goes
+through `executePublish`, whose idempotency key and recovery make a re-run
+safe; an unresolved publish (ambiguous, or a 429 parked for the reply retry
+runner) leaves the child waiting on its `publish_attempt_id` until the reply
+pipeline settles it (`bulk_children_to_reconcile`, now including those
+attempts). A review child whose lease ran out is queued again within its
+dispatch window, at most five runs (`requeue_interrupted_review_children`).
+The requester of a review batch may cancel or retry it; retry leaves a child
+whose publish attempt is still unsettled alone.
+
+Composer and batch page (P09-R9). The composer
+(`components/bulk/bulk-compose.tsx`, `/listings/bulk?ids=…`) edits one change
+at a time and adds it to an ordered change list (move up, move down,
+remove); the preview sends exactly that list as `items`, or the change being
+edited alone when nothing was added. It checks the list with the wire
+contract before any request (`bulkPreviewRequestSchema`: overlapping parts,
+category changes first, 10 photos, listings × changes at most 500) and
+refuses a link naming more than 50 listings instead of trimming it. Regular
+hours send only the ticked weekdays. The photos editor uploads through
+`lib/api/assets.ts` (`uploadPhotoAsset`: the browser hashes the file with
+SHA-256, `POST /api/assets`, PUTs the bytes to the signed URL, then
+finalises) or picks a ready asset; the browser PUT needs the storage origin
+in the CSP's `connect-src`, which `next.config.ts` (`assetUploadOrigin`) adds
+only when `MEDIA_ASSET_STORAGE=supabase`. Food Menus in the composer are a
+full replacement copied from one selected listing; merges by node ID stay
+API-only. The batch page (`components/bulk/bulk-operation-view.tsx`) counts
+the 15-minute approval window down by the server's clock (`serverTime` on
+the projection) and disables approval when it closes. It offers "New
+preview" for children that can never be retried in place (`conflict`,
+`expired`, and `dependency_not_applied` whose prerequisite Retry would not
+requeue; `lib/domain/bulk-repreview.ts` `newPreviewRequest`), only once
+nothing in the batch is queued or running. The preview API pairs every
+listing with every change, so the request is built from (listing, change)
+pairs that need it plus their prerequisites, in order; a change already at
+a listing is skipped there at plan time, except a post draft, which has no
+such check and is left out (and named on the page) whenever the request
+would reach a listing that already has it. The page also links a review
+child to its review in the inbox, and shows a child's receipt (`GET /api/mutations/{id}` through
+`OperationReceiptNotice`) only when asked, so a 500-child batch never polls
+every receipt.
 
 ## Billing foundation and entitlements (P07, 0107)
 

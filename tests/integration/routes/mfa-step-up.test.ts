@@ -202,6 +202,13 @@ describeDatabase("MFA step-up (P02-S9)", () => {
         ],
       },
     ],
+    // A template-reply batch publishes under its starter's decision
+    // (stream D, P09-R8), so it steps up like a bulk approve.
+    [
+      "POST",
+      () => "/api/reviews/bulk",
+      { action: "template_reply", reviewIds: [id()] },
+    ],
     ["POST", () => `/api/locations/${id()}/hours`],
     ["POST", () => `/api/locations/${id()}/posts/${id()}/publish`],
     ["POST", () => `/api/locations/${id()}/posts/${id()}/approval`],
@@ -209,6 +216,7 @@ describeDatabase("MFA step-up (P02-S9)", () => {
     ["POST", () => `/api/locations/${id()}/post-schedules/${id()}/approve`],
     ["POST", () => `/api/listings/bulk/${id()}/approve`],
     ["POST", () => `/api/listings/bulk/${id()}/execute`],
+    ["POST", () => `/api/listings/bulk/${id()}/retry`],
     ["POST", () => "/api/billing/checkout"],
     ["POST", () => "/api/billing/portal"],
     ["POST", () => "/api/billing/plan-change"],

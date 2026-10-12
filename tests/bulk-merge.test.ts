@@ -1,16 +1,58 @@
 import { describe, expect, it } from "vitest"
 
+import { bulkPreviewRequestSchema } from "@/lib/contracts/bulk-listings"
 import {
+  BULK_DISPATCH_TTL_MS,
+  BULK_MAX_RUNNING_PER_ORGANISATION,
+  BULK_MAX_TARGETS,
+  BULK_PREVIEW_TTL_MS,
   bulkOperationInputSchema,
+  bulkResourceKey,
+  applyBulkHours,
+  bulkHoursSelection,
   googlePeriod,
   mergeAttributes,
-  mergeHours,
 } from "@/lib/domain/bulk-merge"
+import {
+  buildGoogleHoursPatch,
+  normalizeGoogleHours,
+  type GoogleLocationHours,
+} from "@/lib/domain/hours"
 
 const d = (date: string) => {
   const [year, month, day] = date.split("-").map(Number)
   return { year, month, day }
 }
+
+describe("bulk limits (plan P09)", () => {
+  const input = {
+    operation: "special_hours",
+    dates: [{ action: "closed", date: "2026-12-25" }],
+  }
+  const ids = (count: number) =>
+    Array.from({ length: count }, () => crypto.randomUUID())
+
+  it("caps a batch at 50 listings, with 15-minute previews, 24-hour dispatch and 2 running per organisation", () => {
+    expect(BULK_MAX_TARGETS).toBe(50)
+    expect(BULK_PREVIEW_TTL_MS).toBe(15 * 60_000)
+    expect(BULK_DISPATCH_TTL_MS).toBe(24 * 3_600_000)
+    expect(BULK_MAX_RUNNING_PER_ORGANISATION).toBe(2)
+    expect(
+      bulkPreviewRequestSchema.safeParse({ locationIds: ids(50), input }).success
+    ).toBe(true)
+    expect(
+      bulkPreviewRequestSchema.safeParse({ locationIds: ids(51), input }).success
+    ).toBe(false)
+  })
+
+  it("serialises the three hours families on one resource and keeps attributes and action links apart", () => {
+    expect(bulkResourceKey("regular_hours")).toBe("hours")
+    expect(bulkResourceKey("special_hours")).toBe("hours")
+    expect(bulkResourceKey("more_hours")).toBe("hours")
+    expect(bulkResourceKey("attributes")).toBe("attributes")
+    expect(bulkResourceKey("place_action")).toBe("place_actions")
+  })
+})
 
 describe("bulk merge", () => {
   it("writes overnight periods closing on the next day", () => {
@@ -24,8 +66,65 @@ describe("bulk merge", () => {
     expect(googlePeriod(1, "09:00", "17:00").closeDay).toBe("MONDAY")
   })
 
-  it("replaces only regular hours", () => {
+  const google = (location: GoogleLocationHours) => ({
+    location,
+    hours: normalizeGoogleHours(location),
+  })
+  const publish = (
+    input: Parameters<typeof applyBulkHours>[0],
+    location: GoogleLocationHours
+  ) => {
+    const live = google(location)
+    return buildGoogleHoursPatch({
+      canonical: applyBulkHours(input, live.hours),
+      googleLocation: location,
+      selection: bulkHoursSelection(input),
+    })
+  }
+  const monday = {
+    openDay: "MONDAY",
+    closeDay: "MONDAY",
+    openTime: { hours: 9 },
+    closeTime: { hours: 17 },
+  }
+  const tuesday = { ...monday, openDay: "TUESDAY", closeDay: "TUESDAY" }
+
+  it("changes only the selected weekdays and writes the others back as Google holds them", () => {
     const input = bulkOperationInputSchema.parse({
+      operation: "regular_hours",
+      days: [
+        {
+          dayOfWeek: 5,
+          isClosed: false,
+          periods: [{ opensAt: "22:00", closesAt: "02:00" }],
+        },
+        { dayOfWeek: 2, isClosed: true, periods: [] },
+      ],
+    })
+    if (input.operation !== "regular_hours") throw new Error("parse")
+    expect(bulkHoursSelection(input)).toEqual({ regularDays: [2, 5] })
+    const patch = publish(input, { regularHours: { periods: [monday, tuesday] } })
+    expect(patch.blockingIssues).toEqual([])
+    expect(patch.updateMask).toEqual(["regularHours"])
+    expect(patch.payload.regularHours).toEqual({
+      periods: [
+        {
+          openDay: "MONDAY",
+          closeDay: "MONDAY",
+          openTime: { hours: 9, minutes: 0 },
+          closeTime: { hours: 17, minutes: 0 },
+        },
+        // Overnight: closes on the next day, explicitly.
+        {
+          openDay: "FRIDAY",
+          closeDay: "SATURDAY",
+          openTime: { hours: 22, minutes: 0 },
+          closeTime: { hours: 2, minutes: 0 },
+        },
+      ],
+    })
+    // A whole week is all seven days.
+    const week = bulkOperationInputSchema.parse({
       operation: "regular_hours",
       days: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
         dayOfWeek,
@@ -34,20 +133,24 @@ describe("bulk merge", () => {
           dayOfWeek === 0 ? [] : [{ opensAt: "11:00", closesAt: "23:00" }],
       })),
     })
-    const merged = mergeHours(input as never, {
-      regularHours: { periods: [] },
-      specialHours: {
-        specialHourPeriods: [{ startDate: d("2026-12-25"), closed: true }],
-      },
-    })
-    expect(merged).toMatchObject({ updateMask: "regularHours" })
+    if (week.operation !== "regular_hours") throw new Error("parse")
+    expect(bulkHoursSelection(week).regularDays).toHaveLength(7)
     expect(
-      "proposed" in merged &&
-        (merged.proposed as { periods: unknown[] }).periods
+      (publish(week, { regularHours: { periods: [monday] } }).payload
+        .regularHours as { periods: unknown[] }).periods
     ).toHaveLength(6)
+    expect(
+      bulkOperationInputSchema.safeParse({
+        operation: "regular_hours",
+        days: [
+          { dayOfWeek: 1, isClosed: true, periods: [] },
+          { dayOfWeek: 1, isClosed: true, periods: [] },
+        ],
+      }).success
+    ).toBe(false)
   })
 
-  it("merges special hours by date, preserving unrelated dates exactly", () => {
+  it("upserts and removes special dates by date, preserving unrelated dates exactly", () => {
     const christmas = {
       startDate: d("2026-12-25"),
       endDate: d("2026-12-25"),
@@ -78,40 +181,45 @@ describe("bulk merge", () => {
         { action: "closed", date: "2026-12-31" },
       ],
     })
-    const merged = mergeHours(input as never, {
+    if (input.operation !== "special_hours") throw new Error("parse")
+    expect(bulkHoursSelection(input)).toEqual({
+      specialDates: ["2026-12-26", "2026-12-31", "2027-01-01"],
+    })
+    const patch = publish(input, {
       specialHours: { specialHourPeriods: [christmas, boxing, newYear] },
     })
-    expect(merged).toEqual({
-      updateMask: "specialHours",
-      current: { specialHourPeriods: [christmas, boxing, newYear] },
-      proposed: {
-        specialHourPeriods: [
-          christmas,
-          {
-            startDate: d("2026-12-26"),
-            endDate: d("2026-12-26"),
-            openTime: { hours: 10, minutes: 0 },
-            closeTime: { hours: 16, minutes: 0 },
-            closed: false,
-          },
-          {
-            startDate: d("2026-12-31"),
-            endDate: d("2026-12-31"),
-            closed: true,
-          },
-        ],
-      },
+    expect(patch.updateMask).toEqual(["specialHours"])
+    expect(patch.payload.specialHours).toEqual({
+      specialHourPeriods: [
+        christmas,
+        {
+          startDate: d("2026-12-26"),
+          endDate: d("2026-12-26"),
+          openTime: { hours: 10, minutes: 0 },
+          closeTime: { hours: 16, minutes: 0 },
+          closed: false,
+        },
+        {
+          startDate: d("2026-12-31"),
+          endDate: d("2026-12-31"),
+          closed: true,
+        },
+      ],
     })
   })
 
-  it("changes one exact service-hours type, keeps the others and skips listings without it", () => {
+  it("replaces or removes one exact service-hours type and keeps the others", () => {
     const input = bulkOperationInputSchema.parse({
       operation: "more_hours",
       hoursTypeId: "KITCHEN",
       periods: [{ dayOfWeek: 5, opensAt: "18:00", closesAt: "00:30" }],
     })
-    const brunch = { hoursTypeId: "BRUNCH", periods: [{ openDay: "SUNDAY" }] }
-    const supported = {
+    if (input.operation !== "more_hours") throw new Error("parse")
+    const brunch = {
+      hoursTypeId: "BRUNCH",
+      periods: [{ ...monday, openDay: "SUNDAY", closeDay: "SUNDAY" }],
+    }
+    const location = {
       categories: {
         primaryCategory: {
           moreHoursTypes: [
@@ -120,26 +228,40 @@ describe("bulk merge", () => {
           ],
         },
       },
-      moreHours: [brunch, { hoursTypeId: "KITCHEN", periods: [] }],
+      moreHours: [brunch, { hoursTypeId: "KITCHEN", periods: [monday] }],
     }
-    expect(mergeHours(input as never, supported)).toEqual({
-      updateMask: "moreHours",
-      current: supported.moreHours,
-      proposed: [
-        brunch,
-        {
-          hoursTypeId: "KITCHEN",
-          periods: [googlePeriod(5, "18:00", "00:30")],
-        },
-      ],
-    })
+    expect(bulkHoursSelection(input)).toEqual({ moreHoursTypes: ["KITCHEN"] })
+    const patch = publish(input, location)
+    expect(patch.blockingIssues).toEqual([])
     expect(
-      mergeHours(input as never, {
-        categories: {
-          primaryCategory: { moreHoursTypes: [{ hoursTypeId: "BRUNCH" }] },
-        },
-      })
-    ).toEqual({ skip: "hours_type_not_supported" })
+      normalizeGoogleHours({
+        moreHours: patch.payload.moreHours,
+      } as GoogleLocationHours).moreHours
+    ).toEqual([
+      normalizeGoogleHours({ moreHours: [brunch] }).moreHours[0],
+      {
+        hoursTypeId: "KITCHEN",
+        periods: [
+          {
+            dayOfWeek: 5,
+            opensAt: "18:00",
+            closesAt: "00:30",
+            closeDayOfWeek: 6,
+          },
+        ],
+      },
+    ])
+    const removal = bulkOperationInputSchema.parse({
+      operation: "more_hours",
+      hoursTypeId: "KITCHEN",
+      periods: [],
+    })
+    if (removal.operation !== "more_hours") throw new Error("parse")
+    expect(
+      applyBulkHours(removal, google(location).hours).moreHours.map(
+        (entry) => entry.hoursTypeId
+      )
+    ).toEqual(["BRUNCH"])
   })
 
   it("changes only the named attributes and skips a listing that does not offer one", () => {

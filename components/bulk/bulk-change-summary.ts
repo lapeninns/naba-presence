@@ -2,14 +2,11 @@
  * What one listing's bulk change does, in the approver's words.
  *
  * Derived only from the child's frozen `currentValue`, `proposedValue` and
- * `updateMask` (plus the operation's own input for the action-link type), so
+ * `updateMask` (plus the child's own change for the action-link type), so
  * the approver reads exactly what will be sent to that listing, not the
  * request in general. Pure and client-safe.
  */
-import type {
-  BulkChild,
-  BulkOperationView,
-} from "@/lib/contracts/bulk-listings"
+import type { BulkChild } from "@/lib/contracts/bulk-listings"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 
 export type ChangeRow = {
@@ -204,7 +201,7 @@ function attributeRows(
 function placeActionRows(
   current: unknown,
   proposed: unknown,
-  input: BulkOperationView["input"]
+  input: BulkChild["input"]
 ): ChangeRow[] {
   type Link = { name?: string; uri?: string; isPreferred?: boolean }
   const links = list<Link>(current)
@@ -249,14 +246,15 @@ function placeActionRows(
 
 /** The listing's exact change, one row per thing that differs. */
 export function describeChildChange(
-  operation: BulkOperationView["operation"],
-  input: BulkOperationView["input"],
-  child: Pick<BulkChild, "currentValue" | "proposedValue" | "updateMask">
+  child: Pick<
+    BulkChild,
+    "operation" | "input" | "currentValue" | "proposedValue" | "updateMask"
+  >
 ): ChangeRow[] {
   if (child.proposedValue === null || child.proposedValue === undefined)
     return []
-  const { currentValue: current, proposedValue: proposed } = child
-  switch (operation) {
+  const { currentValue: current, proposedValue: proposed, input } = child
+  switch (child.operation) {
     case "regular_hours":
       return regularHoursRows(current, proposed)
     case "special_hours":
@@ -267,13 +265,216 @@ export function describeChildChange(
       return attributeRows(current, proposed, child.updateMask)
     case "place_action":
       return placeActionRows(current, proposed, input)
+    case "business_info":
+      return fieldRows(current, proposed, BUSINESS_FIELD_LABEL)
+    case "categories":
+      return categoryRows(current, proposed)
+    case "lodging":
+      return fieldRows(current, proposed)
+    case "food_menus":
+      return menuRows(current, proposed)
+    case "post_draft":
+      return postRows(proposed)
+    case "photos":
+      return photoRows(current, proposed)
+    // A review child carries no listing value: its review and reply are
+    // shown from its outcome code.
+    case "review_approval":
+    case "review_template_reply":
+      return []
   }
 }
 
+const KIND_LABEL: Record<string, string> = {
+  menu: "Menu",
+  section: "Section",
+  item: "Item",
+}
+type MenuNodeSummary = {
+  kind?: string
+  label?: string
+  within?: string[]
+  contains?: number
+  fields?: string[]
+}
+/** "Item “Soup” in Lunch › Starters (and 3 more entries)". */
+function menuNode(node: MenuNodeSummary): string {
+  const kind = KIND_LABEL[node.kind ?? ""] ?? "Entry"
+  const name = node.label
+    ? `${kind} “${node.label}”`
+    : `Unnamed ${kind.toLowerCase()}`
+  const place = (node.within ?? []).filter(Boolean)
+  const where = place.length ? ` in ${place.join(" › ")}` : ""
+  const more = node.contains
+    ? ` (with ${node.contains} ${node.contains === 1 ? "entry" : "entries"} inside)`
+    : ""
+  return `${name}${where}${more}`
+}
+type MenuCounts = { menus?: number; sections?: number; items?: number }
+const menuCounts = (counts: MenuCounts | undefined) =>
+  `${counts?.menus ?? 0} menus, ${counts?.sections ?? 0} sections, ${counts?.items ?? 0} items`
+
+/**
+ * Menus: every entry the listing loses is its own row, so the approver sees
+ * each removal before approving; then additions and updates.
+ */
+function menuRows(current: unknown, proposed: unknown): ChangeRow[] {
+  const before = record(current) as { counts?: MenuCounts }
+  const after = record(proposed) as {
+    counts?: MenuCounts
+    removed?: MenuNodeSummary[]
+    added?: MenuNodeSummary[]
+    updated?: MenuNodeSummary[]
+  }
+  return [
+    ...list<MenuNodeSummary>(after.removed).map((node) => ({
+      label: "Removed",
+      current: menuNode(node),
+      proposed: "Removed from Google",
+    })),
+    ...list<MenuNodeSummary>(after.added).map((node) => ({
+      label: "Added",
+      current: "Not on Google",
+      proposed: menuNode(node),
+    })),
+    ...list<MenuNodeSummary>(after.updated).map((node) => ({
+      label: "Updated",
+      current: menuNode(node),
+      proposed: `New ${(node.fields ?? []).map(humaniseId).join(", ").toLowerCase()}`,
+    })),
+    {
+      label: "Menus",
+      current: menuCounts(before.counts),
+      proposed: menuCounts(after.counts),
+    },
+  ]
+}
+
+const TOPIC_LABEL: Record<string, string> = {
+  STANDARD: "Update",
+  EVENT: "Event",
+  OFFER: "Offer",
+}
+/** A draft is created; it is published from the listing's posts. */
+function postRows(proposed: unknown): ChangeRow[] {
+  const post = record(proposed) as { topicType?: string; summary?: string }
+  return [
+    {
+      label: "New post draft",
+      current: "Nothing published",
+      proposed: `${TOPIC_LABEL[post.topicType ?? ""] ?? "Post"} draft: ${post.summary || "(no text)"}`,
+    },
+  ]
+}
+
+/** "New photo (Interior): bar.jpg, 1200 × 800". */
+function photoRows(current: unknown, proposed: unknown): ChangeRow[] {
+  const photo = record(proposed) as {
+    fileName?: string
+    category?: string
+    width?: number
+    height?: number
+    description?: string | null
+  }
+  const before = record(current) as { previousMediaName?: string | null }
+  const category = (photo.category ?? "ADDITIONAL")
+    .toLowerCase()
+    .replaceAll("_", " ")
+  const size =
+    photo.width && photo.height ? `, ${photo.width} × ${photo.height}` : ""
+  return [
+    {
+      label: `New photo (${category.charAt(0).toUpperCase()}${category.slice(1)})`,
+      current: before.previousMediaName
+        ? "Added before, since removed on Google"
+        : "Not on this listing",
+      proposed: `${photo.fileName ?? "Photo"}${size}${photo.description ? `: ${photo.description}` : ""}`,
+    },
+  ]
+}
+
+const BUSINESS_FIELD_LABEL: Record<string, string> = {
+  websiteUri: "Website",
+  "profile.description": "Description",
+  labels: "Labels",
+  "openInfo.status": "Open status",
+}
+const OPEN_STATUS: Record<string, string> = {
+  OPEN: "Open",
+  CLOSED_TEMPORARILY: "Temporarily closed",
+  CLOSED_PERMANENTLY: "Permanently closed",
+}
+
+/** A frozen field value in words; null and empty are "Not set" (a clear). */
+function fieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not set"
+  if (value === true) return "Yes"
+  if (value === false) return "No"
+  if (typeof value === "string") return OPEN_STATUS[value] ?? value
+  if (Array.isArray(value))
+    return value.length ? value.map(fieldValue).join(", ") : "Not set"
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+    return entries.length
+      ? entries
+          .map(([key, entry]) => `${humaniseId(key)}: ${fieldValue(entry)}`)
+          .join("; ")
+      : "Not set"
+  }
+  return String(value)
+}
+
+/** Field-mask families: one row per changed path (`false` reads "No", never "Not set"). */
+function fieldRows(
+  current: unknown,
+  proposed: unknown,
+  labels: Record<string, string> = {}
+): ChangeRow[] {
+  const before = record(current)
+  return Object.entries(record(proposed)).map(([path, value]) => ({
+    label: labels[path] ?? path.split(".").map(humaniseId).join(" › "),
+    current: fieldValue(before[path]),
+    proposed: fieldValue(value),
+  }))
+}
+
+/** "categories/gcid:pub" → "Pub". */
+export const categoryLabel = (name: string) =>
+  humaniseId(name.replace(/^categories\/gcid:/, ""))
+
+function categoryRows(current: unknown, proposed: unknown): ChangeRow[] {
+  type Ids = { primary?: string | null; additional?: string[] }
+  const before = record(current) as Ids
+  const after = record(proposed) as Ids
+  const names = (values: string[] | undefined) =>
+    values?.length ? values.map(categoryLabel).join(", ") : "None"
+  const rows: ChangeRow[] = []
+  if (before.primary !== after.primary)
+    rows.push({
+      label: "Primary category",
+      current: before.primary ? categoryLabel(before.primary) : "None",
+      proposed: after.primary ? categoryLabel(after.primary) : "None",
+    })
+  if (names(before.additional) !== names(after.additional))
+    rows.push({
+      label: "Additional categories",
+      current: names(before.additional),
+      proposed: names(after.additional),
+    })
+  return rows
+}
+
 const MASK_LABEL: Record<string, string> = {
+  websiteUri: "Website",
+  profile: "Description",
+  labels: "Labels",
+  "openInfo.status": "Open status",
+  categories: "Categories",
   regularHours: "Opening hours",
   specialHours: "Special hours",
   moreHours: "Service hours",
+  menus: "Menus",
+  localPost: "A new post draft",
 }
 
 /** An update mask entry in plain English, never the raw field path. */

@@ -95,7 +95,8 @@ const STEP_UP: readonly string[] = [
 
 /** Handlers that call requireRecentMfa for their sensitive branch only. */
 const IN_HANDLER: Record<string, string> = {
-  // Approving publishes; triage and assignment do not.
+  // Approving and template replies (a batch its starter decides) publish;
+  // triage and assignment do not.
   "POST app/api/reviews/bulk/route.ts": "app/api/reviews/bulk/route.ts",
   // Editing a published post republishes it; editing a draft does not.
   "PATCH app/api/locations/[id]/posts/[postId]/route.ts": "lib/server/posts.ts",

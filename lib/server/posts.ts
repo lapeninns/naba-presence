@@ -817,6 +817,58 @@ export async function listLocalPosts(
   }
 }
 
+/**
+ * Inserts one local draft (status `draft`; nothing is sent to Google) and
+ * its `post.draft.created` audit row, in the caller's transaction. The
+ * author is who wrote the content: under two-person approval, a different
+ * person must approve its publication.
+ */
+export async function insertLocalPostDraft(
+  sql: TransactionSql,
+  draft: {
+    organisationId: string
+    locationId: string
+    externalLocationId: string
+    input: LocalPostInput
+    authorUserId: string
+    /** Who acted (the author, or the approver of a bulk batch). */
+    actorUserId: string
+    requestId: string
+    metadata?: Record<string, unknown>
+  }
+) {
+  const { input } = draft
+  const [post] = await sql<{ id: string }[]>`
+    insert into gbp_local_post (
+      organisation_id, location_id, external_location_id,
+      topic_type, language_code, summary, call_to_action, event, offer,
+      media, created_by
+    ) values (
+      ${draft.organisationId}, ${draft.locationId}, ${draft.externalLocationId},
+      ${input.topicType}, ${input.languageCode}, ${input.summary},
+      ${jsonColumnOrNull(sql, input.callToAction)},
+      ${jsonColumnOrNull(sql, input.event)},
+      ${jsonColumnOrNull(sql, input.offer)},
+      ${jsonColumn(sql, input.media)}, ${draft.authorUserId}
+    )
+    returning id::text as id
+  `
+  await writeAudit(sql, {
+    organisationId: draft.organisationId,
+    actorUserId: draft.actorUserId,
+    action: "post.draft.created",
+    subjectType: "local_post",
+    subjectId: post.id,
+    requestId: draft.requestId,
+    metadata: {
+      locationId: draft.locationId,
+      topicType: input.topicType,
+      ...draft.metadata,
+    },
+  })
+  return post
+}
+
 export async function createLocalPostDraft(
   organisationId: string,
   session: Session,
@@ -832,31 +884,15 @@ export async function createLocalPostDraft(
       POSTS_NOT_LINKED
     )
     await requireLocationAction(sql, session, locationId, "edit")
-    const [post] = await sql<{ id: string }[]>`
-      insert into gbp_local_post (
-        organisation_id, location_id, external_location_id,
-        topic_type, language_code, summary, call_to_action, event, offer,
-        media, created_by
-      ) values (
-        ${organisationId}, ${locationId}, ${linked.externalLocationId},
-        ${input.topicType}, ${input.languageCode}, ${input.summary},
-        ${jsonColumnOrNull(sql, input.callToAction)},
-        ${jsonColumnOrNull(sql, input.event)},
-        ${jsonColumnOrNull(sql, input.offer)},
-        ${jsonColumn(sql, input.media)}, ${session.userId}
-      )
-      returning id::text as id
-    `
-    await writeAudit(sql, {
+    return insertLocalPostDraft(sql, {
       organisationId,
+      locationId,
+      externalLocationId: linked.externalLocationId,
+      input,
+      authorUserId: session.userId,
       actorUserId: session.userId,
-      action: "post.draft.created",
-      subjectType: "local_post",
-      subjectId: post.id,
       requestId,
-      metadata: { locationId, topicType: input.topicType },
     })
-    return post
   })
 }
 

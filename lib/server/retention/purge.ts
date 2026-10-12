@@ -3,6 +3,7 @@ import "server-only"
 import type { Fragment, TransactionSql } from "postgres"
 
 import { purgeAbuseRateBuckets } from "@/lib/server/abuse-limits"
+import { purgeExpiredStagingAssets } from "@/lib/server/assets"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -1003,6 +1004,25 @@ export async function purgeOrganisation({
     if (!pending.length || Date.now() >= deadline) break
   }
   const complete = pending.length === 0
+  // Staged photo uploads (P09-R7, media_asset) older than 24 hours: their
+  // objects are deleted from private storage once the tenant's rounds are
+  // done, outside any tenant transaction because storage is not
+  // transactional. The row stays, marked purged. Zero when storage is not
+  // configured (nothing can have been staged). A storage failure is logged
+  // and the next run tries again; it never fails the organisation.
+  let stagingAssets = 0
+  if (complete && deletesEnabled) {
+    try {
+      stagingAssets =
+        (await purgeExpiredStagingAssets(organisationId, limit)) ?? 0
+    } catch (error) {
+      log.error("retention.staging_assets_failed", {
+        requestId,
+        organisationId,
+        error,
+      })
+    }
+  }
   log.info(
     complete ? "retention.organisation_purged" : "retention.organisation_partial",
     {
@@ -1012,11 +1032,12 @@ export async function purgeOrganisation({
       behind: pending.map((step) => step.key),
       ...counts,
       heldLocationsSkipped,
+      stagingAssets,
     }
   )
   return {
     complete,
-    counts: { ...counts, heldLocationsSkipped },
+    counts: { ...counts, heldLocationsSkipped, stagingAssets },
     rounds,
   }
 }

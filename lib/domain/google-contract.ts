@@ -463,15 +463,29 @@ export function googleLocationAttributesPatchRequest(input: {
   } satisfies { url: string; init: RequestInit }
 }
 
-export function googleAttributeMetadataRequest(input: {
-  locationName: string
-  languageCode?: string
-  pageToken?: string
-}) {
-  const params = new URLSearchParams({
-    parent: input.locationName,
-    pageSize: "200",
-  })
+/**
+ * attributes.list, for a listing (`parent`), or for a primary category in a
+ * region (`categoryName` + `regionCode`): what a listing would be offered
+ * under categories it does not hold yet.
+ */
+export type GoogleAttributeMetadataScope =
+  | { locationName: string }
+  | { categoryName: string; regionCode: string }
+export function googleAttributeMetadataRequest(
+  input: GoogleAttributeMetadataScope & {
+    languageCode?: string
+    pageToken?: string
+  }
+) {
+  const params = new URLSearchParams(
+    "locationName" in input
+      ? { parent: input.locationName, pageSize: "200" }
+      : {
+          categoryName: input.categoryName,
+          regionCode: input.regionCode,
+          pageSize: "200",
+        }
+  )
   if (input.languageCode) params.set("languageCode", input.languageCode)
   if (input.pageToken) params.set("pageToken", input.pageToken)
   return {

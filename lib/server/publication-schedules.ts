@@ -31,6 +31,11 @@ import type { OperationalEvent } from "@/lib/contracts/operational-events"
 import { writeAudit } from "@/lib/server/audit"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
+import {
+  requireCurrentManager,
+  requireSecondApprover,
+  requireUnchangedTwoPersonPolicy,
+} from "@/lib/server/authz/approval-policy"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { authorisationAssurance } from "@/lib/server/mfa"
@@ -66,6 +71,8 @@ type Row = {
   approvedBy: string | null
   approvedAt: Date | null
   approvedRevision: number | null
+  /** The approver's security version at approval (0106); null before it. */
+  approvedSecurityVersion: number | null
   requireTwoPersonApproval: boolean
 }
 const NOT_FOUND = {
@@ -188,7 +195,8 @@ async function loadRow(
     select s.id::text as id, s.location_id::text as "locationId", l.name as "locationName", s.status, s.status_reason as "statusReason",
       s.revision, s.payload_hash as "payloadHash", s.rule, s.timezone, s.offset_minutes as "offsetMinutes", s.event_offsets as "eventOffsets", s.template,
       s.source_post_id::text as "sourcePostId", s.source_content_revision::integer as "sourceContentRevision", s.requested_by::text as "requestedBy", s.approved_by::text as "approvedBy",
-      s.approved_at as "approvedAt", s.approved_revision as "approvedRevision", s.require_two_person_approval as "requireTwoPersonApproval"
+      s.approved_at as "approvedAt", s.approved_revision as "approvedRevision", s.approved_security_version as "approvedSecurityVersion",
+      s.require_two_person_approval as "requireTwoPersonApproval"
     from post_publication_schedule s join location l on l.id = s.location_id
     where s.id = ${scheduleId} and s.location_id = ${locationId}
     ${lock ? sql`for update of s` : sql``}`
@@ -253,22 +261,6 @@ async function project(
     },
     counts: Object.fromEntries(counts.map((row) => [row.status, row.count])),
   })
-}
-
-async function requireCurrentManager(
-  sql: TransactionSql,
-  userId: string,
-  code = "approval_actor_access_changed"
-) {
-  const [member] = await sql<
-    { role: string }[]
-  >`select role from member where user_id = ${userId}`
-  if (!member || !["owner", "admin"].includes(member.role))
-    throw new ApiError(
-      409,
-      code,
-      "An initiating or approving user's access changed. The schedule needs a fresh approval."
-    )
 }
 
 /** The statuses a schedule can still publish from (or be approved into). */
@@ -860,21 +852,21 @@ export async function approvePublicationSchedule(
         "approval_stale",
         "The schedule changed after you reviewed it. Review it again."
       )
-    const [policy] = await sql<
-      { required: boolean }[]
-    >`select require_two_person_approval as required from organisation limit 1`
-    if ((policy?.required ?? false) !== row.requireTwoPersonApproval)
-      throw new ApiError(
-        409,
-        "approval_policy_changed",
-        "The approval policy changed. Ask for the schedule to be submitted again."
-      )
-    if (row.requireTwoPersonApproval && row.requestedBy === session.userId)
-      throw new ApiError(
-        409,
-        "second_approver_required",
-        "A different authorised user must approve this schedule."
-      )
+    // The shared approval rules (lib/server/authz/approval-policy.ts): the
+    // two-person flag frozen at the request still holds, and under it the
+    // requester cannot approve their own schedule.
+    await requireUnchangedTwoPersonPolicy(
+      sql,
+      session.organisationId,
+      row.requireTwoPersonApproval,
+      "The approval policy changed. Ask for the schedule to be submitted again."
+    )
+    requireSecondApprover(
+      row.requireTwoPersonApproval,
+      row.requestedBy,
+      session.userId,
+      "A different authorised user must approve this schedule."
+    )
     const [requester] =
       await sql`select 1 from member where user_id = ${row.requestedBy}`
     if (!requester)
@@ -1141,16 +1133,23 @@ export async function actOnPublicationSchedule(
           session.organisationId,
           scheduleRuleSchema.parse(row.rule)
         )
-        const [policy] = await sql<
-          { required: boolean }[]
-        >`select require_two_person_approval as required from organisation limit 1`
-        if ((policy?.required ?? false) !== row.requireTwoPersonApproval)
-          throw new ApiError(
-            409,
-            "approval_policy_changed",
-            "The approval policy changed. Edit the schedule and approve it again."
-          )
-        await requireCurrentManager(sql, row.approvedBy)
+        await requireUnchangedTwoPersonPolicy(
+          sql,
+          session.organisationId,
+          row.requireTwoPersonApproval,
+          "The approval policy changed. Edit the schedule and approve it again."
+        )
+        // The approver must still be an owner or admin, holding the security
+        // version their approval recorded (operator MFA recovery since then
+        // voids it).
+        await requireCurrentManager(sql, session.organisationId, row.approvedBy, {
+          securityVersion: row.approvedSecurityVersion,
+          refusal: {
+            code: "approval_actor_access_changed",
+            message:
+              "An initiating or approving user's access changed. The schedule needs a fresh approval.",
+          },
+        })
         await sql`update post_publication_schedule set status = 'active', updated_at = now() where id = ${scheduleId}`
       }
     } else {

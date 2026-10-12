@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 import { ZodError } from "zod"
 
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import {
   buildGoogleHoursPatch,
   classifyHoursDrift,
@@ -35,7 +36,12 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
+import {
+  jsonColumn,
+  jsonColumnOrNull,
+  withSessionConnection,
+  withTenant,
+} from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   attemptStore,
@@ -425,6 +431,13 @@ type PublishHoursInput = {
   /** Absent: publish the whole saved schedule. */
   selection?: HoursSelectionInput
   requestId: string
+  /**
+   * The receipt's intent when a worker publishes (a bulk child); absent, the
+   * request's own `Idempotency-Key` is used.
+   */
+  intentId?: string
+  /** What approved this write, recorded on its receipt. */
+  approvalRef?: string
 }
 
 type HoursPatch = ReturnType<typeof buildGoogleHoursPatch>
@@ -571,7 +584,10 @@ function checkPublishSnapshot(
 /** durable intent -> validateOnly -> PATCH -> readback -> settle + reconcile + audit */
 async function publishHoursToGoogle(
   live: LiveHours,
-  input: PublishHoursInput,
+  input: Pick<
+    PublishHoursInput,
+    "session" | "locationId" | "requestId" | "intentId" | "approvalRef"
+  >,
   plan: PublishPlan
 ) {
   const { session, locationId } = input
@@ -625,6 +641,7 @@ async function publishHoursToGoogle(
       message: "This publish is already in progress.",
     },
     failureCode: "google_hours_publish_failed",
+    ...(input.intentId === undefined ? {} : { intentId: input.intentId }),
     operation: {
       surface: "hours",
       action: "publish",
@@ -634,6 +651,7 @@ async function publishHoursToGoogle(
       payloadHash,
       expectedRevision: live.resource.revision,
       googleConnectionId: linked.googleConnectionId,
+      approvalRef: input.approvalRef ?? null,
     },
     validate: async () => {
       await patchHours(true)
@@ -708,24 +726,276 @@ const HOURS_PUBLISHING_DISABLED = {
   message: "Hours publishing is currently disabled.",
 }
 
+/**
+ * Publishes the reviewed schedule. The live read, the snapshot checks, the
+ * write and its readback all run under the location's hours lock
+ * (`<org>:<location>:hours`), the key bulk regular, special and more-hours
+ * children take (lib/server/bulk-listing-runner.ts): a bulk child cannot
+ * write between this publish's read and its PATCH, and this publish waits
+ * for a running bulk child, then reads what it left on Google.
+ */
 export async function publishCanonicalHours(input: PublishHoursInput) {
   requireGbpWrite(getServerEnv(), "profileWrites", HOURS_PUBLISHING_DISABLED)
-  const live = await readLiveHours(input.session, input.locationId)
+  return withSessionConnection((connection) =>
+    connection.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${hoursLockKey(input.session.organisationId, input.locationId)}, 0))`
+      const live = await readLiveHours(input.session, input.locationId)
+      requirePublishGrant(live.linked, {
+        code: "publish_permission_required",
+        message: "You cannot publish this location.",
+      })
+      const checked = checkPublishSnapshot(live, input)
+      if (checked.kind !== "proceed") {
+        return { status: checked.kind, idempotent: true }
+      }
+      const result = await publishHoursToGoogle(live, input, checked.plan)
+      return {
+        status: "published" as const,
+        attemptId: result.attemptId,
+        idempotent: result.idempotent,
+        operation: operationSummary(result),
+      }
+    })
+  )
+}
+
+/** One approved change to selected parts of a listing's hours (a bulk child). */
+export type HoursSelectionChange = {
+  session: Session
+  locationId: string
+  selection: HoursSelection
+  /** The schedule with the selected parts set to the change. */
+  apply: (hours: NormalizedHours) => NormalizedHours
+  /** Google's selected parts when the change was previewed (null: absent). */
+  expectedGoogleParts: Record<string, string | null>
+  intentId: string
+  approvalRef: string
+  requestId: string
+  /** Asked once more just before anything is saved or sent. */
+  stillOpen: () => boolean
+  /**
+   * Called in the transaction that saves the change, before anything is
+   * sent: the caller keeps the restore point, so a write that recovery
+   * later reads back as not applied can be undone (`restoreHoursRevision`).
+   */
+  recordRestore?: (
+    sql: TransactionSql,
+    restore: HoursRestore
+  ) => Promise<unknown>
+}
+
+/** The canonical revision a change saved, and the schedule it replaced. */
+export type HoursRestore = { revision: string; payload: StoredHours }
+
+/**
+ * Puts back the schedule a change replaced, only while the revision that
+ * change saved is still current: a later edit wins. Returns whether it did.
+ */
+export async function restoreHoursRevision(
+  sql: TransactionSql,
+  input: { organisationId: string; locationId: string; restore: HoursRestore }
+): Promise<boolean> {
+  try {
+    await updateCanonicalResource<StoredHours>({
+      sql,
+      organisationId: input.organisationId,
+      locationId: input.locationId,
+      resourceType: "hours",
+      expectedRevision: input.restore.revision,
+      payload: input.restore.payload,
+    })
+    return true
+  } catch (stale) {
+    if (!(stale instanceof ApiError)) throw stale
+    return false
+  }
+}
+
+/**
+ * The saved (canonical) schedule of a location, or null when none is saved
+ * yet (a first publish starts it from Google). Read only.
+ */
+export async function readSavedHours(
+  organisationId: string,
+  locationId: string
+): Promise<NormalizedHours | null> {
+  const [row] = await withTenant(
+    organisationId,
+    (sql) => sql<{ payload: StoredHours }[]>`
+      select payload from presence_canonical_resource
+      where organisation_id = ${organisationId}
+        and location_id = ${locationId} and resource_type = 'hours'`
+  )
+  if (!row) return null
+  const { boundaryBaseline, ...hours } = row.payload
+  void boundaryBaseline
+  return hours
+}
+
+export type HoursSelectionResult =
+  | {
+      /** Google already showed the change; nothing was sent. */
+      status: "applied" | "conflict" | "closed"
+      google: GoogleLocationHours
+    }
+  | {
+      status: "published"
+      google: GoogleLocationHours
+      operationId: string | null
+      outcome: OperationOutcome
+    }
+
+/**
+ * Publishes an approved change to selected parts of the schedule through
+ * the editor's own path, so the saved (canonical) schedule and Google stay
+ * in step: the change is saved as a new canonical revision, then that
+ * revision's selected parts are published (selective publish, P09-S1) under
+ * the caller's intent, with its receipt, readback and recovery.
+ *
+ * The caller holds the location's hours lock (`hoursLockKey`), as
+ * `publishCanonicalHours` does for an editor.
+ *
+ *   - Google already shows the change: the canonical schedule is brought in
+ *     line, nothing is sent (`applied`).
+ *   - A selected part changed on Google since the preview: nothing is saved
+ *     or sent (`conflict`); unselected parts may differ, they are written
+ *     back as Google holds them.
+ *   - A write that definitely did not apply puts the saved schedule back,
+ *     so the editor does not show the batch's value as a local change. An
+ *     uncertain one keeps it, with the restore point the caller recorded
+ *     (`recordRestore`): when recovery reads it back as not applied, the
+ *     caller puts it back (`restoreHoursRevision`).
+ */
+export async function publishHoursSelectionLocked(
+  change: HoursSelectionChange
+): Promise<HoursSelectionResult> {
+  requireGbpWrite(getServerEnv(), "profileWrites", HOURS_PUBLISHING_DISABLED)
+  const { session, locationId, selection } = change
+  const live = await readLiveHours(session, locationId)
   requirePublishGrant(live.linked, {
     code: "publish_permission_required",
     message: "You cannot publish this location.",
   })
-  const checked = checkPublishSnapshot(live, input)
-  if (checked.kind !== "proceed") {
-    return { status: checked.kind, idempotent: true }
+  const google = live.googleLocation
+  const target = change.apply(live.canonical)
+  const keys = hoursSelectionKeys(selection)
+  const save = (
+    sql: TransactionSql,
+    expectedRevision: string,
+    payload: StoredHours
+  ) =>
+    updateCanonicalResource<StoredHours>({
+      sql,
+      organisationId: session.organisationId,
+      locationId,
+      resourceType: "hours",
+      expectedRevision,
+      payload,
+    })
+  const stored: StoredHours = {
+    ...target,
+    ...(live.resource.payload.boundaryBaseline
+      ? { boundaryBaseline: live.resource.payload.boundaryBaseline }
+      : {}),
   }
-  const result = await publishHoursToGoogle(live, input, checked.plan)
-  return {
-    status: "published" as const,
-    attemptId: result.attemptId,
-    idempotent: result.idempotent,
-    operation: operationSummary(result),
+  const saveTarget = (options: { restorable: boolean }) =>
+    withTenant(session.organisationId, async (sql) => {
+      const updated = await save(sql, live.resource.revision, stored)
+      if (options.restorable)
+        await change.recordRestore?.(sql, {
+          revision: updated.revision,
+          payload: live.resource.payload,
+        })
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        action: "hours.canonical.updated",
+        subjectType: "location",
+        subjectId: locationId,
+        requestId: change.requestId,
+        metadata: {
+          revision: updated.revision,
+          canonicalHash: hashHours(target),
+          approvalRef: change.approvalRef,
+        },
+      })
+      return updated
+    })
+  const targetParts = hoursPartHashes(target)
+  if (keys.every((key) => live.googleParts[key] === targetParts[key])) {
+    if (hashHours(target) !== live.canonicalHash)
+      await saveTarget({ restorable: false })
+    return { status: "applied", google }
   }
+  if (
+    keys.some(
+      (key) =>
+        (live.googleParts[key] ?? null) !==
+        (change.expectedGoogleParts[key] ?? null)
+    )
+  )
+    return { status: "conflict", google }
+  if (!change.stillOpen()) return { status: "closed", google }
+  const written = hoursSelectionFromKeys(
+    keys.filter((key) => live.googleParts[key] !== targetParts[key])
+  )
+  const patch = buildGoogleHoursPatch({
+    canonical: target,
+    googleLocation: google,
+    selection: written,
+  })
+  if (patch.blockingIssues.length > 0)
+    throw new ApiError(
+      409,
+      "hours_reconciliation_required",
+      patch.blockingIssues.join(" ")
+    )
+  const saved =
+    hashHours(target) === live.canonicalHash
+      ? null
+      : await saveTarget({ restorable: true })
+  const published: LiveHours = saved
+    ? {
+        ...live,
+        resource: saved,
+        canonical: target,
+        canonicalHash: hashHours(target),
+        canonicalParts: targetParts,
+      }
+    : live
+  try {
+    const result = await publishHoursToGoogle(published, change, {
+      patch,
+      selection: written,
+    })
+    return {
+      status: "published",
+      google,
+      operationId: result.operationId ?? null,
+      outcome: result.outcome,
+    }
+  } catch (error) {
+    if (saved) {
+      await withTenant(session.organisationId, async (sql) => {
+        const [receipt] = await sql<{ state: string }[]>`
+          select state from mutation_operation
+          where organisation_id = ${session.organisationId} and intent_id = ${change.intentId}`
+        if (receipt && !["failed", "rejected"].includes(receipt.state)) return
+        // Only the revision this change saved is put back; a later edit wins.
+        await restoreHoursRevision(sql, {
+          organisationId: session.organisationId,
+          locationId,
+          restore: { revision: saved.revision, payload: live.resource.payload },
+        })
+      })
+    }
+    throw error
+  }
+}
+
+/** The advisory lock key every hours writer to Google takes for a location. */
+export function hoursLockKey(organisationId: string, locationId: string) {
+  return `${organisationId}:${locationId}:hours`
 }
 
 // ---------------------------------------------------------------------------

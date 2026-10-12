@@ -105,9 +105,11 @@ function refreshedAt(timestamp: number | undefined): string | null {
 function InboxViewInner({
   showLocationFilter,
   actions,
+  bulkEngine,
 }: {
   showLocationFilter: boolean
   actions?: ReactNode
+  bulkEngine: boolean
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -776,7 +778,9 @@ function InboxViewInner({
           </Button>
         </div>
       ) : null}
-      {canBatch ? <BulkActionBar rows={reviews} /> : null}
+      {canBatch ? (
+        <BulkActionBar rows={reviews} bulkEngine={bulkEngine} />
+      ) : null}
     </section>
   )
 
@@ -926,10 +930,16 @@ function InboxViewInner({
 function InboxView({
   showLocationFilter = true,
   actions,
+  bulkEngine = false,
 }: {
   showLocationFilter?: boolean
   /** The route's page actions (shortcuts, sync), drawn in the toolbar. */
   actions?: ReactNode
+  /**
+   * The organisation has bulk changes on: bulk approve and template replies
+   * are sent by the job runner as a batch (lib/server/bulk-reviews.ts).
+   */
+  bulkEngine?: boolean
 }) {
   return (
     <DirtyGuardProvider>
@@ -937,6 +947,7 @@ function InboxView({
         <InboxViewInner
           showLocationFilter={showLocationFilter}
           actions={actions}
+          bulkEngine={bulkEngine}
         />
       </SelectionProvider>
     </DirtyGuardProvider>

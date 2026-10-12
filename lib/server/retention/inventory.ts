@@ -607,6 +607,42 @@ export const RETENTION_INVENTORY = [
       "keep each location's current and proposed values with its bulk operation"
     ),
   },
+  // Bulk engine additions (P09-R3, P09-R7). Like the batches they belong
+  // to, nothing deletes them until D-47 sets a period.
+  {
+    table: "bulk_listing_write_attempt",
+    provenance: "operational",
+    action: "keep",
+    window: "with its bulk listing child (attributes and action-link writes and what their readback must find)",
+    deletes: "none",
+    hold: "none",
+    approval: PENDING_UNDECIDED(
+      "keep each bulk write attempt with its bulk operation"
+    ),
+  },
+  {
+    table: "media_asset",
+    provenance: "customer",
+    action: "keep",
+    window:
+      "a finalised photo is kept until decided; an upload never finalised has its staged object removed from private storage 24 hours after it started (staging_expires_at, purgeExpiredStagingAssets in the retention purge, while RETENTION_DELETES_ENABLED is on) and its row kept, marked purged",
+    deletes: "none",
+    hold: "none",
+    approval: PENDING_UNDECIDED(
+      "keep owned photos and their rows; remove only staged objects never finalised"
+    ),
+  },
+  {
+    table: "media_asset_publication",
+    provenance: "customer",
+    action: "keep",
+    window: "with its photo asset (where each photo was published)",
+    deletes: "none",
+    hold: "none",
+    approval: PENDING_UNDECIDED(
+      "keep where each owned photo was published with the photo"
+    ),
+  },
   {
     table: "report_share",
     provenance: "customer",

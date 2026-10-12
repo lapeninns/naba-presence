@@ -194,6 +194,23 @@ export const serverEnvSchema = z.object({
   STRIPE_PORTAL_CONFIGURATION_ID: optionalText,
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
+  // Private photo assets for bulk changes (lib/server/storage). Off unless
+  // MEDIA_ASSET_STORAGE=supabase and the server-only secret key and the
+  // private bucket are both set: without them every asset route answers 503
+  // asset_storage_unavailable and no bulk photo is sent. The secret key never
+  // reaches the browser; uploads go to signed, single-object URLs.
+  MEDIA_ASSET_STORAGE: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["disabled", "supabase"]).default("disabled")
+  ),
+  SUPABASE_SECRET_KEY: optionalText,
+  MEDIA_ASSETS_BUCKET: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9_.-]{2,62}$/)
+      .optional()
+  ),
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
   // Two-step verification (TOTP through Supabase Auth, lib/server/mfa.ts).
   // Off by default: sign-in ignores enrolled factors and the MFA routes

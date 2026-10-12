@@ -13,7 +13,7 @@ import {
   selectDueOccurrences,
 } from "@/lib/domain/publication-schedule"
 import { writeAudit } from "@/lib/server/audit"
-import { recheckAuthorisation } from "@/lib/server/authz/actor"
+import { recheckApprovedWork } from "@/lib/server/authz/approval-policy"
 import { sha256 } from "@/lib/server/crypto"
 import {
   getDatabase,
@@ -262,10 +262,10 @@ async function supersede(
 
 /**
  * Checks that need a fresh approval when they fail. Null when the schedule
- * may run. The approver's authority is re-decided now through
- * recheckAuthorisation against what the approval froze: the connection and
- * credential generation (a relink or reconnect since blocks), the approval
- * policy, and the approver's security version.
+ * may run. Both people's authority is re-decided now through the shared
+ * approval policy (recheckApprovedWork) against what the approval froze: the
+ * connection and credential generation (a relink or reconnect since blocks),
+ * the approval policy, and the approver's security version.
  */
 async function approvalProblem(
   sql: TransactionSql,
@@ -278,11 +278,6 @@ async function approvalProblem(
     schedule.approvedApprovalRequired === null
   )
     return "approval_invalid"
-  if (
-    schedule.requireTwoPersonApproval &&
-    schedule.approvedBy === schedule.requestedBy
-  )
-    return "approval_invalid"
   // An approval from before 0118 that no link could pin, or one whose
   // Google location has since changed, was not given for this target.
   if (
@@ -292,31 +287,31 @@ async function approvalProblem(
     link.googleLocationName !== schedule.targetLocationName
   )
     return "connection_changed"
-  const [requester] = await sql`
-    select 1 from member where organisation_id = ${schedule.organisationId} and user_id = ${schedule.requestedBy}`
-  if (!requester) return "permission_revoked"
-  // INTEGRATION: stream D's shared approval-policy helper
-  // (lib/server/authz/approval-policy.ts) replaces the local two-person and
-  // manager checks here once it lands; it is not merged yet.
-  // The entitlement (stream B) is checked by scheduledPostEntitlement()
-  // before this runs; it is not passed to the recheck, whose `entitlement`
-  // input still refuses any value it is given.
-  const recheck = await recheckAuthorisation(sql, {
+  // Both people are re-decided through the shared approval policy
+  // (lib/server/authz/approval-policy.ts), as for bulk batches: the
+  // requester may still ask for approval of posts here, the approver may
+  // still publish here as an owner or admin through the frozen connection
+  // and credential generation, the frozen policy (both flags) still holds,
+  // and under two-person approval they are two different people. The
+  // approver's security version at approval (0106) must still be theirs:
+  // operator MFA recovery bumps it (security_version_changed, reported as
+  // approval_invalid); approvals recorded before 0106 (null) are not
+  // compared. The entitlement (stream B) is checked by
+  // scheduledPostEntitlement() before this runs; it is not passed to the
+  // recheck, whose `entitlement` input still refuses any value it is given.
+  const recheck = await recheckApprovedWork(sql, {
     organisationId: schedule.organisationId,
-    actorUserId: schedule.approvedBy,
     locationId: schedule.locationId,
-    action: "publish",
-    connectionId: schedule.targetConnectionId,
-    generation: schedule.targetGeneration,
+    requestedBy: schedule.requestedBy,
+    approvedBy: schedule.approvedBy,
+    requireTwoPersonApproval: schedule.requireTwoPersonApproval,
     policy: {
       approvalRequired: schedule.approvedApprovalRequired,
       requireTwoPersonApproval: schedule.requireTwoPersonApproval,
     },
-    // The approver's security version at approval (0106). Operator MFA
-    // recovery bumps it, so an approval given before a recovery no longer
-    // stands (security_version_changed, reported as approval_invalid). Null
-    // on approvals recorded before 0106: not compared.
-    securityVersion: schedule.approvedSecurityVersion,
+    connectionId: schedule.targetConnectionId,
+    generation: schedule.targetGeneration,
+    approverSecurityVersion: schedule.approvedSecurityVersion,
   })
   if (!recheck.ok) {
     switch (recheck.reason) {
@@ -326,13 +321,12 @@ async function approvalProblem(
       case "actor_not_member":
       case "location_hidden":
       case "action_denied":
+      case "approver_not_manager":
         return "permission_revoked"
       default:
         return "approval_invalid"
     }
   }
-  if (!["owner", "admin"].includes(recheck.scope.role))
-    return "permission_revoked"
   return null
 }
 

@@ -577,6 +577,57 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     ])
   })
 
+  it("rechecks the requester through the shared approval policy, and refuses a self-approval at dispatch", async () => {
+    // Stream D's approval-policy helper (recheckApprovedWork) decides both
+    // people now: a requester who can no longer ask for approval at the
+    // listing stops the schedule, as for bulk batches.
+    const t = await tenant()
+    await admin`update organisation set require_two_person_approval = true where id = ${t.owner.organisationId}`
+    const requester = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+      canPublish: true,
+    })
+    await admin`update member set role = 'admin' where user_id = ${requester.userId}`
+    const s = await t.schedule(
+      await t.draft(),
+      { frequency: "once", startDate: tomorrow(), localTime: "09:00" },
+      {},
+      requester.cookie
+    )
+    expect((await t.approve(s, requester.cookie)).status).toBe(409)
+    expect((await t.approve(s)).status).toBe(200)
+    await admin`update member set role = 'viewer', can_publish = false where user_id = ${requester.userId}`
+    await t.age((await t.occurrences(s.id))[0].id, 1)
+    const summary = await tick()
+    expect(summary.schedules).toMatchObject({ blocked: 1 })
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "blocked",
+      status_reason: "permission_revoked",
+    })
+    // A row written around the approve route (approver = requester under
+    // two-person approval) is refused at dispatch too.
+    const self = await t.schedule(
+      await t.draft({
+        topicType: "STANDARD",
+        languageCode: "en-GB",
+        summary: "Quiz night",
+        media: [],
+      }),
+      { frequency: "once", startDate: tomorrow(), localTime: "10:00" }
+    )
+    expect((await t.approve(self, requester.cookie)).status).not.toBe(200)
+    await admin`update member set role = 'admin', can_publish = true where user_id = ${requester.userId}`
+    expect((await t.approve(self, requester.cookie)).status).toBe(200)
+    await admin`update post_publication_schedule set approved_by = requested_by where id = ${self.id}`
+    await t.age((await t.occurrences(self.id))[0].id, 1)
+    await tick()
+    expect(await t.scheduleRow(self.id)).toEqual({
+      status: "blocked",
+      status_reason: "approval_invalid",
+    })
+    expect(creates()).toHaveLength(0)
+  })
+
   it("publishes only inside the 5-minute window and records anything later as missed", async () => {
     const t = await tenant(),
       s = await t.schedule(await t.draft(), {

@@ -249,6 +249,42 @@ describe("route entitlements: static scan of app/api", () => {
     }
   })
 
+  it("classifies stream D's bulk and photo-asset mutations (P09)", () => {
+    // Starting, approving, sending and re-sending bulk work and uploading
+    // photos are new changes: refused while read-only. Cancelling queued
+    // work stays available, as for schedules; its dispatch is held anyway.
+    for (const key of [
+      "POST listings/bulk/preview",
+      "POST listings/bulk/[id]/approve",
+      "POST listings/bulk/[id]/execute",
+      "POST listings/bulk/[id]/retry",
+      "POST reviews/bulk",
+      "POST assets",
+      "POST assets/[id]/finalise",
+    ]) {
+      const handler = session.find((entry) => entry.key === key)
+      expect(handler, key).toBeDefined()
+      expect(handler?.entitlement ?? "write", key).toBe("write")
+      expect(exempt.has(key), key).toBe(false)
+    }
+    const cancel = session.find(
+      (entry) => entry.key === "POST listings/bulk/[id]/cancel"
+    )
+    expect(cancel?.entitlement).toBe("exempt")
+    expect(exempt.has("POST listings/bulk/[id]/cancel")).toBe(true)
+    // Every bulk family, reviews included, is sent by the one bulk runner,
+    // which is held (organisationWriteBlock) before any provider call.
+    expect(READ_ONLY_BACKGROUND_WORK.bulk).toBe("held")
+    const runner = readFileSync(
+      join(repoRoot, "lib/server/bulk-listing-runner.ts"),
+      "utf8"
+    )
+    expect(runner).not.toContain("INTEGRATION:")
+    expect(runner.indexOf("organisationWriteBlock(")).toBeLessThan(
+      runner.indexOf("family.dispatch(")
+    )
+  })
+
   it("refuses wave 3's new session mutations while read-only (P06-6)", () => {
     // Resending an invitation sends a fresh access link, like inviting; the
     // queued delivery itself runs (READ_ONLY_BACKGROUND_WORK.invitations).

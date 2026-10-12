@@ -14,6 +14,7 @@ export const BULK_ROW_STATUS_LABEL: Record<BulkReviewRowStatus, string> = {
   failed: "Failed",
   approved_not_published: "Approved, not published",
   uncertain: "Check on Google",
+  queued: "Queued",
 }
 
 export type BulkOutcomeSummary = {
@@ -42,6 +43,25 @@ export function summariseBulkOutcome(
   const failed = count("failed")
   const notPublished = count("approved_not_published")
   const uncertain = count("uncertain")
+  const queued = count("queued")
+
+  // Sent by the job runner: the batch page follows each one to its end,
+  // whether or not this tab stays open.
+  if (queued > 0) {
+    const others = [
+      skipped > 0 ? `${skipped} skipped` : null,
+      failed > 0 ? `${failed} failed` : null,
+    ].filter((part): part is string => part !== null)
+    return {
+      title: [`${plural(queued, "reply", "replies")} queued`, ...others].join(
+        ", "
+      ),
+      description:
+        "They are sent in the background. Follow them on the batch page, even after closing this tab.",
+      tone: failed > 0 ? "error" : others.length > 0 ? "warning" : "success",
+      allOk: others.length === 0,
+    }
+  }
 
   if (ok === result.results.length) {
     return {

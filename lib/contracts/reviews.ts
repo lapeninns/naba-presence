@@ -179,7 +179,9 @@ export const reviewsQuerySchema = z.object({
   clientId: z.uuid().optional(),
   queue: reviewQueueSchema.optional(),
   /** "me" and "unassigned" are resolved server-side against the session. */
-  assignee: z.union([z.literal("me"), z.literal("unassigned"), z.uuid()]).optional(),
+  assignee: z
+    .union([z.literal("me"), z.literal("unassigned"), z.uuid()])
+    .optional(),
   ratings: z.array(z.number().int().min(1).max(5)).optional(),
   /**
    * Whether the reviewer wrote anything. `rating_only` is the stars-and-
@@ -288,10 +290,7 @@ export function encodeReviewsQuery(
   }
   // One param carries both shapes: a single id stays `location_id=<uuid>`,
   // several become a comma list, so old links keep working unchanged.
-  set(
-    WIRE.locationId,
-    csv(filters.locationIds) ?? filters.locationId ?? null
-  )
+  set(WIRE.locationId, csv(filters.locationIds) ?? filters.locationId ?? null)
   set(WIRE.clientId, filters.clientId)
   set(WIRE.queue, filters.queue)
   set(WIRE.assignee, filters.assignee)
@@ -526,7 +525,12 @@ export type ReviewCounts = z.infer<typeof reviewCountsSchema>
 // Bulk triage
 // ---------------------------------------------------------------------------
 
-export const BULK_REVIEW_ACTIONS = ["approve", "assign", "mark_reviewed"] as const
+export const BULK_REVIEW_ACTIONS = [
+  "approve",
+  "assign",
+  "mark_reviewed",
+  "template_reply",
+] as const
 export type BulkReviewAction = (typeof BULK_REVIEW_ACTIONS)[number]
 
 /**
@@ -552,7 +556,8 @@ export const bulkReviewActionSchema = z.discriminatedUnion("action", [
       .min(1)
       .max(100)
       .refine(
-        (items) => new Set(items.map((item) => item.reviewId)).size === items.length,
+        (items) =>
+          new Set(items.map((item) => item.reviewId)).size === items.length,
         { message: "Each review can be approved once per batch" }
       ),
   }),
@@ -565,6 +570,20 @@ export const bulkReviewActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("mark_reviewed"),
     reviewIds: bulkReviewIdsSchema,
+  }),
+  /**
+   * Rating-only reviews answered from the standard template, on the bulk
+   * engine (organisations with bulk changes on): each review is drafted,
+   * checked and published (or submitted for approval) by the job runner,
+   * and the batch's progress survives the tab closing.
+   */
+  z.object({
+    action: z.literal("template_reply"),
+    reviewIds: bulkReviewIdsSchema.refine(
+      (ids) => new Set(ids).size === ids.length,
+      { message: "Select each review once" }
+    ),
+    includeLowRatings: z.boolean().default(false),
   }),
 ])
 export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
@@ -586,6 +605,9 @@ export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
  * - `uncertain`: the approval is recorded and Google may or may not have the
  *   reply (unconfirmed write, a diverged live reply, a publish still in
  *   flight). Its state must be checked before anyone retries.
+ * - `queued`: the row joined a bulk batch (`operationId`) and the job runner
+ *   will send it; its outcome is followed on the batch, not here. For an
+ *   approval the decision is already recorded.
  */
 export const BULK_REVIEW_ROW_STATUSES = [
   "ok",
@@ -593,10 +615,13 @@ export const BULK_REVIEW_ROW_STATUSES = [
   "failed",
   "approved_not_published",
   "uncertain",
+  "queued",
 ] as const
 export type BulkReviewRowStatus = (typeof BULK_REVIEW_ROW_STATUSES)[number]
 
 export const bulkReviewResultSchema = z.object({
+  /** The bulk batch the queued rows run in (`GET /api/listings/bulk/{id}`). */
+  operationId: z.uuid().optional(),
   results: z.array(
     z.object({
       reviewId: z.string(),

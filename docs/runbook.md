@@ -1369,6 +1369,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `billing_plan` | operational | keep | every catalog version, active or not: an organisation's plan_id keeps naming the terms it chose | none | none | no | internal |
 | `bulk_listing_child` | customer | keep | with its bulk operation | none | none | no | pending D-47: keep each location's current and proposed values with its bulk operation |
 | `bulk_listing_operation` | customer | keep | kept after it finishes | none | none | no | pending D-47: keep finished bulk operations for the life of the organisation |
+| `bulk_listing_write_attempt` | operational | keep | with its bulk listing child (attributes and action-link writes and what their readback must find) | none | none | no | pending D-47: keep each bulk write attempt with its bulk operation |
 | `client` | customer | keep | for the life of the client record | none | none | no | lifecycle |
 | `client_google_connection` | customer | keep | for the life of the client and connection | none | none | no | lifecycle |
 | `connection_task` | operational | keep | for the life of the connection | none | none | no | lifecycle |
@@ -1401,6 +1402,8 @@ listed in `failures` with `retention_dry_run_budget`.
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
+| `media_asset` | customer | keep | a finalised photo is kept until decided; an upload never finalised has its staged object removed from private storage 24 hours after it started (staging_expires_at, purgeExpiredStagingAssets in the retention purge, while RETENTION_DELETES_ENABLED is on) and its row kept, marked purged | none | none | no | pending D-47: keep owned photos and their rows; remove only staged objects never finalised |
+| `media_asset_publication` | customer | keep | with its photo asset (where each photo was published) | none | none | no | pending D-47: keep where each owned photo was published with the photo |
 | `member` | customer | keep | while the person is a member | none | none | no | lifecycle |
 | `mfa_pending_login` | operational | delete | when the five-minute sign-in ticket expires (expires_at); an enrollment ticket also goes with its session | cascade from `app_session`, purgeExpiredMfaTickets (lib/server/retention/purge.ts), once per cycle | ungated | no | internal |
 | `mutation_approval_decision` | operational | keep | with its operation receipt | none | none | no | lifecycle |
@@ -2286,12 +2289,107 @@ Nothing calls it until D-47 is decided and the inventory row changes.
 
 ### Partial bulk changes
 
+Bulk listing changes are off for an organisation until an operator turns on
+`bulk_actions` (`pnpm ops:pause feature --organisation <uuid> --feature
+bulk_actions --enable --operator you@example.com`). Turning it off stops new
+claims for that organisation; queued listings wait and expire when their
+24-hour dispatch window closes. A listing showing "Expired, not sent"
+(`dispatch_expired`, or `preview_expired` for a preview nobody approved
+within 15 minutes) or `google_target_changed` was never sent: prepare a new
+preview. `resource_busy` means another change to the same listing resource was
+running; the listing is retried a minute later. `permission_revoked` (the
+person who prepared or approved the batch lost access to that listing, or the
+approver is no longer an owner or admin), `approval_policy_changed`,
+`second_approver_required` and `security_version_unverifiable` (an approver
+security version the MFA stream records but this build cannot verify) were
+never sent either: fix access or the policy, then prepare a new preview.
+
+Review batches (bulk approve and template replies from the inbox, with
+`bulk_actions` on) show on the same batch page. `approval_withdrawn` means the
+approval was rejected or replaced after the batch started, so the reply was
+not sent; `submitted_for_approval` means the template reply was parked for
+someone who can publish. A child "Outcome unknown" with
+`response_ambiguous` or `publish_retry_scheduled` waits on the reply's own
+publish attempt: the job runner's reply retry or readback settles it, and
+the child follows; retrying the batch does not touch it. An interrupted
+review child is run again by the next tick (at most five times); each run
+reads Google back before sending, so it is never published twice.
+
+Two-person approval and business information: every business-information
+update needs a reviewed change set, and accepting Google's suggested update in
+one step is refused (`business_info_review_required`) while two-person
+approval is on; review the suggested fields in Business information instead.
+
+A batch with several changes sends each listing's changes in list order: a
+listing marked "Waits for the earlier changes to this listing" is queued
+behind them. `dependency_not_applied` means a change it needs (for example a
+category change) did not apply at that listing, so it was not sent. Retrying
+the batch requeues the dependent with its prerequisite only when the
+prerequisite failed (or its outcome is unknown and no longer being recovered);
+if the prerequisite ended in a conflict or expired, retry leaves the dependent
+failed, and it needs a new preview. Retry requeues each failed change on its
+own, so an earlier failed change can land after a later one already applied;
+changes of one batch never touch the same part of a listing, so that order
+does not matter.
+
+Business information, categories and lodging in bulk skip a listing rather
+than guess: `permanently_closed` (reopen it from the listing's own page),
+`too_many_categories` (more than 9 additional), `category_not_available` (not
+offered in the listing's country), `category_region_unknown` (no address or
+service-area region) and `lodging_not_available` (no lodging resource on
+Google). Their uncertain writes have receipts (surfaces `business_info` and
+`lodging`) that `mutation_recover` reads back; retry never re-sends one while
+recovery is reading it. Healthcare services are not offered in bulk (D-24).
+
 A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and
 ambiguous listings: already-applied listings settle without a write, unchanged
 ones are written once, and moved ones become conflicts that need a new preview.
-Confirmed listings are never written again. Cancelling stops queued listings
-only; completed writes are not rolled back.
+Confirmed listings are never written again. An "Outcome unknown" listing whose
+receipt is still being read back by `mutation_recover` is not retried: it
+settles on its own once recovery reads Google (the batch then re-finishes,
+audit `bulk_listing.child_reconciled`). If recovery gives up (the receipt stays
+`uncertain` and owners are notified), check the listing on Google; a retry then
+reads Google before sending. Each listing's receipt is at
+`GET /api/mutations/{mutationOperationId}`. A bulk hours change also updates
+the listing's saved hours; `hours_reconciliation_required` means its saved
+hours need reviewing in the hours editor first, and
+`multiple_links_for_type` means the listing has several editable links of
+that type, so change it on its own. A bulk menu change also updates the
+listing's saved menus; `food_menus_local_changes` means the listing's menu
+editor holds unpublished edits, including edits saved after the preview
+(publish or discard them, then prepare a new preview; the batch never
+overwrites them), and `menu_node_not_found`/`menu_node_ambiguous` mean the menu entry
+the change names is not on that listing exactly once (entries are matched by
+their content and place, never by name), so change that listing on its own. A
+bulk post change only creates drafts: publish each from the listing's posts,
+where two-person approval applies as usual. A bulk photo needs private
+storage configured (`MEDIA_ASSET_STORAGE=supabase`, `SUPABASE_SECRET_KEY`,
+`MEDIA_ASSETS_BUCKET` pointing at a private bucket); without it uploads answer
+503 `asset_storage_unavailable` and photo listings are skipped or wait
+queued. `media_needs_resolution` on a photo listing means Google did not
+confirm the create: resolve it on that listing's photos tab (it is never sent
+twice), and the batch settles from that decision. `photo_already_added` and
+`photo_publication_pending` mean another change already added, or is still
+adding, that photo there. Cancelling stops queued listings only; completed
+writes are not rolled back.
+
+On the batch page, "New preview for N listings not sent" prepares a fresh
+preview of the listings that expired, changed on Google after the preview,
+or were blocked by a prerequisite that conflicted, expired, was cancelled or
+was skipped (a prerequisite that merely failed is retried with its dependent
+by Retry instead). It is offered only once nothing in the batch is queued or
+running. It reads Google again, and an hours, attribute, category, menu, link
+or photo change a listing already shows is skipped there as already applied.
+A post draft has no such check, so it is left out whenever the new preview
+would also reach a listing that already has it; the page names those
+listings, and the post goes out as its own bulk change for just them.
+While a preview waits, the page counts down the 15 minutes left to approve
+it by the server's clock; approval is still decided by the server. "Show receipt" on a listing reads that write's receipt
+(`GET /api/mutations/{id}`). Photo uploads from the composer go straight from
+the browser to the private bucket, so the deployed build must have
+`MEDIA_ASSET_STORAGE=supabase` and `SUPABASE_URL` set at build time for the
+CSP to allow that origin; otherwise the upload is blocked in the browser.
 
 ### Notification delivery failures
 

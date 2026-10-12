@@ -49,7 +49,7 @@ export function locationActivityProjection(sql: TransactionSql, locationId: stri
     from publish_attempt m join review_reply rr on rr.id = m.review_reply_id
     join review r on r.id = rr.review_id where r.location_id = ${locationId}
     union all
-    select 'bulk:' || c.id, c.id::text, 'bulk', o.operation, 'bulk_change', c.status,
+    select 'bulk:' || c.id, c.id::text, 'bulk', c.input->>'operation', 'bulk_change', c.status,
       null, coalesce(c.result_code, c.skip_reason), c.update_mask, c.created_at, c.finished_at,
       o.approved_by, case when c.status = 'succeeded' then 'accepted' when c.status = 'ambiguous' then 'unknown'
         when c.status = 'failed' and c.result_code like 'provider_rejected%' then 'rejected' else 'unrecorded' end,

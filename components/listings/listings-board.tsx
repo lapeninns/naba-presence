@@ -301,11 +301,19 @@ function BoardSkeleton() {
  * width each row becomes a labelled card that keeps its health, its counts
  * and the listing link that opens it.
  */
-function ListingsBoard({ role }: { role: string | null }) {
+function ListingsBoard({
+  role,
+  bulkEnabled = false,
+}: {
+  role: string | null
+  /** The organisation's `bulk_actions` feature; off hides bulk selection. */
+  bulkEnabled?: boolean
+}) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const canManage = role === "owner" || role === "admin"
+  const canSelect = canManage && bulkEnabled
   // Explicit listing ids for a bulk change. Filters only change what is shown;
   // the bulk preview freezes exactly these ids.
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(() => new Set())
@@ -535,7 +543,7 @@ function ListingsBoard({ role }: { role: string | null }) {
         interactive
         onClick={() => router.push(listingHref(row.entry.id))}
       >
-        {canManage ? (
+        {canSelect ? (
           <TableCell label="Select" onClick={(event) => event.stopPropagation()}>
             <Checkbox
               checked={selected.has(row.entry.id)}
@@ -755,7 +763,7 @@ function ListingsBoard({ role }: { role: string | null }) {
         </div>
       ) : (
         <BoardTable
-          selection={canManage ? (
+          selection={canSelect ? (
             <Checkbox
               checked={visible.length > 0 && visible.every((row) => selected.has(row.entry.id))}
               disabled={visible.length > BULK_MAX_TARGETS}
@@ -766,7 +774,7 @@ function ListingsBoard({ role }: { role: string | null }) {
         >
           {!business && unfiled.length > 0 ? (
             <TableRow group>
-              <TableCell colSpan={COLUMNS.length + (canManage ? 1 : 0)}>
+              <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
                 Not filed under a client · {formatNumber(unfiled.length)}
               </TableCell>
             </TableRow>
@@ -774,7 +782,7 @@ function ListingsBoard({ role }: { role: string | null }) {
           {unfiled.map(renderRow)}
           {!business && unfiled.length > 0 && filed.length > 0 ? (
             <TableRow group>
-              <TableCell colSpan={COLUMNS.length + (canManage ? 1 : 0)}>
+              <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
                 Filed under a client · {formatNumber(filed.length)}
               </TableCell>
             </TableRow>
@@ -782,7 +790,7 @@ function ListingsBoard({ role }: { role: string | null }) {
           {filed.map(renderRow)}
         </BoardTable>
       )}
-      {canManage && selected.size > 0 ? (
+      {canSelect && selected.size > 0 ? (
         <div role="region" aria-label="Bulk change selection" className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3 shadow-np-pop">
           <p className="text-ui text-ink" aria-live="polite">
             <span className="font-semibold tabular-nums">{formatNumber(selected.size)}</span> selected

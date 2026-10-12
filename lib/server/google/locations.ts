@@ -17,6 +17,7 @@ import {
   googleLocationRequest,
   googleLocationsSearchRequest,
   googleLocationUpdatedRequest,
+  type GoogleAttributeMetadataScope,
   type GoogleHoursUpdateMask,
   type GoogleLocationReadField,
 } from "@/lib/domain/google-contract"
@@ -150,7 +151,10 @@ export function patchGoogleLocationAttributes(
 
 export function listGoogleAttributeMetadata(
   accessToken: string,
-  input: { locationName: string; languageCode?: string; pageToken?: string },
+  input: GoogleAttributeMetadataScope & {
+    languageCode?: string
+    pageToken?: string
+  },
   options: { connectionKey?: string } = {}
 ) {
   const request = googleAttributeMetadataRequest(input)
