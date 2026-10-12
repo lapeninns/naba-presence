@@ -39,7 +39,9 @@ async function startStripeStub() {
   const subscriptions = new Map<string, Record<string, unknown>[]>()
   const byId = new Map<string, Record<string, unknown>>()
   const schedules = new Map<string, Record<string, unknown>>()
-  const idempotent = new Map<string, unknown>()
+  /** key -> the first request's form and the response Stripe replays. */
+  const idempotent = new Map<string, { form: string; body: unknown }>()
+  const idempotencyErrors: StubCall[] = []
   const id = (prefix: string) =>
     `${prefix}${randomUUID().replace(/-/g, "").slice(0, 20)}`
 
@@ -63,11 +65,23 @@ async function startStripeStub() {
       })
       response.end(JSON.stringify(body))
     }
-    if (key && idempotent.has(`${call.method} ${call.path} ${key}`)) {
-      return send(200, idempotent.get(`${call.method} ${call.path} ${key}`))
+    const replay = key ? idempotent.get(key) : undefined
+    if (replay) {
+      // Stripe refuses a key reused with different parameters.
+      if (replay.form !== raw) {
+        idempotencyErrors.push(call)
+        return send(400, {
+          error: {
+            type: "idempotency_error",
+            message:
+              "Keys for idempotent requests can only be used with the same parameters they were first used with.",
+          },
+        })
+      }
+      return send(200, replay.body)
     }
     const remember = (body: unknown) => {
-      if (key) idempotent.set(`${call.method} ${call.path} ${key}`, body)
+      if (key) idempotent.set(key, { form: raw, body })
       send(200, body)
     }
     const path = call.path
@@ -141,11 +155,14 @@ async function startStripeStub() {
       const subscription = byId.get(schedule.subscription as string)
       if (subscription) subscription.schedule = null
       schedule.status = "released"
-      return send(200, schedule)
+      return remember(schedule)
     }
     if ((match = path.match(/^\/v1\/subscription_schedules\/([^/]+)$/))) {
       const schedule = schedules.get(match[1])!
-      if (call.method === "POST") schedule.lastUpdate = form
+      if (call.method === "POST") {
+        schedule.lastUpdate = form
+        return remember(schedule)
+      }
       return send(200, schedule)
     }
     if ((match = path.match(/^\/v1\/subscriptions\/([^/]+)$/))) {
@@ -158,6 +175,7 @@ async function startStripeStub() {
             form.cancel_at_period_end === "true"
         }
         if (form.cancel_at === "") subscription.cancel_at = null
+        return remember(subscription)
       }
       return send(200, subscription)
     }
@@ -173,6 +191,8 @@ async function startStripeStub() {
     sessions,
     subscriptions,
     schedules,
+    idempotencyErrors,
+    subscriptionById: (subscriptionId: string) => byId.get(subscriptionId),
     addSubscription(customer: string, subscription: Record<string, unknown>) {
       subscriptions.set(customer, [
         ...(subscriptions.get(customer) ?? []),
@@ -203,11 +223,15 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
   const prices = {
     basic: `price_cobasic${suffix}`,
     small: `price_cosmall${suffix}`,
+    large: `price_colarge${suffix}`,
+    legacy: `price_colegacy${suffix}`,
     retired: `price_coretired${suffix}`,
   }
   const plans: Record<keyof typeof prices, string> = {
     basic: "",
     small: "",
+    large: "",
+    legacy: "",
     retired: "",
   }
   const nowSeconds = Math.floor(Date.now() / 1000)
@@ -236,6 +260,8 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     stripe = await startStripeStub()
     plans.basic = await plan("basic", 5, true)
     plans.small = await plan("small", 2, true)
+    plans.large = await plan("large", 20, true)
+    plans.legacy = await plan("legacy", 5, true)
     plans.retired = await plan("retired", 10, false)
     const billingEnv = {
       BILLING_ENVIRONMENT: "test",
@@ -252,6 +278,8 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     await server?.stop()
     await disabled?.stop()
     await stripe?.stop()
+    await admin`drop trigger if exists co_fail_checkout_audit on audit_log`
+    await admin`drop function if exists co_fail_checkout_audit()`
     await destroyTenants(admin, tenants)
     await admin`
       delete from billing_plan where stripe_price_id in ${admin(Object.values(prices))}
@@ -303,8 +331,42 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     return row
   }
 
-  /** An organisation with a paid subscription on `basic` at Stripe. */
-  async function subscribed(options: { locations?: number } = {}) {
+  /**
+   * Makes the `billing.checkout_started` audit fail for one organisation, so
+   * its checkout transaction rolls back after Stripe made the session.
+   */
+  async function failCheckoutAudit(organisationId: string) {
+    await admin.unsafe(`
+      create or replace function co_fail_checkout_audit()
+      returns trigger language plpgsql as $$
+      begin
+        if new.action = 'billing.checkout_started'
+          and new.organisation_id = '${organisationId}' then
+          raise exception 'injected audit failure';
+        end if;
+        return new;
+      end;
+      $$
+    `)
+    await admin`drop trigger if exists co_fail_checkout_audit on audit_log`
+    await admin.unsafe(`
+      create trigger co_fail_checkout_audit before insert on audit_log
+      for each row execute function co_fail_checkout_audit()
+    `)
+  }
+  const healCheckoutAudit = () =>
+    admin`drop trigger if exists co_fail_checkout_audit on audit_log`
+
+  const sessionCreates = (organisationId: string) =>
+    stripe
+      .callsTo("POST", /^\/v1\/checkout\/sessions$/)
+      .filter((call) => call.form.client_reference_id === organisationId)
+
+  /** An organisation with a paid subscription (on `basic` by default). */
+  async function subscribed(
+    options: { locations?: number; plan?: keyof typeof prices } = {}
+  ) {
+    const planKey = options.plan ?? "basic"
     const tenant = await owner()
     const customer = `cus_co${randomUUID().replace(/-/g, "").slice(0, 16)}`
     const subscriptionId = `sub_co${randomUUID().replace(/-/g, "").slice(0, 16)}`
@@ -322,7 +384,7 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     }
     await admin`
       update organisation_billing
-      set state = 'active', plan_id = ${plans.basic}, environment = 'test',
+      set state = 'active', plan_id = ${plans[planKey]}, environment = 'test',
         stripe_customer_id = ${customer},
         stripe_subscription_id = ${subscriptionId},
         current_period_start = to_timestamp(${periodStart}),
@@ -345,7 +407,7 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
         data: [
           {
             id: `si_${subscriptionId}`,
-            price: { id: prices.basic, object: "price" },
+            price: { id: prices[planKey], object: "price" },
             current_period_start: periodStart,
             current_period_end: periodEnd,
           },
@@ -577,6 +639,83 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
       expect((await billing(pilot.organisationId)).state).toBe("pilot")
     })
 
+    it("retries a checkout whose transaction rolled back after Stripe made the session", async () => {
+      const tenant = await owner()
+      const sessionsBefore = stripe.sessions.size
+      await failCheckoutAudit(tenant.organisationId)
+      try {
+        const failed = await post(
+          server.baseUrl,
+          tenant.cookie,
+          "/api/billing/checkout",
+          { planId: plans.basic }
+        )
+        expect(failed.status).toBeGreaterThanOrEqual(500)
+      } finally {
+        await healCheckoutAudit()
+      }
+      const before = await billing(tenant.organisationId)
+      expect(before.checkoutSessionId).toBeNull()
+      expect(sessionCreates(tenant.organisationId)).toHaveLength(1)
+
+      const retry = await post(
+        server.baseUrl,
+        tenant.cookie,
+        "/api/billing/checkout",
+        { planId: plans.basic }
+      )
+      expect(retry.status, await retry.clone().text()).toBe(200)
+      const result = await retry.json()
+      const record = await billing(tenant.organisationId)
+      expect(record.checkoutSessionId).toBe(result.url.split("/").pop())
+
+      const [first, second] = sessionCreates(tenant.organisationId)
+      expect(stripe.idempotencyErrors).not.toContainEqual(second)
+      // In one expiry window the retry sends the same body, so Stripe
+      // replays the session it made instead of opening a second one.
+      if (first.form.expires_at === second.form.expires_at) {
+        expect(second.idempotencyKey).toBe(first.idempotencyKey)
+        expect(stripe.sessions.size).toBe(sessionsBefore + 1)
+      }
+    })
+
+    it("gives a retry whose request differs its own idempotency key", async () => {
+      const tenant = await owner()
+      await failCheckoutAudit(tenant.organisationId)
+      try {
+        const failed = await post(
+          server.baseUrl,
+          tenant.cookie,
+          "/api/billing/checkout",
+          { planId: plans.basic }
+        )
+        expect(failed.status).toBeGreaterThanOrEqual(500)
+      } finally {
+        await healCheckoutAudit()
+      }
+      // Same record version, but the trial is no longer offered: the body
+      // differs, which Stripe would refuse under the earlier key.
+      await admin`
+        update organisation_billing set first_payment_succeeded = true
+        where organisation_id = ${tenant.organisationId}
+      `
+      const retry = await post(
+        server.baseUrl,
+        tenant.cookie,
+        "/api/billing/checkout",
+        { planId: plans.basic }
+      )
+      expect(retry.status, await retry.clone().text()).toBe(200)
+      expect(await retry.json()).toMatchObject({ trialDays: 0, reused: false })
+      const [first, second] = sessionCreates(tenant.organisationId)
+      expect(first.form["subscription_data[trial_period_days]"]).toBe("14")
+      expect(
+        second.form["subscription_data[trial_period_days]"]
+      ).toBeUndefined()
+      expect(second.idempotencyKey).not.toBe(first.idempotencyKey)
+      expect(stripe.idempotencyErrors).toHaveLength(0)
+    })
+
     it("stays available to an enforced read-only organisation, without a trial after a past subscription", async () => {
       const tenant = await owner()
       await admin`
@@ -739,6 +878,111 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
       expect(schedule?.status).toBe("released")
     })
 
+    it("re-points an existing schedule to another plan rather than making a second", async () => {
+      const active = await subscribed()
+      const toSmall = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/plan-change",
+        { planId: plans.small }
+      )
+      expect(toSmall.status, await toSmall.clone().text()).toBe(200)
+      const scheduleId = stripe.subscriptionById(active.subscriptionId)
+        ?.schedule as string
+      expect(scheduleId).toMatch(/^sub_sched_/)
+
+      const toLarge = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/plan-change",
+        { planId: plans.large }
+      )
+      expect(toLarge.status, await toLarge.clone().text()).toBe(200)
+      expect(await toLarge.json()).toMatchObject({
+        outcome: "scheduled",
+        pendingPlanId: plans.large,
+      })
+      expect(
+        stripe
+          .callsTo("POST", /^\/v1\/subscription_schedules$/)
+          .filter(
+            (call) => call.form.from_subscription === active.subscriptionId
+          )
+      ).toHaveLength(1)
+      const updates = stripe.callsTo(
+        "POST",
+        new RegExp(`^/v1/subscription_schedules/${scheduleId}$`)
+      )
+      expect(updates).toHaveLength(2)
+      expect(updates[1].form).toMatchObject({
+        "phases[0][items][0][price]": prices.basic,
+        "phases[0][end_date]": String(active.periodEnd),
+        "phases[1][items][0][price]": prices.large,
+      })
+      expect((await billing(active.organisationId)).pendingPlanId).toBe(
+        plans.large
+      )
+    })
+
+    it("clears a scheduled change even after the current plan was retired", async () => {
+      const active = await subscribed({ plan: "legacy" })
+      const scheduled = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/plan-change",
+        { planId: plans.small }
+      )
+      expect(scheduled.status, await scheduled.clone().text()).toBe(200)
+      const scheduleId = stripe.subscriptionById(active.subscriptionId)
+        ?.schedule as string
+      await admin`update billing_plan set active = false where id = ${plans.legacy}`
+
+      // The retired plan is no longer offered for a new change...
+      const other = await subscribed()
+      const refused = await post(
+        server.baseUrl,
+        other.cookie,
+        "/api/billing/plan-change",
+        { planId: plans.legacy }
+      )
+      expect(refused.status).toBe(400)
+      expect(await refused.json()).toMatchObject({ error: "plan_unavailable" })
+
+      // ...but its own subscriber can still go back to it.
+      const cleared = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/plan-change",
+        { planId: plans.legacy.toUpperCase() }
+      )
+      expect(cleared.status, await cleared.clone().text()).toBe(200)
+      expect(await cleared.json()).toMatchObject({
+        outcome: "cleared",
+        pendingPlanId: null,
+        pendingEffectiveAt: null,
+      })
+      expect(
+        stripe.callsTo(
+          "POST",
+          new RegExp(`^/v1/subscription_schedules/${scheduleId}/release$`)
+        )
+      ).toHaveLength(1)
+      expect(await billing(active.organisationId)).toMatchObject({
+        pendingPlanId: null,
+        pendingEffectiveAt: null,
+      })
+      const audits = await admin<{ action: string }[]>`
+        select action from audit_log
+        where organisation_id = ${active.organisationId}
+          and action like 'billing.plan_change%'
+        order by created_at
+      `
+      expect(audits.map((row) => row.action)).toEqual([
+        "billing.plan_change_scheduled",
+        "billing.plan_change_cleared",
+      ])
+    })
+
     it("refuses an organisation without a subscription", async () => {
       const tenant = await owner()
       const response = await post(
@@ -802,6 +1046,86 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
           })
         ).status
       ).toBe(403)
+    })
+  })
+
+  describe("cancel with a scheduled change or a portal cancellation", () => {
+    it("releases the schedule before cancelling and drops the pending plan", async () => {
+      const active = await subscribed()
+      await post(server.baseUrl, active.cookie, "/api/billing/plan-change", {
+        planId: plans.small,
+      })
+      const scheduleId = stripe.subscriptionById(active.subscriptionId)
+        ?.schedule as string
+      expect(scheduleId).toMatch(/^sub_sched_/)
+
+      const response = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/cancel",
+        { cancelAtPeriodEnd: true }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      expect(await response.json()).toEqual({
+        outcome: "updated",
+        cancelAtPeriodEnd: true,
+        clearedPendingPlan: true,
+      })
+      const release = stripe.calls.findIndex(
+        (call) =>
+          call.method === "POST" &&
+          call.path === `/v1/subscription_schedules/${scheduleId}/release`
+      )
+      const update = stripe.calls.findIndex(
+        (call) =>
+          call.method === "POST" &&
+          call.path === `/v1/subscriptions/${active.subscriptionId}`
+      )
+      expect(release).toBeGreaterThanOrEqual(0)
+      expect(update).toBeGreaterThan(release)
+      expect(stripe.calls[update].form).toEqual({
+        cancel_at_period_end: "true",
+      })
+      expect(await billing(active.organisationId)).toMatchObject({
+        cancelAtPeriodEnd: true,
+        pendingPlanId: null,
+        pendingEffectiveAt: null,
+      })
+    })
+
+    it("resumes a portal cancellation that set cancel_at", async () => {
+      const active = await subscribed()
+      await admin`
+        update organisation_billing set cancel_at_period_end = true
+        where organisation_id = ${active.organisationId}
+      `
+      const subscription = stripe.subscriptionById(active.subscriptionId)!
+      subscription.cancel_at = active.periodEnd
+      subscription.cancel_at_period_end = false
+
+      const response = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/cancel",
+        { cancelAtPeriodEnd: false }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      expect(await response.json()).toMatchObject({
+        outcome: "updated",
+        cancelAtPeriodEnd: false,
+        clearedPendingPlan: false,
+      })
+      const update = stripe
+        .callsTo(
+          "POST",
+          new RegExp(`^/v1/subscriptions/${active.subscriptionId}$`)
+        )
+        .at(-1)
+      expect(update?.form).toEqual({ cancel_at: "" })
+      expect(subscription.cancel_at).toBeNull()
+      expect((await billing(active.organisationId)).cancelAtPeriodEnd).toBe(
+        false
+      )
     })
   })
 

@@ -1753,13 +1753,17 @@ sessions (403 `support_session_forbidden`). Each carries the
   subscription-mode session: one price, quantity 1, `payment_method_collection`
   `always`, a 14-day trial (`TRIAL_DAYS`) only for a first subscription,
   `client_reference_id` the organisation id, metadata on the session and the
-  subscription, and a one-hour expiry. The open session is recorded on
+  subscription, and an expiry one hour ahead rounded up to a 10-minute
+  window (so a retry in the same window sends the same body). The open session is recorded on
   `organisation_billing` (`checkout_session_id`, `checkout_plan_id`,
   `checkout_expires_at`, 0227): a repeat for the same plan reuses it (so
   concurrent tabs get one session), another plan expires it at Stripe first,
   and a session completed meanwhile answers 409 `checkout_completed`. Stripe
-  calls carry idempotency keys from the organisation, plan and record
-  version. Nothing is granted on the redirect back: the organisation stays
+  calls carry idempotency keys from the organisation, plan, record version
+  and a fingerprint of the request body: a retry after a rolled-back
+  transaction replays the session Stripe already made, and a retry whose
+  body differs (no trial any more, another owner's email) gets its own key
+  rather than Stripe's `idempotency_error`. Nothing is granted on the redirect back: the organisation stays
   as it was (a pilot stays a pilot) until the webhook processor reads the
   subscription from Stripe, which is also what closes the pilot month.
 - `POST /api/billing/portal`: a Customer Portal session for the
@@ -1775,7 +1779,8 @@ sessions (403 `support_session_forbidden`). Each carries the
   `proration_behavior` `none`, `end_behavior` `release`; the record stores
   `pending_plan_id`/`pending_effective_at`, so a downgrade's lower limit
   binds new links at once (0223, `newLinkLimit`). The current plan releases
-  the schedule and clears the change. The provider subscription must match
+  the schedule and clears the change, even if that plan has since been
+  retired (it is checked against the workspace, not the allowlist). The provider subscription must match
   the record (customer and price), else 409 `billing_out_of_sync`.
 - `POST /api/billing/cancel`: sets `cancel_at_period_end` (or resumes,
   clearing a portal-set `cancel_at`) and only that flag; access continues

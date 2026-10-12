@@ -7,7 +7,11 @@ import {
 import { publicPlan, type CatalogPlan } from "@/lib/server/billing/catalog"
 import {
   billingReadiness,
+  CHECKOUT_EXPIRY_WINDOW_SECONDS,
+  CHECKOUT_SESSION_TTL_SECONDS,
+  checkoutExpiresAt,
   refuseSupportSession,
+  requestFingerprint,
 } from "@/lib/server/billing/checkout"
 import { stripeApiTarget } from "@/lib/server/billing/stripe"
 import type { ServerEnv } from "@/lib/server/env"
@@ -94,6 +98,46 @@ describe("billingReadiness", () => {
     expect(
       ready({ ...LIVE_READY, BILLING_TERMS_URL: undefined }, false).ok
     ).toBe(true)
+  })
+})
+
+describe("checkout idempotency", () => {
+  it("sends the same expiry for every request in one window, within Stripe's bounds", () => {
+    const start = new Date(
+      Math.ceil(
+        Date.UTC(2026, 9, 12, 9) / 1000 / CHECKOUT_EXPIRY_WINDOW_SECONDS
+      ) *
+        CHECKOUT_EXPIRY_WINDOW_SECONDS *
+        1000
+    )
+    const first = checkoutExpiresAt(start)
+    const later = checkoutExpiresAt(
+      new Date(start.getTime() + (CHECKOUT_EXPIRY_WINDOW_SECONDS - 1) * 1000)
+    )
+    expect(later).toBe(first)
+    const next = checkoutExpiresAt(
+      new Date(start.getTime() + CHECKOUT_EXPIRY_WINDOW_SECONDS * 1000)
+    )
+    expect(next).toBe(first + CHECKOUT_EXPIRY_WINDOW_SECONDS)
+    for (const at of [start, new Date(start.getTime() + 599_000)]) {
+      const ahead = checkoutExpiresAt(at) - at.getTime() / 1000
+      // Stripe accepts 30 minutes to 24 hours.
+      expect(ahead).toBeGreaterThanOrEqual(CHECKOUT_SESSION_TTL_SECONDS)
+      expect(ahead).toBeLessThanOrEqual(
+        CHECKOUT_SESSION_TTL_SECONDS + CHECKOUT_EXPIRY_WINDOW_SECONDS
+      )
+    }
+  })
+
+  it("fingerprints equal bodies alike and different bodies apart", () => {
+    const body = { mode: "subscription", trial: 14, expires_at: 100 }
+    expect(requestFingerprint({ ...body })).toBe(requestFingerprint(body))
+    expect(requestFingerprint({ ...body, trial: 0 })).not.toBe(
+      requestFingerprint(body)
+    )
+    expect(requestFingerprint({ ...body, expires_at: 700 })).not.toBe(
+      requestFingerprint(body)
+    )
   })
 })
 

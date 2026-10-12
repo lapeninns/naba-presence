@@ -6,8 +6,13 @@ import type { TransactionSql } from "postgres"
 import type { CancelResult, PlanChangeResult } from "@/lib/contracts/billing"
 import type { BillingState } from "@/lib/domain/entitlements"
 import { writeAudit } from "@/lib/server/audit"
-import { getPlan, requireOfferedPlan } from "@/lib/server/billing/catalog"
 import {
+  getPlan,
+  planUnavailable,
+  requireOfferedPlan,
+} from "@/lib/server/billing/catalog"
+import {
+  requestFingerprint,
   requireBillingReady,
   workspaceModeOf,
 } from "@/lib/server/billing/checkout"
@@ -32,7 +37,7 @@ import type { TenantRunner } from "@/lib/server/route"
  * deriveAccess newLinkLimit) while existing links are never removed. A
  * downgrade below the organisation's billable locations is refused (409
  * `location_limit_exceeded`): unlink first. Choosing the current plan drops
- * a scheduled change.
+ * a scheduled change, even when that plan has since been retired.
  *
  * Cancellation: cancel at period end, or resume. Access continues to the
  * period end (deriveAccess "cancel_scheduled"). Cancelling releases any
@@ -149,10 +154,6 @@ export async function changePlan(options: {
     }
     if (billing.cancelAtPeriodEnd) throw cancelScheduled()
     const workspaceMode = await workspaceModeOf(sql, organisationId)
-    const target = await requireOfferedPlan(sql, planId, {
-      workspaceMode,
-      environment,
-    })
     const audit = (action: string, metadata: Record<string, unknown>) =>
       writeAudit(sql, {
         organisationId,
@@ -169,8 +170,19 @@ export async function changePlan(options: {
       pendingEffectiveAt: billing.pendingEffectiveAt?.toISOString() ?? null,
     })
 
-    // Back to the current plan: drop a scheduled change, if any.
-    if (target.id === billing.planId) {
+    // Back to the current plan: drop a scheduled change, if any. The
+    // current plan may since have been retired or lost its price, so it is
+    // checked against the workspace only, not the allowlist.
+    // (Postgres prints uuids in lower case; the input may not be.)
+    if (planId.toLowerCase() === billing.planId) {
+      const current = await getPlan(sql, billing.planId)
+      if (
+        !current ||
+        current.workspaceMode !== workspaceMode ||
+        current.environment !== environment
+      ) {
+        throw planUnavailable()
+      }
       if (!billing.pendingPlanId) return unchanged()
       const subscription = await providerSubscription(stripe, billing)
       const scheduleId = idOf(subscription.schedule)
@@ -194,6 +206,10 @@ export async function changePlan(options: {
         pendingEffectiveAt: null,
       }
     }
+    const target = await requireOfferedPlan(sql, planId, {
+      workspaceMode,
+      environment,
+    })
     if (target.id === billing.pendingPlanId) return unchanged()
 
     // A downgrade must fit the locations already linked; nothing is ever
@@ -249,32 +265,33 @@ export async function changePlan(options: {
       subscription.status === "trialing" && subscription.trial_end
         ? subscription.trial_end
         : null
-    await stripe.subscriptionSchedules.update(
-      scheduleId,
-      {
-        end_behavior: "release",
-        proration_behavior: "none",
-        metadata: {
-          organisation_id: organisationId,
-          pending_plan_id: target.id,
-        },
-        phases: [
-          {
-            items: [{ price: current.stripePriceId, quantity: 1 }],
-            start_date: phaseStart,
-            end_date: boundary,
-            proration_behavior: "none",
-            ...(trialEnd ? { trial_end: trialEnd } : {}),
-          },
-          {
-            items: [{ price: target.stripePriceId, quantity: 1 }],
-            duration: { interval: "month", interval_count: 1 },
-            proration_behavior: "none",
-          },
-        ],
+    // The body comes from Stripe's state, which may move between a rolled
+    // back attempt and its retry: its fingerprint keeps the key unique.
+    const scheduleParams: Stripe.SubscriptionScheduleUpdateParams = {
+      end_behavior: "release",
+      proration_behavior: "none",
+      metadata: {
+        organisation_id: organisationId,
+        pending_plan_id: target.id,
       },
-      { idempotencyKey: `naba:plan-change:${keyBase}` }
-    )
+      phases: [
+        {
+          items: [{ price: current.stripePriceId, quantity: 1 }],
+          start_date: phaseStart,
+          end_date: boundary,
+          proration_behavior: "none",
+          ...(trialEnd ? { trial_end: trialEnd } : {}),
+        },
+        {
+          items: [{ price: target.stripePriceId, quantity: 1 }],
+          duration: { interval: "month", interval_count: 1 },
+          proration_behavior: "none",
+        },
+      ],
+    }
+    await stripe.subscriptionSchedules.update(scheduleId, scheduleParams, {
+      idempotencyKey: `naba:plan-change:${keyBase}:${requestFingerprint(scheduleParams)}`,
+    })
 
     const effectiveAt = new Date(boundary * 1000)
     await guardPlanWrite(
@@ -368,7 +385,7 @@ export async function setCancelAtPeriodEnd(options: {
         ? { cancel_at: "" }
         : { cancel_at_period_end: false }
     await stripe.subscriptions.update(subscription.id, params, {
-      idempotencyKey: `naba:${keyBase}`,
+      idempotencyKey: `naba:${keyBase}:${requestFingerprint(params)}`,
     })
 
     await sql`

@@ -1,5 +1,7 @@
 import "server-only"
 
+import { createHash } from "node:crypto"
+
 import type Stripe from "stripe"
 import type { TransactionSql } from "postgres"
 
@@ -60,8 +62,12 @@ import type { TenantRunner } from "@/lib/server/route"
  *     from Stripe; that sync is also what closes the pilot's month.
  *
  * Stripe calls carry idempotency keys derived from the organisation, the
- * plan and the billing record's version, so a retry of the same step can
- * never create a second customer or session.
+ * plan, the billing record's version and a fingerprint of the request body,
+ * so a retry of the same step can never create a second customer or session
+ * and a retry whose body differs (another owner's email, a lost trial) gets
+ * its own key instead of Stripe's idempotency_error. The session's expiry is
+ * rounded to a window so that a retry after a rolled-back transaction sends
+ * the same body and Stripe replays the session it already made.
  */
 
 export type CheckoutUnavailableReason =
@@ -69,6 +75,11 @@ export type CheckoutUnavailableReason =
 
 /** How long a Checkout session stays payable (Stripe allows 30 min-24 h). */
 export const CHECKOUT_SESSION_TTL_SECONDS = 60 * 60
+/**
+ * The expiry is rounded up to this window, so requests in one window send
+ * the same body. The session stays payable for TTL to TTL + window.
+ */
+export const CHECKOUT_EXPIRY_WINDOW_SECONDS = 10 * 60
 /** An open session this close to expiry is replaced rather than reused. */
 const REUSE_MARGIN_MS = 5 * 60 * 1000
 
@@ -82,6 +93,28 @@ export const SUBSCRIBED_STATES: readonly BillingState[] = [
   "past_due",
   "grace",
 ]
+
+/** The Checkout `expires_at` for a request made at `now` (unix seconds). */
+export function checkoutExpiresAt(now: Date): number {
+  const window = Math.floor(
+    now.getTime() / 1000 / CHECKOUT_EXPIRY_WINDOW_SECONDS
+  )
+  return (
+    (window + 1) * CHECKOUT_EXPIRY_WINDOW_SECONDS + CHECKOUT_SESSION_TTL_SECONDS
+  )
+}
+
+/**
+ * A short fingerprint of a Stripe request body for its idempotency key:
+ * Stripe refuses a key reused with different parameters, so a body that
+ * differs must never share a key. Bodies are built in a fixed key order.
+ */
+export function requestFingerprint(body: unknown): string {
+  return createHash("sha256")
+    .update(JSON.stringify(body))
+    .digest("hex")
+    .slice(0, 16)
+}
 
 export type BillingReadiness =
   | {
@@ -253,14 +286,14 @@ export async function startCheckout(options: {
     )
     await requireOfferedPlan(sql, planId, { workspaceMode, environment })
     if (billing.stripeCustomerId) return
-    const customer = await stripe.customers.create(
-      {
-        name: actor.organisationName,
-        email: actor.email,
-        metadata: { organisation_id: organisationId },
-      },
-      { idempotencyKey: `naba:customer:${organisationId}:v${billing.version}` }
-    )
+    const customerParams: Stripe.CustomerCreateParams = {
+      name: actor.organisationName,
+      email: actor.email,
+      metadata: { organisation_id: organisationId },
+    }
+    const customer = await stripe.customers.create(customerParams, {
+      idempotencyKey: `naba:customer:${organisationId}:v${billing.version}:${requestFingerprint(customerParams)}`,
+    })
     await sql`
       update organisation_billing
       set stripe_customer_id = ${customer.id},
@@ -335,39 +368,36 @@ export async function startCheckout(options: {
       }
     }
 
-    const expiresAt =
-      Math.floor(now().getTime() / 1000) + CHECKOUT_SESSION_TTL_SECONDS
+    const expiresAt = checkoutExpiresAt(now())
     const metadata = { organisation_id: organisationId, plan_id: plan.id }
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: "subscription",
-        customer: customerId,
-        client_reference_id: organisationId,
-        line_items: [{ price: plan.stripePriceId, quantity: 1 }],
-        // Card required, trial or not.
-        payment_method_collection: "always",
-        subscription_data: {
-          metadata,
-          ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
-        },
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "subscription",
+      customer: customerId,
+      client_reference_id: organisationId,
+      line_items: [{ price: plan.stripePriceId, quantity: 1 }],
+      // Card required, trial or not.
+      payment_method_collection: "always",
+      subscription_data: {
         metadata,
-        success_url: `${ready.appUrl}${BILLING_RETURN_PATH}?checkout=returned`,
-        cancel_url: `${ready.appUrl}${BILLING_RETURN_PATH}?checkout=canceled`,
-        expires_at: expiresAt,
-        ...(env.BILLING_AUTOMATIC_TAX
-          ? {
-              automatic_tax: { enabled: true },
-              customer_update: { address: "auto", name: "auto" },
-            }
-          : {}),
-        ...(env.BILLING_TERMS_URL
-          ? { consent_collection: { terms_of_service: "required" } }
-          : {}),
+        ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
       },
-      {
-        idempotencyKey: `naba:checkout:${organisationId}:${plan.id}:v${billing.version}`,
-      }
-    )
+      metadata,
+      success_url: `${ready.appUrl}${BILLING_RETURN_PATH}?checkout=returned`,
+      cancel_url: `${ready.appUrl}${BILLING_RETURN_PATH}?checkout=canceled`,
+      expires_at: expiresAt,
+      ...(env.BILLING_AUTOMATIC_TAX
+        ? {
+            automatic_tax: { enabled: true },
+            customer_update: { address: "auto", name: "auto" },
+          }
+        : {}),
+      ...(env.BILLING_TERMS_URL
+        ? { consent_collection: { terms_of_service: "required" } }
+        : {}),
+    }
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `naba:checkout:${organisationId}:${plan.id}:v${billing.version}:${requestFingerprint(sessionParams)}`,
+    })
     if (!session.url) throw billingUnavailable("checkout_url_missing")
     const sessionExpiresAt = new Date((session.expires_at ?? expiresAt) * 1000)
     await sql`
