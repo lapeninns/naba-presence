@@ -2,7 +2,8 @@
 
 Draft generation and semantic verification use the OpenAI Responses API at
 `https://api.openai.com/v1/responses`, with strict JSON schema output, local
-validation, `store: false`, and a 4096 output-token cap.
+validation, `store: false`, and a `max_output_tokens` cap taken from
+`AI_MAX_OUTPUT_TOKENS` (default 4096, 256-32768).
 
 ## Configuration
 
@@ -13,12 +14,17 @@ validation, `store: false`, and a 4096 output-token cap.
 - `OPENAI_BASE_URL`: defaults to `https://api.openai.com`; overrides are for
   local provider stubs. Keep the default in production.
 - `OPENAI_TIMEOUT_MS`: defaults to 30000; maximum 55000.
+- `AI_MAX_OUTPUT_TOKENS`: the per-call output cap; also the share of the
+  token backstop each draft or verify reservation holds until the real usage
+  arrives (`lib/server/ai-credits.ts`).
 
 Missing credentials return `503 ai_not_configured` for AI drafting and mark the
 semantic pass as skipped. `SEMANTIC_VERIFY_ENABLED=false` also skips the semantic
 pass. Failed, incomplete, refused, empty, or malformed provider responses never
 count as successful verification. Usage is retained on billed output errors.
-Existing monthly draft credits and token-budget controls continue to apply.
+Draft credits per credit period, verify-usage reservations and the token
+backstop (`lib/server/ai-credits.ts`, `lib/server/ai-usage.ts`) apply to both
+models. Verify reservations record `OPENAI_MODEL_VERIFY`.
 
 ## Verification
 
