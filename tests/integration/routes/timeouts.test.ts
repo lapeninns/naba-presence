@@ -37,33 +37,23 @@ describeDatabase("provider request timeouts", () => {
       json: { reviews: [] },
       delayMs: 20_000,
     }))
-    stub.respond(
-      { method: "POST", pathIncludes: "/ai/v1/chat/completions" },
-      () => ({
-        status: 200,
-        json: {
-          choices: [
-            {
-              finish_reason: "stop",
-              message: {
-                content: JSON.stringify({
-                  reply: "Thank you for your review.",
-                  language: "en",
-                }),
-              },
-            },
-          ],
-        },
-        delayMs: 20_000,
-      })
-    )
+    stub.respond({ method: "POST", pathIncludes: "/v1/responses" }, () => ({
+      status: 200,
+      json: {
+        status: "completed",
+        output_text: JSON.stringify({
+          reply: "Thank you for your review.",
+          language: "en",
+        }),
+      },
+      delayMs: 20_000,
+    }))
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
       GOOGLE_TIMEOUT_MS: "1500",
-      WORKERS_AI_API_TOKEN: "route-harness-dummy-workers-ai-token",
-      WORKERS_AI_ACCOUNT_ID: "a".repeat(32),
-      WORKERS_AI_BASE_URL: stub.baseUrl,
-      WORKERS_AI_TIMEOUT_MS: "1000",
+      OPENAI_API_KEY: "route-harness-dummy-workers-ai-token",
+      OPENAI_BASE_URL: stub.baseUrl,
+      OPENAI_TIMEOUT_MS: "1000",
     })
   })
 
@@ -107,8 +97,8 @@ describeDatabase("provider request timeouts", () => {
   // Drafts contract (lib/api/drafts.ts, app/api/reviews/[id]/drafts/route.ts):
   // omitting `body` asks the server to generate. The seeded review has text,
   // so this is the AI path, not the rating-only template.
-  it("attempts AI generation when body is omitted and fails a stalled Workers AI call within the route budget", async () => {
-    const callsBefore = workersAiCalls()
+  it("attempts AI generation when body is omitted and fails a stalled OpenAI call within the route budget", async () => {
+    const callsBefore = openAiCalls()
     const startedAt = performance.now()
     const response = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
@@ -127,17 +117,17 @@ describeDatabase("provider request timeouts", () => {
     expect(response.status, JSON.stringify(body)).toBe(502)
     expect(body.error).toBe("ai_timeout")
     expect(elapsedMs).toBeLessThan(10_000)
-    expect(workersAiCalls()).toBe(callsBefore + 1)
+    expect(openAiCalls()).toBe(callsBefore + 1)
   }, 30_000)
 
-  it("returns 503 ai_not_configured without calling Workers AI when body is omitted and no token is set", async () => {
+  it("returns 503 ai_not_configured without calling OpenAI when body is omitted and no token is set", async () => {
     // Credentials retain the keyless harness defaults; leaked calls hit the stub.
     const unconfigured = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
-      WORKERS_AI_BASE_URL: stub.baseUrl,
+      OPENAI_BASE_URL: stub.baseUrl,
     })
     try {
-      const callsBefore = workersAiCalls()
+      const callsBefore = openAiCalls()
       const response = await fetch(
         `${unconfigured.baseUrl}/api/reviews/${review.reviewId}/drafts`,
         {
@@ -153,39 +143,40 @@ describeDatabase("provider request timeouts", () => {
 
       expect(response.status, JSON.stringify(body)).toBe(503)
       expect(body.error).toBe("ai_not_configured")
-      expect(workersAiCalls()).toBe(callsBefore)
+      expect(openAiCalls()).toBe(callsBefore)
     } finally {
       await unconfigured.stop()
     }
   }, 60_000)
 
-  function workersAiCalls(): number {
+  function openAiCalls(): number {
     return stub.calls.filter(
-      (call) =>
-        call.method === "POST" && call.path.includes("/ai/v1/chat/completions")
+      (call) => call.method === "POST" && call.path.includes("/v1/responses")
     ).length
   }
 
-  it("generates and verifies through GLM and records the Cloudflare model", async () => {
+  it("generates and verifies through OpenAI and records the configured model", async () => {
     const draft = {
       reply:
         "Thank you for your kind review. We hope to welcome you back soon.",
       language: "en",
     }
-    stub.respond(
-      { method: "POST", pathIncludes: "/ai/v1/chat/completions" },
-      (call) => {
-        const isVerification = JSON.stringify(call.body).includes(
-          "review_reply_verification"
-        )
-        return {
-          status: 200,
-          json: {
-            choices: [
-              {
-                finish_reason: "stop",
-                message: {
-                  content: JSON.stringify(
+    stub.respond({ method: "POST", pathIncludes: "/v1/responses" }, (call) => {
+      const isVerification = JSON.stringify(call.body).includes(
+        "review_reply_verification"
+      )
+      return {
+        status: 200,
+        json: {
+          status: "completed",
+          usage: { input_tokens: 100, output_tokens: 40 },
+          output: [
+            {
+              type: "message",
+              content: [
+                {
+                  type: "output_text",
+                  text: JSON.stringify(
                     isVerification
                       ? {
                           unsupportedClaims: [],
@@ -195,13 +186,13 @@ describeDatabase("provider request timeouts", () => {
                       : draft
                   ),
                 },
-              },
-            ],
-          },
-        }
+              ],
+            },
+          ],
+        },
       }
-    )
-    const callsBefore = workersAiCalls()
+    })
+    const callsBefore = openAiCalls()
     const response = await fetch(
       `${server.baseUrl}/api/reviews/${review.reviewId}/drafts`,
       {
@@ -211,7 +202,7 @@ describeDatabase("provider request timeouts", () => {
       }
     )
     expect(response.status, await response.clone().text()).toBe(201)
-    expect(workersAiCalls()).toBe(callsBefore + 2)
+    expect(openAiCalls()).toBe(callsBefore + 2)
     const [stored] = await admin<
       { model_name: string; body: string; verification_status: string }[]
     >`
@@ -220,7 +211,7 @@ describeDatabase("provider request timeouts", () => {
       order by created_at desc limit 1
     `
     expect(stored).toMatchObject({
-      model_name: "@cf/zai-org/glm-5.3-flash",
+      model_name: "gpt-4.1-nano",
       body: draft.reply,
     })
     expect(stored?.verification_status).toMatch(/^(pass|warn)$/)

@@ -1,3 +1,6 @@
+> Historical migration record: OpenAI was restored on 12 October 2026.
+> See [the active OpenAI configuration](openai.md).
+
 # Workers AI migration verification
 
 Checked on 29 September 2026 in the NabaPresence platform checkout.

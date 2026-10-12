@@ -35,8 +35,7 @@ function serverEnv(
     LOCAL_BOOTSTRAP_ENABLED: "false",
     WEBHOOKS_ENABLED: "false",
     PASSWORD_AUTH_ENABLED: "false",
-    WORKERS_AI_API_TOKEN: "",
-    WORKERS_AI_ACCOUNT_ID: "",
+    OPENAI_API_KEY: "",
     // The shared Google budget lives in the database every suite shares, so
     // one suite's stubbed 429 would block the next suite's calls for the
     // Retry-After. It is switched on, with real limits, only by the suites

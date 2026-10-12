@@ -195,11 +195,11 @@ export default function PrivacyPage() {
             connected Google account’s email address.
           </li>
           <li>
-            <strong>Cloudflare Workers AI</strong>, when AI reply drafting is
+            <strong>OpenAI</strong>, when AI reply drafting is
             switched on: the
             review text, star rating, reviewer’s display name, location name and
             your drafting preferences are sent to generate and check a suggested
-            reply using its hosted GLM model. We send these requests with output
+            reply using its hosted models. We send these requests with output
             storage disabled.
           </li>
         </ul>

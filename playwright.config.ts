@@ -28,8 +28,7 @@ export default defineConfig({
     env: {
       GOOGLE_API_PROXY_BASE: `http://127.0.0.1:${googleStubPort}`,
       NEXTAUTH_URL: baseURL,
-      WORKERS_AI_API_TOKEN: "",
-      WORKERS_AI_ACCOUNT_ID: "",
+      OPENAI_API_KEY: "",
       TOKEN_ENCRYPTION_KEY: tokenEncryptionKey,
       WEBHOOKS_ENABLED: "false",
       PASSWORD_AUTH_ENABLED: "false",
