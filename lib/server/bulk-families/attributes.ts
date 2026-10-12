@@ -14,7 +14,10 @@ import {
   outcomeOfThrownWrite,
   reconcileFromReceipt,
 } from "@/lib/server/bulk-families/shared"
-import type { BulkFamily } from "@/lib/server/bulk-families/types"
+import type {
+  BulkFamily,
+  ProposedCategories,
+} from "@/lib/server/bulk-families/types"
 import { runBulkWrite } from "@/lib/server/bulk-families/write-attempts"
 import type { GbpLocationContext } from "@/lib/server/gbp-management"
 import {
@@ -33,16 +36,30 @@ async function readAttributes(linked: GbpLocationContext) {
   )
 }
 
-/** Every attribute metadata page Google offers for the listing (at most 20 pages). */
-async function readAttributeMetadata(linked: GbpLocationContext) {
+/**
+ * Every attribute metadata page Google offers (at most 20 pages): for the
+ * listing, or for the primary category a batch's earlier category change
+ * gives it (in the listing's region).
+ */
+async function readAttributeMetadata(
+  linked: GbpLocationContext,
+  categories?: ProposedCategories
+) {
   const token = await linked.accessToken(),
     options = { connectionKey: linked.connectionId }
+  const scope = categories
+    ? {
+        categoryName: categories.primary,
+        regionCode: categories.regionCode,
+        languageCode: categories.languageCode,
+      }
+    : { locationName: linked.googleLocationName }
   const metadata: Array<Record<string, unknown>> = []
   let pageToken: string | undefined
   for (let page = 0; page < 20; page += 1) {
     const response = await listGoogleAttributeMetadata(
       token,
-      { locationName: linked.googleLocationName, pageToken },
+      { ...scope, pageToken },
       options
     )
     metadata.push(...(response.attributeMetadata ?? []))
@@ -76,9 +93,17 @@ export const attributesFamily: BulkFamily<AttributesInput> = {
   writeSurface: "profileWrites",
   accountLock: false,
   async plan(input, linked, reads) {
+    // Under an earlier category change of the batch at this listing (which
+    // this change waits for), the attributes its new primary category offers.
+    const categories = reads.proposed<ProposedCategories>("categories")
     const [observed, metadata] = await Promise.all([
       reads.once("attributes:values", () => readAttributes(linked)),
-      reads.once("attributes:metadata", () => readAttributeMetadata(linked)),
+      reads.once(
+        categories
+          ? `attributes:metadata:${categories.primary}:${categories.regionCode}`
+          : "attributes:metadata",
+        () => readAttributeMetadata(linked, categories)
+      ),
     ])
     // Metadata `parent` is the attribute's own name, e.g. "attributes/has_wifi".
     const offered = new Set<string>()

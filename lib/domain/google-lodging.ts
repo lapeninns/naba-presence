@@ -25,7 +25,8 @@ export const GOOGLE_LODGING_EXCLUDED_FIELDS = {
 function writablePaths(node: SchemaNode, prefix: string): string[] {
   const resolved = node.$ref ? schemas[node.$ref] : node
   return Object.entries(resolved?.properties ?? {}).flatMap(([key, child]) => {
-    if (child.readOnly || (!prefix && key in GOOGLE_LODGING_EXCLUDED_FIELDS)) return []
+    if (child.readOnly || (!prefix && key in GOOGLE_LODGING_EXCLUDED_FIELDS))
+      return []
     const path = prefix ? `${prefix}.${key}` : key
     return [path, ...(child.type === "array" ? [] : writablePaths(child, path))]
   })
@@ -34,3 +35,20 @@ function writablePaths(node: SchemaNode, prefix: string): string[] {
 export const GOOGLE_LODGING_UPDATE_PATHS: ReadonlySet<string> = new Set(
   writablePaths(schemas.Lodging, "")
 )
+
+function booleanPaths(node: SchemaNode, prefix: string): string[] {
+  const resolved = node.$ref ? schemas[node.$ref] : node
+  return Object.entries(resolved?.properties ?? {}).flatMap(([key, child]) => {
+    if (child.readOnly || (!prefix && key in GOOGLE_LODGING_EXCLUDED_FIELDS))
+      return []
+    const path = prefix ? `${prefix}.${key}` : key
+    if (child.type === "boolean") return [path]
+    return child.type === "array" ? [] : booleanPaths(child, path)
+  })
+}
+
+/** The writable yes/no lodging fields, outside guest units (the bulk composer's choices). */
+export const GOOGLE_LODGING_BOOLEAN_PATHS: readonly string[] = booleanPaths(
+  schemas.Lodging,
+  ""
+).filter((path) => !path.startsWith("guestUnits"))

@@ -29,6 +29,7 @@ import {
   type BulkOperation,
 } from "@/lib/domain/bulk-merge"
 import { GOOGLE_PLACE_ACTION_TYPES } from "@/lib/domain/google-contract"
+import { GOOGLE_LODGING_BOOLEAN_PATHS } from "@/lib/domain/google-lodging"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -48,7 +49,31 @@ const OPERATIONS: Array<{ value: BulkOperation; label: string }> = [
   { value: "more_hours", label: "Service hours" },
   { value: "attributes", label: "Attributes" },
   { value: "place_action", label: "Action link" },
+  { value: "business_info", label: "Business information" },
+  { value: "categories", label: "Categories" },
+  { value: "lodging", label: "Lodging" },
 ]
+type FieldEdit = { mode: "keep" | "set" | "clear"; value: string }
+type LodgingRow = { path: string; value: "true" | "false" | "clear" }
+const categoryList = (text: string) =>
+  text
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) =>
+      entry.startsWith("categories/") ? entry : `categories/gcid:${entry}`
+    )
+/** `{ a: { b: value } }` for the path `a.b`. */
+function nest(target: Record<string, unknown>, path: string, value: unknown) {
+  const parts = path.split(".")
+  let node = target
+  for (const part of parts.slice(0, -1)) {
+    node[part] = (node[part] as Record<string, unknown> | undefined) ?? {}
+    node = node[part] as Record<string, unknown>
+  }
+  node[parts[parts.length - 1]] = value
+  return target
+}
 type SpecialRow = {
   date: string
   action: "open" | "closed" | "clear"
@@ -99,6 +124,25 @@ export function BulkCompose() {
     uri: "",
     isPreferred: false,
   })
+  const [website, setWebsite] = useState<FieldEdit>({
+    mode: "keep",
+    value: "",
+  })
+  const [description, setDescription] = useState<FieldEdit>({
+    mode: "keep",
+    value: "",
+  })
+  const [openStatus, setOpenStatus] = useState<
+    "keep" | "OPEN" | "CLOSED_TEMPORARILY"
+  >("keep")
+  const [categories, setCategories] = useState({
+    primary: "",
+    add: "",
+    remove: "",
+  })
+  const [lodging, setLodging] = useState<LodgingRow[]>([
+    { path: "", value: "true" },
+  ])
   const [failure, setFailure] = useState<string | null>(null)
 
   const raw =
@@ -151,7 +195,68 @@ export function BulkCompose() {
                   values: [row.value === "true"],
                 })),
               }
-            : { operation, ...link }
+            : operation === "business_info"
+              ? {
+                  operation,
+                  changes: [
+                    ...(website.mode === "keep"
+                      ? []
+                      : [
+                          website.mode === "set"
+                            ? {
+                                field: "websiteUri",
+                                action: "set",
+                                value: website.value.trim(),
+                              }
+                            : { field: "websiteUri", action: "clear" },
+                        ]),
+                    ...(description.mode === "keep"
+                      ? []
+                      : [
+                          description.mode === "set"
+                            ? {
+                                field: "profile.description",
+                                action: "set",
+                                value: description.value,
+                              }
+                            : { field: "profile.description", action: "clear" },
+                        ]),
+                    ...(openStatus === "keep"
+                      ? []
+                      : [
+                          {
+                            field: "openInfo.status",
+                            action: "set",
+                            value: openStatus,
+                          },
+                        ]),
+                  ],
+                }
+              : operation === "categories"
+                ? {
+                    operation,
+                    ...(categories.primary.trim()
+                      ? { primaryCategory: categoryList(categories.primary)[0] }
+                      : {}),
+                    addAdditional: categoryList(categories.add),
+                    removeAdditional: categoryList(categories.remove),
+                  }
+                : operation === "lodging"
+                  ? {
+                      operation,
+                      updateMask: lodging.map((row) => row.path),
+                      clear: lodging
+                        .filter((row) => row.value === "clear")
+                        .map((row) => row.path),
+                      payload: lodging
+                        .filter((row) => row.value !== "clear" && row.path)
+                        .reduce(
+                          (body, row) =>
+                            nest(body, row.path, row.value === "true"),
+                          {} as Record<string, unknown>
+                        ),
+                    }
+                  : { operation, ...link }
   const parsed = bulkOperationInputSchema.safeParse(raw)
   const problem =
     ids.length === 0
@@ -487,6 +592,223 @@ export function BulkCompose() {
               }
             >
               <Plus aria-hidden /> Add an attribute
+            </Button>
+          </fieldset>
+        ) : operation === "business_info" ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-ui text-ink-secondary">
+              Only the fields you change are sent; everything else on each
+              listing stays as it is. Names, addresses and phone numbers are
+              changed per listing.
+            </legend>
+            {(
+              [
+                ["Website", website, setWebsite, "url"],
+                ["Description", description, setDescription, "text"],
+              ] as const
+            ).map(([label, edit, setEdit, type]) => (
+              <div
+                key={label}
+                className="grid gap-2 sm:grid-cols-[10rem_1fr] sm:items-end"
+              >
+                <label className="flex flex-col gap-1 text-caption text-ink">
+                  {label}
+                  <Select
+                    value={edit.mode}
+                    onValueChange={(value) =>
+                      value &&
+                      setEdit({ ...edit, mode: value as FieldEdit["mode"] })
+                    }
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      aria-label={`${label} change`}
+                    >
+                      <SelectValue>
+                        {(v: string | null) =>
+                          v === "set"
+                            ? "Set to"
+                            : v === "clear"
+                              ? "Remove"
+                              : "Leave as is"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="keep">Leave as is</SelectItem>
+                      <SelectItem value="set">Set to</SelectItem>
+                      <SelectItem value="clear">Remove</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                {edit.mode === "set" ? (
+                  <Input
+                    type={type}
+                    aria-label={`New ${label.toLowerCase()}`}
+                    value={edit.value}
+                    onChange={(e) =>
+                      setEdit({ ...edit, value: e.target.value })
+                    }
+                  />
+                ) : (
+                  <span aria-hidden />
+                )}
+              </div>
+            ))}
+            <label className="flex max-w-80 flex-col gap-1 text-caption text-ink">
+              Open status
+              <Select
+                value={openStatus}
+                onValueChange={(value) =>
+                  value && setOpenStatus(value as typeof openStatus)
+                }
+              >
+                <SelectTrigger
+                  className="w-full"
+                  aria-label="Open status change"
+                >
+                  <SelectValue>
+                    {(v: string | null) =>
+                      v === "OPEN"
+                        ? "Open"
+                        : v === "CLOSED_TEMPORARILY"
+                          ? "Temporarily closed"
+                          : "Leave as is"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="keep">Leave as is</SelectItem>
+                  <SelectItem value="OPEN">Open</SelectItem>
+                  <SelectItem value="CLOSED_TEMPORARILY">
+                    Temporarily closed
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </label>
+          </fieldset>
+        ) : operation === "categories" ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-ui text-ink-secondary">
+              Google category IDs, such as gcid:pub. Additional categories you
+              don’t name stay as each listing has them. Listings whose country
+              doesn’t offer a category are skipped.
+            </legend>
+            {(
+              [
+                ["primary", "New primary category (optional)"],
+                ["add", "Add additional categories"],
+                ["remove", "Remove additional categories"],
+              ] as const
+            ).map(([key, label]) => (
+              <label
+                key={key}
+                className="flex max-w-120 flex-col gap-1 text-caption text-ink"
+              >
+                {label}
+                <Input
+                  value={categories[key]}
+                  placeholder={
+                    key === "primary" ? "gcid:pub" : "gcid:bar, gcid:restaurant"
+                  }
+                  onChange={(e) =>
+                    setCategories({ ...categories, [key]: e.target.value })
+                  }
+                />
+              </label>
+            ))}
+          </fieldset>
+        ) : operation === "lodging" ? (
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-ui text-ink-secondary">
+              Only these lodging details change. Listings Google keeps no
+              lodging details for are skipped.
+            </legend>
+            <datalist id="bulk-lodging-paths">
+              {GOOGLE_LODGING_BOOLEAN_PATHS.map((path) => (
+                <option key={path} value={path} />
+              ))}
+            </datalist>
+            {lodging.map((row, index) => (
+              <div
+                key={index}
+                className="grid gap-2 sm:grid-cols-[1fr_10rem_auto] sm:items-end"
+              >
+                <label className="flex flex-col gap-1 text-caption text-ink">
+                  Lodging field
+                  <Input
+                    list="bulk-lodging-paths"
+                    value={row.path}
+                    placeholder="For example pools.pool"
+                    onChange={(e) =>
+                      setLodging(
+                        lodging.map((r, i) =>
+                          i === index
+                            ? { ...r, path: e.target.value.trim() }
+                            : r
+                        )
+                      )
+                    }
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-caption text-ink">
+                  Value
+                  <Select
+                    value={row.value}
+                    onValueChange={(value) =>
+                      value &&
+                      setLodging(
+                        lodging.map((r, i) =>
+                          i === index
+                            ? { ...r, value: value as LodgingRow["value"] }
+                            : r
+                        )
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      aria-label={`Value for lodging field ${index + 1}`}
+                    >
+                      <SelectValue>
+                        {(v: string | null) =>
+                          v === "true"
+                            ? "Yes"
+                            : v === "false"
+                              ? "No"
+                              : "Not set"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="true">Yes</SelectItem>
+                      <SelectItem value="false">No</SelectItem>
+                      <SelectItem value="clear">Not set</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={lodging.length === 1}
+                  onClick={() =>
+                    setLodging(lodging.filter((_, i) => i !== index))
+                  }
+                  aria-label={`Remove lodging field ${index + 1}`}
+                >
+                  <Trash2 aria-hidden />
+                </Button>
+              </div>
+            ))}
+            <Button
+              variant="secondary"
+              size="sm"
+              className="self-start"
+              onClick={() =>
+                setLodging([...lodging, { path: "", value: "true" }])
+              }
+            >
+              <Plus aria-hidden /> Add a lodging field
             </Button>
           </fieldset>
         ) : (

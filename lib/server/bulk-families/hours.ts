@@ -19,7 +19,10 @@ import {
   outcomeOfThrownWrite,
   reconcileFromReceipt,
 } from "@/lib/server/bulk-families/shared"
-import type { BulkFamily } from "@/lib/server/bulk-families/types"
+import type {
+  BulkFamily,
+  ProposedCategories,
+} from "@/lib/server/bulk-families/types"
 import { jsonColumn } from "@/lib/server/db"
 import { getGoogleLocation } from "@/lib/server/google"
 import {
@@ -91,13 +94,19 @@ export const hoursFamily: BulkFamily<HoursInput> = {
     )
     const field = bulkHoursField(input.operation)
     const current = fieldOf(input, location)
+    // Under an earlier category change of the batch at this listing (which
+    // this change waits for), the service hours types its new categories
+    // offer, not the current ones.
+    const proposed = reads.proposed<ProposedCategories>("categories")
     if (input.operation === "more_hours") {
-      const offered = [
-        location.categories?.primaryCategory,
-        ...(location.categories?.additionalCategories ?? []),
-      ]
-        .flatMap((category) => category?.moreHoursTypes ?? [])
-        .some((type) => type.hoursTypeId === input.hoursTypeId)
+      const offered = proposed
+        ? proposed.moreHoursTypes.includes(input.hoursTypeId)
+        : [
+            location.categories?.primaryCategory,
+            ...(location.categories?.additionalCategories ?? []),
+          ]
+            .flatMap((category) => category?.moreHoursTypes ?? [])
+            .some((type) => type.hoursTypeId === input.hoursTypeId)
       const present = (location.moreHours ?? []).some(
         (entry) => entry.hoursTypeId === input.hoursTypeId
       )
@@ -116,7 +125,20 @@ export const hoursFamily: BulkFamily<HoursInput> = {
     )
     const patch = buildGoogleHoursPatch({
       canonical: applyBulkHours(input, saved ?? google),
-      googleLocation: location,
+      googleLocation: proposed
+        ? {
+            ...location,
+            categories: {
+              primaryCategory: {
+                name: proposed.primary,
+                moreHoursTypes: proposed.moreHoursTypes.map((hoursTypeId) => ({
+                  hoursTypeId,
+                })),
+              },
+              additionalCategories: [],
+            },
+          }
+        : location,
       selection,
     })
     if (patch.blockingIssues.length > 0)

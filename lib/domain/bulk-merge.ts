@@ -7,6 +7,14 @@
 import { z } from "zod"
 
 import { httpUrl } from "@/lib/contracts/http-url"
+import {
+  bulkBusinessInfoInputSchema,
+  bulkCategoriesInputSchema,
+} from "@/lib/domain/bulk-business-info"
+import {
+  bulkLodgingInputSchema,
+  lodgingGroups,
+} from "@/lib/domain/bulk-lodging"
 import type {
   HoursSelection,
   NormalizedHours,
@@ -144,6 +152,15 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
       path: ["uri"],
       message: "Give the link to add or update.",
     }),
+  /**
+   * Business information (P09-R5): a field-mask patch of the offered fields,
+   * each set or explicitly cleared (lib/domain/bulk-business-info.ts).
+   */
+  bulkBusinessInfoInputSchema,
+  /** Categories by stable ID: a new primary, additional ones added or removed. */
+  bulkCategoriesInputSchema,
+  /** Lodging (the industry family): typed paths from the lodging allowlist. */
+  bulkLodgingInputSchema,
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
@@ -169,6 +186,12 @@ export function bulkChangeParts(input: BulkOperationInput): string[] {
       return input.changes.map((change) => `attributes:${change.name}`)
     case "place_action":
       return [`place_action:${input.placeActionType}`]
+    case "business_info":
+      return input.changes.map((change) => `business_info:${change.field}`)
+    case "categories":
+      return ["categories"]
+    case "lodging":
+      return lodgingGroups(input).map((group) => `lodging:${group}`)
   }
 }
 
@@ -193,6 +216,24 @@ export const bulkChangeListSchema = z
         owner.set(part, index)
       }
     })
+    // Category changes precede the work that depends on them: a service
+    // hours type or an attribute may only be offered under the new
+    // categories, so a categories change listed after one would be checked
+    // against the wrong categories.
+    const categories = items.findIndex(
+      (item) => item.operation === "categories"
+    )
+    items.forEach((item, index) => {
+      if (
+        categories > index &&
+        BULK_PREREQUISITES[item.operation]?.includes("categories")
+      )
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message: `Change ${index + 1} depends on the listing's categories; list the category change first.`,
+        })
+    })
   })
 
 /** One child's change key within its batch: its position and family. */
@@ -212,12 +253,18 @@ export function bulkBatchOperation(
  * of one of the listed families at the same listing to have applied first,
  * and is not sent when it did not. Plan P09: category changes precede the
  * work that depends on them (service hours types and attributes are offered
- * per category); P09-R5 adds the categories family and its entries here.
+ * per category), so a more-hours or attribute change at a listing waits for
+ * the batch's category change there, and is not sent when that one did not
+ * apply. The change list must name the category change first
+ * (`bulkChangeListSchema`).
  */
 export type BulkPrerequisites = Partial<
   Record<BulkOperation, readonly string[]>
 >
-export const BULK_PREREQUISITES: BulkPrerequisites = {}
+export const BULK_PREREQUISITES: BulkPrerequisites = {
+  more_hours: ["categories"],
+  attributes: ["categories"],
+}
 
 export type BulkChildOrder = {
   /** Earlier eligible changes at the listing: this one waits until they settle. */
@@ -292,11 +339,26 @@ export function bulkListingOrder(
  * The hours editor (lib/server/hours.ts `publishCanonicalHours`) takes the
  * same `hours` key, and bulk hours are published through that path.
  */
-export type BulkResourceKey = "hours" | "attributes" | "place_actions"
+export type BulkResourceKey =
+  "hours" | "attributes" | "place_actions" | "business_info" | "lodging"
 export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
-  if (operation === "attributes") return "attributes"
-  if (operation === "place_action") return "place_actions"
-  return "hours"
+  switch (operation) {
+    case "attributes":
+      return "attributes"
+    case "place_action":
+      return "place_actions"
+    // Business information and categories patch the same location resource
+    // under the business-information editor's key
+    // (lib/server/business-information.ts `updateBusinessInformation`).
+    case "business_info":
+    case "categories":
+      return "business_info"
+    // The lodging editor's key (lib/server/industry-management.ts).
+    case "lodging":
+      return "lodging"
+    default:
+      return "hours"
+  }
 }
 
 const DAYS = [

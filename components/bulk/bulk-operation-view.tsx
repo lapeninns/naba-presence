@@ -87,6 +87,15 @@ const REASON: Record<string, string> = {
   feature_disabled: "Bulk changes are switched off for this workspace",
   dependency_not_applied:
     "Not sent: an earlier change it needs didn’t apply to this listing",
+  permanently_closed:
+    "Permanently closed on Google; reopen it from this listing’s own page",
+  category_missing: "No primary category; choose one for this change",
+  too_many_categories: "Would have more than 9 additional categories",
+  category_region_unknown:
+    "Google’s categories for this listing’s country couldn’t be found",
+  category_not_available:
+    "Google doesn’t offer one of these categories in this listing’s country",
+  lodging_not_available: "Google keeps no lodging details for this listing",
 }
 const reason = (code: string | null) =>
   code
@@ -103,6 +112,9 @@ const OPERATION_LABEL: Record<Operation["operation"], string> = {
   more_hours: "Service hours",
   attributes: "Attributes",
   place_action: "Action link",
+  business_info: "Business information",
+  categories: "Categories",
+  lodging: "Lodging details",
   mixed: "Several changes",
 }
 

@@ -2,6 +2,8 @@ import "server-only"
 
 import {
   bulkAttributesRecoveryAdapter,
+  bulkBusinessInfoRecoveryAdapter,
+  bulkLodgingRecoveryAdapter,
   bulkPlaceActionRecoveryAdapter,
 } from "@/lib/server/bulk-families/write-attempts"
 import { foodMenusRecoveryAdapter } from "@/lib/server/food-menus"
@@ -26,7 +28,8 @@ import { profileRecoveryAdapter } from "@/lib/server/profile"
  * no receipts from their editors: their reviewed change sets keep their own
  * execution and confirmation states (lib/server/gbp-confirmation.ts,
  * lib/server/place-action-execution.ts). Bulk attribute and action-link
- * writes do record them, on bulk_listing_write_attempt
+ * writes, and bulk business-information, category and lodging writes, do
+ * record them, on bulk_listing_write_attempt
  * (lib/server/bulk-families/write-attempts.ts); bulk hours use the hours
  * adapter.
  */
@@ -38,6 +41,8 @@ export const RECOVERY_ADAPTERS = [
   mediaRecoveryAdapter,
   bulkAttributesRecoveryAdapter,
   bulkPlaceActionRecoveryAdapter,
+  bulkBusinessInfoRecoveryAdapter,
+  bulkLodgingRecoveryAdapter,
 ] as unknown as ReadonlyArray<RecoveryAdapter<never>>
 
 let deps: RecoveryDeps | undefined

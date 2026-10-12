@@ -1658,6 +1658,15 @@ own, so an earlier failed change can land after a later one already applied;
 changes of one batch never touch the same part of a listing, so that order
 does not matter.
 
+Business information, categories and lodging in bulk skip a listing rather
+than guess: `permanently_closed` (reopen it from the listing's own page),
+`too_many_categories` (more than 9 additional), `category_not_available` (not
+offered in the listing's country), `category_region_unknown` (no address or
+service-area region) and `lodging_not_available` (no lodging resource on
+Google). Their uncertain writes have receipts (surfaces `business_info` and
+`lodging`) that `mutation_recover` reads back; retry never re-sends one while
+recovery is reading it. Healthcare services are not offered in bulk (D-24).
+
 A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and
 ambiguous listings: already-applied listings settle without a write, unchanged

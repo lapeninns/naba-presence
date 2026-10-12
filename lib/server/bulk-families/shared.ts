@@ -39,7 +39,16 @@ export function bulkIntentId(childId: string, attempt: number): string {
  */
 export function planReads(): PlanReads {
   const started = new Map<string, Promise<unknown>>()
+  const proposals = new Map<string, unknown>()
   return {
+    propose(key, value) {
+      proposals.set(key, structuredClone(value))
+    },
+    proposed<T>(key: string) {
+      return proposals.has(key)
+        ? (structuredClone(proposals.get(key)) as T)
+        : undefined
+    },
     async once<T>(key: string, read: () => Promise<T>) {
       let pending = started.get(key) as Promise<T> | undefined
       if (!pending) {

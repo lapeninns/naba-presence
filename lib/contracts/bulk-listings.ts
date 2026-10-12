@@ -18,6 +18,9 @@ const BULK_OPERATIONS = [
   "more_hours",
   "attributes",
   "place_action",
+  "business_info",
+  "categories",
+  "lodging",
 ] as const
 
 export const bulkPreviewRequestSchema = z

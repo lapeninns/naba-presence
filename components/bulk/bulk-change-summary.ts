@@ -265,10 +265,92 @@ export function describeChildChange(
       return attributeRows(current, proposed, child.updateMask)
     case "place_action":
       return placeActionRows(current, proposed, input)
+    case "business_info":
+      return fieldRows(current, proposed, BUSINESS_FIELD_LABEL)
+    case "categories":
+      return categoryRows(current, proposed)
+    case "lodging":
+      return fieldRows(current, proposed)
   }
 }
 
+const BUSINESS_FIELD_LABEL: Record<string, string> = {
+  websiteUri: "Website",
+  "profile.description": "Description",
+  labels: "Labels",
+  "openInfo.status": "Open status",
+}
+const OPEN_STATUS: Record<string, string> = {
+  OPEN: "Open",
+  CLOSED_TEMPORARILY: "Temporarily closed",
+  CLOSED_PERMANENTLY: "Permanently closed",
+}
+
+/** A frozen field value in words; null and empty are "Not set" (a clear). */
+function fieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not set"
+  if (value === true) return "Yes"
+  if (value === false) return "No"
+  if (typeof value === "string") return OPEN_STATUS[value] ?? value
+  if (Array.isArray(value))
+    return value.length ? value.map(fieldValue).join(", ") : "Not set"
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+    return entries.length
+      ? entries
+          .map(([key, entry]) => `${humaniseId(key)}: ${fieldValue(entry)}`)
+          .join("; ")
+      : "Not set"
+  }
+  return String(value)
+}
+
+/** Field-mask families: one row per changed path (`false` reads "No", never "Not set"). */
+function fieldRows(
+  current: unknown,
+  proposed: unknown,
+  labels: Record<string, string> = {}
+): ChangeRow[] {
+  const before = record(current)
+  return Object.entries(record(proposed)).map(([path, value]) => ({
+    label: labels[path] ?? path.split(".").map(humaniseId).join(" › "),
+    current: fieldValue(before[path]),
+    proposed: fieldValue(value),
+  }))
+}
+
+/** "categories/gcid:pub" → "Pub". */
+export const categoryLabel = (name: string) =>
+  humaniseId(name.replace(/^categories\/gcid:/, ""))
+
+function categoryRows(current: unknown, proposed: unknown): ChangeRow[] {
+  type Ids = { primary?: string | null; additional?: string[] }
+  const before = record(current) as Ids
+  const after = record(proposed) as Ids
+  const names = (values: string[] | undefined) =>
+    values?.length ? values.map(categoryLabel).join(", ") : "None"
+  const rows: ChangeRow[] = []
+  if (before.primary !== after.primary)
+    rows.push({
+      label: "Primary category",
+      current: before.primary ? categoryLabel(before.primary) : "None",
+      proposed: after.primary ? categoryLabel(after.primary) : "None",
+    })
+  if (names(before.additional) !== names(after.additional))
+    rows.push({
+      label: "Additional categories",
+      current: names(before.additional),
+      proposed: names(after.additional),
+    })
+  return rows
+}
+
 const MASK_LABEL: Record<string, string> = {
+  websiteUri: "Website",
+  profile: "Description",
+  labels: "Labels",
+  "openInfo.status": "Open status",
+  categories: "Categories",
   regularHours: "Opening hours",
   specialHours: "Special hours",
   moreHours: "Service hours",

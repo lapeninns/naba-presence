@@ -10,6 +10,17 @@ import {
 } from "@/lib/domain/bulk-place-actions"
 import type { BulkOperationInput } from "@/lib/domain/bulk-merge"
 import {
+  businessInfoApplied,
+  categoryIds,
+  sameCategories,
+  type BulkBusinessInfoChange,
+  type CategoryIds,
+} from "@/lib/domain/bulk-business-info"
+import {
+  lodgingApplied,
+  type BulkLodgingInput,
+} from "@/lib/domain/bulk-lodging"
+import {
   outcomeOfAnsweredWrite,
   outcomeOfThrownWrite,
 } from "@/lib/server/bulk-families/shared"
@@ -27,7 +38,9 @@ import {
 } from "@/lib/server/gbp-write"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import {
+  getGoogleLocation,
   getGoogleLocationAttributes,
+  googleLodgingApi,
   listGooglePlaceActionLinks,
 } from "@/lib/server/google"
 import {
@@ -38,8 +51,9 @@ import {
 
 /**
  * Attempts of the bulk families whose editors record no receipts
- * (attributes and action links run reviewed change sets): one row per
- * child write, keyed per child and payload, behind runGbpWrite.
+ * (attributes, action links, business information, categories and lodging
+ * run reviewed change sets): one row per child write, keyed per child and
+ * payload, behind runGbpWrite.
  */
 export const bulkWriteAttempts: AttemptStore = attemptStore({
   table: "bulk_listing_write_attempt",
@@ -62,11 +76,56 @@ export type PlaceActionIntended = {
   priorNames: string[]
 }
 
+/** What the readback of a business-information write must find. */
+export type BusinessInfoIntended = { changes: BulkBusinessInfoChange[] }
+/** What the readback of a category write must find. */
+export type CategoriesIntended = { categories: CategoryIds }
+/** What the readback of a lodging write must find (the stamp is not compared). */
+export type LodgingIntended = Pick<
+  BulkLodgingInput,
+  "updateMask" | "clear" | "payload"
+>
+
+export type BulkWriteFamily =
+  "attributes" | "place_action" | "business_info" | "categories" | "lodging"
+type Intended =
+  | AttributesIntended
+  | PlaceActionIntended
+  | BusinessInfoIntended
+  | CategoriesIntended
+  | LodgingIntended
+
 type BulkAttempt = RecoveryAttempt & {
   externalLocationId: string | null
   googleLocationName: string
-  family: "attributes" | "place_action"
-  intended: AttributesIntended | PlaceActionIntended
+  family: BulkWriteFamily
+  intended: Intended
+}
+
+/** The location fields a business-information or category readback compares. */
+export const BUSINESS_LOCATION_FIELDS = [
+  "websiteUri",
+  "profile",
+  "labels",
+  "openInfo",
+  "categories",
+  "storefrontAddress",
+  "serviceArea",
+  "languageCode",
+] as const
+
+/** Whether a location shows a business-information or category write. */
+export function locationWriteApplied(
+  family: "business_info" | "categories",
+  intended: BusinessInfoIntended | CategoriesIntended,
+  location: unknown
+) {
+  return family === "categories"
+    ? sameCategories(
+        categoryIds(location),
+        (intended as CategoriesIntended).categories
+      )
+    : businessInfoApplied(location, (intended as BusinessInfoIntended).changes)
 }
 
 async function loadAttempt(
@@ -154,7 +213,70 @@ export const bulkPlaceActionRecoveryAdapter: RecoveryAdapter<BulkAttempt> = {
 }
 
 /**
- * One bulk attribute or action-link write through runGbpWrite: the attempt
+ * Reads an uncertain bulk business-information or category write back
+ * field by field: only the fields the change named (a clear is an empty
+ * field), or the categories by stable ID.
+ */
+export const bulkBusinessInfoRecoveryAdapter: RecoveryAdapter<BulkAttempt> = {
+  surface: "business_info",
+  attemptTable: "bulk_listing_write_attempt",
+  load: loadAttempt,
+  async readback({ attempt, link }) {
+    if (moved(attempt, link))
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    if (attempt.family !== "business_info" && attempt.family !== "categories")
+      return { kind: "unverifiable", errorCode: "family_mismatch" }
+    const observed = await getGoogleLocation(
+      await link.accessToken(),
+      link.googleLocationName,
+      [...BUSINESS_LOCATION_FIELDS],
+      { connectionKey: link.googleConnectionId }
+    )
+    return locationWriteApplied(
+      attempt.family,
+      attempt.intended as BusinessInfoIntended | CategoriesIntended,
+      observed
+    )
+      ? {
+          kind: "landed",
+          confirmed: true,
+          responseHash: stableGoogleHash(observed),
+        }
+      : { kind: "not_landed", errorCode: "google_readback_mismatch" }
+  },
+  settle: storeSettle(bulkWriteAttempts),
+}
+
+/**
+ * Reads an uncertain bulk lodging write back over its mask: a cleared path
+ * holds nothing, a set path its value (`false` is a value).
+ */
+export const bulkLodgingRecoveryAdapter: RecoveryAdapter<BulkAttempt> = {
+  surface: "lodging",
+  attemptTable: "bulk_listing_write_attempt",
+  load: loadAttempt,
+  async readback({ attempt, link }) {
+    if (moved(attempt, link))
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    const observed = await googleLodgingApi(
+      await link.accessToken(),
+      { locationName: link.googleLocationName, operation: "get" },
+      { connectionKey: link.googleConnectionId }
+    )
+    return lodgingApplied(observed, attempt.intended as LodgingIntended)
+      ? {
+          kind: "landed",
+          confirmed: true,
+          responseHash: stableGoogleHash(observed),
+        }
+      : { kind: "not_landed", errorCode: "google_readback_mismatch" }
+  },
+  settle: storeSettle(bulkWriteAttempts),
+}
+
+/**
+ * One bulk attribute, action-link, business-information, category or
+ * lodging write through runGbpWrite: the attempt
  * row and the receipt (under the child's intent) are recorded before the
  * provider call, the result is read back, and an uncertain write is left to
  * `mutation_recover` with the adapters above. The key is per child and
@@ -164,11 +286,13 @@ export const bulkPlaceActionRecoveryAdapter: RecoveryAdapter<BulkAttempt> = {
 export async function runBulkWrite<TResponse, TReadback>(
   context: DispatchContext<BulkOperationInput>,
   spec: {
-    family: "attributes" | "place_action"
-    surface: "attributes" | "place_actions"
+    family: BulkWriteFamily
+    surface: "attributes" | "place_actions" | "business_info" | "lodging"
     action: string
     writeSurface: GbpWriteSurface
-    intended: AttributesIntended | PlaceActionIntended
+    intended: Intended
+    /** Google's validateOnly call, when the surface has one; a refusal settles failed. */
+    validate?: () => Promise<unknown>
     mutate: () => Promise<TResponse>
     read: () => Promise<TReadback>
     verify: (readback: TReadback) => boolean
@@ -212,6 +336,7 @@ export async function runBulkWrite<TResponse, TReadback>(
         googleConnectionId: context.linked.connectionId,
         approvalRef: context.approvalRef,
       },
+      ...(spec.validate ? { validate: spec.validate } : {}),
       mutate: spec.mutate,
       onAmbiguous: "readback",
       readback: {

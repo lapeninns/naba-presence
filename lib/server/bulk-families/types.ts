@@ -30,6 +30,24 @@ export type TargetPlan =
  */
 export type PlanReads = {
   once<T>(key: string, read: () => Promise<T>): Promise<T>
+  /**
+   * What an earlier change of the batch at this listing will make a value
+   * (the categories a category change sends): a later change that depends
+   * on it (`BULK_PREREQUISITES`) is planned against that, not against what
+   * Google holds now. Changes are planned in list order.
+   */
+  propose(key: string, value: unknown): void
+  proposed<T>(key: string): T | undefined
+}
+
+/** The categories a batch's category change will give a listing (`PlanReads.propose`). */
+export type ProposedCategories = {
+  primary: string
+  additional: string[]
+  /** The service hours types Google offers under them (categories.batchGet, FULL). */
+  moreHoursTypes: string[]
+  regionCode: string
+  languageCode: string
 }
 
 /** One claimed child, as the runner hands it to its family. */

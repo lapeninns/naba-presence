@@ -1535,7 +1535,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1634,8 +1634,8 @@ listing a change waits for every earlier eligible change (`depends_on`), so
 the listing's changes reach Google in list order; the claim skips a child
 while any dependency is previewed, queued or running. Hard prerequisites
 (`requires_applied`, a subset of `depends_on`; the rule is
-`BULK_PREREQUISITES` in `lib/domain/bulk-merge.ts`, where P09-R5 adds
-category changes before service hours and attributes) must have applied: a
+`BULK_PREREQUISITES` in `lib/domain/bulk-merge.ts`: a category change
+before service hours and attributes) must have applied: a
 dependent waits while one is unresolved and fails `dependency_not_applied`,
 unsent, when one ends otherwise (or is skipped at preview with it; blocking
 carries down a chain of prerequisites). Retry requeues such a dependent
@@ -1645,6 +1645,34 @@ through a chain, ended conflict, expired, cancelled or skipped stays failed
 and needs a new preview. A trigger
 (`bulk_listing_child_dependency_guard`) holds dependencies to earlier changes
 at the same listing of the same batch.
+
+Business information, categories and lodging (P09-R5, 0264) are field-mask
+patches. Business information (`lib/domain/bulk-business-info.ts`) offers only
+fields that make sense across listings and that Google lets a client write:
+website, description, labels and the open status (open or temporarily
+closed). Each is set or explicitly cleared (a clear is in the mask and absent
+from the body); provider-owned fields and per-listing identity (title,
+address, phones, store code, service area, relationships, services) are
+refused by the contract, and a permanently closed listing is skipped. Only
+the named fields are frozen and compared, so an edit to another field is not
+a conflict. Categories change by stable ID (a new primary, additional ones
+added or removed; at most 9 additional) and each listing's result is checked
+against Google's category list for its region (`categories.batchGet`). Both
+patch the location resource under the business-information editor's lock
+(`business_info` resource key) with Google's validateOnly check first. A
+category change must be listed before the service-hours and attribute
+changes that depend on it: their preview is planned under the proposed
+categories (`PlanReads.propose`; attribute metadata by `categoryName`), and
+they are sent only once it applied. Lodging (`lib/domain/bulk-lodging.ts`,
+the industry family) takes paths from the typed lodging allowlist
+(`GOOGLE_LODGING_UPDATE_PATHS`, minus `metadata` and `guestUnits`) with typed
+values, each set or explicitly cleared; nothing outside the mask may be in
+the payload, `false` reads back as `false`, `metadata.updateTime` is stamped
+at the send, and a listing without a lodging resource is skipped. It runs
+under the lodging editor's lock. All three record attempts in
+`bulk_listing_write_attempt` with receipts (surfaces `business_info` and
+`lodging`), read back by their recovery adapters. Healthcare is not a bulk
+family, pending decision D-24.
 
 ## Reporting provenance (WP9)
 
