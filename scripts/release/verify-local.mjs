@@ -15,7 +15,7 @@
 //   the base, migrate from scratch + no-op + runtime role + db:status,
 //   upgrade from the merge base (schema diff), concurrent migrate, integration,
 //   e2e (port 3100 when free), pnpm audit --prod --audit-level high, and
-//   gitleaks over the full history when gitleaks is installed (skipped with a
+//   gitleaks over HEAD's full history when gitleaks is installed (skipped with a
 //   note otherwise).
 //
 // It writes a receipt (scripts/release/local-receipt.mjs) to
@@ -626,7 +626,16 @@ async function main() {
         }
       }
       // .gitleaksignore at the repository root lists historical findings.
-      return must("gitleaks", ["git", "--no-banner", "--redact", "."])
+      // The worktree shares the checkout's refs, and gitleaks' default log is
+      // `--all`: other branches' commits would decide this commit's receipt.
+      // Scan the full history of HEAD, which is what is being released.
+      return must("gitleaks", [
+        "git",
+        "--no-banner",
+        "--redact",
+        "--log-opts=HEAD",
+        ".",
+      ])
     },
   }
 

@@ -208,7 +208,7 @@ Hosted CI is not a release gate: GitHub Actions has not run since about
 | `integration` | `pnpm test:integration` on a freshly migrated database |
 | `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy) |
 | `audit` | `pnpm audit --prod --audit-level high` |
-| `secret-scan` | `gitleaks git --redact` over the full history; **skipped with a note** when gitleaks is not installed |
+| `secret-scan` | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see); **skipped with a note** when gitleaks is not installed |
 
 The base is what production runs: the `sha` of the newest committed
 promotion receipt in `docs/release/receipts/`, read at `HEAD`. Before the

@@ -102,6 +102,12 @@ describe("verify:release steps", () => {
     )
   })
 
+  it("scans the released commit's history, not every ref the worktree shares", () => {
+    expect(readRepoText("scripts/release/verify-local.mjs")).toContain(
+      '"--log-opts=HEAD"'
+    )
+  })
+
   it("uses ci.yml's placeholder environment exactly", () => {
     const ci = readRepoText(".github/workflows/ci.yml")
     const block = /\nenv:\n((?: {2}.*\n|\n)+)/.exec(ci)?.[1] ?? ""
