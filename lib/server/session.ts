@@ -135,7 +135,8 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         last_seen_at = now(),
         expires_at = case
           when support_actor is null then least(
-            now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '1 day'),
+            -- 24-hour days, as at sign-in (session-store.ts): DST-proof.
+            now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '24 hours'),
             coalesce(absolute_expires_at, expires_at)
           )
           else expires_at

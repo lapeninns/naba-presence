@@ -38,8 +38,11 @@ export async function createSession(
       ${organisationId},
       ${options.supportActor ?? null},
       ${options.impersonationReason ?? null},
-      now() + (${Math.min(idleDays, absoluteDays)} * interval '1 day'),
-      now() + (${absoluteDays} * interval '1 day')
+      -- 24-hour days, not calendar days: '1 day' added to a timestamptz
+      -- follows the server's TimeZone across a DST change, which would make a
+      -- 14-day window 14 days plus or minus an hour (and the cookie's maxAge).
+      now() + (${Math.min(idleDays, absoluteDays)} * interval '24 hours'),
+      now() + (${absoluteDays} * interval '24 hours')
     )
   `
   return token
