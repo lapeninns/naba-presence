@@ -640,6 +640,10 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   following the cursor resumes it. A large backlog after an outage or a raised
   window drains over successive fires; watch
   `select organisation_id, resumes, counts from retention_cycle_org where status = 'pending' and resumes > 0`.
+  Staged photo uploads swept after the rounds are not a row dataset: the
+  `media_asset` rows they mark are recorded in a
+  `retention.purge.staging_assets` audit (count and asset ids) in the same
+  transaction, not in the round audits or the cycle counts.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
   are the session and scheduler POST paths of reconcile, performance and

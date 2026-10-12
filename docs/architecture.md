@@ -2179,7 +2179,8 @@ purge (`purgeOrganisation` in `lib/server/retention/purge.ts`, once an
 organisation's rounds are complete and only while `RETENTION_DELETES_ENABLED`
 is on; a storage failure is logged and retried next run) deletes the staging
 key of every asset 24 hours after the upload started
-(`purgeExpiredStagingAssets`, counted as `stagingAssets`), finalised ones included: finalise deletes the
+(`purgeExpiredStagingAssets`, counted as `stagingAssets` and recorded with the
+rows it marks as a `retention.purge.staging_assets` audit), finalised ones included: finalise deletes the
 staged object at once, but the signed upload URL (2 hours) could put a new
 one there, so the sweep deletes it once more after the URL expired, with no
 transaction open during the storage call.

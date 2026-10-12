@@ -453,11 +453,20 @@ export async function readAssetBytes(asset: ReadyAsset): Promise<Uint8Array> {
  * row, so it either finishes first (the asset stays ready) or finds the
  * asset purged and deletes its own final object. Returns null when storage
  * is not configured, so nothing is touched.
+ *
+ * The rows it marks are recorded in the same transaction as a
+ * `retention.purge.staging_assets` audit (count and asset ids), so every
+ * committed retention change is in audit_log like the purge rounds'.
  */
 export async function purgeExpiredStagingAssets(
   organisationId: string,
-  limit = 100
+  options: {
+    limit?: number
+    requestId: string
+    clientRequestId?: string | null
+  }
 ): Promise<number | null> {
+  const { limit = 100, requestId, clientRequestId = null } = options
   const storage = assetStorage()
   if (!storage) return null
   const due = await withTenant(
@@ -471,13 +480,27 @@ export async function purgeExpiredStagingAssets(
   if (!due.length) return 0
   // A missing object is fine to delete; a failure leaves the rows due.
   await storage.remove(due.map((row) => row.stagingKey))
-  await withTenant(
-    organisationId,
-    (sql) => sql`
+  return withTenant(organisationId, async (sql) => {
+    const purged = await sql<{ id: string }[]>`
       update media_asset set staging_purged_at = now(),
         status = case when status = 'staging' then 'purged' else status end,
         updated_at = now()
-      where id in ${sql(due.map((row) => row.id))} and staging_purged_at is null`
-  )
-  return due.length
+      where id in ${sql(due.map((row) => row.id))} and staging_purged_at is null
+      returning id::text as id`
+    if (purged.length) {
+      await writeAudit(sql, {
+        organisationId,
+        action: "retention.purge.staging_assets",
+        subjectType: "organisation",
+        subjectId: organisationId,
+        requestId: `${requestId}:${organisationId}:staging_assets`,
+        metadata: {
+          stagingAssets: purged.length,
+          assetIds: purged.map((row) => row.id),
+          clientRequestId,
+        },
+      })
+    }
+    return purged.length
+  })
 }

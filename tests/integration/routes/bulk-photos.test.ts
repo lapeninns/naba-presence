@@ -382,6 +382,16 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
       status: "ready",
       purged: true,
     })
+    // The rows it marked are on record in audit_log, like every round's.
+    const audits = await admin<{ metadata: Record<string, unknown> }[]>`
+      select metadata from audit_log
+      where organisation_id = ${t.owner.organisationId}
+        and action = 'retention.purge.staging_assets'`
+    expect(audits).toHaveLength(1)
+    expect(audits[0]!.metadata).toMatchObject({ stagingAssets: 2 })
+    expect([...(audits[0]!.metadata.assetIds as string[])].sort()).toEqual(
+      [asset.id, ready.id].sort()
+    )
     expect(
       storage.objects.has(
         `assets/${t.owner.organisationId}/${ready.sha256}/${ready.id}`

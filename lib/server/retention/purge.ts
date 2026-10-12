@@ -976,10 +976,7 @@ export async function purgeOrganisation({
         counts,
         changed
       )
-      if (
-        Object.values(totals).some((count) => count > 0) ||
-        heldCount > 0
-      ) {
+      if (Object.values(totals).some((count) => count > 0) || heldCount > 0) {
         await writeAudit(sql, {
           organisationId,
           action: "retention.purge.completed",
@@ -1015,12 +1012,18 @@ export async function purgeOrganisation({
   // done, outside any tenant transaction because storage is not
   // transactional. The row stays, marked purged. Zero when storage is not
   // configured (nothing can have been staged). A storage failure is logged
-  // and the next run tries again; it never fails the organisation.
+  // and the next run tries again; it never fails the organisation. The rows
+  // it marks get their own `retention.purge.staging_assets` audit, written
+  // with them, since the rounds' audits cannot cover them.
   let stagingAssets = 0
   if (complete && deletesEnabled) {
     try {
       stagingAssets =
-        (await purgeExpiredStagingAssets(organisationId, limit)) ?? 0
+        (await purgeExpiredStagingAssets(organisationId, {
+          limit,
+          requestId,
+          clientRequestId,
+        })) ?? 0
     } catch (error) {
       log.error("retention.staging_assets_failed", {
         requestId,
@@ -1030,7 +1033,9 @@ export async function purgeOrganisation({
     }
   }
   log.info(
-    complete ? "retention.organisation_purged" : "retention.organisation_partial",
+    complete
+      ? "retention.organisation_purged"
+      : "retention.organisation_partial",
     {
       requestId,
       organisationId,
@@ -1056,7 +1061,10 @@ export type RetentionFailure = {
 
 /** A stable machine code for a failed organisation; never a message. */
 export function retentionErrorCode(error: unknown): string {
-  return (error instanceof ApiError ? error.code : "internal_error").slice(0, 64)
+  return (error instanceof ApiError ? error.code : "internal_error").slice(
+    0,
+    64
+  )
 }
 
 /**
@@ -1172,7 +1180,9 @@ export async function retainPage({
     order by organisation_id
     limit ${batchSize}
   `
-  const abuseRateBuckets = cursor ? null : await purgeEndedAbuseBuckets(requestId)
+  const abuseRateBuckets = cursor
+    ? null
+    : await purgeEndedAbuseBuckets(requestId)
   const mfaPendingLogins = cursor
     ? null
     : await purgeExpiredMfaTickets(requestId)
