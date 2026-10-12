@@ -30,6 +30,7 @@ const TICK_NAMES = [
   "presence-resources",
   "sweep",
   "health",
+  "billing-reconcile",
 ]
 
 function row(name: string, overrides: Partial<TickRow> = {}): TickRow {

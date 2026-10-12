@@ -4,8 +4,15 @@ import { cookies } from "next/headers"
 import type { Fragment, TransactionSql } from "postgres"
 import { cache } from "react"
 
+import type { Access } from "@/lib/domain/entitlements"
+import {
+  accessFromView,
+  getOrganisationBilling,
+  seedPilotBilling,
+} from "@/lib/server/billing/state"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
+import { enforcementApplies } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import {
@@ -60,6 +67,21 @@ export type Session = {
   authMethod?: string | null
   /** Verified TOTP factors the person had when last seen (0 = none). */
   mfaFactorCount?: number
+  /**
+   * The organisation's billing access when the session was looked up
+   * (lib/domain/entitlements.ts deriveAccess; read-only without a billing
+   * row). Optional so existing `Session` fixtures stay valid;
+   * `lookupSession` always sets it.
+   */
+  access?: Access
+  /**
+   * Whether central billing enforcement applies to this organisation
+   * (BILLING_ENFORCEMENT_ENABLED and its own enforcement flag;
+   * lib/server/entitlement-policy.ts). When true, route() refuses new work
+   * that `access` does not allow. Absent reads as not enforced, so fixtures
+   * without it keep their behaviour.
+   */
+  entitlementEnforced?: boolean
 }
 
 /** The assurance a session minted from `session` carries across. */
@@ -206,7 +228,13 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         end
       where id = ${sessionIdentity.sessionId}
     `
-    return session ?? null
+    if (!session) return null
+    const billing = await getOrganisationBilling(sql, session.organisationId)
+    return {
+      ...session,
+      access: accessFromView(billing, new Date()),
+      entitlementEnforced: enforcementApplies(billing),
+    }
   }) as Promise<Session | null>
 }
 
@@ -330,6 +358,10 @@ export async function ensureDevelopmentSession(): Promise<Session> {
         ${LOCAL_USER_ID}
       )
     `
+    // provision_local_bootstrap (0005) predates billing and creates the
+    // organisation without a billing row, which derives read-only. Give the
+    // local organisation its explicit pilot record, as provisioning does.
+    await seedPilotBilling(sql, LOCAL_ORGANISATION_ID)
     return createSession(sql, LOCAL_USER_ID, LOCAL_ORGANISATION_ID)
   })
 

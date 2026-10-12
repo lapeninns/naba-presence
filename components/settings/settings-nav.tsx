@@ -4,6 +4,7 @@ import { QueryClientContext } from "@tanstack/react-query"
 import { usePathname } from "next/navigation"
 import { useContext } from "react"
 
+import { useBillingScreensEnabled } from "@/components/settings/billing-screens"
 import { useSettingsFeatures } from "@/components/settings/settings-features"
 import { TabNav } from "@/components/ui/tabs"
 import { useSettingsCapabilities } from "@/lib/queries/use-settings-capabilities"
@@ -27,7 +28,14 @@ import {
 const AREAS: {
   href: string
   label: string
-  capability: "always" | "canManageConnections" | "canViewPrivacy" | "mfa"
+  capability:
+    | "always"
+    | "canManageConnections"
+    | "canViewPrivacy"
+    | "mfa"
+    | "owner"
+  /** Shown only while billing is switched on (BillingScreensProvider). */
+  billing?: true
 }[] = [
   { href: "/settings", label: "Policy", capability: "always" },
   { href: "/settings/notifications", label: "Notifications", capability: "always" },
@@ -49,6 +57,9 @@ const AREAS: {
     label: "Data and privacy",
     capability: "canViewPrivacy",
   },
+  // Plan P07-S6: the shared Usage screen and the owner-only Billing screen.
+  { href: "/settings/usage", label: "Usage", capability: "always", billing: true },
+  { href: "/settings/billing", label: "Billing", capability: "owner", billing: true },
 ]
 
 type SettingsNavProps = { role: string | null; className?: string }
@@ -61,12 +72,17 @@ function SettingsNavTabs({
   const pathname = usePathname()
   const caps = { ...settingsGatingFromRole(role), ...privacyGating(privacy) }
   const features = useSettingsFeatures()
-  const items = AREAS.filter((area) =>
-    area.capability === "always"
-      ? true
-      : area.capability === "mfa"
-        ? features.mfa
-        : caps[area.capability]
+  const billing = useBillingScreensEnabled()
+  const items = AREAS.filter(
+    (area) =>
+      (!area.billing || billing) &&
+      (area.capability === "always"
+        ? true
+        : area.capability === "mfa"
+          ? features.mfa
+          : area.capability === "owner"
+            ? role === "owner"
+            : caps[area.capability])
   ).map((area) => ({
     href: area.href,
     label: area.label,

@@ -17,6 +17,7 @@ import {
   jsonColumnOrNull,
   withTenant,
 } from "@/lib/server/db"
+import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
@@ -233,14 +234,21 @@ export async function processSchedule(
       where ll.location_id = ${schedule.locationId} and ll.is_active and gc.status in ('active', 'expired')`
     // Env and the operator pause table alike (lib/server/pause-controls.ts):
     // a table pause is the same transient block, not a failed occurrence.
+    // So is a read-only subscription under central billing enforcement
+    // (lib/server/entitlement-policy.ts): nothing new is sent while it lasts.
     const paused = !scopesEnabled(env, pauses, gbpWriteScopes("posts"))
-    if (paused || !link) {
+    const billingHold = (await organisationWriteBlock(sql, organisationId)) !== null
+    if (paused || billingHold || !link) {
       // Transient: the approval stands. Occurrences left waiting are marked
       // missed once they fall outside the grace period.
       await emit(sql, {
         ...base(schedule),
         kind: "schedule_blocked",
-        reason: paused ? "publishing_paused" : "connection_unavailable",
+        reason: paused
+          ? "publishing_paused"
+          : billingHold
+            ? "billing_read_only"
+            : "connection_unavailable",
         source: {
           type: "schedule_occurrence",
           id: due[0]?.id ?? scheduleId,
@@ -260,7 +268,7 @@ export async function processSchedule(
       })
       if (summary) summary.missed += 1
     }
-    if (!run || paused || !link) return { schedule, run: null }
+    if (!run || paused || billingHold || !link) return { schedule, run: null }
     const { content, eventEndDate } = occurrenceContent(schedule, run)
     if (contentExpired(eventEndDate, now, schedule.timezone)) {
       await sql`update post_publication_occurrence set status = 'missed', status_reason = 'expired_content', finished_at = now() where id = ${run.id}`

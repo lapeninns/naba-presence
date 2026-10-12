@@ -215,6 +215,7 @@ export const PATCH = route({
 
 export const DELETE = route({
   mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: memberRemoveSchema,
   handler: async ({

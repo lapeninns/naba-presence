@@ -292,17 +292,16 @@ export const AI_USAGE_RETENTION_MONTHS = 13
  *   deleted whatever its age;
  * - a row of the current UTC month (lib/server/ai-credits.ts
  *   `billingPeriod`, the period still open) is never deleted, even if a
- *   clock or backdated row makes it look old.
+ *   clock or backdated row makes it look old;
+ * - a row of an allowance period (`ai_credit_period`, plan P07, 0107) that
+ *   has not ended is never deleted: a trial or paid period can run longer
+ *   than a calendar month, and its allowance and any late settlement are
+ *   reckoned from its rows until it ends. An operator adjustment that
+ *   applies to the period (0115 `applies_to_period_id`) and is still open
+ *   holds the period's rows too. A row with no period (usage recorded
+ *   before 0107) has only the calendar-month rule above.
  *
- * Credit periods with their own settlement (plan P07) plug in HERE, as one
- * more conjunct, so the purge has a single place that decides whether a
- * period is closed, for example:
- *
- *   and not exists (
- *     select 1 from ai_credit_period p
- *     where p.id = ai_usage.credit_period_id and p.settled_at is null
- *   )
- *
+ * This is the one place the purge decides whether a period is closed.
  * tests/retention-cycle.test.ts holds the purge's ai_usage statement to this
  * guard.
  */
@@ -311,6 +310,16 @@ export function aiUsageInClosedPeriod(sql: TransactionSql): Fragment {
     ai_usage.status in ('settled', 'released')
     and ai_usage.period_start
       < (date_trunc('month', now() at time zone 'utc'))::date
+    and not exists (
+      select 1 from ai_credit_period p
+      where p.organisation_id = ai_usage.organisation_id
+        and ai_usage.credit_period_id is not null
+        and (
+          p.id = ai_usage.credit_period_id
+          or p.applies_to_period_id = ai_usage.credit_period_id
+        )
+        and p.ends_at > now()
+    )
   `
 }
 

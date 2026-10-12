@@ -38,6 +38,13 @@ import "server-only"
  * filter, and a paused kind keeps its status and its `next_attempt_at` until
  * the switch comes back (docs/runbook.md, "Kill switches").
  *
+ * Billing enforcement (lib/server/entitlement-policy.ts) is per item, not
+ * per claim, because it depends on the organisation: a `retry` (a new
+ * dispatch to Google) for a read-only organisation is held for an hour
+ * (`holdRetryForBilling`), and so are the bulk listing and scheduled post
+ * dispatches in their runners. Read-backs and the syncs, which only read,
+ * keep running: read-only access still shows current data.
+ *
  * Concurrency is bounded by `JOBS_CONCURRENCY` and, independently, by the
  * database pool and the process-local Google pacer
  * (`GOOGLE_REQUESTS_PER_SECOND`). Provider-bound items therefore overlap
@@ -53,8 +60,13 @@ import type { TransactionSql } from "postgres"
 
 import { retryDelayMs } from "@/lib/domain/retry"
 import { releaseStaleReservations } from "@/lib/server/ai-credits"
+import {
+  processBillingEvents,
+  type BillingTickSummary,
+} from "@/lib/server/billing/process-events"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { syncDueKeywords } from "@/lib/server/keywords"
 import { log } from "@/lib/server/logger"
@@ -144,6 +156,8 @@ export type JobSummary = {
   privacy?: PrivacyWithdrawalTickSummary
   /** Invitation email due again or never settled inline (plan P06-6). */
   invitations?: InvitationDeliveryTickSummary
+  /** Stripe event receipts processed (P07-S4), when billing is on. */
+  billing?: BillingTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -708,6 +722,68 @@ async function settleRecoveryFailure(
 }
 
 /**
+ * How long a publish retry held by billing waits before it looks again. A
+ * read-only organisation can stay read-only for weeks, so the hold must not
+ * re-claim the row every tick.
+ */
+const BILLING_HOLD_MS = 60 * 60_000
+/** The most of a tick Stripe event processing may use. */
+const BILLING_BUDGET_MS = 15_000
+
+/**
+ * Central billing enforcement for a publish retry (plan P07-S3): a retry is
+ * a new dispatch to Google, so while enforcement applies and the
+ * organisation is read-only it is held, not sent. The attempt keeps its
+ * status and retry budget, waits BILLING_HOLD_MS and says why
+ * (`provider_error_code = 'billing_read_only'`); the first hold is audited.
+ * Read-backs (`recover`, `mutation_recover`) are never held: they only find
+ * out what already happened. True when the job was held.
+ */
+async function holdRetryForBilling(
+  job: ClaimedJob,
+  requestId: string
+): Promise<boolean> {
+  return withTenant(job.organisationId, async (sql) => {
+    const blocked = await organisationWriteBlock(sql, job.organisationId)
+    if (!blocked) return false
+    const [attempt] = await sql<{ code: string | null }[]>`
+      select provider_error_code as code
+      from publish_attempt
+      where id = ${job.jobId}
+        and status = 'retryable'
+      for update
+    `
+    if (!attempt) return true
+    await sql`
+      update publish_attempt
+      set
+        provider_error_code = 'billing_read_only',
+        lease_expires_at = null,
+        next_attempt_at = ${new Date(Date.now() + BILLING_HOLD_MS)}
+      where id = ${job.jobId}
+        and status = 'retryable'
+    `
+    if (attempt.code !== "billing_read_only") {
+      await writeAudit(sql, {
+        organisationId: job.organisationId,
+        action: "publish.retry_held_billing",
+        subjectType: "publish_attempt",
+        subjectId: job.jobId,
+        requestId,
+        metadata: { reason: blocked.reason },
+      })
+    }
+    log.warn("jobs.billing_hold", {
+      organisationId: job.organisationId,
+      kind: job.kind,
+      jobId: job.jobId,
+      reason: blocked.reason,
+    })
+    return true
+  })
+}
+
+/**
  * A recurring run that threw before its own settle could. The sync
  * functions settle their failures themselves (with their own back-off and,
  * for performance and keywords, a dead-letter ceiling); this covers what
@@ -869,6 +945,12 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
 
       case "recover":
       case "retry": {
+        if (
+          job.kind === "retry" &&
+          (await holdRetryForBilling(job, tick.requestId))
+        ) {
+          return
+        }
         const result =
           job.kind === "recover"
             ? await recoverAttempt({
@@ -964,6 +1046,26 @@ export async function runDueJobs(options: {
       claiming: kinds,
     })
   }
+  // The whole tick, billing included, fits in one budget: the billing
+  // slice's time is not added on top (the route's maxDuration is fixed).
+  const deadline = Date.now() + Math.max(0, options.budgetMs)
+  // Stripe events (P07-S4) first, on a small slice of the budget: they
+  // decide what every organisation may do, and none of the Google flags
+  // holds them. Off unless billing is enabled, configured and not paused
+  // (processBillingEvents); a billing fault never stops the tick.
+  if (scopesEnabled(env, pauses, ["jobs"])) {
+    summary.billing = await processBillingEvents({
+      budgetMs: Math.min(BILLING_BUDGET_MS, Math.max(0, options.budgetMs / 4)),
+      requestId: options.requestId,
+      pauses,
+    }).catch((error: unknown) => {
+      log.error("billing.tick_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
+  }
+
   if (kinds.length === 0) return summary
 
   await reclaimExpired()
@@ -975,7 +1077,6 @@ export async function runDueJobs(options: {
     })
   })
 
-  const deadline = Date.now() + Math.max(0, options.budgetMs)
   const tick: Tick = { requestId: options.requestId, summary, deadline }
 
   // The lease must outlive the slowest item in a batch. Google calls are

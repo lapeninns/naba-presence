@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 import { AccountMenu } from "./account-menu"
+import { BillingBanner } from "./billing-banner"
 import { ClientScopeRoot, useRememberedClient } from "./client-context"
 import { ImpersonationBanner } from "./impersonation-banner"
 import { Nav } from "./nav"
@@ -412,6 +413,7 @@ function AppShell({
                 organisationName={session.organisationName}
               />
             ) : null}
+            {sessionReady ? <BillingBanner /> : null}
             {sessionReady ? <ReconnectBanner /> : null}
             {sessionReady ? <ShellOAuthReturn /> : null}
             {sessionReady ? <MfaStepUpPrompt /> : null}

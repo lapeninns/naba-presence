@@ -14,7 +14,8 @@ import { searchOnboardingMatches } from "./google-onboarding"
 import { checkedOnboardingDraft, requireNoOnboardingMatchLink } from "./google-onboarding-drafts"
 import { checkedOnboardingReview } from "./google-onboarding-reviews"
 import { requireOnboardingServiceSupport } from "./google-onboarding-services"
-import { ApiError } from "./http"
+import { assertNewLocationSeat } from "./entitlement-policy"
+import { ApiError, locationLimitError } from "./http"
 import { gbpWriteScopes, loadPauseSnapshot, requireScopesEnabled, type PausedError } from "./pause-controls"
 import type { Session } from "./session"
 
@@ -107,6 +108,9 @@ export async function submitOnboardingCreation(session: Session, accountId: stri
     }
     if (!current.approved_by || current.review_hash !== expectedReviewHash) throw new ApiError(409, "approval_stale", "The creation approval changed. Review again.")
     await requireScopesEnabled(gbpWriteScopes("profileWrites"), ONBOARDING_PAUSED, { snapshot: pauses })
+    // Creating the Google location cannot be undone, so check the plan's
+    // location limit before it, not only when linking (0110 trigger).
+    await assertNewLocationSeat(sql, session.organisationId)
     await sql`insert into google_onboarding_creation (organisation_id, draft_id, review_id, review_hash, actor_user_id) values (${session.organisationId}, ${draftId}, ${reviewId}, ${expectedReviewHash}, ${session.userId})`
     await writeAudit(sql, { organisationId: session.organisationId, actorUserId: session.userId, action: "google.onboarding.creation_started", subjectType: "google_onboarding_draft", subjectId: draftId, requestId, metadata: { reviewId, providerRequestId: current.frozen.providerRequestId } })
     return { row: (await load(sql, draftId))!, execute: true }
@@ -165,9 +169,11 @@ export async function linkOnboardingCreation(session: Session, accountId: string
       return project((await load(sql, draftId))!)
     })
   } catch (error) {
+    // The location limit trigger (0110) records as location_limit_reached,
+    // so the UI can explain it; linking can be retried once a seat frees.
     return withTenant(session.organisationId, async (sql) => {
       await checkedOnboardingDraft(sql, session, accountId, draftId)
-      await sql`update google_onboarding_creation set link_state = 'failed', error_code = ${error instanceof ApiError ? error.code : "onboarding_local_link_failed"}, updated_at = now() where draft_id = ${draftId} and link_state <> 'linked'`
+      await sql`update google_onboarding_creation set link_state = 'failed', error_code = ${(locationLimitError(error) ?? (error instanceof ApiError ? error : null))?.code ?? "onboarding_local_link_failed"}, updated_at = now() where draft_id = ${draftId} and link_state <> 'linked'`
       return project((await load(sql, draftId))!)
     })
   }

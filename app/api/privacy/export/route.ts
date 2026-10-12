@@ -43,6 +43,7 @@ export const runtime = "nodejs"
  * only below the millisecond.
  */
 export const POST = route({
+  entitlement: "exempt",
   roles: ["owner"],
   body: privacyExportBodySchema,
   handler: async ({

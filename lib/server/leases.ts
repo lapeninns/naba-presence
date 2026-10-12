@@ -20,6 +20,8 @@ export const LEASE_KEYS = [
   "naba:presence-resources",
   "naba:sweep",
   "naba:health",
+  // The hourly Stripe reconciliation (app/api/billing/reconcile, P07-S4).
+  "naba:billing-reconcile",
 ] as const
 
 export type LeaseKey = (typeof LEASE_KEYS)[number]

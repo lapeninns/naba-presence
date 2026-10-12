@@ -74,6 +74,7 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: true,
       canManageConnections: true,
       canEditSettings: true,
+      canWrite: true,
       privacy: "none",
     })
   })
@@ -86,6 +87,7 @@ describeDatabase("settings capabilities route", () => {
       canManageTeam: true,
       canManageConnections: true,
       canEditSettings: true,
+      canWrite: true,
       privacy: "none",
     })
   })
@@ -95,10 +97,12 @@ describeDatabase("settings capabilities route", () => {
     organisations.push(tenant.organisationId)
     const member = await seedMemberUser(admin, tenant.organisationId, "member", true)
     const viewer = await seedMemberUser(admin, tenant.organisationId, "viewer", false)
+    // Billing (a pilot) still allows changes; only the role flags are off.
     const allFalse = {
       canManageTeam: false,
       canManageConnections: false,
       canEditSettings: false,
+      canWrite: true,
       privacy: "none",
     }
     expect((await caps(member.cookie)).capabilities).toEqual(allFalse)

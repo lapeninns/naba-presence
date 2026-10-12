@@ -12,6 +12,7 @@ import {
 } from "@/lib/contracts/location-capabilities"
 import type { ReviewCapabilities } from "@/lib/contracts/reviews"
 import { resourceActionCapabilities } from "@/lib/domain/google-resource-catalogue"
+import { sessionCanWrite } from "@/lib/server/entitlement-policy"
 import {
   type GbpFlags,
   gbpIngestionEnabled,
@@ -70,12 +71,16 @@ export async function reviewCapabilitiesForLocations(
   `
   const approvalRequired = org?.approvalRequired ?? false
 
+  // A read-only subscription under central enforcement allows no changes
+  // (lib/server/entitlement-policy.ts), so no control is offered.
+  const writable = sessionCanWrite(session)
   const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
     const grant = grants.get(id) ?? NO_GRANT
-    const canPublish = actionAllowed(session.role, grant, "publish")
-    const canEdit = actionAllowed(session.role, grant, "edit")
+    const canPublish = writable && actionAllowed(session.role, grant, "publish")
+    const canEdit = writable && actionAllowed(session.role, grant, "edit")
     const canRequestApproval =
+      writable &&
       actionAllowed(session.role, grant, "request_approval") &&
       !canPublish &&
       approvalRequired
@@ -183,6 +188,8 @@ function buildResources(input: {
   canPublish: boolean
   linked: boolean
   publishesEnabled: Record<LocationResourceKey, boolean>
+  /** Billing holds the organisation read-only: every write surface reads. */
+  billingReadOnly?: boolean
 }): Record<LocationResourceKey, ResourceCapability> {
   const { canEditCanonical, canPublish, linked, publishesEnabled } = input
   const resources = {} as Record<LocationResourceKey, ResourceCapability>
@@ -205,6 +212,11 @@ function buildResources(input: {
         state: "unavailable",
         reasonCode: "permission_denied",
       }
+      continue
+    }
+
+    if (input.billingReadOnly && key !== "performance") {
+      resources[key] = { state: "readOnly", reasonCode: "billing_read_only" }
       continue
     }
 
@@ -246,12 +258,13 @@ export async function locationCapabilitiesForIds(
 
   const env = getServerEnv()
   const publishesEnabled = resourceWritesEnabled(env, pauses)
+  const writable = sessionCanWrite(session)
   const actionWritesEnabled = {
-    profileWrites: publishesEnabled.profile,
-    media: publishesEnabled.photos,
-    posts: publishesEnabled.posts,
-    foodMenus: publishesEnabled.menu,
-    placeActions: publishesEnabled.booking,
+    profileWrites: writable && publishesEnabled.profile,
+    media: writable && publishesEnabled.photos,
+    posts: writable && publishesEnabled.posts,
+    foodMenus: writable && publishesEnabled.menu,
+    placeActions: writable && publishesEnabled.booking,
     performance: publishesEnabled.performance,
   }
 
@@ -274,10 +287,18 @@ export async function locationCapabilitiesForIds(
   for (const id of unique) {
     const grant = grants.get(id) ?? NO_GRANT
     const { canPublish, visible } = grant
+    const actions = locationActionCapabilities(session.role, grant)
     result.set(id, {
+      // Role-based even while read-only: it also gates whether the
+      // owner/admin tabs load at all (lib/locations/gating.ts
+      // gateSatisfied), and read-only access still shows them. Their editors
+      // read canWrite (editDisabledReason).
       canEditCanonical,
-      canPublish,
-      ...locationActionCapabilities(session.role, grant),
+      canPublish: writable && canPublish,
+      canEdit: writable && actions.canEdit,
+      canRequestApproval: writable && actions.canRequestApproval,
+      canDecideApproval: writable && actions.canDecideApproval,
+      canWrite: writable,
       resourceActions: resourceActionCapabilities({
         connected: connectedIds.has(id), canRead: visible, canPublish,
         managerial: canEditCanonical, writesEnabled: actionWritesEnabled,
@@ -287,6 +308,7 @@ export async function locationCapabilitiesForIds(
         canPublish,
         linked: linkedIds.has(id),
         publishesEnabled,
+        billingReadOnly: !writable,
       }),
     })
   }
@@ -331,6 +353,7 @@ export async function locationCapabilities(
 // Org/settings capabilities for the Settings workspace (spec §3):
 //   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
 //   privacy === privacyAccessFromRole(role, privacy_settings feature)
+//   canWrite === billing allows changes; canEditSettings needs it too
 // Pure role predicates that mirror the route guards; the one product switch
 // is read by the caller (readSettingsFeatures) and passed in.
 export function settingsCapabilities(
@@ -338,10 +361,12 @@ export function settingsCapabilities(
   features: { privacySettings: boolean }
 ): SettingsCapabilities {
   const managerial = isManagerialRole(session.role)
+  const canWrite = sessionCanWrite(session)
   return {
     canManageTeam: managerial,
     canManageConnections: managerial,
-    canEditSettings: managerial,
+    canEditSettings: managerial && canWrite,
+    canWrite,
     privacy: privacyAccessFromRole(session.role, features.privacySettings),
   }
 }

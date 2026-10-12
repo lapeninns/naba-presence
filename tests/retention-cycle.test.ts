@@ -234,6 +234,14 @@ describe("retention purge statements", () => {
     expect(guard).toContain(
       "< (date_trunc('month', now() at time zone 'utc'))::date"
     )
+    // An allowance period (P07) that has not ended keeps its rows, and so
+    // does an open adjustment applying to it.
+    expect(guard).toMatch(
+      /and not exists \(\s*select 1 from ai_credit_period p\s+where p\.organisation_id = ai_usage\.organisation_id/
+    )
+    expect(guard).toContain("p.id = ai_usage.credit_period_id")
+    expect(guard).toContain("or p.applies_to_period_id = ai_usage.credit_period_id")
+    expect(guard).toContain("and p.ends_at > now()")
   })
 })
 

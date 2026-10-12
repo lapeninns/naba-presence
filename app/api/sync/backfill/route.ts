@@ -160,6 +160,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: backfillCancelSchema,
   handler: ({ session, body, requestId, clientRequestId, tenant }) =>

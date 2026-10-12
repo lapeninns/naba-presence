@@ -158,6 +158,7 @@ export const GET = route({
 
 export const POST = route({
   mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: privacyRequestCreateSchema,
   handler: async ({
@@ -213,6 +214,7 @@ export const POST = route({
 
 export const PATCH = route({
   mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner"],
   body: privacyRequestUpdateSchema,
   handler: async ({

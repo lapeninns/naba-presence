@@ -37,6 +37,7 @@ export const runtime = "nodejs"
  * organisation instead.
  */
 export const POST = route({
+  entitlement: "exempt",
   body: sessionSwitchSchema,
   handler: async ({
     session: current,

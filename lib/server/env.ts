@@ -152,6 +152,46 @@ export const serverEnvSchema = z.object({
   // deleting the row it presents (lib/server/session.ts). The secret alone
   // no longer turns it on.
   SUPPORT_IMPERSONATION_ENABLED: featureFlag(false),
+  // Central billing enforcement (plan P07-S3): read-only organisations get
+  // 402 billing_read_only on new work, the job runner holds their new
+  // provider dispatch, and the location limit binds new links. Off by
+  // default and a hard override for the app: off, nothing the app does is
+  // enforced whatever an organisation's own
+  // organisation_billing.enforcement_enabled says. On, only organisations
+  // with that flag (or with no billing row at all) are enforced
+  // (lib/server/entitlement-policy.ts). The location-limit trigger sees this
+  // flag only through withTenant (app.billing_enforcement, lib/server/db.ts);
+  // a link written outside withTenant (operator SQL, scripts) follows the
+  // organisation's own flag alone (docs/runbook.md).
+  BILLING_ENFORCEMENT_ENABLED: featureFlag(false),
+  // Stripe billing (plan P07-S4). Off by default. Off, the webhook receiver
+  // answers 503 (Stripe keeps retrying), no event is processed and the
+  // hourly reconciliation does nothing. On, the values below must also be
+  // set and agree, or billing stays unavailable (lib/server/billing/stripe.ts
+  // billingConfig). The operator `billing` pause scope
+  // (lib/server/pause-controls.ts) holds processing off without a redeploy.
+  BILLING_ENABLED: featureFlag(false),
+  // The Stripe environment this deployment bills in. The secret key's mode
+  // (sk_test_/rk_test_ or sk_live_/rk_live_) must match it, and webhook
+  // events from the other mode are refused.
+  BILLING_ENVIRONMENT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["test", "live"]).default("test")
+  ),
+  STRIPE_SECRET_KEY: optionalText,
+  // Signing secret (whsec_…) of the /api/webhooks/stripe endpoint.
+  STRIPE_WEBHOOK_SECRET: optionalText,
+  // Checkout (plan P07-S5). Live checkout fails closed until the approved
+  // terms of service are published here (Checkout then requires the
+  // customer to accept them) and Stripe Tax is configured and switched on
+  // with BILLING_AUTOMATIC_TAX (lib/server/billing/checkout.ts
+  // checkoutReadiness). The test environment may run without either; its
+  // plans are always marked as test offers.
+  BILLING_TERMS_URL: optionalUrl,
+  BILLING_AUTOMATIC_TAX: featureFlag(false),
+  // Optional Customer Portal configuration (bpc_…). The configuration must
+  // not allow plan switching: plan changes are app-controlled.
+  STRIPE_PORTAL_CONFIGURATION_ID: optionalText,
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
@@ -243,11 +283,22 @@ export const serverEnvSchema = z.object({
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
   JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
-  // Monthly AI-written drafts per organisation (one credit per draft); an
-  // organisation.ai_monthly_draft_credits override wins. The token backstop is
-  // a runaway-loop guard across draft and verify calls, not a product limit.
+  // AI-written drafts per pilot month (one credit per draft); an
+  // organisation.ai_monthly_draft_credits override wins. Trial and paid
+  // periods take their allowance from billing (ai_credit_period), never from
+  // here. The token backstop is a runaway-loop guard across draft and verify
+  // calls within a credit period, not a product limit.
   AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
   AI_MONTHLY_TOKEN_BACKSTOP: z.coerce.number().int().min(0).default(20_000_000),
+  // The output cap sent with every provider call (lib/server/ai.ts), and the
+  // per-call share of the backstop a reservation holds until its real token
+  // counts arrive (lib/server/ai-credits.ts callTokenBudget).
+  AI_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(256)
+    .max(32_768)
+    .default(4096),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),

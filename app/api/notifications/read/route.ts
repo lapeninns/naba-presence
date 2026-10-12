@@ -6,6 +6,7 @@ export const runtime = "nodejs"
 
 /** Marks notifications read or unread for this person only; never resolves them. */
 export const POST = route({
+  entitlement: "exempt",
   body: notificationReadRequestSchema,
   handler: async ({ session, body }) => markNotificationsRead(session, body.incidentIds, body.read),
 })

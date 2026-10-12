@@ -35,6 +35,10 @@ export const TICK_STALE_AFTER_SECONDS: Record<string, number> = {
   // work on still completes, so this is the dispatcher's liveness; whether
   // the walk finishes is TICK_CYCLE_STALE_AFTER_SECONDS below.
   retention: 900,
+  // 3600s tick, three intervals. It completes while billing is disabled
+  // too (nothing to reconcile), so its absence is always a fault unless
+  // the operator `billing` scope pauses it.
+  "billing-reconcile": 10_800,
   // 86400s ticks, two intervals.
   keywords: 172_800,
   sweep: 172_800,
@@ -79,6 +83,7 @@ export const TICK_PAUSE_SCOPES: Record<string, readonly PauseScope[]> = {
   sweep: ["sync"],
   retention: ["retention"],
   health: ["notifications"],
+  "billing-reconcile": ["billing"],
 }
 
 /**

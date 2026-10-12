@@ -191,6 +191,12 @@ export async function createLoadTenant(
       ${`REL-501 ${label}`}
     )
   `
+  // Provisioning's explicit pilot billing record (plan P07).
+  await admin`
+    insert into organisation_billing (organisation_id, state)
+    values (${organisationId}, 'pilot')
+    on conflict (organisation_id) do nothing
+  `
   await admin`
     insert into app_user (id, email, display_name, default_organisation_id)
     values (

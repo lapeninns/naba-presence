@@ -51,6 +51,10 @@ export default defineConfig({
       DESIGN_SYSTEM_EVIDENCE_ENABLED: "true",
       // Off by default (P06-5); auth.spec.ts covers the choice itself.
       REGISTRATION_WORKSPACE_CHOICE_ENABLED: "true",
+      // The Billing and Usage screens (P07-S6) exist only with billing on.
+      // No Stripe key is set, so every billing action stays fail-closed
+      // (503 billing_unavailable); tests/e2e/billing.spec.ts stubs reads.
+      BILLING_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,

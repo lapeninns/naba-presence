@@ -228,6 +228,228 @@ keeps its status and its `next_attempt_at` untouched. A tick that is claiming a
 reduced set logs `jobs.kinds_paused` with the flags responsible. Nothing is
 re-armed, and no retry or recovery budget is spent, while a flag is off.
 
+### Billing enforcement
+
+`BILLING_ENFORCEMENT_ENABLED` (default `false`) switches on central
+entitlement enforcement (`lib/server/entitlement-policy.ts`). It is a hard
+override: off, nothing is refused for billing, whatever an organisation's own
+flag says. On, it applies only to organisations whose
+`organisation_billing.enforcement_enabled` is true (and to any organisation
+with no billing row). Roll it out per organisation from the operator
+connection:
+
+```sql
+update organisation_billing set enforcement_enabled = true
+where organisation_id = '<organisation id>';
+```
+
+An enforced read-only organisation gets 402 `billing_read_only` on new work;
+its publish retries and bulk children wait an hour at a time instead of
+reaching Google, and its scheduled posts are held like a publishing pause:
+each runner tick re-checks the schedule, a due occurrence waits while it is
+inside its grace period and is then marked missed. The `schedule_blocked`
+incident (reason `billing_read_only`) opens once per occurrence, not per
+tick. Its read-backs and syncs keep running.
+Linking past the plan's location limit answers 402 `location_limit_reached`
+(the onboarding creation and match links record it as their error code and
+can be retried once a seat frees; creating a new Google location is refused
+before Google is called); nothing is ever unlinked automatically. To stop
+enforcing at once, set the env flag to `false` and redeploy, or clear the
+organisation's flag.
+
+The env flag reaches the location-limit trigger only through the app's
+tenant transaction. A link written from an operator connection or a script
+follows the organisation's own `enforcement_enabled` flag alone, even with
+the env flag off. To link past the limit deliberately from the operator
+connection, turn the trigger off for that one transaction:
+
+```sql
+begin;
+set local app.billing_enforcement = 'off';
+-- insert into location_link ... / update location_link set is_active = true ...
+commit;
+```
+
+### Stripe billing (P07-S4)
+
+Billing is off unless `BILLING_ENABLED=true`. Turning it on needs, all from
+the operator, none of it in code: a Stripe account, the catalog rows in
+`billing_plan` (with their `price_...` ids, seeded with `pnpm billing:catalog`,
+see "Billing catalog" below), `STRIPE_SECRET_KEY` (a test key
+with `BILLING_ENVIRONMENT=test`, a live key only with `live`), and a webhook
+endpoint registered at `/api/webhooks/stripe` whose signing secret is
+`STRIPE_WEBHOOK_SECRET`. Subscribe it to `customer.subscription.*`,
+`invoice.*`, `checkout.session.*` and `subscription_schedule.*`; other types
+are stored as `ignored`. A missing or mismatched value leaves billing
+unavailable (webhooks answer 503, so Stripe keeps retrying for three days and
+nothing is lost).
+
+Receipts are processed on the job tick, and the hourly
+`/api/billing/reconcile` cron re-syncs every organisation with a Stripe
+customer. Each fire syncs as many organisations as fit in its 30-second
+budget (`BILLING_RECONCILE_BUDGET_MS`) and resumes from its cursor the next
+hour, so a full pass, and with it the repair of a lost webhook, takes
+ceil(linked organisations / per-fire count) hours; watch
+`select organisation_cursor from cron_cursor where name = 'billing'`: null
+between fires means the last fire finished the walk. To stop processing without a redeploy, pause the `billing` scope
+(`pnpm ops:pause`); receipts keep being recorded and are processed after the
+pause lifts. Look at the inbox from the operator connection:
+
+```sql
+select status, last_error_code, count(*)
+from billing_event group by 1, 2 order by 1, 2;
+```
+
+`held` with `customer_unknown` is an event for a customer no organisation has
+(it retries every 15 minutes; holds do not use up its eight attempts). After
+7 days held it becomes `ignored` with `customer_unknown`, and a handled event
+that names no customer is `ignored` with `customer_missing` from the start;
+reconciliation still covers any organisation linked later. A `received`
+event can also be one a worker claimed and released unattempted when its
+budget ran out; it is due again at once and no attempt was counted. `dead` needs a look: `billing_plan_unknown`
+means a subscription bills a price with no catalog row for this environment;
+add the plan version, then re-arm the event:
+
+```sql
+update billing_event
+set status = 'failed', retry_count = 0, next_attempt_at = now()
+where status = 'dead' and external_event_id = '<evt_...>';
+```
+
+### Checkout and plan changes (P07-S5)
+
+Owners start subscriptions at `POST /api/billing/checkout`. In the test
+environment checkout opens once billing is configured and an active plan
+exists; in live it also needs `BILLING_TERMS_URL` (the approved terms, also
+set as the terms URL in the Stripe dashboard's public details, which
+Checkout's consent box links to) and `BILLING_AUTOMATIC_TAX=true` after Stripe
+Tax is set up. `GET /api/billing` reports `checkout.reason` when it is
+closed. Configure the Customer Portal so it does NOT allow plan switching
+(plan changes are app-controlled and scheduled at the period end); set its id
+as `STRIPE_PORTAL_CONFIGURATION_ID` or make it the default configuration.
+
+A plan change is a subscription schedule. If one fails with
+`billing_out_of_sync`, the record and Stripe disagree (usually a webhook not
+yet processed): wait for the next tick or the hourly reconciliation. An
+organisation's open checkout session is in
+`organisation_billing.checkout_session_id`; it expires after an hour at
+Stripe and is replaced on the owner's next attempt.
+
+### Billing screens (P07-S6)
+
+With `BILLING_ENABLED=true` owners get Settings › Billing and every member
+gets Settings › Usage; with it off neither tab nor page exists. Before
+anything is configured the Billing screen shows the plans with checkout
+disabled ("Subscriptions are not available yet"), and with an empty catalog
+it says no plans are on offer. A customer stuck on "Confirming subscription"
+after three minutes means no webhook or reconciliation has applied the
+subscription yet: check the `billing_event` inbox above, then the
+organisation's `provider_synced_at`. Nothing is granted until it arrives.
+A test environment shows "Test mode" and marks each plan "Test offer".
+
+### Billing catalog (P07-S7)
+
+The plan catalog is seeded per Stripe environment from a reviewed JSON file
+with `scripts/billing-catalog.mjs`. Prices, limits and allowances are a
+product-owner decision: keep the reviewed file with the release record, not
+in the repository. The file names one environment and its plans:
+
+```json
+{
+  "environment": "test",
+  "plans": [
+    {
+      "code": "starter",
+      "version": 1,
+      "workspaceMode": "business",
+      "name": "Starter",
+      "stripePriceId": "price_...",
+      "locationLimit": 3,
+      "memberLimit": null,
+      "aiDraftCreditsPerPeriod": 200,
+      "isTestOffer": true,
+      "active": true
+    }
+  ]
+}
+```
+
+```sh
+pnpm billing:catalog --file catalog.test.json --validate      # no database
+DIRECT_DATABASE_URL=... pnpm billing:catalog --file catalog.test.json   # dry run
+DIRECT_DATABASE_URL=... pnpm billing:catalog --file catalog.test.json --apply
+DIRECT_DATABASE_URL=... pnpm billing:catalog --file catalog.live.json --apply --allow-live
+```
+
+- Every test-environment plan must be a test offer; a live plan never is; an
+  active plan needs its Stripe price. The file is refused whole on any
+  invalid entry.
+- Re-running is safe. A version already in the database only has `active`
+  set. Changing a published version's terms (price, limits, credits, name) is
+  refused: add `version + 1` with the new terms and set the old one
+  `active: false`. Organisations on the old version keep it until they
+  change plan.
+- An active plan the file does not list is reported and kept;
+  `--deactivate-unlisted` retires it. Nothing is ever deleted.
+- Applying a live catalog needs `--allow-live` and is a release operation
+  that needs approval. Run the dry run first and keep its output.
+
+### Stripe webhook backlog, reconciliation and poison events
+
+- Backlog: `received` and `failed` rows in `billing_event` that keep growing
+  mean the processor is not keeping up or is paused. Check the `billing`
+  pause scope (`pnpm ops:pause status`), `BILLING_ENABLED` and the job tick;
+  receipts are kept while paused and processed afterwards. Look at the
+  oldest due event:
+
+  ```sql
+  select status, min(received_at), count(*)
+  from billing_event where status in ('received', 'failed') group by 1;
+  ```
+
+- Reconciliation: the hourly `/api/billing/reconcile` cron repairs lost
+  webhooks (see "Stripe billing" above for the cursor). To hurry a repair,
+  call `GET /api/billing/reconcile` by hand with the cron bearer; each call
+  continues the walk from the cursor.
+- Poison events: an event that uses all its attempts is `dead`. It does not
+  block the organisation's later events, because each sync refetches the
+  provider's current state. Read `last_error_code`, fix the cause (usually a missing
+  catalog row: seed it with `pnpm billing:catalog`), then re-arm it with the
+  `update billing_event ...` statement under "Stripe billing" above. Never
+  delete a receipt.
+
+### Manual AI credit grants
+
+Support can add AI draft credits to an organisation's current credit period.
+A grant adds to the period's allowance and never resets used credits; it
+ends with the period. It is recorded as an `ai_credit_period` row of kind
+`adjustment` with the operator and the reason, and in the audit log
+(`ai_credits.adjustment_granted`). Who may grant, and how much, is decision
+D-33; until it is made, a grant needs the product owner's approval.
+
+```sh
+# Balance and grant history
+curl -s -H "authorization: Bearer $CRON_SECRET" \
+  https://<host>/api/operations/organisations/<organisation id>/ai-credits
+# Grant (idempotent on reference: a retry replays, it never grants twice)
+curl -s -X POST -H "authorization: Bearer $CRON_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"credits": 50, "reason": "Goodwill after the 3 Oct sync outage", "operator": "you@example.com", "reference": "ZD-1234"}' \
+  https://<host>/api/operations/organisations/<organisation id>/ai-credits
+```
+
+- 409 `ai_credit_period_missing` or `ai_allowance_unknown`: there is no
+  known allowance to add to (for example a subscription whose period billing
+  has not granted yet). Fix billing first; nothing was granted.
+- 409 `ai_credit_adjustment_conflict`: the reference already names a
+  different grant. Use a new reference.
+- The cron bearer is shared and carries no identity, so `operator` is what
+  identifies you. Use your own address.
+- `PUT` on the same route (`{"monthlyDraftCredits": n | null}`) still sets a
+  pilot's calendar-month allowance. It answers 409
+  `ai_credits_override_pilot_only` for any organisation that is not a pilot;
+  clearing it (`null`) is always allowed.
+
 ### Operator pauses
 
 `ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one
@@ -1128,11 +1350,14 @@ listed in `failures` with `retention_dry_run_budget`.
 | Table | Provenance | Action | Window | Mechanism | Deletes | Hold | Approval |
 | ----- | ---------- | ------ | ------ | --------- | ------- | ---- | -------- |
 | `abuse_rate_bucket` | operational | delete | when its window ends (expires_at) | purgeEndedAbuseBuckets (lib/server/retention/purge.ts), once per cycle | ungated | no | internal |
+| `ai_credit_period` | operational | keep | kept after the period ends: allowance grants and operator adjustments are the billing record; usage rows of a period still open are never purged (aiUsageInClosedPeriod) | none | none | no | pending D-47: keep every allowance period and adjustment for the life of the organisation |
 | `ai_usage` | derived | delete | 13 months after creation, never while its allowance period is open or the row is reserved | `aiUsage` | gated | yes | published |
 | `app_session` | operational | delete | 7 days after it expires | `appSessions` | gated | no | published |
 | `app_user` | customer | keep | for the life of the account | none | none | no | lifecycle |
 | `approval_decision` | customer | keep | with its review | cascade from `review` | gated | yes | published |
 | `audit_log` | operational | delete | organisation.audit_retention_days (default 365) after it is written; never a held review's | `auditLogs` | gated | yes | published |
+| `billing_event` | operational | keep | kept after it is processed, ignored or dead (Stripe ids, event type and body hash; no payload) | none | none | no | pending D-47: keep settled Stripe event receipts as the billing processing record |
+| `billing_plan` | operational | keep | every catalog version, active or not: an organisation's plan_id keeps naming the terms it chose | none | none | no | internal |
 | `bulk_listing_child` | customer | keep | with its bulk operation | none | none | no | pending D-47: keep each location's current and proposed values with its bulk operation |
 | `bulk_listing_operation` | customer | keep | kept after it finishes | none | none | no | pending D-47: keep finished bulk operations for the life of the organisation |
 | `client` | customer | keep | for the life of the client record | none | none | no | lifecycle |
@@ -1180,6 +1405,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `ops_pause_control` | operational | keep | one row per pause scope, updated in place | none | none | no | internal |
 | `ops_pause_event` | operational | keep | append-only history of pause changes | none | none | no | pending D-47: keep every pause change as the operator record |
 | `organisation` | customer | keep | for the life of the account | none | none | no | lifecycle |
+| `organisation_billing` | operational | keep | one row per organisation, updated in place, for the life of the account | none | none | no | lifecycle |
 | `organisation_feature` | customer | keep | for the life of the organisation | none | none | no | lifecycle |
 | `organisation_job_route` | operational | keep | for the life of the organisation | none | none | no | internal |
 | `performance_metric_daily` | derived | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | pending D-28: keep daily figures while the location stays connected, as the privacy notice says |

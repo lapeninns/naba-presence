@@ -9,6 +9,7 @@ import {
   isApplied,
 } from "@/lib/server/bulk-listing-targets"
 import { getDatabase, jsonColumn, withTenant } from "@/lib/server/db"
+import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import {
   resolveGbpLocationContext,
@@ -57,6 +58,13 @@ const WRITE_FLAG = {
   place_action: "placeActions",
 } as const
 
+/**
+ * How long a child held by billing waits before it looks again: read-only
+ * can last for weeks, and the usual one-minute re-queue would re-claim it
+ * every tick.
+ */
+const BILLING_HOLD = "1 hour"
+
 async function settle(
   organisationId: string,
   childId: string,
@@ -65,6 +73,8 @@ async function settle(
     code?: string | null
     confirmation?: "confirmed" | "unresolved" | "unrecorded"
     observed?: unknown
+    /** A queued child's wait; one minute unless given. */
+    retryIn?: string
   } = {}
 ) {
   await withTenant(
@@ -73,7 +83,7 @@ async function settle(
     update bulk_listing_child set status = ${status}, result_code = ${fields.code ?? null},
       confirmation_state = ${fields.confirmation ?? "unrecorded"}, lease_expires_at = null,
       finished_at = ${status === "queued" ? null : sql`now()`},
-      next_attempt_at = ${status === "queued" ? sql`now() + interval '1 minute'` : null},
+      next_attempt_at = ${status === "queued" ? sql`now() + ${fields.retryIn ?? "1 minute"}::interval` : null},
       current_value = case when ${fields.observed !== undefined} then ${fields.observed === undefined ? null : jsonColumn(sql, fields.observed)} else current_value end
     where id = ${childId} and status = 'running'`
   )
@@ -161,6 +171,20 @@ export async function processBulkChild(
     }
   })
   if ("code" in gate) return fail(gate.code ?? "approval_invalid")
+  // Central billing enforcement (lib/server/entitlement-policy.ts): while
+  // the organisation is read-only nothing new is sent. The child keeps its
+  // approval and waits, like a paused surface.
+  const billingHold = await withTenant(organisationId, (sql) =>
+    organisationWriteBlock(sql, organisationId)
+  )
+  if (billingHold) {
+    await settle(organisationId, childId, "queued", {
+      code: "billing_read_only",
+      retryIn: BILLING_HOLD,
+    })
+    if (summary) summary.deferred += 1
+    return
+  }
   // The surface's own switch, under the env and the operator pause table;
   // the tick already checked `publish` and `bulk`.
   if (!(await isScopeEnabled(gbpWriteScopes(WRITE_FLAG[input.operation])))) {

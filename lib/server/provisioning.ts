@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
+import { seedPilotBilling } from "@/lib/server/billing/state"
 import type { LocationScope } from "@/lib/contracts/members"
 import type { WorkspaceMode } from "@/lib/contracts/session"
 import {
@@ -180,6 +181,8 @@ export async function provisionAuthenticatedOwner(
             ${workspaceMode}
           )
         `
+        // Explicit pilot access until an owner converts (plan P07).
+        await seedPilotBilling(sql, organisationId)
         if (workspaceMode === "business") {
           await createHomeClient(
             sql,
@@ -684,6 +687,7 @@ export async function provisionOwner(profile: GoogleProfile) {
           'business'
         )
       `
+        await seedPilotBilling(sql, organisationId)
         await createHomeClient(
           sql,
           organisationId,

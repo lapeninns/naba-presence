@@ -178,8 +178,12 @@ function mount(
           used: 0,
           allowance: 200,
           remaining: 200,
-          periodStart: "2026-10-01",
-          resetsAt: "2026-11-01T00:00:00.000Z",
+          periodId: "00000000-0000-4000-8000-0000000000e1",
+          periodKind: "pilot_month",
+          periodStart: "2026-10-01T00:00:00.000Z",
+          periodEnd: "2026-11-01T00:00:00.000Z",
+          canUseAi: true,
+          accessReason: "pilot",
           ...credits,
         }
       : undefined,
@@ -429,6 +433,63 @@ describe("ReplyComposer — AI credits", () => {
     const mutateAsync = mount(EXISTING, undefined, { used: 200, remaining: 0 })
     await user.click(screen.getByRole("radio", { name: "Concise" }))
     expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("turns Generate off for an unknown allowance but keeps manual writing", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount({}, undefined, {
+      allowance: null,
+      remaining: null,
+      periodId: null,
+      periodKind: null,
+      periodStart: null,
+      periodEnd: null,
+    })
+    expect(
+      screen.getByText(
+        "Your AI credit allowance is not confirmed yet, so AI drafting is off for now. You can still write a reply yourself."
+      )
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Generate reply" })
+    ).toBeDisabled()
+    await user.type(textbox(), "Thanks for visiting.")
+    expect(textbox()).toHaveValue("Thanks for visiting.")
+    window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("turns Generate off while billing is read-only, and keeps manual writing", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount({}, undefined, {
+      canUseAi: false,
+      accessReason: "read_only",
+    })
+    expect(screen.getByText(/subscription is read-only/)).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Generate reply" })
+    ).toBeDisabled()
+    // Writing by hand stays open: the editor takes text, and neither the
+    // generate event nor `g` reaches the AI route.
+    await user.type(textbox(), "Thank you for the kind words.")
+    expect(textbox()).toHaveValue("Thank you for the kind words.")
+    window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("names the period end from the balance in a paid period", () => {
+    mount({}, undefined, {
+      used: 50,
+      allowance: 50,
+      remaining: 0,
+      periodKind: "paid_period",
+      periodEnd: "2026-11-14T08:00:00.000Z",
+    })
+    expect(
+      screen.getByText(
+        "Out of AI credits until 14 Nov. You can still write a reply yourself."
+      )
+    ).toBeVisible()
   })
 })
 

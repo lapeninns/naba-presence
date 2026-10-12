@@ -677,8 +677,12 @@ for (const theme of themes) {
               used: 3,
               allowance: 100,
               remaining: 97,
-              periodStart: "2026-07-01",
-              resetsAt: "2026-08-01T00:00:00.000Z",
+              periodId: "00000000-0000-4000-8000-0000000000e1",
+              periodKind: "pilot_month",
+              periodStart: "2026-07-01T00:00:00.000Z",
+              periodEnd: "2026-08-01T00:00:00.000Z",
+              canUseAi: true,
+              accessReason: "pilot",
             },
           })
         })

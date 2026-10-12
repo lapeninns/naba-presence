@@ -209,6 +209,10 @@ describeDatabase("MFA step-up (P02-S9)", () => {
     ["POST", () => `/api/locations/${id()}/post-schedules/${id()}/approve`],
     ["POST", () => `/api/listings/bulk/${id()}/approve`],
     ["POST", () => `/api/listings/bulk/${id()}/execute`],
+    ["POST", () => "/api/billing/checkout"],
+    ["POST", () => "/api/billing/portal"],
+    ["POST", () => "/api/billing/plan-change"],
+    ["POST", () => "/api/billing/cancel"],
   ]
 
   it("refuses an aal1 owner on every sensitive kind with mfa_step_up_required", async () => {
@@ -232,6 +236,7 @@ describeDatabase("MFA step-up (P02-S9)", () => {
       "/api/members",
       "/api/google/connections",
       "/api/auth/mfa/factors",
+      "/api/billing",
     ]) {
       const response = await send("GET", path, owner.cookie)
       expect(MFA_CODES.has((await errorOf(response)) ?? ""), path).toBe(false)

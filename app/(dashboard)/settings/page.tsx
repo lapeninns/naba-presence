@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { withTenant } from "@/lib/server/db"
+import { getServerEnv } from "@/lib/server/env"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { getSession } from "@/lib/server/session"
 import { workspaceTerms } from "@/lib/workspace/terms"
@@ -56,7 +57,8 @@ export default async function SettingsPolicyPage() {
           </CardContent>
         </Card>
         {modeChangeAvailable ? <WorkspaceModeCard /> : null}
-        <UsageCard />
+        {/* With billing on, credits live on the shared Usage screen. */}
+        {getServerEnv().BILLING_ENABLED ? null : <UsageCard />}
         <PolicyForm role={role} />
       </div>
     </>

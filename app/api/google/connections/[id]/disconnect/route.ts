@@ -27,6 +27,7 @@ type StrandedAttempt = {
 
 export const POST = route({
   mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   params: disconnectParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId }) => {

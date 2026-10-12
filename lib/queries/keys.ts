@@ -45,6 +45,10 @@ export const queryKeys = {
   scheduleOccurrences: (params: Record<string, string | undefined>) => ["schedule-occurrences", params] as const,
   webhookFailures: ["operations", "webhook-failures"] as const,
   settings: ["settings"] as const,
+  // Billing (GET /api/billing), keyed by organisation so a cached overview
+  // never answers for another workspace; the prefix refreshes them all.
+  billingAll: ["billing"] as const,
+  billing: (organisationId: string) => ["billing", organisationId] as const,
   // Prefix of both AI credit keys, so a draft invalidates them together.
   aiCreditsAll: ["ai-credits"] as const,
   aiCredits: ["ai-credits", "balance"] as const,

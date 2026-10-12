@@ -974,6 +974,52 @@ export const RETENTION_INVENTORY = [
     hold: "none",
     approval: { status: "internal" },
   },
+  // Billing (plan P07). None of it holds provider content: Stripe ids, plan
+  // terms, allowances and an event body's hash, never a payload.
+  {
+    table: "billing_plan",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "every catalog version, active or not: an organisation's plan_id keeps naming the terms it chose",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "internal" },
+  },
+  {
+    table: "organisation_billing",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "one row per organisation, updated in place, for the life of the account",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "lifecycle" },
+  },
+  {
+    table: "ai_credit_period",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "kept after the period ends: allowance grants and operator adjustments are the billing record; usage rows of a period still open are never purged (aiUsageInClosedPeriod)",
+    deletes: "none",
+    hold: "none",
+    approval: PENDING_UNDECIDED(
+      "keep every allowance period and adjustment for the life of the organisation"
+    ),
+  },
+  {
+    table: "billing_event",
+    provenance: "operational",
+    action: "keep",
+    window:
+      "kept after it is processed, ignored or dead (Stripe ids, event type and body hash; no payload)",
+    deletes: "none",
+    hold: "none",
+    approval: PENDING_UNDECIDED(
+      "keep settled Stripe event receipts as the billing processing record"
+    ),
+  },
   {
     table: "retention_cycle",
     provenance: "operational",

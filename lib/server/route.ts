@@ -12,6 +12,10 @@ import {
 import { withAuditActor } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
+import {
+  assertRouteEntitled,
+  type RouteEntitlement,
+} from "@/lib/server/entitlement-policy"
 import { appOrigins, getServerEnv } from "@/lib/server/env"
 import {
   ApiError,
@@ -111,6 +115,11 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      the first `runGbpWrite` of a surface that records receipts files it
  *      in the operation ledger (lib/server/mutation-operations.ts). Without
  *      the header nothing changes;
+ *  4b. billing entitlement -- a session mutation (any method but
+ *      GET/HEAD/OPTIONS) answers 402 `billing_read_only` while central
+ *      enforcement applies to the organisation and its billing is read-only
+ *      (`entitlement`, default "write"; "ai" for AI work; "exempt" for the
+ *      routes lib/server/entitlement-policy.ts lists);
  *  10. support attribution — when the session was minted by
  *      `POST /api/support/impersonation` the handler runs inside
  *      `withAuditActor`, so every `writeAudit` it reaches records the support
@@ -203,6 +212,15 @@ export type RouteConfig<
    * verification (see the header comment). Only with auth "session".
    */
   mfa?: A extends "session" ? "step_up" : never
+  /**
+   * What billing must allow for a session mutation (any method but
+   * GET/HEAD/OPTIONS) to run: "write" (the default) or "ai" refuse with 402
+   * `billing_read_only` while central enforcement applies and the
+   * organisation is read-only; "exempt" always runs and must be listed in
+   * ENTITLEMENT_EXEMPT_ROUTES (lib/server/entitlement-policy.ts). Ignored on
+   * safe methods and without a session.
+   */
+  entitlement?: A extends "session" ? RouteEntitlement : never
   /** Validates the awaited `context.params`. */
   params?: ZodType<P>
   /**
@@ -361,6 +379,9 @@ export function route<
       if (origin === "same") assertSameOrigin(request)
       const session = await authenticate(request, auth, config.roles)
       if (session && config.mfa === "step_up") requireRecentMfa(session)
+      if (session && !SAFE_METHODS.has(request.method.toUpperCase())) {
+        assertRouteEntitled(session, config.entitlement ?? "write")
+      }
       const rawParams = (await context?.params) ?? {}
       const params = (
         config.params ? config.params.parse(rawParams) : rawParams

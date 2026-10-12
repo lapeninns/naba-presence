@@ -16,8 +16,8 @@ import { describe, expect, it } from "vitest"
  * Behaviour is covered by tests/server/mfa-step-up.test.ts and
  * tests/integration/routes/mfa-step-up.test.ts.
  *
- * INTEGRATION: billing routes (stream B) declare `mfa: "step_up"` on their
- * mutations and are added here when they land.
+ * The owner-only billing mutations (P07-S5) step up too; reading the
+ * billing state (GET /api/billing) stays at aal1.
  */
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url))
@@ -87,6 +87,10 @@ const STEP_UP: readonly string[] = [
   "DELETE app/api/legal-holds/route.ts",
   "POST app/api/privacy/requests/route.ts",
   "PATCH app/api/privacy/requests/route.ts",
+  "POST app/api/billing/checkout/route.ts",
+  "POST app/api/billing/portal/route.ts",
+  "POST app/api/billing/plan-change/route.ts",
+  "POST app/api/billing/cancel/route.ts",
 ]
 
 /** Handlers that call requireRecentMfa for their sensitive branch only. */
@@ -108,6 +112,7 @@ const NEVER: readonly string[] = [
   "app/api/auth/mfa/step-up/route.ts",
   "app/api/privacy/export/route.ts",
   "app/api/session/switch/route.ts",
+  "app/api/billing/route.ts",
 ]
 
 function routeFiles(dir: string): string[] {

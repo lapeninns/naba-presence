@@ -1,9 +1,17 @@
 import type { TransactionSql } from "postgres"
 import { describe, expect, it } from "vitest"
 
+import { deriveAccess } from "@/lib/domain/entitlements"
+import {
+  editDisabledReason,
+  publishDisabledReason,
+  resourceDisabledReason,
+} from "@/lib/locations/gating"
 import {
   reviewCapabilities,
   reviewCapabilitiesForLocations,
+  NO_SETTINGS_FEATURES,
+  settingsCapabilities,
 } from "@/lib/server/capabilities"
 import type { Session } from "@/lib/server/session"
 
@@ -208,5 +216,87 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
       canEdit: false,
       canRequestApproval: false,
     })
+  })
+})
+
+// Central billing enforcement (plan P07-S3): a read-only subscription under
+// enforcement offers no control, so the UI never shows what the route
+// refuses with 402 billing_read_only.
+describe("capabilities under billing enforcement", () => {
+  const readOnly = deriveAccess(
+    {
+      state: "read_only",
+      trialEndsAt: null,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      graceEndsAt: null,
+      cancelAtPeriodEnd: false,
+      firstPaymentSucceeded: true,
+      pendingEffectiveAt: null,
+    },
+    { current: { locationLimit: 3, memberLimit: null }, pending: null },
+    new Date("2026-10-11T00:00:00Z")
+  )
+
+  it("turns every review action off while read-only and enforced", async () => {
+    const session = makeSession({
+      role: "owner",
+      access: readOnly,
+      entitlementEnforced: true,
+    })
+    const sql = createFakeSql({ locationScope: "all", grants: [] })
+    expect(await reviewCapabilities(sql, session, LOCATION_A)).toEqual({
+      canPublish: false,
+      canEdit: false,
+      canRequestApproval: false,
+    })
+  })
+
+  it("keeps role capabilities while enforcement does not apply", async () => {
+    const session = makeSession({
+      role: "owner",
+      access: readOnly,
+      entitlementEnforced: false,
+    })
+    const sql = createFakeSql({ locationScope: "all", grants: [] })
+    const caps = await reviewCapabilities(sql, session, LOCATION_A)
+    expect(caps.canPublish).toBe(true)
+    expect(caps.canEdit).toBe(true)
+  })
+
+  it("turns settings edits off but keeps team and connection management", () => {
+    expect(
+      settingsCapabilities(
+        makeSession({ role: "owner", access: readOnly, entitlementEnforced: true }),
+        NO_SETTINGS_FEATURES
+      )
+    ).toEqual({
+      canManageTeam: true,
+      canManageConnections: true,
+      canEditSettings: false,
+      canWrite: false,
+      privacy: "none",
+    })
+    expect(
+      settingsCapabilities(makeSession({ role: "owner" }), NO_SETTINGS_FEATURES)
+    ).toMatchObject({
+      canEditSettings: true,
+      canWrite: true,
+    })
+  })
+
+  it("explains the billing block before the role gates", () => {
+    const caps = {
+      canEditCanonical: true,
+      canPublish: false,
+      canWrite: false,
+      resources: {
+        hours: { state: "readOnly" as const, reasonCode: "billing_read_only" },
+      },
+    }
+    const copy = /subscription is read-only/
+    expect(editDisabledReason(caps)).toMatch(copy)
+    expect(publishDisabledReason(caps, true)).toMatch(copy)
+    expect(resourceDisabledReason(caps, "hours", true)).toMatch(copy)
   })
 })

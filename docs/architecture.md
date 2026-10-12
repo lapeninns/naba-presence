@@ -798,8 +798,8 @@ live resource is read after the write, both sides are normalised the way
 Google normalises what it stores, and only the written fields are compared, so
 unrelated drift and fields Google adds never fail a write that applied.
 
-| Adapter    | Compares                                                                          | Used by                                                                          |
-| ---------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Adapter    | Compares                                                                         | Used by                                                                          |
+| ---------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `posts.ts` | topic, language, summary, call to action, event title and schedule, offer fields | `matchLivePost` (ambiguous creates, stranded posts) and post update verification |
 
 A post create is still proven by its name alone: settling a named create
@@ -1201,9 +1201,9 @@ reported to the tick ledger through `recordTickCycleCompleted` -- once every
 organisation has succeeded or used up its runs. An explicit `?cursor=` runs one
 hand-run page instead and never moves the cycle. The same purge deletes
 `ai_usage` cost rows 13 months after creation (migration 0100), behind
-`RETENTION_DELETES_ENABLED`, and never a `reserved` row or one of the credit
-period still open (`aiUsageInClosedPeriod`, where settled credit periods plug
-in). An owner-approved legal hold from `app/api/legal-holds/route.ts` blocks
+`RETENTION_DELETES_ENABLED`, and never a `reserved` row, one of the calendar
+month still open, or one whose allowance period (`ai_credit_period`, 0107) has
+not ended or has an operator adjustment still open (`aiUsageInClosedPeriod`). An owner-approved legal hold from `app/api/legal-holds/route.ts` blocks
 purge and erasure only for its selected review.
 `app/api/privacy/requests/route.ts` implements attributable access,
 rectification, erasure, and restriction fulfilment; the erasure halves (local
@@ -1797,6 +1797,375 @@ when the baseline is unchanged, and otherwise records a conflict needing a new
 preview. Readback confirms; interrupted children become ambiguous and a retry
 re-reads before any write, so succeeded children are never replayed. Cancelling
 stops only queued children.
+
+## Billing foundation and entitlements (P07, 0107)
+
+Migration `supabase/migrations/0107_billing_foundation.sql` adds the
+commercial records. Nothing refuses work on them until central enforcement is
+switched on (see "Central entitlement enforcement" below), so by default the
+app behaves as before.
+
+- `billing_plan` is the versioned catalog: platform-level, readable by the
+  runtime, written only from the operator connection. A version's terms never
+  change (a trigger allows only `active` to flip), an active plan must name its
+  Stripe price, and a test-environment plan is always a test offer. The
+  migration seeds no plans, so nothing can be sold until a catalog exists;
+  `scripts/billing-catalog.mjs` seeds one from a reviewed file (P07-S7).
+- `organisation_billing` is one row per organisation under forced tenant RLS.
+  Every existing organisation was backfilled as an explicit `pilot`, and
+  `lib/server/provisioning.ts` seeds the same row in the transaction that
+  creates an organisation (`seedPilotBilling` in
+  `lib/server/billing/state.ts`, which also holds the plain and `FOR UPDATE`
+  reads). Migration `0109_billing_integrity` makes the row a database
+  guarantee: an `AFTER INSERT` trigger on `organisation` seeds the pilot row
+  whatever code creates the organisation (an older app release, an operator
+  script), and it backfills any organisation created between 0107 and 0109.
+  The same migration requires a subscription state's current and scheduled
+  plan to match the record's `environment` and the organisation's
+  `workspace_mode`, so a live subscription can never name a test offer.
+  Both 0107 and 0109 set `lock_timeout` (5s) before they alter tables the
+  app writes.
+- `ai_credit_period` is one allowance grant (pilot month, trial, paid period,
+  adjustment), idempotent per organisation, kind and `source_ref`; a null
+  allowance means unknown. `ai_usage.credit_period_id` links usage to its
+  period through a composite tenant key. The migration grants nothing: no
+  periods, and existing usage keeps a null link.
+
+`lib/domain/entitlements.ts` `deriveAccess(billing, plans, now)` is the one
+pure answer to "what may this organisation do now": `full`, `grace` or
+`read_only`, with a reason, the location limit and the limit new links must fit
+(the lower of the current and a scheduled plan's). Pilots get full access with
+no limits; a failed renewal gets seven days of grace; a failed first payment
+gets none; a missing record or a paid state without its plan derives read-only.
+The period columns mirror the provider's subscription period, which Stripe
+advances at renewal whatever the payment outcome, so grace is never inferred
+from `current_period_end`: the processor records `grace_ends_at` (migration
+0108 requires it for a failed renewal, and an end for an active period),
+deriveAccess caps it at seven days after `current_period_start` (the failed
+boundary), and a missing grace end or an active period with no end derives
+read-only (`record_incomplete`). The reasons are the `ACCESS_REASONS` list,
+which the wire contract pins. The local bootstrap organisation
+(`provision_local_bootstrap`) gets its pilot record from
+`ensureDevelopmentSession`. `lookupSession` attaches the result as
+`Session.access`, and whether enforcement applies as
+`Session.entitlementEnforced`. Wire shapes live in `lib/contracts/billing.ts`.
+
+### Central entitlement enforcement (P07-S3, 0110)
+
+`lib/server/entitlement-policy.ts` is the one place that decides whether an
+organisation's billing lets it start new work. It applies only when both
+switches are on: `BILLING_ENFORCEMENT_ENABLED` (env, default off, a hard
+override) and `organisation_billing.enforcement_enabled` (per organisation,
+added by `supabase/migrations/0110_entitlement_enforcement.sql`, default off).
+With the env flag on, an organisation with no billing row is enforced too.
+
+- Routes: `route()` (`lib/server/route.ts`) refuses every session mutation
+  (any method but GET/HEAD/OPTIONS) with 402 `billing_read_only` while the
+  organisation is read-only. A route declares `entitlement: "ai"` for AI work
+  (`Access.canUseAi`) or `entitlement: "exempt"` for what read-only keeps:
+  session switching, privacy export and requests, legal holds, Google
+  disconnect, unlinking, invitation accept and revoke, member removal,
+  cancelling or pausing queued work and a person's own notification state.
+  `ENTITLEMENT_EXEMPT_ROUTES` lists them, and
+  `tests/route-entitlements.test.ts` fails when a route and the list disagree.
+- Workers: a publish `retry` for a read-only organisation is held for an hour
+  with `provider_error_code = 'billing_read_only'` and audited once
+  (`publish.retry_held_billing`, `lib/server/jobs.ts`); a bulk listing child
+  is re-queued for an hour with that result code
+  (`lib/server/bulk-listing-runner.ts`); a scheduled post is held like a
+  publishing pause (`schedule_blocked` with reason `billing_read_only`,
+  `lib/server/publication-schedule-runner.ts`): there is no hour-long hold,
+  every tick re-checks it, a due occurrence is missed once it leaves the
+  grace period, and the incident opens once per occurrence (its subject is
+  the occurrence), not once per tick. Read-backs (`recover`,
+  `mutation_recover`) and the syncs, which only read, keep running.
+  `READ_ONLY_BACKGROUND_WORK` records the decision for every job kind, job
+  tick runner and cron tick: only `retry`, `bulk` and `schedules` are held.
+  Privacy withdrawals, retention, billing processing and queued invitation
+  and alert email keep running; resending an invitation is a `write` route
+  and is refused. `tests/route-entitlements.test.ts` fails when a kind,
+  runner or cron has no decision.
+- Location limit: the `location_link_enforce_limit` trigger refuses a new
+  active link (an insert, or an inactive link turned active) once the
+  organisation's distinct active Google locations reach the lower of the
+  current and the scheduled plan's limit; re-linking a Google location that is
+  already linked takes no seat, a pilot has no limit, and a subscription state
+  without a plan has a limit of 0. It never touches existing links, so a
+  downgrade never unlinks anything. A link whose connection expired or was
+  revoked still counts until unlinked; a disconnect deactivates links, and
+  reactivating one goes back through the trigger. The env override reaches
+  the trigger as the transaction setting `app.billing_enforcement`, which
+  `withTenant` sets (`lib/server/db.ts`); a write outside `withTenant`
+  (operator SQL, scripts) has no setting and follows the organisation's own
+  flag alone. With no billing row the trigger applies a limit of 0 when the
+  setting is `on` (0111), as the app does. `billable_location_count` is the
+  trigger's alone: 0111 revoked it from the runtime role, because as a
+  SECURITY DEFINER function it would read any tenant's count. Onboarding
+  creation checks the seat (`assertNewLocationSeat`) before it creates the
+  Google location, and the creation and match links record the trigger's
+  refusal as `location_limit_reached`. `apiError` maps the trigger's error
+  to 402 `location_limit_reached` with the limit (`locationLimitError` in
+  `lib/server/http.ts`); after a Google login the automatic link reports
+  `location_limit_reached` as its setup outcome and keeps the connection.
+- Capabilities: `lib/server/capabilities.ts` returns `canWrite` and turns the
+  write flags off while read-only, so the UI disables what the routes refuse
+  (`lib/locations/gating.ts` explains the billing block first).
+
+### Stripe webhooks, lifecycle processing and reconciliation (P07-S4, 0112, 0113)
+
+Off unless `BILLING_ENABLED` is on and `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET` and `BILLING_ENVIRONMENT` are set and agree (the key's
+`sk_test_`/`sk_live_` mode must be the environment);
+`lib/server/billing/stripe.ts` `billingConfig` decides, and every billing
+entry point fails closed with 503 `billing_unavailable` otherwise. The client
+uses the official `stripe` SDK pinned to the API version its types describe
+(`STRIPE_API_VERSION`), with a 10-second timeout; the sync's own calls, made
+while the billing row lock is held, use 8 seconds and no SDK retry, so one
+sync (at most three calls) takes at most about 24 seconds.
+
+- Receipt: `app/api/webhooks/stripe/route.ts` (public, Node runtime) reads the
+  raw body, verifies `Stripe-Signature` with `constructEvent`
+  (`lib/server/billing/webhook.ts`), refuses the other Stripe mode and Connect
+  events, writes a `billing_event` row through `record_billing_event` and only
+  then answers 200. The row is content-free: event id and type, mode, the
+  customer id it routes by and a SHA-256 of the body; the payload is never
+  stored. Redeliveries are idempotent on the event id. The runtime role has
+  no privilege on the table; it records, claims and settles only through the
+  SECURITY DEFINER functions of `supabase/migrations/0112_billing_events.sql`.
+- Processing: the job tick (`lib/server/jobs.ts`) calls
+  `processBillingEvents` (`lib/server/billing/process-events.ts`) first, on at
+  most 15 seconds, gated by `jobs`, `BILLING_ENABLED` and the operator
+  `billing` scope but none of the Google flags. `claim_billing_events` leases
+  due rows and resolves each organisation from `stripe_customer_id`; an
+  expired lease (a worker that died) is reclaimed and counted as an attempt.
+  An event whose customer no organisation has is `held` and retried every 15
+  minutes; a hold is not an attempt, so it never uses up the event's retry
+  budget (0113). A handled event without a customer id is recorded as
+  `ignored` (`customer_missing`), and a held event that has waited 7 days
+  settles as `ignored` (`customer_unknown`): the backlog is bounded and the
+  hourly reconciliation still covers an organisation linked later. No
+  organisation's sync starts after the budget; the events it claimed for
+  the rest are released (`settle_billing_event` outcome `released`: due
+  again at once, no attempt counted), so the tick overruns its budget by at
+  most one sync and no event outlives its 120-second lease. The billing
+  slice's time comes out of the tick's overall budget. Per organisation, one sync covers
+  all its claimed events: under `lockOrganisationBilling` it lists the
+  customer's subscriptions from Stripe (the newest running one wins), runs the
+  pure reducer `lib/domain/billing-lifecycle.ts`, writes the record, closes a
+  converting pilot's open `pilot_month` period and inserts at most one
+  `ai_credit_period` (`trial` with `source_ref` `<sub>:trial`, or
+  `paid_period` with `<sub>:<period start>`, `on conflict do nothing`). The
+  event payload is never trusted, so duplicates and reordering converge on
+  provider state. Failures settle `failed` with back-off (one minute doubling
+  to an hour) and go `dead` after eight attempts, audited as
+  `billing.event_dead`. An unknown price, the other environment or a
+  subscription with more than one item fails the event and leaves the record
+  alone.
+- Lifecycle: `trialing` grants the trial allowance; `active` grants a paid
+  period once its latest invoice is paid; `past_due` after a successful first
+  payment records `grace_ends_at` = current period start + 7 days and grants
+  nothing, a failed first payment records no grace (read-only); `unpaid` and
+  `paused` become `read_only`; `canceled` becomes `canceled`; `incomplete`
+  changes nothing, so a pilot whose checkout never completed stays a pilot.
+  Recovery to `active` grants the recovered period once. A pilot only gets a
+  Stripe customer through its owner's checkout (P07-S5), so a pilot reaching
+  any running subscription is an owner-initiated conversion, the only thing
+  that closes its calendar month (0112 grants the runtime `update (ends_at)`
+  on `ai_credit_period` for that alone, and the 0113 trigger
+  `ai_credit_period_window_guard` refuses, for every role, any change of
+  `ends_at` other than shortening a `pilot_month`: 23514
+  `ai_credit_period_window_fixed`).
+- Reconciliation: `app/api/billing/reconcile/route.ts` (Vercel Cron, hourly,
+  `naba:billing-reconcile` lease, `cron_cursor` walk `billing`) runs the same
+  sync for every organisation with a Stripe customer (`billing_reconcile_page`
+  returns ids only). Each fire walks page after page (`maxOrganisations` per
+  page) until its 30-second budget runs out (`BILLING_RECONCILE_BUDGET_MS`;
+  no sync starts after it, so a fire ends by about 54 seconds, inside
+  `maxDuration` 60) and resumes from the cursor next hour. A lost webhook is
+  therefore repaired within the hour while every linked organisation fits
+  in one fire (roughly 30 seconds of syncs, typically 50 or more
+  organisations), and otherwise within ceil(linked organisations / per-fire
+  count) hours. It completes doing nothing while billing is disabled; the `billing` pause
+  answers 503 and is reported as paused, not stale.
+
+### Checkout, Customer Portal, plan change and cancellation (P07-S5, 0114)
+
+Owner-only routes, each `entitlement: "exempt"` (a read-only organisation
+must be able to pay its way back) and refused to support impersonation
+sessions (403 `support_session_forbidden`). Each declares `mfa: "step_up"`
+(P02-S9): an owner without a recent two-step verification gets 403
+`mfa_step_up_required` before anything reaches Stripe.
+
+- Readiness (`lib/server/billing/checkout.ts` `billingReadiness`): billing
+  configured (`billingConfig`), the operator `billing` scope open, and
+  `NEXTAUTH_URL` set for the return pages; checkout in the LIVE environment
+  also needs `BILLING_TERMS_URL` (Checkout then requires acceptance of the
+  terms) and `BILLING_AUTOMATIC_TAX` (Stripe Tax). Otherwise 503
+  `billing_unavailable` with the reason. No active plan for the
+  organisation's workspace mode and environment is `catalog_empty`, also 503.
+- Catalog (`lib/server/billing/catalog.ts`): the client names a plan id; only
+  an active `billing_plan` version for the organisation's workspace mode in
+  this deployment's environment, with a Stripe price, is accepted (400
+  `plan_unavailable`). Inputs are strict objects (`lib/contracts/billing.ts`),
+  so a price id or customer id in the body is a 400; the price id never
+  leaves the server.
+- `POST /api/billing/checkout` (`app/api/billing/checkout/route.ts`): under
+  the billing row lock, refuses an organisation already subscribed, here or
+  at Stripe (409 `subscription_exists`, which also covers a completed
+  checkout whose webhook has not arrived). It creates the organisation's
+  Stripe customer once, committed in its own transaction, then the
+  subscription-mode session: one price, quantity 1, `payment_method_collection`
+  `always`, a 14-day trial (`TRIAL_DAYS`) only for a first subscription,
+  `client_reference_id` the organisation id, metadata on the session and the
+  subscription, and an expiry one hour ahead rounded up to a 10-minute
+  window (so a retry in the same window sends the same body). The open session is recorded on
+  `organisation_billing` (`checkout_session_id`, `checkout_plan_id`,
+  `checkout_expires_at`, 0114): a repeat for the same plan reuses it (so
+  concurrent tabs get one session), another plan expires it at Stripe first,
+  and a session completed meanwhile answers 409 `checkout_completed`. Stripe
+  calls carry idempotency keys from the organisation, plan, record version
+  and a fingerprint of the request body: a retry after a rolled-back
+  transaction replays the session Stripe already made, and a retry whose
+  body differs (no trial any more, another owner's email) gets its own key
+  rather than Stripe's `idempotency_error`. Nothing is granted on the redirect back: the organisation stays
+  as it was (a pilot stays a pilot) until the webhook processor reads the
+  subscription from Stripe, which is also what closes the pilot month.
+- `POST /api/billing/portal`: a Customer Portal session for the
+  organisation's own customer only (409 `billing_customer_missing` without
+  one), optionally with `STRIPE_PORTAL_CONFIGURATION_ID`.
+- `POST /api/billing/plan-change`
+  (`lib/server/billing/subscription-changes.ts`): trialing or active, not
+  set to cancel. A target below the organisation's billable locations
+  (distinct active links, `countBillableLocations`) is 409
+  `location_limit_exceeded`. Otherwise a subscription schedule (created from
+  the subscription when it has none) gets two phases, the current price to
+  the period end (the trial end while trialing) and the new price after,
+  `proration_behavior` `none`, `end_behavior` `release`; the record stores
+  `pending_plan_id`/`pending_effective_at`, so a downgrade's lower limit
+  binds new links at once (0110, `newLinkLimit`). The current plan releases
+  the schedule and clears the change, even if that plan has since been
+  retired (it is checked against the workspace, not the allowlist). The provider subscription must match
+  the record (customer and price), else 409 `billing_out_of_sync`.
+- `POST /api/billing/cancel`: sets `cancel_at_period_end` (or resumes,
+  clearing a portal-set `cancel_at`) and only that flag; access continues
+  to the period end. Cancelling releases a schedule first (Stripe refuses
+  cancellation on a scheduled subscription), which drops a pending plan
+  change.
+- `GET /api/billing` (`lib/server/billing/overview.ts`): any member reads
+  the record, access, billable locations, the catalog for the workspace and
+  whether checkout is available (with its reason); `canManage` is the owner.
+- Audits: `billing.customer_created`, `billing.checkout_started`,
+  `billing.portal_opened`, `billing.plan_change_scheduled`,
+  `billing.plan_change_cleared`, `billing.cancel_scheduled`,
+  `billing.cancel_withdrawn`.
+- Tests point the SDK at a local stub with `STRIPE_API_PROXY_BASE`, which
+  `lib/server/billing/stripe.ts` honours for test-mode keys only.
+
+### Billing, Usage and read-only screens (P07-S6)
+
+The customer-facing surfaces read one overview, `GET /api/billing`
+(`lib/server/billing/overview.ts`), through `lib/queries/use-billing.ts`
+(keyed by organisation) and the pure copy in `lib/billing/presentation.ts`.
+The overview now also carries `providerSyncedAt`, `trialDays` (the record's
+half of checkout's first-subscription rule) and `writesBlocked` (enforcement
+applies and access refuses changes).
+
+- `/settings/billing` (`app/(dashboard)/settings/billing/page.tsx`) is the
+  owner's screen: state, plan, trial/renewal/grace dates, linked locations
+  against the limit, a scheduled change with "Keep", payment details and
+  invoices through the Customer Portal, cancel (with a confirmation saying
+  access continues to the period end) and resume, and the plans
+  (`components/settings/plan-picker.tsx`). Test offers carry a "Test offer"
+  badge on the plan and the page says "Test mode". Prices are not shown: the
+  catalog holds no amounts, and Stripe's page shows them before any charge.
+  A support session sees the screen with every action disabled.
+- Checkout and the portal open only `https://*.stripe.com` URLs
+  (`isStripeHostedUrl`); anything else is refused in the browser.
+- Stripe returns to `/settings/billing?checkout=returned`, which redirects to
+  `/settings/billing/confirming` (`components/settings/billing-confirming.tsx`).
+  It polls every 2s and says "Subscription confirmed" only once the record
+  holds a running subscription with a provider sync; after three minutes it
+  says the confirmation is late. The return itself grants nothing.
+- `/settings/usage` is shared by every member: AI credits per period
+  (`components/settings/usage-card.tsx`) and the plan's linked locations
+  (`components/settings/plan-usage-card.tsx`).
+- The app shell's `components/app-shell/billing-banner.tsx` shows a banner
+  during grace and while read-only. With enforcement on it lists what still
+  works; without it, it says only AI drafting is off (AI is refused on
+  read-only whatever the enforcement switch says).
+- The Billing and Usage tabs and pages exist only while `BILLING_ENABLED` is
+  on (`components/settings/billing-screens.tsx`, provided by the settings
+  layout); with billing off Settings is unchanged and the credits card stays
+  on the Policy page.
+- Billing error codes have customer copy in `lib/errors/action-errors.ts`;
+  `location_limit_reached` and `location_limit_exceeded` name the limit when
+  the server sends it.
+
+### AI credit periods and generation ids (P07-S2)
+
+`lib/server/ai-credits.ts` accounts AI work against the organisation's current
+`ai_credit_period`, read by the database clock (`now()` in the same
+transaction), never the application's. The billing state picks the kind: a
+pilot uses its UTC calendar month, created lazily and idempotently
+(`source_ref` `pilot:YYYY-MM`, so parallel first requests leave one row) with
+the live allowance `organisation.ai_monthly_draft_credits ??
+AI_MONTHLY_DRAFT_CREDITS`; a trial or paid state uses the period billing
+granted, and without one the allowance is unknown (`null`): AI drafting answers
+402 `ai_allowance_unknown`, manual replies still save. Read-only access
+(`deriveAccess`) answers 402 `billing_read_only`. Usage is summed by
+`credit_period_id`; rows from before periods existed count only toward the
+pilot month their `period_start` names. Every provider call is reserved under
+the organisation row lock before it is made: a draft reserves one credit, a
+verification (`lib/server/ai-usage.ts` `reserveVerifyUsage`) reserves none, and
+both hold `AI_MAX_OUTPUT_TOKENS` plus a fixed prompt estimate against
+`AI_MONTHLY_TOKEN_BACKSTOP` until settled with real counts, so parallel draft
+and verify calls cannot together pass it. `lib/server/ai.ts` sends the same
+`AI_MAX_OUTPUT_TOKENS` cap with every call. A reservation keeps the period it
+was made in, so a settle after a rollover lands in the period that paid.
+
+The drafts route's generation id is the request's `Idempotency-Key` intent
+(`requestScopedKeyPart`, falling back to the request id). A retry under the
+same id never reserves or calls the provider again: a finished generation
+returns its stored draft (200), one still running answers 409
+`generation_in_progress` (which the client resends under the same id, see
+`lib/queries/use-draft-mutations.ts`), and one that ended without a draft
+answers 409 `generation_not_repeatable`. `/api/ai/credits` reports `periodId`,
+`periodKind`, `periodStart`/`periodEnd` from the row, a nullable allowance,
+`canUseAi` and the access reason; credit notifications use the period id as
+their subject and the period end as the reset date.
+
+### AI credit adjustments and catalog seeding (P07-S7, 0115)
+
+A support grant of extra AI draft credits is an `ai_credit_period` row of kind
+`adjustment` (`lib/server/ai-credit-adjustments.ts`), written by
+`POST /api/operations/organisations/{id}/ai-credits`
+(`app/api/operations/organisations/[id]/ai-credits/route.ts`, cron bearer).
+Migration `supabase/migrations/0115_ai_credit_adjustments.sql` gives the row
+`applies_to_period_id` (the current base period: pilot month, trial or paid
+period, through the composite tenant key, never another adjustment),
+`reason` and `granted_by`; a check makes all three, and at least one credit,
+required for an adjustment and absent otherwise. `readCreditLedger` adds the
+credits of every adjustment of the current period to that period's
+allowance; usage is never touched, so used credits stay used, and the grant
+ends with its period. The grant runs under the organisation row lock, the
+operator-chosen `reference` (source_ref `adjustment:<reference>`) makes it
+idempotent (a repeat replays, a different grant under the same reference is
+409 `ai_credit_adjustment_conflict`), and it fails closed with 409
+`ai_credit_period_missing` or `ai_allowance_unknown` when there is no known
+allowance to add to. Each grant writes `ai_credits.adjustment_granted` to the
+audit log. `GET` on the same route returns the balance and the grant history;
+`PUT` (the monthly override) is kept for pilots only and answers 409
+`ai_credits_override_pilot_only` otherwise. The shared cron bearer has no
+identity, so the operator names themself in the body (D-33).
+
+`scripts/billing-catalog.mjs` (`pnpm billing:catalog`) seeds `billing_plan` for
+one Stripe environment from a reviewed JSON file. It validates the file
+against the table's checks, then diffs it with the database under a table
+lock: missing versions are inserted, existing ones only have `active` set, a
+version whose terms differ is refused (terms are immutable; add a version),
+and an unlisted active plan is reported, or retired with
+`--deactivate-unlisted`. It is a dry run without `--apply`, and applying a
+live catalog needs `--allow-live`.
 
 ## Reporting provenance (WP9)
 

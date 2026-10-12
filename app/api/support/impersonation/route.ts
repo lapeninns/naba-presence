@@ -119,6 +119,7 @@ export const POST = route({
 // cookie, so this needs no support credential - it can only end the session
 // presenting it.
 export const DELETE = route({
+  entitlement: "exempt",
   handler: async ({ session, requestId, clientRequestId, tenant }) => {
     if (!session.supportActor) {
       throw new ApiError(

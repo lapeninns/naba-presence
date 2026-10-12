@@ -88,6 +88,15 @@ export const locationCapabilitiesSchema = z.object({
    */
   listingChangeApprovals: z.boolean().optional(),
   resourceActions: googleResourceActionsSchema.optional(),
+  /**
+   * False while central billing enforcement holds the organisation
+   * read-only (lib/server/entitlement-policy.ts); canPublish and the action
+   * flags are then false too, and `resources` say `billing_read_only`.
+   * canEditCanonical keeps its role meaning (it also decides whether the
+   * owner/admin sections load), so editors check this first. Optional on the
+   * wire so older fixtures parse; absent reads as "not known".
+   */
+  canWrite: z.boolean().optional(),
 })
 export type LocationCapabilities = z.infer<typeof locationCapabilitiesSchema>
 
@@ -101,6 +110,7 @@ export type LocationCapabilitiesResponse = z.infer<
 /**
  * Org/settings capabilities for the Settings workspace (spec §3):
  *   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
+ *   canWrite === billing allows changes (lib/server/entitlement-policy.ts)
  *
  * `privacy` gates only the Data and privacy settings area. The privacy and
  * legal-hold routes never read it — they assert `roles: ["owner"]` /
@@ -118,6 +128,13 @@ export const settingsCapabilitiesSchema = z.object({
    * is off.
    */
   privacy: z.enum(["none", "read", "manage"]),
+  /**
+   * False while central billing enforcement holds the organisation
+   * read-only; canEditSettings is then false too. Team removal and
+   * disconnecting stay allowed, so the other two flags keep their role
+   * meaning and the routes refuse what read-only does not allow.
+   */
+  canWrite: z.boolean().optional(),
 })
 export type SettingsCapabilities = z.infer<typeof settingsCapabilitiesSchema>
 

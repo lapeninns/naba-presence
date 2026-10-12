@@ -54,12 +54,16 @@ export const PAUSE_SCOPES = [
   "foodMenus",
   "performance",
   "keywords",
-  // Scopes with no env flag of their own. `scheduled_post` and `bulk` hold
+  // Scopes with no env flag of their own. `billing` holds off Stripe event
+  // processing and the hourly billing reconciliation
+  // (lib/server/billing/process-events.ts) while the webhook receiver keeps
+  // recording receipts; BILLING_ENABLED is checked beside it, not as its
+  // override, so a deployment that never enabled billing does not report a
+  // paused scope. `scheduled_post` and `bulk` hold
   // off the job tick's publication-schedule and bulk-listing runners
   // (lib/server/jobs.ts runDueJobs); `mutation_recover` the recovery kind;
   // `invitation_email` invitation email delivery, inline and on the tick
-  // (lib/server/invitations/delivery.ts). Reserved for work that lands
-  // later: billing processing (P07).
+  // (lib/server/invitations/delivery.ts).
   "scheduled_post",
   "bulk",
   "billing",

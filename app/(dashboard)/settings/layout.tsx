@@ -1,7 +1,9 @@
 import { HydrationBoundary } from "@tanstack/react-query"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
+import { BillingScreensProvider } from "@/components/settings/billing-screens"
 import { SettingsFeaturesProvider } from "@/components/settings/settings-features"
+import { getServerEnv } from "@/lib/server/env"
 import { isMfaEnabled } from "@/lib/server/mfa"
 import { prefetch, settingsPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
@@ -26,7 +28,11 @@ export default async function SettingsLayout({
   return (
     <PageFrame width="standard">
       <SettingsFeaturesProvider value={{ mfa: isMfaEnabled() }}>
-        <HydrationBoundary state={state}>{children}</HydrationBoundary>
+        <HydrationBoundary state={state}>
+          <BillingScreensProvider enabled={getServerEnv().BILLING_ENABLED}>
+            {children}
+          </BillingScreensProvider>
+        </HydrationBoundary>
       </SettingsFeaturesProvider>
     </PageFrame>
   )

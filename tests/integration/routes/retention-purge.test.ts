@@ -1166,17 +1166,22 @@ describeDatabase("retention purge", () => {
       expect((await photoOf(expired.reviewId)).photo).toBe(PHOTO)
     }, 40_000)
 
-    it("deletes settled AI usage past 13 months but never a reserved row, an open period or with deletions off", async () => {
+    it("deletes settled AI usage past 13 months but never a reserved row, an open month or allowance period, or with deletions off", async () => {
       const owner = await createTenant()
       const other = await createTenant()
       async function usage(
         organisationId: string,
-        input: { status: string; age: string; openPeriod?: boolean }
+        input: {
+          status: string
+          age: string
+          openPeriod?: boolean
+          creditPeriodId?: string
+        }
       ) {
         const [row] = await admin<{ id: string }[]>`
           insert into ai_usage (
             organisation_id, kind, status, credits, model,
-            period_start, created_at, settled_at
+            period_start, created_at, settled_at, credit_period_id
           )
           values (
             ${organisationId},
@@ -1194,11 +1199,58 @@ describeDatabase("retention purge", () => {
               input.status === "reserved"
                 ? null
                 : admin`now() - ${input.age}::interval`
-            }
+            },
+            ${input.creditPeriodId ?? null}
           )
           returning id
         `
         return row.id
+      }
+      // An allowance period (plan P07, 0107) from 15 months ago, ending
+      // `endsIn` from now (negative: already over).
+      async function creditPeriod(
+        organisationId: string,
+        endsIn: string,
+        sourceRef: string
+      ) {
+        const [row] = await admin<{ id: string }[]>`
+          insert into ai_credit_period (
+            organisation_id, kind, starts_at, ends_at, allowance, source_ref
+          )
+          values (
+            ${organisationId},
+            'paid_period',
+            now() - interval '15 months',
+            now() + ${endsIn}::interval,
+            100,
+            ${sourceRef}
+          )
+          returning id
+        `
+        return row.id
+      }
+      async function adjustment(
+        organisationId: string,
+        appliesTo: string,
+        endsIn: string
+      ) {
+        await admin`
+          insert into ai_credit_period (
+            organisation_id, kind, starts_at, ends_at, allowance, source_ref,
+            applies_to_period_id, reason, granted_by
+          )
+          values (
+            ${organisationId},
+            'adjustment',
+            now() - interval '15 months',
+            now() + ${endsIn}::interval,
+            10,
+            ${`adjustment-${appliesTo}`},
+            ${appliesTo},
+            'Support grant for the retention test',
+            'retention-test'
+          )
+        `
       }
       const expiredSettled = await usage(owner.organisationId, {
         status: "settled",
@@ -1226,6 +1278,39 @@ describeDatabase("retention purge", () => {
         status: "settled",
         age: "13 months 1 day",
       })
+      // A settled row 14 months old whose allowance period has not ended
+      // (an annual or extended paid period) is kept until the period ends;
+      // one whose period ended goes like any other.
+      const openCreditPeriod = await usage(owner.organisationId, {
+        status: "settled",
+        age: "14 months",
+        creditPeriodId: await creditPeriod(
+          owner.organisationId,
+          "1 month",
+          "sub_open"
+        ),
+      })
+      const closedCreditPeriod = await usage(owner.organisationId, {
+        status: "settled",
+        age: "14 months",
+        creditPeriodId: await creditPeriod(
+          owner.organisationId,
+          "-1 day",
+          "sub_closed"
+        ),
+      })
+      // An ended period with an adjustment still open is not closed either.
+      const adjustedPeriodId = await creditPeriod(
+        owner.organisationId,
+        "-1 day",
+        "sub_adjusted"
+      )
+      await adjustment(owner.organisationId, adjustedPeriodId, "1 day")
+      const openAdjustment = await usage(owner.organisationId, {
+        status: "settled",
+        age: "14 months",
+        creditPeriodId: adjustedPeriodId,
+      })
 
       async function remaining() {
         const rows = await admin<{ id: string }[]>`
@@ -1241,6 +1326,9 @@ describeDatabase("retention purge", () => {
         reserved,
         openPeriod,
         otherTenant,
+        openCreditPeriod,
+        closedCreditPeriod,
+        openAdjustment,
       ].sort()
 
       // RETENTION_DELETES_ENABLED off: the destructive dataset does not run.
@@ -1249,9 +1337,16 @@ describeDatabase("retention purge", () => {
       expect(await remaining()).toEqual(all)
 
       const enabled = await purge(owner.organisationId, true)
-      expect(enabled.counts.aiUsage).toBe(2)
+      expect(enabled.counts.aiUsage).toBe(3)
       expect(await remaining()).toEqual(
-        [recent, reserved, openPeriod, otherTenant].sort()
+        [
+          recent,
+          reserved,
+          openPeriod,
+          otherTenant,
+          openCreditPeriod,
+          openAdjustment,
+        ].sort()
       )
 
       const [audit] = await admin<{ metadata: Record<string, unknown> }[]>`
@@ -1261,7 +1356,7 @@ describeDatabase("retention purge", () => {
         order by created_at desc
         limit 1
       `
-      expect(audit.metadata.aiUsage).toBe(2)
+      expect(audit.metadata.aiUsage).toBe(3)
 
       const again = await purge(owner.organisationId, true)
       expect(again.counts.aiUsage).toBe(0)
