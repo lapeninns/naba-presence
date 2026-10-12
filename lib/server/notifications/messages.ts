@@ -178,24 +178,34 @@ function renderOperationalEmail(kind: NotificationEventKind, summary: Record<str
     suggestions_available: `Google suggested changes to ${title}. Nothing is applied until you review it.`,
     resource_stale: `Part of ${title} has not refreshed from Google recently.`,
   }
-  // A schedule's incident also says why it stopped, in the Posts tab's words
-  // (P08-R6). The reason is a stored code; an unknown one adds nothing.
-  const why =
-    (kind === "schedule_missed" || kind === "schedule_blocked") && typeof summary.reason === "string" &&
-    Object.hasOwn(SCHEDULE_REASON, summary.reason)
-      ? SCHEDULE_REASON[summary.reason]
-      : undefined
+  const why = scheduleReason(kind, summary)
   return {
     subject: `${label}: ${title}`,
     text: [detail[kind] ?? NOTIFICATION_EVENT_LABELS[kind].description, ...(why ? [why] : []), `Open: ${where}`, "", FOOTER].join("\n"),
   }
 }
 
+/**
+ * A schedule's incident also says why it stopped, in the Posts tab's words
+ * (P08-R6), in both the immediate email and the digest (schedule_blocked and
+ * schedule_missed are digest by default). The reason is a stored code; an
+ * unknown or inherited one adds nothing.
+ */
+function scheduleReason(kind: string, summary: Record<string, unknown>): string | undefined {
+  return (kind === "schedule_missed" || kind === "schedule_blocked") &&
+    typeof summary.reason === "string" &&
+    Object.hasOwn(SCHEDULE_REASON, summary.reason)
+    ? SCHEDULE_REASON[summary.reason]
+    : undefined
+}
+
 /** A day's digest: one line per incident, no provider error bodies or personal data. */
 export function renderDigestEmail(incidents: ReadonlyArray<{ kind: string; summary: Record<string, unknown> }>, appUrl: string) {
   const lines = incidents.map((incident) => {
     const label = isNotificationEventKind(incident.kind) ? NOTIFICATION_EVENT_LABELS[incident.kind].label : "Update"
-    return `- ${label}: ${text(incident.summary.title, "a listing")}`
+    const why = scheduleReason(incident.kind, incident.summary)
+    const line = `- ${label}: ${text(incident.summary.title, "a listing")}`
+    return why ? `${line}\n  ${why}` : line
   })
   return {
     subject: `NabaPresence daily summary: ${incidents.length} ${incidents.length === 1 ? "update" : "updates"}`,
@@ -281,7 +291,7 @@ export function renderPlatformEmail(
     return {
       subject: "NabaPresence: scheduled posts were not recorded as missed",
       text: [
-        `Organisation ${subject} has ${details.occurrences ?? "?"} scheduled post publication(s) still waiting more than a minute after their 5-minute window closed (oldest deadline ${text(details.oldestDeadlineAt, "unknown")}).`,
+        `Organisation ${subject} has ${details.occurrences ?? "?"} scheduled post publication(s) still waiting more than three minutes after their 5-minute window closed (oldest deadline ${text(details.oldestDeadlineAt, "unknown")}).`,
         "None of them will publish late, but the jobs tick's sweep has not recorded them as missed, so nobody has been told.",
         'Check the jobs tick and post_schedule.sweep_failed in the logs (docs/runbook.md, "Scheduled post alerts").',
       ].join("\n"),

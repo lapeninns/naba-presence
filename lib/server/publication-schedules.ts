@@ -593,9 +593,11 @@ export async function invalidateSourceSchedules(
 }
 
 /**
- * Raises schedule_blocked inside the caller's tenant transaction, as the
- * runner's emit does: an event the contract refuses is logged rather than
- * failing the change that caused it.
+ * Raises schedule_blocked inside the caller's tenant transaction, in a
+ * savepoint: an event the contract refuses, or a failed incident or delivery
+ * insert, rolls back only the event and is logged, never the post edit,
+ * publish or delete that caused it (a bare SQL error would abort the whole
+ * transaction and fail its next statement).
  */
 async function raiseScheduleBlocked(
   sql: TransactionSql,
@@ -608,19 +610,21 @@ async function raiseScheduleBlocked(
   }
 ) {
   try {
-    await recordOperationalEvent(sql, {
-      version: 1,
-      kind: "schedule_blocked",
-      organisationId: input.organisationId,
-      occurredAt: new Date().toISOString(),
-      target: { type: "location", locationId: input.locationId },
-      reason: input.reason,
-      source: {
-        type: "schedule_occurrence",
-        id: input.occurrenceId,
-        scheduleId: input.scheduleId,
-      },
-    })
+    await sql.savepoint((event) =>
+      recordOperationalEvent(event, {
+        version: 1,
+        kind: "schedule_blocked",
+        organisationId: input.organisationId,
+        occurredAt: new Date().toISOString(),
+        target: { type: "location", locationId: input.locationId },
+        reason: input.reason,
+        source: {
+          type: "schedule_occurrence",
+          id: input.occurrenceId,
+          scheduleId: input.scheduleId,
+        },
+      })
+    )
   } catch (error) {
     log.error("post_schedule.event_failed", {
       kind: "schedule_blocked",

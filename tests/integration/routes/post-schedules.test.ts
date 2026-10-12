@@ -1253,6 +1253,67 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     ])
   })
 
+  it("keeps a draft edit when the schedule_blocked event it raises cannot be stored (P08-R6 review)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const body = {
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Quiz night is back",
+      media: [],
+    }
+    const postId = await t.draft(body)
+    const s = await t.schedule(postId, {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    // The incident insert fails with a SQL error inside the edit's own
+    // transaction (only for this organisation, so no other test sees it).
+    const org = t.owner.organisationId
+    await admin.unsafe(`
+      create or replace function test_refuse_schedule_blocked() returns trigger
+      language plpgsql as $f$
+      begin
+        if new.kind = 'schedule_blocked' and new.organisation_id = '${org}' then
+          raise exception 'refused for the test';
+        end if;
+        return new;
+      end $f$;
+      create trigger refuse_schedule_blocked before insert on notification_incident
+        for each row execute function test_refuse_schedule_blocked();`)
+    try {
+      const edited = await t.api(`/posts/${postId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...body,
+          summary: "Quiz night, now fortnightly",
+        }),
+      })
+      expect(edited.status, await edited.clone().text()).toBe(200)
+    } finally {
+      await admin.unsafe(`
+        drop trigger if exists refuse_schedule_blocked on notification_incident;
+        drop function if exists test_refuse_schedule_blocked();`)
+    }
+    // The edit, the re-freeze and its audit row all landed; only the event
+    // was rolled back (and logged).
+    const [post] = await admin<{ summary: string }[]>`
+      select summary from gbp_local_post where id = ${postId}`
+    expect(post.summary).toBe("Quiz night, now fortnightly")
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "awaiting_approval",
+      status_reason: "source_changed",
+    })
+    const audited = await admin<{ id: string }[]>`
+      select id::text as id from audit_log
+      where organisation_id = ${org} and action = 'post_schedule.source_changed' and subject_id = ${s.id}`
+    expect(audited).toHaveLength(1)
+    expect(
+      await admin`select 1 from notification_incident where organisation_id = ${org} and kind = 'schedule_blocked'`
+    ).toHaveLength(0)
+  })
+
   it("re-freezes an approved schedule when its draft is edited and publishes the draft itself at the approved revision (P08-R4)", async () => {
     const t = await tenant(["post_scheduling"])
     const body = {
@@ -1986,8 +2047,9 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     await t.age(stuckRun.id, 20)
     await admin`update post_publication_occurrence set status = 'publishing', started_at = now() - interval '20 minutes' where id = ${stuckRun.id}`
     await admin`update post_publication_schedule set claim_lease_expires_at = null where id = ${stuck.id}`
-    // A slot whose window closed two minutes ago that no sweep recorded.
-    await t.age(overdueRun.id, 7)
+    // A slot whose window closed five minutes ago that no sweep recorded
+    // (past the three-minute allowance for one slow jobs tick).
+    await t.age(overdueRun.id, 10)
     try {
       await healthTick()
       expect(await platformIncidents(t.owner.organisationId)).toEqual([

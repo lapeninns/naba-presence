@@ -1661,23 +1661,26 @@ time only while it is at least 5 minutes and at most 90 days ahead in the
 sheet's zone. Either way only the review columns change and an audit row
 (`post_schedule.legacy_reviewed`) records the outcome.
 
-Operations (P08-R6, migration 0245). The health tick
+Operations (P08-R6, migrations 0245 and 0246). The health tick
 (`lib/server/notifications/platform.ts`) reads `post_schedule_health()` through
 `scheduledPostHealth` in `lib/server/ops-liveness.ts` and opens one
 `platform_incident` per organisation for an occurrence still `publishing` past
 its schedule's lease (`scheduled_post_stuck`, 10 minutes after it started; not
 while the `jobs`, `publish` or `scheduled_post` pause holds the claim) or still
-`scheduled` a minute past its deadline (`scheduled_post_overdue`). Both only
+`scheduled` three minutes past its deadline (`scheduled_post_overdue`; one
+jobs tick that overran its budget can delay the sweep about two minutes). Both only
 report. `app/api/cron/retention/route.ts` calls
 `purge_post_schedule_history(180)` in each tenant: ended occurrences and
 schedules and dismissed per-post times age off after 180 days; anything
-unresolved, awaiting approval or in review is kept. The function refuses
+unresolved, awaiting approval or in review is kept, including every
+occurrence of a schedule in review or blocked (0246). The function refuses
 without a tenant or below 30 days, and the runtime role has no DELETE on the
 three tables. `schedule_blocked` also carries `prior_occurrence_unverified`,
 `source_changed` and `source_superseded`
 (`lib/contracts/operational-events.ts`), raised only for a schedule that was
-going to publish; incident emails add the reason's wording from
-`lib/locations/schedule-display.ts`. The runner logs `post_schedule.tick` and
+going to publish; incident emails and digest lines add the reason's wording
+from `lib/locations/schedule-display.ts`. The event is written in a savepoint,
+so a failed incident insert rolls back only the event, never the post edit. The runner logs `post_schedule.tick` and
 `post_schedule.sweep` summaries.
 
 ## Bulk listing changes (WP6, 0080)

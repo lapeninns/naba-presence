@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import { operationalEventSchema } from "@/lib/contracts/operational-events"
 import { SCHEDULE_REASON } from "@/lib/locations/schedule-display"
 import {
+  renderDigestEmail,
   renderIncidentEmail,
   renderPlatformEmail,
 } from "@/lib/server/notifications/messages"
@@ -89,7 +90,11 @@ describe("scheduled post health findings (P08-R6)", () => {
   it("keeps the thresholds past the claim's lease and the sweep's deadline", () => {
     // The jobs tick's lease is its 45 s budget plus a minute.
     expect(SCHEDULED_POST_STUCK_AFTER_SECONDS).toBeGreaterThan(45 + 60)
-    expect(SCHEDULED_POST_OVERDUE_AFTER_SECONDS).toBe(60)
+    // Two one-minute jobs periods plus the 45 s budget: one tick that
+    // overran (the next skips the lock) does not page operators.
+    expect(SCHEDULED_POST_OVERDUE_AFTER_SECONDS).toBeGreaterThanOrEqual(
+      2 * 60 + 45
+    )
   })
 
   it("emails operators the organisation and counts, never post content", () => {
@@ -190,5 +195,52 @@ describe("scheduled post event reasons and copy (P08-R6)", () => {
       )
       expect(plain.text.split("\n")[1]).toMatch(/^Open: /)
     }
+  })
+
+  it("says in the daily digest why each schedule stopped, since both kinds are digest by default", () => {
+    const digest = renderDigestEmail(
+      [
+        {
+          kind: "schedule_blocked",
+          summary: {
+            title: "The Crown",
+            reason: "prior_occurrence_unverified",
+          },
+        },
+        {
+          kind: "schedule_blocked",
+          summary: { title: "The Bell", reason: "source_superseded" },
+        },
+        {
+          kind: "schedule_missed",
+          summary: { title: "The Mow", reason: "outside_dispatch_window" },
+        },
+        // Other kinds, and unknown or inherited reasons, keep one line.
+        {
+          kind: "publication_failed",
+          summary: { title: "The Swan", reason: "source_changed" },
+        },
+        {
+          kind: "schedule_blocked",
+          summary: { title: "The Lion", reason: "constructor" },
+        },
+      ],
+      APP
+    )
+    const lines = digest.text.split("\n")
+    const at = (title: string) =>
+      lines.findIndex((line) => line.startsWith("- ") && line.endsWith(title))
+    expect(lines[at("The Crown") + 1]).toBe(
+      `  ${SCHEDULE_REASON.prior_occurrence_unverified}`
+    )
+    expect(lines[at("The Bell") + 1]).toBe(
+      `  ${SCHEDULE_REASON.source_superseded}`
+    )
+    expect(lines[at("The Mow") + 1]).toBe(
+      `  ${SCHEDULE_REASON.outside_dispatch_window}`
+    )
+    expect(lines[at("The Swan") + 1]).toMatch(/^- /)
+    expect(lines[at("The Lion") + 1]).toBe("")
+    expect(digest.subject).toContain("5 updates")
   })
 })

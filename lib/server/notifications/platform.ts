@@ -54,7 +54,7 @@ export type PlatformEvaluation = {
  *
  * Scheduled post findings (P08-R6, ops-liveness.ts scheduledPostHealth) are
  * per organisation: an occurrence stuck `publishing` past its lease, or
- * still `scheduled` a minute past its deadline. They report only; nothing
+ * still `scheduled` three minutes past its deadline. They report only; nothing
  * here publishes, resends or settles an occurrence.
  */
 export async function evaluatePlatform(): Promise<PlatformEvaluation> {

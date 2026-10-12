@@ -13,6 +13,7 @@ const schedules = read("0079_post_publication_schedules.sql")
 const quarantine = read("0240_post_schedule_quarantine.sql")
 const strict = read("0241_post_schedule_strict_slot.sql")
 const migration = read("0245_post_schedule_operations.sql")
+const review = read("0246_post_schedule_operations_review.sql")
 
 const ORG = "00000000-0000-4000-8000-00000000000a"
 const OTHER = "00000000-0000-4000-8000-00000000000b"
@@ -50,6 +51,27 @@ describe("0245 scheduled post operations migration", () => {
     expect(migration).toContain(
       "insert into schema_migration (version) values ('0245_post_schedule_operations')"
     )
+  })
+
+  it("0246 is listed, changes no rows, drops the 500 cap and keeps the same grants", () => {
+    expect(REQUIRED_MIGRATIONS).toContain(
+      "0246_post_schedule_operations_review"
+    )
+    expect(review).not.toMatch(/\b(create|drop|alter) table\b/i)
+    const statements = review.replace(/\$\$[\s\S]*?\$\$/g, "")
+    expect(statements).not.toMatch(
+      /^\s*(insert into|update|delete from) (?!schema_migration)/im
+    )
+    expect(review).not.toMatch(/\blimit\b/i)
+    for (const fn of [
+      "post_schedule_health(integer, integer)",
+      "purge_post_schedule_history(integer)",
+    ]) {
+      expect(review).toContain(`revoke all on function ${fn} from public`)
+      expect(review).toContain(
+        `grant execute on function ${fn} to naba_app_runtime`
+      )
+    }
   })
 
   describe("against PGlite", () => {
@@ -153,6 +175,7 @@ describe("0245 scheduled post operations migration", () => {
       await db.exec(quarantine)
       await db.exec(strict)
       await db.exec(migration)
+      await db.exec(review)
     })
 
     afterAll(async () => {
@@ -241,6 +264,38 @@ describe("0245 scheduled post operations migration", () => {
       ).toEqual([])
     })
 
+    it("reports every affected organisation, not only the first 500 (0246)", async () => {
+      await db.exec(
+        "delete from post_publication_occurrence; delete from post_publication_schedule;"
+      )
+      // 520 organisations, each with one slot well past its deadline.
+      await db.exec(`
+        insert into organisation (id, approval_required)
+          select gen_random_uuid(), false from generate_series(1, 520);
+        insert into post_publication_schedule
+          (organisation_id, location_id, template, rule, timezone, payload_hash,
+           status, requested_by, approved_by, approved_revision, require_two_person_approval)
+          select id, '${LOCATION}', '{}', '{"frequency":"once"}', 'Europe/London', '${HASH}',
+            'active', '${USER}', '${USER}', 1, false
+          from organisation where id not in ('${ORG}', '${OTHER}');
+        insert into post_publication_occurrence
+          (organisation_id, schedule_id, location_id, schedule_revision,
+           intended_at, local_date, local_time, status)
+          select s.organisation_id, s.id, s.location_id, 1,
+            now() - interval '30 minutes', '2026-11-01', '09:00', 'scheduled'
+          from post_publication_schedule s;
+      `)
+      const { rows } = await db.query<{ overdue_scheduled: number }>(
+        "select * from post_schedule_health(600, 180)"
+      )
+      expect(rows).toHaveLength(520)
+      expect(rows.every((row) => row.overdue_scheduled === 1)).toBe(true)
+      await db.exec(
+        `delete from post_publication_occurrence; delete from post_publication_schedule;
+         delete from organisation where id not in ('${ORG}', '${OTHER}');`
+      )
+    })
+
     it("refuses to purge without a tenant or below 30 days", async () => {
       await asTenant(null)
       await expect(
@@ -279,6 +334,20 @@ describe("0245 scheduled post operations migration", () => {
         updatedDaysAgo: 10,
       })
       const oldReview = await schedule("needs_review", { updatedDaysAgo: 400 })
+      // The occurrence a review names is kept with it, however old (0246):
+      // the unverified publish the person must check on Google, and a
+      // blocked schedule's missed slot.
+      const reviewRun = await occurrence(oldReview, "cancelled", {
+        finishedDaysAgo: 400,
+      })
+      await db.query(
+        "update post_publication_occurrence set status_reason = 'outcome_unverified' where id = $1",
+        [reviewRun]
+      )
+      const oldBlocked = await schedule("blocked", { updatedDaysAgo: 400 })
+      const blockedRun = await occurrence(oldBlocked, "missed", {
+        finishedDaysAgo: 400,
+      })
       // Another tenant's aged history is not this call's to purge.
       const foreign = await schedule("cancelled", {
         org: OTHER,
@@ -343,13 +412,20 @@ describe("0245 scheduled post operations migration", () => {
       expect(await exists(occ, cascaded)).toBe(false)
       expect(await exists(sch, oldCancelled)).toBe(false)
       expect(await exists(leg, oldDismissed)).toBe(false)
-      for (const id of [recentMissed, oldAmbiguous, foreignRun])
+      for (const id of [
+        recentMissed,
+        oldAmbiguous,
+        foreignRun,
+        reviewRun,
+        blockedRun,
+      ])
         expect(await exists(occ, id), id).toBe(true)
       for (const id of [
         repeating,
         oldCompleted,
         recentCancelled,
         oldReview,
+        oldBlocked,
         foreign,
       ])
         expect(await exists(sch, id), id).toBe(true)
@@ -364,6 +440,14 @@ describe("0245 scheduled post operations migration", () => {
 
     it("is safe to run again", async () => {
       await db.exec(migration)
+      await db.exec(review)
+      expect(
+        (
+          await db.query(
+            "select version from schema_migration where version = '0246_post_schedule_operations_review'"
+          )
+        ).rows
+      ).toHaveLength(1)
       const { rows } = await db.query<{ version: string }>(
         "select version from schema_migration where version = '0245_post_schedule_operations'"
       )

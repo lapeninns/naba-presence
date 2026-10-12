@@ -1665,7 +1665,8 @@ no new schedule or bulk child is claimed, and nothing already sent is undone.
 
 Notifications (P08-R6): `schedule_missed` emails immediately and
 `schedule_blocked` goes in the digest, each with the reason in the Posts tab's
-words. `schedule_blocked` is also raised when an approved, active schedule
+words (in the immediate email, and on an indented line under its digest
+entry). `schedule_blocked` is also raised when an approved, active schedule
 will no longer publish because its post was edited (`source_changed`) or was
 published another way or deleted (`source_superseded`), and when the sweep
 sends a schedule to review as `prior_occurrence_unverified`. The jobs tick
@@ -1688,14 +1689,17 @@ the organisation id; details hold counts and instants only) and emails
   paused (the pause is what holds the claim). Once the tick runs, the
   occurrence becomes unresolved and is settled from its receipt; nothing is
   resent.
-- `scheduled_post_overdue`: an occurrence still `scheduled` more than a
-  minute after its 5-minute window closed. The sweep runs on every jobs tick
-  before any pause check, so this means the jobs tick is not running or
-  `post_schedule.sweep_failed` is in the logs. It will not publish late
+- `scheduled_post_overdue`: an occurrence still `scheduled` more than three
+  minutes after its 5-minute window closed. The sweep runs on every jobs tick
+  before any pause check, but only inside the `naba:jobs` lock, so one tick
+  that overran its budget can delay it by about two minutes; three minutes
+  allows for that. Past it, the jobs tick is not running, its lock is held
+  (see `tick_lock_wedged`) or `post_schedule.sweep_failed` is in the logs. It will not publish late
   either way; the alert is that nobody has been told it was missed.
 
-Both read `post_schedule_health()` (migration 0245) and resolve on the first
-health tick after the condition clears. Neither changes an occurrence.
+Both read `post_schedule_health()` (migrations 0245 and 0246; every affected
+organisation is reported) and resolve on the first health tick after the
+condition clears. Neither changes an occurrence.
 
 Retention: the daily retention cron calls `purge_post_schedule_history(180)`
 for each organisation. It deletes ended occurrences (published, rejected,
@@ -1703,8 +1707,9 @@ missed, cancelled) 180 days after they ended, ended schedules (cancelled,
 completed) 180 days after their last change once none of their occurrences
 is live or recent, and old per-post times an owner dismissed 180 days after
 the dismissal. An `ambiguous` occurrence, a schedule awaiting approval, in
-review, paused or blocked, and an old per-post time nobody reviewed are kept
-however old. `RETENTION_DELETES_ENABLED=false` stops it with the other
+review, paused or blocked, every occurrence of a schedule in review or blocked
+(it names the post and slot to check), and an old per-post time nobody
+reviewed are kept however old. `RETENTION_DELETES_ENABLED=false` stops it with the other
 deletes; the counts are `scheduleOccurrences`, `publicationSchedules` and
 `legacyPostSchedules` in the `retention.purge.completed` audit row.
 
