@@ -22,6 +22,7 @@ import { listClientSummaries } from "@/lib/server/clients"
 import { listConnections } from "@/lib/server/connections"
 import { withTenant } from "@/lib/server/db"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { getSession, isLocalBootstrapEnabled } from "@/lib/server/session"
 import { redirectOutOfClientScope } from "@/lib/server/workspace-redirect"
 
@@ -52,19 +53,27 @@ export default async function DashboardLayout({
   let rememberedClientId = parseClientScopeCookie(
     (await cookies()).get(CLIENT_SCOPE_COOKIE)?.value
   )
+  // Calendar holds scheduled publications only, so it leaves the navigation
+  // while the organisation's post_scheduling feature is off (P08-R5). A
+  // failed read keeps it: the page answers "not switched on" itself.
+  let hideCalendar = false
   if (session) {
     // Each of these opens its own short read transaction and none reads the
-    // others' output, so awaiting them one after another only stacked three
+    // others' output, so awaiting them one after another only stacked four
     // round trips onto every full load of every dashboard page. Issued
-    // together they cost the slowest one instead of the sum, and three
+    // together they cost the slowest one instead of the sum, and four
     // concurrent checkouts sit well inside DATABASE_POOL_MAX (10 by default).
-    const [connections, clients, rows] = await Promise.allSettled([
+    const [connections, clients, rows, scheduling] = await Promise.allSettled([
       listConnections(session),
       withTenant(session.organisationId, (sql) =>
         listClientSummaries(sql, session)
       ),
       listLocationDirectoryRows(session),
+      withTenant(session.organisationId, (sql) =>
+        isOrgFeatureEnabled(sql, session.organisationId, "post_scheduling")
+      ),
     ])
+    hideCalendar = scheduling.status === "fulfilled" && !scheduling.value
 
     // Failed optional prefetches leave their cache empty so the client can
     // show its error/retry state. Authentication above remains mandatory.
@@ -116,7 +125,11 @@ export default async function DashboardLayout({
   return (
     <QueryProvider>
       <HydrationBoundary state={dehydrate(queryClient)}>
-        <AppShell session={session} rememberedClientId={rememberedClientId}>
+        <AppShell
+          session={session}
+          rememberedClientId={rememberedClientId}
+          hideCalendar={hideCalendar}
+        >
           {children}
         </AppShell>
       </HydrationBoundary>

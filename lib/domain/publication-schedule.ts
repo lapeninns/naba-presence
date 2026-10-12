@@ -235,6 +235,19 @@ export function resolveLocalTime(
   return { instant: new Date(high), adjustment: "moved_forward" }
 }
 
+/**
+ * The local date (YYYY-MM-DD) and time (HH:MM) an instant shows in a zone:
+ * the inverse of resolveLocalSlot, used to suggest a slot from a stored
+ * instant (a legacy per-post time) without moving it.
+ */
+export function localWallTime(instant: Date | string, timeZone: string) {
+  const wall = wallAt(new Date(instant).getTime(), timeZone)
+  return {
+    date: `${wall.year}-${pad(wall.month)}-${pad(wall.day)}`,
+    time: `${pad(wall.hour)}:${pad(wall.minute)}`,
+  }
+}
+
 export type SlotChoice = { instant: Date; offsetMinutes: number }
 export type LocalSlot =
   | ({ kind: "ok" } & SlotChoice)

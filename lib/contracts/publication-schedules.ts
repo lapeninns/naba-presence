@@ -152,3 +152,30 @@ export const occurrencesQuerySchema = z
 export const occurrencesResponseSchema = z.object({
   occurrences: z.array(occurrenceSchema),
 })
+
+/**
+ * A pre-WP7 per-post time copied for review by migration 0240
+ * (`gbp_local_post_legacy_schedule`): `/api/locations/[id]/legacy-post-schedules`.
+ * Nothing ever published from it. An owner or administrator either schedules
+ * the post properly (which closes the review) or dismisses it.
+ */
+export const legacyScheduleSchema = z.object({
+  id: z.uuid(),
+  postId: z.uuid(),
+  summary: z.string(),
+  topicType: z.string(),
+  /** The old intended instant, if one was set. */
+  scheduledPublishTime: z.iso.datetime().nullable(),
+  /** The old value also asked for a repeat, which is never honoured. */
+  repeats: z.boolean(),
+  /** Whether the post is still a draft a one-time schedule can publish. */
+  schedulable: z.boolean(),
+  createdAt: z.iso.datetime(),
+})
+export type LegacySchedule = z.infer<typeof legacyScheduleSchema>
+export const legacySchedulesResponseSchema = z.object({
+  legacySchedules: z.array(legacyScheduleSchema),
+})
+export const legacyScheduleActionSchema = z.strictObject({
+  action: z.literal("dismiss"),
+})

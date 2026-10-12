@@ -25,6 +25,7 @@ import {
   MORE_ITEMS,
   Nav,
   NAV_ITEMS,
+  navItemsFor,
 } from "@/components/app-shell/nav"
 import type { NavClient } from "@/components/app-shell/nav"
 
@@ -65,6 +66,19 @@ describe("primary navigation", () => {
       "aria-expanded",
       "false"
     )
+  })
+
+  // P08-R5: Calendar is the scheduled publications, so it leaves the
+  // navigation while the organisation's post_scheduling feature is off.
+  it("leaves Calendar out when scheduling is off", () => {
+    render(<Nav hideCalendar />)
+    expect(screen.queryByRole("link", { name: "Calendar" })).toBeNull()
+    expect(screen.getByRole("link", { name: "Reports" })).toBeInTheDocument()
+    expect(navItemsFor("business", true).map((item) => item.label)).toEqual([
+      "Inbox",
+      "Listings",
+      "Reports",
+    ])
   })
 
   it("carries the client in scope on Inbox, Listings and Reports", () => {

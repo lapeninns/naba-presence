@@ -1,11 +1,13 @@
 "use client"
 
+import { useQuery } from "@tanstack/react-query"
 import { FilterIcon, Megaphone } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PostCard } from "@/components/locations/posts/post-card"
+import { LegacyPostSchedules } from "@/components/locations/posts/legacy-post-schedules"
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
 import { PostSchedules } from "@/components/locations/posts/post-schedules"
 import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
@@ -16,6 +18,9 @@ import { ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import type { Post } from "@/lib/api/location-posts"
+import { fetchPostSchedules } from "@/lib/api/publication-schedules"
+import type { PublicationSchedule } from "@/lib/contracts/publication-schedules"
+import { describeScheduleRule } from "@/lib/domain/publication-schedule"
 import { localPostOutcome } from "@/lib/domain/post-outcome"
 import { describeOutcome } from "@/lib/editors/outcome"
 import {
@@ -40,6 +45,12 @@ import {
   DEFAULT_TIMEZONE,
   postRecurrence,
 } from "@/lib/locations/post-recurrence"
+import {
+  liveOnceSchedule,
+  scheduleBadge,
+} from "@/lib/locations/schedule-display"
+import { queryKeys } from "@/lib/queries/keys"
+import { requestOptions } from "@/lib/queries/request-options"
 import { usePosts } from "@/lib/queries/use-location-posts"
 
 function headline(post: Post): string {
@@ -117,6 +128,27 @@ function problem(post: Post): React.ReactNode {
   return null
 }
 
+/**
+ * Whether a one-time schedule could publish this post: a draft (or one
+ * waiting for approval, or whose publish failed) Google does not hold. The
+ * server's rule is publishableSource (lib/server/publication-schedules.ts).
+ */
+function schedulable(post: Post) {
+  return (
+    post.googlePostName === null &&
+    ["draft", "awaiting_approval", "failed"].includes(post.status)
+  )
+}
+
+/** "Scheduled publication awaiting approval: 2026-10-20 at 09:00 (Europe/London, UTC+01:00)". */
+function scheduleSummary(schedule: PublicationSchedule) {
+  return `Scheduled publication ${scheduleBadge(schedule).label.toLowerCase()}: ${describeScheduleRule(
+    schedule.rule,
+    schedule.timezone,
+    schedule.offsetMinutes
+  ).replace(/^Once on /, "")}`
+}
+
 export function PostsTab({ locationId }: { locationId: string }) {
   return (
     <LocationTab
@@ -156,6 +188,22 @@ function PostsList({
   caps: Parameters<typeof PostsActionBar>[0]["caps"]
 }) {
   const [filter, setFilter] = useState<PostFilter>("all")
+  const scheduling = caps?.postScheduling === true
+  // The schedules list below reads the same query; here it only says which
+  // posts already have a one-time publication on the way.
+  const schedules = useQuery({
+    queryKey: queryKeys.postSchedules(locationId),
+    queryFn: (context) =>
+      fetchPostSchedules(locationId, requestOptions(context)),
+    enabled: scheduling,
+  })
+  const scheduledByPost = useMemo(() => {
+    const map = new Map<string, PublicationSchedule>()
+    for (const schedule of schedules.data ?? [])
+      if (schedule.sourcePostId && liveOnceSchedule(schedule))
+        map.set(schedule.sourcePostId, schedule)
+    return map
+  }, [schedules.data])
   const composeReason = composeDisabledReason(writesEnabled)
   const live = posts.filter(
     (post) => post.status === "published" && post.googleState === "LIVE"
@@ -265,7 +313,11 @@ function PostsList({
               {shown.map((post) => {
                 const status = postStatus(post)
                 const changedAt = postContentTimestamp(post)
+                const scheduled = scheduling
+                  ? scheduledByPost.get(post.id)
+                  : undefined
                 const meta = [
+                  scheduled ? scheduleSummary(scheduled) : "",
                   postSchedule(post),
                   postRecurrence(post.event, timezone),
                   postActionLabel(post)
@@ -301,8 +353,24 @@ function PostsList({
                             caps={caps}
                             writesEnabled={writesEnabled}
                             timezone={timezone}
+                            scheduling={
+                              scheduling
+                                ? {
+                                    scheduledFor: scheduled
+                                      ? describeScheduleRule(
+                                          scheduled.rule,
+                                          scheduled.timezone,
+                                          scheduled.offsetMinutes
+                                        )
+                                      : null,
+                                  }
+                                : undefined
+                            }
                           />
-                          {caps?.canEditCanonical && caps.postScheduling ? (
+                          {caps?.canEditCanonical &&
+                          scheduling &&
+                          schedulable(post) &&
+                          !scheduled ? (
                             <SchedulePostSheet
                               locationId={locationId}
                               post={post}
@@ -320,10 +388,13 @@ function PostsList({
           )}
         </div>
       )}
+      {scheduling ? (
+        <LegacyPostSchedules locationId={locationId} timezone={timezone} />
+      ) : null}
       <PostSchedules
         locationId={locationId}
         timezone={timezone}
-        enabled={caps?.postScheduling === true}
+        enabled={scheduling}
         recurring={caps?.postSchedulingRecurring === true}
       />
     </EditorFrame>

@@ -1638,6 +1638,23 @@ repeating schedule that could still run as `needs_review`
 unpublished posts' legacy `scheduled_publish_time`/`recurrence` values into
 `gbp_local_post_legacy_schedule` for review; nothing creates a job from them.
 
+The Posts tab (P08-R5) shows a draft "Publish now" beside "Schedule" (one-time
+only unless repeating is on) while `post_scheduling` is on, and nothing about
+scheduling while it is off: no Schedule button, no old-time review and no
+Calendar destination (the dashboard layout reads the feature and passes
+`hideCalendar` to the shell). Existing schedules stay listed so they can be
+paused or cancelled. A post with a live one-time schedule shows it and is not
+offered Schedule again; publishing it by hand says the scheduled run will not
+happen. Badges and actions come from `lib/locations/schedule-display.ts`: a
+slot missed while paused or outside the window reads "Missed" and offers only
+"Choose a new time" or cancel, never resume or retry. Owners and administrators
+review old per-post times through
+`app/api/locations/[id]/legacy-post-schedules/route.ts` (list) and
+`app/api/locations/[id]/legacy-post-schedules/[legacyId]/route.ts` (dismiss),
+both 404 with the feature off. Scheduling the post closes its review row in the
+same transaction; either way only the review columns change and an audit row
+(`post_schedule.legacy_reviewed`) records the outcome.
+
 ## Bulk listing changes (WP6, 0080)
 
 A preview freezes up to 100 explicit location ids; a batch naming any listing

@@ -1642,6 +1642,118 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     expect(creates()).toHaveLength(0)
   })
 
+  it("lists old per-post times for review, lets a manager dismiss one and closes another when its post is scheduled (P08-R5)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const dismissPost = await t.draft()
+    const schedulePost = await t.draft({
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Bonfire night",
+      media: [],
+    })
+    // The runtime cannot insert these (0240 copies them); the operator can.
+    const [dismissRow] = await admin<{ id: string }[]>`
+      insert into gbp_local_post_legacy_schedule (organisation_id, location_id, post_id, scheduled_publish_time, recurrence)
+      values (${t.owner.organisationId}, ${t.linked.locationId}, ${dismissPost}, now() + interval '3 days', '{"frequency":"WEEKLY"}'::jsonb)
+      returning id::text as id`
+    const [scheduleRow] = await admin<{ id: string }[]>`
+      insert into gbp_local_post_legacy_schedule (organisation_id, location_id, post_id, scheduled_publish_time)
+      values (${t.owner.organisationId}, ${t.linked.locationId}, ${schedulePost}, now() + interval '4 days')
+      returning id::text as id`
+    const legacyApi = (
+      path = "",
+      init: RequestInit = {},
+      cookie = t.owner.cookie
+    ) =>
+      fetch(
+        `${server.baseUrl}/api/locations/${t.linked.locationId}/legacy-post-schedules${path}`,
+        { ...init, headers: { cookie, "content-type": "application/json" } }
+      )
+
+    const listed = await legacyApi()
+    expect(listed.status, await listed.clone().text()).toBe(200)
+    const body = (await listed.json()) as {
+      legacySchedules: Array<Record<string, unknown>>
+    }
+    expect(body.legacySchedules).toEqual([
+      expect.objectContaining({
+        id: dismissRow.id,
+        postId: dismissPost,
+        repeats: true,
+        schedulable: true,
+      }),
+      expect.objectContaining({
+        id: scheduleRow.id,
+        postId: schedulePost,
+        summary: "Bonfire night",
+        repeats: false,
+      }),
+    ])
+
+    // A member may see the location but not dismiss.
+    const member = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+    })
+    const refused = await legacyApi(
+      `/${dismissRow.id}`,
+      { method: "PATCH", body: JSON.stringify({ action: "dismiss" }) },
+      member.cookie
+    )
+    expect(refused.status).toBe(403)
+
+    const dismissed = await legacyApi(`/${dismissRow.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ action: "dismiss" }),
+    })
+    expect(dismissed.status, await dismissed.clone().text()).toBe(200)
+    // Dismissing again is the same answer.
+    expect(
+      (
+        await legacyApi(`/${dismissRow.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ action: "dismiss" }),
+        })
+      ).status
+    ).toBe(200)
+
+    // Scheduling the other post properly closes its review.
+    await t.schedule(schedulePost, {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    const rows = await admin<
+      { id: string; status: string; reviewed_by: string | null }[]
+    >`select id::text as id, status, reviewed_by::text as reviewed_by from gbp_local_post_legacy_schedule where organisation_id = ${t.owner.organisationId} order by scheduled_publish_time`
+    expect(rows).toEqual([
+      { id: dismissRow.id, status: "dismissed", reviewed_by: t.owner.userId },
+      { id: scheduleRow.id, status: "dismissed", reviewed_by: t.owner.userId },
+    ])
+    const audits = await admin<{ outcome: string }[]>`
+      select metadata ->> 'outcome' as outcome from audit_log
+      where organisation_id = ${t.owner.organisationId} and action = 'post_schedule.legacy_reviewed'
+      order by created_at`
+    expect(audits.map((row) => row.outcome)).toEqual(["dismissed", "scheduled"])
+    expect(
+      ((await (await legacyApi()).json()) as { legacySchedules: unknown[] })
+        .legacySchedules
+    ).toEqual([])
+    // Nothing was sent or created.
+    expect(creates()).toHaveLength(0)
+
+    // Part of the scheduling surface: switched off, it is not there.
+    await setFeature(t.owner.organisationId, "post_scheduling", false)
+    expect((await legacyApi()).status).toBe(404)
+    expect(
+      (
+        await legacyApi(`/${scheduleRow.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ action: "dismiss" }),
+        })
+      ).status
+    ).toBe(404)
+  })
+
   // Last: re-running 0240 touches every tenant's rows in this database.
   it("0240 quarantines live repeating schedules and legacy post times, and creates no work", async () => {
     const t = await tenant()

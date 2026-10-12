@@ -268,6 +268,140 @@ for (const width of [375, 768, 1280])
       await capture(page, info, "calendar-month")
     })
 
+    test("schedules a post once, cancels it, and reviews an old post time (P08-R5)", async ({
+      page,
+    }, info) => {
+      const f = await backend.fixture(page, 1)
+      // CSS, not a role query: on a phone the sidebar is in the page but
+      // hidden, and a role query would not count it either way.
+      const calendarLink = page.locator(
+        'nav[aria-label="Primary"] a[href^="/calendar"]'
+      )
+      // Off (the default): no scheduling anywhere, Calendar included.
+      const created = await page.request.post(
+        `${backend.server.baseUrl}/api/locations/${f.linked[0].locationId}/posts`,
+        {
+          data: {
+            topicType: "STANDARD",
+            languageCode: "en-GB",
+            summary: "Harvest supper club",
+            media: [],
+          },
+        }
+      )
+      expect(created.status()).toBe(201)
+      const postId = ((await created.json()) as { post: { id: string } }).post
+        .id
+      await f.goto(`/listings/${f.linked[0].locationId}/posts`)
+      await expect(
+        page.getByRole("button", { name: "Publish", exact: true })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: /^Schedule publication/ })
+      ).toHaveCount(0)
+      await expect(calendarLink).toHaveCount(0)
+
+      // On: Publish now or Schedule, one time only.
+      await backend.admin`
+        insert into organisation_feature (organisation_id, feature, enabled, changed_by)
+        values (${f.owner.organisationId}, 'post_scheduling', true, 'e2e')
+        on conflict (organisation_id, feature) do update set enabled = true`
+      const oldTime = new Date(Date.now() + 3 * 86_400_000)
+      oldTime.setUTCHours(18, 0, 0, 0)
+      const legacyPost = await page.request.post(
+        `${backend.server.baseUrl}/api/locations/${f.linked[0].locationId}/posts`,
+        {
+          data: {
+            topicType: "STANDARD",
+            languageCode: "en-GB",
+            summary: "Bonfire night",
+            media: [],
+          },
+        }
+      )
+      const legacyPostId = (
+        (await legacyPost.json()) as { post: { id: string } }
+      ).post.id
+      await backend.admin`
+        insert into gbp_local_post_legacy_schedule (organisation_id, location_id, post_id, scheduled_publish_time)
+        values (${f.owner.organisationId}, ${f.linked[0].locationId}, ${legacyPostId}, ${oldTime})`
+      await page.reload()
+      await expect(calendarLink).toHaveCount(1)
+      await expect(
+        page.getByRole("button", { name: "Publish now" }).first()
+      ).toBeVisible()
+      await page
+        .getByRole("button", {
+          name: "Schedule publication: Harvest supper club",
+        })
+        .click()
+      const sheet = page.getByRole("dialog", {
+        name: "Schedule publication",
+        exact: true,
+      })
+      await expect(
+        sheet.getByRole("tablist", { name: "How often" })
+      ).toHaveCount(0)
+      await expect(sheet.getByText(/1 publication from now/)).toBeVisible()
+      await dialogCapture(page, info, "schedule-once-preview")
+      await sheet
+        .getByRole("button", {
+          name: "Submit schedule for approval",
+          exact: true,
+        })
+        .click()
+      const schedules = page.getByRole("region", {
+        name: "Publication schedules",
+      })
+      await expect(
+        schedules.getByText("Awaiting approval", { exact: true })
+      ).toBeVisible()
+      // The post says it is scheduled and is no longer offered Schedule.
+      await expect(
+        page.getByText(/Scheduled publication awaiting approval:/)
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", {
+          name: "Schedule publication: Harvest supper club",
+        })
+      ).toHaveCount(0)
+      await capture(page, info, "schedule-once-awaiting")
+
+      await schedules
+        .getByRole("button", { name: "Cancel schedule", exact: true })
+        .click()
+      await expect(
+        schedules.getByText("Cancelled", { exact: true })
+      ).toBeVisible()
+      await expect(
+        page.getByRole("button", {
+          name: "Schedule publication: Harvest supper club",
+        })
+      ).toBeVisible()
+      const [schedule] = await backend.admin<
+        { status: string; occurrences: number }[]
+      >`select s.status, (select count(*)::int from post_publication_occurrence o where o.schedule_id = s.id) as occurrences
+        from post_publication_schedule s where s.source_post_id = ${postId}`
+      expect(schedule).toEqual({ status: "cancelled", occurrences: 0 })
+
+      // The old per-post time: dismissed, not published.
+      const review = page.getByRole("region", {
+        name: "Old post times to review",
+      })
+      await expect(review.getByText(/Was set for/)).toBeVisible()
+      await capture(
+        page,
+        info,
+        "legacy-post-time",
+        '[aria-labelledby="legacy-post-schedules"]'
+      )
+      await review
+        .getByRole("button", { name: "Dismiss old time: Bonfire night" })
+        .click()
+      await expect(review).toHaveCount(0)
+      expect(backend.posts).toHaveLength(0)
+    })
+
     test("prepares, approves and runs a bulk special-hours change with per-listing confirmation", async ({
       page,
     }, info) => {

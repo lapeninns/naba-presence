@@ -59,16 +59,20 @@ function currentTime() {
 function initial(
   existing: PublicationSchedule | undefined,
   openedAt: number,
-  recurring: boolean
+  recurring: boolean,
+  suggested?: { startDate: string; localTime: string }
 ) {
   const rule = existing?.rule
   const tomorrow = new Date(openedAt + 86_400_000).toISOString().slice(0, 10)
+  // A suggestion whose day has already passed is no help.
+  const today = new Date(openedAt).toISOString().slice(0, 10)
+  const hint = suggested && suggested.startDate >= today ? suggested : null
   return {
     // Without the repeating feature, a repeating schedule can only be
     // changed into a single publication.
     frequency: (recurring ? (rule?.frequency ?? "once") : "once") as Frequency,
-    startDate: rule?.startDate ?? tomorrow,
-    localTime: rule?.localTime ?? "09:00",
+    startDate: rule?.startDate ?? hint?.startDate ?? tomorrow,
+    localTime: rule?.localTime ?? hint?.localTime ?? "09:00",
     weekdays: rule?.frequency === "weekly" ? rule.weekdays : [1],
     dayOfMonth: rule?.frequency === "monthly" ? rule.dayOfMonth : 1,
     endType: (rule && rule.frequency !== "once" ? rule.end.type : "count") as
@@ -95,6 +99,8 @@ function initial(
  *
  * One-time publication is the only frequency offered unless the
  * organisation has repeating schedules switched on (`recurring`).
+ * `suggested` pre-fills a new schedule's date and time (an old per-post
+ * time under review); `newTime` titles the sheet for a missed slot.
  */
 export function SchedulePostSheet({
   locationId,
@@ -103,6 +109,8 @@ export function SchedulePostSheet({
   existing,
   trigger,
   recurring = false,
+  suggested,
+  newTime = false,
 }: {
   locationId: string
   post: { id: string; topicType: string; summary: string }
@@ -110,11 +118,15 @@ export function SchedulePostSheet({
   existing?: PublicationSchedule
   trigger?: (open: () => void) => React.ReactNode
   recurring?: boolean
+  suggested?: { startDate: string; localTime: string }
+  newTime?: boolean
 }) {
   const [open, setOpen] = useState(false)
   // Captured when the sheet opens, so rendering stays pure.
   const [openedAt, setOpenedAt] = useState(0)
-  const [form, setForm] = useState(() => initial(existing, 0, recurring))
+  const [form, setForm] = useState(() =>
+    initial(existing, 0, recurring, suggested)
+  )
   const [zone, setZone] = useState(existing?.timezone ?? timezone)
   const [failure, setFailure] = useState<string | null>(null)
   const client = useQueryClient()
@@ -232,6 +244,10 @@ export function SchedulePostSheet({
       void client.invalidateQueries({
         queryKey: queryKeys.scheduleOccurrencesAll,
       })
+      // Scheduling a post closes the review of any old time it carried.
+      void client.invalidateQueries({
+        queryKey: queryKeys.legacyPostSchedules(locationId),
+      })
     },
     onError: (error) =>
       setFailure(
@@ -244,7 +260,7 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
-    setForm(initial(existing, at, recurring))
+    setForm(initial(existing, at, recurring, suggested))
     setOpen(true)
   }
 
@@ -266,9 +282,11 @@ export function SchedulePostSheet({
         <SheetContent side="right" size="wide" className="flex flex-col gap-0">
           <SheetHeader>
             <SheetTitle>
-              {existing
-                ? "Change publication schedule"
-                : "Schedule publication"}
+              {newTime
+                ? "Choose a new publication time"
+                : existing
+                  ? "Change publication schedule"
+                  : "Schedule publication"}
             </SheetTitle>
             <SheetDescription>
               When NabaPresence publishes this post, separate from any repeat in
@@ -507,8 +525,8 @@ export function SchedulePostSheet({
                     {expansion.skippedDates.length
                       ? ` · skipped months: ${expansion.skippedDates.join(", ")}`
                       : ""}
-                    . A missed time publishes up to 24 hours late at most; an
-                    ended event or offer is never published late.
+                    . Publishing starts at that time; if it cannot start within
+                    5 minutes, the time is missed and nothing publishes late.
                   </p>
                   <ol className="flex flex-col gap-1 text-ui text-ink-secondary">
                     {future.slice(0, 8).map((occurrence) => (

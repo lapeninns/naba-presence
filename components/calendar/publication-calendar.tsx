@@ -19,6 +19,7 @@ import { ApiClientError } from "@/lib/api/client"
 import { fetchScheduleOccurrences } from "@/lib/api/publication-schedules"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
 import { clockChangeNote } from "@/lib/domain/publication-schedule"
+import { occurrenceReasonText } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
@@ -462,13 +463,18 @@ function Grid({
   )
 }
 
-/** The listing's timezone, and what a clock change did to this run. */
+/**
+ * The listing's timezone, what a clock change did to this run and, for one
+ * that did not publish, why (a missed run is never retried: P08-R5).
+ */
 function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const note = clockChangeNote(occurrence.adjustment)
+  const reason = occurrenceReasonText(occurrence)
   return (
     <span className="block px-1.5 text-caption text-ink-muted">
       {occurrence.timezone}
       {note ? ` · ${note}` : ""}
+      {reason ? ` · ${reason}` : ""}
     </span>
   )
 }

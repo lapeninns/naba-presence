@@ -103,6 +103,7 @@ export function PostsActionBar({
   caps,
   writesEnabled,
   timezone = DEFAULT_TIMEZONE,
+  scheduling,
 }: {
   locationId: string
   post: Post
@@ -110,6 +111,12 @@ export function PostsActionBar({
   writesEnabled: boolean
   /** The listing's IANA timezone, for when a repeat ends. */
   timezone?: string
+  /**
+   * Set when the organisation schedules posts (P08-R5): Publish reads
+   * "Publish now" beside Schedule, and a post with a one-time schedule
+   * (`scheduledFor`, its description) says that publishing now replaces it.
+   */
+  scheduling?: { scheduledFor: string | null }
 }) {
   const queryClient = useQueryClient()
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -248,7 +255,9 @@ export function PostsActionBar({
             ? "Request approval"
             : post.status === "failed"
               ? "Retry publish"
-              : "Publish"}
+              : scheduling
+                ? "Publish now"
+                : "Publish"}
         </Button>
       ) : null}
       {editable ? (
@@ -348,6 +357,12 @@ export function PostsActionBar({
             Customers see it on the listing as soon as Google accepts it. To
             change it afterwards, edit it here and it is sent again.
           </AlertDialogDescription>
+          {scheduling?.scheduledFor ? (
+            <p className="text-ui text-ink">
+              This post is also scheduled ({scheduling.scheduledFor}).
+              Publishing it now means the scheduled publication does not run.
+            </p>
+          ) : null}
           {previewNode}
           <AlertDialogFooter>
             <AlertDialogClose

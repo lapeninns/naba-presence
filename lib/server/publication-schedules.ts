@@ -4,6 +4,7 @@ import type { TransactionSql } from "postgres"
 import type { z } from "zod"
 
 import {
+  legacySchedulesResponseSchema,
   occurrencesResponseSchema,
   scheduleSchema,
   type occurrencesQuerySchema,
@@ -726,6 +727,15 @@ export async function createPublicationSchedule(
       requestId,
       metadata: { locationId, payloadHash },
     })
+    // Scheduling the post properly is the owner's review of any pre-WP7
+    // time it carried (0240): that row is closed rather than left to
+    // suggest a second publication.
+    await closeLegacySchedules(sql, session, {
+      postId: draft.postId,
+      outcome: "scheduled",
+      scheduleId: created.id,
+      requestId,
+    })
     return project(sql, session, await loadRow(sql, locationId, created.id))
   })
 }
@@ -1119,5 +1129,128 @@ export async function listScheduleOccurrences(
         deadlineAt: (row.deadlineAt as Date).toISOString(),
       })),
     })
+  })
+}
+
+/**
+ * Closes the open legacy review rows (0240) of one post, or one row by id.
+ * The runtime may change only the review columns. Returns the closed ids.
+ */
+async function closeLegacySchedules(
+  sql: TransactionSql,
+  session: Session,
+  input: {
+    postId?: string
+    id?: string
+    outcome: "scheduled" | "dismissed"
+    scheduleId?: string
+    requestId: string
+  }
+) {
+  const closed = await sql<{ id: string; postId: string }[]>`
+    update gbp_local_post_legacy_schedule
+    set status = 'dismissed', reviewed_by = ${session.userId}, reviewed_at = now()
+    where status = 'needs_review'
+      ${input.postId ? sql`and post_id = ${input.postId}` : sql``}
+      ${input.id ? sql`and id = ${input.id}` : sql``}
+    returning id::text as id, post_id::text as "postId"`
+  for (const row of closed)
+    await writeAudit(sql, {
+      organisationId: session.organisationId,
+      actorUserId: session.userId,
+      action: "post_schedule.legacy_reviewed",
+      subjectType: "local_post",
+      subjectId: row.postId,
+      requestId: input.requestId,
+      metadata: {
+        legacyScheduleId: row.id,
+        outcome: input.outcome,
+        ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
+      },
+    })
+  return closed.map((row) => row.id)
+}
+
+/**
+ * A location's pre-WP7 per-post times still waiting for review (P08-R5).
+ * Part of the scheduling surface, so it answers 404 with the feature off.
+ */
+export async function listLegacySchedules(
+  session: Session,
+  locationId: string
+) {
+  return withTenant(session.organisationId, async (sql) => {
+    await requireScheduling(sql, session.organisationId)
+    await requireLocationAccess(sql, session, locationId, NOT_FOUND)
+    const rows = await sql<
+      Array<{
+        id: string
+        postId: string
+        summary: string | null
+        topicType: string
+        scheduledPublishTime: Date | null
+        repeats: boolean
+        status: string
+        googlePostName: string | null
+        createdAt: Date
+      }>
+    >`
+      select r.id::text as id, r.post_id::text as "postId", p.summary, p.topic_type as "topicType",
+        r.scheduled_publish_time as "scheduledPublishTime", r.recurrence is not null as repeats,
+        p.status, p.google_post_name as "googlePostName", r.created_at as "createdAt"
+      from gbp_local_post_legacy_schedule r
+      join gbp_local_post p on p.id = r.post_id
+      where r.location_id = ${locationId} and r.status = 'needs_review' and p.status <> 'deleted'
+      order by r.scheduled_publish_time nulls last, r.id
+      limit 100`
+    return legacySchedulesResponseSchema.parse({
+      legacySchedules: rows.map((row) => ({
+        id: row.id,
+        postId: row.postId,
+        summary: row.summary ?? "",
+        topicType: row.topicType,
+        scheduledPublishTime: row.scheduledPublishTime?.toISOString() ?? null,
+        repeats: row.repeats,
+        schedulable: publishableSource(row),
+        createdAt: row.createdAt.toISOString(),
+      })),
+    })
+  })
+}
+
+/** An owner or administrator dismisses one legacy per-post time (P08-R5). */
+export async function dismissLegacySchedule(
+  session: Session,
+  locationId: string,
+  legacyId: string,
+  requestId: string
+) {
+  return withTenant(session.organisationId, async (sql) => {
+    await requireScheduling(sql, session.organisationId)
+    await requireLocationAccess(sql, session, locationId, NOT_FOUND)
+    if (!isManagerialRole(session.role))
+      throw new ApiError(
+        403,
+        "forbidden",
+        "Only an owner or administrator can dismiss an old post time."
+      )
+    const [row] = await sql<{ status: string }[]>`
+      select status from gbp_local_post_legacy_schedule
+      where id = ${legacyId} and location_id = ${locationId}
+      for update`
+    if (!row)
+      throw new ApiError(
+        404,
+        "legacy_schedule_not_found",
+        "That old post time was not found."
+      )
+    // Dismissing twice is the same answer: the row is closed either way.
+    if (row.status === "needs_review")
+      await closeLegacySchedules(sql, session, {
+        id: legacyId,
+        outcome: "dismissed",
+        requestId,
+      })
+    return { dismissed: true as const }
   })
 }

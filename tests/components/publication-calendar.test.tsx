@@ -181,4 +181,41 @@ describe("PublicationCalendar with scheduling switched off", () => {
     ).not.toBeInTheDocument()
     expect(calls).toHaveLength(1)
   })
+
+  // P08-R5: a run that did not publish says why, and that it is not retried.
+  it("says why a missed run did not publish", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async (input) => {
+        const url = String(input)
+        if (url.includes("/api/post-schedules/occurrences"))
+          return jsonResponse({
+            occurrences: [
+              {
+                ...OCCURRENCES[1],
+                status: "missed",
+                statusReason: "paused_when_due",
+              },
+            ],
+          })
+        if (url.includes("/api/clients"))
+          return jsonResponse({ items: [], unassignedLocationCount: 0 })
+        if (url.includes("/api/session"))
+          return jsonResponse({ session: { role: "owner" } })
+        return jsonResponse({ locations: [] })
+      })
+    )
+    renderWithProviders(<PublicationCalendar />)
+    await screen.findByRole("region", { name: "Calendar grid" })
+    await userEvent.click(screen.getByRole("tab", { name: "Agenda" }))
+    const agenda = await screen.findByRole("list", {
+      name: "Scheduled publications",
+    })
+    expect(within(agenda).getByText("Missed")).toBeInTheDocument()
+    expect(
+      within(agenda).getByText(
+        /Paused when due: nothing published\. Choose a new time on the listing\./
+      )
+    ).toBeInTheDocument()
+  })
 })

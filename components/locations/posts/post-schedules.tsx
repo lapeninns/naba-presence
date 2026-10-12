@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
-import { StatusPill, type PillTone } from "@/components/ui/status-pill"
+import { StatusPill } from "@/components/ui/status-pill"
 import { ApiClientError } from "@/lib/api/client"
 import {
   actOnPostSchedule,
@@ -29,56 +29,22 @@ import {
   describeScheduleRule,
   slotProblemMessage,
 } from "@/lib/domain/publication-schedule"
+import {
+  scheduleActions,
+  scheduleBadge,
+  scheduleReasonText,
+} from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSessionRole } from "@/lib/queries/use-session"
-
-const STATUS: Record<
-  PublicationSchedule["status"],
-  { label: string; tone: PillTone }
-> = {
-  awaiting_approval: { label: "Awaiting approval", tone: "info" },
-  active: { label: "Active", tone: "ok" },
-  paused: { label: "Paused", tone: "outline" },
-  blocked: { label: "Needs attention", tone: "bad" },
-  needs_review: { label: "Needs review", tone: "warn" },
-  cancelled: { label: "Cancelled", tone: "outline" },
-  completed: { label: "Completed", tone: "outline" },
-}
-const REASON: Record<string, string> = {
-  approval_invalid:
-    "The approval no longer holds (the approval policy or approver changed). Change the schedule and approve it again.",
-  permission_revoked:
-    "The approver or requester lost access. Change the schedule and have a current manager approve it.",
-  feature_disabled:
-    "Scheduled publishing was switched off for this workspace, so nothing was published. Change the schedule and approve it again once it is back.",
-  recurring_disabled:
-    "Repeating schedules are no longer available here, so nothing was published. Change it to a single publication, or cancel it.",
-  recurring_quarantined:
-    "Repeating schedules are no longer the default, so this one was stopped before it published again. Change it to a single publication, or cancel it.",
-  slot_needs_new_time:
-    "Its time was moved or picked automatically because of a clock change, which single publications no longer do, so it was stopped before it published. Choose a new time, or cancel it.",
-  prior_occurrence_unresolved:
-    "A publication was started but its result is not known yet. It is being checked and nothing is sent again; the schedule carries on once the result is known, or asks for a new time if nothing was sent.",
-  prior_occurrence_unverified:
-    "An earlier publication from before this update could not be confirmed either way. Check the location's posts on Google, then choose a new time or cancel it.",
-  connection_changed:
-    "The Google listing or connection changed after approval, so nothing was published. Change the schedule and approve it again.",
-  paused_when_due:
-    "The schedule was paused when its time came, so nothing was published and nothing will publish late. Choose a new time, or cancel it.",
-  outside_dispatch_window:
-    "It could not start within 5 minutes of its time, so nothing was published and nothing will publish late. Choose a new time, or cancel it.",
-  source_changed:
-    "The post was edited after this schedule was set up, so nothing publishes until the new text is approved. Approve it again, or change or cancel the schedule.",
-  source_superseded:
-    "The post was published another way or deleted, so this schedule will not publish it again.",
-}
 
 /**
  * A location's publication schedules and the actions each allows. With the
  * organisation's scheduling feature off (`enabled` false) existing schedules
  * stay visible and can be paused or cancelled, but nothing can be approved,
- * changed or resumed, and an empty list shows nothing at all.
+ * changed or resumed, and an empty list shows nothing at all. A missed
+ * slot is never resumed or retried; its only ways out are a new time or a
+ * cancel (P08-R5).
  */
 export function PostSchedules({
   locationId,
@@ -170,8 +136,13 @@ export function PostSchedules({
       >
         <ul className="flex flex-col gap-2">
           {schedules.map((schedule) => {
-            const status = STATUS[schedule.status]
-            const open = !["cancelled", "completed"].includes(schedule.status)
+            const status = scheduleBadge(schedule)
+            const reason = scheduleReasonText(schedule)
+            const actions = scheduleActions(schedule, {
+              manager,
+              editor: role !== "viewer",
+              enabled,
+            })
             return (
               <li
                 key={schedule.id}
@@ -185,7 +156,11 @@ export function PostSchedules({
                   </span>
                 </div>
                 <p className="text-ui text-ink-secondary">
-                  {describeScheduleRule(schedule.rule, schedule.timezone)}
+                  {describeScheduleRule(
+                    schedule.rule,
+                    schedule.timezone,
+                    schedule.offsetMinutes
+                  )}
                 </p>
                 <p className="text-caption text-ink-muted tabular-nums">
                   {Object.entries(schedule.counts)
@@ -195,15 +170,13 @@ export function PostSchedules({
                     ? " · needs a second approver"
                     : ""}
                 </p>
-                {schedule.statusReason && REASON[schedule.statusReason] ? (
+                {reason ? (
                   <p role="status" className="text-ui text-danger-ink">
-                    {REASON[schedule.statusReason]}
+                    {reason}
                   </p>
                 ) : null}
                 <div className="flex flex-wrap gap-1">
-                  {schedule.status === "awaiting_approval" &&
-                  manager &&
-                  enabled ? (
+                  {actions.review ? (
                     <Button
                       size="sm"
                       variant="secondary"
@@ -215,7 +188,7 @@ export function PostSchedules({
                       Review schedule
                     </Button>
                   ) : null}
-                  {schedule.status === "active" && manager ? (
+                  {actions.pause ? (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -227,7 +200,7 @@ export function PostSchedules({
                       Pause
                     </Button>
                   ) : null}
-                  {schedule.status === "paused" && manager && enabled ? (
+                  {actions.resume ? (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -236,28 +209,37 @@ export function PostSchedules({
                         act.mutate({ id: schedule.id, action: "resume" })
                       }
                     >
-                      Resume
+                      {actions.resume}
                     </Button>
                   ) : null}
-                  {open && role !== "viewer" && enabled ? (
+                  {actions.change ? (
                     <SchedulePostSheet
                       locationId={locationId}
                       timezone={timezone}
                       recurring={recurring}
                       existing={schedule}
+                      newTime={actions.change === "Choose a new time"}
                       post={{
                         id: schedule.sourcePostId ?? schedule.id,
                         topicType: schedule.template.topicType,
                         summary: schedule.template.summary,
                       }}
                       trigger={(show) => (
-                        <Button size="sm" variant="ghost" onClick={show}>
-                          Change
+                        <Button
+                          size="sm"
+                          variant={
+                            actions.change === "Choose a new time"
+                              ? "secondary"
+                              : "ghost"
+                          }
+                          onClick={show}
+                        >
+                          {actions.change}
                         </Button>
                       )}
                     />
                   ) : null}
-                  {open && manager ? (
+                  {actions.cancel ? (
                     <Button
                       size="sm"
                       variant="ghost"
