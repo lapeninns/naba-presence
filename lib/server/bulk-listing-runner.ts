@@ -238,7 +238,10 @@ export async function processBulkChild(
   if ("code" in gate) return fail(gate.code ?? "approval_invalid")
   // The surface's own switch, under the env and the operator pause table;
   // the tick already checked `publish` and `bulk`.
-  if (!(await isScopeEnabled(gbpWriteScopes(family.writeSurface)))) {
+  if (
+    family.writeSurface &&
+    !(await isScopeEnabled(gbpWriteScopes(family.writeSurface)))
+  ) {
     await settle(organisationId, childId, "queued", {
       code: "publishing_paused",
     })
@@ -322,6 +325,7 @@ export async function processBulkChild(
         locationId: child.locationId,
         input,
         session: gate.session,
+        requestedBy: child.requestedBy,
         linked: gate.linked,
         current: child.current,
         proposed: child.proposed,

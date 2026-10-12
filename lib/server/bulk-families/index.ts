@@ -4,9 +4,11 @@ import type { BulkOperation } from "@/lib/domain/bulk-merge"
 import { attributesFamily } from "@/lib/server/bulk-families/attributes"
 import { businessInfoFamily } from "@/lib/server/bulk-families/business-info"
 import { categoriesFamily } from "@/lib/server/bulk-families/categories"
+import { foodMenusFamily } from "@/lib/server/bulk-families/food-menus"
 import { hoursFamily } from "@/lib/server/bulk-families/hours"
 import { lodgingFamily } from "@/lib/server/bulk-families/industry"
 import { placeActionsFamily } from "@/lib/server/bulk-families/place-actions"
+import { postDraftsFamily } from "@/lib/server/bulk-families/posts"
 import type { BulkFamily } from "@/lib/server/bulk-families/types"
 
 /**
@@ -24,6 +26,8 @@ const FAMILIES: Record<BulkOperation, BulkFamily> = {
   business_info: businessInfoFamily as BulkFamily,
   categories: categoriesFamily as BulkFamily,
   lodging: lodgingFamily as BulkFamily,
+  food_menus: foodMenusFamily as BulkFamily,
+  post_draft: postDraftsFamily as BulkFamily,
 }
 
 export function bulkFamily(operation: BulkOperation): BulkFamily {

@@ -96,6 +96,15 @@ const REASON: Record<string, string> = {
   category_not_available:
     "Google doesn’t offer one of these categories in this listing’s country",
   lodging_not_available: "Google keeps no lodging details for this listing",
+  food_menus_not_eligible: "Google doesn’t allow menus for this listing",
+  food_menus_local_changes:
+    "Its menu has unpublished edits; publish or discard them in the menu editor first",
+  menu_node_not_found: "A menu entry this change names isn’t on this listing",
+  menu_node_ambiguous:
+    "A menu entry this change names appears more than once here; change this listing on its own",
+  menu_parent_mismatch: "An added entry doesn’t fit where it’s placed",
+  menu_changes_overlap:
+    "The change edits or adds inside an entry it also removes",
 }
 const reason = (code: string | null) =>
   code
@@ -115,6 +124,8 @@ const OPERATION_LABEL: Record<Operation["operation"], string> = {
   business_info: "Business information",
   categories: "Categories",
   lodging: "Lodging details",
+  food_menus: "Menus",
+  post_draft: "Post drafts",
   mixed: "Several changes",
 }
 

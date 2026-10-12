@@ -59,6 +59,8 @@ export type DispatchContext<TInput extends BulkOperationInput> = {
   input: TInput
   /** The approver, acting for the batch (lib/server/bulk-listing-runner.ts). */
   session: Session
+  /** Who asked for the batch: the author of anything it drafts. */
+  requestedBy: string
   linked: GbpLocationContext
   /** Frozen at preview. */
   current: unknown
@@ -101,8 +103,11 @@ export type BulkFamily<TInput extends BulkOperationInput = BulkOperationInput> =
   {
     operations: readonly BulkOperation[]
     resourceKey: BulkResourceKey
-    /** The surface's own kill switch, under the env and the operator pause table. */
-    writeSurface: GbpWriteSurface
+    /**
+     * The surface's own kill switch, under the env and the operator pause
+     * table. Null for a family that sends nothing to Google (post drafts).
+     */
+    writeSurface: GbpWriteSurface | null
     /** Runs inside the Google account change lock (action links). */
     accountLock: boolean
     /**

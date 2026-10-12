@@ -1681,7 +1681,14 @@ reads Google before sending. Each listing's receipt is at
 the listing's saved hours; `hours_reconciliation_required` means its saved
 hours need reviewing in the hours editor first, and
 `multiple_links_for_type` means the listing has several editable links of
-that type, so change it on its own. Cancelling stops queued listings
+that type, so change it on its own. A bulk menu change also updates the
+listing's saved menus; `food_menus_local_changes` means the listing's menu
+editor holds unpublished edits (publish or discard them, then prepare a new
+preview), and `menu_node_not_found`/`menu_node_ambiguous` mean the menu entry
+the change names is not on that listing exactly once (entries are matched by
+their content and place, never by name), so change that listing on its own. A
+bulk post change only creates drafts: publish each from the listing's posts,
+where two-person approval applies as usual. Cancelling stops queued listings
 only; completed writes are not rolled back.
 
 ### Notification delivery failures

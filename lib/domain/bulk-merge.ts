@@ -15,6 +15,10 @@ import {
   bulkLodgingInputSchema,
   lodgingGroups,
 } from "@/lib/domain/bulk-lodging"
+import {
+  bulkFoodMenusInputSchema,
+  bulkPostDraftInputSchema,
+} from "@/lib/domain/bulk-menus"
 import type {
   HoursSelection,
   NormalizedHours,
@@ -161,6 +165,13 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
   bulkCategoriesInputSchema,
   /** Lodging (the industry family): typed paths from the lodging allowlist. */
   bulkLodgingInputSchema,
+  /**
+   * Food Menus (P09-R6): a full replacement, or node changes by stable node
+   * ID, never by label (lib/domain/bulk-menus.ts).
+   */
+  bulkFoodMenusInputSchema,
+  /** Posts: one independent local draft per listing, published separately. */
+  bulkPostDraftInputSchema,
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
@@ -192,6 +203,13 @@ export function bulkChangeParts(input: BulkOperationInput): string[] {
       return ["categories"]
     case "lodging":
       return lodgingGroups(input).map((group) => `lodging:${group}`)
+    // One menu change per batch: a listing's menus are one resource, and a
+    // merge's node IDs are read from the menus as Google holds them.
+    case "food_menus":
+      return ["food_menus"]
+    // Each post draft is a new, independent post: drafts never overlap.
+    case "post_draft":
+      return []
   }
 }
 
@@ -209,7 +227,7 @@ export const bulkChangeListSchema = z
           context.addIssue({
             code: "custom",
             path: [index],
-            message: `Change ${index + 1} overlaps change ${earlier + 1}; give each day, date, type, attribute or link type once.`,
+            message: `Change ${index + 1} overlaps change ${earlier + 1}; give each day, date, type, attribute or link type once, and change the menus once.`,
           })
           return
         }
@@ -340,7 +358,13 @@ export function bulkListingOrder(
  * same `hours` key, and bulk hours are published through that path.
  */
 export type BulkResourceKey =
-  "hours" | "attributes" | "place_actions" | "business_info" | "lodging"
+  | "hours"
+  | "attributes"
+  | "place_actions"
+  | "business_info"
+  | "lodging"
+  | "food_menus"
+  | "posts"
 export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
   switch (operation) {
     case "attributes":
@@ -356,6 +380,12 @@ export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
     // The lodging editor's key (lib/server/industry-management.ts).
     case "lodging":
       return "lodging"
+    // The menu publisher's key (lib/server/food-menus.ts `publishFoodMenus`).
+    case "food_menus":
+      return "food_menus"
+    // Drafts touch no Google resource; the key only spaces them out.
+    case "post_draft":
+      return "posts"
     default:
       return "hours"
   }

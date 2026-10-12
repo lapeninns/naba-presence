@@ -271,7 +271,93 @@ export function describeChildChange(
       return categoryRows(current, proposed)
     case "lodging":
       return fieldRows(current, proposed)
+    case "food_menus":
+      return menuRows(current, proposed)
+    case "post_draft":
+      return postRows(proposed)
   }
+}
+
+const KIND_LABEL: Record<string, string> = {
+  menu: "Menu",
+  section: "Section",
+  item: "Item",
+}
+type MenuNodeSummary = {
+  kind?: string
+  label?: string
+  within?: string[]
+  contains?: number
+  fields?: string[]
+}
+/** "Item “Soup” in Lunch › Starters (and 3 more entries)". */
+function menuNode(node: MenuNodeSummary): string {
+  const kind = KIND_LABEL[node.kind ?? ""] ?? "Entry"
+  const name = node.label
+    ? `${kind} “${node.label}”`
+    : `Unnamed ${kind.toLowerCase()}`
+  const place = (node.within ?? []).filter(Boolean)
+  const where = place.length ? ` in ${place.join(" › ")}` : ""
+  const more = node.contains
+    ? ` (with ${node.contains} ${node.contains === 1 ? "entry" : "entries"} inside)`
+    : ""
+  return `${name}${where}${more}`
+}
+type MenuCounts = { menus?: number; sections?: number; items?: number }
+const menuCounts = (counts: MenuCounts | undefined) =>
+  `${counts?.menus ?? 0} menus, ${counts?.sections ?? 0} sections, ${counts?.items ?? 0} items`
+
+/**
+ * Menus: every entry the listing loses is its own row, so the approver sees
+ * each removal before approving; then additions and updates.
+ */
+function menuRows(current: unknown, proposed: unknown): ChangeRow[] {
+  const before = record(current) as { counts?: MenuCounts }
+  const after = record(proposed) as {
+    counts?: MenuCounts
+    removed?: MenuNodeSummary[]
+    added?: MenuNodeSummary[]
+    updated?: MenuNodeSummary[]
+  }
+  return [
+    ...list<MenuNodeSummary>(after.removed).map((node) => ({
+      label: "Removed",
+      current: menuNode(node),
+      proposed: "Removed from Google",
+    })),
+    ...list<MenuNodeSummary>(after.added).map((node) => ({
+      label: "Added",
+      current: "Not on Google",
+      proposed: menuNode(node),
+    })),
+    ...list<MenuNodeSummary>(after.updated).map((node) => ({
+      label: "Updated",
+      current: menuNode(node),
+      proposed: `New ${(node.fields ?? []).map(humaniseId).join(", ").toLowerCase()}`,
+    })),
+    {
+      label: "Menus",
+      current: menuCounts(before.counts),
+      proposed: menuCounts(after.counts),
+    },
+  ]
+}
+
+const TOPIC_LABEL: Record<string, string> = {
+  STANDARD: "Update",
+  EVENT: "Event",
+  OFFER: "Offer",
+}
+/** A draft is created; it is published from the listing's posts. */
+function postRows(proposed: unknown): ChangeRow[] {
+  const post = record(proposed) as { topicType?: string; summary?: string }
+  return [
+    {
+      label: "New post draft",
+      current: "Nothing published",
+      proposed: `${TOPIC_LABEL[post.topicType ?? ""] ?? "Post"} draft: ${post.summary || "(no text)"}`,
+    },
+  ]
 }
 
 const BUSINESS_FIELD_LABEL: Record<string, string> = {
@@ -354,6 +440,8 @@ const MASK_LABEL: Record<string, string> = {
   regularHours: "Opening hours",
   specialHours: "Special hours",
   moreHours: "Service hours",
+  menus: "Menus",
+  localPost: "A new post draft",
 }
 
 /** An update mask entry in plain English, never the raw field path. */

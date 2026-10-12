@@ -1535,7 +1535,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1682,6 +1682,35 @@ under the lodging editor's lock. All three record attempts in
 `bulk_listing_write_attempt` with receipts (surfaces `business_info` and
 `lodging`), read back by their recovery adapters. Healthcare is not a bulk
 family, pending decision D-24.
+
+Food Menus and post drafts (P09-R6, 0265). A menus change
+(`lib/domain/bulk-menus.ts`) is a full replacement or a merge by stable node
+ID; nodes are never matched by label. A node's ID (`menuNodeId`,
+`lib/domain/food-menus.ts`) hashes its kind (menu, section or item), its own
+content without its child nodes and its parent's ID, so the same node has
+the same ID at every listing that holds it, and a node that is merely named
+the same is another node. A merge updates named fields of a node, removes a
+node, or appends one under a parent, and skips a listing where a named ID is
+missing or repeated, where a node is added under the wrong level, or where a
+change falls inside a removed node. The preview freezes Google's menus hash
+and lists every node each listing loses, adds and updates; a listing whose
+saved menus hold an unpublished edit is skipped. The child is sent through
+the menu editor's own path (`publishFoodMenusChangeLocked` in
+`lib/server/food-menus.ts`): the result is saved as a new canonical
+revision, then published as the editor's full replacement on
+`food_menus_sync_attempt` with the child's intent and a receipt, read back,
+and settled by the existing Food Menus recovery adapter. The restore point
+(the revision saved and the menus it replaced) is kept in
+`bulk_listing_child.hours_restore`, so a write recovery reads back as not
+applied puts the saved menus back. The editor's publish (`publishFoodMenus`)
+now holds the same `<org>:<location>:food_menus` lock as bulk children.
+Post drafts (`lib/server/bulk-families/posts.ts`) send nothing to Google:
+each listing gets one independent local draft (`insertLocalPostDraft`),
+authored by the batch's requester, whose id is stored on the child
+(`bulk_listing_child.local_post_id`) in the same transaction so a re-run
+claim never drafts twice. Each draft is published from the listing's posts
+with its own approval (`requestOrPublishLocalPost`), so under two-person
+approval its author cannot publish it alone.
 
 ## Reporting provenance (WP9)
 

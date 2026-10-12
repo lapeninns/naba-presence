@@ -1,6 +1,6 @@
 "use client"
 
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { Plus, Trash2 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/app-shell/page-frame"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/select"
 import { ApiClientError } from "@/lib/api/client"
 import { previewBulkChange } from "@/lib/api/bulk-listings"
+import { fetchFoodMenus } from "@/lib/api/location-menu"
 import {
   BULK_MAX_TARGETS,
   bulkOperationInputSchema,
@@ -31,6 +33,8 @@ import {
 import { GOOGLE_PLACE_ACTION_TYPES } from "@/lib/domain/google-contract"
 import { GOOGLE_LODGING_BOOLEAN_PATHS } from "@/lib/domain/google-lodging"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
+import { queryKeys } from "@/lib/queries/keys"
+import { requestOptions } from "@/lib/queries/request-options"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 
@@ -52,6 +56,8 @@ const OPERATIONS: Array<{ value: BulkOperation; label: string }> = [
   { value: "business_info", label: "Business information" },
   { value: "categories", label: "Categories" },
   { value: "lodging", label: "Lodging" },
+  { value: "food_menus", label: "Menus" },
+  { value: "post_draft", label: "Post draft" },
 ]
 type FieldEdit = { mode: "keep" | "set" | "clear"; value: string }
 type LodgingRow = { path: string; value: "true" | "false" | "clear" }
@@ -150,6 +156,17 @@ export function BulkCompose() {
   const [lodging, setLodging] = useState<LodgingRow[]>([
     { path: "", value: "true" },
   ])
+  /** The selected listing whose menus (as Google shows them) replace the others'. */
+  const [menuSource, setMenuSource] = useState("")
+  const sourceMenus = useQuery({
+    queryKey: queryKeys.locationMenu(menuSource),
+    queryFn: (ctx) => fetchFoodMenus(menuSource, requestOptions(ctx)),
+    enabled: operation === "food_menus" && Boolean(menuSource),
+  })
+  const [post, setPost] = useState({
+    topicType: "STANDARD" as const,
+    summary: "",
+  })
   const [failure, setFailure] = useState<string | null>(null)
 
   const raw =
@@ -274,7 +291,21 @@ export function BulkCompose() {
                           {} as Record<string, unknown>
                         ),
                     }
-                  : { operation, ...link }
+                  : operation === "food_menus"
+                    ? {
+                        operation,
+                        mode: "replace",
+                        menus: sourceMenus.data?.googleMenus,
+                      }
+                    : operation === "post_draft"
+                      ? {
+                          operation,
+                          post: {
+                            topicType: post.topicType,
+                            summary: post.summary,
+                          },
+                        }
+                      : { operation, ...link }
   const parsed = bulkOperationInputSchema.safeParse(raw)
   const problem =
     ids.length === 0
@@ -282,9 +313,17 @@ export function BulkCompose() {
       : operation === "categories" &&
           categoryList(categories.primary).length > 1
         ? "Name one primary category."
-        : parsed.success
-          ? null
-          : (parsed.error.issues[0]?.message ?? "Check the change.")
+        : operation === "food_menus" && !menuSource
+          ? "Choose the listing whose menus to copy."
+          : operation === "food_menus" && !sourceMenus.data
+            ? sourceMenus.isError
+              ? "That listing’s menus couldn’t be read."
+              : "Reading that listing’s menus…"
+            : operation === "post_draft" && !post.summary.trim()
+              ? "Write the post."
+              : parsed.success
+                ? null
+                : (parsed.error.issues[0]?.message ?? "Check the change.")
   const preview = useMutation({
     mutationFn: () =>
       previewBulkChange({
@@ -837,6 +876,60 @@ export function BulkCompose() {
             >
               <Plus aria-hidden /> Add a lodging field
             </Button>
+          </fieldset>
+        ) : operation === "food_menus" ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-ui text-ink-secondary">
+              Replaces every other listing’s menus with the menus Google shows
+              for one listing. The preview lists every menu entry each listing
+              loses before anything can be approved.
+            </legend>
+            <label className="flex flex-col gap-1 text-caption text-ink">
+              Copy the menus of
+              <Select
+                value={menuSource}
+                onValueChange={(value) => setMenuSource(value ?? "")}
+              >
+                <SelectTrigger
+                  className="w-full sm:w-80"
+                  aria-label="Listing whose menus to copy"
+                >
+                  <SelectValue>
+                    {(v: string | null) =>
+                      v ? (names.get(v) ?? "Listing") : "Choose a listing"
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ids.map((id) => (
+                    <SelectItem key={id} value={id}>
+                      {names.get(id) ?? "Listing"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            {sourceMenus.data ? (
+              <p className="text-ui text-ink-secondary">
+                {`${sourceMenus.data.googleCounts.menus} menus, ${sourceMenus.data.googleCounts.sections} sections, ${sourceMenus.data.googleCounts.items} items.`}
+              </p>
+            ) : null}
+          </fieldset>
+        ) : operation === "post_draft" ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="text-ui text-ink-secondary">
+              Creates a separate draft on each listing. Nothing is published:
+              each draft is published from that listing’s posts, with its own
+              approval when two-person approval is on.
+            </legend>
+            <label className="flex flex-col gap-1 text-caption text-ink">
+              Post text
+              <Textarea
+                maxLength={1500}
+                value={post.summary}
+                onChange={(e) => setPost({ ...post, summary: e.target.value })}
+              />
+            </label>
           </fieldset>
         ) : (
           <fieldset className="flex flex-col gap-3">
