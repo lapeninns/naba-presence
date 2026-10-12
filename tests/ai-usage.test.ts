@@ -36,7 +36,7 @@ describe("extractUsage", () => {
       extractUsage({ usage: { input_tokens: 120, output_tokens: 33 } })
     ).toEqual({ inputTokens: 120, outputTokens: 33 })
   })
-  it("reads Workers AI chat completions token counts", () => {
+  it("reads chat-completions-shaped token counts", () => {
     expect(
       extractUsage({ usage: { prompt_tokens: 120, completion_tokens: 33 } })
     ).toEqual({ inputTokens: 120, outputTokens: 33 })

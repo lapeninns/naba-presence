@@ -33,34 +33,24 @@ describeDatabase(
     beforeAll(async () => {
       admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 2 })
       stub = await startGoogleStub()
-      stub.respond(
-        { method: "POST", pathIncludes: "/ai/v1/chat/completions" },
-        () => ({
-          status: 200,
-          json: {
-            choices: [
-              {
-                finish_reason: "stop",
-                message: {
-                  content: JSON.stringify({
-                    unsupportedClaims: [],
-                    unsafeEscalation: false,
-                    toneMismatch: false,
-                  }),
-                },
-              },
-            ],
-            usage: { prompt_tokens: 100, completion_tokens: 20 },
-          },
-        })
-      )
+      stub.respond({ method: "POST", pathIncludes: "/v1/responses" }, () => ({
+        status: 200,
+        json: {
+          status: "completed",
+          output_text: JSON.stringify({
+            unsupportedClaims: [],
+            unsafeEscalation: false,
+            toneMismatch: false,
+          }),
+          usage: { input_tokens: 100, output_tokens: 20 },
+        },
+      }))
       server = await startAppServer({
         GOOGLE_API_PROXY_BASE: stub.baseUrl,
         PUBLISH_ENABLED: "true",
         JOBS_ENABLED: "true",
-        WORKERS_AI_API_TOKEN: "route-harness-dummy-workers-ai-token",
-        WORKERS_AI_ACCOUNT_ID: "a".repeat(32),
-        WORKERS_AI_BASE_URL: stub.baseUrl,
+        OPENAI_API_KEY: "route-harness-dummy-openai-key",
+        OPENAI_BASE_URL: stub.baseUrl,
       })
     })
     afterAll(async () => {
@@ -107,7 +97,7 @@ describeDatabase(
       const verifications = stub.calls.filter(
         (call) =>
           call.method === "POST" &&
-          call.path.includes("/ai/v1/chat/completions") &&
+          call.path.includes("/v1/responses") &&
           JSON.stringify(call.body).includes("review_reply_verification")
       )
       expect(verifications).toHaveLength(3)

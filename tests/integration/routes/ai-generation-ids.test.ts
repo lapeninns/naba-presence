@@ -48,8 +48,7 @@ describeDatabase("AI generation ids and credit periods", () => {
 
   function aiCalls(): number {
     return stub.calls.filter(
-      (call) =>
-        call.method === "POST" && call.path.includes("/ai/v1/chat/completions")
+      (call) => call.method === "POST" && call.path.includes("/v1/responses")
     ).length
   }
 
@@ -73,41 +72,31 @@ describeDatabase("AI generation ids and credit periods", () => {
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
     stub = await startGoogleStub()
-    stub.respond(
-      { method: "POST", pathIncludes: "/ai/v1/chat/completions" },
-      (call) => {
-        const isVerification = JSON.stringify(call.body).includes(
-          "review_reply_verification"
-        )
-        return {
-          status: 200,
-          json: {
-            choices: [
-              {
-                finish_reason: "stop",
-                message: {
-                  content: JSON.stringify(
-                    isVerification
-                      ? {
-                          unsupportedClaims: [],
-                          unsafeEscalation: false,
-                          toneMismatch: false,
-                        }
-                      : DRAFT
-                  ),
-                },
-              },
-            ],
-            usage: { prompt_tokens: 100, completion_tokens: 20 },
-          },
-        }
+    stub.respond({ method: "POST", pathIncludes: "/v1/responses" }, (call) => {
+      const isVerification = JSON.stringify(call.body).includes(
+        "review_reply_verification"
+      )
+      return {
+        status: 200,
+        json: {
+          status: "completed",
+          output_text: JSON.stringify(
+            isVerification
+              ? {
+                  unsupportedClaims: [],
+                  unsafeEscalation: false,
+                  toneMismatch: false,
+                }
+              : DRAFT
+          ),
+          usage: { input_tokens: 100, output_tokens: 20 },
+        },
       }
-    )
+    })
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: stub.baseUrl,
-      WORKERS_AI_API_TOKEN: "route-harness-dummy-workers-ai-token",
-      WORKERS_AI_ACCOUNT_ID: "a".repeat(32),
-      WORKERS_AI_BASE_URL: stub.baseUrl,
+      OPENAI_API_KEY: "route-harness-dummy-openai-key",
+      OPENAI_BASE_URL: stub.baseUrl,
     })
   })
 
