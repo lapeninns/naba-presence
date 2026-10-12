@@ -1537,7 +1537,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265; P09-R7, 0266; P09-R8, 0267)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265; P09-R7, 0266; P09-R8, 0267; P09-R9 UI)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1793,6 +1793,32 @@ attempts). A review child whose lease ran out is queued again within its
 dispatch window, at most five runs (`requeue_interrupted_review_children`).
 The requester of a review batch may cancel or retry it; retry leaves a child
 whose publish attempt is still unsettled alone.
+
+Composer and batch page (P09-R9). The composer
+(`components/bulk/bulk-compose.tsx`, `/listings/bulk?ids=…`) edits one change
+at a time and adds it to an ordered change list (move up, move down,
+remove); the preview sends exactly that list as `items`, or the change being
+edited alone when nothing was added. It checks the list with the wire
+contract before any request (`bulkPreviewRequestSchema`: overlapping parts,
+category changes first, 10 photos, listings × changes at most 500) and
+refuses a link naming more than 50 listings instead of trimming it. Regular
+hours send only the ticked weekdays. The photos editor uploads through
+`lib/api/assets.ts` (`uploadPhotoAsset`: the browser hashes the file with
+SHA-256, `POST /api/assets`, PUTs the bytes to the signed URL, then
+finalises) or picks a ready asset; the browser PUT needs the storage origin
+in the CSP's `connect-src`, which `next.config.ts` (`assetUploadOrigin`) adds
+only when `MEDIA_ASSET_STORAGE=supabase`. Food Menus in the composer are a
+full replacement copied from one selected listing; merges by node ID stay
+API-only. The batch page (`components/bulk/bulk-operation-view.tsx`) counts
+the 15-minute approval window down and disables approval when it closes,
+offers "New preview" for children that can never be retried in place
+(`conflict`, `expired`, and `dependency_not_applied`;
+`lib/domain/bulk-repreview.ts` `newPreviewRequest`: their listings and the
+batch's changes they carry, in order, so listings that already show a change
+are skipped as already applied), links a review child to its review in the
+inbox, and shows a child's receipt (`GET /api/mutations/{id}` through
+`OperationReceiptNotice`) only when asked, so a 500-child batch never polls
+every receipt.
 
 ## Reporting provenance (WP9)
 

@@ -17,6 +17,25 @@ import type { NextConfig } from "next"
 // Next's development bundle uses eval-based source maps for React debugging.
 // Production bundles do not require eval, so keep it out of the production CSP.
 const developmentEval = process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""
+/**
+ * Bulk photo uploads (P09-R9) PUT the file straight from the browser to the
+ * private bucket's signed URL (lib/contracts/assets.ts), so no photo passes
+ * through a route body. Only when owned photo storage is switched on
+ * (`MEDIA_ASSET_STORAGE=supabase`) is the Supabase origin added to
+ * connect-src; otherwise the policy stays same-origin and the asset routes
+ * answer 503 anyway (fails closed).
+ */
+export function assetUploadOrigin(env: Record<string, string | undefined> = process.env): string | null {
+  if (env.MEDIA_ASSET_STORAGE?.trim() !== "supabase" || !env.SUPABASE_URL) return null
+  try {
+    const url = new URL(env.SUPABASE_URL)
+    const local = url.hostname === "127.0.0.1" || url.hostname === "localhost"
+    return url.protocol === "https:" || (local && url.protocol === "http:") ? url.origin : null
+  } catch {
+    return null
+  }
+}
+const uploadOrigin = assetUploadOrigin()
 
 const csp = [
   "default-src 'self'",
@@ -29,7 +48,7 @@ const csp = [
   "font-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   `script-src 'self' 'unsafe-inline'${developmentEval}`,
-  "connect-src 'self'",
+  `connect-src 'self'${uploadOrigin ? ` ${uploadOrigin}` : ""}`,
 ].join("; ")
 
 /**

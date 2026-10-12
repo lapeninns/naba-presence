@@ -20,6 +20,8 @@ export const queryKeys = {
   postSchedules: (locationId: string) => ["locations", locationId, "post-schedules"] as const,
   bulkChanges: ["bulk-changes"] as const,
   bulkChange: (id: string) => ["bulk-changes", id] as const,
+  // The organisation's finished photo uploads, for the bulk photos editor.
+  readyAssets: ["assets", "ready"] as const,
   scheduleOccurrencesAll: ["schedule-occurrences"] as const,
   scheduleOccurrences: (params: Record<string, string | undefined>) => ["schedule-occurrences", params] as const,
   webhookFailures: ["operations", "webhook-failures"] as const,

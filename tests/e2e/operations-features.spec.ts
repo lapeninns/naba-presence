@@ -65,6 +65,24 @@ const dayBefore = (date: string) =>
   new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000)
     .toISOString()
     .slice(0, 10)
+/**
+ * Moves focus with Tab only until the control named `name` has it, so the
+ * path is the one a keyboard user takes, then presses Enter on it.
+ */
+async function tabToAndPress(page: Page, name: string, limit = 150) {
+  for (let step = 0; step < limit; step += 1) {
+    await page.keyboard.press("Tab")
+    const focused = await page.evaluate(() => {
+      const element = document.activeElement as HTMLElement | null
+      return element?.textContent?.replace(/\s+/g, " ").trim() ?? ""
+    })
+    if (focused === name) {
+      await page.keyboard.press("Enter")
+      return
+    }
+  }
+  throw new Error(`Tab never reached "${name}"`)
+}
 const nextDecember = () =>
   `${new Date().getUTCMonth() === 11 && new Date().getUTCDate() >= 24 ? new Date().getUTCFullYear() + 1 : new Date().getUTCFullYear()}-12-24`
 
@@ -343,6 +361,82 @@ for (const width of [375, 768, 1280])
             call.method === "PATCH" && !call.path.includes("validateOnly=true")
         )
       ).toHaveLength(2)
+    })
+
+    test("composes a bulk change list by keyboard, re-previews expired listings and shows each receipt", async ({
+      page,
+    }, info) => {
+      const f = await backend.fixture(page, 2)
+      await f.enableFeature("bulk_actions")
+      await f.goto(
+        `/listings/bulk?ids=${f.linked.map((entry) => entry.locationId).join(",")}`
+      )
+      const date = page.getByLabel("Date", { exact: true })
+      await date.fill(nextDecember())
+      await date.focus()
+      await tabToAndPress(page, "Add to the batch")
+      await date.fill(nextDecember().replace(/-24$/, "-31"))
+      await date.focus()
+      await tabToAndPress(page, "Add to the batch")
+      const list = page.getByRole("list", {
+        name: "Changes in this batch, in the order they are sent",
+      })
+      await expect(list.getByRole("listitem")).toHaveCount(2)
+      await expect(
+        page.getByText(/2 listings × 2 changes = 4 of at most 500/)
+      ).toBeVisible()
+      await capture(page, info, "bulk-compose-list")
+      await date.focus()
+      await tabToAndPress(page, "Preview these 2 changes")
+      await expect(
+        page.getByText("Waiting for approval.", { exact: false })
+      ).toBeVisible()
+      await expect(page.getByText(/^\d+:\d\d left$/)).toBeVisible()
+      await capture(page, info, "bulk-preview-countdown")
+      // The 15-minute approval window closes.
+      await backend.admin`update bulk_listing_operation set preview_expires_at = now() - interval '1 second' where organisation_id = ${f.owner.organisationId}`
+      await page.reload()
+      await expect(page.getByText(/^This change expired\./)).toBeVisible()
+      await expect(
+        page.getByRole("button", { name: "Approve this exact change" })
+      ).toHaveCount(0)
+      await capture(page, info, "bulk-preview-expired")
+      const expiredUrl = page.url()
+      await page.locator("body").focus()
+      await tabToAndPress(page, "New preview for 2 listings not sent")
+      await expect(page).not.toHaveURL(expiredUrl)
+      await expect(
+        page.getByText("Waiting for approval.", { exact: false })
+      ).toBeVisible()
+      await page.locator("body").focus()
+      await tabToAndPress(page, "Approve this exact change")
+      await expect(
+        page.getByRole("button", { name: "Start bulk change" })
+      ).toBeVisible()
+      await page.locator("body").focus()
+      await tabToAndPress(page, "Start bulk change")
+      await expect(page.getByText(/Running\./)).toBeVisible()
+      // Each listing's two changes run in order, one at a time per listing.
+      for (let tick = 0; tick < 4; tick += 1) {
+        await backend.tick()
+        const [row] = await backend.admin<{ count: number }[]>`
+          select count(*)::int as count from bulk_listing_child c
+          join bulk_listing_operation o on o.id = c.operation_id
+          where o.organisation_id = ${f.owner.organisationId} and o.status <> 'expired' and c.status = 'succeeded'`
+        if (row.count === 4) break
+      }
+      await page.reload()
+      await expect(
+        page.getByText("Every eligible listing is confirmed.", { exact: false })
+      ).toBeVisible()
+      await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(4)
+      await page.locator("body").focus()
+      await tabToAndPress(page, "Show receipt for Fixture Inn 1")
+      await expect(
+        page.getByText(/^Receipt [0-9a-f-]{36}$/).first()
+      ).toBeVisible()
+      await expect(page.getByText("Live on Google").first()).toBeVisible()
+      await capture(page, info, "bulk-receipt")
     })
 
     test("reports missing Google figures as no data with coverage and fetch provenance", async ({

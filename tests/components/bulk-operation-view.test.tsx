@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
@@ -26,6 +26,8 @@ const describeChildChange = (
 vi.mock("@/lib/queries/use-session", () => ({
   useSessionRole: () => "owner",
 }))
+const push = vi.fn()
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
 
 const specialInput = {
   operation: "special_hours" as const,
@@ -74,7 +76,7 @@ const operation: Operation = {
   requiresSecondApprover: false,
   canApprove: true,
   approvalExpiresAt: "2026-10-02T00:00:00.000Z",
-  previewExpiresAt: "2026-10-02T00:00:00.000Z",
+  previewExpiresAt: "2099-10-02T00:00:00.000Z",
   dispatchExpiresAt: null,
   createdAt: "2026-09-30T00:00:00.000Z",
   finishedAt: null,
@@ -113,6 +115,8 @@ const operation: Operation = {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.useRealTimers()
+  push.mockReset()
 })
 
 describe("BulkOperationView", () => {
@@ -416,5 +420,221 @@ describe("describeChildChange", () => {
     expect(maskLabel("locations/1/placeActionLinks/9")).toBe(
       "An existing action link"
     )
+  })
+})
+
+describe("BulkOperationView follow-ups (P09-R9)", () => {
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    })
+
+  it("counts the preview's approval window down and stops approval once it closes", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
+    vi.setSystemTime(new Date("2026-10-01T23:59:50.000Z"))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({
+          operation: {
+            ...operation,
+            previewExpiresAt: "2026-10-02T00:00:00.000Z",
+          },
+        })
+      )
+    )
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    expect(await screen.findByText("0:10 left")).toBeInTheDocument()
+    const approve = screen.getByRole("button", {
+      name: "Approve this exact change",
+    })
+    expect(approve).toBeEnabled()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(
+      await screen.findByText(
+        /This preview expired at .* can no longer be approved/
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Approve this exact change" })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "New preview for 1 listing not sent" })
+    ).toBeInTheDocument()
+  })
+
+  it("prepares a new preview of only the conflicted and expired listings, with their changes in order", async () => {
+    const wifi = {
+      operation: "attributes" as const,
+      changes: [{ name: "attributes/has_wifi", values: [true] }],
+    }
+    const listingB = "00000000-0000-4000-8000-0000000000d2"
+    const view: Operation = {
+      ...operation,
+      operation: "mixed",
+      items: [specialInput, wifi],
+      status: "completed_with_failures",
+      canApprove: false,
+      approvedBy: operation.requestedBy,
+      dispatchExpiresAt: "2026-10-02T00:00:00.000Z",
+      counts: { succeeded: 2, conflict: 1, expired: 1 },
+      children: [
+        child({ status: "succeeded" }),
+        child({
+          id: "00000000-0000-4000-8000-0000000000c2",
+          seq: 1,
+          itemKey: "1:attributes",
+          operation: "attributes",
+          input: wifi,
+          status: "conflict",
+          resultCode: "google_baseline_changed",
+        }),
+        child({
+          id: "00000000-0000-4000-8000-0000000000c3",
+          locationId: listingB,
+          locationName: "White Horse",
+          status: "succeeded",
+        }),
+        child({
+          id: "00000000-0000-4000-8000-0000000000c4",
+          locationId: listingB,
+          locationName: "White Horse",
+          seq: 1,
+          itemKey: "1:attributes",
+          operation: "attributes",
+          input: wifi,
+          status: "expired",
+          resultCode: "dispatch_expired",
+        }),
+      ],
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input).endsWith("/preview")
+        ? json({
+            operation: {
+              ...operation,
+              id: "00000000-0000-4000-8000-0000000000b2",
+            },
+          })
+        : json({ operation: view })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    renderWithProviders(<BulkOperationView operationId={view.id} />)
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "New preview for 2 listings not sent",
+      })
+    )
+    await vi.waitFor(() =>
+      expect(push).toHaveBeenCalledWith(
+        "/listings/bulk/00000000-0000-4000-8000-0000000000b2"
+      )
+    )
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/listings/bulk/preview")
+    )
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      locationIds: [operation.children[0].locationId, listingB],
+      items: [wifi],
+    })
+  })
+
+  it("shows a listing's receipt only when asked, read from GET /api/mutations/{id}", async () => {
+    const receiptId = "00000000-0000-4000-8000-0000000000f1"
+    const view: Operation = {
+      ...operation,
+      status: "completed",
+      canApprove: false,
+      approvedBy: operation.requestedBy,
+      counts: { succeeded: 1 },
+      children: [
+        child({ status: "succeeded", mutationOperationId: receiptId }),
+      ],
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input).includes("/api/mutations/")
+        ? json({
+            operation: {
+              id: receiptId,
+              intentId: receiptId,
+              surface: "hours",
+              action: "hours_publish",
+              outcome: "confirmed_applied",
+              locationId: operation.children[0].locationId,
+              targetType: null,
+              targetRef: null,
+              errorCode: null,
+              attemptId: null,
+              createdAt: "2026-10-01T00:00:00.000Z",
+              updatedAt: "2026-10-01T00:00:00.000Z",
+            },
+          })
+        : json({ operation: view })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    renderWithProviders(<BulkOperationView operationId={view.id} />)
+    const show = await screen.findByRole("button", {
+      name: "Show receipt for Old Crown",
+    })
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/api/mutations/")
+      )
+    ).toBe(false)
+    expect(show).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(show)
+    expect(await screen.findByText(`Receipt ${receiptId}`)).toBeInTheDocument()
+    await vi.waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).endsWith(`/api/mutations/${receiptId}`)
+        )
+      ).toBe(true)
+    )
+    expect(
+      screen.getByRole("button", { name: "Hide receipt for Old Crown" })
+    ).toHaveAttribute("aria-expanded", "true")
+  })
+
+  it("offers no new preview for a review batch", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({
+          operation: {
+            ...operation,
+            operation: "review_approval",
+            status: "completed_with_failures",
+            canApprove: false,
+            counts: { expired: 1 },
+            children: [
+              child({
+                operation: "review_approval",
+                status: "expired",
+                resultCode: "dispatch_expired",
+                input: {
+                  operation: "review_approval",
+                  reviewId: "00000000-0000-4000-8000-0000000000a1",
+                  draftId: "00000000-0000-4000-8000-0000000000a2",
+                  reviewUpdateTime: "2026-10-01T00:00:00.000Z",
+                },
+                reviewId: "00000000-0000-4000-8000-0000000000a1",
+              }),
+            ],
+          },
+        })
+      )
+    )
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    expect(
+      await screen.findByRole("link", { name: "Open the review for Old Crown" })
+    ).toHaveAttribute(
+      "href",
+      "/inbox?selected=00000000-0000-4000-8000-0000000000a1"
+    )
+    expect(
+      screen.queryByRole("button", { name: /New preview/ })
+    ).not.toBeInTheDocument()
   })
 })

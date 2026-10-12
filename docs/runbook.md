@@ -1711,6 +1711,17 @@ twice), and the batch settles from that decision. `photo_already_added` and
 adding, that photo there. Cancelling stops queued listings only; completed
 writes are not rolled back.
 
+On the batch page, "New preview for N listings not sent" prepares a fresh
+preview of the listings that expired, changed on Google after the preview,
+or were blocked by a prerequisite that did not apply; it reads Google again,
+and listings that already show a change are skipped as already applied.
+While a preview waits, the page counts down the 15 minutes left to approve
+it. "Show receipt" on a listing reads that write's receipt
+(`GET /api/mutations/{id}`). Photo uploads from the composer go straight from
+the browser to the private bucket, so the deployed build must have
+`MEDIA_ASSET_STORAGE=supabase` and `SUPABASE_URL` set at build time for the
+CSP to allow that origin; otherwise the upload is blocked in the browser.
+
 ### Notification delivery failures
 
 `/settings/operations` shows email evidence by state. "Retry failed emails"

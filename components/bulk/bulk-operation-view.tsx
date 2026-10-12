@@ -2,9 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
-import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { OperationReceiptNotice } from "@/components/locations/operation-outcome"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
@@ -22,6 +24,7 @@ import {
   approveBulkChange,
   cancelBulkChange,
   fetchBulkChange,
+  previewBulkChange,
   retryBulkChange,
   startBulkChange,
 } from "@/lib/api/bulk-listings"
@@ -29,6 +32,12 @@ import type {
   BulkChild,
   BulkOperationView as Operation,
 } from "@/lib/contracts/bulk-listings"
+import { isBulkReviewOperation } from "@/lib/domain/bulk-reviews"
+import {
+  formatCountdown,
+  newPreviewRequest,
+  secondsLeft,
+} from "@/lib/domain/bulk-repreview"
 import { formatDateTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
@@ -177,6 +186,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
   const role = useSessionRole()
   const manager = role === "owner" || role === "admin"
   const client = useQueryClient()
+  const router = useRouter()
   const [acknowledged, setAcknowledged] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const query = useQuery({
@@ -209,6 +219,25 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       ),
   })
   const op = query.data
+  // The 15-minute approval window, counted down on the page; once it closes
+  // the preview cannot be approved and Google must be read again.
+  const now = useNow(op?.status === "previewed")
+  const previewClosed =
+    op?.status === "previewed" && secondsLeft(op.previewExpiresAt, now) === 0
+  const repreview = op ? newPreviewRequest(op, { previewClosed }) : null
+  const prepare = useMutation({
+    mutationFn: () => previewBulkChange(repreview!),
+    onSuccess: (next) => {
+      void client.invalidateQueries({ queryKey: queryKeys.bulkChanges })
+      router.push(`/listings/bulk/${next.id}`)
+    },
+    onError: (error) =>
+      setFailure(
+        error instanceof ApiClientError
+          ? error.message
+          : "The new preview could not be prepared. Try again."
+      ),
+  })
   const listings = new Set(op?.children.map((child) => child.locationId)).size
   const multiple = (op?.items.length ?? 1) > 1
   const unit = (count: number) =>
@@ -273,7 +302,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 )
                 .join(" · ")}
             </p>
-            <Deadline operation={op} />
+            <Deadline operation={op} now={now} />
             {failure ? (
               <p role="alert" className="text-ui text-danger-ink">
                 {failure}
@@ -294,7 +323,9 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                     ) : null}
                     <Button
                       disabled={
-                        !op.canApprove || (skipped > 0 && !acknowledged)
+                        !op.canApprove ||
+                        previewClosed ||
+                        (skipped > 0 && !acknowledged)
                       }
                       pending={mutate.isPending}
                       onClick={() => mutate.mutate("approve")}
@@ -335,6 +366,27 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                     onClick={() => mutate.mutate("retry")}
                   >
                     Retry {retryable} unsettled {unit(retryable)}
+                  </Button>
+                ) : null}
+                {repreview && !isBulkReviewOperation(op.operation) ? (
+                  <Button
+                    variant={
+                      previewClosed || op.status === "expired"
+                        ? "default"
+                        : "secondary"
+                    }
+                    pending={prepare.isPending}
+                    pendingLabel="Reading each listing…"
+                    onClick={() => {
+                      setFailure(null)
+                      prepare.mutate()
+                    }}
+                  >
+                    New preview for {repreview.locationIds.length}{" "}
+                    {repreview.locationIds.length === 1
+                      ? "listing"
+                      : "listings"}{" "}
+                    not sent
                   </Button>
                 ) : null}
               </div>
@@ -395,14 +447,28 @@ const localTime = (iso: string) =>
  * after it read Google, and an approved change sends listings for 24 hours
  * after approval. Neither is extended; a closed window needs a new preview.
  */
-function Deadline({ operation }: { operation: Operation }) {
-  if (operation.status === "previewed")
-    return (
+function Deadline({ operation, now }: { operation: Operation; now: number }) {
+  if (operation.status === "previewed") {
+    const left = secondsLeft(operation.previewExpiresAt, now)
+    return left > 0 ? (
       <p className="text-caption text-ink-muted">
         Approve by {localTime(operation.previewExpiresAt)}; after that this
-        preview expires and Google must be read again.
+        preview expires and Google must be read again.{" "}
+        {/* Not a live region: a ticking announcement every second would drown the page. */}
+        <span
+          className="font-medium text-ink tabular-nums"
+          data-slot="bulk-preview-countdown"
+        >
+          {formatCountdown(left)} left
+        </span>
+      </p>
+    ) : (
+      <p className="text-caption text-ink" role="alert">
+        This preview expired at {localTime(operation.previewExpiresAt)} and can
+        no longer be approved. Prepare a new preview to read Google again.
       </p>
     )
+  }
   if (
     operation.dispatchExpiresAt &&
     (operation.status === "approved" || operation.status === "running")
@@ -422,6 +488,57 @@ function Deadline({ operation }: { operation: Operation }) {
       </p>
     )
   return null
+}
+
+/** The current time, ticking once a second while `active`. */
+function useNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(timer)
+  }, [active])
+  return now
+}
+
+/**
+ * The receipt of one listing's write (`GET /api/mutations/{id}`), read only
+ * when asked for: a batch can hold 500 children, so receipts are not all
+ * polled at once.
+ */
+function ChildReceipt({
+  child,
+}: {
+  child: BulkChild & { mutationOperationId: string }
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="self-start"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {open ? "Hide receipt" : "Show receipt"}{" "}
+        <span className="sr-only">for {child.locationName}</span>
+      </Button>
+      {open ? (
+        <>
+          <OperationReceiptNotice
+            receiptId={child.mutationOperationId}
+            fallback={
+              child.status === "succeeded" ? "confirmed_applied" : "sent"
+            }
+          />
+          <span className="text-caption break-all text-ink-muted">
+            Receipt {child.mutationOperationId}
+          </span>
+        </>
+      ) : null}
+    </div>
+  )
 }
 
 /**
@@ -474,6 +591,20 @@ function ChildDetail({
         </ul>
       ) : !note && fields.length ? (
         <span>Changes {fields.join(", ")}</span>
+      ) : null}
+      {child.reviewId ? (
+        <Link
+          href={`/inbox?selected=${child.reviewId}`}
+          className="self-start text-ink underline underline-offset-4"
+        >
+          Open the review{" "}
+          <span className="sr-only">for {child.locationName}</span>
+        </Link>
+      ) : null}
+      {child.mutationOperationId ? (
+        <ChildReceipt
+          child={{ ...child, mutationOperationId: child.mutationOperationId }}
+        />
       ) : null}
     </div>
   )
