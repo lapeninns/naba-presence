@@ -78,6 +78,8 @@ export const ENTITLEMENT_EXEMPT_ROUTES = [
   "DELETE invitations/[token]",
   "DELETE members",
   // Cancelling or pausing work already queued (dispatch is held anyway).
+  // Resuming a schedule is the exception: its handler requires write access
+  // (and a recent two-step verification) for that action alone.
   "POST listings/bulk/[id]/cancel",
   "PATCH locations/[id]/post-schedules/[scheduleId]",
   "DELETE sync/backfill",

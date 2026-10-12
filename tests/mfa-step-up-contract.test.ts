@@ -100,6 +100,10 @@ const IN_HANDLER: Record<string, string> = {
   "POST app/api/reviews/bulk/route.ts": "app/api/reviews/bulk/route.ts",
   // Editing a published post republishes it; editing a draft does not.
   "PATCH app/api/locations/[id]/posts/[postId]/route.ts": "lib/server/posts.ts",
+  // Resuming a schedule re-arms its approved publication; pausing and
+  // cancelling stop work and stay at aal1.
+  "PATCH app/api/locations/[id]/post-schedules/[scheduleId]/route.ts":
+    "app/api/locations/[id]/post-schedules/[scheduleId]/route.ts",
   // Detaching every location; renaming or recolouring a client does not.
   "PATCH app/api/clients/[clientId]/route.ts":
     "app/api/clients/[clientId]/route.ts",
