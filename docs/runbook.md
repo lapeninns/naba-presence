@@ -297,6 +297,25 @@ set status = 'failed', retry_count = 0, next_attempt_at = now()
 where status = 'dead' and external_event_id = '<evt_...>';
 ```
 
+### Checkout and plan changes (P07-S5)
+
+Owners start subscriptions at `POST /api/billing/checkout`. In the test
+environment checkout opens once billing is configured and an active plan
+exists; in live it also needs `BILLING_TERMS_URL` (the approved terms, also
+set as the terms URL in the Stripe dashboard's public details, which
+Checkout's consent box links to) and `BILLING_AUTOMATIC_TAX=true` after Stripe
+Tax is set up. `GET /api/billing` reports `checkout.reason` when it is
+closed. Configure the Customer Portal so it does NOT allow plan switching
+(plan changes are app-controlled and scheduled at the period end); set its id
+as `STRIPE_PORTAL_CONFIGURATION_ID` or make it the default configuration.
+
+A plan change is a subscription schedule. If one fails with
+`billing_out_of_sync`, the record and Stripe disagree (usually a webhook not
+yet processed): wait for the next tick or the hourly reconciliation. An
+organisation's open checkout session is in
+`organisation_billing.checkout_session_id`; it expires after an hour at
+Stripe and is replaced on the owner's next attempt.
+
 ### Operator pauses
 
 `ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one

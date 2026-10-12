@@ -136,6 +136,26 @@ describe("route entitlements: static scan of app/api", () => {
     expect(exemptByPrefix("billing-history")).toBe(false)
   })
 
+  it("keeps the billing mutations exempt and owner-only (P07-S5)", () => {
+    for (const key of [
+      "POST billing/checkout",
+      "POST billing/portal",
+      "POST billing/plan-change",
+      "POST billing/cancel",
+    ]) {
+      const handler = session.find((entry) => entry.key === key)
+      expect(handler, key).toBeDefined()
+      expect(handler?.entitlement, key).toBe("exempt")
+      const source = readFileSync(
+        join(apiRoot, handler!.path, "route.ts"),
+        "utf8"
+      )
+      expect(source, key).toMatch(/roles:\s*\["owner"\]/)
+      expect(source, key).toContain("// INTEGRATION: mfa step_up")
+      expect(source, key).toContain("refuseSupportSession(session)")
+    }
+  })
+
   it("uses only the known entitlement values", () => {
     const unknown = all.filter(
       (handler) =>

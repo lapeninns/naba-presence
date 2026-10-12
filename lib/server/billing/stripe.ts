@@ -98,8 +98,13 @@ export function requireBillingConfig(
  */
 export function createStripeClient(
   secretKey: string,
-  options: { httpClient?: ReturnType<typeof Stripe.createFetchHttpClient> } = {}
+  options: {
+    httpClient?: ReturnType<typeof Stripe.createFetchHttpClient>
+    /** See stripeApiTarget. */
+    apiBase?: URL | null
+  } = {}
 ): Stripe {
+  const base = options.apiBase ?? null
   return new Stripe(secretKey, {
     apiVersion: STRIPE_API_VERSION,
     timeout: STRIPE_TIMEOUT_MS,
@@ -107,18 +112,48 @@ export function createStripeClient(
     typescript: true,
     appInfo: { name: "nabapresence" },
     ...(options.httpClient ? { httpClient: options.httpClient } : {}),
+    ...(base
+      ? {
+          host: base.hostname,
+          port: base.port || (base.protocol === "http:" ? 80 : 443),
+          protocol: base.protocol === "http:" ? "http" : "https",
+        }
+      : {}),
   })
 }
 
-let cached: { key: string; client: Stripe } | undefined
+/**
+ * STRIPE_API_PROXY_BASE points the SDK at a local stub, like
+ * GOOGLE_API_PROXY_BASE does for Google: the integration suites run the
+ * built app server against it, so no request leaves the machine. Honoured
+ * only for a TEST-mode key, so a live deployment can never be redirected by
+ * a stray variable. Read from process.env on purpose: it is a test seam,
+ * not configuration, and is absent from the validated schema.
+ */
+export function stripeApiTarget(
+  secretKey: string,
+  proxyBase: string | undefined = process.env.STRIPE_API_PROXY_BASE
+): URL | null {
+  if (!proxyBase || stripeKeyMode(secretKey) !== "test") return null
+  try {
+    return new URL(proxyBase)
+  } catch {
+    return null
+  }
+}
+
+let cached: { key: string; base: string | null; client: Stripe } | undefined
 
 /** The configured client; throws 503 billing_unavailable otherwise. */
 export function getStripe(): Stripe {
   const config = requireBillingConfig()
-  if (cached?.key !== config.secretKey) {
+  const apiBase = stripeApiTarget(config.secretKey)
+  const base = apiBase?.toString() ?? null
+  if (cached?.key !== config.secretKey || cached.base !== base) {
     cached = {
       key: config.secretKey,
-      client: createStripeClient(config.secretKey),
+      base,
+      client: createStripeClient(config.secretKey, { apiBase }),
     }
   }
   return cached.client

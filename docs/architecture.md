@@ -1725,6 +1725,73 @@ sync (at most three calls) takes at most about 24 seconds.
   count) hours. It completes doing nothing while billing is disabled; the `billing` pause
   answers 503 and is reported as paused, not stale.
 
+### Checkout, Customer Portal, plan change and cancellation (P07-S5, 0227)
+
+Owner-only routes, each `entitlement: "exempt"` (a read-only organisation
+must be able to pay its way back) and refused to support impersonation
+sessions (403 `support_session_forbidden`). Each carries the
+`// INTEGRATION: mfa step_up` seam for stream A's step-up check.
+
+- Readiness (`lib/server/billing/checkout.ts` `billingReadiness`): billing
+  configured (`billingConfig`), the operator `billing` scope open, and
+  `NEXTAUTH_URL` set for the return pages; checkout in the LIVE environment
+  also needs `BILLING_TERMS_URL` (Checkout then requires acceptance of the
+  terms) and `BILLING_AUTOMATIC_TAX` (Stripe Tax). Otherwise 503
+  `billing_unavailable` with the reason. No active plan for the
+  organisation's workspace mode and environment is `catalog_empty`, also 503.
+- Catalog (`lib/server/billing/catalog.ts`): the client names a plan id; only
+  an active `billing_plan` version for the organisation's workspace mode in
+  this deployment's environment, with a Stripe price, is accepted (400
+  `plan_unavailable`). Inputs are strict objects (`lib/contracts/billing.ts`),
+  so a price id or customer id in the body is a 400; the price id never
+  leaves the server.
+- `POST /api/billing/checkout` (`app/api/billing/checkout/route.ts`): under
+  the billing row lock, refuses an organisation already subscribed, here or
+  at Stripe (409 `subscription_exists`, which also covers a completed
+  checkout whose webhook has not arrived). It creates the organisation's
+  Stripe customer once, committed in its own transaction, then the
+  subscription-mode session: one price, quantity 1, `payment_method_collection`
+  `always`, a 14-day trial (`TRIAL_DAYS`) only for a first subscription,
+  `client_reference_id` the organisation id, metadata on the session and the
+  subscription, and a one-hour expiry. The open session is recorded on
+  `organisation_billing` (`checkout_session_id`, `checkout_plan_id`,
+  `checkout_expires_at`, 0227): a repeat for the same plan reuses it (so
+  concurrent tabs get one session), another plan expires it at Stripe first,
+  and a session completed meanwhile answers 409 `checkout_completed`. Stripe
+  calls carry idempotency keys from the organisation, plan and record
+  version. Nothing is granted on the redirect back: the organisation stays
+  as it was (a pilot stays a pilot) until the webhook processor reads the
+  subscription from Stripe, which is also what closes the pilot month.
+- `POST /api/billing/portal`: a Customer Portal session for the
+  organisation's own customer only (409 `billing_customer_missing` without
+  one), optionally with `STRIPE_PORTAL_CONFIGURATION_ID`.
+- `POST /api/billing/plan-change`
+  (`lib/server/billing/subscription-changes.ts`): trialing or active, not
+  set to cancel. A target below the organisation's billable locations
+  (distinct active links, `countBillableLocations`) is 409
+  `location_limit_exceeded`. Otherwise a subscription schedule (created from
+  the subscription when it has none) gets two phases, the current price to
+  the period end (the trial end while trialing) and the new price after,
+  `proration_behavior` `none`, `end_behavior` `release`; the record stores
+  `pending_plan_id`/`pending_effective_at`, so a downgrade's lower limit
+  binds new links at once (0223, `newLinkLimit`). The current plan releases
+  the schedule and clears the change. The provider subscription must match
+  the record (customer and price), else 409 `billing_out_of_sync`.
+- `POST /api/billing/cancel`: sets `cancel_at_period_end` (or resumes,
+  clearing a portal-set `cancel_at`) and only that flag; access continues
+  to the period end. Cancelling releases a schedule first (Stripe refuses
+  cancellation on a scheduled subscription), which drops a pending plan
+  change.
+- `GET /api/billing` (`lib/server/billing/overview.ts`): any member reads
+  the record, access, billable locations, the catalog for the workspace and
+  whether checkout is available (with its reason); `canManage` is the owner.
+- Audits: `billing.customer_created`, `billing.checkout_started`,
+  `billing.portal_opened`, `billing.plan_change_scheduled`,
+  `billing.plan_change_cleared`, `billing.cancel_scheduled`,
+  `billing.cancel_withdrawn`.
+- Tests point the SDK at a local stub with `STRIPE_API_PROXY_BASE`, which
+  `lib/server/billing/stripe.ts` honours for test-mode keys only.
+
 ### AI credit periods and generation ids (P07-S2)
 
 `lib/server/ai-credits.ts` accounts AI work against the organisation's current

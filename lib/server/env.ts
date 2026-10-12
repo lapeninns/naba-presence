@@ -181,6 +181,17 @@ export const serverEnvSchema = z.object({
   STRIPE_SECRET_KEY: optionalText,
   // Signing secret (whsec_…) of the /api/webhooks/stripe endpoint.
   STRIPE_WEBHOOK_SECRET: optionalText,
+  // Checkout (plan P07-S5). Live checkout fails closed until the approved
+  // terms of service are published here (Checkout then requires the
+  // customer to accept them) and Stripe Tax is configured and switched on
+  // with BILLING_AUTOMATIC_TAX (lib/server/billing/checkout.ts
+  // checkoutReadiness). The test environment may run without either; its
+  // plans are always marked as test offers.
+  BILLING_TERMS_URL: optionalUrl,
+  BILLING_AUTOMATIC_TAX: featureFlag(false),
+  // Optional Customer Portal configuration (bpc_…). The configuration must
+  // not allow plan switching: plan changes are app-controlled.
+  STRIPE_PORTAL_CONFIGURATION_ID: optionalText,
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),

@@ -173,10 +173,25 @@ export async function assertNewLocationSeat(
   // plan).
   if (view.billing?.state === "pilot") return
   const limit = accessFromView(view, now).newLinkLimit ?? 0
+  const count = await countBillableLocations(sql, organisationId)
+  if (count >= limit) throw locationLimitReachedError(limit)
+}
+
+/**
+ * Billable locations: distinct actively linked Google locations, the count
+ * the 0223 trigger limits (a link whose connection expired still counts
+ * until it is unlinked). Runs inside the organisation's tenant transaction;
+ * the count is under RLS, since the runtime may not call the definer
+ * billable_location_count (0224).
+ */
+export async function countBillableLocations(
+  sql: TransactionSql,
+  organisationId: string
+): Promise<number> {
   const [row] = await sql<{ n: number }[]>`
     select count(distinct external_location_id)::int as n
     from location_link
     where organisation_id = ${organisationId} and is_active
   `
-  if ((row?.n ?? 0) >= limit) throw locationLimitReachedError(limit)
+  return row?.n ?? 0
 }
