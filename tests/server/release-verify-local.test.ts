@@ -15,6 +15,7 @@ import {
 } from "../../scripts/release/local-receipt.mjs"
 import {
   CI_PLACEHOLDER_ENV,
+  SECRET_SCAN_ARGS,
   childEnv,
   normalizeSchemaDump,
   parseArgs,
@@ -103,9 +104,17 @@ describe("verify:release steps", () => {
   })
 
   it("scans the released commit's history, not every ref the worktree shares", () => {
-    expect(readRepoText("scripts/release/verify-local.mjs")).toContain(
-      '"--log-opts=HEAD"'
-    )
+    expect(SECRET_SCAN_ARGS).toEqual([
+      "git",
+      "--no-banner",
+      "--redact",
+      "--log-opts=HEAD",
+      ".",
+    ])
+    // The step passes exactly these arguments, and only it runs gitleaks.
+    const source = readRepoText("scripts/release/verify-local.mjs")
+    expect(source).toContain('must("gitleaks", [...SECRET_SCAN_ARGS])')
+    expect(source.match(/must\("gitleaks"/g)).toHaveLength(1)
   })
 
   it("uses ci.yml's placeholder environment exactly", () => {

@@ -121,6 +121,20 @@ export const INHERITED_ENV_PREFIXES = [
 export const E2E_PORT = 3100
 
 /**
+ * gitleaks arguments for the `secret-scan` step. The worktree shares the
+ * checkout's refs, and gitleaks' default log is `--all`: other branches'
+ * commits would decide this commit's receipt. `--log-opts=HEAD` scans the
+ * full history of HEAD, which is what is being released.
+ */
+export const SECRET_SCAN_ARGS = Object.freeze([
+  "git",
+  "--no-banner",
+  "--redact",
+  "--log-opts=HEAD",
+  ".",
+])
+
+/**
  * @param {Record<string, string | undefined>} base
  * @returns {Record<string, string>}
  */
@@ -626,16 +640,7 @@ async function main() {
         }
       }
       // .gitleaksignore at the repository root lists historical findings.
-      // The worktree shares the checkout's refs, and gitleaks' default log is
-      // `--all`: other branches' commits would decide this commit's receipt.
-      // Scan the full history of HEAD, which is what is being released.
-      return must("gitleaks", [
-        "git",
-        "--no-banner",
-        "--redact",
-        "--log-opts=HEAD",
-        ".",
-      ])
+      return must("gitleaks", [...SECRET_SCAN_ARGS])
     },
   }
 

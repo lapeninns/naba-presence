@@ -17,7 +17,9 @@ operator runs `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate` and
 `pnpm db:status` from their own machine, using the direct or session-pooler
 (5432) URL; `db:migrate` refuses port 6543. Migrations must be expand-only
 (backward compatible with the live deployment). When the new code needs the
-new schema, migrate before merging. Destructive changes go in a later PR. The
+new schema, migrate before promoting (verify, snapshot, migrate, promote,
+below); keep each migration expand-only. Destructive changes go in a later
+release. The
 full procedure is in `docs/ci.md`, "Migrations".
 
 Each build ships the list of migrations its code needs
