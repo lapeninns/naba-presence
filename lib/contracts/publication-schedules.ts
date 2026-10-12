@@ -168,8 +168,13 @@ export const legacyScheduleSchema = z.object({
   scheduledPublishTime: z.iso.datetime().nullable(),
   /** The old value also asked for a repeat, which is never honoured. */
   repeats: z.boolean(),
-  /** Whether the post is still a draft a one-time schedule can publish. */
+  /**
+   * Whether the post is still a draft a one-time schedule can publish and
+   * has no live one-time schedule already.
+   */
   schedulable: z.boolean(),
+  /** The post already has a live one-time schedule; dismiss the old time. */
+  alreadyScheduled: z.boolean(),
   createdAt: z.iso.datetime(),
 })
 export type LegacySchedule = z.infer<typeof legacyScheduleSchema>

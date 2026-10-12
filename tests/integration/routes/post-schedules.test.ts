@@ -1690,10 +1690,11 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       }),
     ])
 
-    // A member may see the location but not dismiss.
+    // A member may see the location but neither list nor dismiss old times.
     const member = await seedMemberUser(admin, {
       organisationId: t.owner.organisationId,
     })
+    expect((await legacyApi("", {}, member.cookie)).status).toBe(403)
     const refused = await legacyApi(
       `/${dismissRow.id}`,
       { method: "PATCH", body: JSON.stringify({ action: "dismiss" }) },
@@ -1752,6 +1753,64 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
         })
       ).status
     ).toBe(404)
+  })
+
+  it("leaves an old per-post time open when a member requests the schedule, and closes it when a manager approves (P08-R5 review)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const postId = await t.draft()
+    const [legacyRow] = await admin<{ id: string }[]>`
+      insert into gbp_local_post_legacy_schedule (organisation_id, location_id, post_id, scheduled_publish_time)
+      values (${t.owner.organisationId}, ${t.linked.locationId}, ${postId}, now() + interval '3 days')
+      returning id::text as id`
+    const legacyRows = () =>
+      admin<{ status: string; reviewed_by: string | null }[]>`
+        select status, reviewed_by::text as reviewed_by from gbp_local_post_legacy_schedule where id = ${legacyRow.id}`
+    const listLegacy = async () => {
+      const response = await fetch(
+        `${server.baseUrl}/api/locations/${t.linked.locationId}/legacy-post-schedules`,
+        { headers: { cookie: t.owner.cookie } }
+      )
+      expect(response.status).toBe(200)
+      return (
+        (await response.json()) as {
+          legacySchedules: Array<Record<string, unknown>>
+        }
+      ).legacySchedules
+    }
+
+    const editor = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+    })
+    const requested = await t.schedule(
+      postId,
+      { frequency: "once", startDate: tomorrow(), localTime: "09:00" },
+      {},
+      editor.cookie
+    )
+    expect(requested.status).toBe("awaiting_approval")
+    // A member's request is not the owner's review: the old time stays open,
+    // but the post cannot be scheduled from it a second time.
+    expect(await legacyRows()).toEqual([
+      { status: "needs_review", reviewed_by: null },
+    ])
+    expect(await listLegacy()).toEqual([
+      expect.objectContaining({
+        id: legacyRow.id,
+        schedulable: false,
+        alreadyScheduled: true,
+      }),
+    ])
+
+    expect((await t.approve(requested)).status).toBe(200)
+    expect(await legacyRows()).toEqual([
+      { status: "dismissed", reviewed_by: t.owner.userId },
+    ])
+    const audits = await admin<{ actor: string; outcome: string }[]>`
+      select actor_user_id::text as actor, metadata ->> 'outcome' as outcome from audit_log
+      where organisation_id = ${t.owner.organisationId} and action = 'post_schedule.legacy_reviewed'`
+    expect(audits).toEqual([{ actor: t.owner.userId, outcome: "scheduled" }])
+    expect(await listLegacy()).toEqual([])
+    expect(creates()).toHaveLength(0)
   })
 
   // Last: re-running 0240 touches every tenant's rows in this database.

@@ -106,7 +106,12 @@ export function LegacyPostSchedules({
                   : "No time was set"}
                 {row.repeats ? ", with a repeat that is no longer used" : ""}.
               </p>
-              {!row.schedulable ? (
+              {row.alreadyScheduled ? (
+                <p className="text-caption text-ink-muted">
+                  This post already has a publication scheduled. Dismiss the old
+                  time.
+                </p>
+              ) : !row.schedulable ? (
                 <p className="text-caption text-ink-muted">
                   This post is already on Google or being published, so it
                   cannot be scheduled. Dismiss the old time.

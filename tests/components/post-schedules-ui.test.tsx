@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { PostsTab } from "@/components/locations/posts-tab"
 import type { Post, PostsState } from "@/lib/api/location-posts"
+import { localWallTime } from "@/lib/domain/publication-schedule"
 import type {
   LegacySchedule,
   PublicationSchedule,
@@ -250,15 +251,21 @@ describe("Posts tab scheduling (P08-R5)", () => {
   })
 
   it("lets an owner dismiss an old per-post time, or schedule the post from it", async () => {
+    // Still ahead and inside the 90-day limit, so the sheet offers it.
+    const oldTime = new Date(
+      Math.ceil((Date.now() + 10 * 86_400_000) / 3_600_000) * 3_600_000
+    ).toISOString()
+    const wall = localWallTime(oldTime, "Europe/London")
     legacy = [
       {
         id: "00000000-0000-4000-8000-0000000000e1",
         postId: LEGACY_POST,
         summary: "Bonfire night",
         topicType: "STANDARD",
-        scheduledPublishTime: "2099-11-05T18:00:00.000Z",
+        scheduledPublishTime: oldTime,
         repeats: true,
         schedulable: true,
+        alreadyScheduled: false,
         createdAt: "2026-10-10T00:00:00.000Z",
       },
     ]
@@ -268,7 +275,7 @@ describe("Posts tab scheduling (P08-R5)", () => {
     })
     expect(
       within(section).getByText(
-        /Was set for 2099-11-05 18:00 \(Europe\/London\), with a repeat that is no longer used/
+        `Was set for ${wall.date} ${wall.time} (Europe/London), with a repeat that is no longer used.`
       )
     ).toBeInTheDocument()
 
@@ -282,8 +289,8 @@ describe("Posts tab scheduling (P08-R5)", () => {
       name: "Schedule publication",
     })
     // The old time is offered as the starting point, not silently used.
-    expect(within(sheet).getByLabelText("Date")).toHaveValue("2099-11-05")
-    expect(within(sheet).getByLabelText("Local time")).toHaveValue("18:00")
+    expect(within(sheet).getByLabelText("Date")).toHaveValue(wall.date)
+    expect(within(sheet).getByLabelText("Local time")).toHaveValue(wall.time)
     await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
 
     await user.click(
@@ -302,6 +309,63 @@ describe("Posts tab scheduling (P08-R5)", () => {
     })
   })
 
+  it("offers only Dismiss for an old time whose post is already scheduled, and drops a suggestion that has passed", async () => {
+    legacy = [
+      {
+        id: "00000000-0000-4000-8000-0000000000e1",
+        postId: LEGACY_POST,
+        summary: "Bonfire night",
+        topicType: "STANDARD",
+        scheduledPublishTime: "2099-11-05T18:00:00.000Z",
+        repeats: false,
+        schedulable: false,
+        alreadyScheduled: true,
+        createdAt: "2026-10-10T00:00:00.000Z",
+      },
+      {
+        id: "00000000-0000-4000-8000-0000000000e2",
+        postId: LEGACY_POST,
+        summary: "Quiz night",
+        topicType: "STANDARD",
+        scheduledPublishTime: "2020-01-01T18:00:00.000Z",
+        repeats: false,
+        schedulable: true,
+        alreadyScheduled: false,
+        createdAt: "2026-10-10T00:00:00.000Z",
+      },
+    ]
+    renderTab([post()], { postScheduling: true })
+    const section = await screen.findByRole("region", {
+      name: "Old post times to review",
+    })
+    expect(
+      within(section).getByText(
+        "This post already has a publication scheduled. Dismiss the old time."
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(section).queryByRole("button", {
+        name: "Schedule post: Bonfire night",
+      })
+    ).toBeNull()
+    expect(
+      within(section).getByRole("button", {
+        name: "Dismiss old time: Bonfire night",
+      })
+    ).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(
+      within(section).getByRole("button", { name: "Schedule post: Quiz night" })
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Schedule publication",
+    })
+    // A time already passed is not offered: the default (tomorrow, 09:00).
+    expect(within(sheet).getByLabelText("Date")).not.toHaveValue("2020-01-01")
+    expect(within(sheet).getByLabelText("Local time")).toHaveValue("09:00")
+  })
+
   it("shows no old post times to a member", async () => {
     role = "member"
     legacy = [
@@ -313,6 +377,7 @@ describe("Posts tab scheduling (P08-R5)", () => {
         scheduledPublishTime: null,
         repeats: false,
         schedulable: false,
+        alreadyScheduled: false,
         createdAt: "2026-10-10T00:00:00.000Z",
       },
     ]
@@ -336,6 +401,7 @@ describe("Posts tab scheduling (P08-R5)", () => {
         scheduledPublishTime: null,
         repeats: true,
         schedulable: true,
+        alreadyScheduled: false,
         createdAt: "2026-10-10T00:00:00.000Z",
       },
     ]

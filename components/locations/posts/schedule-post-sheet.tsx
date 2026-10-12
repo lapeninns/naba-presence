@@ -45,6 +45,7 @@ import {
   slotProblemMessage,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
+import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
 
@@ -60,13 +61,12 @@ function initial(
   existing: PublicationSchedule | undefined,
   openedAt: number,
   recurring: boolean,
+  zone: string,
   suggested?: { startDate: string; localTime: string }
 ) {
   const rule = existing?.rule
   const tomorrow = new Date(openedAt + 86_400_000).toISOString().slice(0, 10)
-  // A suggestion whose day has already passed is no help.
-  const today = new Date(openedAt).toISOString().slice(0, 10)
-  const hint = suggested && suggested.startDate >= today ? suggested : null
+  const hint = usableSuggestion(suggested, zone, openedAt)
   return {
     // Without the repeating feature, a repeating schedule can only be
     // changed into a single publication.
@@ -124,10 +124,10 @@ export function SchedulePostSheet({
   const [open, setOpen] = useState(false)
   // Captured when the sheet opens, so rendering stays pure.
   const [openedAt, setOpenedAt] = useState(0)
-  const [form, setForm] = useState(() =>
-    initial(existing, 0, recurring, suggested)
-  )
   const [zone, setZone] = useState(existing?.timezone ?? timezone)
+  const [form, setForm] = useState(() =>
+    initial(existing, 0, recurring, zone, suggested)
+  )
   const [failure, setFailure] = useState<string | null>(null)
   const client = useQueryClient()
   const id = useId()
@@ -260,7 +260,7 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
-    setForm(initial(existing, at, recurring, suggested))
+    setForm(initial(existing, at, recurring, zone, suggested))
     setOpen(true)
   }
 

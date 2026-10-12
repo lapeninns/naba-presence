@@ -1651,8 +1651,14 @@ slot missed while paused or outside the window reads "Missed" and offers only
 review old per-post times through
 `app/api/locations/[id]/legacy-post-schedules/route.ts` (list) and
 `app/api/locations/[id]/legacy-post-schedules/[legacyId]/route.ts` (dismiss),
-both 404 with the feature off. Scheduling the post closes its review row in the
-same transaction; either way only the review columns change and an audit row
+both 404 with the feature off and 403 for any other role. An owner or
+administrator scheduling the post closes its review row in the same
+transaction; a member's schedule request leaves it open until a manager
+approves that schedule (closed then) or dismisses the old time. A post that
+already has a live one-time schedule is listed as not schedulable
+(`alreadyScheduled`), so only Dismiss is offered. The sheet pre-fills the old
+time only while it is at least 5 minutes and at most 90 days ahead in the
+sheet's zone. Either way only the review columns change and an audit row
 (`post_schedule.legacy_reviewed`) records the outcome.
 
 ## Bulk listing changes (WP6, 0080)

@@ -9,6 +9,9 @@ const params = z.object({ id: z.uuid(), legacyId: z.uuid() })
 
 /** Dismiss one old per-post time: an owner or administrator's call. */
 export const PATCH = route({
-  roles: ["owner", "admin"], params, body: legacyScheduleActionSchema,
-  handler: async ({ session, params, requestId }) => dismissLegacySchedule(session, params.id, params.legacyId, requestId),
+  roles: ["owner", "admin"],
+  params,
+  body: legacyScheduleActionSchema,
+  handler: async ({ session, params, requestId }) =>
+    dismissLegacySchedule(session, params.id, params.legacyId, requestId),
 })

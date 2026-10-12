@@ -9,6 +9,11 @@ import type {
   PublicationSchedule,
   ScheduleOccurrence,
 } from "@/lib/contracts/publication-schedules"
+import {
+  resolveLocalSlot,
+  SCHEDULE_MAX_LEAD_MS,
+  SCHEDULE_MIN_LEAD_MS,
+} from "@/lib/domain/publication-schedule"
 
 /** Why a slot passed without publishing (0242); the way out is a new time. */
 export const MISSED_REASONS: ReadonlySet<string> = new Set([
@@ -178,4 +183,30 @@ export function occurrenceReasonText(
     return "Result being checked; nothing is sent again."
   if (occurrence.status === "rejected") return "Google did not accept it."
   return null
+}
+
+/**
+ * A suggested local date and time is used only if it is still a slot a
+ * one-time schedule can take, resolved in the sheet's zone: at least the
+ * minimum lead after the sheet opened and not beyond the maximum. A time
+ * already passed (or too close) falls back to the default.
+ */
+export function usableSuggestion(
+  suggested: { startDate: string; localTime: string } | undefined,
+  zone: string,
+  openedAt: number
+) {
+  if (!suggested) return null
+  const slot = resolveLocalSlot(suggested.startDate, suggested.localTime, zone)
+  if (slot.kind === "nonexistent") return null
+  const instants =
+    slot.kind === "ok"
+      ? [slot.instant]
+      : slot.choices.map((choice) => choice.instant)
+  return instants.some((instant) => {
+    const lead = instant.getTime() - openedAt
+    return lead >= SCHEDULE_MIN_LEAD_MS && lead <= SCHEDULE_MAX_LEAD_MS
+  })
+    ? suggested
+    : null
 }

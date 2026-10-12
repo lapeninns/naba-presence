@@ -7,6 +7,7 @@ import {
   scheduleActions,
   scheduleBadge,
   scheduleReasonText,
+  usableSuggestion,
 } from "@/lib/locations/schedule-display"
 
 const manager = { manager: true, editor: true, enabled: true }
@@ -162,5 +163,28 @@ describe("schedule display (P08-R5)", () => {
       date: "2027-01-01",
       time: "05:29",
     })
+  })
+
+  it("uses a suggested old time only while a one-time schedule can still take it, in the sheet's zone", () => {
+    // 2026-07-01 12:00 UTC is 13:00 in London and 22:00 in Sydney.
+    const openedAt = Date.parse("2026-07-01T12:00:00Z")
+    const suggest = (startDate: string, localTime: string, zone: string) =>
+      usableSuggestion({ startDate, localTime }, zone, openedAt)
+    // Earlier the same local day: already passed.
+    expect(suggest("2026-07-01", "09:00", "Europe/London")).toBeNull()
+    // Inside the 5-minute lead.
+    expect(suggest("2026-07-01", "13:03", "Europe/London")).toBeNull()
+    expect(suggest("2026-07-01", "13:10", "Europe/London")).toEqual({
+      startDate: "2026-07-01",
+      localTime: "13:10",
+    })
+    // The UTC date is still 1 July, but in Sydney 2 July 01:00 is ahead and
+    // 1 July 21:00 has passed.
+    expect(suggest("2026-07-02", "01:00", "Australia/Sydney")).not.toBeNull()
+    expect(suggest("2026-07-01", "21:00", "Australia/Sydney")).toBeNull()
+    // Beyond the 90-day limit, or a time the clocks skip.
+    expect(suggest("2026-12-01", "09:00", "Europe/London")).toBeNull()
+    expect(suggest("2027-03-28", "01:30", "Europe/London")).toBeNull()
+    expect(usableSuggestion(undefined, "Europe/London", openedAt)).toBeNull()
   })
 })

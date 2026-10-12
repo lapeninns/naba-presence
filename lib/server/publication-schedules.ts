@@ -727,15 +727,18 @@ export async function createPublicationSchedule(
       requestId,
       metadata: { locationId, payloadHash },
     })
-    // Scheduling the post properly is the owner's review of any pre-WP7
-    // time it carried (0240): that row is closed rather than left to
-    // suggest a second publication.
-    await closeLegacySchedules(sql, session, {
-      postId: draft.postId,
-      outcome: "scheduled",
-      scheduleId: created.id,
-      requestId,
-    })
+    // An owner or administrator scheduling the post properly is their
+    // review of any pre-WP7 time it carried (0240): that row is closed
+    // rather than left to suggest a second publication. A member's request
+    // is not a review; the row stays open until a manager approves the
+    // schedule (closed there) or dismisses the old time.
+    if (isManagerialRole(session.role))
+      await closeLegacySchedules(sql, session, {
+        postId: draft.postId,
+        outcome: "scheduled",
+        scheduleId: created.id,
+        requestId,
+      })
     return project(sql, session, await loadRow(sql, locationId, created.id))
   })
 }
@@ -891,6 +894,15 @@ export async function approvePublicationSchedule(
         occurrences: occurrences.length,
       },
     })
+    // Approving is a manager's review of the post's pre-WP7 time (0240) when
+    // a member requested the schedule and the row was left open.
+    if (row.sourcePostId)
+      await closeLegacySchedules(sql, session, {
+        postId: row.sourcePostId,
+        outcome: "scheduled",
+        scheduleId,
+        requestId,
+      })
     return project(sql, session, await loadRow(sql, locationId, scheduleId))
   })
 }
@@ -1182,6 +1194,12 @@ export async function listLegacySchedules(
   return withTenant(session.organisationId, async (sql) => {
     await requireScheduling(sql, session.organisationId)
     await requireLocationAccess(sql, session, locationId, NOT_FOUND)
+    if (!isManagerialRole(session.role))
+      throw new ApiError(
+        403,
+        "forbidden",
+        "Only an owner or administrator can review old post times."
+      )
     const rows = await sql<
       Array<{
         id: string
@@ -1193,11 +1211,17 @@ export async function listLegacySchedules(
         status: string
         googlePostName: string | null
         createdAt: Date
+        onceScheduled: boolean
       }>
     >`
       select r.id::text as id, r.post_id::text as "postId", p.summary, p.topic_type as "topicType",
         r.scheduled_publish_time as "scheduledPublishTime", r.recurrence is not null as repeats,
-        p.status, p.google_post_name as "googlePostName", r.created_at as "createdAt"
+        p.status, p.google_post_name as "googlePostName", r.created_at as "createdAt",
+        exists (
+          select 1 from post_publication_schedule s
+          where s.source_post_id = r.post_id and s.rule ->> 'frequency' = 'once'
+            and s.status = any(${LIVE_STATUSES}::text[])
+        ) as "onceScheduled"
       from gbp_local_post_legacy_schedule r
       join gbp_local_post p on p.id = r.post_id
       where r.location_id = ${locationId} and r.status = 'needs_review' and p.status <> 'deleted'
@@ -1211,7 +1235,11 @@ export async function listLegacySchedules(
         topicType: row.topicType,
         scheduledPublishTime: row.scheduledPublishTime?.toISOString() ?? null,
         repeats: row.repeats,
-        schedulable: publishableSource(row),
+        // A post that already has a live one-time schedule (one requested
+        // before this review closed rows, or by a member) cannot take a
+        // second: the old time is dismissed instead.
+        schedulable: publishableSource(row) && !row.onceScheduled,
+        alreadyScheduled: row.onceScheduled,
         createdAt: row.createdAt.toISOString(),
       })),
     })
