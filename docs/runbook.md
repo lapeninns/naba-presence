@@ -256,7 +256,8 @@ commit;
 
 Billing is off unless `BILLING_ENABLED=true`. Turning it on needs, all from
 the operator, none of it in code: a Stripe account, the catalog rows in
-`billing_plan` (with their `price_...` ids), `STRIPE_SECRET_KEY` (a test key
+`billing_plan` (with their `price_...` ids, seeded with `pnpm billing:catalog`,
+see "Billing catalog" below), `STRIPE_SECRET_KEY` (a test key
 with `BILLING_ENVIRONMENT=test`, a live key only with `live`), and a webhook
 endpoint registered at `/api/webhooks/stripe` whose signing secret is
 `STRIPE_WEBHOOK_SECRET`. Subscribe it to `customer.subscription.*`,
@@ -327,6 +328,109 @@ after three minutes means no webhook or reconciliation has applied the
 subscription yet: check the `billing_event` inbox above, then the
 organisation's `provider_synced_at`. Nothing is granted until it arrives.
 A test environment shows "Test mode" and marks each plan "Test offer".
+
+### Billing catalog (P07-S7)
+
+The plan catalog is seeded per Stripe environment from a reviewed JSON file
+with `scripts/billing-catalog.mjs`. Prices, limits and allowances are a
+product-owner decision: keep the reviewed file with the release record, not
+in the repository. The file names one environment and its plans:
+
+```json
+{
+  "environment": "test",
+  "plans": [
+    {
+      "code": "starter",
+      "version": 1,
+      "workspaceMode": "business",
+      "name": "Starter",
+      "stripePriceId": "price_...",
+      "locationLimit": 3,
+      "memberLimit": null,
+      "aiDraftCreditsPerPeriod": 200,
+      "isTestOffer": true,
+      "active": true
+    }
+  ]
+}
+```
+
+```sh
+pnpm billing:catalog --file catalog.test.json --validate      # no database
+DIRECT_DATABASE_URL=... pnpm billing:catalog --file catalog.test.json   # dry run
+DIRECT_DATABASE_URL=... pnpm billing:catalog --file catalog.test.json --apply
+DIRECT_DATABASE_URL=... pnpm billing:catalog --file catalog.live.json --apply --allow-live
+```
+
+- Every test-environment plan must be a test offer; a live plan never is; an
+  active plan needs its Stripe price. The file is refused whole on any
+  invalid entry.
+- Re-running is safe. A version already in the database only has `active`
+  set. Changing a published version's terms (price, limits, credits, name) is
+  refused: add `version + 1` with the new terms and set the old one
+  `active: false`. Organisations on the old version keep it until they
+  change plan.
+- An active plan the file does not list is reported and kept;
+  `--deactivate-unlisted` retires it. Nothing is ever deleted.
+- Applying a live catalog needs `--allow-live` and is a release operation
+  that needs approval. Run the dry run first and keep its output.
+
+### Stripe webhook backlog, reconciliation and poison events
+
+- Backlog: `received` and `failed` rows in `billing_event` that keep growing
+  mean the processor is not keeping up or is paused. Check the `billing`
+  pause scope (`pnpm ops:pause status`), `BILLING_ENABLED` and the job tick;
+  receipts are kept while paused and processed afterwards. Look at the
+  oldest due event:
+
+  ```sql
+  select status, min(received_at), count(*)
+  from billing_event where status in ('received', 'failed') group by 1;
+  ```
+
+- Reconciliation: the hourly `/api/billing/reconcile` cron repairs lost
+  webhooks (see "Stripe billing" above for the cursor). To hurry a repair,
+  call `GET /api/billing/reconcile` by hand with the cron bearer; each call
+  continues the walk from the cursor.
+- Poison events: an event that uses all its attempts is `dead`. It does not
+  block the organisation's later events, because each sync refetches the
+  provider's current state. Read `last_error_code`, fix the cause (usually a missing
+  catalog row: seed it with `pnpm billing:catalog`), then re-arm it with the
+  `update billing_event ...` statement under "Stripe billing" above. Never
+  delete a receipt.
+
+### Manual AI credit grants
+
+Support can add AI draft credits to an organisation's current credit period.
+A grant adds to the period's allowance and never resets used credits; it
+ends with the period. It is recorded as an `ai_credit_period` row of kind
+`adjustment` with the operator and the reason, and in the audit log
+(`ai_credits.adjustment_granted`). Who may grant, and how much, is decision
+D-33; until it is made, a grant needs the product owner's approval.
+
+```sh
+# Balance and grant history
+curl -s -H "authorization: Bearer $CRON_SECRET" \
+  https://<host>/api/operations/organisations/<organisation id>/ai-credits
+# Grant (idempotent on reference: a retry replays, it never grants twice)
+curl -s -X POST -H "authorization: Bearer $CRON_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"credits": 50, "reason": "Goodwill after the 3 Oct sync outage", "operator": "you@example.com", "reference": "ZD-1234"}' \
+  https://<host>/api/operations/organisations/<organisation id>/ai-credits
+```
+
+- 409 `ai_credit_period_missing` or `ai_allowance_unknown`: there is no
+  known allowance to add to (for example a subscription whose period billing
+  has not granted yet). Fix billing first; nothing was granted.
+- 409 `ai_credit_adjustment_conflict`: the reference already names a
+  different grant. Use a new reference.
+- The cron bearer is shared and carries no identity, so `operator` is what
+  identifies you. Use your own address.
+- `PUT` on the same route (`{"monthlyDraftCredits": n | null}`) still sets a
+  pilot's calendar-month allowance. It answers 409
+  `ai_credits_override_pilot_only` for any organisation that is not a pilot;
+  clearing it (`null`) is always allowed.
 
 ### Operator pauses
 

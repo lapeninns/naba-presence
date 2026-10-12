@@ -70,7 +70,8 @@ export type CreditPeriod = {
  * The period kind that funds AI work in each billing state. A pilot is
  * funded by its calendar month, a trial by the trial grant and every paid
  * state by its paid-period grant; the billing processor (P07-S4) creates the
- * latter two. Adjustments (P07-S7) are not a period of their own here.
+ * latter two. Adjustments (P07-S7) are never the current period: each adds
+ * to the base period it names (readCreditLedger).
  */
 function periodKindFor(state: BillingState | null): CreditPeriodKind | null {
   if (state === null) return null
@@ -144,8 +145,13 @@ export type CreditLedger = {
   now: Date
   access: Access
   period: CreditPeriod | null
-  /** The effective allowance; null = unknown, which blocks AI drafting. */
+  /**
+   * The effective allowance: the period's own plus its adjustments; null =
+   * unknown, which blocks AI drafting.
+   */
   allowance: number | null
+  /** Credits operator adjustments add to this period (0 with none). */
+  adjusted: number
   /** Draft credits reserved or settled in the period. */
   used: number
   /**
@@ -153,6 +159,22 @@ export type CreditLedger = {
    * still in flight (reserved, no counts yet).
    */
   tokens: number
+}
+
+/** The credits every adjustment of one base period adds to it. */
+async function adjustedCredits(
+  sql: TransactionSql,
+  organisationId: string,
+  periodId: string
+): Promise<number> {
+  const [row] = await sql<{ credits: number }[]>`
+    select coalesce(sum(allowance), 0)::integer as credits
+    from ai_credit_period
+    where organisation_id = ${organisationId}
+      and kind = 'adjustment'
+      and applies_to_period_id = ${periodId}
+  `
+  return row.credits
 }
 
 type OrganisationClock = { override: number | null; now: Date; month: string }
@@ -202,11 +224,17 @@ export async function readCreditLedger(
     view.billing?.state ?? null,
     pilotAllowance
   )
-  const allowance = !period
+  const baseAllowance = !period
     ? null
     : period.kind === "pilot_month"
       ? pilotAllowance
       : period.allowance
+  // Operator adjustments add to the period they name (P07-S7). An unknown
+  // base allowance stays unknown: a grant cannot make it known.
+  const adjusted = period
+    ? await adjustedCredits(sql, organisationId, period.id)
+    : 0
+  const allowance = baseAllowance === null ? null : baseAllowance + adjusted
   // Rows with no period id: legacy rows count toward the pilot month they
   // name; with no period at all, this UTC month's unlinked verification rows
   // still count toward the backstop.
@@ -243,6 +271,7 @@ export async function readCreditLedger(
     access,
     period,
     allowance,
+    adjusted,
     used: row.used,
     tokens: Number(row.tokens) + row.inFlight * callTokenBudget(),
   }

@@ -1,5 +1,6 @@
 /**
- * Wire contract for `/api/ai/credits` and the operator override. Client-safe.
+ * Wire contract for `/api/ai/credits` and the operator override and
+ * adjustments. Client-safe.
  */
 import { z } from "zod"
 
@@ -43,7 +44,11 @@ export const aiCreditsExhaustedDetailsSchema = z.object({
   resetsAt: z.string(),
 })
 
-/** null clears the override and falls back to the environment default. */
+/**
+ * A pilot's calendar-month allowance. null clears the override and falls
+ * back to the environment default. Only pilot months read it; a trial or
+ * paid period takes its allowance from billing, plus any adjustments.
+ */
 export const aiCreditsOverrideInputSchema = z.object({
   monthlyDraftCredits: z.number().int().min(0).max(1_000_000).nullable(),
 })
@@ -52,6 +57,62 @@ export type AiCreditsOverrideInput = z.infer<
 >
 
 export const aiCreditsOrganisationParamsSchema = z.object({ id: z.uuid() })
+
+/**
+ * An operator grant of extra draft credits for the organisation's current
+ * credit period (plan P07-S7, `ai_credit_period` kind 'adjustment'). The
+ * operator route authenticates with the shared cron bearer, which carries no
+ * identity, so the operator names themself. `reference` (a support ticket
+ * id, for example) makes the grant idempotent: the same reference never
+ * grants twice for one organisation.
+ */
+export const aiCreditAdjustmentInputSchema = z.object({
+  credits: z.number().int().min(1).max(100_000),
+  reason: z.string().trim().min(10).max(500),
+  operator: z.string().trim().min(3).max(120),
+  reference: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/),
+})
+export type AiCreditAdjustmentInput = z.infer<
+  typeof aiCreditAdjustmentInputSchema
+>
+
+/** One recorded grant, as the operator history shows it. */
+export const aiCreditAdjustmentSchema = z.object({
+  id: z.uuid(),
+  /** The base period the grant adds to. */
+  periodId: z.uuid(),
+  periodKind: z.enum(CREDIT_PERIOD_KINDS),
+  credits: z.number().int().min(1),
+  reason: z.string(),
+  operator: z.string(),
+  reference: z.string(),
+  /** ISO timestamps: when it was granted, and when its period ends. */
+  createdAt: z.string(),
+  periodEnd: z.string(),
+  /** True while its period is the organisation's current one. */
+  current: z.boolean(),
+})
+export type AiCreditAdjustment = z.infer<typeof aiCreditAdjustmentSchema>
+
+/** The operator view: the balance plus the grant history, newest first. */
+export const aiCreditsOperatorViewSchema = z.object({
+  credits: aiCreditsSchema,
+  adjustments: z.array(aiCreditAdjustmentSchema),
+})
+export type AiCreditsOperatorView = z.infer<typeof aiCreditsOperatorViewSchema>
+
+/** The answer to a grant: the adjustment, and whether it was already recorded. */
+export const aiCreditAdjustmentResultSchema =
+  aiCreditsOperatorViewSchema.extend({
+    adjustment: aiCreditAdjustmentSchema,
+    replayed: z.boolean(),
+  })
+export type AiCreditAdjustmentResult = z.infer<
+  typeof aiCreditAdjustmentResultSchema
+>
 
 /** Credits spent per UTC day of the current credit period, for the usage chart. */
 export const aiCreditsDailySchema = z.object({

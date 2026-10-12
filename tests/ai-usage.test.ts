@@ -86,6 +86,7 @@ describe("verification usage", () => {
     await db.exec(read("0220_billing_foundation.sql"))
     await db.exec(read("0221_billing_period_checks.sql"))
     await db.exec(read("0223_entitlement_enforcement.sql"))
+    await db.exec(read("0228_ai_credit_adjustments.sql"))
   })
   afterAll(async () => {
     await db.close()

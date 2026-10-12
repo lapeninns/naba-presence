@@ -19,6 +19,7 @@
     "release:promote": "node scripts/release/promote.mjs",
     "ops:revoke-support-sessions": "node scripts/revoke-support-sessions.mjs",
     "ops:pause": "node scripts/ops-pause.mjs",
+    "billing:catalog": "node scripts/billing-catalog.mjs",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:status": "supabase status",

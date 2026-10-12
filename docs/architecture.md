@@ -1553,7 +1553,8 @@ app behaves as before.
   runtime, written only from the operator connection. A version's terms never
   change (a trigger allows only `active` to flip), an active plan must name its
   Stripe price, and a test-environment plan is always a test offer. The
-  migration seeds no plans, so nothing can be sold until a catalog exists.
+  migration seeds no plans, so nothing can be sold until a catalog exists;
+  `scripts/billing-catalog.mjs` seeds one from a reviewed file (P07-S7).
 - `organisation_billing` is one row per organisation under forced tenant RLS.
   Every existing organisation was backfilled as an explicit `pilot`, and
   `lib/server/provisioning.ts` seeds the same row in the transaction that
@@ -1869,6 +1870,39 @@ answers 409 `generation_not_repeatable`. `/api/ai/credits` reports `periodId`,
 `periodKind`, `periodStart`/`periodEnd` from the row, a nullable allowance,
 `canUseAi` and the access reason; credit notifications use the period id as
 their subject and the period end as the reset date.
+
+### AI credit adjustments and catalog seeding (P07-S7, 0228)
+
+A support grant of extra AI draft credits is an `ai_credit_period` row of kind
+`adjustment` (`lib/server/ai-credit-adjustments.ts`), written by
+`POST /api/operations/organisations/{id}/ai-credits`
+(`app/api/operations/organisations/[id]/ai-credits/route.ts`, cron bearer).
+Migration `supabase/migrations/0228_ai_credit_adjustments.sql` gives the row
+`applies_to_period_id` (the current base period: pilot month, trial or paid
+period, through the composite tenant key, never another adjustment),
+`reason` and `granted_by`; a check makes all three, and at least one credit,
+required for an adjustment and absent otherwise. `readCreditLedger` adds the
+credits of every adjustment of the current period to that period's
+allowance; usage is never touched, so used credits stay used, and the grant
+ends with its period. The grant runs under the organisation row lock, the
+operator-chosen `reference` (source_ref `adjustment:<reference>`) makes it
+idempotent (a repeat replays, a different grant under the same reference is
+409 `ai_credit_adjustment_conflict`), and it fails closed with 409
+`ai_credit_period_missing` or `ai_allowance_unknown` when there is no known
+allowance to add to. Each grant writes `ai_credits.adjustment_granted` to the
+audit log. `GET` on the same route returns the balance and the grant history;
+`PUT` (the monthly override) is kept for pilots only and answers 409
+`ai_credits_override_pilot_only` otherwise. The shared cron bearer has no
+identity, so the operator names themself in the body (D-33).
+
+`scripts/billing-catalog.mjs` (`pnpm billing:catalog`) seeds `billing_plan` for
+one Stripe environment from a reviewed JSON file. It validates the file
+against the table's checks, then diffs it with the database under a table
+lock: missing versions are inserted, existing ones only have `active` set, a
+version whose terms differ is refused (terms are immutable; add a version),
+and an unlisted active plan is reported, or retired with
+`--deactivate-unlisted`. It is a dry run without `--apply`, and applying a
+live catalog needs `--allow-live`.
 
 ## Reporting provenance (WP9)
 

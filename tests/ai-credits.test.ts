@@ -87,6 +87,7 @@ describe("AI credit periods and reservations", () => {
     await db.exec(migration("0220_billing_foundation.sql"))
     await db.exec(migration("0221_billing_period_checks.sql"))
     await db.exec(migration("0223_entitlement_enforcement.sql"))
+    await db.exec(migration("0228_ai_credit_adjustments.sql"))
     await db.exec(`
       insert into billing_plan (
         code, version, workspace_mode, environment, name, stripe_price_id,
