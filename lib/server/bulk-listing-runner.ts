@@ -1,8 +1,10 @@
 import "server-only"
 
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import {
   BULK_MAX_RUNNING_PER_ORGANISATION,
   bulkOperationInputSchema,
+  type BulkOperationInput,
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
 import {
@@ -10,11 +12,12 @@ import {
   type ApprovedWorkResult,
 } from "@/lib/server/authz/approval-policy"
 import {
-  applyTarget,
-  comparisonHash,
-  currentFor,
-  isApplied,
-} from "@/lib/server/bulk-listing-targets"
+  bulkApprovalRef,
+  bulkFamily,
+  bulkIntentId,
+  receiptFor,
+  type DispatchOutcome,
+} from "@/lib/server/bulk-families"
 import {
   getDatabase,
   jsonColumn,
@@ -22,11 +25,7 @@ import {
   withTenant,
 } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
-import {
-  resolveGbpLocationContext,
-  stableGoogleHash,
-} from "@/lib/server/gbp-management"
-import { GoogleMutationAmbiguousError } from "@/lib/server/google"
+import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import {
   requireNoUnresolvedAccountChange,
@@ -58,6 +57,7 @@ type Child = {
   credentialGeneration: number | null
   googleLocationName: string | null
   authorisedSecurityVersion: number | null
+  attempts: number
 }
 export type BulkTickSummary = {
   children: number
@@ -67,15 +67,9 @@ export type BulkTickSummary = {
   ambiguous: number
   deferred: number
   expired: number
+  /** Unresolved children settled from their receipt, never re-sent. */
+  reconciled: number
 }
-
-const WRITE_FLAG = {
-  regular_hours: "profileWrites",
-  special_hours: "profileWrites",
-  more_hours: "profileWrites",
-  attributes: "profileWrites",
-  place_action: "placeActions",
-} as const
 
 async function settle(
   organisationId: string,
@@ -86,6 +80,8 @@ async function settle(
     code?: string | null
     confirmation?: "confirmed" | "unresolved" | "unrecorded"
     observed?: unknown
+    /** The receipt this claim's write went out under, when it got that far. */
+    operationId?: string | null
   } = {}
 ) {
   await withTenant(
@@ -95,7 +91,8 @@ async function settle(
       confirmation_state = ${fields.confirmation ?? "unrecorded"}, lease_expires_at = null,
       finished_at = ${status === "queued" ? null : sql`now()`},
       next_attempt_at = ${status === "queued" ? sql`now() + interval '1 minute'` : null},
-      current_value = case when ${fields.observed !== undefined} then ${fields.observed === undefined ? null : jsonColumn(sql, fields.observed)} else current_value end
+      current_value = case when ${fields.observed !== undefined} then ${fields.observed === undefined ? null : jsonColumn(sql, fields.observed)} else current_value end,
+      mutation_operation_id = coalesce(${fields.operationId ?? null}::uuid, mutation_operation_id)
     where id = ${childId} and status = 'running'`
   )
 }
@@ -138,12 +135,13 @@ export async function processBulkChild(
         o.requested_by::text as "requestedBy", o.require_two_person_approval as "requireTwoPersonApproval", o.status as "operationStatus",
         o.execute_requested_at as "executeRequestedAt", o.dispatch_expires_at as "dispatchExpiresAt", c.resource_key as "resourceKey",
         c.connection_id::text as "connectionId", c.credential_generation as "credentialGeneration", c.google_location_name as "googleLocationName",
-        o.authorised_security_version as "authorisedSecurityVersion"
+        o.authorised_security_version as "authorisedSecurityVersion", c.attempts
       from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id where c.id = ${childId}`
     return row
   })
   if (!child) return
   const input = bulkOperationInputSchema.parse(child.input)
+  const family = bulkFamily(input.operation)
   const fail = async (code: string) => {
     await settle(organisationId, childId, "failed", { code })
     if (summary) summary.failed += 1
@@ -234,124 +232,114 @@ export async function processBulkChild(
   if ("code" in gate) return fail(gate.code ?? "approval_invalid")
   // The surface's own switch, under the env and the operator pause table;
   // the tick already checked `publish` and `bulk`.
-  if (!(await isScopeEnabled(gbpWriteScopes(WRITE_FLAG[input.operation])))) {
+  if (!(await isScopeEnabled(gbpWriteScopes(family.writeSurface)))) {
     await settle(organisationId, childId, "queued", {
       code: "publishing_paused",
     })
     if (summary) summary.deferred += 1
     return
   }
-  type Outcome =
-    | "succeeded"
-    | "conflict"
-    | "ambiguous"
-    | "deferred"
-    | "expired"
-    | { failed: string }
-  // Baseline read, comparison, window check, one write and independent
-  // readback, all inside the resource lock: an editor write cannot land
-  // between the baseline read and the provider call. Action links do this
-  // inside the Google account lock too, after the same unresolved-outcome
-  // guard reviewed Place Actions, access and lifecycle changes use.
-  const readCompareWrite = async (): Promise<Outcome> => {
-    if (input.operation === "place_action")
+  // The receipt intent for this claim (`attempts` counts claims).
+  const intentId = bulkIntentId(childId, child.attempts)
+  type Outcome = "succeeded" | "conflict" | "ambiguous" | "deferred" | "expired"
+  /**
+   * Settles the child from its family's dispatch, recording the receipt the
+   * write went out under (GET /api/mutations/{id} and `mutation_recover`
+   * answer for it from then on).
+   */
+  const record = async (
+    result: DispatchOutcome
+  ): Promise<Outcome | { failed: string }> => {
+    const receipt = await receiptFor(organisationId, intentId)
+    const operationId = receipt?.id ?? null
+    switch (result.kind) {
+      case "succeeded":
+        await settle(organisationId, childId, "succeeded", {
+          confirmation: result.confirmation,
+          observed: result.observed,
+          operationId,
+        })
+        return "succeeded"
+      case "conflict":
+        await settle(organisationId, childId, "conflict", {
+          code: result.code,
+          observed: result.observed,
+          operationId,
+        })
+        return "conflict"
+      case "expired":
+        await settle(organisationId, childId, "expired", {
+          code: "dispatch_expired",
+          operationId,
+        })
+        return "expired"
+      case "deferred":
+        await settle(organisationId, childId, "queued", {
+          code: result.code,
+          operationId,
+        })
+        return "deferred"
+      case "ambiguous":
+        await settle(organisationId, childId, "ambiguous", {
+          code: result.code,
+          confirmation: "unresolved",
+          observed: result.observed,
+          operationId,
+        })
+        return "ambiguous"
+      case "failed":
+        await settle(organisationId, childId, "failed", {
+          code: result.code,
+          operationId,
+        })
+        return { failed: result.code }
+    }
+  }
+  // The family's baseline read, comparison, window check, one write through
+  // the surface pipeline and its readback, all inside the resource lock: an
+  // editor write cannot land between the baseline read and the provider
+  // call. Action links do this inside the Google account lock too, after
+  // the same unresolved-outcome guard reviewed Place Actions, access and
+  // lifecycle changes use.
+  const dispatch = async (): Promise<Outcome | { failed: string }> => {
+    if (family.accountLock)
       await requireNoUnresolvedAccountChange(
         gate.session,
         gate.linked.googleAccountId
       )
-    if (dispatchClosed()) {
-      await settle(organisationId, childId, "expired", {
-        code: "dispatch_expired",
+    if (dispatchClosed()) return record({ kind: "expired" })
+    return record(
+      await family.dispatch({
+        organisationId,
+        operationId: child.operationId,
+        childId,
+        locationId: child.locationId,
+        input,
+        session: gate.session,
+        linked: gate.linked,
+        current: child.current,
+        proposed: child.proposed,
+        updateMask: child.updateMask,
+        baselineHash: child.baselineHash,
+        intentId,
+        approvalRef: bulkApprovalRef(child.operationId),
+        requestId,
+        stillOpen: () => !dispatchClosed(),
       })
-      return "expired"
-    }
-    let observed: unknown
-    try {
-      observed = await currentFor(input, gate.linked, child.updateMask)
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "google_rate_limited") {
-        await settle(organisationId, childId, "queued", {
-          code: "google_rate_limited",
-        })
-        return "deferred"
-      }
-      return {
-        failed: error instanceof ApiError ? error.code : "google_read_failed",
-      }
-    }
-    if (isApplied(input, observed, child.proposed)) {
-      await settle(organisationId, childId, "succeeded", {
-        confirmation: "confirmed",
-        observed,
-      })
-      return "succeeded"
-    }
-    const baselineUnchanged =
-      input.operation === "place_action"
-        ? stableGoogleHash(observed) === child.baselineHash
-        : comparisonHash(observed) === comparisonHash(child.current)
-    if (!baselineUnchanged) {
-      await settle(organisationId, childId, "conflict", {
-        code: "google_baseline_changed",
-        observed,
-      })
-      return "conflict"
-    }
-    // The last check before the provider call: past the window, nothing is sent.
-    if (dispatchClosed()) {
-      await settle(organisationId, childId, "expired", {
-        code: "dispatch_expired",
-      })
-      return "expired"
-    }
-    let ambiguous = false
-    try {
-      await applyTarget(input, gate.linked, child.proposed, child.updateMask)
-    } catch (error) {
-      if (
-        error instanceof ApiError &&
-        !(error instanceof GoogleMutationAmbiguousError)
-      ) {
-        if (error.code === "google_rate_limited") {
-          await settle(organisationId, childId, "queued", { code: error.code })
-          return "deferred"
-        }
-        return { failed: `provider_rejected:${error.code}` }
-      }
-      ambiguous = true
-    }
-    try {
-      const after = await currentFor(input, gate.linked, child.updateMask)
-      if (isApplied(input, after, child.proposed)) {
-        await settle(organisationId, childId, "succeeded", {
-          confirmation: "confirmed",
-          observed: after,
-        })
-        return "succeeded"
-      }
-      await settle(organisationId, childId, "ambiguous", {
-        code: ambiguous ? "response_ambiguous" : "readback_mismatch",
-        confirmation: "unresolved",
-        observed: after,
-      })
-    } catch {
-      await settle(organisationId, childId, "ambiguous", {
-        code: "readback_failed",
-        confirmation: "unresolved",
-      })
-    }
-    return "ambiguous"
+    )
   }
   // The same per-location lock the single-listing editors take for this
   // resource (`<org>:<location>:attributes` in business-information.ts,
   // `<org>:<location>:hours` in hours.ts `publishCanonicalHours`), so a
   // bulk child never interleaves with an editor write or another batch. Held
   // from the baseline read through the readback; a busy resource defers.
-  const withResourceLock = (work: () => Promise<Outcome>) =>
+  const withResourceLock = (
+    work: () => Promise<Outcome | { failed: string }>
+  ) =>
     withSessionConnection((connection) =>
-      connection.begin(async (lock): Promise<Outcome> => {
+      connection.begin(async (lock): Promise<Outcome | { failed: string }> => {
         const [claim] = await lock<{ acquired: boolean }[]>`
-          select pg_try_advisory_xact_lock(hashtextextended(${`${organisationId}:${child.locationId}:${child.resourceKey}`}, 0)) as acquired`
+          select pg_try_advisory_xact_lock(hashtextextended(${`${organisationId}:${child.locationId}:${family.resourceKey}`}, 0)) as acquired`
         if (!claim?.acquired) {
           await settle(organisationId, childId, "queued", {
             code: "resource_busy",
@@ -361,16 +349,12 @@ export async function processBulkChild(
         return work()
       })
     )
-  let outcome: Outcome
+  let outcome: Outcome | { failed: string }
   try {
     outcome = await withResourceLock(() =>
-      input.operation === "place_action"
-        ? withGoogleAccountChangeLock(
-            gate.session,
-            child.locationId,
-            readCompareWrite
-          )
-        : readCompareWrite()
+      family.accountLock
+        ? withGoogleAccountChangeLock(gate.session, child.locationId, dispatch)
+        : dispatch()
     )
   } catch (error) {
     if (
@@ -391,17 +375,96 @@ export async function processBulkChild(
   if (summary) summary[outcome] += 1
 }
 
+/**
+ * Settles children left `ambiguous` whose receipt has since been resolved
+ * (by `mutation_recover` reading Google back, or another request settling
+ * the same attempt), through their family's reconcile. Nothing is sent: an
+ * unresolved write is never retried by the runner. A batch that already
+ * finished is re-finished with the new count.
+ */
+async function reconcileResolvedChildren(
+  requestId: string,
+  summary: BulkTickSummary,
+  limit: number
+) {
+  const due = await getDatabase()<
+    { organisationId: string; childId: string }[]
+  >`
+    select organisation_id::text as "organisationId", child_id::text as "childId"
+    from bulk_children_to_reconcile(${limit})`
+  const operations = new Map<string, string>()
+  for (const row of due) {
+    const settled = await withTenant(row.organisationId, async (sql) => {
+      const [child] = await sql<
+        {
+          operationId: string
+          operation: BulkOperationInput["operation"]
+          state: OperationOutcome
+          errorCode: string | null
+        }[]
+      >`
+        select c.operation_id::text as "operationId", o.operation, m.state, m.error_code as "errorCode"
+        from bulk_listing_child c
+        join bulk_listing_operation o on o.id = c.operation_id
+        join mutation_operation m on m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
+        where c.id = ${row.childId} and c.status = 'ambiguous'
+        for update of c`
+      if (!child) return null
+      const verdict = bulkFamily(child.operation).reconcile({
+        state: child.state,
+        errorCode: child.errorCode,
+      })
+      if (!verdict) return null
+      await sql`
+        update bulk_listing_child set
+          status = ${verdict.kind},
+          result_code = ${verdict.kind === "failed" ? verdict.code : null},
+          confirmation_state = ${verdict.kind === "succeeded" ? verdict.confirmation : "unrecorded"},
+          finished_at = now()
+        where id = ${row.childId}`
+      await writeAudit(sql, {
+        organisationId: row.organisationId,
+        actorUserId: null,
+        action: "bulk_listing.child_reconciled",
+        subjectType: "bulk_listing_child",
+        subjectId: row.childId,
+        requestId,
+        metadata: {
+          operationId: child.operationId,
+          outcome: verdict.kind,
+          receiptState: child.state,
+        },
+      })
+      return child.operationId
+    })
+    if (!settled) continue
+    summary.reconciled += 1
+    operations.set(settled, row.organisationId)
+  }
+  for (const [operationId, organisationId] of operations)
+    await finishOperation(organisationId, operationId, requestId, {
+      refinish: true,
+    })
+}
+
 /** Completes an operation whose children are all settled, and reports failures once. */
 async function finishOperation(
   organisationId: string,
   operationId: string,
-  requestId: string
+  requestId: string,
+  options: { refinish?: boolean } = {}
 ) {
   await withTenant(organisationId, async (sql) => {
     const [op] = await sql<
       { status: string; approvedBy: string }[]
     >`select status, approved_by::text as "approvedBy" from bulk_listing_operation where id = ${operationId} for update`
-    if (!op || op.status !== "running") return
+    // A reconciled child can turn a finished batch's failures into
+    // successes; a cancelled or expired batch keeps its status.
+    const finished = ["completed", "completed_with_failures"].includes(
+      op?.status ?? ""
+    )
+    if (!op || !(op.status === "running" || (options.refinish && finished)))
+      return
     const counts = Object.fromEntries(
       (
         await sql<{ status: string; count: number }[]>`
@@ -414,7 +477,9 @@ async function finishOperation(
       (counts.conflict ?? 0) +
       (counts.ambiguous ?? 0) +
       (counts.expired ?? 0)
-    await sql`update bulk_listing_operation set status = ${failed ? "completed_with_failures" : "completed"}, finished_at = now(), updated_at = now() where id = ${operationId}`
+    const status = failed ? "completed_with_failures" : "completed"
+    if (finished && op.status === status) return
+    await sql`update bulk_listing_operation set status = ${status}, finished_at = now(), updated_at = now() where id = ${operationId}`
     await writeAudit(sql, {
       organisationId,
       actorUserId: op.approvedBy,
@@ -426,7 +491,7 @@ async function finishOperation(
       requestId,
       metadata: counts,
     })
-    if (failed) {
+    if (failed && !finished) {
       await recordOperationalEvent(sql, {
         version: 1,
         kind: "bulk_completed_with_failures",
@@ -455,6 +520,7 @@ export async function runDueBulkChildren(options: {
     ambiguous: 0,
     deferred: 0,
     expired: 0,
+    reconciled: 0,
   }
   const env = getServerEnv(),
     deadline = Date.now() + options.budgetMs
@@ -500,6 +566,11 @@ export async function runDueBulkChildren(options: {
     for (const [operationId, organisationId] of operations)
       await finishOperation(organisationId, operationId, options.requestId)
   }
+  await reconcileResolvedChildren(
+    options.requestId,
+    summary,
+    env.JOBS_BATCH_SIZE
+  )
   // Batches the claim settled without running anything (every remaining
   // child expired) still finish, once.
   const settled = await getDatabase()<

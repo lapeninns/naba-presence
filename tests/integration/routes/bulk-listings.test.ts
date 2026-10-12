@@ -40,6 +40,9 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       regularHours?: unknown
       patchStatus?: number
       applyPatch?: boolean
+      /** The next real PATCH lands but answers 503; reads then fail until cleared. */
+      lostResponse?: boolean
+      readsFail?: boolean
     }
   >()
   let readDelayMs = 0
@@ -67,6 +70,8 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     readDelayMs = 0
     google.respond({ method: "GET", pathIncludes: "readMask=" }, (call) => {
       const state = listings.get(nameOf(call.path))
+      if (state?.readsFail)
+        return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
       return state
         ? {
             status: 200,
@@ -83,6 +88,18 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       (call) => {
         const state = listings.get(nameOf(call.path))
         if (!state) return { status: 404, json: {} }
+        const validateOnly =
+          new URL(call.path, "https://stub.test").searchParams.get(
+            "validateOnly"
+          ) === "true"
+        if (state.lostResponse && !validateOnly) {
+          state.lostResponse = false
+          state.readsFail = true
+          state.specialHours = (
+            call.body as { specialHours: { specialHourPeriods: unknown[] } }
+          ).specialHours
+          return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+        }
         if (state.patchStatus && state.patchStatus !== 200)
           return {
             status: state.patchStatus,
@@ -90,7 +107,7 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
               error: { status: "INVALID_ARGUMENT", message: "rejected" },
             },
           }
-        if (state.applyPatch !== false)
+        if (state.applyPatch !== false && !validateOnly)
           state.specialHours = (
             call.body as { specialHours: { specialHourPeriods: unknown[] } }
           ).specialHours
@@ -98,9 +115,13 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       }
     )
   })
+  /** Real writes: the hours publish path validates first (validateOnly). */
   const patches = (name?: string) =>
     google.calls.filter(
-      (call) => call.method === "PATCH" && (!name || call.path.includes(name))
+      (call) =>
+        call.method === "PATCH" &&
+        !call.path.includes("validateOnly=true") &&
+        (!name || call.path.includes(name))
     )
   const tick = async () => {
     const response = await fetch(`${server.baseUrl}/api/jobs/run`, {
@@ -253,7 +274,8 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     await tick()
     expect((await t.status(op)).status).toBe("completed")
     expect(patches(t.linked[0].googleLocationName)).toHaveLength(1)
-    expect(patches(t.linked[1].googleLocationName)).toHaveLength(2)
+    // Google refused the first attempt at validation, so only the retry wrote.
+    expect(patches(t.linked[1].googleLocationName)).toHaveLength(1)
   })
 
   it("turns a changed Google baseline into a conflict and revoked access into a failure, without writing", async () => {
@@ -283,8 +305,13 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     const second = await t2.preview()
     await t2.read(await t2.approve(second))
     await t2.api(`/${second.id}/execute`, {})
+    // The date the batch sets changed on Google after the preview. (A change
+    // to any other date is not a conflict: it is written back as it is.)
     listings.get(t2.linked[0].googleLocationName)!.specialHours = {
-      specialHourPeriods: [],
+      specialHourPeriods: [
+        christmas,
+        { startDate: d("2026-12-24"), endDate: d("2026-12-24"), closed: true },
+      ],
     }
     await tick()
     expect((await t2.status(second)).children[0]).toMatchObject({
@@ -559,21 +586,27 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     expect(new Set(locations.map((row) => row.location_id)).size).toBe(2)
     expect(await claim()).toHaveLength(0)
     // The interrupted claim goes back to the queue; one tick drains both
-    // batches two at a time, and the listing both batches name is written
-    // once: the later child sees the earlier write as a moved baseline.
+    // batches two at a time. The listing both batches name is written twice,
+    // one after the other: each batch changes its own date and writes the
+    // other's back as Google holds it, so neither undoes the other.
     await admin`update bulk_listing_child set status = 'queued', attempts = 0, lease_expires_at = null, started_at = null where id in ${admin(claimed.map((row) => row.child_id))}`
     await tick()
     const statuses = [
       ...(await t.status(first)).children,
       ...(await t.status(second)).children,
     ].map((c) => c.status)
-    expect(statuses.sort()).toEqual([
-      "conflict",
+    expect(statuses).toEqual([
+      "succeeded",
       "succeeded",
       "succeeded",
       "succeeded",
     ])
-    expect(patches(t.linked[0].googleLocationName)).toHaveLength(1)
+    expect(patches(t.linked[0].googleLocationName)).toHaveLength(2)
+    const dates = (
+      listings.get(t.linked[0].googleLocationName)!.specialHours!
+        .specialHourPeriods as { startDate: { day: number } }[]
+    ).map((period) => period.startDate.day)
+    expect(dates).toEqual([23, 24, 25])
   })
 
   it("defers while an editor holds the listing's resource lock, and refuses a reconnected Google target", async () => {
@@ -598,10 +631,11 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     expect(patches()).toHaveLength(0)
   })
   it("holds the resource lock from the baseline read, so an editor write between claim and dispatch ends in a conflict and nothing is sent", async () => {
+    // The editor closes the very date the batch opens.
     const editorValue = {
       specialHourPeriods: [
+        { startDate: d("2026-12-24"), endDate: d("2026-12-24"), closed: true },
         christmas,
-        { startDate: d("2026-12-26"), endDate: d("2026-12-26"), closed: true },
       ],
     }
     // An editor write lands after the claim: the editor holds the lock and
@@ -730,5 +764,204 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       { status: "failed", result_code: "security_version_unverifiable" },
     ])
     expect(patches()).toHaveLength(0)
+  })
+  const receiptOf = async (
+    t: Awaited<ReturnType<typeof tenant>>,
+    operationId: string
+  ) => {
+    const response = await fetch(
+      `${server.baseUrl}/api/mutations/${operationId}`,
+      {
+        headers: { cookie: t.owner.cookie },
+      }
+    )
+    expect(response.status, await response.clone().text()).toBe(200)
+    return ((await response.json()) as { operation: Record<string, unknown> })
+      .operation
+  }
+
+  it("publishes bulk hours through the hours editor's path: a new canonical revision, a selective attempt and a receipt", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await execute(t, op)
+    await tick()
+    const [child] = (await t.status(op)).children
+    expect(child).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(child.mutationOperationId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(await receiptOf(t, child.mutationOperationId!)).toMatchObject({
+      surface: "hours",
+      action: "publish",
+      locationId: t.linked[0].locationId,
+      outcome: "confirmed_applied",
+    })
+    const [receipt] = await admin<
+      { approvalRef: string; attemptTable: string; attemptId: string }[]
+    >`select approval_ref as "approvalRef", attempt_table as "attemptTable", attempt_id::text as "attemptId"
+      from mutation_operation where id = ${child.mutationOperationId!}`
+    expect(receipt).toMatchObject({
+      approvalRef: `bulk_listing_operation:${op.id}`,
+      attemptTable: "hours_sync_attempt",
+    })
+    const [attempt] = await admin<
+      { status: string; selection: unknown; updateMask: string[] }[]
+    >`select status, selection, update_mask as "updateMask" from hours_sync_attempt where id = ${receipt.attemptId}`
+    expect(attempt).toMatchObject({
+      status: "succeeded",
+      selection: { specialDates: ["2026-12-24"] },
+      updateMask: ["specialHours"],
+    })
+    // The saved schedule moved with Google: a new revision holding the date.
+    const [canonical] = await admin<
+      {
+        revision: string
+        payload: {
+          special: { effectiveDate: string; opensAt: string | null }[]
+        }
+      }[]
+    >`select revision::text as revision, payload from presence_canonical_resource
+      where location_id = ${t.linked[0].locationId} and resource_type = 'hours'`
+    expect(Number(canonical.revision)).toBeGreaterThan(1)
+    expect(
+      canonical.payload.special.map((entry) => [
+        entry.effectiveDate,
+        entry.opensAt,
+      ])
+    ).toEqual([
+      ["2026-12-24", "10:00"],
+      ["2026-12-25", null],
+    ])
+    expect(patches()).toHaveLength(1)
+  })
+
+  it("leaves an uncertain child to recovery: retry does not re-send it, and the recovered receipt settles it", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    listings.get(name)!.lostResponse = true
+    const op = await t.preview()
+    await execute(t, op)
+    await tick()
+    const [unresolved] = (await t.status(op)).children
+    expect(unresolved).toMatchObject({
+      status: "ambiguous",
+      resultCode: "readback_failed",
+      confirmationState: "unresolved",
+    })
+    expect(unresolved.mutationOperationId).toBeTruthy()
+    expect(await receiptOf(t, unresolved.mutationOperationId!)).toMatchObject({
+      outcome: "uncertain",
+    })
+    expect((await t.status(op)).status).toBe("completed_with_failures")
+    // While recovery is reading it back, retry leaves it alone.
+    await t.read(await t.api(`/${op.id}/retry`, {}))
+    expect(await childRows(op.id)).toEqual([
+      { status: "ambiguous", result_code: "readback_failed" },
+    ])
+    await tick()
+    expect(patches(name)).toHaveLength(1)
+    // Google is readable again and the recovery job is due.
+    listings.get(name)!.readsFail = false
+    await admin`update mutation_operation set next_recovery_at = now() - interval '1 second'
+      where id = ${unresolved.mutationOperationId!}`
+    await tick()
+    await tick()
+    expect(await receiptOf(t, unresolved.mutationOperationId!)).toMatchObject({
+      outcome: "confirmed_applied",
+    })
+    const after = await t.status(op)
+    expect(after.children[0]).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+      resultCode: null,
+    })
+    expect(after.status).toBe("completed")
+    // Sent once, at the start; recovery and the runner only read.
+    expect(patches(name)).toHaveLength(1)
+    const [audit] =
+      await admin`select metadata from audit_log where organisation_id = ${t.owner.organisationId} and action = 'bulk_listing.child_reconciled'`
+    expect(audit.metadata).toMatchObject({
+      outcome: "succeeded",
+      receiptState: "confirmed_applied",
+    })
+  })
+
+  it("writes attributes through the pipeline with a receipt, sending [false] as an answer", async () => {
+    const t = await tenant(1)
+    const name = t.linked[0].googleLocationName
+    let attributes: unknown[] = [
+      { name: "attributes/has_wifi", values: [true] },
+      { name: "attributes/has_seating_outdoors", values: [true] },
+    ]
+    google.respond({ method: "GET", pathIncludes: "/v1/attributes?" }, () => ({
+      status: 200,
+      json: {
+        attributeMetadata: [
+          { parent: "attributes/has_wifi", valueType: "BOOL" },
+          { parent: "attributes/has_seating_outdoors", valueType: "BOOL" },
+        ],
+      },
+    }))
+    google.respond(
+      { method: "GET", pathIncludes: `${name}/attributes` },
+      () => ({ status: 200, json: { name: `${name}/attributes`, attributes } })
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: `${name}/attributes` },
+      (call) => {
+        const mask = (
+          new URL(call.path, "https://stub.test").searchParams.get(
+            "attributeMask"
+          ) ?? ""
+        ).split(",")
+        const sent = (call.body as { attributes: { name: string }[] })
+          .attributes
+        attributes = [
+          ...(attributes as { name: string }[]).filter(
+            (attribute) => !mask.includes(attribute.name)
+          ),
+          ...sent,
+        ]
+        return { status: 200, json: { attributes } }
+      }
+    )
+    const op = await t.read(
+      await t.api("/preview", {
+        locationIds: [t.linked[0].locationId],
+        input: {
+          operation: "attributes",
+          changes: [
+            { name: "attributes/has_wifi", values: [false] },
+            { name: "attributes/has_seating_outdoors", values: [] },
+          ],
+        },
+      })
+    )
+    expect(op.children[0]).toMatchObject({
+      eligibility: "eligible",
+      updateMask: ["attributes/has_seating_outdoors", "attributes/has_wifi"],
+      proposedValue: [{ name: "attributes/has_wifi", values: [false] }],
+    })
+    await execute(t, op)
+    await tick()
+    const [child] = (await t.status(op)).children
+    expect(child).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(attributes).toEqual([
+      { name: "attributes/has_wifi", values: [false] },
+    ])
+    expect(await receiptOf(t, child.mutationOperationId!)).toMatchObject({
+      surface: "attributes",
+      action: "update",
+      outcome: "confirmed_applied",
+    })
+    const [attempt] = await admin<{ status: string; family: string }[]>`
+      select a.status, a.family from bulk_listing_write_attempt a
+      join mutation_operation m on m.attempt_id = a.id
+      where m.id = ${child.mutationOperationId!}`
+    expect(attempt).toEqual({ status: "succeeded", family: "attributes" })
   })
 })

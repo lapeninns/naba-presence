@@ -64,6 +64,8 @@ export const bulkChildSchema = z.object({
   updateMask: z.array(z.string()),
   attempts: z.number().int(),
   finishedAt: z.iso.datetime().nullable(),
+  /** The receipt of this listing's write (`GET /api/mutations/{id}`), once one was sent. */
+  mutationOperationId: z.uuid().nullable(),
 })
 export type BulkChild = z.infer<typeof bulkChildSchema>
 

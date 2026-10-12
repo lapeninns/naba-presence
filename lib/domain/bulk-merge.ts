@@ -7,6 +7,10 @@
 import { z } from "zod"
 
 import { httpUrl } from "@/lib/contracts/http-url"
+import type {
+  HoursSelection,
+  NormalizedHours,
+} from "@/lib/domain/hours-vocabulary"
 
 /** Plan P09: one batch covers at most 50 explicitly selected listings. */
 export const BULK_MAX_TARGETS = 50
@@ -40,14 +44,18 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
             periods: z.array(period).max(3),
           })
         )
-        .length(7),
+        .min(1)
+        .max(7),
     })
     .superRefine((value, context) => {
-      if (new Set(value.days.map((entry) => entry.dayOfWeek)).size !== 7)
+      if (
+        new Set(value.days.map((entry) => entry.dayOfWeek)).size !==
+        value.days.length
+      )
         context.addIssue({
           code: "custom",
           path: ["days"],
-          message: "Give each day exactly once.",
+          message: "Give each day at most once.",
         })
       value.days.forEach((entry, index) => {
         if (entry.isClosed !== (entry.periods.length === 0))
@@ -111,13 +119,24 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
         value.changes.length,
       "Change each attribute once."
     ),
-  z.strictObject({
-    operation: z.literal("place_action"),
-    action: z.enum(["upsert", "delete"]),
-    placeActionType: z.string().min(1).max(60),
-    uri: httpUrl("Links must use http or https."),
-    isPreferred: z.boolean().default(false),
-  }),
+  /**
+   * Action links are matched by type, never by URI: an upsert updates the
+   * listing's one editable link of that type (by its Google link name) or
+   * creates one, and a delete removes it. A listing with several editable
+   * links of the type is skipped rather than guessed at.
+   */
+  z
+    .strictObject({
+      operation: z.literal("place_action"),
+      action: z.enum(["upsert", "delete"]),
+      placeActionType: z.string().min(1).max(60),
+      uri: httpUrl("Links must use http or https.").optional(),
+      isPreferred: z.boolean().default(false),
+    })
+    .refine((value) => value.action === "delete" || value.uri !== undefined, {
+      path: ["uri"],
+      message: "Give the link to add or update.",
+    }),
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
@@ -129,8 +148,8 @@ export type BulkOperation = BulkOperationInput["operation"]
  * (`<org>:<location>:attributes` in lib/server/business-information.ts), so
  * bulk and editor writes to one resource are serialised. The three hours
  * families share one key: they patch fields of the same location resource.
- * The hours editor takes no such lock yet; P09-R3 sends bulk hours through
- * the canonical hours path instead.
+ * The hours editor (lib/server/hours.ts `publishCanonicalHours`) takes the
+ * same `hours` key, and bulk hours are published through that path.
  */
 export type BulkResourceKey = "hours" | "attributes" | "place_actions"
 export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
@@ -152,16 +171,6 @@ const toTime = (value: string) => {
   const [hours, minutes] = value.split(":").map(Number)
   return { hours, minutes }
 }
-const toDate = (value: string) => {
-  const [year, month, day] = value.split("-").map(Number)
-  return { year, month, day }
-}
-type GoogleDate = { year?: number; month?: number; day?: number }
-const dateKey = (value: GoogleDate | undefined) =>
-  value?.year && value.month && value.day
-    ? `${value.year}-${String(value.month).padStart(2, "0")}-${String(value.day).padStart(2, "0")}`
-    : null
-
 /** A period that closes at or before it opens runs past midnight and closes on the next day. */
 export function googlePeriod(
   dayOfWeek: number,
@@ -177,115 +186,129 @@ export function googlePeriod(
   }
 }
 
-type Location = {
-  regularHours?: { periods?: unknown[] }
-  specialHours?: {
-    specialHourPeriods?: Array<
-      Record<string, unknown> & { startDate?: GoogleDate }
-    >
-  }
-  moreHours?: Array<Record<string, unknown> & { hoursTypeId?: string }>
-  categories?: {
-    primaryCategory?: { moreHoursTypes?: Array<{ hoursTypeId?: string }> }
-    additionalCategories?: Array<{
-      moreHoursTypes?: Array<{ hoursTypeId?: string }>
-    }>
-  }
-}
-export type HoursMerge =
-  | {
-      updateMask: "regularHours" | "specialHours" | "moreHours"
-      current: unknown
-      proposed: unknown
-    }
-  | { skip: string }
+type HoursInput = Extract<
+  BulkOperationInput,
+  { operation: "regular_hours" | "special_hours" | "more_hours" }
+>
 
-/** The one hours field a bulk operation changes, merged into this listing's current value. */
-export function mergeHours(
-  input: Extract<
-    BulkOperationInput,
-    { operation: "regular_hours" | "special_hours" | "more_hours" }
-  >,
-  location: Location
-): HoursMerge {
-  if (input.operation === "regular_hours") {
+/** The Google hours field each hours family writes. */
+export function bulkHoursField(
+  operation: HoursInput["operation"]
+): "regularHours" | "specialHours" | "moreHours" {
+  if (operation === "regular_hours") return "regularHours"
+  if (operation === "special_hours") return "specialHours"
+  return "moreHours"
+}
+
+/**
+ * The parts of the schedule an hours family changes, in the selective-hours
+ * vocabulary (lib/domain/hours-vocabulary.ts): the chosen weekdays (all
+ * seven is a whole-week replacement), the named special dates, or the one
+ * service type. Everything else on the listing is re-read and written back
+ * as Google holds it.
+ */
+export function bulkHoursSelection(input: HoursInput): HoursSelection {
+  if (input.operation === "regular_hours")
     return {
-      updateMask: "regularHours",
-      current: location.regularHours ?? {},
-      proposed: {
-        periods: input.days.flatMap((entry) =>
-          entry.periods.map((p) =>
-            googlePeriod(entry.dayOfWeek, p.opensAt, p.closesAt)
-          )
-        ),
-      },
+      regularDays: input.days
+        .map((entry) => entry.dayOfWeek)
+        .sort((a, b) => a - b),
     }
+  if (input.operation === "special_hours")
+    return { specialDates: input.dates.map((entry) => entry.date).sort() }
+  return { moreHoursTypes: [input.hoursTypeId] }
+}
+
+const nextDay = (dayOfWeek: number, opensAt: string, closesAt: string) =>
+  closesAt <= opensAt ? (dayOfWeek + 1) % 7 : dayOfWeek
+
+/**
+ * `hours` with the selected parts set to the change: the chosen weekdays
+ * replaced, the named dates upserted (or removed, for `clear`), the service
+ * type replaced (or removed, when it has no periods). Every boundary is
+ * explicit (a period's closing day, a date's end date), so the result never
+ * needs the hours editor's legacy-boundary reconciliation. Other parts are
+ * copied unchanged.
+ */
+export function applyBulkHours(
+  input: HoursInput,
+  hours: NormalizedHours
+): NormalizedHours {
+  const next = structuredClone(hours)
+  if (input.operation === "regular_hours") {
+    const days = new Map(input.days.map((entry) => [entry.dayOfWeek, entry]))
+    next.regular = next.regular.map((day) => {
+      const change = days.get(day.dayOfWeek)
+      if (!change) return day
+      return {
+        dayOfWeek: day.dayOfWeek,
+        isClosed: change.isClosed,
+        periods: change.periods
+          .map((period) => ({
+            opensAt: period.opensAt,
+            closesAt: period.closesAt,
+            closeDayOfWeek: nextDay(
+              day.dayOfWeek,
+              period.opensAt,
+              period.closesAt
+            ),
+          }))
+          .sort((a, b) => a.opensAt.localeCompare(b.opensAt)),
+      }
+    })
+    return next
   }
   if (input.operation === "special_hours") {
     const named = new Set(input.dates.map((entry) => entry.date))
-    const kept = (location.specialHours?.specialHourPeriods ?? []).filter(
-      (period) => !named.has(dateKey(period.startDate) ?? "")
-    )
-    const added = input.dates.flatMap((entry) =>
-      entry.action === "clear"
-        ? []
-        : entry.action === "closed"
-          ? [
-              {
-                startDate: toDate(entry.date),
-                endDate: toDate(entry.date),
-                closed: true,
-              },
-            ]
+    next.special = [
+      ...next.special.filter((entry) => !named.has(entry.effectiveDate)),
+      ...input.dates.flatMap((entry) =>
+        entry.action === "clear"
+          ? []
           : [
-              {
-                startDate: toDate(entry.date),
-                endDate: toDate(entry.date),
-                openTime: toTime(entry.opensAt),
-                closeTime: toTime(entry.closesAt),
-                closed: false,
-              },
+              entry.action === "closed"
+                ? {
+                    effectiveDate: entry.date,
+                    endDate: entry.date,
+                    isClosed: true,
+                    opensAt: null,
+                    closesAt: null,
+                  }
+                : {
+                    effectiveDate: entry.date,
+                    endDate: entry.date,
+                    isClosed: false,
+                    opensAt: entry.opensAt,
+                    closesAt: entry.closesAt,
+                  },
             ]
-    )
-    const all = [...kept, ...added].sort((a, b) =>
-      (dateKey(a.startDate as GoogleDate) ?? "").localeCompare(
-        dateKey(b.startDate as GoogleDate) ?? ""
-      )
-    )
-    return {
-      updateMask: "specialHours",
-      current: location.specialHours ?? {},
-      proposed: { specialHourPeriods: all },
-    }
+      ),
+    ].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    return next
   }
-  const supported = [
-    location.categories?.primaryCategory,
-    ...(location.categories?.additionalCategories ?? []),
-  ]
-    .flatMap((category) => category?.moreHoursTypes ?? [])
-    .some((type) => type.hoursTypeId === input.hoursTypeId)
-  const present = (location.moreHours ?? []).some(
-    (entry) => entry.hoursTypeId === input.hoursTypeId
-  )
-  if (!supported && !present) return { skip: "hours_type_not_supported" }
-  const others = (location.moreHours ?? []).filter(
-    (entry) => entry.hoursTypeId !== input.hoursTypeId
-  )
-  const replacement = input.periods.length
-    ? [
-        {
-          hoursTypeId: input.hoursTypeId,
-          periods: input.periods.map((p) =>
-            googlePeriod(p.dayOfWeek, p.opensAt, p.closesAt)
-          ),
-        },
-      ]
-    : []
-  return {
-    updateMask: "moreHours",
-    current: location.moreHours ?? [],
-    proposed: [...others, ...replacement],
-  }
+  next.moreHours = [
+    ...next.moreHours.filter(
+      (entry) => entry.hoursTypeId !== input.hoursTypeId
+    ),
+    ...(input.periods.length
+      ? [
+          {
+            hoursTypeId: input.hoursTypeId,
+            periods: input.periods.map((period) => ({
+              dayOfWeek: period.dayOfWeek,
+              opensAt: period.opensAt,
+              closesAt: period.closesAt,
+              closeDayOfWeek: nextDay(
+                period.dayOfWeek,
+                period.opensAt,
+                period.closesAt
+              ),
+            })),
+          },
+        ]
+      : []),
+  ].sort((a, b) => a.hoursTypeId.localeCompare(b.hoursTypeId))
+  return next
 }
 
 export type AttributeValue = {
@@ -312,7 +335,10 @@ export function mergeAttributes(
     current: current
       .filter((attribute) => names.has(attribute.name))
       .sort((a, b) => a.name.localeCompare(b.name)),
+    // An attribute given no values is cleared: Google clears a masked name
+    // the request leaves out. `[false]` is an answer, never a clear.
     proposed: input.changes
+      .filter((change) => change.values.length > 0)
       .map((change) => ({ name: change.name, values: change.values }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   } as const

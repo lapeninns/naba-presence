@@ -336,7 +336,7 @@ async function project(
   const children = await sql`
     select c.id::text as id, c.location_id::text as "locationId", l.name as "locationName", c.eligibility, c.skip_reason as "skipReason", ${effectiveChildStatus(sql)} as status,
       c.confirmation_state as "confirmationState", ${effectiveChildCode(sql)} as "resultCode", c.current_value as "currentValue", c.proposed_value as "proposedValue",
-      c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt"
+      c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt", c.mutation_operation_id::text as "mutationOperationId"
     from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id join location l on l.id = c.location_id
     where c.operation_id = ${operationId} order by l.name, c.id`
   const counts: Record<string, number> = {}
@@ -636,7 +636,8 @@ export async function cancelBulkOperation(
  * Requeues failed and unresolved children. Each re-reads Google first: a
  * listing already showing the change settles as succeeded without a write,
  * and one whose value moved away from the preview becomes a conflict that
- * needs a new preview. Succeeded children are never touched.
+ * needs a new preview. Succeeded children are never touched, nor is an
+ * unresolved one whose receipt recovery is still reading back.
  */
 export async function retryBulkOperation(
   session: Session,
@@ -664,9 +665,16 @@ export async function retryBulkOperation(
         "approval_expired",
         "This approval expired. Prepare a new preview for the remaining listings."
       )
+    // An unresolved write whose receipt `mutation_recover` is still reading
+    // back is left alone: the runner settles it from the receipt
+    // (bulk_children_to_reconcile, 0262), so it is never sent twice.
     const retried =
-      await sql`update bulk_listing_child set status = 'queued', next_attempt_at = now(), result_code = null
-      where operation_id = ${operationId} and status in ('failed', 'ambiguous') returning id`
+      await sql`update bulk_listing_child c set status = 'queued', next_attempt_at = now(), result_code = null
+      where c.operation_id = ${operationId} and (c.status = 'failed' or (c.status = 'ambiguous' and not exists (
+        select 1 from mutation_operation m
+        where m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
+          and m.state = 'uncertain' and m.next_recovery_at is not null)))
+      returning c.id`
     if (retried.length)
       await sql`update bulk_listing_operation set status = 'running', finished_at = null, updated_at = now() where id = ${operationId}`
     await writeAudit(sql, {

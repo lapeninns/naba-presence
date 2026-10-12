@@ -1650,7 +1650,17 @@ A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and
 ambiguous listings: already-applied listings settle without a write, unchanged
 ones are written once, and moved ones become conflicts that need a new preview.
-Confirmed listings are never written again. Cancelling stops queued listings
+Confirmed listings are never written again. An "Outcome unknown" listing whose
+receipt is still being read back by `mutation_recover` is not retried: it
+settles on its own once recovery reads Google (the batch then re-finishes,
+audit `bulk_listing.child_reconciled`). If recovery gives up (the receipt stays
+`uncertain` and owners are notified), check the listing on Google; a retry then
+reads Google before sending. Each listing's receipt is at
+`GET /api/mutations/{mutationOperationId}`. A bulk hours change also updates
+the listing's saved hours; `hours_reconciliation_required` means its saved
+hours need reviewing in the hours editor first, and
+`multiple_links_for_type` means the listing has several editable links of
+that type, so change it on its own. Cancelling stops queued listings
 only; completed writes are not rolled back.
 
 ### Notification delivery failures

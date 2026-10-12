@@ -338,7 +338,7 @@ describe("dispatch gates outside runGbpWrite", () => {
 
   it("holds the bulk and schedule runners off by their surface's scopes", () => {
     expect(source("lib/server/bulk-listing-runner.ts")).toContain(
-      "isScopeEnabled(gbpWriteScopes(WRITE_FLAG[input.operation]))"
+      "isScopeEnabled(gbpWriteScopes(family.writeSurface))"
     )
     // Read before the schedule's transaction, never inside it.
     const schedules = source("lib/server/publication-schedule-runner.ts")

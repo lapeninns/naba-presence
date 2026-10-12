@@ -1535,7 +1535,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1544,9 +1544,16 @@ children (they wait and expire with their dispatch window).
 
 A preview freezes up to 50 explicit location ids; a batch naming any listing
 the requester cannot see is refused without saying which. Each listing gets a
-frozen plan (`lib/server/bulk-listing-targets.ts`): eligibility or skip reason,
-the current Google value, the merged value (`lib/domain/bulk-merge.ts`: only the
-chosen dates, hours type or attributes change) and its update mask. Approval
+frozen plan from its family (`lib/server/bulk-families/*`, reached through
+`lib/server/bulk-listing-targets.ts`): eligibility or skip reason, the current
+Google value, the value to send and its update mask. Hours families plan a
+selective publish (`lib/domain/bulk-merge.ts` `bulkHoursSelection`): only the
+chosen weekdays (seven is a whole week), dates or service type change, and
+everything else in the field is written back as Google holds it. Attributes
+change by stable ID with typed values (an empty answer clears the masked name;
+`[false]` is an answer). Action links are matched by type and addressed by
+their Google link name, never by URI (`lib/domain/bulk-place-actions.ts`); a
+listing with several editable links of the type is skipped. Approval
 binds the preview hash and requires acknowledging skipped listings. A preview
 can be approved for 15 minutes from the start of its Google reads
 (`preview_expires_at`, set at insert on the database clock); approval opens a
@@ -1586,10 +1593,25 @@ right fails the child `permission_revoked`, a relink or reconnect
 `google_target_changed`, and an approver security version
 (`authorised_security_version`, reserved with `approver_aal` for the MFA
 stream) that cannot be verified yet `security_version_unverifiable`. Then
-the child reads Google, succeeds without writing when the change is already there, writes once
-when the baseline is unchanged, and otherwise records a conflict needing a new
-preview. Readback confirms; interrupted children become ambiguous and a retry
-re-reads before any write, so succeeded children are never replayed. Cancelling
+the child's family reads Google, succeeds without writing when the change is
+already there, writes once when its baseline is unchanged (for hours, the
+selected parts only), and otherwise records a conflict needing a new preview.
+Every write goes through a surface pipeline under a receipt: hours through the
+hours editor's own path (`publishHoursSelectionLocked` in
+`lib/server/hours.ts`, which saves the change as a new canonical revision and
+publishes that revision's selected parts, putting the revision back if the
+write definitely did not apply), attributes and action links through
+`runGbpWrite` on `bulk_listing_write_attempt` (their editors run reviewed
+change sets and record no receipts). Each claim of a child has its own
+deterministic intent (`bulkIntentId`), the child stores the receipt
+(`mutation_operation_id`, composite tenant key, 0262), and
+`GET /api/mutations/{id}` answers for it. An uncertain write is left to
+`mutation_recover` (the hours adapter, or the two bulk adapters in
+`lib/server/mutation-recovery-registry.ts`); once its receipt settles, the
+runner settles the child from it (`bulk_children_to_reconcile`, 0262; audit
+`bulk_listing.child_reconciled`) and re-finishes the batch, without sending
+anything. Retry leaves such a child alone while recovery is still reading it
+back, so succeeded and uncertain children are never replayed. Cancelling
 stops only queued children.
 
 ## Reporting provenance (WP9)

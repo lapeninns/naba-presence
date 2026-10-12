@@ -27,6 +27,7 @@ const child = (overrides: Partial<Operation["children"][number]>) => ({
   updateMask: [],
   attempts: 0,
   finishedAt: null,
+  mutationOperationId: null,
   ...overrides,
 })
 

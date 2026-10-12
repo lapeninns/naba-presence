@@ -55,7 +55,11 @@ const REASON: Record<string, string> = {
   attribute_value_not_supported: "Google doesn’t accept this value here",
   hours_type_not_supported: "Google doesn’t offer this hours type here",
   action_type_not_supported: "Google doesn’t offer this action type here",
-  link_not_found: "No matching link to remove",
+  link_not_found: "No link of this type to remove",
+  multiple_links_for_type:
+    "Several links of this type; change this listing on its own",
+  hours_reconciliation_required:
+    "Its saved hours need reviewing in the hours editor first",
   provider_owned: "The link belongs to a booking provider",
   google_baseline_changed:
     "Changed on Google after the preview; prepare a new preview",
@@ -87,7 +91,9 @@ const reason = (code: string | null) =>
     ? (REASON[code] ??
       (code.startsWith("provider_rejected")
         ? "Google rejected the change"
-        : code.replaceAll("_", " ")))
+        : code.startsWith("recovered_not_applied")
+          ? "Checked on Google: the change didn’t apply; retry to send it"
+          : code.replaceAll("_", " ")))
     : null
 const OPERATION_LABEL: Record<Operation["operation"], string> = {
   regular_hours: "Opening hours",

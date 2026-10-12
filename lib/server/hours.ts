@@ -430,6 +430,13 @@ type PublishHoursInput = {
   /** Absent: publish the whole saved schedule. */
   selection?: HoursSelectionInput
   requestId: string
+  /**
+   * The receipt's intent when a worker publishes (a bulk child); absent, the
+   * request's own `Idempotency-Key` is used.
+   */
+  intentId?: string
+  /** What approved this write, recorded on its receipt. */
+  approvalRef?: string
 }
 
 type HoursPatch = ReturnType<typeof buildGoogleHoursPatch>
@@ -576,7 +583,10 @@ function checkPublishSnapshot(
 /** durable intent -> validateOnly -> PATCH -> readback -> settle + reconcile + audit */
 async function publishHoursToGoogle(
   live: LiveHours,
-  input: PublishHoursInput,
+  input: Pick<
+    PublishHoursInput,
+    "session" | "locationId" | "requestId" | "intentId" | "approvalRef"
+  >,
   plan: PublishPlan
 ) {
   const { session, locationId } = input
@@ -630,6 +640,7 @@ async function publishHoursToGoogle(
       message: "This publish is already in progress.",
     },
     failureCode: "google_hours_publish_failed",
+    ...(input.intentId === undefined ? {} : { intentId: input.intentId }),
     operation: {
       surface: "hours",
       action: "publish",
@@ -639,6 +650,7 @@ async function publishHoursToGoogle(
       payloadHash,
       expectedRevision: live.resource.revision,
       googleConnectionId: linked.googleConnectionId,
+      approvalRef: input.approvalRef ?? null,
     },
     validate: async () => {
       await patchHours(true)
@@ -744,6 +756,173 @@ export async function publishCanonicalHours(input: PublishHoursInput) {
       }
     })
   )
+}
+
+/** One approved change to selected parts of a listing's hours (a bulk child). */
+export type HoursSelectionChange = {
+  session: Session
+  locationId: string
+  selection: HoursSelection
+  /** The schedule with the selected parts set to the change. */
+  apply: (hours: NormalizedHours) => NormalizedHours
+  /** Google's selected parts when the change was previewed (null: absent). */
+  expectedGoogleParts: Record<string, string | null>
+  intentId: string
+  approvalRef: string
+  requestId: string
+  /** Asked once more just before anything is saved or sent. */
+  stillOpen: () => boolean
+}
+
+export type HoursSelectionResult =
+  | {
+      /** Google already showed the change; nothing was sent. */
+      status: "applied" | "conflict" | "closed"
+      google: GoogleLocationHours
+    }
+  | {
+      status: "published"
+      google: GoogleLocationHours
+      operationId: string | null
+      outcome: string
+    }
+
+/**
+ * Publishes an approved change to selected parts of the schedule through
+ * the editor's own path, so the saved (canonical) schedule and Google stay
+ * in step: the change is saved as a new canonical revision, then that
+ * revision's selected parts are published (selective publish, P09-S1) under
+ * the caller's intent, with its receipt, readback and recovery.
+ *
+ * The caller holds the location's hours lock (`hoursLockKey`), as
+ * `publishCanonicalHours` does for an editor.
+ *
+ *   - Google already shows the change: the canonical schedule is brought in
+ *     line, nothing is sent (`applied`).
+ *   - A selected part changed on Google since the preview: nothing is saved
+ *     or sent (`conflict`); unselected parts may differ, they are written
+ *     back as Google holds them.
+ *   - A write that definitely did not apply puts the saved schedule back,
+ *     so the editor does not show the batch's value as a local change. An
+ *     uncertain one keeps it: recovery decides.
+ */
+export async function publishHoursSelectionLocked(
+  change: HoursSelectionChange
+): Promise<HoursSelectionResult> {
+  requireGbpWrite(getServerEnv(), "profileWrites", HOURS_PUBLISHING_DISABLED)
+  const { session, locationId, selection } = change
+  const live = await readLiveHours(session, locationId)
+  requirePublishGrant(live.linked, {
+    code: "publish_permission_required",
+    message: "You cannot publish this location.",
+  })
+  const google = live.googleLocation
+  const target = change.apply(live.canonical)
+  const keys = hoursSelectionKeys(selection)
+  const save = (
+    sql: TransactionSql,
+    expectedRevision: string,
+    payload: StoredHours
+  ) =>
+    updateCanonicalResource<StoredHours>({
+      sql,
+      organisationId: session.organisationId,
+      locationId,
+      resourceType: "hours",
+      expectedRevision,
+      payload,
+    })
+  const stored: StoredHours = {
+    ...target,
+    ...(live.resource.payload.boundaryBaseline
+      ? { boundaryBaseline: live.resource.payload.boundaryBaseline }
+      : {}),
+  }
+  const saveTarget = () =>
+    withTenant(session.organisationId, async (sql) => {
+      const updated = await save(sql, live.resource.revision, stored)
+      await writeAudit(sql, {
+        organisationId: session.organisationId,
+        actorUserId: session.userId,
+        action: "hours.canonical.updated",
+        subjectType: "location",
+        subjectId: locationId,
+        requestId: change.requestId,
+        metadata: {
+          revision: updated.revision,
+          canonicalHash: hashHours(target),
+          approvalRef: change.approvalRef,
+        },
+      })
+      return updated
+    })
+  const targetParts = hoursPartHashes(target)
+  if (keys.every((key) => live.googleParts[key] === targetParts[key])) {
+    if (hashHours(target) !== live.canonicalHash) await saveTarget()
+    return { status: "applied", google }
+  }
+  if (
+    keys.some(
+      (key) =>
+        (live.googleParts[key] ?? null) !==
+        (change.expectedGoogleParts[key] ?? null)
+    )
+  )
+    return { status: "conflict", google }
+  if (!change.stillOpen()) return { status: "closed", google }
+  const written = hoursSelectionFromKeys(
+    keys.filter((key) => live.googleParts[key] !== targetParts[key])
+  )
+  const patch = buildGoogleHoursPatch({
+    canonical: target,
+    googleLocation: google,
+    selection: written,
+  })
+  if (patch.blockingIssues.length > 0)
+    throw new ApiError(
+      409,
+      "hours_reconciliation_required",
+      patch.blockingIssues.join(" ")
+    )
+  const saved =
+    hashHours(target) === live.canonicalHash ? null : await saveTarget()
+  const published: LiveHours = saved
+    ? {
+        ...live,
+        resource: saved,
+        canonical: target,
+        canonicalHash: hashHours(target),
+        canonicalParts: targetParts,
+      }
+    : live
+  try {
+    const result = await publishHoursToGoogle(published, change, {
+      patch,
+      selection: written,
+    })
+    return {
+      status: "published",
+      google,
+      operationId: result.operationId ?? null,
+      outcome: result.outcome,
+    }
+  } catch (error) {
+    if (saved) {
+      await withTenant(session.organisationId, async (sql) => {
+        const [receipt] = await sql<{ state: string }[]>`
+          select state from mutation_operation
+          where organisation_id = ${session.organisationId} and intent_id = ${change.intentId}`
+        if (receipt && !["failed", "rejected"].includes(receipt.state)) return
+        // Only the revision this change saved is put back; a later edit wins.
+        await save(sql, saved.revision, live.resource.payload).catch(
+          (stale: unknown) => {
+            if (!(stale instanceof ApiError)) throw stale
+          }
+        )
+      })
+    }
+    throw error
+  }
 }
 
 /** The advisory lock key every hours writer to Google takes for a location. */
