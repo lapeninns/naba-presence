@@ -49,6 +49,10 @@ export default defineConfig({
       // accessibility and axe specs measure it, so turn it on here - this
       // object is merged last into the served app's environment.
       DESIGN_SYSTEM_EVIDENCE_ENABLED: "true",
+      // The Billing and Usage screens (P07-S6) exist only with billing on.
+      // No Stripe key is set, so every billing action stays fail-closed
+      // (503 billing_unavailable); tests/e2e/billing.spec.ts stubs reads.
+      BILLING_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,

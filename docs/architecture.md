@@ -1797,6 +1797,46 @@ sessions (403 `support_session_forbidden`). Each carries the
 - Tests point the SDK at a local stub with `STRIPE_API_PROXY_BASE`, which
   `lib/server/billing/stripe.ts` honours for test-mode keys only.
 
+### Billing, Usage and read-only screens (P07-S6)
+
+The customer-facing surfaces read one overview, `GET /api/billing`
+(`lib/server/billing/overview.ts`), through `lib/queries/use-billing.ts`
+(keyed by organisation) and the pure copy in `lib/billing/presentation.ts`.
+The overview now also carries `providerSyncedAt`, `trialDays` (the record's
+half of checkout's first-subscription rule) and `writesBlocked` (enforcement
+applies and access refuses changes).
+
+- `/settings/billing` (`app/(dashboard)/settings/billing/page.tsx`) is the
+  owner's screen: state, plan, trial/renewal/grace dates, linked locations
+  against the limit, a scheduled change with "Keep", payment details and
+  invoices through the Customer Portal, cancel (with a confirmation saying
+  access continues to the period end) and resume, and the plans
+  (`components/settings/plan-picker.tsx`). Test offers carry a "Test offer"
+  badge on the plan and the page says "Test mode". Prices are not shown: the
+  catalog holds no amounts, and Stripe's page shows them before any charge.
+  A support session sees the screen with every action disabled.
+- Checkout and the portal open only `https://*.stripe.com` URLs
+  (`isStripeHostedUrl`); anything else is refused in the browser.
+- Stripe returns to `/settings/billing?checkout=returned`, which redirects to
+  `/settings/billing/confirming` (`components/settings/billing-confirming.tsx`).
+  It polls every 2s and says "Subscription confirmed" only once the record
+  holds a running subscription with a provider sync; after three minutes it
+  says the confirmation is late. The return itself grants nothing.
+- `/settings/usage` is shared by every member: AI credits per period
+  (`components/settings/usage-card.tsx`) and the plan's linked locations
+  (`components/settings/plan-usage-card.tsx`).
+- The app shell's `components/app-shell/billing-banner.tsx` shows a banner
+  during grace and while read-only. With enforcement on it lists what still
+  works; without it, it says only AI drafting is off (AI is refused on
+  read-only whatever the enforcement switch says).
+- The Billing and Usage tabs and pages exist only while `BILLING_ENABLED` is
+  on (`components/settings/billing-screens.tsx`, provided by the settings
+  layout); with billing off Settings is unchanged and the credits card stays
+  on the Policy page.
+- Billing error codes have customer copy in `lib/errors/action-errors.ts`;
+  `location_limit_reached` and `location_limit_exceeded` name the limit when
+  the server sends it.
+
 ### AI credit periods and generation ids (P07-S2)
 
 `lib/server/ai-credits.ts` accounts AI work against the organisation's current

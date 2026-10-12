@@ -1,6 +1,8 @@
 import { HydrationBoundary } from "@tanstack/react-query"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
+import { BillingScreensProvider } from "@/components/settings/billing-screens"
+import { getServerEnv } from "@/lib/server/env"
 import { prefetch, settingsPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
@@ -21,7 +23,11 @@ export default async function SettingsLayout({
   const state = await prefetch(session, settingsPrefetch())
   return (
     <PageFrame width="standard">
-      <HydrationBoundary state={state}>{children}</HydrationBoundary>
+      <HydrationBoundary state={state}>
+        <BillingScreensProvider enabled={getServerEnv().BILLING_ENABLED}>
+          {children}
+        </BillingScreensProvider>
+      </HydrationBoundary>
     </PageFrame>
   )
 }

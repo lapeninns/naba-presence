@@ -60,7 +60,14 @@ export function UsageCard() {
               max={Math.max(1, data.allowance)}
               tone={exhausted ? "bad" : "default"}
             />
-            {data.periodEnd ? (
+            {exhausted ? (
+              <p
+                data-slot="usage-exhausted"
+                className="m-0 text-caption text-danger-ink"
+              >
+                {describeCreditsLeft(data)}
+              </p>
+            ) : data.periodEnd ? (
               <p className="m-0 text-caption text-ink-muted">
                 Credits reset on {formatResetDate(data.periodEnd)}.
               </p>

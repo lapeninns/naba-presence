@@ -316,6 +316,18 @@ organisation's open checkout session is in
 `organisation_billing.checkout_session_id`; it expires after an hour at
 Stripe and is replaced on the owner's next attempt.
 
+### Billing screens (P07-S6)
+
+With `BILLING_ENABLED=true` owners get Settings › Billing and every member
+gets Settings › Usage; with it off neither tab nor page exists. Before
+anything is configured the Billing screen shows the plans with checkout
+disabled ("Subscriptions are not available yet"), and with an empty catalog
+it says no plans are on offer. A customer stuck on "Confirming subscription"
+after three minutes means no webhook or reconciliation has applied the
+subscription yet: check the `billing_event` inbox above, then the
+organisation's `provider_synced_at`. Nothing is granted until it arrives.
+A test environment shows "Test mode" and marks each plan "Test offer".
+
 ### Operator pauses
 
 `ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one

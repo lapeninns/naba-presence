@@ -3,9 +3,9 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import type { BillingOverview } from "@/lib/contracts/billing"
+import { SUBSCRIBED_STATES, TRIAL_DAYS } from "@/lib/domain/billing-lifecycle"
 import { getPlan, listCatalog, publicPlan } from "@/lib/server/billing/catalog"
 import {
-  SUBSCRIBED_STATES,
   billingReadiness,
   readOpenCheckout,
   workspaceModeOf,
@@ -15,7 +15,10 @@ import {
   getOrganisationBilling,
 } from "@/lib/server/billing/state"
 import { getServerEnv } from "@/lib/server/env"
-import { countBillableLocations } from "@/lib/server/entitlement-policy"
+import {
+  countBillableLocations,
+  enforcementApplies,
+} from "@/lib/server/entitlement-policy"
 import type { PauseSnapshot } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
@@ -38,12 +41,18 @@ export async function getBillingOverview(
   const environment = env.BILLING_ENVIRONMENT
   const workspaceMode = await workspaceModeOf(sql, organisationId)
   const catalog = await listCatalog(sql, { workspaceMode, environment })
-  const [plan, pendingPlan, billableLocations, open] = await Promise.all([
-    getPlan(sql, billing?.planId ?? null),
-    getPlan(sql, billing?.pendingPlanId ?? null),
-    countBillableLocations(sql, organisationId),
-    readOpenCheckout(sql, organisationId),
-  ])
+  const [plan, pendingPlan, billableLocations, open, synced] =
+    await Promise.all([
+      getPlan(sql, billing?.planId ?? null),
+      getPlan(sql, billing?.pendingPlanId ?? null),
+      countBillableLocations(sql, organisationId),
+      readOpenCheckout(sql, organisationId),
+      sql<{ providerSyncedAt: Date | null }[]>`
+        select provider_synced_at as "providerSyncedAt"
+        from organisation_billing
+        where organisation_id = ${organisationId}
+      `,
+    ])
   const readiness = billingReadiness({ env, pauses, forCheckout: true })
   const reason = !readiness.ok
     ? readiness.reason
@@ -61,6 +70,16 @@ export async function getBillingOverview(
     currentPeriodEnd: billing?.currentPeriodEnd?.toISOString() ?? null,
     cancelAtPeriodEnd: billing?.cancelAtPeriodEnd ?? false,
     hasCustomer: Boolean(billing?.stripeCustomerId),
+    providerSyncedAt: synced[0]?.providerSyncedAt?.toISOString() ?? null,
+    // The record's half of checkout's first-subscription rule; Stripe's own
+    // subscription list (checked at checkout) can still withhold the trial.
+    trialDays:
+      billing &&
+      billing.stripeSubscriptionId === null &&
+      !billing.firstPaymentSucceeded
+        ? TRIAL_DAYS
+        : 0,
+    writesBlocked: enforcementApplies(view) && !access.canWrite,
     checkoutPending:
       open &&
       open.expiresAt.getTime() > now.getTime() &&

@@ -35,6 +35,18 @@
 
 import { GRACE_PERIOD_DAYS, type BillingState } from "@/lib/domain/entitlements"
 
+/**
+ * States in which the organisation already has a running subscription
+ * (Checkout refuses a second one; the Billing screen's "Confirming
+ * subscription" ends once the record reaches one of them).
+ */
+export const SUBSCRIBED_STATES: readonly BillingState[] = [
+  "trialing",
+  "active",
+  "past_due",
+  "grace",
+]
+
 /** Checkout's card-required trial length (P07-S5 creates it). */
 export const TRIAL_DAYS = 14
 

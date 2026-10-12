@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { getServerEnv } from "@/lib/server/env"
 import { getSession } from "@/lib/server/session"
 import { workspaceTerms } from "@/lib/workspace/terms"
 
@@ -40,7 +41,8 @@ export default async function SettingsPolicyPage() {
             <AgencyNameForm />
           </CardContent>
         </Card>
-        <UsageCard />
+        {/* With billing on, credits live on the shared Usage screen. */}
+        {getServerEnv().BILLING_ENABLED ? null : <UsageCard />}
         <PolicyForm role={role} />
       </div>
     </>

@@ -140,6 +140,24 @@ export const billingOverviewSchema = z.object({
   currentPeriodEnd: z.string().nullable(),
   cancelAtPeriodEnd: z.boolean(),
   hasCustomer: z.boolean(),
+  /**
+   * ISO timestamp the record last took the provider's state (the webhook
+   * processor or the hourly reconciliation); null before the first sync.
+   * The "Confirming subscription" screen waits for it to advance.
+   */
+  providerSyncedAt: z.string().nullable(),
+  /**
+   * The trial a new checkout would include, as far as the record knows (no
+   * earlier subscription and no paid invoice). Stripe's checkout page shows
+   * the final terms; 0 = billing starts at checkout.
+   */
+  trialDays: z.number().int().min(0),
+  /**
+   * True when central enforcement applies to this organisation and its
+   * access refuses new changes. Read-only access without enforcement still
+   * stops new AI work (`access.canUseAi`), but not other changes.
+   */
+  writesBlocked: z.boolean(),
   /** An unexpired checkout session was started and not yet confirmed. */
   checkoutPending: z
     .object({ planId: z.uuid(), expiresAt: z.string() })

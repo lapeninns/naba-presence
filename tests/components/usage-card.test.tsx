@@ -59,4 +59,26 @@ describe("UsageCard", () => {
     expect(screen.getByText(/allowance is not confirmed yet/)).toBeVisible()
     expect(screen.queryByText(/credits used/)).not.toBeInTheDocument()
   })
+
+  it("says when an exhausted period's credits come back", () => {
+    mount({
+      used: 100,
+      remaining: 0,
+      periodKind: "paid_period",
+      periodEnd: "2026-11-14T08:00:00.000Z",
+    })
+    expect(screen.getByText(/100 of 100/)).toBeVisible()
+    expect(
+      screen.getByText(
+        "Out of AI credits until 14 Nov. You can still write a reply yourself."
+      )
+    ).toBeVisible()
+    expect(screen.queryByText(/Credits reset on/)).not.toBeInTheDocument()
+  })
+
+  it("says AI drafting is off while billing is read-only, not a zero balance", () => {
+    mount({ canUseAi: false, accessReason: "grace_expired", used: 3 })
+    expect(screen.getByText(/subscription is read-only/)).toBeVisible()
+    expect(screen.queryByText(/credits used/)).not.toBeInTheDocument()
+  })
 })

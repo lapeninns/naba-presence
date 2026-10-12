@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation"
 
+import { useBillingScreensEnabled } from "@/components/settings/billing-screens"
 import { TabNav } from "@/components/ui/tabs"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 
@@ -18,7 +19,9 @@ import { settingsGatingFromRole } from "@/lib/settings/gating"
 const AREAS: {
   href: string
   label: string
-  capability: "always" | "canManageConnections"
+  capability: "always" | "canManageConnections" | "owner"
+  /** Shown only while billing is switched on (BillingScreensProvider). */
+  billing?: true
 }[] = [
   { href: "/settings", label: "Policy", capability: "always" },
   { href: "/settings/notifications", label: "Notifications", capability: "always" },
@@ -32,6 +35,9 @@ const AREAS: {
     label: "Operations",
     capability: "canManageConnections",
   },
+  // Plan P07-S6: the shared Usage screen and the owner-only Billing screen.
+  { href: "/settings/usage", label: "Usage", capability: "always", billing: true },
+  { href: "/settings/billing", label: "Billing", capability: "owner", billing: true },
 ]
 
 /**
@@ -48,8 +54,14 @@ export function SettingsNav({
 }) {
   const pathname = usePathname()
   const caps = settingsGatingFromRole(role)
+  const billing = useBillingScreensEnabled()
   const items = AREAS.filter(
-    (area) => area.capability === "always" || caps[area.capability]
+    (area) =>
+      (!area.billing || billing) &&
+      (area.capability === "always" ||
+        (area.capability === "owner"
+          ? role === "owner"
+          : caps[area.capability]))
   ).map((area) => ({
     href: area.href,
     label: area.label,

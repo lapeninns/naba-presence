@@ -730,6 +730,19 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
         body: "{}",
       })
       expect(write.status).toBe(402)
+      // The overview tells the shell banner that changes are refused, and
+      // the Billing screen that no trial is on offer.
+      const overview = await (
+        await fetch(`${server.baseUrl}/api/billing`, {
+          headers: { cookie: tenant.cookie },
+        })
+      ).json()
+      expect(overview).toMatchObject({
+        state: "canceled",
+        access: { mode: "read_only", reason: "subscription_ended" },
+        writesBlocked: true,
+        trialDays: 0,
+      })
       const response = await post(
         server.baseUrl,
         tenant.cookie,
@@ -1144,7 +1157,23 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
         state: "pilot",
         canManage: false,
         checkout: { available: true, reason: null },
+        providerSyncedAt: null,
+        trialDays: 14,
+        writesBlocked: false,
       })
+
+      // The "Confirming subscription" screen waits for the provider sync.
+      await admin`
+        update organisation_billing
+        set provider_synced_at = '2026-10-12T10:00:00Z'
+        where organisation_id = ${tenant.organisationId}
+      `
+      const synced = await (
+        await fetch(`${server.baseUrl}/api/billing`, {
+          headers: { cookie: member.cookie },
+        })
+      ).json()
+      expect(synced.providerSyncedAt).toBe("2026-10-12T10:00:00.000Z")
       const ids = overview.catalog.map((plan: { id: string }) => plan.id)
       expect(ids).toEqual(expect.arrayContaining([plans.basic, plans.small]))
       expect(ids).not.toContain(plans.retired)

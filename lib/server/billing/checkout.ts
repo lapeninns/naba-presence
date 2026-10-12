@@ -12,9 +12,9 @@ import type {
 } from "@/lib/contracts/billing"
 import {
   RUNNING_SUBSCRIPTION_STATUSES,
+  SUBSCRIBED_STATES,
   TRIAL_DAYS,
 } from "@/lib/domain/billing-lifecycle"
-import type { BillingState } from "@/lib/domain/entitlements"
 import { writeAudit } from "@/lib/server/audit"
 import { listCatalog, requireOfferedPlan } from "@/lib/server/billing/catalog"
 import {
@@ -86,13 +86,7 @@ const REUSE_MARGIN_MS = 5 * 60 * 1000
 /** The page Checkout and the portal return to (the owner Billing screen). */
 export const BILLING_RETURN_PATH = "/settings/billing"
 
-/** States in which the organisation already has a running subscription. */
-export const SUBSCRIBED_STATES: readonly BillingState[] = [
-  "trialing",
-  "active",
-  "past_due",
-  "grace",
-]
+export { SUBSCRIBED_STATES }
 
 /** The Checkout `expires_at` for a request made at `now` (unix seconds). */
 export function checkoutExpiresAt(now: Date): number {

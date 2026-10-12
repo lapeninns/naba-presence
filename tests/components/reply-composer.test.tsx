@@ -459,12 +459,22 @@ describe("ReplyComposer — AI credits", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("turns Generate off while billing is read-only", () => {
-    mount({}, undefined, { canUseAi: false, accessReason: "read_only" })
+  it("turns Generate off while billing is read-only, and keeps manual writing", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount({}, undefined, {
+      canUseAi: false,
+      accessReason: "read_only",
+    })
     expect(screen.getByText(/subscription is read-only/)).toBeVisible()
     expect(
       screen.getByRole("button", { name: "Generate reply" })
     ).toBeDisabled()
+    // Writing by hand stays open: the editor takes text, and neither the
+    // generate event nor `g` reaches the AI route.
+    await user.type(textbox(), "Thank you for the kind words.")
+    expect(textbox()).toHaveValue("Thank you for the kind words.")
+    window.dispatchEvent(new Event(REPLY_GENERATE_EVENT))
+    expect(mutateAsync).not.toHaveBeenCalled()
   })
 
   it("names the period end from the balance in a paid period", () => {
