@@ -67,10 +67,10 @@ database is unavailable.
    pnpm dev
    ```
 
-    Production on Vercel runs the web process only. The seven background loops
+    Production on Vercel runs the web process only. The eight background loops
     — review reconciliation, retention, the provider-deletion sweep,
-    presence-resource reconciliation, the performance and keyword ingests, and
-    a jobs tick that drains due webhook, checkpoint, and publish-recovery work
+    presence-resource reconciliation, the performance and keyword ingests, the
+    health and notification tick, and a jobs tick that drains due webhook, checkpoint, and publish-recovery work
     through `/api/jobs/run` — run as Vercel Cron entries (`vercel.json`)
     firing the cron-authenticated GET handlers on those routes. `CRON_SECRET`
     must be set on the Vercel project or every tick answers 401. Outside
@@ -84,9 +84,9 @@ database is unavailable.
 
    The loops run on the same cadences under either driver. Intervals and
    per-page time budgets are in `.env.example` (the scheduler process) and
-   `vercel.json` (production cron). `RETENTION_ENABLED` is the only kill
-   switch the scheduler process itself reads; every other flag is enforced by
-   the route it calls. `docs/runbook.md` covers what to stop and when.
+   `vercel.json` (production cron). `RETENTION_ENABLED` and
+   `NOTIFICATIONS_ENABLED` are the only kill switches the scheduler process
+   itself reads; every other flag is enforced by the route it calls. `docs/runbook.md` covers what to stop and when.
 
 4. Open `http://localhost:3000`. Production users start at `/sign-in`, create
    an email/password account, and confirm ownership of the email address.
@@ -118,7 +118,7 @@ available for deployments to a direct PostgreSQL URL.
 ### Production
 
 Production runs on Vercel, and only on Vercel. The deployment is the web
-process; the seven background loops are the Vercel Cron entries in
+process; the eight background loops are the Vercel Cron entries in
 `vercel.json`; the database is a managed PostgreSQL 17 instance reached through
 `DATABASE_URL` (the non-superuser runtime role) and `DIRECT_DATABASE_URL`
 (migrations only). There is no container image and no self-hosted stack to
@@ -173,13 +173,14 @@ database or UI flows. `pnpm hooks:install` opts in to a pre-push hook that
 runs `pnpm verify`.
 
 `pnpm test` runs the unit and contract suites; its embedded PGlite migration
-contract applies only `0001_initial.sql`. CI runs everything as a parallel
-graph behind one required check, `CI result`. It migrates PostgreSQL 17 from
-scratch and from `main`, creates a non-superuser runtime login with
-`pnpm db:runtime-role`, builds the standalone server, and runs the
-integration and browser suites through that runtime role. See
-[`docs/ci.md`](docs/ci.md) for the job graph, the migration rules and how to
-debug a red run.
+contract applies only `0001_initial.sql`. `pnpm verify:release` runs
+everything: it migrates PostgreSQL 17 from scratch and from the last promoted
+commit, creates a non-superuser runtime login with `pnpm db:runtime-role`,
+builds the standalone server, runs the integration and browser suites through
+that runtime role, and writes the receipt production promotion requires. It is
+the release evidence; the hosted `CI result` workflow describes the same graph
+but is not a gate. See [`docs/ci.md`](docs/ci.md) for the graph, the migration
+rules and how to debug a red run.
 
 Development runs on Turbopack, the default bundler in Next.js 16. This note
 previously pinned both dev and build to the webpack path because Turbopack

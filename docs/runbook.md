@@ -2,14 +2,14 @@
 
 ## Deployment gate
 
-CI's required check `CI result` covers lint, typecheck, unit tests, the
-build, migrations (append-only policy, from scratch, upgrade from `main`,
-concurrent runs), integration and e2e. Each runs against a disposable
-PostgreSQL 17 through the runtime test role. See `docs/ci.md`. Hosted CI is
-not the release gate: `pnpm verify:release` runs the same graph (plus the
-production audit and, when installed, gitleaks) locally on a fresh worktree
-and throwaway PostgreSQL, and writes the receipt promotion requires
-(`docs/ci.md` §5). `pnpm verify:full` is the quicker check minus e2e.
+Release evidence is local. `pnpm verify:release` runs lint, typecheck, unit
+tests, the build, migrations (append-only policy, from scratch, upgrade from
+the last promoted commit, concurrent runs), integration and e2e, plus the
+production audit and, when installed, gitleaks, on a fresh worktree and a
+throwaway PostgreSQL 17 through the runtime test role, and writes the receipt
+promotion requires (`docs/ci.md` §5). The GitHub workflows (`CI result`) run
+the same graph but are not a gate and are not needed for a release; nothing
+here waits on them. `pnpm verify:full` is the quicker check minus e2e.
 
 Production migrations are **manual**: Vercel's build runs only
 `next build --webpack`, and Production has no `DIRECT_DATABASE_URL`. The
@@ -84,7 +84,11 @@ Database migrations are roll-forward-only. Before a migration rollout, capture
 a restorable database snapshot and note the currently deployed Vercel
 deployment. If the migration or post-migration verification fails, restore the
 snapshot and promote that exact previous deployment as one rollback unit; do
-not run ad-hoc down migrations.
+not run ad-hoc down migrations. The previous deployment is the `deploymentId`
+(and `sha`) of the newest committed receipt before this release's in
+`docs/release/receipts/`. After a rollback, read the deployed cron list back
+against that commit's `vercel.json`: Instant Rollback is not known to restore
+cron configuration (ledger OPS-09).
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.

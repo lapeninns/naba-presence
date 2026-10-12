@@ -3,6 +3,14 @@
 How changes are checked before they reach production: which workflows run,
 on which runner, what is required to merge, and how to debug a red run.
 
+The project runs locally. The release evidence is the local gate,
+`pnpm verify:release` (§5), and its receipt, which `pnpm release:promote`
+(§7) requires. The GitHub workflows below are kept in the repository and
+describe the same graph, but they are not a release gate, they have not run
+since about 2026-10-04, and nothing in a release waits for them to run again.
+Sections 1 to 4 and 8 to 11 describe the hosted setup as configured, for when
+it runs.
+
 - Workflows: `.github/workflows/ci.yml`, `nightly.yml`, `codeql.yml`,
   `claude-review.yml`; Dependabot: `.github/dependabot.yml`.
 - Shared install step: `.github/actions/setup` (pnpm from `packageManager`,

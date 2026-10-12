@@ -5,7 +5,8 @@ Opened 2026-10-09 for plan package PR01 (Phase A) of
 `b22cda1bfed8b8ddc0a84222b022c4e832ab5139`. Ledger rows that depend on a
 decision reference it as `D-nn` in `docs/release/ledger.md`.
 
-Nothing in this log has been decided. Every entry is **open** until the named
+Only the entries with a dated `decided` status (D-36, and the D-12 pilot
+admission choice recorded below) have been decided. Every other entry is **open** until the named
 role records a decision with a date and the evidence or rationale behind it.
 "Proposed starting position" is the plan's or the inventory's suggestion, not a
 commitment. Commercial terms (prices, currencies, limits, trial length,
@@ -60,7 +61,7 @@ it never deletes the earlier one.
 | D-33 | Allowance adjustments                                                                | open — product owner                              | Plan: audited support adjustments with grant history                                                                                                                                          | Whether operator override is the only mechanism; actor identity and adjustment records                                                                                   | AI-05                            |
 | D-34 | AI allowance before billing exists                                                   | open — product owner                              | None proposed                                                                                                                                                                                 | Whether self-registered organisations keep the default monthly allowance until billing launches                                                                          | AUTH-01, BILL-05                 |
 | D-35 | Google-side recurring posts in customer copy                                         | open — product owner                              | Do not describe as NabaPresence scheduling                                                                                                                                                    | Whether `recurrenceInfo` posts are advertised, and how                                                                                                                   | LST-02                           |
-| D-36 | Restoring hosted CI                                                                  | open — repository owner                           | None proposed                                                                                                                                                                                 | Raise the Actions budget on the private repository, make it public, or enable the self-hosted lane                                                                       | CI-01 to CI-03                   |
+| D-36 | Restoring hosted CI                                                                  | decided — repository owner, 2026-10-10 (below)    | None proposed                                                                                                                                                                                 | Raise the Actions budget on the private repository, make it public, or enable the self-hosted lane                                                                       | CI-01 to CI-03                   |
 | D-37 | Branch protection strength                                                           | open — product owner with engineering             | None proposed                                                                                                                                                                                 | Required approvals (0 today); admin bypass; whether a red-check merge requires a recorded exception                                                                      | CI-04                            |
 | D-38 | Production promotion path                                                            | open — engineering with operations                | Implemented 2026-10-10: the constrained CLI path, `pnpm release:promote` (`scripts/release/promote.mjs`, `docs/ci.md` §7), which refuses unless the clean worktree is origin/main with a passing local release-gate receipt for that SHA (`pnpm verify:release`, `scripts/release/verify-local.mjs`; hosted CI is not a gate since 2026-10-11) and no pending migration, stamps `NABA_RELEASE_SHA`, and writes a receipt that pins the local receipt by sha256. The build, migration and configuration receipts are one JSON file per promotion (`docs/release/receipts/README.md`), with the three sections as field groups rather than separate files | Confirm in the Vercel dashboard whether the GitHub integration can still promote production; if so, disable auto-promotion or require `CI result` through Deployment Checks. Accept the local release gate as the promotion evidence | CI-06                            |
 | D-39 | Dependency audit gate placement                                                      | open — engineering with security reviewer         | None proposed                                                                                                                                                                                 | Part of `CI result`, or a release-only gate; exception handling for unpatchable advisories                                                                               | DEP-06                           |
@@ -88,3 +89,30 @@ The user also authorised operator alerts to their chosen inbox and one test
 message. Operator email is configured separately from Auth SMTP; tenant alert
 email remains disabled. This records the delivery/contact decision without
 granting a release GO or accepting other monitoring gaps.
+
+## Release-control outcomes, 10 to 12 October 2026
+
+- **D-36 Restoring hosted CI: decided — repository owner, 2026-10-10.** The
+  project runs locally: no GitHub Actions, hosted CI/CD, pushes or pull
+  requests are part of a release. Hosted CI is not restored and is not a
+  gate; the release evidence is the local gate, `pnpm verify:release`
+  (`scripts/release/verify-local.mjs`, `docs/ci.md` §5), whose receipt
+  promotion pins (D-38). Rationale: the Actions budget stopped every hosted
+  job from about 2026-10-04, and the local gate runs the same graph plus the
+  production audit and gitleaks on a throwaway PostgreSQL. Consequence:
+  CodeQL has no local equivalent (ledger CI-02 stays open for the security
+  reviewer), and the evidence comes from one machine rather than an
+  independent runner.
+- **D-37 Branch protection strength: still open.** Ruleset hardening (plan
+  P01-S4) was dropped with D-36. What ships is bound by promotion instead:
+  a clean `origin/main` with a passing local receipt for that SHA. Required
+  approvals and the admin bypass are unchanged (ledger CI-04).
+- **D-38 Production promotion path: implemented, dashboard check open.** The
+  CLI path `pnpm release:promote` is the only documented route to
+  production and requires the local receipt (no hosted checks). Whether the
+  Vercel Git integration can still promote production is unverified
+  (dashboard).
+- **D-43 Node runtime parity: implemented, dashboard check open.** Node 24
+  locally and in `engines`; each local receipt records the Node and pnpm
+  versions it ran under. The Vercel project setting is not re-read and the
+  `@types/node` change is not approved.

@@ -32,6 +32,19 @@ incidents and metric export status (`lib/server/telemetry-status.ts`), answering
 503 when not ready; `scripts/ops/readiness-probe.mjs` is the local probe that
 calls it. `startup.ts` also logs operational warnings (no alert email, no
 operator recipients, no metric export) without refusing to start.
+
+Release control is local. `scripts/release/verify-local.mjs`
+(`pnpm verify:release`) runs the whole check graph on a fresh worktree and a
+throwaway PostgreSQL (`scripts/ci/postgres.mjs`): frozen install, typecheck,
+lint, unit, build, migration policy against the last promoted commit, fresh,
+upgrade and concurrent migrations, integration, e2e, the production audit and
+gitleaks when installed. It writes a receipt (`scripts/release/local-receipt.mjs`)
+in the gitignored `local/` folder beside the promotion receipts.
+`scripts/release/promote.mjs` (`pnpm release:promote`) deploys only a clean
+`origin/main` whose passing receipt it pins by sha256, after
+`pnpm db:status --expect-current`, and stamps `NABA_RELEASE_SHA`; its own
+receipt (`docs/release/receipts/README.md`) is what rollback and the next
+gate's base read. Hosted GitHub workflows are not part of this path.
 Verified application users are provisioned by the SECURITY DEFINER
 `provision_authenticated_user` database function through
 `lib/server/provisioning.ts`, without giving the runtime role unrestricted
@@ -990,7 +1003,7 @@ per-organisation cap, and success books the next run on the kind's grid from
 the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
 last_succeeded_at` moves only on success and is what every freshness signal
 reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
-runs the older seven for local and non-Vercel deployments.
+POSTs the same eight for local and non-Vercel deployments.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and records
 each run in that loop's `ops_heartbeat` row (start, skip streak, failure and
