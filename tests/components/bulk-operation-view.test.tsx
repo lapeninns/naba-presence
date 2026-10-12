@@ -464,6 +464,126 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
     ).toBeInTheDocument()
   })
 
+  it("counts the window down by the server's clock, not the browser's", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] })
+    // The browser's clock is 55 s behind the server's.
+    vi.setSystemTime(new Date("2026-10-01T23:59:00.000Z"))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        json({
+          operation: {
+            ...operation,
+            previewExpiresAt: "2026-10-02T00:00:00.000Z",
+            serverTime: "2026-10-01T23:59:55.000Z",
+          },
+        })
+      )
+    )
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    expect(await screen.findByText("0:05 left")).toBeInTheDocument()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(
+      screen.getByRole("button", { name: "Approve this exact change" })
+    ).toBeDisabled()
+  })
+
+  it("leaves a post draft out of a new preview that would make it again at a listing", async () => {
+    const post = {
+      operation: "post_draft" as const,
+      post: {
+        topicType: "STANDARD" as const,
+        languageCode: "en-GB",
+        summary: "Quiz night",
+        media: [],
+      },
+    }
+    const hours = {
+      operation: "regular_hours" as const,
+      days: [
+        {
+          dayOfWeek: 1,
+          isClosed: false,
+          periods: [{ opensAt: "09:00", closesAt: "17:00" }],
+        },
+      ],
+    }
+    const listingB = "00000000-0000-4000-8000-0000000000d2"
+    const asPost = {
+      operation: "post_draft" as const,
+      input: post,
+      itemKey: "0:post_draft",
+    }
+    const asHours = {
+      operation: "regular_hours" as const,
+      input: hours,
+      seq: 1,
+      itemKey: "1:regular_hours",
+    }
+    const view: Operation = {
+      ...operation,
+      operation: "mixed",
+      items: [post, hours],
+      status: "completed_with_failures",
+      canApprove: false,
+      approvedBy: operation.requestedBy,
+      dispatchExpiresAt: "2026-10-02T00:00:00.000Z",
+      counts: { succeeded: 2, conflict: 1, expired: 1 },
+      children: [
+        child({ ...asPost, status: "succeeded" }),
+        child({
+          ...asHours,
+          id: "00000000-0000-4000-8000-0000000000c2",
+          status: "conflict",
+          resultCode: "google_baseline_changed",
+        }),
+        child({
+          ...asPost,
+          id: "00000000-0000-4000-8000-0000000000c3",
+          locationId: listingB,
+          locationName: "White Horse",
+          status: "expired",
+          resultCode: "dispatch_expired",
+        }),
+        child({
+          ...asHours,
+          id: "00000000-0000-4000-8000-0000000000c4",
+          locationId: listingB,
+          locationName: "White Horse",
+          status: "succeeded",
+        }),
+      ],
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input) =>
+      String(input).endsWith("/preview")
+        ? json({
+            operation: {
+              ...operation,
+              id: "00000000-0000-4000-8000-0000000000b2",
+            },
+          })
+        : json({ operation: view })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    renderWithProviders(<BulkOperationView operationId={view.id} />)
+    expect(
+      await screen.findByText(
+        /Not in the new preview: change 1 \(Post drafts\) at White Horse\. A post draft is made again/
+      )
+    ).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole("button", { name: "New preview for 1 listing not sent" })
+    )
+    await vi.waitFor(() => expect(push).toHaveBeenCalled())
+    const call = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/api/listings/bulk/preview")
+    )
+    expect(JSON.parse(String(call?.[1]?.body))).toEqual({
+      locationIds: [operation.children[0].locationId],
+      items: [hours],
+    })
+  })
+
   it("prepares a new preview of only the conflicted and expired listings, with their changes in order", async () => {
     const wifi = {
       operation: "attributes" as const,

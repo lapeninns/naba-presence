@@ -1810,13 +1810,18 @@ in the CSP's `connect-src`, which `next.config.ts` (`assetUploadOrigin`) adds
 only when `MEDIA_ASSET_STORAGE=supabase`. Food Menus in the composer are a
 full replacement copied from one selected listing; merges by node ID stay
 API-only. The batch page (`components/bulk/bulk-operation-view.tsx`) counts
-the 15-minute approval window down and disables approval when it closes,
-offers "New preview" for children that can never be retried in place
-(`conflict`, `expired`, and `dependency_not_applied`;
-`lib/domain/bulk-repreview.ts` `newPreviewRequest`: their listings and the
-batch's changes they carry, in order, so listings that already show a change
-are skipped as already applied), links a review child to its review in the
-inbox, and shows a child's receipt (`GET /api/mutations/{id}` through
+the 15-minute approval window down by the server's clock (`serverTime` on
+the projection) and disables approval when it closes. It offers "New
+preview" for children that can never be retried in place (`conflict`,
+`expired`, and `dependency_not_applied` whose prerequisite Retry would not
+requeue; `lib/domain/bulk-repreview.ts` `newPreviewRequest`), only once
+nothing in the batch is queued or running. The preview API pairs every
+listing with every change, so the request is built from (listing, change)
+pairs that need it plus their prerequisites, in order; a change already at
+a listing is skipped there at plan time, except a post draft, which has no
+such check and is left out (and named on the page) whenever the request
+would reach a listing that already has it. The page also links a review
+child to its review in the inbox, and shows a child's receipt (`GET /api/mutations/{id}` through
 `OperationReceiptNotice`) only when asked, so a 500-child batch never polls
 every receipt.
 

@@ -149,6 +149,8 @@ type DayRow = {
   closesAt: string
 }
 
+const STORAGE_MISSING = "Photo storage isn’t set up for this workspace yet."
+
 /**
  * Composes one bulk change for the listings selected on the board. The ids
  * come from the selection and are frozen by the preview; the server reads
@@ -236,6 +238,10 @@ export function BulkCompose() {
     enabled: operation === "photos",
     retry: false,
   })
+  /** Uploads are refused for the workspace (503 `asset_storage_unavailable`). */
+  const storageMissing =
+    assets.error instanceof ApiClientError &&
+    assets.error.code === "asset_storage_unavailable"
   const [upload, setUpload] = useState<string | null>(null)
   const uploading = useMutation({
     mutationFn: (file: File) => uploadPhotoAsset(file),
@@ -248,7 +254,7 @@ export function BulkCompose() {
       setUpload(
         error instanceof ApiClientError
           ? error.code === "asset_storage_unavailable"
-            ? "Photo storage isn’t set up for this workspace yet."
+            ? STORAGE_MISSING
             : error.message
           : "The photo couldn’t be uploaded. Try again."
       ),
@@ -451,6 +457,15 @@ export function BulkCompose() {
         : batch.length && !request.success
           ? (request.error.issues[0]?.message ?? "Check the changes.")
           : null
+  // A valid change in the editor that the list does not hold is not
+  // previewed once the list has changes; say so instead of dropping it.
+  const unadded =
+    changes.length > 0 &&
+    parsed.success &&
+    !problem &&
+    !changes.some(
+      (item) => JSON.stringify(item) === JSON.stringify(parsed.data)
+    )
   const canAdd =
     !problem &&
     parsed.success &&
@@ -1100,7 +1115,7 @@ export function BulkCompose() {
               <Input
                 type="file"
                 accept="image/jpeg,image/png"
-                disabled={uploading.isPending}
+                disabled={uploading.isPending || storageMissing}
                 onChange={(e) => {
                   const file = e.target.files?.[0]
                   e.target.value = ""
@@ -1112,9 +1127,9 @@ export function BulkCompose() {
                 }}
               />
             </label>
-            {upload ? (
+            {upload || storageMissing ? (
               <p role="status" className="text-ui text-ink-secondary">
-                {upload}
+                {upload ?? STORAGE_MISSING}
               </p>
             ) : null}
             <div className="grid gap-2 sm:grid-cols-[1fr_14rem]">
@@ -1134,9 +1149,11 @@ export function BulkCompose() {
                       {(v: string | null) =>
                         (assets.data ?? []).find((asset) => asset.id === v)
                           ?.fileName ??
-                        (assets.isError
-                          ? "Uploads couldn’t be read"
-                          : "Choose an uploaded photo")
+                        (storageMissing
+                          ? STORAGE_MISSING
+                          : assets.isError
+                            ? "Uploads couldn’t be read"
+                            : "Choose an uploaded photo")
                       }
                     </SelectValue>
                   </SelectTrigger>
@@ -1330,6 +1347,12 @@ export function BulkCompose() {
         <p className="text-caption text-ink-muted">
           {`${ids.length} ${ids.length === 1 ? "listing" : "listings"} × ${batch.length} ${batch.length === 1 ? "change" : "changes"} = ${ids.length * batch.length} of at most ${BULK_MAX_ITEMS}. At most ${BULK_MAX_TARGETS} listings.`}
         </p>
+        {unadded ? (
+          <p role="status" className="text-ui text-ink-secondary">
+            The change being edited above is not in this batch, so it is not
+            previewed. Add it to the batch to include it.
+          </p>
+        ) : null}
         {batchProblem ? (
           <p role="status" className="text-ui text-danger-ink">
             {batchProblem}
@@ -1352,7 +1375,9 @@ export function BulkCompose() {
         >
           {changes.length > 1
             ? `Preview these ${changes.length} changes`
-            : "Preview this change"}
+            : changes.length === 1
+              ? "Preview the 1 change in the list"
+              : "Preview this change"}
         </Button>
       </section>
     </>

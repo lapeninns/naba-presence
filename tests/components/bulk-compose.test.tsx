@@ -85,6 +85,29 @@ afterEach(() => {
 })
 
 describe("BulkCompose (P09-R9)", () => {
+  it("says photo storage is not set up as soon as the uploads cannot be listed for it", async () => {
+    fetchMock.mockImplementation(async () =>
+      json(
+        {
+          error: "asset_storage_unavailable",
+          message: "Photo storage is not configured.",
+        },
+        503
+      )
+    )
+    const user = userEvent.setup()
+    renderWithProviders(<BulkCompose />)
+    await user.click(screen.getByRole("tab", { name: "Photos" }))
+    expect(
+      (
+        await screen.findAllByText(
+          "Photo storage isn’t set up for this workspace yet."
+        )
+      ).length
+    ).toBeGreaterThan(0)
+    expect(screen.getByLabelText("Upload a photo")).toBeDisabled()
+  })
+
   it("sends only the ticked weekdays of an opening-hours change", async () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
@@ -173,6 +196,30 @@ describe("BulkCompose (P09-R9)", () => {
         (item: { dates: { date: string }[] }) => item.dates[0].date
       )
     ).toEqual(["2026-12-31", "2026-12-25"])
+  })
+
+  it("says when the change being edited is not in the list it previews", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<BulkCompose />)
+    const date = screen.getByLabelText("Date", { exact: true })
+    fireEvent.change(date, { target: { value: "2026-12-25" } })
+    await user.click(screen.getByRole("button", { name: "Add to the batch" }))
+    expect(
+      screen.queryByText(/The change being edited above is not in this batch/)
+    ).not.toBeInTheDocument()
+    fireEvent.change(date, { target: { value: "2026-12-31" } })
+    expect(
+      screen.getByText(/The change being edited above is not in this batch/)
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Preview the 1 change in the list" })
+    )
+    await vi.waitFor(() => expect(previewBody()).toBeDefined())
+    expect(
+      previewBody().items.map(
+        (item: { dates: { date: string }[] }) => item.dates[0].date
+      )
+    ).toEqual(["2026-12-25"])
   })
 
   it("refuses two changes to the same date before any preview", async () => {

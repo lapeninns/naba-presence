@@ -1713,10 +1713,16 @@ writes are not rolled back.
 
 On the batch page, "New preview for N listings not sent" prepares a fresh
 preview of the listings that expired, changed on Google after the preview,
-or were blocked by a prerequisite that did not apply; it reads Google again,
-and listings that already show a change are skipped as already applied.
+or were blocked by a prerequisite that conflicted, expired, was cancelled or
+was skipped (a prerequisite that merely failed is retried with its dependent
+by Retry instead). It is offered only once nothing in the batch is queued or
+running. It reads Google again, and an hours, attribute, category, menu, link
+or photo change a listing already shows is skipped there as already applied.
+A post draft has no such check, so it is left out whenever the new preview
+would also reach a listing that already has it; the page names those
+listings, and the post goes out as its own bulk change for just them.
 While a preview waits, the page counts down the 15 minutes left to approve
-it. "Show receipt" on a listing reads that write's receipt
+it by the server's clock; approval is still decided by the server. "Show receipt" on a listing reads that write's receipt
 (`GET /api/mutations/{id}`). Photo uploads from the composer go straight from
 the browser to the private bucket, so the deployed build must have
 `MEDIA_ASSET_STORAGE=supabase` and `SUPABASE_URL` set at build time for the

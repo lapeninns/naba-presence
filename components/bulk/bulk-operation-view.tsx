@@ -37,6 +37,7 @@ import {
   formatCountdown,
   newPreviewRequest,
   secondsLeft,
+  serverClockOffset,
 } from "@/lib/domain/bulk-repreview"
 import { formatDateTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
@@ -220,13 +221,22 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
   })
   const op = query.data
   // The 15-minute approval window, counted down on the page; once it closes
-  // the preview cannot be approved and Google must be read again.
+  // the preview cannot be approved and Google must be read again. Counted
+  // by the server's clock (its time when it answered, carried forward), so
+  // a wrong browser clock neither closes the window early nor shows time
+  // the server would refuse; the server still decides at approval.
   const now = useNow(op?.status === "previewed")
+  const offset = serverClockOffset(op?.serverTime, query.dataUpdatedAt)
   const previewClosed =
-    op?.status === "previewed" && secondsLeft(op.previewExpiresAt, now) === 0
+    op?.status === "previewed" &&
+    secondsLeft(op.previewExpiresAt, now, offset) === 0
   const repreview = op ? newPreviewRequest(op, { previewClosed }) : null
   const prepare = useMutation({
-    mutationFn: () => previewBulkChange(repreview!),
+    mutationFn: () =>
+      previewBulkChange({
+        locationIds: repreview!.locationIds,
+        items: repreview!.items,
+      }),
     onSuccess: (next) => {
       void client.invalidateQueries({ queryKey: queryKeys.bulkChanges })
       router.push(`/listings/bulk/${next.id}`)
@@ -302,7 +312,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 )
                 .join(" · ")}
             </p>
-            <Deadline operation={op} now={now} />
+            <Deadline operation={op} now={now} offset={offset} />
             {failure ? (
               <p role="alert" className="text-ui text-danger-ink">
                 {failure}
@@ -368,7 +378,8 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                     Retry {retryable} unsettled {unit(retryable)}
                   </Button>
                 ) : null}
-                {repreview && !isBulkReviewOperation(op.operation) ? (
+                {repreview?.items.length &&
+                !isBulkReviewOperation(op.operation) ? (
                   <Button
                     variant={
                       previewClosed || op.status === "expired"
@@ -390,6 +401,24 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                   </Button>
                 ) : null}
               </div>
+            ) : null}
+            {manager && repreview?.omitted.length ? (
+              <p className="text-caption text-ink-muted" role="note">
+                {`Not in the new preview: ${repreview.omitted
+                  .map(
+                    ({ seq, locationIds }) =>
+                      `change ${seq + 1} (${OPERATION_LABEL[op.items[seq].operation]}) at ${locationIds
+                        .map(
+                          (id) =>
+                            op.children.find((c) => c.locationId === id)
+                              ?.locationName ?? id
+                        )
+                        .join(", ")}`
+                  )
+                  .join(
+                    "; "
+                  )}. A post draft is made again every time it is previewed, so it would reach listings that already have it. Prepare it as its own bulk change for just those listings.`}
+              </p>
             ) : null}
             <Table surface responsive>
               <caption className="sr-only">
@@ -447,9 +476,17 @@ const localTime = (iso: string) =>
  * after it read Google, and an approved change sends listings for 24 hours
  * after approval. Neither is extended; a closed window needs a new preview.
  */
-function Deadline({ operation, now }: { operation: Operation; now: number }) {
+function Deadline({
+  operation,
+  now,
+  offset,
+}: {
+  operation: Operation
+  now: number
+  offset: number
+}) {
   if (operation.status === "previewed") {
-    const left = secondsLeft(operation.previewExpiresAt, now)
+    const left = secondsLeft(operation.previewExpiresAt, now, offset)
     return left > 0 ? (
       <p className="text-caption text-ink-muted">
         Approve by {localTime(operation.previewExpiresAt)}; after that this

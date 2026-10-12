@@ -156,6 +156,11 @@ export const bulkOperationSchema = z.object({
   dispatchExpiresAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
   finishedAt: z.iso.datetime().nullable(),
+  /**
+   * The server's clock when it answered, so the page counts the approval
+   * window down by the server's time, not the browser's.
+   */
+  serverTime: z.iso.datetime().optional(),
   counts: z.record(z.string(), z.number()),
   children: z.array(bulkChildSchema),
 })
@@ -165,9 +170,11 @@ export const bulkOperationResponseSchema = z.object({
 })
 export const bulkOperationListSchema = z.object({
   operations: z.array(
-    bulkOperationSchema.omit({ children: true, items: true }).extend({
-      targetCount: z.number().int(),
-      itemCount: z.number().int(),
-    })
+    bulkOperationSchema
+      .omit({ children: true, items: true, serverTime: true })
+      .extend({
+        targetCount: z.number().int(),
+        itemCount: z.number().int(),
+      })
   ),
 })

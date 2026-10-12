@@ -383,7 +383,8 @@ async function project(
   const [operation] = await sql`
     select o.id::text as id, o.operation, o.items, ${effectiveStatus(sql)} as status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy",
       o.approved_by::text as "approvedBy", o.require_two_person_approval as "requiresSecondApprover", coalesce(o.dispatch_expires_at, o.preview_expires_at) as "approvalExpiresAt",
-      o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt"
+      o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt",
+      clock_timestamp() as "serverTime"
     from bulk_listing_operation o where o.id = ${operationId}`
   if (!operation) throw NOT_FOUND()
   const children = await sql`
@@ -405,6 +406,7 @@ async function project(
       (operation.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
     createdAt: (operation.createdAt as Date).toISOString(),
     finishedAt: (operation.finishedAt as Date | null)?.toISOString() ?? null,
+    serverTime: (operation.serverTime as Date).toISOString(),
     canApprove:
       isManagerialRole(session.role) &&
       operation.status === "previewed" &&
