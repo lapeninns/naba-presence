@@ -103,7 +103,7 @@ export const POST = route({
       const reservation = enabled
         ? await reserveVerifyUsage(sql, {
             organisationId: session.organisationId,
-            model: getServerEnv().WORKERS_AI_MODEL,
+            model: getServerEnv().OPENAI_MODEL_VERIFY,
             reviewId: record.review_id,
             draftId: record.id,
             requestKey: `${requestId}:verification`,

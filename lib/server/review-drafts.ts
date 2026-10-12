@@ -285,7 +285,7 @@ export async function createReviewDraft({
     if (needsModel) {
       const reservation = await reserveDraftCredit(sql, {
         organisationId: session.organisationId,
-        model: getServerEnv().WORKERS_AI_MODEL,
+        model: getServerEnv().OPENAI_MODEL_DRAFT,
         reviewId: id,
         draftId,
         generationKey,
@@ -301,7 +301,7 @@ export async function createReviewDraft({
     const verifyReservation = semanticVerificationEnabled()
       ? await reserveVerifyUsage(sql, {
           organisationId: session.organisationId,
-          model: getServerEnv().WORKERS_AI_MODEL,
+          model: getServerEnv().OPENAI_MODEL_VERIFY,
           reviewId: id,
           draftId,
           requestKey: `${correlationId}:verification`,
@@ -464,7 +464,7 @@ export async function createReviewDraft({
           ${language},
           ${input.businessContext},
           ${DRAFT_POLICY_VERSION},
-          ${source === "ai" ? getServerEnv().WORKERS_AI_MODEL : null},
+          ${source === "ai" ? getServerEnv().OPENAI_MODEL_DRAFT : null},
           'pending',
           ${session.userId}
         )

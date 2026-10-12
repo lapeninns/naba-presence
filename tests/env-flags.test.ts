@@ -152,47 +152,46 @@ describe("per-surface GBP kill switches", () => {
 })
 
 describe("provider timeouts", () => {
-  it("defaults the Workers AI timeout to thirty seconds", () => {
-    expect(serverEnvSchema.parse({ ...baseEnv }).WORKERS_AI_TIMEOUT_MS).toBe(
-      30_000
-    )
+  it("defaults the OpenAI timeout to thirty seconds", () => {
+    expect(serverEnvSchema.parse({ ...baseEnv }).OPENAI_TIMEOUT_MS).toBe(30_000)
     expect(
-      serverEnvSchema.parse({ ...baseEnv, WORKERS_AI_TIMEOUT_MS: "45000" })
-        .WORKERS_AI_TIMEOUT_MS
+      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "45000" })
+        .OPENAI_TIMEOUT_MS
     ).toBe(45_000)
   })
 
-  it("rejects a Workers AI timeout that could outlast the transaction holding it", () => {
+  it("rejects an OpenAI timeout that could outlast the transaction holding it", () => {
     expect(() =>
-      serverEnvSchema.parse({ ...baseEnv, WORKERS_AI_TIMEOUT_MS: "60000" })
+      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "60000" })
     ).toThrow()
     expect(() =>
-      serverEnvSchema.parse({ ...baseEnv, WORKERS_AI_TIMEOUT_MS: "0" })
+      serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "0" })
     ).toThrow()
   })
 })
 
-describe("Workers AI configuration", () => {
-  it("uses Cloudflare-hosted GLM for both drafting and verification", () => {
-    const env = serverEnvSchema.parse(baseEnv)
-    expect(env.WORKERS_AI_MODEL).toBe("@cf/zai-org/glm-5.3-flash")
-    expect(env.WORKERS_AI_BASE_URL).toBe("https://api.cloudflare.com")
-    expect(env.WORKERS_AI_API_TOKEN).toBeUndefined()
+describe("OpenAI configuration", () => {
+  it("uses the former local model and treats blank settings as absent", () => {
+    const env = serverEnvSchema.parse({
+      ...baseEnv,
+      OPENAI_API_KEY: "",
+      OPENAI_MODEL_DRAFT: "",
+      OPENAI_MODEL_VERIFY: "",
+    })
+    expect(env.OPENAI_MODEL_DRAFT).toBe("gpt-4.1-nano")
+    expect(env.OPENAI_MODEL_VERIFY).toBe("gpt-4.1-nano")
+    expect(env.OPENAI_BASE_URL).toBe("https://api.openai.com")
+    expect(env.OPENAI_API_KEY).toBeUndefined()
   })
 
-  it("rejects third-party model routing and malformed account IDs", () => {
-    expect(() =>
-      serverEnvSchema.parse({
-        ...baseEnv,
-        WORKERS_AI_MODEL: "openai/gpt-5-mini",
-      })
-    ).toThrow()
-    expect(() =>
-      serverEnvSchema.parse({
-        ...baseEnv,
-        WORKERS_AI_ACCOUNT_ID: "../another-account",
-      })
-    ).toThrow()
+  it("accepts separate draft and verification models", () => {
+    const env = serverEnvSchema.parse({
+      ...baseEnv,
+      OPENAI_MODEL_DRAFT: "gpt-4.1-nano",
+      OPENAI_MODEL_VERIFY: "gpt-4.1-mini",
+    })
+    expect(env.OPENAI_MODEL_DRAFT).toBe("gpt-4.1-nano")
+    expect(env.OPENAI_MODEL_VERIFY).toBe("gpt-4.1-mini")
   })
 })
 

@@ -70,15 +70,15 @@ Confirm
 the Supabase project URL/publishable key, email confirmation and recovery
 templates, redirect allow list, custom SMTP, Google OAuth redirect URI, Pub/Sub
 OIDC audience/service account, optional verification token, cron secret, and
-Workers AI account, API token, and GLM model in the deployment environment
-(see [Workers AI activation](workers-ai.md)). Never log environment values
+OpenAI API key, organisation, and draft/verification models in the deployment environment
+(see [OpenAI configuration](openai.md)). Never log environment values
 or decrypted Google tokens.
 
 Before a canary, confirm `DRAFTS_ENABLED`, `PUBLISH_ENABLED`, `SYNC_ENABLED`,
 `WEBHOOKS_ENABLED`, `JOBS_ENABLED`, `SEMANTIC_VERIFY_ENABLED`,
 `RETENTION_ENABLED`, and `RETENTION_DELETES_ENABLED`. Roll back to read-only by
 disabling publishing and drafting first; pause sync/webhooks only when data
-ingestion itself is unsafe. `WORKERS_AI_TIMEOUT_MS` is capped at 55000; a larger
+ingestion itself is unsafe. `OPENAI_TIMEOUT_MS` is capped at 55000; a larger
 value fails environment validation at startup, because the database kills a
 connection left idle in a transaction for 60 seconds and the caller would see an
 opaque 500 rather than a provider timeout.
@@ -152,35 +152,23 @@ where a.action = 'member.client_access_changed'
 order by a.created_at;
 ```
 
-### Prerequisites for the GBP operations programme release
+### AI provider restoration
 
-The release that merges the GBP operations programme (PR #49) changes the AI
-provider and adds schema. Production runs the previous revision with OpenAI
-until then. Complete these steps, in order, before promoting it:
+AI drafting and semantic verification use the OpenAI Responses API again.
+Set `OPENAI_API_KEY` and, when applicable, `OPENAI_ORG_ID` in Vercel Production.
+Both `OPENAI_MODEL_DRAFT` and `OPENAI_MODEL_VERIFY` default to `gpt-4.1-nano`,
+matching the former local configuration. Keep `OPENAI_TIMEOUT_MS <= 55000`.
+The adapter ignores `WORKERS_AI_*`; no Cloudflare account or subscription is
+required. See [OpenAI configuration](openai.md) for smoke checks.
 
-1. **Set the Workers AI variables** in the target Vercel environment. The
-   environment schema no longer reads `OPENAI_API_KEY`, `OPENAI_ORG_ID`,
-   `OPENAI_MODEL_DRAFT`, `OPENAI_MODEL_VERIFY`, `OPENAI_BASE_URL` or
-   `OPENAI_TIMEOUT_MS`. If the new variables are missing, the OpenAI values are
-   ignored without warning, and AI drafting and verification answer
-   `503 ai_not_configured`.
-   - Required: `WORKERS_AI_API_TOKEN` and `WORKERS_AI_ACCOUNT_ID` (32
-     lower-case hex characters; any other value fails validation at startup).
-   - Optional: `WORKERS_AI_MODEL` (accepts only `@cf/zai-org/glm-5.3-flash`,
-     which is the default), `WORKERS_AI_BASE_URL` (default
-     `https://api.cloudflare.com`) and `WORKERS_AI_TIMEOUT_MS` (default 30000,
-     capped at 55000).
-2. **Set `EMAIL_WEBHOOK_SECRET`** (the Resend `whsec_...` signing secret) to
-   turn on `/api/webhooks/email`. If it is unset, the receiver answers 404 and
-   the delivery evidence stops at provider acceptance.
-3. **Apply the 19 new migrations, `0062_management_confirmation` to
-   `0080_bulk_listing_operations`**, using the manual procedure above
-   (snapshot first, then `pnpm db:migrate` and `pnpm db:status` against the
-   session-pooler URL). Do this before you promote the deployment.
-4. **Deploy and smoke-test** a synthetic draft and verification, as described
-   in [Workers AI activation](workers-ai.md).
-5. **Remove the `OPENAI_*` variables** only after the switch is verified.
-   Rolling back to the previous revision needs them.
+The GBP operations programme's schema migrations remain independent of this
+provider restoration. This change adds no migrations. For a fresh programme
+installation, apply `0062_management_confirmation` through
+`0080_bulk_listing_operations` using the manual snapshot/migration procedure
+above before promotion. Existing installations must not reapply them manually.
+`EMAIL_WEBHOOK_SECRET` (the Resend signing secret) is also required for delivery
+webhook evidence; without it `/api/webhooks/email` returns 404. The AI restoration
+does not change that independent requirement.
 
 ## Kill switches
 
@@ -206,7 +194,7 @@ deliberately.
 | Flag                        | Off means                                                                                                                                                                                                                                            |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DRAFTS_ENABLED`            | The drafts route returns 503 `drafts_paused`.                                                                                                                                                                                                        |
-| `SEMANTIC_VERIFY_ENABLED`   | Verification runs its deterministic checks alone. Use this, not `DRAFTS_ENABLED`, during a Workers AI incident: a hand-written reply is still saved and still faces the human boundary.                                                                 |
+| `SEMANTIC_VERIFY_ENABLED`   | Verification runs its deterministic checks alone. Use this, not `DRAFTS_ENABLED`, during an OpenAI incident: a hand-written reply is still saved and still faces the human boundary.                                                                 |
 | `PUBLISH_ENABLED`           | No reply or post reaches Google, from the interactive routes or from the runner's publish work.                                                                                                                                                      |
 | `SYNC_ENABLED`              | No review ingestion, from the push route or from the runner's webhook and checkpoint work.                                                                                                                                                           |
 | `WEBHOOKS_ENABLED`          | The Pub/Sub push route stops accepting deliveries. Google retries, then dead-letters.                                                                                                                                                                |
@@ -1117,7 +1105,7 @@ rather than attempted, so a human-authored reply is verified by the
 deterministic checks alone, settles `pass`/`warn` and can be published. Do not
 reach for `DRAFTS_ENABLED=false`: it takes away the hand-written path as well.
 Drafts already parked at `pending` need re-verifying after the restart; the flag
-does not retro-settle them. Never raise `WORKERS_AI_TIMEOUT_MS` above 55000 to ride
+does not retro-settle them. Never raise `OPENAI_TIMEOUT_MS` above 55000 to ride
 out latency — the schema rejects it, and the database would kill the connection
 first.
 

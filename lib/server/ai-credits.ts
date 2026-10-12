@@ -444,7 +444,7 @@ async function writeLedger(
  * applies to a row the reaper already released, because the money was spent;
  * the allowance is deliberately not re-checked then (the provider call is
  * already paid for, and the ledger must say so). Overrun is bounded because
- * WORKERS_AI_TIMEOUT_MS (max 55s) is far below STALE_RESERVATION_MINUTES.
+ * OPENAI_TIMEOUT_MS (max 55s) is far below STALE_RESERVATION_MINUTES.
  * The row keeps the credit period it was reserved in. The organisation row
  * is locked, as in reserveDraftCredit, so a settle never interleaves with
  * another reservation's check-and-insert. Never throws.

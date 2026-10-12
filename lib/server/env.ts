@@ -226,24 +226,19 @@ export const serverEnvSchema = z.object({
   // organisation is a business. Product approval of agency self-sign-up is
   // outstanding (ledger D-13).
   REGISTRATION_WORKSPACE_CHOICE_ENABLED: featureFlag(false),
-  WORKERS_AI_API_TOKEN: optionalText,
-  WORKERS_AI_ACCOUNT_ID: z.preprocess(
+  OPENAI_API_KEY: optionalText,
+  OPENAI_ORG_ID: optionalText,
+  OPENAI_MODEL_DRAFT: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z
-      .string()
-      .regex(/^[a-f0-9]{32}$/)
-      .optional()
+    z.string().min(1).default("gpt-4.1-nano")
   ),
-  WORKERS_AI_MODEL: z.preprocess(
+  OPENAI_MODEL_VERIFY: z.preprocess(
     (value) => (value === "" ? undefined : value),
-    z.literal("@cf/zai-org/glm-5.3-flash").default("@cf/zai-org/glm-5.3-flash")
+    z.string().min(1).default("gpt-4.1-nano")
   ),
-  WORKERS_AI_BASE_URL: urlWithDefault("https://api.cloudflare.com"),
-  // Capped below the connection's idle_in_transaction_session_timeout (60s,
-  // lib/server/db.ts) so a slow provider can never outlast a transaction the
-  // request still holds; Postgres would kill the backend mid-statement and the
-  // caller would see an opaque 500 instead of a provider timeout.
-  WORKERS_AI_TIMEOUT_MS: z.coerce
+  OPENAI_BASE_URL: urlWithDefault("https://api.openai.com"),
+  // Stay below the database connection's 60-second idle transaction limit.
+  OPENAI_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .positive()
@@ -307,9 +302,10 @@ export const serverEnvSchema = z.object({
   // calls within a credit period, not a product limit.
   AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
   AI_MONTHLY_TOKEN_BACKSTOP: z.coerce.number().int().min(0).default(20_000_000),
-  // The output cap sent with every provider call (lib/server/ai.ts), and the
-  // per-call share of the backstop a reservation holds until its real token
-  // counts arrive (lib/server/ai-credits.ts callTokenBudget).
+  // The output cap sent as `max_output_tokens` with every OpenAI call
+  // (lib/server/ai.ts), and the per-call share of the backstop a reservation
+  // holds until its real token counts arrive (lib/server/ai-credits.ts
+  // callTokenBudget).
   AI_MAX_OUTPUT_TOKENS: z.coerce
     .number()
     .int()
