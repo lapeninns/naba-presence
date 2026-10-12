@@ -59,7 +59,9 @@ const REASON: Record<string, string> = {
   slot_needs_new_time:
     "Its time was moved or picked automatically because of a clock change, which single publications no longer do, so it was stopped before it published. Choose a new time, or cancel it.",
   prior_occurrence_unresolved:
-    "A publication was sent but Google's result is unknown. It is being checked with Google and nothing is sent again; the schedule carries on once the result is known.",
+    "A publication was started but its result is not known yet. It is being checked and nothing is sent again; the schedule carries on once the result is known, or asks for a new time if nothing was sent.",
+  prior_occurrence_unverified:
+    "An earlier publication from before this update could not be confirmed either way. Check the location's posts on Google, then choose a new time or cancel it.",
   connection_changed:
     "The Google listing or connection changed after approval, so nothing was published. Change the schedule and approve it again.",
   paused_when_due:

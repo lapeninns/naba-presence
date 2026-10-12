@@ -43,7 +43,7 @@ const resource = {
 }
 
 export const operationalEventSchema = z.discriminatedUnion("kind", [
-  z.object({ ...attempt, kind: z.literal("publication_failed"), reason: z.enum(["provider_rejected", "permission_revoked", "approval_invalid", "expired_content", "retries_exhausted"]) }).strict(),
+  z.object({ ...attempt, kind: z.literal("publication_failed"), reason: z.enum(["provider_rejected", "permission_revoked", "approval_invalid", "expired_content", "retries_exhausted", "publish_failed"]) }).strict(),
   z.object({ ...attempt, kind: z.literal("publication_unresolved"), reason: z.enum(["response_ambiguous", "readback_failed", "readback_mismatch", "execution_interrupted"]) }).strict(),
   z.object({ ...attempt, kind: z.literal("publication_confirmed") }).strict(),
   z.object({ ...schedule, kind: z.literal("schedule_missed"), dueAt: z.iso.datetime({ offset: true }), reason: z.enum(["outside_dispatch_window", "paused_when_due", "expired_content", "outside_grace_period"]) }).strict(),

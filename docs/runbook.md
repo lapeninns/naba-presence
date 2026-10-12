@@ -1629,7 +1629,14 @@ A schedule shows "Needs attention" with its reason:
   `mutation_recover` reads Google back for its receipt; the next tick settles
   the occurrence from that receipt and the schedule carries on. Nothing is
   resent. If recovery gives up (the receipt stays `uncertain`), check the post
-  on Google, then change and re-approve the schedule.
+  on Google, then change and re-approve the schedule. A publish interrupted
+  before it recorded a receipt was never sent: once its window has closed
+  (plus a minute) the sweep records it missed (`outside_dispatch_window`), so
+  a repeating schedule carries on and a one-time one asks for a new time.
+- `prior_occurrence_unverified` ("Needs review"): an unresolved occurrence from
+  before migration 0242 (no intent, so no receipt) whose post is neither
+  published nor failed. Its occurrence is cancelled as `outcome_unverified`.
+  Check the location's posts on Google, then choose a new time or cancel.
 - `connection_changed`: the location was relinked or its Google connection
   reconnected after approval. Change the schedule and approve it again.
 An occurrence may start only within 5 minutes of its time. One that could not

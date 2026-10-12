@@ -1570,10 +1570,19 @@ goes to `needs_review` with that reason, and resume answers 409
 intent derived from the occurrence id (`scheduledPublishIntentId`, stored as
 `post_publication_occurrence.intent_id`), so it records a `mutation_operation`
 receipt and `mutation_recover` reads back an uncertain create.
-`settle_post_occurrences_from_receipts()` (also every tick) settles an
-`ambiguous` occurrence from its receipt (published, or rejected with
-`provider_rejected` / `publish_failed`) and returns a schedule blocked only by
-unresolved occurrences to active (or completed). Recovery never sends anything,
+`settle_post_occurrences_from_receipts()` (also every tick, redefined in 0243)
+settles an `ambiguous` occurrence from its own receipt (surface `local_post`,
+target its own post; another write that took the intent does not count):
+published, rejected with `provider_rejected` / `publish_failed`, or missed
+(`outside_dispatch_window`) for `schedule_deadline_passed`. One with no receipt
+of its own was never sent and settles missed once its window has closed plus a
+minute. One from before 0242 (no intent) settles from its post, or is cancelled
+(`outcome_unverified`) with its schedule sent to review
+(`prior_occurrence_unverified`). A one-time schedule whose slot settled missed
+goes to `needs_review`; a schedule blocked only by unresolved occurrences
+returns to active (or completed). `mark_missed_post_occurrences()` raises
+`schedule_missed` only for active or paused schedules, so a blocked repeating
+schedule does not raise an incident per day. Recovery never sends anything,
 so a create proven not to have landed is never made late. Event-date offsets
 apply to repeating schedules only; a one-time schedule publishes its approved
 content as is.

@@ -1,3 +1,4 @@
+import { createCipheriv, createHash, randomBytes } from "node:crypto"
 import { readFile } from "node:fs/promises"
 
 import postgres from "postgres"
@@ -8,7 +9,10 @@ import {
   scheduleResponseSchema,
   type PublicationSchedule,
 } from "@/lib/contracts/publication-schedules"
-import { resolveLocalSlot } from "@/lib/domain/publication-schedule"
+import {
+  resolveLocalSlot,
+  scheduledPublishIntentId,
+} from "@/lib/domain/publication-schedule"
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -21,7 +25,28 @@ import {
 
 const describeDatabase =
   process.env.RUN_DB_TESTS === "true" ? describe : describe.skip
+const sha256Hex = (value: string) =>
+  createHash("sha256").update(value, "utf8").digest("hex")
 const CRON = { authorization: "Bearer route-harness-cron-secret" }
+
+// The tenant helper keeps its copy private and seeds no refresh token; the
+// slow-token case needs one (same format as connection-failures.test.ts).
+function encryptHarnessSecret(value: string) {
+  const key = createHash("sha256")
+    .update(
+      process.env.TOKEN_ENCRYPTION_KEY ??
+        "route-harness-token-key-32-characters!!",
+      "utf8"
+    )
+    .digest()
+  const iv = randomBytes(12)
+  const cipher = createCipheriv("aes-256-gcm", key, iv)
+  const ciphertext = Buffer.concat([
+    cipher.update(value, "utf8"),
+    cipher.final(),
+  ])
+  return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), ciphertext])
+}
 
 /**
  * WP7 end to end: real routes, the real job tick, owned PostgreSQL and a
@@ -45,6 +70,9 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     google = await startGoogleStub()
     server = await startAppServer({
       GOOGLE_API_PROXY_BASE: google.baseUrl,
+      // Only the slow-token case refreshes a token.
+      GOOGLE_CLIENT_ID: "post-schedules-client",
+      GOOGLE_CLIENT_SECRET: "post-schedules-secret",
       GBP_POSTS_ENABLED: "true",
       PUBLISH_ENABLED: "true",
       JOBS_ENABLED: "true",
@@ -421,6 +449,100 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     ])
     await tick()
     expect(creates()).toHaveLength(1)
+  })
+
+  it("refuses at the provider call when the window closed while the publish was being prepared", async () => {
+    const t = await tenant(),
+      s = await t.schedule(await t.draft(), {
+        frequency: "once",
+        startDate: tomorrow(),
+        localTime: "09:00",
+      })
+    await t.approve(s)
+    // The access token has expired, so the publish refreshes it inside
+    // mutate, immediately before the provider call; Google's token endpoint
+    // answers only after the slot's window has closed.
+    await admin`
+      update google_connection set refresh_token_ciphertext = ${encryptHarnessSecret("stub-refresh-token")},
+        access_token_expires_at = now() - interval '1 hour'
+      where id = ${t.connection.connectionId}`
+    google.respond({ method: "POST", pathEndsWith: "/token" }, () => ({
+      status: 200,
+      delayMs: 7_000,
+      json: {
+        access_token: "late-access-token",
+        expires_in: 3600,
+        scope: "https://www.googleapis.com/auth/business.manage",
+        token_type: "Bearer",
+      },
+    }))
+    const [slot] = await t.occurrences(s.id)
+    // Its deadline is 4 seconds away: the claim and the check before
+    // anything is written pass; the one inside mutate does not.
+    await t.age(slot.id, 296 / 60)
+    await tick()
+    expect(
+      google.calls.filter((call) => call.path.endsWith("/token"))
+    ).toHaveLength(1)
+    expect(creates()).toHaveLength(0)
+    const receipts = await admin<
+      { state: string; error_code: string | null; surface: string }[]
+    >`
+      select state, error_code, surface from mutation_operation
+      where organisation_id = ${t.owner.organisationId}`
+    expect(receipts).toEqual([
+      {
+        state: "failed",
+        error_code: "schedule_deadline_passed",
+        surface: "local_post",
+      },
+    ])
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "missed",
+      status_reason: "outside_dispatch_window",
+    })
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "needs_review",
+      status_reason: "outside_dispatch_window",
+    })
+    await tick()
+    expect(creates()).toHaveLength(0)
+  })
+
+  it("never settles a scheduled publish from another write that took its intent", async () => {
+    const t = await tenant(),
+      s = await t.schedule(await t.draft(), {
+        frequency: "once",
+        startDate: tomorrow(),
+        localTime: "09:00",
+      })
+    await t.approve(s)
+    const [slot] = await t.occurrences(s.id)
+    // A member who read the occurrence id sends its intent first, as the
+    // Idempotency-Key of an hours update that Google confirmed.
+    await admin`
+      insert into mutation_operation (organisation_id, intent_id, surface, action, location_id, target_ref, payload_hash, state)
+      values (${t.owner.organisationId}, ${scheduledPublishIntentId(slot.id, sha256Hex)}, 'hours', 'update',
+        ${t.linked.locationId}, ${t.linked.locationId}, ${"b".repeat(64)}, 'confirmed_applied')`
+    await t.age(slot.id, 1)
+    await tick()
+    // The publish was refused (intent_conflict) with nothing sent, and the
+    // hours receipt is not read as this occurrence's publish.
+    expect(creates()).toHaveLength(0)
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "scheduled",
+    })
+    await t.age(slot.id, 6)
+    await tick()
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "missed",
+      status_reason: "outside_dispatch_window",
+    })
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "needs_review",
+      status_reason: "outside_dispatch_window",
+    })
+    expect(creates()).toHaveLength(0)
   })
 
   it("records a one-time slot missed while publishing is paused, and never publishes it late", async () => {

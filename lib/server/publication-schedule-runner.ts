@@ -458,15 +458,22 @@ export async function processSchedule(
   await withTenant(organisationId, async (sql) => {
     // The occurrence settles from the publish's receipt (mutation_operation,
     // recorded under the occurrence's intent before anything was sent).
+    // Only this publish's own receipt counts: the local_post write for this
+    // occurrence's post. Another write that took the intent first (its key
+    // is derived from the occurrence id) made this publish an
+    // intent_conflict with nothing sent, so it is no receipt of ours.
     const [receipt] = await sql<
       { state: string; errorCode: string | null; attemptId: string | null }[]
     >`
       select state, error_code as "errorCode", attempt_id::text as "attemptId"
-      from mutation_operation where organisation_id = ${organisationId} and intent_id = ${run.intentId}`
+      from mutation_operation
+      where organisation_id = ${organisationId} and intent_id = ${run.intentId}
+        and surface = 'local_post' and target_ref = ${run.postId}`
     if (!receipt) {
-      // No receipt: the publish stopped before it was recorded, so nothing
-      // reached Google. Inside the window the occurrence waits for the next
-      // tick; past it, it is missed. A moved link needs a fresh approval.
+      // No receipt of its own: the publish stopped before it was recorded,
+      // so nothing reached Google. Inside the window the occurrence waits
+      // for the next tick; past it, it is missed. A moved link needs a fresh
+      // approval.
       if (failureCode === SCHEDULE_TARGET_CHANGED) {
         await sql`update post_publication_schedule set status = 'blocked', status_reason = 'connection_changed', updated_at = now() where id = ${scheduleId} and status = 'active'`
         await emit(sql, {
@@ -519,10 +526,14 @@ export async function processSchedule(
     await sql`update post_publication_occurrence set status = ${outcome}, status_reason = ${reason}, finished_at = now() where id = ${run.id}`
     const attempt = receipt.attemptId
     if (outcome === "rejected" && attempt) {
+      // Google refusing the post (rejected) is not the same as the publish
+      // failing on this side, before or around the send (failed: a
+      // reconnect needed, a token error): the event says which.
       await emit(sql, {
         ...base(schedule),
         kind: "publication_failed",
-        reason: "provider_rejected",
+        reason:
+          receipt.state === "rejected" ? "provider_rejected" : "publish_failed",
         source: { type: "attempt", family: "posts", id: attempt },
       })
     }
@@ -566,51 +577,75 @@ export async function processSchedule(
 /**
  * Every tick, before the pause check and whatever the pauses say: records
  * occurrences whose window closed as missed (and raises schedule_missed in
- * each tenant), then settles unresolved occurrences whose receipts have an
- * answer. Neither sends anything to Google.
+ * each tenant for active or paused schedules), then settles unresolved
+ * occurrences: from their own receipt once it has an answer, as missed when
+ * none was recorded and the window has closed (nothing was sent), or, before
+ * 0242, from their post. Neither sends anything to Google.
  */
 export async function sweepScheduledOccurrences(): Promise<ScheduleSweepSummary> {
   const db = getDatabase()
-  const missed = await db<
-    {
-      organisationId: string
-      scheduleId: string
-      occurrenceId: string
-      locationId: string
-      intendedAt: Date
-      reason: MissedReason
-    }[]
-  >`
-    select organisation_id::text as "organisationId", schedule_id::text as "scheduleId", occurrence_id::text as "occurrenceId",
-      location_id::text as "locationId", intended_at as "intendedAt", reason
+  const missed = await db<MissedRow[]>`
+    select organisation_id::text as "organisationId", occurrence_id::text as "occurrenceId", reason
     from mark_missed_post_occurrences()`
-  const byOrganisation = new Map<string, Array<(typeof missed)[number]>>()
-  for (const row of missed)
+  const resolved = await db<
+    { organisationId: string; occurrenceId: string; status: string }[]
+  >`
+    select organisation_id::text as "organisationId", occurrence_id::text as "occurrenceId", status
+    from settle_post_occurrences_from_receipts()`
+  // An unresolved occurrence that settled missed (never sent, or refused
+  // for lateness) is reported like any other missed slot.
+  await raiseMissed([
+    ...missed,
+    ...resolved
+      .filter((row) => row.status === "missed")
+      .map((row) => ({ ...row, reason: "outside_dispatch_window" as const })),
+  ])
+  return { missed: missed.length, resolved: resolved.length }
+}
+
+type MissedRow = {
+  organisationId: string
+  occurrenceId: string
+  reason: MissedReason
+}
+
+/** Raises schedule_missed for swept occurrences, in each one's tenant. */
+async function raiseMissed(rows: MissedRow[]) {
+  const byOrganisation = new Map<string, MissedRow[]>()
+  for (const row of rows)
     byOrganisation.set(row.organisationId, [
       ...(byOrganisation.get(row.organisationId) ?? []),
       row,
     ])
-  for (const [organisationId, rows] of byOrganisation) {
+  for (const [organisationId, own] of byOrganisation) {
+    const reasons = new Map(own.map((row) => [row.occurrenceId, row.reason]))
     await withTenant(organisationId, async (sql) => {
-      for (const row of rows)
+      const occurrences = await sql<
+        {
+          id: string
+          scheduleId: string
+          locationId: string
+          intendedAt: Date
+        }[]
+      >`
+        select id::text as id, schedule_id::text as "scheduleId", location_id::text as "locationId", intended_at as "intendedAt"
+        from post_publication_occurrence where id = any(${[...reasons.keys()]}::uuid[])`
+      for (const occurrence of occurrences)
         await emit(sql, {
-          ...eventBase(organisationId, row.locationId),
+          ...eventBase(organisationId, occurrence.locationId),
           kind: "schedule_missed",
-          reason: row.reason,
-          dueAt: row.intendedAt.toISOString(),
+          reason: reasons.get(occurrence.id)!,
+          dueAt: occurrence.intendedAt.toISOString(),
           source: {
             type: "schedule_occurrence",
-            id: row.occurrenceId,
-            scheduleId: row.scheduleId,
+            id: occurrence.id,
+            scheduleId: occurrence.scheduleId,
           },
         })
     }).catch((error: unknown) =>
       log.error("post_schedule.missed_events_failed", { organisationId, error })
     )
   }
-  const resolved =
-    await db`select occurrence_id from settle_post_occurrences_from_receipts()`
-  return { missed: missed.length, resolved: resolved.length }
 }
 
 /** Releases the claim and completes a schedule with nothing left to run. */
