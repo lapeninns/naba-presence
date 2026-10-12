@@ -178,10 +178,14 @@ describe("retention inventory", () => {
           `${dataset.table} cascades from ${parentTable}`
         ).toBeDefined()
         expect(retentionDeleted(parent!), parentTable).toBe(true)
-        // A cascade answers to whatever switch its parent's delete does.
-        expect(dataset.deletes, `${dataset.table} via ${parentTable}`).toBe(
-          parent!.deletes
-        )
+        // A cascade answers to whatever switch its parent's delete does,
+        // unless the dataset is already ungated: its own platform-level purge
+        // (mfa_pending_login) deletes it whatever the switch says.
+        if (dataset.deletes !== "ungated") {
+          expect(dataset.deletes, `${dataset.table} via ${parentTable}`).toBe(
+            parent!.deletes
+          )
+        }
         // A hold that stops the parent's delete stops the cascade from it.
         if (parent!.hold !== "none") {
           expect(dataset.hold, `${dataset.table} via ${parentTable}`).not.toBe(

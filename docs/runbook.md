@@ -1167,7 +1167,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
 | `member` | customer | keep | while the person is a member | none | none | no | lifecycle |
-| `mfa_pending_login` | operational | delete | when the five-minute sign-in ticket expires (expires_at) | purgeExpiredMfaTickets (lib/server/retention/purge.ts), once per cycle | ungated | no | internal |
+| `mfa_pending_login` | operational | delete | when the five-minute sign-in ticket expires (expires_at); an enrollment ticket also goes with its session | cascade from `app_session`, purgeExpiredMfaTickets (lib/server/retention/purge.ts), once per cycle | ungated | no | internal |
 | `mutation_approval_decision` | operational | keep | with its operation receipt | none | none | no | lifecycle |
 | `mutation_operation` | operational | keep | for the life of the organisation; approved requests whose dispatch never started are settled failed | `interruptedApprovals` | none | no | pending D-47: keep every operation receipt as the outcome record of the write it answers |
 | `notification_delivery` | operational | keep | kept after it is sent or fails | none | none | no | pending D-47: keep delivery history for the life of the organisation |

@@ -965,7 +965,9 @@ export const RETENTION_INVENTORY = [
     table: "mfa_pending_login",
     provenance: "operational",
     action: "delete",
-    window: "when the five-minute sign-in ticket expires (expires_at)",
+    window:
+      "when the five-minute sign-in ticket expires (expires_at); an enrollment ticket also goes with its session",
+    cascadeFrom: ["app_session"],
     handledBy:
       "purgeExpiredMfaTickets (lib/server/retention/purge.ts), once per cycle",
     deletes: "ungated",
