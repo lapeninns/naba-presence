@@ -111,5 +111,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0265_bulk_menus_posts_families",
   "0266_media_assets_bulk_photos",
   "0267_bulk_review_families",
+  "0268_bulk_review_claim_receipts",
   "20260729000400_remove_local_demo_data",
 ]

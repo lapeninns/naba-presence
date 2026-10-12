@@ -50,6 +50,14 @@ const WAITING_CODES = new Set([
   "publish_in_progress",
 ])
 
+/** Publish attempt states the reply pipeline is still resolving. */
+const UNRESOLVED_ATTEMPT = new Set([
+  "started",
+  "accepted",
+  "retryable",
+  "ambiguous",
+])
+
 /** The latest publish attempt for a review's draft, the child's receipt. */
 async function latestAttempt(
   organisationId: string,
@@ -250,15 +258,25 @@ export const reviewApprovalFamily: BulkFamily<BulkReviewApprovalInput> = {
           decision: string | null
           decisionDraftId: string | null
           decidedBy: string | null
+          attemptId: string | null
+          attemptStatus: string | null
+          replyStatus: string | null
         }[]
       >`
         select r.workflow_status as "workflowStatus", r.location_id::text as "locationId",
-          d.decision, d.draft_id::text as "decisionDraftId", d.decided_by::text as "decidedBy"
+          d.decision, d.draft_id::text as "decisionDraftId", d.decided_by::text as "decidedBy",
+          a.id::text as "attemptId", a.status as "attemptStatus", a.reply_status as "replyStatus"
         from review r
         left join lateral (
           select decision, draft_id, decided_by from approval_decision
           where review_id = r.id order by created_at desc, id desc limit 1
         ) d on true
+        left join lateral (
+          select pa.id, pa.status, rr.publish_status as reply_status
+          from publish_attempt pa join review_reply rr on rr.id = pa.review_reply_id
+          where rr.review_id = r.id and pa.draft_id = ${draftId} and pa.operation = 'publish'
+          order by pa.started_at desc, pa.id desc limit 1
+        ) a on true
         where r.id = ${reviewId} and r.provider_deleted_at is null`
     )
     if (!state || state.locationId !== context.locationId)
@@ -268,13 +286,45 @@ export const reviewApprovalFamily: BulkFamily<BulkReviewApprovalInput> = {
       state.decisionDraftId !== draftId ||
       state.decidedBy !== context.session.userId ||
       ["new", "drafted", "verified"].includes(state.workflowStatus)
-    )
+    ) {
+      // The decision moved, but this very draft may already have gone out
+      // another way (a second approver published it): the batch reports
+      // what happened to the reply rather than a withdrawal.
+      if (
+        state.attemptId &&
+        state.attemptStatus === "succeeded" &&
+        state.replyStatus !== "rejected"
+      )
+        return {
+          kind: "succeeded",
+          confirmation: "confirmed",
+          publishAttemptId: state.attemptId,
+          observed: { reviewId, draftId, replyStatus: state.replyStatus },
+        }
+      if (state.attemptId && UNRESOLVED_ATTEMPT.has(state.attemptStatus ?? ""))
+        return {
+          kind: "ambiguous",
+          code: "publish_in_progress",
+          publishAttemptId: state.attemptId,
+        }
       return { kind: "conflict", code: "approval_withdrawn" }
-    return publishDraft(
+    }
+    const result = await publishDraft(
       context,
       draftId,
       new Date(reviewUpdateTime).toISOString()
     )
+    // An approval batch publishes what its person approved. A reply parked
+    // again (a stricter approval rule since the batch started) is not sent,
+    // so it is not a success here.
+    return result.kind === "succeeded" &&
+      result.code === "submitted_for_approval"
+      ? {
+          kind: "conflict",
+          code: "approval_not_sufficient",
+          observed: result.observed,
+        }
+      : result
   },
 }
 

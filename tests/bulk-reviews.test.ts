@@ -240,6 +240,65 @@ describe("review families", () => {
     expect(publish).not.toHaveBeenCalled()
   })
 
+  it("reports a withdrawn approval whose draft went out another way as what happened to it", async () => {
+    const { reviewApprovalFamily } =
+      await import("@/lib/server/bulk-families/reviews")
+    const replaced = {
+      ...standing,
+      workflowStatus: "published",
+      decidedBy: "66666666-6666-4666-8666-666666666666",
+    }
+    tenantRows.push([
+      {
+        ...replaced,
+        attemptId: "theirs",
+        attemptStatus: "succeeded",
+        replyStatus: "published",
+      },
+    ])
+    await expect(
+      reviewApprovalFamily.dispatch(context(approval))
+    ).resolves.toMatchObject({
+      kind: "succeeded",
+      confirmation: "confirmed",
+      publishAttemptId: "theirs",
+    })
+    tenantRows.push([
+      { ...replaced, attemptId: "theirs", attemptStatus: "ambiguous" },
+    ])
+    await expect(
+      reviewApprovalFamily.dispatch(context(approval))
+    ).resolves.toMatchObject({
+      kind: "ambiguous",
+      code: "publish_in_progress",
+      publishAttemptId: "theirs",
+    })
+    // A failed or Google-rejected attempt is still a withdrawal.
+    for (const attempt of [
+      { attemptStatus: "failed", replyStatus: "failed" },
+      { attemptStatus: "succeeded", replyStatus: "rejected" },
+    ]) {
+      tenantRows.push([{ ...replaced, attemptId: "theirs", ...attempt }])
+      await expect(
+        reviewApprovalFamily.dispatch(context(approval))
+      ).resolves.toEqual({ kind: "conflict", code: "approval_withdrawn" })
+    }
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it("does not count a reply parked again for approval as an approval sent", async () => {
+    const { reviewApprovalFamily } =
+      await import("@/lib/server/bulk-families/reviews")
+    tenantRows.push([standing])
+    publish.mockResolvedValueOnce({ status: "awaiting_approval" })
+    await expect(
+      reviewApprovalFamily.dispatch(context(approval))
+    ).resolves.toMatchObject({
+      kind: "conflict",
+      code: "approval_not_sufficient",
+    })
+  })
+
   it("waits on the publish attempt when Google's answer is unknown or rate limited", async () => {
     const { reviewApprovalFamily } =
       await import("@/lib/server/bulk-families/reviews")

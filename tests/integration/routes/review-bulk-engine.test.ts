@@ -354,6 +354,229 @@ describeDatabase("bulk review work on the engine", { timeout: 60_000 }, () => {
     expect(op.status).toBe("completed")
   })
 
+  it("never settles a retried child from its previous run's publish attempt", async () => {
+    const t = await tenant()
+    const a = await t.parked()
+    const result = await t.started({ action: "approve", approvals: [a.shown] })
+    // First run: Google refuses the reply outright (attempt X fails).
+    stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+      status: 400,
+      json: { error: { code: 400, status: "INVALID_ARGUMENT" } },
+    }))
+    await tick()
+    let op = await t.batch(result.operationId!)
+    const failed = t.childFor(op, a.reviewId)
+    expect(failed.status).toBe("failed")
+    const first = failed.publishAttemptId
+    expect(first).toBeTruthy()
+    stub.reset()
+
+    // Retried and claimed, then the claim dies: its lease is left to run
+    // out.
+    const retried = await fetch(
+      `${server.baseUrl}/api/listings/bulk/${result.operationId}/retry`,
+      { method: "POST", headers: { cookie: t.owner.cookie } }
+    )
+    expect(retried.status, await retried.clone().text()).toBe(200)
+    const claimed = await admin<{ child_id: string }[]>`
+      select child_id::text from claim_due_bulk_children(10, 60, 2)`
+    expect(claimed.map((row) => row.child_id)).toEqual([failed.id])
+    const [claim] = await admin<{ publish_attempt_id: string | null }[]>`
+      select publish_attempt_id::text from bulk_listing_child where id = ${failed.id}`
+    // The claim forgets the earlier run's attempt (0268).
+    expect(claim.publish_attempt_id).toBeNull()
+    await admin`
+      update bulk_listing_child set lease_expires_at = now() - interval '1 minute'
+      where id = ${failed.id}`
+
+    await tick() // the lease is reclaimed: interrupted, not settled from X
+    op = await t.batch(result.operationId!)
+    expect(t.childFor(op, a.reviewId)).toMatchObject({
+      status: "ambiguous",
+      resultCode: "execution_interrupted",
+      publishAttemptId: null,
+    })
+    await tick() // requeued and run again, never settled from X
+    op = await t.batch(result.operationId!)
+    const settled = t.childFor(op, a.reviewId)
+    expect(settled.attempts).toBe(3)
+    // This run's own answer: the reply pipeline refuses to resend a
+    // permanent rejection (previously it settled as publish_failed from X).
+    expect(settled).toMatchObject({
+      status: "conflict",
+      resultCode: "previous_publish_failed",
+    })
+  })
+
+  it("reports an approved reply another approver already published as sent", async () => {
+    const t = await tenant()
+    const a = await t.parked()
+    const result = await t.started({ action: "approve", approvals: [a.shown] })
+    const admin2 = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+      role: "member",
+      canPublish: true,
+    })
+    await admin`update member set role = 'admin' where user_id = ${admin2.userId}`
+    // A second approver approves the same draft, which publishes it.
+    const approved = await fetch(
+      `${server.baseUrl}/api/reviews/${a.reviewId}/approval`,
+      {
+        method: "POST",
+        headers: { cookie: admin2.cookie, "content-type": "application/json" },
+        body: JSON.stringify({ decision: "approve", draftId: a.shown.draftId }),
+      }
+    )
+    expect(approved.status, await approved.clone().text()).toBeLessThan(300)
+    expect(puts()).toHaveLength(1)
+    await tick()
+    expect(puts()).toHaveLength(1)
+    const op = await t.batch(result.operationId!)
+    expect(t.childFor(op, a.reviewId)).toMatchObject({
+      status: "succeeded",
+      confirmationState: "confirmed",
+    })
+    expect(t.childFor(op, a.reviewId).publishAttemptId).toBeTruthy()
+  })
+
+  it("keeps each child's review and publish attempt in its own organisation", async () => {
+    const t = await tenant()
+    const other = await tenant()
+    const a = await t.parked()
+    const foreign = await other.parked()
+    const result = await t.started({ action: "approve", approvals: [a.shown] })
+    await other.started({ action: "approve", approvals: [foreign.shown] })
+    await tick()
+    const [foreignAttempt] = await admin<{ id: string }[]>`
+      select pa.id::text from publish_attempt pa join review_reply rr on rr.id = pa.review_reply_id
+      where rr.review_id = ${foreign.reviewId}`
+    expect(foreignAttempt).toBeDefined()
+    const [child] = await admin<{ id: string }[]>`
+      select id::text from bulk_listing_child where operation_id = ${result.operationId!}`
+    await expect(
+      admin`update bulk_listing_child set review_id = ${foreign.reviewId} where id = ${child.id}`
+    ).rejects.toMatchObject({ code: "23503" })
+    await expect(
+      admin`update bulk_listing_child set publish_attempt_id = ${foreignAttempt.id} where id = ${child.id}`
+    ).rejects.toMatchObject({ code: "23503" })
+    await expect(
+      admin`
+        insert into bulk_listing_child (operation_id, organisation_id, location_id, resource_key, seq, input, review_id)
+        select operation_id, organisation_id, location_id, resource_key, 1, input, ${foreign.reviewId}
+        from bulk_listing_child where id = ${child.id}`
+    ).rejects.toMatchObject({ code: "23503" })
+  })
+
+  it("leaves a failed child alone on retry while its reply is still parked for resending", async () => {
+    const t = await tenant()
+    const a = await t.parked()
+    const result = await t.started({ action: "approve", approvals: [a.shown] })
+    await tick()
+    let op = await t.batch(result.operationId!)
+    const child = t.childFor(op, a.reviewId)
+    expect(child.status).toBe("succeeded")
+    // As if this run had failed while the reply pipeline still holds a
+    // resend of its attempt.
+    for (const status of ["started", "retryable", "ambiguous"]) {
+      await admin`update publish_attempt set status = ${status} where id = ${child.publishAttemptId!}`
+      await admin`
+        update bulk_listing_child set status = 'failed', result_code = 'google_publish_failed'
+        where id = ${child.id}`
+      await admin`
+        update bulk_listing_operation set status = 'completed_with_failures'
+        where id = ${result.operationId!}`
+      const retried = await fetch(
+        `${server.baseUrl}/api/listings/bulk/${result.operationId}/retry`,
+        { method: "POST", headers: { cookie: t.owner.cookie } }
+      )
+      expect(retried.status, await retried.clone().text()).toBeLessThan(500)
+      op = await t.batch(result.operationId!)
+      expect(t.childFor(op, a.reviewId).status, status).toBe("failed")
+    }
+    await admin`update publish_attempt set status = 'succeeded' where id = ${child.publishAttemptId!}`
+  })
+
+  it("requeues an interrupted child at most five times and only while its window is open", async () => {
+    const t = await tenant()
+    const a = await t.parked()
+    const b = await t.parked()
+    const result = await t.started({
+      action: "approve",
+      approvals: [a.shown, b.shown],
+    })
+    const interrupted = (reviewId: string, attempts: number) => admin`
+      update bulk_listing_child set status = 'ambiguous', result_code = 'execution_interrupted',
+        attempts = ${attempts}, finished_at = now(), next_attempt_at = null, lease_expires_at = null
+      where operation_id = ${result.operationId!} and review_id = ${reviewId}`
+    const status = async (reviewId: string) =>
+      (
+        await admin<{ status: string }[]>`
+          select status from bulk_listing_child
+          where operation_id = ${result.operationId!} and review_id = ${reviewId}`
+      )[0]!.status
+    const requeue = () => admin`select requeue_interrupted_review_children(100)`
+
+    // The batch was finished by the tick that reclaimed the lease.
+    await interrupted(a.reviewId, 5)
+    await interrupted(b.reviewId, 4)
+    await admin`
+      update bulk_listing_operation set status = 'completed_with_failures', finished_at = now()
+      where id = ${result.operationId!}`
+    await requeue()
+    expect(await status(a.reviewId)).toBe("ambiguous") // five runs: stops
+    expect(await status(b.reviewId)).toBe("queued")
+    const [reopened] = await admin<
+      { status: string; finished_at: Date | null }[]
+    >`
+      select status, finished_at from bulk_listing_operation where id = ${result.operationId!}`
+    expect(reopened).toMatchObject({ status: "running", finished_at: null })
+
+    // A closed dispatch window requeues nothing.
+    await interrupted(b.reviewId, 1)
+    await admin`
+      update bulk_listing_operation set dispatch_expires_at = now() - interval '1 minute'
+      where id = ${result.operationId!}`
+    await requeue()
+    expect(await status(b.reviewId)).toBe("ambiguous")
+  })
+
+  it("refuses a member control of a batch they did not start or that is not a review batch", async () => {
+    const t = await tenant()
+    const a = await t.review({ text: "", rating: 4 })
+    const result = await t.started(
+      { action: "template_reply", reviewIds: [a.reviewId] },
+      t.requester.cookie
+    )
+    const other = await seedMemberUser(admin, {
+      organisationId: t.owner.organisationId,
+      role: "member",
+      canPublish: true,
+    })
+    const control = (verb: "cancel" | "retry", cookie: string) =>
+      fetch(
+        `${server.baseUrl}/api/listings/bulk/${result.operationId}/${verb}`,
+        {
+          method: "POST",
+          headers: { cookie },
+        }
+      )
+    await tick()
+    await admin`
+      update bulk_listing_operation set status = 'completed_with_failures'
+      where id = ${result.operationId!}`
+    // Another member may not retry a review batch they did not start.
+    expect((await control("retry", other.cookie)).status).toBe(403)
+    // Its own requester may, as long as it is a review batch...
+    const own = await control("retry", t.requester.cookie)
+    expect(own.status, await own.clone().text()).toBe(200)
+    // ...but never a listing batch, even one they requested.
+    await admin`
+      update bulk_listing_operation set operation = 'regular_hours', status = 'running'
+      where id = ${result.operationId!}`
+    expect((await control("cancel", t.requester.cookie)).status).toBe(403)
+    expect((await control("retry", t.requester.cookie)).status).toBe(403)
+  })
+
   it("drafts, checks and publishes one template reply per eligible review, exactly once", async () => {
     const t = await tenant()
     const five = await t.review({ text: "", rating: 5 })

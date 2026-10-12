@@ -121,6 +121,8 @@ const REASON: Record<string, string> = {
   submitted_for_approval: "Submitted for approval; nothing sent to Google yet",
   approval_withdrawn:
     "Not sent: the approval was withdrawn or replaced after this batch started",
+  approval_not_sufficient:
+    "Not sent: this reply now needs another approval; it is waiting in the inbox",
   review_changed: "The review changed after this batch started; open it",
   approval_draft_changed: "The reply changed after it was approved; open it",
   approval_not_pending: "No longer waiting for approval",
