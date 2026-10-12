@@ -114,6 +114,13 @@ export const ABUSE_POLICIES = {
     user: { limit: 30, windowSeconds: 10 * 60 },
     organisation: { limit: 120, windowSeconds: 10 * 60 },
   },
+  // Photo uploads for bulk changes (P09-R7): each one hands out a signed
+  // storage URL and a staged object, so per person and per organisation.
+  asset_upload: {
+    code: "asset_rate_limited",
+    user: { limit: 60, windowSeconds: HOUR },
+    organisation: { limit: 300, windowSeconds: HOUR },
+  },
 } as const satisfies Record<
   string,
   { code: string } & Partial<Record<AbuseKeyKind, Window>>
@@ -138,6 +145,8 @@ const KEY_KINDS: readonly AbuseKeyKind[] = [
 
 const MESSAGES: Record<string, string> = {
   auth_rate_limited: "Too many attempts. Try again later.",
+  asset_rate_limited:
+    "Too many photos were uploaded in a short time. Wait a while and try again.",
   draft_rate_limited:
     "Too many drafts were requested in a short time. Wait a moment and try again.",
 }

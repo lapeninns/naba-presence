@@ -19,6 +19,10 @@ import {
   bulkFoodMenusInputSchema,
   bulkPostDraftInputSchema,
 } from "@/lib/domain/bulk-menus"
+import {
+  BULK_MAX_NEW_PHOTOS_PER_LOCATION,
+  bulkPhotoInputSchema,
+} from "@/lib/domain/bulk-photos"
 import type {
   HoursSelection,
   NormalizedHours,
@@ -172,6 +176,11 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
   bulkFoodMenusInputSchema,
   /** Posts: one independent local draft per listing, published separately. */
   bulkPostDraftInputSchema,
+  /**
+   * Photos (P09-R7): one owned asset added to each listing as a new photo
+   * (lib/domain/bulk-photos.ts).
+   */
+  bulkPhotoInputSchema,
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
@@ -210,6 +219,9 @@ export function bulkChangeParts(input: BulkOperationInput): string[] {
     // Each post draft is a new, independent post: drafts never overlap.
     case "post_draft":
       return []
+    // Each asset once per batch: a listing gets a photo at most once.
+    case "photos":
+      return [`photos:${input.assetId}`]
   }
 }
 
@@ -234,6 +246,15 @@ export const bulkChangeListSchema = z
         owner.set(part, index)
       }
     })
+    // Plan P09: at most 10 new photos per listing. Every change applies to
+    // every selected listing, so that is 10 photo changes per batch.
+    const photos = items.filter((item) => item.operation === "photos").length
+    if (photos > BULK_MAX_NEW_PHOTOS_PER_LOCATION)
+      context.addIssue({
+        code: "custom",
+        path: [],
+        message: `A batch adds at most ${BULK_MAX_NEW_PHOTOS_PER_LOCATION} new photos to each listing.`,
+      })
     // Category changes precede the work that depends on them: a service
     // hours type or an attribute may only be offered under the new
     // categories, so a categories change listed after one would be checked
@@ -365,6 +386,7 @@ export type BulkResourceKey =
   | "lodging"
   | "food_menus"
   | "posts"
+  | "media"
 export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
   switch (operation) {
     case "attributes":
@@ -386,6 +408,10 @@ export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
     // Drafts touch no Google resource; the key only spaces them out.
     case "post_draft":
       return "posts"
+    // New photos: one at a time per listing, apart from the media editor's
+    // own uploads, which have their own per-content guard (lib/server/media.ts).
+    case "photos":
+      return "media"
     default:
       return "hours"
   }

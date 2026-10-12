@@ -1535,7 +1535,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265; P09-R7, 0266)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1716,6 +1716,39 @@ authored by the batch's requester, whose id is stored on the child
 claim never drafts twice. Each draft is published from the listing's posts
 with its own approval (`requestOrPublishLocalPost`), so under two-person
 approval its author cannot publish it alone.
+
+Photos and private assets (P09-R7, 0266). A bulk photo is an owned asset
+(`media_asset`, lib/server/assets.ts) in a private storage bucket reached only
+through the server-only adapter (`lib/server/storage/asset-storage.ts`,
+Supabase Storage over REST in `lib/server/storage/supabase-storage.ts`). The
+app checks the tenant itself: every asset row is read under the tenant's RLS,
+and storage keys are built from the organisation and asset ids, never from a
+request. Upload is `POST /api/assets` (a staging row and a signed URL for one
+staging object; abuse scope `asset_upload`), a browser PUT straight to
+storage (no photo passes through a route body), then
+`POST /api/assets/{id}/finalise`, which reads the staged bytes, checks magic
+bytes, size (10 KB to 5 MB), dimensions (at least 250 × 250) and SHA-256
+against the declaration (`lib/domain/media-sniff.ts`), and writes exactly
+those bytes once to `assets/<org>/<sha256>/<asset>`; a trigger keeps a
+`ready` asset's content columns immutable. The retention cron deletes staged
+objects 24 hours after the upload started (`purgeExpiredStagingAssets`).
+Everything fails closed: without `MEDIA_ASSET_STORAGE=supabase`, the secret
+key and the bucket, the asset routes answer 503 `asset_storage_unavailable`
+and photo previews skip every listing. The photos family
+(`lib/server/bulk-families/photos.ts`) adds one asset per change, at most 10
+per batch (10 new photos per listing), under the key `media`. The preview
+freezes the asset's SHA-256, type, size and dimensions and skips a listing
+that already shows the asset (`already_applied`, from
+`media_asset_publication.google_media_name` and the live media list). The
+child re-reads the bytes from the immutable key, re-hashes them and sends them
+through the media editor's checkpointed upload (`uploadMediaFromAsset`) with
+the child's intent and approval ref, so the receipt, the unresolved-create
+guard and media recovery all apply. The listing's Google media name is
+recorded on the asset's publication in the create's settle transaction. A
+re-claimed child settles from its earlier receipt instead of sending again;
+an unconfirmed create waits for recovery or a person's resolution on the
+listing's photos tab, and the bulk reconcile then records the publication
+(`afterReconcile`).
 
 ## Reporting provenance (WP9)
 

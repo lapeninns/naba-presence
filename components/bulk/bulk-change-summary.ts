@@ -275,6 +275,8 @@ export function describeChildChange(
       return menuRows(current, proposed)
     case "post_draft":
       return postRows(proposed)
+    case "photos":
+      return photoRows(current, proposed)
   }
 }
 
@@ -356,6 +358,32 @@ function postRows(proposed: unknown): ChangeRow[] {
       label: "New post draft",
       current: "Nothing published",
       proposed: `${TOPIC_LABEL[post.topicType ?? ""] ?? "Post"} draft: ${post.summary || "(no text)"}`,
+    },
+  ]
+}
+
+/** "New photo (Interior): bar.jpg, 1200 × 800". */
+function photoRows(current: unknown, proposed: unknown): ChangeRow[] {
+  const photo = record(proposed) as {
+    fileName?: string
+    category?: string
+    width?: number
+    height?: number
+    description?: string | null
+  }
+  const before = record(current) as { previousMediaName?: string | null }
+  const category = (photo.category ?? "ADDITIONAL")
+    .toLowerCase()
+    .replaceAll("_", " ")
+  const size =
+    photo.width && photo.height ? `, ${photo.width} × ${photo.height}` : ""
+  return [
+    {
+      label: `New photo (${category.charAt(0).toUpperCase()}${category.slice(1)})`,
+      current: before.previousMediaName
+        ? "Added before, since removed on Google"
+        : "Not on this listing",
+      proposed: `${photo.fileName ?? "Photo"}${size}${photo.description ? `: ${photo.description}` : ""}`,
     },
   ]
 }

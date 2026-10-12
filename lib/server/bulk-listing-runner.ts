@@ -260,7 +260,7 @@ export async function processBulkChild(
     result: DispatchOutcome
   ): Promise<Outcome | { failed: string }> => {
     const receipt = await receiptFor(organisationId, intentId)
-    const operationId = receipt?.id ?? null
+    const operationId = result.operationId ?? receipt?.id ?? null
     switch (result.kind) {
       case "succeeded":
         await settle(organisationId, childId, "succeeded", {
@@ -332,6 +332,7 @@ export async function processBulkChild(
         updateMask: child.updateMask,
         baselineHash: child.baselineHash,
         intentId,
+        attempt: child.attempts,
         approvalRef: bulkApprovalRef(child.operationId),
         requestId,
         stillOpen: () => !dispatchClosed(),
@@ -451,6 +452,16 @@ async function reconcileResolvedChildren(
               locationId: child.locationId,
             })
           : {}
+      if (family.afterReconcile)
+        await family.afterReconcile(
+          sql,
+          {
+            organisationId: row.organisationId,
+            childId: row.childId,
+            locationId: child.locationId,
+          },
+          verdict
+        )
       await sql`
         update bulk_listing_child set
           status = ${verdict.kind},

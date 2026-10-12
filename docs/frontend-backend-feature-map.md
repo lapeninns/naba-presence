@@ -352,6 +352,7 @@ established; see `docs/gbp-operations-acceptance.md`.
 | Operations | `/settings/operations` (owners/admins) | `/api/operations/health` (adds unresolved writes and email evidence), `/api/operations/notification-deliveries/retry` |
 | Scheduled publication | Posts tab: Schedule sheet with exact preview, schedules list with approval, pause/resume/cancel/change; `/calendar` month, week and agenda | `/api/locations/[id]/post-schedules/**`, `/api/post-schedules/occurrences`; job tick |
 | Bulk listing changes | Behind org feature `bulk_actions`; listings board selection (up to 50), `/listings/bulk` compose, `/listings/bulk/[id]` review, approval, progress, cancel, retry | `/api/listings/bulk/preview`, `/[id]`, `/[id]/approve`, `/[id]/execute` (202), `/[id]/cancel`, `/[id]/retry`; job tick |
+| Bulk photo assets (P09-R7) | Behind `bulk_actions` and configured private storage; composer editor is P09-R9 | `/api/assets` (GET list, POST start upload with a signed storage URL), `/api/assets/[id]/finalise`; retention cron purges staging |
 | Report provenance | Google tab, location report and share page: "No data" for missing metrics, prior-window deltas, data-through vs last fetched, coverage, totals CSV, print styles | `/api/analytics/presence` optional `previous`, `fetchedAt`, `coverage`, `dateBasis` |
 
 Wording rule applied: call clicks are "Call button taps", booking clicks are

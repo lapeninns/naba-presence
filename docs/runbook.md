@@ -1689,8 +1689,16 @@ overwrites them), and `menu_node_not_found`/`menu_node_ambiguous` mean the menu 
 the change names is not on that listing exactly once (entries are matched by
 their content and place, never by name), so change that listing on its own. A
 bulk post change only creates drafts: publish each from the listing's posts,
-where two-person approval applies as usual. Cancelling stops queued listings
-only; completed writes are not rolled back.
+where two-person approval applies as usual. A bulk photo needs private
+storage configured (`MEDIA_ASSET_STORAGE=supabase`, `SUPABASE_SECRET_KEY`,
+`MEDIA_ASSETS_BUCKET` pointing at a private bucket); without it uploads answer
+503 `asset_storage_unavailable` and photo listings are skipped or wait
+queued. `media_needs_resolution` on a photo listing means Google did not
+confirm the create: resolve it on that listing's photos tab (it is never sent
+twice), and the batch settles from that decision. `photo_already_added` and
+`photo_publication_pending` mean another change already added, or is still
+adding, that photo there. Cancelling stops queued listings only; completed
+writes are not rolled back.
 
 ### Notification delivery failures
 

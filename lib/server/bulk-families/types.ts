@@ -69,6 +69,8 @@ export type DispatchContext<TInput extends BulkOperationInput> = {
   baselineHash: string | null
   /** The receipt's intent: one per child claim (`bulkIntentId`). */
   intentId: string
+  /** Which claim of the child this is (1 for the first); earlier claims' intents are `bulkIntentId(childId, n)`. */
+  attempt: number
   /** Recorded on the receipt: `bulk_listing_operation:<id>`. */
   approvalRef: string
   requestId: string
@@ -80,7 +82,15 @@ export type DispatchContext<TInput extends BulkOperationInput> = {
  * How a dispatch ended. `observed` is the listing's relevant Google value
  * when the family read it, stored on the child as its current value.
  */
-export type DispatchOutcome = { observed?: unknown } & (
+export type DispatchOutcome = {
+  observed?: unknown
+  /**
+   * The receipt the child now waits on, when it is an earlier claim's
+   * rather than this claim's (a re-claimed child whose earlier write is
+   * still unresolved). Defaults to this claim's receipt.
+   */
+  operationId?: string
+} & (
   | { kind: "succeeded"; confirmation: "confirmed" | "unrecorded" }
   | { kind: "conflict"; code: string }
   | { kind: "expired" }
@@ -140,4 +150,13 @@ export type BulkFamily<TInput extends BulkOperationInput = BulkOperationInput> =
       sql: TransactionSql,
       child: { organisationId: string; childId: string; locationId: string }
     ): Promise<Record<string, unknown>>
+    /**
+     * Records the settled outcome on the family's own rows (a photo's
+     * publication), inside the reconcile transaction, after `undoNotApplied`.
+     */
+    afterReconcile?(
+      sql: TransactionSql,
+      child: { organisationId: string; childId: string; locationId: string },
+      verdict: ReconcileOutcome
+    ): Promise<void>
   }

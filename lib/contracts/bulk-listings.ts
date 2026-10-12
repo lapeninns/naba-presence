@@ -23,6 +23,7 @@ const BULK_OPERATIONS = [
   "lodging",
   "food_menus",
   "post_draft",
+  "photos",
 ] as const
 
 export const bulkPreviewRequestSchema = z

@@ -427,6 +427,8 @@ type MediaWriteScope = {
    * carries a new token.
    */
   intentId?: string | null
+  /** Recorded on the receipt: the approval the write went out under (a bulk batch). */
+  approvalRef?: string | null
 }
 
 type MediaWriteResult = {
@@ -563,7 +565,10 @@ async function runMediaWrite<TResponse, TReadback = never>(
     validate?: () => Promise<void>
     mutate: (ctx: { attemptId: string }) => Promise<TResponse>
     readback?: GbpReadback<TResponse, TReadback>
-    onSuccess?: (sql: TransactionSql) => Promise<void>
+    onSuccess?: (
+      sql: TransactionSql,
+      ctx: { attemptId: string; readback: TReadback | undefined }
+    ) => Promise<void>
     audit?: GbpAuditSpec
   }
 ): Promise<MediaWriteResult> {
@@ -598,6 +603,9 @@ async function runMediaWrite<TResponse, TReadback = never>(
           jsonColumnOrNull(sql, write.payload),
       },
       onExisting: "replay",
+      // A worker's intent (a bulk child's claim) records the receipt under
+      // it; without one the request's ambient intent applies.
+      ...(scope.intentId ? { intentId: scope.intentId } : {}),
       failureCode: write.failureCode,
       operation: {
         surface: "media",
@@ -611,6 +619,7 @@ async function runMediaWrite<TResponse, TReadback = never>(
           write.expectedGoogleHash,
           sha256(JSON.stringify(write.payload ?? null)),
         ]),
+        approvalRef: scope.approvalRef ?? null,
       },
       validate: write.validate,
       mutate: (ctx) => {
@@ -619,7 +628,13 @@ async function runMediaWrite<TResponse, TReadback = never>(
       },
       onAmbiguous: "fail",
       readback: write.readback,
-      onSuccess: write.onSuccess ? (sql) => write.onSuccess!(sql) : undefined,
+      onSuccess: write.onSuccess
+        ? (sql, success) =>
+            write.onSuccess!(sql, {
+              attemptId: success.attemptId,
+              readback: success.readback,
+            })
+        : undefined,
       audit: write.audit,
     })
   } catch (error) {
@@ -906,6 +921,14 @@ async function createMediaItem(
       token: string,
       checkpoint: CreateCheckpoint
     ) => Promise<GoogleMediaItem>
+    /**
+     * In the settle transaction of a create that landed (or was adopted):
+     * the item as read back, and its attempt.
+     */
+    afterCreate?: (
+      sql: TransactionSql,
+      created: { attemptId: string; item: GoogleMediaItem | undefined }
+    ) => Promise<void>
   }
 ): Promise<MediaWriteResult> {
   // Set when the create was adopted from the live list rather than named by
@@ -973,12 +996,17 @@ async function createMediaItem(
         message: "Google did not return the created media item.",
       },
     },
-    onSuccess: async (sql) => {
-      if (!adoptedAttemptId) return
-      await sql`
-        update gbp_media_mutation set resolution = 'adopted', resolved_at = now()
-        where id = ${adoptedAttemptId}
-      `
+    onSuccess: async (sql, success) => {
+      if (adoptedAttemptId)
+        await sql`
+          update gbp_media_mutation set resolution = 'adopted', resolved_at = now()
+          where id = ${adoptedAttemptId}
+        `
+      if (create.afterCreate)
+        await create.afterCreate(sql, {
+          attemptId: success.attemptId,
+          item: success.readback,
+        })
     },
     audit: {
       action: create.auditAction,
@@ -1155,6 +1183,108 @@ export async function uploadMedia(input: {
       )
     },
   })
+}
+
+/**
+ * A new photo from an owned, validated asset (lib/server/assets.ts), for
+ * the bulk photos family: the same checkpointed upload, unresolved-create
+ * guard, readback, receipt and recovery as `uploadMedia`, keyed on the
+ * asset's SHA-256. The bytes were read from the asset's immutable key and
+ * re-hashed by the caller; nothing a client declared is trusted here.
+ */
+export async function uploadMediaFromAsset(input: {
+  organisationId: string
+  session: Session
+  locationId: string
+  linked: LinkedLocation
+  asset: {
+    id: string
+    fileName: string
+    contentType: string
+    sha256: string
+    bytes: Uint8Array
+  }
+  category: GoogleMediaCategory
+  description?: string | null
+  requestId: string
+  intentId: string
+  approvalRef: string
+  afterCreate?: (
+    sql: TransactionSql,
+    created: { attemptId: string; item: GoogleMediaItem | undefined }
+  ) => Promise<void>
+}) {
+  requireMediaWrite(input.linked)
+  const description = input.description ?? undefined
+  const bytes = input.asset.bytes.buffer.slice(
+    input.asset.bytes.byteOffset,
+    input.asset.bytes.byteOffset + input.asset.bytes.byteLength
+  ) as ArrayBuffer
+  const requestedPayload = {
+    mediaFormat: "PHOTO",
+    category: input.category,
+    description,
+    fileName: input.asset.fileName,
+    contentType: input.asset.contentType,
+    byteLength: input.asset.bytes.byteLength,
+    sha256: input.asset.sha256,
+    assetId: input.asset.id,
+  }
+  const linked = input.linked
+  return createMediaItem(input, linked, {
+    payload: requestedPayload,
+    intent: { mediaFormat: "PHOTO", category: input.category, description },
+    contentSha256: input.asset.sha256,
+    failureCode: "media_upload_failed",
+    auditAction: "media.uploaded",
+    afterCreate: input.afterCreate,
+    send: async (token, checkpoint) => {
+      const dataRef = await startGoogleMediaUpload(
+        token,
+        mediaTarget(linked),
+        mediaTransport(linked)
+      )
+      await checkpoint("data_ref_obtained", dataRef.resourceName)
+      await sendGoogleMediaBytes(
+        token,
+        {
+          resourceName: dataRef.resourceName,
+          bytes,
+          contentType: input.asset.contentType,
+        },
+        mediaTransport(linked)
+      )
+      await checkpoint("bytes_uploaded")
+      await checkpoint("create_sent")
+      return createGoogleMediaItem(
+        token,
+        {
+          ...mediaTarget(linked),
+          payload: {
+            mediaFormat: "PHOTO",
+            locationAssociation: { category: input.category },
+            dataRef,
+            description,
+          },
+        },
+        mediaTransport(linked)
+      )
+    },
+  })
+}
+
+/** The merchant media item names Google lists for a listing now. */
+export async function liveMerchantMediaNames(
+  linked: LinkedLocation
+): Promise<string[]> {
+  const items = await googleMediaItems(
+    await linked.accessToken(),
+    { ...mediaTarget(linked), customer: false },
+    mediaTransport(linked)
+  )
+  return items.flatMap((item) =>
+    typeof item.name === "string" ? [item.name] : []
+  )
 }
 
 // ---------------------------------------------------------------------------

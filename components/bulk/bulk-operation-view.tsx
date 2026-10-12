@@ -105,6 +105,18 @@ const REASON: Record<string, string> = {
   menu_parent_mismatch: "An added entry doesn’t fit where it’s placed",
   menu_changes_overlap:
     "The change edits or adds inside an entry it also removes",
+  asset_not_found: "The photo isn’t in this workspace’s uploads",
+  asset_not_ready: "The photo upload wasn’t finished or was refused",
+  asset_changed: "The photo changed after the preview; preview again",
+  asset_integrity_failed:
+    "The stored photo doesn’t match what was checked; upload it again",
+  asset_storage_unavailable: "Photo storage isn’t available right now",
+  photo_publication_pending:
+    "This photo is still being added to this listing by another change",
+  photo_already_added: "This photo was added to this listing after the preview",
+  media_needs_resolution:
+    "Google didn’t confirm the photo; check the listing’s photos and resolve it there",
+  media_create_in_progress: "This photo is still being added to Google",
 }
 const reason = (code: string | null) =>
   code
@@ -126,6 +138,7 @@ const OPERATION_LABEL: Record<Operation["operation"], string> = {
   lodging: "Lodging details",
   food_menus: "Menus",
   post_draft: "Post drafts",
+  photos: "Photos",
   mixed: "Several changes",
 }
 

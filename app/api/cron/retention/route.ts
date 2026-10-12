@@ -1,4 +1,5 @@
 import { purgeAbuseRateBuckets } from "@/lib/server/abuse-limits"
+import { purgeExpiredStagingAssets } from "@/lib/server/assets"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
@@ -537,14 +538,33 @@ async function retain({
         }
         return { ...counts, heldLocationsSkipped }
       })
+      // Staged photo uploads (P09-R7) older than 24 hours: the objects are
+      // deleted from private storage, outside the tenant purge above because
+      // storage is not transactional. Zero when storage is not configured
+      // (nothing can have been staged). A storage failure is logged; the
+      // next sweep tries again.
+      let stagingAssets = 0
+      if (deletesEnabled) {
+        try {
+          stagingAssets =
+            (await purgeExpiredStagingAssets(organisation.id)) ?? 0
+        } catch (error) {
+          log.error("retention.staging_assets_failed", {
+            requestId,
+            organisationId: organisation.id,
+            error,
+          })
+        }
+      }
       // Logged outside the transaction so a rolled-back purge never reports
       // counts it did not keep.
       log.info("retention.organisation_purged", {
         requestId,
         organisationId: organisation.id,
         ...purged,
+        stagingAssets,
       })
-      results.push({ organisationId: organisation.id, ...purged })
+      results.push({ organisationId: organisation.id, ...purged, stagingAssets })
     } catch (error) {
       // One tenant's failure must not starve every organisation ordered after
       // it: the enumeration order is stable and the scheduler always restarts
