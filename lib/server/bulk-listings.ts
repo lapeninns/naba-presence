@@ -19,7 +19,11 @@ import {
   bulkResourceKey,
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
-import { planTarget, type TargetPlan } from "@/lib/server/bulk-listing-targets"
+import {
+  planReads,
+  planTarget,
+  type TargetPlan,
+} from "@/lib/server/bulk-listing-targets"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import {
   resolveGbpLocationContext,
@@ -224,55 +228,43 @@ export async function previewBulkOperation(
   // insert after them, which can be up to the route's duration later. The
   // elapsed time is measured here and applied to the database clock.
   const readsStartedAt = performance.now()
-  const pairs = contexts.flatMap((target) =>
-    items.map((item, seq) => ({ target, item, seq }))
-  )
-  const plans = await mapLimit(
-    pairs,
+  // Listings are planned PREVIEW_CONCURRENCY at a time. A listing's changes
+  // are planned in list order against one shared read per resource
+  // (`planReads`), so a batch of many changes costs each listing a few
+  // Google reads, not a few per change.
+  type Planned = { seq: number; plan: TargetPlan }
+  const planned = await mapLimit(
+    contexts,
     PREVIEW_CONCURRENCY,
-    async ({
-      target,
-      item,
-      seq,
-    }): Promise<{
-      locationId: string
-      seq: number
-      plan: TargetPlan
-      frozen?: Frozen
-    }> => {
-      const locationId = target.locationId
+    async (target): Promise<Planned[]> => {
       if (!("context" in target) || !target.context)
-        return {
-          locationId,
+        return items.map((_, seq) => ({
           seq,
           plan: { eligible: false, reason: target.skip },
-        }
-      try {
-        return {
-          locationId,
-          seq,
-          plan: await planTarget(item, target.context),
-          frozen: target.frozen,
-        }
-      } catch (error) {
-        return {
-          locationId,
-          seq,
-          plan: { eligible: false, reason: readableReason(error) },
-          frozen: target.frozen,
+        }))
+      const reads = planReads()
+      const plans: Planned[] = []
+      for (const [seq, item] of items.entries()) {
+        try {
+          plans.push({
+            seq,
+            plan: await planTarget(item, target.context, reads),
+          })
+        } catch (error) {
+          plans.push({
+            seq,
+            plan: { eligible: false, reason: readableReason(error) },
+          })
         }
       }
+      return plans
     }
   )
   // Each listing's run order: a change waits for the earlier eligible ones,
-  // and one whose hard prerequisite was skipped is skipped too.
-  const byLocation = new Map<string, typeof plans>()
-  for (const entry of plans)
-    byLocation.set(entry.locationId, [
-      ...(byLocation.get(entry.locationId) ?? []),
-      entry,
-    ])
-  const children = [...byLocation.values()].flatMap((entries) => {
+  // and one whose hard prerequisite was skipped (or blocked) is skipped too.
+  const children = contexts.flatMap((target, listing) => {
+    const entries = planned[listing]
+    const frozen = "frozen" in target ? target.frozen : null
     const order = bulkListingOrder(
       entries.map((entry) => ({
         operation: items[entry.seq].operation,
@@ -280,11 +272,11 @@ export async function previewBulkOperation(
         skipReason: entry.plan.eligible ? null : entry.plan.reason,
       }))
     )
-    return entries.map(({ locationId, seq, plan, frozen }, index) => {
-      const blocked = plan.eligible && order[index].blocked
+    return entries.map(({ seq, plan }, index) => {
+      const blocked = order[index].blocked
       const eligible = plan.eligible && !blocked
       return {
-        locationId,
+        locationId: target.locationId,
         seq,
         itemKey: bulkItemKey(items[seq], seq),
         item: items[seq],
@@ -380,12 +372,6 @@ export async function previewBulkOperation(
     })
     return project(sql, session, operation.id)
   })
-}
-
-type Frozen = {
-  connectionId: string
-  credentialGeneration: number | null
-  googleLocationName: string
 }
 
 async function project(
@@ -732,12 +718,26 @@ export async function retryBulkOperation(
     // An unresolved write whose receipt `mutation_recover` is still reading
     // back is left alone: the runner settles it from the receipt
     // (bulk_children_to_reconcile, 0262), so it is never sent twice.
-    const retried =
-      await sql`update bulk_listing_child c set status = 'queued', next_attempt_at = now(), result_code = null
-      where c.operation_id = ${operationId} and (c.status = 'failed' or (c.status = 'ambiguous' and not exists (
-        select 1 from mutation_operation m
-        where m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
-          and m.state = 'uncertain' and m.next_recovery_at is not null)))
+    // A change whose hard prerequisite ended in a state retry does not
+    // requeue (conflict, expired, cancelled, skipped), directly or through
+    // a chain of prerequisites, is left failed: requeued, it would only fail
+    // `dependency_not_applied` again. It needs a new preview.
+    const retried = await sql`
+      with recursive stuck as (
+        select p.id from bulk_listing_child p
+        where p.operation_id = ${operationId}
+          and p.status in ('conflict', 'expired', 'cancelled', 'skipped')
+        union
+        select d.id from bulk_listing_child d join stuck s on s.id = any(d.requires_applied)
+        where d.operation_id = ${operationId}
+      )
+      update bulk_listing_child c set status = 'queued', next_attempt_at = now(), result_code = null
+      where c.operation_id = ${operationId}
+        and c.id not in (select id from stuck)
+        and (c.status = 'failed' or (c.status = 'ambiguous' and not exists (
+          select 1 from mutation_operation m
+          where m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
+            and m.state = 'uncertain' and m.next_recovery_at is not null)))
       returning c.id`
     if (retried.length)
       await sql`update bulk_listing_operation set status = 'running', finished_at = null, updated_at = now() where id = ${operationId}`

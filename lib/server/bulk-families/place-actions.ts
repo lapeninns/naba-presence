@@ -52,12 +52,23 @@ export const placeActionsFamily: BulkFamily<PlaceActionInput> = {
   resourceKey: "place_actions",
   writeSurface: "placeActions",
   accountLock: true,
-  async plan(input, linked) {
-    const token = await linked.accessToken(),
-      options = { connectionKey: linked.connectionId }
+  async plan(input, linked, reads) {
+    const options = { connectionKey: linked.connectionId }
     const [metadata, collection] = await Promise.all([
-      listGooglePlaceActionMetadata(token, linked.googleLocationName, options),
-      listGooglePlaceActionLinks(token, linked.googleLocationName, options),
+      reads.once("place_actions:metadata", async () =>
+        listGooglePlaceActionMetadata(
+          await linked.accessToken(),
+          linked.googleLocationName,
+          options
+        )
+      ),
+      reads.once("place_actions:links", async () =>
+        listGooglePlaceActionLinks(
+          await linked.accessToken(),
+          linked.googleLocationName,
+          options
+        )
+      ),
     ])
     const current = placeActionState(collection.links, input.placeActionType)
     const decision = planPlaceAction(input, current, metadata.supportedTypes)

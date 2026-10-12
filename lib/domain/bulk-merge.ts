@@ -151,9 +151,11 @@ export type BulkOperation = BulkOperationInput["operation"]
 /**
  * The parts of a listing one change touches, as stable keys: weekdays,
  * special dates, a service hours type, attribute IDs, an action-link type.
- * Two changes of one batch never share a part: each child is previewed
- * against the same Google read and pins only its own parts, so changes with
- * disjoint parts commute and none conflicts with an earlier one's write.
+ * Two changes of one batch never share a part: a listing's children are
+ * previewed against one Google read per resource (shared across that
+ * listing's changes, `planReads`) and each pins only its own parts, so
+ * changes with disjoint parts commute and none conflicts with an earlier
+ * one's write.
  */
 export function bulkChangeParts(input: BulkOperationInput): string[] {
   switch (input.operation) {
@@ -233,6 +235,9 @@ export type BulkChildOrder = {
  * change also requires its hard prerequisites (`BULK_PREREQUISITES`) to
  * apply. A prerequisite skipped at preview for any reason but
  * `already_applied` blocks it; one already applied is not waited on.
+ * Blocking is worked out in list order, so a change blocked by its own
+ * prerequisite counts as skipped for the changes after it: in a chain
+ * A -> B -> C where A is skipped, B and C are both blocked.
  */
 export function bulkListingOrder(
   changes: readonly {
@@ -242,23 +247,37 @@ export function bulkListingOrder(
   }[],
   prerequisites: BulkPrerequisites = BULK_PREREQUISITES
 ): BulkChildOrder[] {
-  return changes.map((change, index) => {
+  const settled: {
+    operation: string
+    eligible: boolean
+    skipReason: string | null
+  }[] = []
+  return changes.map((change) => {
     const needs = new Set(
       prerequisites[change.operation as BulkOperation] ?? []
     )
-    const earlier = changes.slice(0, index).map((entry, seq) => ({
-      ...entry,
-      seq,
-    }))
+    const earlier = settled.map((entry, seq) => ({ ...entry, seq }))
     const hard = earlier.filter((entry) => needs.has(entry.operation))
+    const blocked =
+      change.eligible &&
+      hard.some(
+        (entry) => !entry.eligible && entry.skipReason !== "already_applied"
+      )
+    settled.push({
+      operation: change.operation,
+      eligible: change.eligible && !blocked,
+      skipReason: change.eligible
+        ? blocked
+          ? "dependency_not_applied"
+          : null
+        : (change.skipReason ?? null),
+    })
     return {
       dependsOn: earlier.filter((entry) => entry.eligible).map((e) => e.seq),
       requiresApplied: hard
         .filter((entry) => entry.eligible)
         .map((entry) => entry.seq),
-      blocked: hard.some(
-        (entry) => !entry.eligible && entry.skipReason !== "already_applied"
-      ),
+      blocked,
     }
   })
 }

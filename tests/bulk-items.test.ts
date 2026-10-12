@@ -230,4 +230,39 @@ describe("bulk batches: ordered change lists (P09-R4)", () => {
     )
     expect(alreadyApplied[1].blocked).toBe(false)
   })
+
+  it("carries blocking down a chain of prerequisites: a change blocked by its own prerequisite blocks the next", () => {
+    // A -> B -> C: A is skipped, so B is blocked, and C, whose prerequisite
+    // B will never be sent, is blocked too rather than previewed eligible.
+    const order = bulkListingOrder(
+      [
+        { operation: "categories", eligible: false, skipReason: "not_offered" },
+        { operation: "more_hours", eligible: true },
+        { operation: "attributes", eligible: true },
+        { operation: "special_hours", eligible: true },
+      ],
+      { more_hours: ["categories"], attributes: ["more_hours"] }
+    )
+    expect(order).toEqual([
+      { dependsOn: [], requiresApplied: [], blocked: false },
+      { dependsOn: [], requiresApplied: [], blocked: true },
+      { dependsOn: [], requiresApplied: [], blocked: true },
+      { dependsOn: [], requiresApplied: [], blocked: false },
+    ])
+    // A chain whose root applies keeps every link eligible and required.
+    const applied = bulkListingOrder(
+      [
+        { operation: "categories", eligible: true },
+        { operation: "more_hours", eligible: true },
+        { operation: "attributes", eligible: true },
+      ],
+      { more_hours: ["categories"], attributes: ["more_hours"] }
+    )
+    expect(applied.map((entry) => entry.requiresApplied)).toEqual([
+      [],
+      [0],
+      [1],
+    ])
+    expect(applied.some((entry) => entry.blocked)).toBe(false)
+  })
 })

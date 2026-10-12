@@ -22,6 +22,16 @@ export type TargetPlan =
     }
   | { eligible: false; reason: string; current?: unknown }
 
+/**
+ * The reads one preview shares across a listing's changes: each named read
+ * (a Google resource, the saved schedule) runs once per listing, and every
+ * change of the batch at that listing is planned against that one result.
+ * Each caller gets its own copy, so a plan never sees another's edits.
+ */
+export type PlanReads = {
+  once<T>(key: string, read: () => Promise<T>): Promise<T>
+}
+
 /** One claimed child, as the runner hands it to its family. */
 export type DispatchContext<TInput extends BulkOperationInput> = {
   organisationId: string
@@ -77,8 +87,15 @@ export type BulkFamily<TInput extends BulkOperationInput = BulkOperationInput> =
     writeSurface: GbpWriteSurface
     /** Runs inside the Google account change lock (action links). */
     accountLock: boolean
-    /** Read only: the preview of one listing. */
-    plan(input: TInput, linked: GbpLocationContext): Promise<TargetPlan>
+    /**
+     * Read only: the preview of one listing. Reads go through `reads`, which
+     * the preview shares across the listing's changes.
+     */
+    plan(
+      input: TInput,
+      linked: GbpLocationContext,
+      reads: PlanReads
+    ): Promise<TargetPlan>
     /**
      * At most one provider write, under the resource lock the runner holds,
      * after rechecking the frozen baseline. Throws only for errors the runner

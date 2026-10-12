@@ -28,10 +28,12 @@ export type {
   BulkFamily,
   DispatchContext,
   DispatchOutcome,
+  PlanReads,
   TargetPlan,
 } from "@/lib/server/bulk-families/types"
 export {
   bulkApprovalRef,
   bulkIntentId,
+  planReads,
   receiptFor,
 } from "@/lib/server/bulk-families/shared"

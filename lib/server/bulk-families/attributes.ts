@@ -33,6 +33,25 @@ async function readAttributes(linked: GbpLocationContext) {
   )
 }
 
+/** Every attribute metadata page Google offers for the listing (at most 20 pages). */
+async function readAttributeMetadata(linked: GbpLocationContext) {
+  const token = await linked.accessToken(),
+    options = { connectionKey: linked.connectionId }
+  const metadata: Array<Record<string, unknown>> = []
+  let pageToken: string | undefined
+  for (let page = 0; page < 20; page += 1) {
+    const response = await listGoogleAttributeMetadata(
+      token,
+      { locationName: linked.googleLocationName, pageToken },
+      options
+    )
+    metadata.push(...(response.attributeMetadata ?? []))
+    pageToken = response.nextPageToken || undefined
+    if (!pageToken) break
+  }
+  return metadata
+}
+
 /** The named attributes of a listing, sorted: what a preview freezes and a dispatch compares. */
 function named(observed: Record<string, unknown>, names: ReadonlySet<string>) {
   return (
@@ -56,32 +75,16 @@ export const attributesFamily: BulkFamily<AttributesInput> = {
   resourceKey: "attributes",
   writeSurface: "profileWrites",
   accountLock: false,
-  async plan(input, linked) {
-    const token = await linked.accessToken(),
-      options = { connectionKey: linked.connectionId }
-    const observed = await getGoogleLocationAttributes(
-      token,
-      linked.googleLocationName,
-      options
-    )
+  async plan(input, linked, reads) {
+    const [observed, metadata] = await Promise.all([
+      reads.once("attributes:values", () => readAttributes(linked)),
+      reads.once("attributes:metadata", () => readAttributeMetadata(linked)),
+    ])
     // Metadata `parent` is the attribute's own name, e.g. "attributes/has_wifi".
-    const offered = new Set<string>(),
-      metadata: unknown[] = []
-    let pageToken: string | undefined
-    for (let page = 0; page < 20; page += 1) {
-      const response = await listGoogleAttributeMetadata(
-        token,
-        { locationName: linked.googleLocationName, pageToken },
-        options
-      )
-      for (const item of response.attributeMetadata ?? []) {
-        metadata.push(item)
-        if (typeof item.parent === "string" && item.deprecated !== true)
-          offered.add(item.parent)
-      }
-      pageToken = response.nextPageToken || undefined
-      if (!pageToken) break
-    }
+    const offered = new Set<string>()
+    for (const item of metadata)
+      if (typeof item.parent === "string" && item.deprecated !== true)
+        offered.add(item.parent)
     const names = new Set(input.changes.map((change) => change.name))
     const current = named(observed, names)
     const merged = mergeAttributes(input, current, offered)

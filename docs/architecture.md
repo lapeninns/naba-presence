@@ -1625,8 +1625,11 @@ Each child is one (listing, change) pair, keyed `<seq>:<family>`
 holds at most 500 children (listings x changes), in the request contract and
 the table (`bulk_listing_operation_item_cap`). Two changes of one batch never
 touch the same part of a listing (weekday, date, service hours type,
-attribute, action-link type; `bulkChangeParts`), because every child is
-previewed against the same Google read and pins only its own parts. At each
+attribute, action-link type; `bulkChangeParts`), because a listing's children
+are previewed against one Google read per resource, shared across that
+listing's changes (`planReads`), and each pins only its own parts. A preview
+plans five listings at a time and each listing's changes in list order, so a
+full batch costs a few reads per listing, not per change. At each
 listing a change waits for every earlier eligible change (`depends_on`), so
 the listing's changes reach Google in list order; the claim skips a child
 while any dependency is previewed, queued or running. Hard prerequisites
@@ -1634,8 +1637,12 @@ while any dependency is previewed, queued or running. Hard prerequisites
 `BULK_PREREQUISITES` in `lib/domain/bulk-merge.ts`, where P09-R5 adds
 category changes before service hours and attributes) must have applied: a
 dependent waits while one is unresolved and fails `dependency_not_applied`,
-unsent, when one ends otherwise (or is skipped at preview with it). Retry
-requeues such a dependent with its prerequisite. A trigger
+unsent, when one ends otherwise (or is skipped at preview with it; blocking
+carries down a chain of prerequisites). Retry requeues such a dependent
+together with its prerequisite when the prerequisite is retryable (failed, or
+ambiguous with recovery finished); a dependent whose prerequisite, directly or
+through a chain, ended conflict, expired, cancelled or skipped stays failed
+and needs a new preview. A trigger
 (`bulk_listing_child_dependency_guard`) holds dependencies to earlier changes
 at the same listing of the same batch.
 

@@ -19,6 +19,7 @@ import { previewedParts } from "@/lib/server/bulk-families/hours"
 import {
   bulkIntentId,
   outcomeOfAnsweredWrite,
+  planReads,
   reconcileFromReceipt,
 } from "@/lib/server/bulk-families/shared"
 
@@ -296,5 +297,42 @@ describe("bulk receipts (P09-R3)", () => {
         parts[hoursPartKey.special("2026-12-25")],
       [hoursPartKey.special("2027-01-01")]: null,
     })
+  })
+})
+
+describe("preview read sharing (P09-R4)", () => {
+  it("runs each named read once per listing, joins concurrent callers and hands each its own copy", async () => {
+    const reads = planReads()
+    let calls = 0
+    const read = async () => {
+      calls += 1
+      return { regular: [{ dayOfWeek: 1 }] }
+    }
+    const [first, second] = await Promise.all([
+      reads.once("hours:location", read),
+      reads.once("hours:location", read),
+    ])
+    const third = await reads.once("hours:location", read)
+    expect(calls).toBe(1)
+    first.regular.push({ dayOfWeek: 2 })
+    expect(second).toEqual({ regular: [{ dayOfWeek: 1 }] })
+    expect(third).toEqual({ regular: [{ dayOfWeek: 1 }] })
+    await reads.once("attributes:values", read)
+    expect(calls).toBe(2)
+    // A new preview (another listing) reads again.
+    await planReads().once("hours:location", read)
+    expect(calls).toBe(3)
+  })
+
+  it("fails every change that shares a failed read, without reading again", async () => {
+    const reads = planReads()
+    let calls = 0
+    const read = async () => {
+      calls += 1
+      throw new Error("google_read_failed")
+    }
+    await expect(reads.once("place_actions:links", read)).rejects.toThrow()
+    await expect(reads.once("place_actions:links", read)).rejects.toThrow()
+    expect(calls).toBe(1)
   })
 })

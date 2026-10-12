@@ -3,6 +3,7 @@ import "server-only"
 import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import type {
   DispatchOutcome,
+  PlanReads,
   ReconcileOutcome,
 } from "@/lib/server/bulk-families/types"
 import { sha256 } from "@/lib/server/crypto"
@@ -28,6 +29,26 @@ export function bulkIntentId(childId: string, attempt: number): string {
     `${((parseInt(hex[16] ?? "0", 16) & 0x3) | 0x8).toString(16)}${hex.slice(17, 20)}`,
     hex.slice(20, 32),
   ].join("-")
+}
+
+/**
+ * A fresh read cache for one listing of one preview (`PlanReads`): the
+ * first call of a key starts the read, later calls (also concurrent ones)
+ * join it, and a failed read fails every change that needed it, with the
+ * same reason. Results are cloned per caller.
+ */
+export function planReads(): PlanReads {
+  const started = new Map<string, Promise<unknown>>()
+  return {
+    async once<T>(key: string, read: () => Promise<T>) {
+      let pending = started.get(key) as Promise<T> | undefined
+      if (!pending) {
+        pending = read()
+        started.set(key, pending)
+      }
+      return structuredClone(await pending)
+    },
+  }
 }
 
 export const bulkApprovalRef = (operationId: string) =>

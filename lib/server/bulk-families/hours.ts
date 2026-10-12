@@ -77,13 +77,18 @@ export const hoursFamily: BulkFamily<HoursInput> = {
   resourceKey: "hours",
   writeSurface: "profileWrites",
   accountLock: false,
-  async plan(input, linked) {
-    const location = (await getGoogleLocation(
-      await linked.accessToken(),
-      linked.googleLocationName,
-      ["regularHours", "specialHours", "moreHours", "categories"],
-      { connectionKey: linked.connectionId }
-    )) as GoogleLocationHours
+  async plan(input, linked, reads) {
+    // One read per listing serves all three hours families of a batch.
+    const location = await reads.once(
+      "hours:location",
+      async () =>
+        (await getGoogleLocation(
+          await linked.accessToken(),
+          linked.googleLocationName,
+          ["regularHours", "specialHours", "moreHours", "categories"],
+          { connectionKey: linked.connectionId }
+        )) as GoogleLocationHours
+    )
     const field = bulkHoursField(input.operation)
     const current = fieldOf(input, location)
     if (input.operation === "more_hours") {
@@ -106,7 +111,9 @@ export const hoursFamily: BulkFamily<HoursInput> = {
     // change either way, but a saved schedule the hours editor must
     // reconcile first (a legacy period with no confirmed closing day)
     // blocks every send, so the listing is skipped here instead.
-    const saved = await readSavedHours(linked.organisationId, linked.locationId)
+    const saved = await reads.once("hours:saved", () =>
+      readSavedHours(linked.organisationId, linked.locationId)
+    )
     const patch = buildGoogleHoursPatch({
       canonical: applyBulkHours(input, saved ?? google),
       googleLocation: location,

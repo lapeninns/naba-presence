@@ -1649,8 +1649,14 @@ approval is on; review the suggested fields in Business information instead.
 A batch with several changes sends each listing's changes in list order: a
 listing marked "Waits for the earlier changes to this listing" is queued
 behind them. `dependency_not_applied` means a change it needs (for example a
-category change) did not apply at that listing, so it was not sent; retrying
-the batch requeues both, in order.
+category change) did not apply at that listing, so it was not sent. Retrying
+the batch requeues the dependent with its prerequisite only when the
+prerequisite failed (or its outcome is unknown and no longer being recovered);
+if the prerequisite ended in a conflict or expired, retry leaves the dependent
+failed, and it needs a new preview. Retry requeues each failed change on its
+own, so an earlier failed change can land after a later one already applied;
+changes of one batch never touch the same part of a listing, so that order
+does not matter.
 
 A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and

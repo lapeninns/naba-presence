@@ -1593,6 +1593,54 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       }
     })
 
+    it("previews every change at a listing against one Google read per resource", async () => {
+      const t = await tenant(3)
+      for (const location of t.linked)
+        stubAttributes(location.googleLocationName, [
+          { name: "attributes/has_wifi", values: [true] },
+        ])
+      const dates = Array.from({ length: 10 }, (_, index) => ({
+        operation: "special_hours",
+        dates: [{ action: "closed", date: `2026-11-${10 + index}` }],
+      }))
+      const items = [
+        ...dates,
+        wifiOff,
+        {
+          operation: "attributes",
+          changes: [
+            { name: "attributes/has_seating_outdoors", values: [true] },
+          ],
+        },
+      ]
+      const before = google.calls.length
+      const op = await previewItems(t, items)
+      expect(op.children).toHaveLength(36)
+      expect(
+        op.children.every((child) => child.eligibility === "eligible")
+      ).toBe(true)
+      const reads = google.calls
+        .slice(before)
+        .filter((call) => call.method === "GET")
+      for (const location of t.linked) {
+        const name = location.googleLocationName
+        // Ten hours changes, one location read; two attribute changes, one
+        // attribute read.
+        expect(
+          reads.filter(
+            (call) =>
+              call.path.includes(`${name}?`) && call.path.includes("readMask=")
+          )
+        ).toHaveLength(1)
+        expect(
+          reads.filter((call) => call.path.includes(`${name}/attributes`))
+        ).toHaveLength(1)
+      }
+      expect(
+        reads.filter((call) => call.path.includes("/v1/attributes?"))
+      ).toHaveLength(3)
+    })
+
     it("claims a listing's next change only once the earlier one settled, and still sends it when that one failed", async () => {
       const t = await tenant(1)
       const name = t.linked[0].googleLocationName
@@ -1657,6 +1705,57 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       expect(second.started_at!.getTime()).toBeGreaterThanOrEqual(
         first.finished_at!.getTime()
       )
+    })
+
+    it("leaves a dependent failed on retry when its hard prerequisite ended in conflict, through a chain", async () => {
+      const t = await tenant(1)
+      const name = t.linked[0].googleLocationName
+      stubAttributes(name, [{ name: "attributes/has_wifi", values: [true] }])
+      listings.get(name)!.patchStatus = 400
+      const op = await previewItems(t, [
+        input,
+        wifiOff,
+        {
+          operation: "special_hours",
+          dates: [{ action: "closed", date: "2026-11-20" }],
+        },
+      ])
+      // seq 1 needs seq 0; seq 2 needs seq 1 (a chain).
+      await admin`update bulk_listing_child set requires_applied = depends_on
+        where operation_id = ${op.id} and seq = 1`
+      await admin`update bulk_listing_child c set requires_applied = array[p.id]
+        from bulk_listing_child p
+        where c.operation_id = ${op.id} and c.seq = 2 and p.operation_id = c.operation_id and p.seq = 1`
+      await execute(t, op)
+      // Each tick settles one link of the chain.
+      await tick()
+      await tick()
+      expect(
+        (await t.status(op)).children.map((child) => [
+          child.seq,
+          child.status,
+          child.resultCode,
+        ])
+      ).toEqual([
+        [0, "failed", expect.stringMatching(/^provider_rejected/)],
+        [1, "failed", "dependency_not_applied"],
+        [2, "failed", "dependency_not_applied"],
+      ])
+      // The prerequisite moved on Google: a conflict, which retry never requeues.
+      await admin`update bulk_listing_child set status = 'conflict', result_code = 'google_baseline_changed'
+        where operation_id = ${op.id} and seq = 0`
+      listings.get(name)!.patchStatus = 200
+      const retried = await t.read(await t.api(`/${op.id}/retry`, {}))
+      expect(retried.status).toBe("completed_with_failures")
+      expect(retried.children.map((child) => child.status)).toEqual([
+        "conflict",
+        "failed",
+        "failed",
+      ])
+      const [audit] = await admin<{ metadata: { children: number } }[]>`
+        select metadata from audit_log where organisation_id = ${t.owner.organisationId} and action = 'bulk_listing.retried'`
+      expect(audit.metadata.children).toBe(0)
+      expect(attributePatches(name)).toHaveLength(0)
     })
 
     it("caps a batch at 500 listing changes and refuses overlapping changes, in the route and in the tables", async () => {
