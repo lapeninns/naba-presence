@@ -139,7 +139,10 @@ scheduled run within `staleAfterSeconds` of `registeredAt`),
 `tick_lock_wedged` (`consecutiveSkips` reached three) and `tick_cycle_overdue`
 (no completed cycle within `cycleStaleAfterSeconds`; the retention page that
 ends the organisation walk records one). The health tick never alerts on
-itself.
+itself. It also opens `scheduled_post_stuck` and `scheduled_post_overdue` per
+organisation for scheduled post occurrences the jobs tick has not moved on
+(P08-R6; `scheduledPostHealth` in `lib/server/ops-liveness.ts`, runbook
+"Scheduled post alerts").
 
 The `scheduler` row is stamped at the start of every authenticated jobs run,
 including one that claims nothing because a kill switch is off, so it does not

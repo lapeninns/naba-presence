@@ -62,6 +62,14 @@ export const SCHEDULE_REASON: Record<string, string> = {
     "The post was edited after this schedule was set up, so nothing publishes until the new text is approved. Approve it again, or change or cancel the schedule.",
   source_superseded:
     "The post was published another way or deleted, so this schedule will not publish it again.",
+  // Event reasons only (P08-R6 notification copy): a schedule never stores
+  // these, they describe one due occurrence.
+  connection_unavailable:
+    "The location has no working Google connection right now. It still publishes if the connection is back within 5 minutes of its time; otherwise it is missed.",
+  publishing_paused:
+    "Publishing is paused right now. It still publishes if the pause lifts within 5 minutes of its time; otherwise it is missed.",
+  expired_content:
+    "The event or offer had already ended when its time came, so it was not published.",
 }
 
 /** A subset of the status pill's tones (components/ui/status-pill.tsx). */

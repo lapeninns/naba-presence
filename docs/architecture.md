@@ -1661,6 +1661,25 @@ time only while it is at least 5 minutes and at most 90 days ahead in the
 sheet's zone. Either way only the review columns change and an audit row
 (`post_schedule.legacy_reviewed`) records the outcome.
 
+Operations (P08-R6, migration 0245). The health tick
+(`lib/server/notifications/platform.ts`) reads `post_schedule_health()` through
+`scheduledPostHealth` in `lib/server/ops-liveness.ts` and opens one
+`platform_incident` per organisation for an occurrence still `publishing` past
+its schedule's lease (`scheduled_post_stuck`, 10 minutes after it started; not
+while the `jobs`, `publish` or `scheduled_post` pause holds the claim) or still
+`scheduled` a minute past its deadline (`scheduled_post_overdue`). Both only
+report. `app/api/cron/retention/route.ts` calls
+`purge_post_schedule_history(180)` in each tenant: ended occurrences and
+schedules and dismissed per-post times age off after 180 days; anything
+unresolved, awaiting approval or in review is kept. The function refuses
+without a tenant or below 30 days, and the runtime role has no DELETE on the
+three tables. `schedule_blocked` also carries `prior_occurrence_unverified`,
+`source_changed` and `source_superseded`
+(`lib/contracts/operational-events.ts`), raised only for a schedule that was
+going to publish; incident emails add the reason's wording from
+`lib/locations/schedule-display.ts`. The runner logs `post_schedule.tick` and
+`post_schedule.sweep` summaries.
+
 ## Bulk listing changes (WP6, 0080)
 
 A preview freezes up to 100 explicit location ids; a batch naming any listing

@@ -1420,6 +1420,17 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "cancelled",
       status_reason: "source_superseded",
     })
+    // The approvers of each approved publication that will no longer run
+    // are told why (P08-R6); the one still waiting for approval raised none.
+    const told = await admin<{ reason: string; scheduleId: string }[]>`
+      select reason, summary -> 'source' ->> 'scheduleId' as "scheduleId"
+      from notification_incident
+      where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'
+      order by reason`
+    expect(told).toEqual([
+      { reason: "source_changed", scheduleId: changed.id },
+      { reason: "source_superseded", scheduleId: published.id },
+    ])
 
     // And a draft already on Google cannot be scheduled once.
     const again = await t.api("/post-schedules", {
@@ -1942,5 +1953,190 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     state.listStatus = 200
     await tick()
     expect(creates()).toHaveLength(1)
+  })
+
+  const healthTick = async () => {
+    const response = await fetch(`${server.baseUrl}/api/cron/health`, {
+      method: "POST",
+      headers: CRON,
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+  }
+  const platformIncidents = (organisationId: string) =>
+    admin<{ kind: string; status: string; occurrences: number }[]>`
+      select kind, status, (details ->> 'occurrences')::int as occurrences
+      from platform_incident where subject = ${organisationId}
+      order by kind, status`
+
+  it("alerts operators to a publish stuck past its lease and a slot left past its deadline, and clears once the tick moves them on (P08-R6)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const rule = {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    }
+    const stuck = await t.schedule(await t.draft(), rule)
+    expect((await t.approve(stuck)).status).toBe(200)
+    const overdue = await t.schedule(await t.draft(), rule)
+    expect((await t.approve(overdue)).status).toBe(200)
+    const [stuckRun] = await t.occurrences(stuck.id)
+    const [overdueRun] = await t.occurrences(overdue.id)
+    // A claim interrupted before 0242 (no intent, no post) and never reaped:
+    // still publishing 20 minutes on, its lease long gone.
+    await t.age(stuckRun.id, 20)
+    await admin`update post_publication_occurrence set status = 'publishing', started_at = now() - interval '20 minutes' where id = ${stuckRun.id}`
+    await admin`update post_publication_schedule set claim_lease_expires_at = null where id = ${stuck.id}`
+    // A slot whose window closed two minutes ago that no sweep recorded.
+    await t.age(overdueRun.id, 7)
+    try {
+      await healthTick()
+      expect(await platformIncidents(t.owner.organisationId)).toEqual([
+        { kind: "scheduled_post_overdue", status: "open", occurrences: 1 },
+        { kind: "scheduled_post_stuck", status: "open", occurrences: 1 },
+      ])
+      // Reporting changed nothing.
+      expect((await t.occurrences(stuck.id))[0].status).toBe("publishing")
+      expect((await t.occurrences(overdue.id))[0].status).toBe("scheduled")
+
+      // The jobs tick: the sweep records the slot missed, and the claim
+      // reaps the stuck publish as interrupted. The next sweep finds no
+      // receipt and no post to prove it either way: the occurrence is
+      // cancelled unverified and its schedule goes to review, never resent.
+      await tick()
+      await tick()
+      expect(creates()).toHaveLength(0)
+      expect((await t.occurrences(overdue.id))[0]).toMatchObject({
+        status: "missed",
+        status_reason: "outside_dispatch_window",
+      })
+      expect((await t.occurrences(stuck.id))[0]).toMatchObject({
+        status: "cancelled",
+        status_reason: "outcome_unverified",
+      })
+      expect(await t.scheduleRow(stuck.id)).toEqual({
+        status: "needs_review",
+        status_reason: "prior_occurrence_unverified",
+      })
+      const told = await admin<{ kind: string; reason: string }[]>`
+        select kind, reason from notification_incident
+        where organisation_id = ${t.owner.organisationId} and kind like 'schedule_%'
+        order by kind, reason`
+      expect(told).toEqual(
+        expect.arrayContaining([
+          { kind: "schedule_blocked", reason: "prior_occurrence_unverified" },
+          { kind: "schedule_missed", reason: "outside_dispatch_window" },
+        ])
+      )
+
+      await healthTick()
+      expect(await platformIncidents(t.owner.organisationId)).toEqual([
+        { kind: "scheduled_post_overdue", status: "resolved", occurrences: 1 },
+        { kind: "scheduled_post_stuck", status: "resolved", occurrences: 1 },
+      ])
+    } finally {
+      await admin`delete from platform_incident where subject = ${t.owner.organisationId}`
+    }
+  })
+
+  it(
+    "does not report a stuck publish while scheduled publishing is paused (P08-R6)",
+    { timeout: 30_000 },
+    async () => {
+      const t = await tenant(["post_scheduling"])
+      const s = await t.schedule(await t.draft(), {
+        frequency: "once",
+        startDate: tomorrow(),
+        localTime: "09:00",
+      })
+      expect((await t.approve(s)).status).toBe(200)
+      const [run] = await t.occurrences(s.id)
+      await t.age(run.id, 20)
+      await admin`update post_publication_occurrence set status = 'publishing', started_at = now() - interval '20 minutes' where id = ${run.id}`
+      await admin`update post_publication_schedule set claim_lease_expires_at = null where id = ${s.id}`
+      const pause = (paused: boolean) =>
+        admin`select * from set_ops_pause('scheduled_post', ${paused}, 'post-schedules R6 test', 'post-schedules.test')`
+      // The server caches the pause table for PAUSE_CACHE_TTL_MS (5 s).
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 5_500))
+      await pause(true)
+      try {
+        await settle()
+        await healthTick()
+        expect(await platformIncidents(t.owner.organisationId)).toEqual([])
+      } finally {
+        await pause(false)
+        await admin`update post_publication_occurrence set status = 'ambiguous', finished_at = now() where id = ${run.id}`
+        await admin`delete from platform_incident where subject = ${t.owner.organisationId}`
+      }
+    }
+  )
+
+  it("purges ended schedule history after 180 days and keeps anything still open (P08-R6)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const rule = {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    }
+    const act = (id: string, action: string) =>
+      t.api(`/post-schedules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action }),
+      })
+    // Cancelled long ago: goes, with its cancelled occurrence.
+    const ended = await t.schedule(await t.draft(), rule)
+    expect((await t.approve(ended)).status).toBe(200)
+    expect((await act(ended.id, "cancel")).status).toBe(200)
+    // Cancelled recently: kept.
+    const recent = await t.schedule(await t.draft(), rule)
+    expect((await act(recent.id, "cancel")).status).toBe(200)
+    // In review with an unresolved occurrence, however old: kept.
+    const open = await t.schedule(await t.draft(), rule)
+    expect((await t.approve(open)).status).toBe(200)
+    const [openRun] = await t.occurrences(open.id)
+    const [endedRun] = await t.occurrences(ended.id)
+    await admin`update post_publication_occurrence set finished_at = now() - interval '200 days' where id = ${endedRun.id}`
+    await admin`update post_publication_schedule set updated_at = now() - interval '200 days' where id = ${ended.id}`
+    await admin`update post_publication_occurrence set status = 'ambiguous', status_reason = 'response_ambiguous', finished_at = now() - interval '300 days' where id = ${openRun.id}`
+    await admin`update post_publication_schedule set status = 'needs_review', status_reason = 'prior_occurrence_unverified', updated_at = now() - interval '300 days' where id = ${open.id}`
+
+    const counts: Record<string, number> = {}
+    let cursor: string | null = null
+    do {
+      const query = new URLSearchParams({ batch_size: "100" })
+      if (cursor) query.set("cursor", cursor)
+      const response = await fetch(
+        `${server.baseUrl}/api/cron/retention?${query}`,
+        { method: "POST", headers: CRON }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const page = (await response.json()) as {
+        organisations: Array<Record<string, string | number>>
+        nextCursor: string | null
+      }
+      const own = page.organisations.find(
+        (entry) => entry.organisationId === t.owner.organisationId
+      )
+      if (own) Object.assign(counts, own)
+      cursor = page.nextCursor
+    } while (cursor)
+    expect(counts).toMatchObject({
+      scheduleOccurrences: 1,
+      publicationSchedules: 1,
+      legacyPostSchedules: 0,
+    })
+    const left = await admin<{ id: string }[]>`
+      select id::text as id from post_publication_schedule
+      where organisation_id = ${t.owner.organisationId} order by id`
+    expect(left.map((row) => row.id).sort()).toEqual(
+      [recent.id, open.id].sort()
+    )
+    expect(await t.occurrences(open.id)).toHaveLength(1)
+    const audit = await admin`
+      select metadata from audit_log
+      where organisation_id = ${t.owner.organisationId} and action = 'retention.purge.completed'`
+    expect(audit[0]?.metadata).toMatchObject({
+      scheduleOccurrences: 1,
+      publicationSchedules: 1,
+    })
   })
 })

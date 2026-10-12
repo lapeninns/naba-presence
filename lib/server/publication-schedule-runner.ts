@@ -94,8 +94,18 @@ export type ScheduleTickSummary = {
    * changed without the editor (P08-R4); not blocked.
    */
   sourceChanged: number
+  /**
+   * Due one-time occurrences left scheduled because their draft was being
+   * published by hand (P08-R4); looked at again on a later tick.
+   */
+  sourceInFlight: number
 }
-export type ScheduleSweepSummary = { missed: number; resolved: number }
+export type ScheduleSweepSummary = {
+  missed: number
+  resolved: number
+  /** Schedules sent to review because an earlier publication proves nothing. */
+  unverified: number
+}
 
 function googleDate(date: string) {
   const [year, month, day] = date.split("-").map(Number)
@@ -209,9 +219,21 @@ async function supersede(
   await sql`
     update post_publication_occurrence set status = 'cancelled', status_reason = 'source_superseded', finished_at = now()
     where schedule_id = ${schedule.id} and status = 'scheduled'`
-  await sql`
+  const [ended] = await sql`
     update post_publication_schedule set status = 'cancelled', status_reason = 'source_superseded', updated_at = now()
-    where id = ${schedule.id} and status = 'active'`
+    where id = ${schedule.id} and status = 'active' returning id`
+  // Its approvers hear that the approved publication will not happen.
+  if (ended)
+    await emit(sql, {
+      ...base(schedule),
+      kind: "schedule_blocked",
+      reason: "source_superseded",
+      source: {
+        type: "schedule_occurrence",
+        id: occurrence.id,
+        scheduleId: schedule.id,
+      },
+    })
   await writeAudit(sql, {
     organisationId: schedule.organisationId,
     actorUserId: null,
@@ -480,6 +502,7 @@ export async function processSchedule(
           scheduleId,
           occurrenceId: run.id,
         })
+        if (summary) summary.sourceInFlight += 1
         return { schedule, run: null }
       }
       if (post.revision !== schedule.sourceContentRevision) {
@@ -743,7 +766,67 @@ export async function sweepScheduledOccurrences(): Promise<ScheduleSweepSummary>
       .filter((row) => row.status === "missed")
       .map((row) => ({ ...row, reason: "outside_dispatch_window" as const })),
   ])
-  return { missed: missed.length, resolved: resolved.length }
+  // One from before 0242 that its post proves nothing about was cancelled
+  // (outcome_unverified) and its schedule sent to review: a person checks
+  // Google before it runs again (P08-R6).
+  const unverified = await raiseUnverified(
+    resolved.filter((row) => row.status === "cancelled")
+  )
+  const summary = {
+    missed: missed.length,
+    resolved: resolved.length,
+    unverified,
+  }
+  if (summary.missed || summary.resolved)
+    log.info("post_schedule.sweep", summary)
+  return summary
+}
+
+/**
+ * Raises schedule_blocked (prior_occurrence_unverified) for each schedule
+ * the sweep sent to review that way, in its tenant. Returns how many.
+ */
+async function raiseUnverified(
+  rows: { organisationId: string; occurrenceId: string }[]
+) {
+  let raised = 0
+  const byOrganisation = new Map<string, string[]>()
+  for (const row of rows)
+    byOrganisation.set(row.organisationId, [
+      ...(byOrganisation.get(row.organisationId) ?? []),
+      row.occurrenceId,
+    ])
+  for (const [organisationId, ids] of byOrganisation) {
+    await withTenant(organisationId, async (sql) => {
+      const reviewed = await sql<
+        { id: string; scheduleId: string; locationId: string }[]
+      >`
+        select o.id::text as id, o.schedule_id::text as "scheduleId", o.location_id::text as "locationId"
+        from post_publication_occurrence o
+        join post_publication_schedule s on s.id = o.schedule_id
+        where o.id = any(${ids}::uuid[]) and o.status_reason = 'outcome_unverified'
+          and s.status = 'needs_review' and s.status_reason = 'prior_occurrence_unverified'`
+      for (const occurrence of reviewed) {
+        await emit(sql, {
+          ...eventBase(organisationId, occurrence.locationId),
+          kind: "schedule_blocked",
+          reason: "prior_occurrence_unverified",
+          source: {
+            type: "schedule_occurrence",
+            id: occurrence.id,
+            scheduleId: occurrence.scheduleId,
+          },
+        })
+        raised += 1
+      }
+    }).catch((error: unknown) =>
+      log.error("post_schedule.unverified_events_failed", {
+        organisationId,
+        error,
+      })
+    )
+  }
+  return raised
 }
 
 type MissedRow = {
@@ -820,6 +903,7 @@ export async function runDueSchedules(options: {
     blocked: 0,
     superseded: 0,
     sourceChanged: 0,
+    sourceInFlight: 0,
   }
   const env = getServerEnv()
   const deadline = Date.now() + options.budgetMs
@@ -860,5 +944,8 @@ export async function runDueSchedules(options: {
       }
     }
   }
+  // One line per tick that did anything, for dashboards (P08-R6).
+  if (summary.schedules > 0)
+    log.info("post_schedule.tick", { requestId: options.requestId, ...summary })
   return summary
 }

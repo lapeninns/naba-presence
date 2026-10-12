@@ -29,6 +29,14 @@ type RetentionFailure = {
 type CountedStatement = { count: number }
 
 /**
+ * How long ended scheduled post history is kept (P08-R6): ended occurrences
+ * and schedules, and old per-post times an owner dismissed. The same 180
+ * days as the other publish records here (change sets, management and
+ * Place Action mutations).
+ */
+const SCHEDULE_HISTORY_RETENTION_DAYS = 180
+
+/**
  * Runs a destructive statement only while deletion is enabled. The
  * irreversible half of retention answers to its own kill switch, so an
  * operator can stop deleting during an incident while redaction of expired
@@ -355,6 +363,21 @@ async function retain({
             returning id
           `
         )
+        // Scheduled post history (0245): only ended rows past the period; an
+        // unresolved occurrence, a schedule in review and an old per-post
+        // time nobody reviewed are kept however old.
+        const [scheduleHistory] = deletesEnabled
+          ? await sql<
+              {
+                occurrences: number
+                schedules: number
+                legacySchedules: number
+              }[]
+            >`
+              select occurrences, schedules, legacy_schedules as "legacySchedules"
+              from purge_post_schedule_history(${SCHEDULE_HISTORY_RETENTION_DAYS})
+            `
+          : [{ occurrences: 0, schedules: 0, legacySchedules: 0 }]
         const importProposals = await purge(
           deletesEnabled,
           () => sql`
@@ -506,6 +529,9 @@ async function retain({
           foodMenuStates,
           foodMenuAttempts,
           importProposals,
+          scheduleOccurrences: scheduleHistory.occurrences,
+          publicationSchedules: scheduleHistory.schedules,
+          legacyPostSchedules: scheduleHistory.legacySchedules,
           appSessions,
           strandedPosts: strandedPosts.count,
           strandedHours: strandedHours.count,

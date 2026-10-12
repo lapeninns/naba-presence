@@ -6,6 +6,7 @@
  */
 
 import { NOTIFICATION_EVENT_LABELS, isNotificationEventKind, type NotificationEventKind } from "@/lib/domain/notification-preferences"
+import { SCHEDULE_REASON } from "@/lib/locations/schedule-display"
 
 export type IncidentKind = NotificationEventKind
 
@@ -177,9 +178,16 @@ function renderOperationalEmail(kind: NotificationEventKind, summary: Record<str
     suggestions_available: `Google suggested changes to ${title}. Nothing is applied until you review it.`,
     resource_stale: `Part of ${title} has not refreshed from Google recently.`,
   }
+  // A schedule's incident also says why it stopped, in the Posts tab's words
+  // (P08-R6). The reason is a stored code; an unknown one adds nothing.
+  const why =
+    (kind === "schedule_missed" || kind === "schedule_blocked") && typeof summary.reason === "string" &&
+    Object.hasOwn(SCHEDULE_REASON, summary.reason)
+      ? SCHEDULE_REASON[summary.reason]
+      : undefined
   return {
     subject: `${label}: ${title}`,
-    text: [detail[kind] ?? NOTIFICATION_EVENT_LABELS[kind].description, `Open: ${where}`, "", FOOTER].join("\n"),
+    text: [detail[kind] ?? NOTIFICATION_EVENT_LABELS[kind].description, ...(why ? [why] : []), `Open: ${where}`, "", FOOTER].join("\n"),
   }
 }
 
@@ -210,7 +218,9 @@ export function renderPlatformEmail(
     | "tick_never_completed"
     | "tick_lock_wedged"
     | "tick_cycle_overdue"
-    | "google_quota_pressure",
+    | "google_quota_pressure"
+    | "scheduled_post_stuck"
+    | "scheduled_post_overdue",
   subject: string,
   details: Record<string, unknown>
 ): { subject: string; text: string } {
@@ -253,6 +263,27 @@ export function renderPlatformEmail(
         `The "${subject}" tick has not finished a full cycle since ${text(details.lastCycleCompletedAt ?? details.registeredAt, "an unknown time")}.`,
         `A cycle is expected at least every ${details.cycleStaleAfterSeconds ?? "?"} seconds.`,
         'Check the tick\'s failures and cursor in the function logs (docs/runbook.md, "Stale heartbeat").',
+      ].join("\n"),
+    }
+  }
+  // P08-R6. The subject is an organisation id; nothing from a post is named.
+  if (kind === "scheduled_post_stuck") {
+    return {
+      subject: "NabaPresence: a scheduled post is stuck publishing",
+      text: [
+        `Organisation ${subject} has ${details.occurrences ?? "?"} scheduled post publication(s) still marked publishing since ${text(details.oldestStartedAt, "an unknown time")}, past their lease.`,
+        "The jobs tick has not reclaimed them. Once it runs they become unresolved and are checked against Google; none is sent again.",
+        'Check the jobs tick and the scheduled_post pause (docs/runbook.md, "Scheduled post alerts").',
+      ].join("\n"),
+    }
+  }
+  if (kind === "scheduled_post_overdue") {
+    return {
+      subject: "NabaPresence: scheduled posts were not recorded as missed",
+      text: [
+        `Organisation ${subject} has ${details.occurrences ?? "?"} scheduled post publication(s) still waiting more than a minute after their 5-minute window closed (oldest deadline ${text(details.oldestDeadlineAt, "unknown")}).`,
+        "None of them will publish late, but the jobs tick's sweep has not recorded them as missed, so nobody has been told.",
+        'Check the jobs tick and post_schedule.sweep_failed in the logs (docs/runbook.md, "Scheduled post alerts").',
       ].join("\n"),
     }
   }

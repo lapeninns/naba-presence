@@ -27,10 +27,13 @@ import {
   type PlannedOccurrence,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
+import type { OperationalEvent } from "@/lib/contracts/operational-events"
 import { writeAudit } from "@/lib/server/audit"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
+import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { postContentHash, type PostContent } from "@/lib/server/post-content"
 import {
@@ -527,9 +530,11 @@ export async function invalidateSourceSchedules(
         payloadHash = null
       }
     }
-    await sql`
+    const cancelled = await sql<{ id: string }[]>`
       update post_publication_occurrence set status = 'cancelled', status_reason = 'source_changed', finished_at = now()
-      where schedule_id = ${row.id} and status = 'scheduled'`
+      where schedule_id = ${row.id} and status = 'scheduled'
+      returning id::text as id`
+    let reason: "source_changed" | "source_superseded" = "source_changed"
     if (source && payloadHash) {
       // A manager's pause, and a block with its own reason (feature off,
       // connection changed), stand: only the approval goes. Resuming a
@@ -551,11 +556,24 @@ export async function invalidateSourceSchedules(
           require_two_person_approval = ${policy?.required ?? false}, updated_at = now()
         where id = ${row.id}`
     } else {
+      if (source?.state === "superseded" && rule.frequency === "once")
+        reason = "source_superseded"
       await sql`
         update post_publication_schedule set status = 'needs_review', updated_at = now(),
-          status_reason = ${source?.state === "superseded" && rule.frequency === "once" ? "source_superseded" : "source_changed"}
+          status_reason = ${reason}
         where id = ${row.id}`
     }
+    // An approved schedule that was going to publish no longer will until
+    // someone acts (P08-R6): its approvers hear why. One already waiting,
+    // paused or blocked had nothing about to run.
+    if (row.status === "active" && cancelled[0])
+      await raiseScheduleBlocked(sql, {
+        organisationId: input.organisationId,
+        locationId: input.locationId,
+        scheduleId: row.id,
+        occurrenceId: cancelled[0].id,
+        reason,
+      })
     await writeAudit(sql, {
       organisationId: input.organisationId,
       actorUserId: input.actorUserId,
@@ -572,6 +590,43 @@ export async function invalidateSourceSchedules(
     })
   }
   return rows.map((row) => row.id)
+}
+
+/**
+ * Raises schedule_blocked inside the caller's tenant transaction, as the
+ * runner's emit does: an event the contract refuses is logged rather than
+ * failing the change that caused it.
+ */
+async function raiseScheduleBlocked(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    locationId: string
+    scheduleId: string
+    occurrenceId: string
+    reason: Extract<OperationalEvent, { kind: "schedule_blocked" }>["reason"]
+  }
+) {
+  try {
+    await recordOperationalEvent(sql, {
+      version: 1,
+      kind: "schedule_blocked",
+      organisationId: input.organisationId,
+      occurredAt: new Date().toISOString(),
+      target: { type: "location", locationId: input.locationId },
+      reason: input.reason,
+      source: {
+        type: "schedule_occurrence",
+        id: input.occurrenceId,
+        scheduleId: input.scheduleId,
+      },
+    })
+  } catch (error) {
+    log.error("post_schedule.event_failed", {
+      kind: "schedule_blocked",
+      error,
+    })
+  }
 }
 
 function validateShape(
