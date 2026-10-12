@@ -1370,9 +1370,21 @@ export async function rejectLocalPost(input: {
 /**
  * A scheduled occurrence's publish (lib/server/publication-schedule-runner.ts).
  * The runner has already rechecked the schedule's approval, the approver's
- * current publish grant and the policy; this applies the same kill switch,
- * link check, idempotency key and readback as a manual publish. The approver
- * is the actor, as they are for an approved manual publish.
+ * current publish grant, the policy and the frozen Google target; this
+ * applies the same kill switch, link check, idempotency key and readback as
+ * a manual publish. The approver is the actor, as they are for an approved
+ * manual publish.
+ *
+ * Two things only a scheduled publish has (P08-R3):
+ *   - `target`: the connection and Google location the approval froze. A
+ *     link that moved since is refused with nothing sent.
+ *   - `deadline`: the end of the occurrence's dispatch window. Checked
+ *     before anything is written and again immediately before the provider
+ *     call; past it the publish is refused (`schedule_deadline_passed`),
+ *     never sent late.
+ * `intentId` (deterministic per occurrence) records the publish as a
+ * mutation_operation receipt, so `mutation_recover` covers an uncertain
+ * create and the occurrence settles from the receipt.
  */
 export async function publishScheduledLocalPost(input: {
   organisationId: string
@@ -1380,12 +1392,28 @@ export async function publishScheduledLocalPost(input: {
   locationId: string
   postId: string
   requestId: string
+  intentId: string
+  deadline: Date
+  target: { googleConnectionId: string; googleLocationName: string }
+  approvalRef: string
+  securityVersion: number | null
 }) {
   requireGbpWrite(getServerEnv(), "posts", POSTS_PAUSED)
+  requireBeforeDeadline(input.deadline)
   const { linked, post } = await withTenant(input.organisationId, async (sql) => ({
     linked: await loadLinkedLocation(sql, input.session, input.locationId, POSTS_NOT_LINKED),
     post: await loadPost(sql, input.locationId, input.postId),
   }))
+  if (
+    linked.googleConnectionId.toLowerCase() !==
+      input.target.googleConnectionId.toLowerCase() ||
+    linked.googleLocationName !== input.target.googleLocationName
+  )
+    throw new ApiError(
+      409,
+      SCHEDULE_TARGET_CHANGED,
+      "The Google listing this schedule was approved for is no longer linked here."
+    )
   // The schedule's approval lives on post_publication_schedule, not in
   // post_approval_decision, so the publish names its approver and no
   // decision row.
@@ -1397,6 +1425,20 @@ export async function publishScheduledLocalPost(input: {
   })
 }
 
+/** A scheduled publish refused because its window closed (never sent late). */
+export const SCHEDULE_DEADLINE_PASSED = "schedule_deadline_passed"
+/** A scheduled publish refused because the link moved since approval. */
+export const SCHEDULE_TARGET_CHANGED = "schedule_target_changed"
+
+function requireBeforeDeadline(deadline: Date | undefined) {
+  if (deadline && Date.now() >= deadline.getTime())
+    throw new ApiError(
+      409,
+      SCHEDULE_DEADLINE_PASSED,
+      "The scheduled time has passed, so this post was not published late."
+    )
+}
+
 async function publishLocalPost(input: {
   organisationId: string
   session: Session
@@ -1406,6 +1448,14 @@ async function publishLocalPost(input: {
   post: LocalPost
   /** The approval this publish goes out under, when there is one. */
   approval: ApprovalRef | null
+  /** Scheduled only: the receipt's intent (default: the request's own). */
+  intentId?: string
+  /** Scheduled only: no provider call at or after this instant. */
+  deadline?: Date
+  /** Scheduled only: the schedule approval the receipt names. */
+  approvalRef?: string
+  /** Scheduled only: the approver's frozen security version (reserved). */
+  securityVersion?: number | null
 }) {
   const { linked, post } = input
   const operation = post.googlePostName ? "update" : "create"
@@ -1423,6 +1473,7 @@ async function publishLocalPost(input: {
     actorUserId: input.session.userId,
     requestId: input.requestId,
     store: localPostAttempts,
+    ...(input.intentId === undefined ? {} : { intentId: input.intentId }),
     // Derived from the write, the way hours.ts derives its key: with the
     // request id in here every HTTP request produced a fresh key, `find`
     // could never match, and two clicks on Publish created two live Google
@@ -1458,10 +1509,15 @@ async function publishLocalPost(input: {
       ]),
       expectedRevision: post.contentRevision,
       googleConnectionId: linked.googleConnectionId,
-      approvalRef: input.approval?.id ?? null,
+      approvalRef: input.approvalRef ?? input.approval?.id ?? null,
+      securityVersion: input.securityVersion ?? null,
     },
     mutate: async () => {
       const token = await linked.accessToken()
+      // The last moment before the provider call: a scheduled publish whose
+      // window closed while it was being prepared settles failed with
+      // nothing sent.
+      requireBeforeDeadline(input.deadline)
       return operation === "create"
         ? createGoogleLocalPost(
             token,

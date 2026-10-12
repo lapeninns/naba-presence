@@ -24,8 +24,6 @@ import { z } from "zod"
 
 export const DEFAULT_SCHEDULE_TIMEZONE = "Europe/London"
 export const MAX_SCHEDULE_OCCURRENCES = 366
-/** How late a missed occurrence may still publish. Older ones are recorded as missed. */
-export const MISSED_RUN_GRACE_MS = 24 * 60 * 60 * 1000
 /** The earliest a slot may be when it is created, revised or approved. */
 export const SCHEDULE_MIN_LEAD_MS = 5 * 60 * 1000
 /** The latest a one-time slot may be, from now. */
@@ -482,23 +480,47 @@ export function expandSchedule(
 }
 
 /**
- * Which due occurrences publish now. Only the most recent one inside the
- * grace period runs; every other due occurrence is recorded as missed.
+ * Which due occurrences publish now. An occurrence may start only inside its
+ * dispatch window (intended_at <= now < deadline_at, 5 minutes); there is no
+ * late catch-up. The latest one still inside its window runs; every other
+ * due occurrence is recorded as missed.
  */
-export function selectDueOccurrences<T extends { intendedAt: string }>(
-  due: readonly T[],
-  now: Date
-) {
+export function selectDueOccurrences<
+  T extends { intendedAt: string; deadlineAt: string },
+>(due: readonly T[], now: Date) {
   const ordered = [...due].sort((a, b) =>
     a.intendedAt.localeCompare(b.intendedAt)
   )
   const latest = ordered.at(-1)
   const run =
     latest &&
-    now.getTime() - Date.parse(latest.intendedAt) <= MISSED_RUN_GRACE_MS
+    Date.parse(latest.intendedAt) <= now.getTime() &&
+    now.getTime() < Date.parse(latest.deadlineAt)
       ? latest
       : null
   return { run, missed: ordered.filter((occurrence) => occurrence !== run) }
+}
+
+/**
+ * The intent a scheduled occurrence's publish runs under: derived from the
+ * occurrence id alone, so a retried tick (or a crash between claiming the
+ * occurrence and settling it) records into the same mutation_operation
+ * receipt rather than a second one. A UUID (version 8, name-based from
+ * SHA-256), because intents are UUIDs (mutation_operation.intent_id).
+ */
+export function scheduledPublishIntentId(
+  occurrenceId: string,
+  sha256Hex: (input: string) => string
+): string {
+  const hex = sha256Hex(`post_publication_occurrence:${occurrenceId}`)
+  const variant = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16)
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    `8${hex.slice(13, 16)}`,
+    `${variant}${hex.slice(17, 20)}`,
+    hex.slice(20, 32),
+  ].join("-")
 }
 
 /** Event dates for an occurrence, from its local date and the frozen offsets. */

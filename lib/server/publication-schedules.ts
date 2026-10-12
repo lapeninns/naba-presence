@@ -65,6 +65,18 @@ const NOT_FOUND = {
   message: "The schedule was not found.",
 }
 
+/** Why a schedule's slot passed without publishing (0242). */
+const MISSED_SLOT_REASONS = new Set([
+  "paused_when_due",
+  "outside_dispatch_window",
+])
+const scheduleMissed = () =>
+  new ApiError(
+    409,
+    "schedule_missed",
+    "The publication time passed, so nothing was published and nothing will publish late. Edit the schedule to choose a new time."
+  )
+
 export const SCHEDULING_UNAVAILABLE = {
   code: "post_scheduling_unavailable",
   message: "Scheduled publishing is not switched on for this workspace.",
@@ -510,9 +522,41 @@ export async function approvePublicationSchedule(
       row.offsetMinutes,
       409
     )
+    // The approval is for the Google listing linked now (P08-R3): its
+    // connection, credential generation and location name are frozen with
+    // the approval policy, and the runner refuses to publish through
+    // anything else (a relink or reconnect needs a fresh approval).
+    const [target] = await sql<
+      {
+        connectionId: string
+        generation: number
+        googleLocationName: string
+        approvalRequired: boolean
+      }[]
+    >`
+      select e.google_connection_id::text as "connectionId", gc.credential_generation as generation,
+        e.google_location_name as "googleLocationName", o.approval_required as "approvalRequired"
+      from location_link ll
+      join external_location e on e.id = ll.external_location_id
+      join google_connection gc on gc.id = e.google_connection_id
+      cross join organisation o
+      where ll.location_id = ${locationId} and ll.is_active and e.google_location_name is not null
+        and o.id = ${session.organisationId}
+      limit 1`
+    if (!target)
+      throw new ApiError(
+        409,
+        "schedule_location_not_linked",
+        "Link this location to Google before approving a schedule."
+      )
+    // INTEGRATION: stream A records the approver's security_version here
+    // (approved_security_version, reserved by 0242 and null until then).
     await sql`
       update post_publication_schedule set status = 'active', status_reason = null, approved_by = ${session.userId}, approved_at = now(),
-        approved_revision = revision, offset_minutes = ${offsetMinutes}, updated_at = now() where id = ${scheduleId}`
+        approved_revision = revision, offset_minutes = ${offsetMinutes},
+        target_google_connection_id = ${target.connectionId}, target_credential_generation = ${target.generation},
+        target_google_location_name = ${target.googleLocationName}, approved_approval_required = ${target.approvalRequired},
+        approved_security_version = null, updated_at = now() where id = ${scheduleId}`
     await sql`
       insert into post_publication_occurrence (organisation_id, schedule_id, location_id, schedule_revision, intended_at, deadline_at, local_date, local_time, adjustment)
       select ${session.organisationId}, ${scheduleId}, ${locationId}, ${row.revision}, x.intended_at, x.intended_at + ${`${DISPATCH_WINDOW_MS / 1000} seconds`}::interval,
@@ -606,6 +650,8 @@ export async function revisePublicationSchedule(
       update post_publication_schedule set template = ${jsonColumn(sql, template)}, rule = ${jsonColumn(sql, input.rule)}, timezone = ${input.timezone}, offset_minutes = ${offsetMinutes},
         event_offsets = ${jsonColumnOrNull(sql, input.eventOffsets)}, payload_hash = ${payloadHash}, revision = revision + 1,
         status = 'awaiting_approval', status_reason = null, approved_by = null, approved_at = null, approved_revision = null,
+        target_google_connection_id = null, target_credential_generation = null, target_google_location_name = null,
+        approved_approval_required = null, approved_security_version = null,
         requested_by = ${session.userId}, require_two_person_approval = ${policy?.required ?? false}, updated_at = now()
       where id = ${scheduleId}`
     await writeAudit(sql, {
@@ -646,12 +692,23 @@ export async function actOnPublicationSchedule(
         )
       await sql`update post_publication_schedule set status = 'paused', updated_at = now() where id = ${scheduleId}`
     } else if (action === "resume") {
+      // A slot that came due while the schedule was paused is missed, not
+      // caught up (P08-R3): there is nothing to resume, only a new time to
+      // choose by editing the schedule.
+      if (MISSED_SLOT_REASONS.has(row.statusReason ?? ""))
+        throw scheduleMissed()
       if (row.status !== "paused")
         throw new ApiError(
           409,
           "schedule_not_paused",
           "Only a paused schedule can be resumed."
         )
+      const [upcoming] = await sql`
+        select 1 from post_publication_occurrence
+        where schedule_id = ${scheduleId} and schedule_revision = ${row.revision}
+          and status = 'scheduled' and deadline_at > now()
+        limit 1`
+      if (!upcoming) throw scheduleMissed()
       await requireScheduling(
         sql,
         session.organisationId,

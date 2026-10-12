@@ -106,4 +106,5 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "20260729000400_remove_local_demo_data",
   "0240_post_schedule_quarantine",
   "0241_post_schedule_strict_slot",
+  "0242_post_schedule_dispatch",
 ]

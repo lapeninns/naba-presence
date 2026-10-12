@@ -1626,9 +1626,19 @@ A schedule shows "Needs attention" with its reason:
 - `approval_invalid` / `permission_revoked`: change the schedule (a new
   revision) and have a current owner or admin approve it.
 - `prior_occurrence_unresolved`: a publish was sent but its result is unknown.
-  Check the post's saved outcome, then change and re-approve the schedule.
-Missed occurrences (older than 24 hours, or with ended event/offer content) are
-recorded as missed and raise `schedule_missed`; they are never published late.
+  `mutation_recover` reads Google back for its receipt; the next tick settles
+  the occurrence from that receipt and the schedule carries on. Nothing is
+  resent. If recovery gives up (the receipt stays `uncertain`), check the post
+  on Google, then change and re-approve the schedule.
+- `connection_changed`: the location was relinked or its Google connection
+  reconnected after approval. Change the schedule and approve it again.
+An occurrence may start only within 5 minutes of its time. One that could not
+(runner down, publishing paused, link missing) is recorded missed by the next
+tick, even while paused, and raises `schedule_missed` (`outside_dispatch_window`,
+or `paused_when_due` when its schedule was paused); one with ended event/offer
+content is missed as `expired_content`. Missed occurrences are never published
+late. A one-time schedule with a missed slot shows "Needs review": resuming it
+answers `schedule_missed`, so choose a new time by editing it.
 Pausing keeps occurrences; cancelling stops every pending one. To stop all
 scheduled publishing at once, turn off `PUBLISH_ENABLED` (or `JOBS_ENABLED`):
 no new schedule or bulk child is claimed, and nothing already sent is undone.

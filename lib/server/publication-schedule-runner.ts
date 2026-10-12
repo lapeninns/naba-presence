@@ -8,10 +8,13 @@ import {
   contentExpired,
   eventOffsetsSchema,
   occurrenceEventDates,
+  scheduledPublishIntentId,
   scheduleRuleSchema,
   selectDueOccurrences,
 } from "@/lib/domain/publication-schedule"
 import { writeAudit } from "@/lib/server/audit"
+import { recheckAuthorisation } from "@/lib/server/authz/actor"
+import { sha256 } from "@/lib/server/crypto"
 import {
   getDatabase,
   jsonColumn,
@@ -19,6 +22,7 @@ import {
   withTenant,
 } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
+import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import {
@@ -26,8 +30,11 @@ import {
   loadPauseSnapshot,
   scopesEnabled,
 } from "@/lib/server/pause-controls"
-import { canPublishLocation } from "@/lib/server/permissions"
-import { publishScheduledLocalPost } from "@/lib/server/posts"
+import {
+  publishScheduledLocalPost,
+  SCHEDULE_DEADLINE_PASSED,
+  SCHEDULE_TARGET_CHANGED,
+} from "@/lib/server/posts"
 import { schedulingAvailability } from "@/lib/server/publication-schedules"
 import type { Session } from "@/lib/server/session"
 
@@ -45,8 +52,24 @@ type Schedule = {
   approvedBy: string | null
   approvedRevision: number | null
   requireTwoPersonApproval: boolean
+  /** Frozen at approval (0242): what the approval was given for. */
+  targetConnectionId: string | null
+  targetGeneration: number | null
+  targetLocationName: string | null
+  approvedApprovalRequired: boolean | null
+  /** Reserved for the security-version mechanism; null until it exists. */
+  approvedSecurityVersion: number | null
 }
-type Due = { id: string; intendedAt: string; localDate: string }
+type Due = {
+  id: string
+  intendedAt: string
+  deadlineAt: string
+  localDate: string
+  postId: string | null
+}
+type MissedReason = "outside_dispatch_window" | "paused_when_due"
+type BlockReason =
+  "approval_invalid" | "permission_revoked" | "connection_changed"
 export type ScheduleTickSummary = {
   schedules: number
   published: number
@@ -55,18 +78,25 @@ export type ScheduleTickSummary = {
   missed: number
   blocked: number
 }
+export type ScheduleSweepSummary = { missed: number; resolved: number }
 
 function googleDate(date: string) {
   const [year, month, day] = date.split("-").map(Number)
   return { year, month, day }
 }
 
-/** The post body for one occurrence: the frozen template, with event dates moved by the frozen offsets. */
+/**
+ * The post body for one occurrence: the frozen template. Only a repeating
+ * schedule moves event dates by its frozen offsets; a one-time schedule
+ * publishes exactly the content that was approved.
+ */
 function occurrenceContent(schedule: Schedule, occurrence: Due) {
   const template = localPostInputSchema.parse(schedule.template)
-  const offsets = schedule.eventOffsets
-    ? eventOffsetsSchema.parse(schedule.eventOffsets)
-    : null
+  const once = scheduleRuleSchema.parse(schedule.rule).frequency === "once"
+  const offsets =
+    !once && schedule.eventOffsets
+      ? eventOffsetsSchema.parse(schedule.eventOffsets)
+      : null
   if (!offsets || !template.event)
     return { content: template, eventEndDate: eventEnd(template.event) }
   const dates = occurrenceEventDates(occurrence.localDate, offsets)
@@ -101,45 +131,141 @@ async function emit(sql: TransactionSql, event: OperationalEvent) {
     log.error("post_schedule.event_failed", { kind: event.kind, error })
   }
 }
-const base = (schedule: Schedule) => ({
+const eventBase = (organisationId: string, locationId: string) => ({
   version: 1 as const,
-  organisationId: schedule.organisationId,
+  organisationId,
   occurredAt: new Date().toISOString(),
-  target: { type: "location" as const, locationId: schedule.locationId },
+  target: { type: "location" as const, locationId },
 })
+const base = (schedule: Schedule) =>
+  eventBase(schedule.organisationId, schedule.locationId)
 
-/** Checks that need a fresh approval when they fail. Null when the schedule may run. */
+/**
+ * Records a due occurrence as missed. A one-time schedule whose slot passed
+ * needs a new time, so it goes to review (as mark_missed_post_occurrences()
+ * does in 0242); a repeating one carries on with its next occurrence.
+ */
+async function markMissed(
+  sql: TransactionSql,
+  schedule: Schedule,
+  occurrence: Pick<Due, "id" | "intendedAt">,
+  reason: MissedReason | "expired_content",
+  summary?: ScheduleTickSummary
+) {
+  const [marked] = await sql`
+    update post_publication_occurrence set status = 'missed', status_reason = ${reason}, finished_at = now()
+    where id = ${occurrence.id} and status in ('scheduled', 'publishing') returning id`
+  if (!marked) return
+  if (
+    reason !== "expired_content" &&
+    scheduleRuleSchema.parse(schedule.rule).frequency === "once"
+  )
+    await sql`update post_publication_schedule set status = 'needs_review', status_reason = ${reason}, updated_at = now()
+      where id = ${schedule.id} and status in ('active', 'paused')`
+  await emit(sql, {
+    ...base(schedule),
+    kind: "schedule_missed",
+    reason,
+    dueAt: occurrence.intendedAt,
+    source: {
+      type: "schedule_occurrence",
+      id: occurrence.id,
+      scheduleId: schedule.id,
+    },
+  })
+  if (summary) summary.missed += 1
+}
+
+/**
+ * Checks that need a fresh approval when they fail. Null when the schedule
+ * may run. The approver's authority is re-decided now through
+ * recheckAuthorisation against what the approval froze: the connection and
+ * credential generation (a relink or reconnect since blocks), the approval
+ * policy, and the approver's security version.
+ */
 async function approvalProblem(
   sql: TransactionSql,
-  schedule: Schedule
-): Promise<"approval_invalid" | "permission_revoked" | null> {
-  if (!schedule.approvedBy || schedule.approvedRevision !== schedule.revision)
-    return "approval_invalid"
-  const [policy] = await sql<
-    { required: boolean }[]
-  >`select require_two_person_approval as required from organisation limit 1`
-  if ((policy?.required ?? false) !== schedule.requireTwoPersonApproval)
+  schedule: Schedule,
+  link: { googleLocationName: string | null }
+): Promise<BlockReason | null> {
+  if (
+    !schedule.approvedBy ||
+    schedule.approvedRevision !== schedule.revision ||
+    schedule.approvedApprovalRequired === null
+  )
     return "approval_invalid"
   if (
     schedule.requireTwoPersonApproval &&
     schedule.approvedBy === schedule.requestedBy
   )
     return "approval_invalid"
-  const [requester] =
-    await sql`select 1 from member where user_id = ${schedule.requestedBy}`
-  const [approver] = await sql<
-    { role: Session["role"]; canPublish: boolean }[]
-  >`select role, can_publish as "canPublish" from member where user_id = ${schedule.approvedBy}`
-  if (!requester || !approver || !["owner", "admin"].includes(approver.role))
-    return "permission_revoked"
-  const session = {
-    userId: schedule.approvedBy,
-    role: approver.role,
-    canPublish: approver.canPublish,
+  // An approval from before 0242 that no link could pin, or one whose
+  // Google location has since changed, was not given for this target.
+  if (
+    !schedule.targetConnectionId ||
+    schedule.targetGeneration === null ||
+    !schedule.targetLocationName ||
+    link.googleLocationName !== schedule.targetLocationName
+  )
+    return "connection_changed"
+  const [requester] = await sql`
+    select 1 from member where organisation_id = ${schedule.organisationId} and user_id = ${schedule.requestedBy}`
+  if (!requester) return "permission_revoked"
+  // INTEGRATION: stream D's shared approval-policy helper
+  // (lib/server/authz/approval-policy.ts) replaces the local two-person and
+  // manager checks here once it lands.
+  // INTEGRATION: stream B's deriveAccess (lib/domain/entitlements.ts) is
+  // checked by scheduledPostEntitlement() below; it is not passed to the
+  // recheck, which refuses any entitlement until it can verify one.
+  const recheck = await recheckAuthorisation(sql, {
+    organisationId: schedule.organisationId,
+    actorUserId: schedule.approvedBy,
+    locationId: schedule.locationId,
+    action: "publish",
+    connectionId: schedule.targetConnectionId,
+    generation: schedule.targetGeneration,
+    policy: {
+      approvalRequired: schedule.approvedApprovalRequired,
+      requireTwoPersonApproval: schedule.requireTwoPersonApproval,
+    },
+    // INTEGRATION: stream A's security_version. Null until approval records
+    // one; a recorded one is refused until the recheck can verify it.
+    securityVersion: schedule.approvedSecurityVersion,
+  })
+  if (!recheck.ok) {
+    switch (recheck.reason) {
+      case "connection_changed":
+      case "generation_changed":
+        return "connection_changed"
+      case "actor_not_member":
+      case "location_hidden":
+      case "action_denied":
+        return "permission_revoked"
+      default:
+        return "approval_invalid"
+    }
   }
-  if (!(await canPublishLocation(sql, session, schedule.locationId)))
+  if (!["owner", "admin"].includes(recheck.scope.role))
     return "permission_revoked"
   return null
+}
+
+/**
+ * The entitlement seam for scheduled publication.
+ *
+ * INTEGRATION: deriveAccess (stream B, lib/domain/entitlements.ts) does not
+ * exist on this branch. Until it does, scheduling is held back by the
+ * `post_scheduling` organisation feature (default off) alone; the
+ * integration replaces this with deriveAccess and blocks a read-only
+ * organisation here, before anything is claimed.
+ */
+async function scheduledPostEntitlement(
+  _sql: TransactionSql,
+  _organisationId: string
+): Promise<"ok"> {
+  void _sql
+  void _organisationId
+  return "ok"
 }
 
 async function approverSession(
@@ -186,14 +312,45 @@ export async function processSchedule(
     const [schedule] = await sql<Schedule[]>`
       select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, rule, timezone, template,
         event_offsets as "eventOffsets", requested_by::text as "requestedBy", approved_by::text as "approvedBy",
-        approved_revision as "approvedRevision", require_two_person_approval as "requireTwoPersonApproval"
+        approved_revision as "approvedRevision", require_two_person_approval as "requireTwoPersonApproval",
+        target_google_connection_id::text as "targetConnectionId", target_credential_generation as "targetGeneration",
+        target_google_location_name as "targetLocationName", approved_approval_required as "approvedApprovalRequired",
+        approved_security_version as "approvedSecurityVersion"
       from post_publication_schedule where id = ${scheduleId} for update`
     if (!schedule || schedule.status !== "active") return null
     const due = await sql<Due[]>`
-      select id::text as id, to_char(intended_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as "intendedAt", local_date::text as "localDate"
+      select id::text as id, to_char(intended_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as "intendedAt",
+        to_char(deadline_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as "deadlineAt",
+        local_date::text as "localDate", post_id::text as "postId"
       from post_publication_occurrence
       where schedule_id = ${scheduleId} and schedule_revision = ${schedule.revision} and status = 'scheduled' and intended_at <= ${now}
       order by intended_at`
+    // Outside its window an occurrence never starts (P08-R3). The tick's
+    // sweep (mark_missed_post_occurrences) normally records these first;
+    // this covers one whose window closed since.
+    const { run, missed } = selectDueOccurrences(due, now)
+    for (const occurrence of missed)
+      await markMissed(
+        sql,
+        schedule,
+        occurrence,
+        "outside_dispatch_window",
+        summary
+      )
+    if (!run) return { schedule, run: null }
+    const blocked = async (
+      reason: BlockReason | "feature_disabled" | "recurring_disabled"
+    ) => {
+      await sql`update post_publication_schedule set status = 'blocked', status_reason = ${reason}, updated_at = now() where id = ${scheduleId}`
+      await emit(sql, {
+        ...base(schedule),
+        kind: "schedule_blocked",
+        reason,
+        source: { type: "schedule_occurrence", id: run.id, scheduleId },
+      })
+      if (summary) summary.blocked += 1
+      return null
+    }
     // The organisation feature is read in this tenant transaction
     // (organisation_feature forces RLS). Switched off, a due schedule is
     // blocked rather than left to publish later: switching the feature back
@@ -203,85 +360,53 @@ export async function processSchedule(
       organisationId,
       scheduleRuleSchema.parse(schedule.rule)
     )
-    const problem =
-      availability !== "ok"
-        ? availability
-        : await approvalProblem(sql, schedule)
-    if (problem) {
-      await sql`update post_publication_schedule set status = 'blocked', status_reason = ${problem}, updated_at = now() where id = ${scheduleId}`
-      await emit(sql, {
-        ...base(schedule),
-        kind: "schedule_blocked",
-        reason: problem,
-        source: {
-          type: "schedule_occurrence",
-          id: due[0]?.id ?? scheduleId,
-          scheduleId,
-        },
-      })
-      if (summary) summary.blocked += 1
-      return null
-    }
+    if (availability !== "ok") return blocked(availability)
+    await scheduledPostEntitlement(sql, organisationId)
     const env = getServerEnv()
-    const [link] =
-      await sql`select 1 from location_link ll join external_location e on e.id = ll.external_location_id
+    const [link] = await sql<{ googleLocationName: string | null }[]>`
+      select e.google_location_name as "googleLocationName"
+      from location_link ll join external_location e on e.id = ll.external_location_id
       join google_connection gc on gc.id = e.google_connection_id
       where ll.location_id = ${schedule.locationId} and ll.is_active and gc.status in ('active', 'expired')`
     // Env and the operator pause table alike (lib/server/pause-controls.ts):
     // a table pause is the same transient block, not a failed occurrence.
     const paused = !scopesEnabled(env, pauses, gbpWriteScopes("posts"))
     if (paused || !link) {
-      // Transient: the approval stands. Occurrences left waiting are marked
-      // missed once they fall outside the grace period.
+      // Transient: the approval stands. The occurrence waits inside its
+      // window and is recorded missed once the window closes.
       await emit(sql, {
         ...base(schedule),
         kind: "schedule_blocked",
         reason: paused ? "publishing_paused" : "connection_unavailable",
-        source: {
-          type: "schedule_occurrence",
-          id: due[0]?.id ?? scheduleId,
-          scheduleId,
-        },
-      })
-    }
-    const { run, missed } = selectDueOccurrences(due, now)
-    for (const occurrence of missed) {
-      await sql`update post_publication_occurrence set status = 'missed', status_reason = 'outside_grace_period', finished_at = now() where id = ${occurrence.id} and status = 'scheduled'`
-      await emit(sql, {
-        ...base(schedule),
-        kind: "schedule_missed",
-        reason: "outside_grace_period",
-        dueAt: occurrence.intendedAt,
-        source: { type: "schedule_occurrence", id: occurrence.id, scheduleId },
-      })
-      if (summary) summary.missed += 1
-    }
-    if (!run || paused || !link) return { schedule, run: null }
-    const { content, eventEndDate } = occurrenceContent(schedule, run)
-    if (contentExpired(eventEndDate, now, schedule.timezone)) {
-      await sql`update post_publication_occurrence set status = 'missed', status_reason = 'expired_content', finished_at = now() where id = ${run.id}`
-      await emit(sql, {
-        ...base(schedule),
-        kind: "schedule_missed",
-        reason: "expired_content",
-        dueAt: run.intendedAt,
         source: { type: "schedule_occurrence", id: run.id, scheduleId },
       })
-      if (summary) summary.missed += 1
+      return { schedule, run: null }
+    }
+    const problem = await approvalProblem(sql, schedule, link)
+    if (problem) return blocked(problem)
+    const { content, eventEndDate } = occurrenceContent(schedule, run)
+    if (contentExpired(eventEndDate, now, schedule.timezone)) {
+      await markMissed(sql, schedule, run, "expired_content", summary)
       return { schedule, run: null }
     }
     // Claim the occurrence and create its own post in one transaction, so a
-    // retried tick finds the same post (and the same publish idempotency key).
-    const [external] = await sql<
-      { id: string }[]
-    >`select external_location_id::text as id from location_link where location_id = ${schedule.locationId} and is_active limit 1`
-    const [post] = await sql<{ id: string }[]>`
-      insert into gbp_local_post (organisation_id, location_id, external_location_id, topic_type, language_code, summary, call_to_action, event, offer, media, created_by)
-      values (${organisationId}, ${schedule.locationId}, ${external.id}, ${content.topicType}, ${content.languageCode}, ${content.summary},
-        ${jsonColumnOrNull(sql, content.callToAction)}, ${jsonColumnOrNull(sql, content.event)}, ${jsonColumnOrNull(sql, content.offer)}, ${jsonColumn(sql, content.media)}, ${schedule.requestedBy})
-      returning id::text as id`
+    // retried tick finds the same post (and the same publish idempotency
+    // key). A post left by an earlier claim that sent nothing is reused.
+    let postId = run.postId
+    if (!postId) {
+      const [external] = await sql<
+        { id: string }[]
+      >`select external_location_id::text as id from location_link where location_id = ${schedule.locationId} and is_active limit 1`
+      const [post] = await sql<{ id: string }[]>`
+        insert into gbp_local_post (organisation_id, location_id, external_location_id, topic_type, language_code, summary, call_to_action, event, offer, media, created_by)
+        values (${organisationId}, ${schedule.locationId}, ${external.id}, ${content.topicType}, ${content.languageCode}, ${content.summary},
+          ${jsonColumnOrNull(sql, content.callToAction)}, ${jsonColumnOrNull(sql, content.event)}, ${jsonColumnOrNull(sql, content.offer)}, ${jsonColumn(sql, content.media)}, ${schedule.requestedBy})
+        returning id::text as id`
+      postId = post.id
+    }
+    const intentId = scheduledPublishIntentId(run.id, sha256)
     const [claimed] =
-      await sql`update post_publication_occurrence set status = 'publishing', started_at = now(), post_id = ${post.id}
+      await sql`update post_publication_occurrence set status = 'publishing', started_at = now(), post_id = ${postId}, intent_id = ${intentId}
       where id = ${run.id} and status = 'scheduled' returning id`
     if (!claimed) throw new Error("Occurrence claimed elsewhere")
     await writeAudit(sql, {
@@ -293,13 +418,14 @@ export async function processSchedule(
       requestId,
       metadata: {
         occurrenceId: run.id,
-        postId: post.id,
+        postId,
         intendedAt: run.intendedAt,
+        intentId,
       },
     })
     return {
       schedule,
-      run: { ...run, postId: post.id },
+      run: { ...run, postId, intentId },
       session: await approverSession(sql, schedule),
     }
   })
@@ -316,22 +442,82 @@ export async function processSchedule(
       locationId: schedule.locationId,
       postId: run.postId,
       requestId,
+      intentId: run.intentId,
+      deadline: new Date(run.deadlineAt),
+      target: {
+        googleConnectionId: schedule.targetConnectionId!,
+        googleLocationName: schedule.targetLocationName!,
+      },
+      approvalRef: `post_schedule:${schedule.id}:${schedule.revision}`,
+      securityVersion: schedule.approvedSecurityVersion,
     })
   } catch (error) {
     failure = error
   }
+  const failureCode = failure instanceof ApiError ? failure.code : null
   await withTenant(organisationId, async (sql) => {
-    const [post] = await sql<{ status: string; attemptId: string | null }[]>`
-      select p.status, (select a.id::text from gbp_local_post_attempt a where a.post_id = p.id order by a.created_at desc limit 1) as "attemptId"
-      from gbp_local_post p where p.id = ${run.postId}`
+    // The occurrence settles from the publish's receipt (mutation_operation,
+    // recorded under the occurrence's intent before anything was sent).
+    const [receipt] = await sql<
+      { state: string; errorCode: string | null; attemptId: string | null }[]
+    >`
+      select state, error_code as "errorCode", attempt_id::text as "attemptId"
+      from mutation_operation where organisation_id = ${organisationId} and intent_id = ${run.intentId}`
+    if (!receipt) {
+      // No receipt: the publish stopped before it was recorded, so nothing
+      // reached Google. Inside the window the occurrence waits for the next
+      // tick; past it, it is missed. A moved link needs a fresh approval.
+      if (failureCode === SCHEDULE_TARGET_CHANGED) {
+        await sql`update post_publication_schedule set status = 'blocked', status_reason = 'connection_changed', updated_at = now() where id = ${scheduleId} and status = 'active'`
+        await emit(sql, {
+          ...base(schedule),
+          kind: "schedule_blocked",
+          reason: "connection_changed",
+          source: { type: "schedule_occurrence", id: run.id, scheduleId },
+        })
+        if (summary) summary.blocked += 1
+      }
+      if (
+        failureCode === SCHEDULE_DEADLINE_PASSED ||
+        Date.now() >= Date.parse(run.deadlineAt)
+      ) {
+        await markMissed(sql, schedule, run, "outside_dispatch_window", summary)
+      } else {
+        await sql`update post_publication_occurrence set status = 'scheduled', started_at = null where id = ${run.id} and status = 'publishing'`
+      }
+      if (failure)
+        log.warn("post_schedule.publish_not_sent", {
+          organisationId,
+          scheduleId,
+          occurrenceId: run.id,
+          code: failureCode ?? "internal_error",
+        })
+      return
+    }
+    if (
+      receipt.state === "failed" &&
+      receipt.errorCode === SCHEDULE_DEADLINE_PASSED
+    ) {
+      await markMissed(sql, schedule, run, "outside_dispatch_window", summary)
+      return
+    }
     const outcome =
-      post?.status === "published"
+      receipt.state === "confirmed_applied" ||
+      receipt.state === "awaiting_confirmation"
         ? "published"
-        : post?.status === "failed"
+        : receipt.state === "rejected" || receipt.state === "failed"
           ? "rejected"
           : "ambiguous"
-    await sql`update post_publication_occurrence set status = ${outcome}, status_reason = ${outcome === "published" ? null : outcome === "rejected" ? "provider_rejected" : "response_ambiguous"}, finished_at = now() where id = ${run.id}`
-    const attempt = post?.attemptId
+    const reason =
+      outcome === "published"
+        ? null
+        : outcome === "ambiguous"
+          ? "response_ambiguous"
+          : receipt.state === "rejected"
+            ? "provider_rejected"
+            : "publish_failed"
+    await sql`update post_publication_occurrence set status = ${outcome}, status_reason = ${reason}, finished_at = now() where id = ${run.id}`
+    const attempt = receipt.attemptId
     if (outcome === "rejected" && attempt) {
       await emit(sql, {
         ...base(schedule),
@@ -341,8 +527,10 @@ export async function processSchedule(
       })
     }
     if (outcome === "ambiguous") {
-      // Never resubmitted automatically: the schedule waits until someone
-      // reads the post's saved outcome and resumes it.
+      // Never resubmitted: mutation_recover reads Google back for the
+      // uncertain receipt, and the tick's sweep
+      // (settle_post_occurrences_from_receipts) settles this occurrence and
+      // unblocks the schedule once it has an answer.
       // A schedule quarantined for review while this occurrence was in
       // flight (0240) keeps its needs_review state and wording; it already
       // never runs, and blocking it would hide why it stopped.
@@ -373,6 +561,56 @@ export async function processSchedule(
       })
   })
   await finish(organisationId, scheduleId)
+}
+
+/**
+ * Every tick, before the pause check and whatever the pauses say: records
+ * occurrences whose window closed as missed (and raises schedule_missed in
+ * each tenant), then settles unresolved occurrences whose receipts have an
+ * answer. Neither sends anything to Google.
+ */
+export async function sweepScheduledOccurrences(): Promise<ScheduleSweepSummary> {
+  const db = getDatabase()
+  const missed = await db<
+    {
+      organisationId: string
+      scheduleId: string
+      occurrenceId: string
+      locationId: string
+      intendedAt: Date
+      reason: MissedReason
+    }[]
+  >`
+    select organisation_id::text as "organisationId", schedule_id::text as "scheduleId", occurrence_id::text as "occurrenceId",
+      location_id::text as "locationId", intended_at as "intendedAt", reason
+    from mark_missed_post_occurrences()`
+  const byOrganisation = new Map<string, Array<(typeof missed)[number]>>()
+  for (const row of missed)
+    byOrganisation.set(row.organisationId, [
+      ...(byOrganisation.get(row.organisationId) ?? []),
+      row,
+    ])
+  for (const [organisationId, rows] of byOrganisation) {
+    await withTenant(organisationId, async (sql) => {
+      for (const row of rows)
+        await emit(sql, {
+          ...eventBase(organisationId, row.locationId),
+          kind: "schedule_missed",
+          reason: row.reason,
+          dueAt: row.intendedAt.toISOString(),
+          source: {
+            type: "schedule_occurrence",
+            id: row.occurrenceId,
+            scheduleId: row.scheduleId,
+          },
+        })
+    }).catch((error: unknown) =>
+      log.error("post_schedule.missed_events_failed", { organisationId, error })
+    )
+  }
+  const resolved =
+    await db`select occurrence_id from settle_post_occurrences_from_receipts()`
+  return { missed: missed.length, resolved: resolved.length }
 }
 
 /** Releases the claim and completes a schedule with nothing left to run. */

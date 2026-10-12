@@ -1518,8 +1518,8 @@ explicit event-date offsets; approval binds its payload hash and revision.
 Approval materialises future occurrences once (`unique (schedule_id,
 schedule_revision, intended_at)`). The job tick claims due schedules with a
 lease (`claim_due_publication_schedules`), rechecks approval, policy, requester
-and approver grants, connection and kill switches, publishes at most the latest
-occurrence inside 24 hours (older ones are missed), never publishes ended event
+and approver grants, connection and kill switches, publishes an occurrence only
+inside its 5-minute dispatch window (P08-R3, below), never publishes ended event
 or offer content, and creates one post row per occurrence so a retry reuses the
 same publish idempotency key. An ambiguous publish blocks the schedule; nothing
 is resubmitted automatically. Edits create a new revision and cancel pending
@@ -1545,6 +1545,38 @@ whose run a clock change moved goes to `needs_review` /
 Approving a schedule from before 0241 resolves its stored slot strictly, stores
 the offset and never guesses the earlier instant. Repeating rules materialise
 only occurrences at least 5 minutes ahead.
+
+Dispatch is strict (P08-R3, migration 0242;
+`lib/server/publication-schedule-runner.ts`). Approval freezes the Google target
+(`target_google_connection_id`, `target_credential_generation`,
+`target_google_location_name`) and the approval policy
+(`approved_approval_required`); `approved_security_version` is reserved for the
+security-version mechanism and stays null. Approving needs an active link (409
+`schedule_location_not_linked`). Before each publish the runner calls
+`recheckAuthorisation` (`lib/server/authz/actor.ts`) for the approver with the
+frozen connection, generation and policy, so a relink, reconnect or policy
+change blocks the schedule (`connection_changed`, `approval_invalid`) instead of
+publishing through whatever is linked now; `publishScheduledLocalPost` refuses a
+moved link again with nothing sent. An occurrence starts only while
+`intended_at <= now() < deadline_at`: `claim_due_publication_schedules` skips one
+past its deadline, and `publishScheduledLocalPost` checks the deadline before
+anything is written and again immediately before the provider call
+(`schedule_deadline_passed`). Every tick, before any pause check,
+`mark_missed_post_occurrences()` records a passed slot as missed
+(`paused_when_due` when the schedule was paused, otherwise
+`outside_dispatch_window`) and raises `schedule_missed`; a one-time schedule then
+goes to `needs_review` with that reason, and resume answers 409
+`schedule_missed` (choose a new time by editing it). Each publish runs under an
+intent derived from the occurrence id (`scheduledPublishIntentId`, stored as
+`post_publication_occurrence.intent_id`), so it records a `mutation_operation`
+receipt and `mutation_recover` reads back an uncertain create.
+`settle_post_occurrences_from_receipts()` (also every tick) settles an
+`ambiguous` occurrence from its receipt (published, or rejected with
+`provider_rejected` / `publish_failed`) and returns a schedule blocked only by
+unresolved occurrences to active (or completed). Recovery never sends anything,
+so a create proven not to have landed is never made late. Event-date offsets
+apply to repeating schedules only; a one-time schedule publishes its approved
+content as is.
 
 Scheduling is behind the organisation feature `post_scheduling`
 (`lib/server/publication-schedules.ts` `schedulingAvailability`). Off, the

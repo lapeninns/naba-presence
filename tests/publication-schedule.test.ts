@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 import { describe, expect, it } from "vitest"
 
 import {
@@ -12,6 +14,7 @@ import {
   planOnceSlot,
   resolveLocalSlot,
   resolveLocalTime,
+  scheduledPublishIntentId,
   SCHEDULE_MAX_LEAD_MS,
   SCHEDULE_MIN_LEAD_MS,
   slotProblemMessage,
@@ -370,19 +373,45 @@ describe("expandSchedule", () => {
 
 describe("missed runs and expired content", () => {
   const now = new Date("2026-10-10T12:00:00Z")
-  const at = (hours: number) => ({
-    intendedAt: new Date(now.getTime() - hours * 3_600_000).toISOString(),
-  })
-  it("runs only the latest occurrence within 24 hours and marks the rest missed", () => {
-    const due = [at(50), at(30), at(2)]
+  const at = (minutes: number) => {
+    const intended = now.getTime() - minutes * 60_000
+    return {
+      intendedAt: new Date(intended).toISOString(),
+      deadlineAt: new Date(intended + DISPATCH_WINDOW_MS).toISOString(),
+    }
+  }
+  it("runs the latest occurrence only inside its 5-minute window and marks the rest missed", () => {
+    const due = [at(60 * 50), at(60 * 2), at(4)]
     expect(selectDueOccurrences(due, now)).toEqual({
       run: due[2],
       missed: [due[0], due[1]],
     })
   })
-  it("runs nothing when the latest is outside the grace period", () => {
-    const due = [at(49), at(25)]
+  it("runs nothing once the window has closed: there is no late catch-up", () => {
+    // Exactly at the deadline is already too late.
+    const due = [at(30), at(5)]
     expect(selectDueOccurrences(due, now)).toEqual({ run: null, missed: due })
+    expect(selectDueOccurrences([at(6)], now)).toEqual({
+      run: null,
+      missed: [at(6)],
+    })
+  })
+  it("derives a deterministic UUID intent per occurrence", () => {
+    const hash = (input: string) =>
+      createHash("sha256").update(input).digest("hex")
+    const first = scheduledPublishIntentId(
+      "8d4f6c1e-0d6a-4b8e-9a3c-1f2e3d4c5b6a",
+      hash
+    )
+    expect(first).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+    )
+    expect(
+      scheduledPublishIntentId("8d4f6c1e-0d6a-4b8e-9a3c-1f2e3d4c5b6a", hash)
+    ).toBe(first)
+    expect(
+      scheduledPublishIntentId("8d4f6c1e-0d6a-4b8e-9a3c-1f2e3d4c5b6b", hash)
+    ).not.toBe(first)
   })
   it("derives event dates from explicit offsets and refuses expired content", () => {
     expect(

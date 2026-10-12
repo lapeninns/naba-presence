@@ -206,8 +206,10 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       }[]
     >`
       select id::text as id, status, status_reason, intended_at, post_id::text as post_id from post_publication_occurrence where schedule_id = ${scheduleId} order by intended_at`
-    const age = (occurrenceId: string, hoursAgo: number) =>
-      admin`update post_publication_occurrence set intended_at = now() - make_interval(secs => ${hoursAgo * 3600}) where id = ${occurrenceId}`
+    // Moves an occurrence's intended instant `minutesAgo` minutes into the
+    // past; 0241's trigger moves its deadline (intended + 5 minutes) with it.
+    const age = (occurrenceId: string, minutesAgo: number) =>
+      admin`update post_publication_occurrence set intended_at = now() - make_interval(secs => ${minutesAgo * 60}) where id = ${occurrenceId}`
     const scheduleRow = async (id: string) =>
       (
         await admin<
@@ -258,7 +260,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     expect((await t.approve(s)).status).toBe(200)
     const [occurrence] = await t.occurrences(s.id)
     expect(occurrence.status).toBe("scheduled")
-    await t.age(occurrence.id, 0.1)
+    await t.age(occurrence.id, 2)
     await Promise.all([tick(), tick(), tick()])
     await tick()
     expect(creates()).toHaveLength(1)
@@ -271,6 +273,22 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "published",
       summary: "Sunday roast is back",
     })
+    // The publish ran under the occurrence's deterministic intent, so it has
+    // exactly one receipt (P08-R3), recorded as the approver's write.
+    const receipts = await admin`
+      select m.state, m.surface, m.approval_ref, m.actor_user_id::text as actor, m.connection_generation
+      from mutation_operation m join post_publication_occurrence o
+        on o.organisation_id = m.organisation_id and o.intent_id = m.intent_id
+      where o.id = ${done.id}`
+    expect(receipts).toEqual([
+      {
+        state: "confirmed_applied",
+        surface: "local_post",
+        approval_ref: `post_schedule:${s.id}:1`,
+        actor: t.owner.userId,
+        connection_generation: 1,
+      },
+    ])
   })
 
   it("requires a different approver under two-person policy and invalidates approval when content is edited", async () => {
@@ -339,7 +357,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     })
     await t.approve(policy)
     await admin`update organisation set require_two_person_approval = true where id = ${t.owner.organisationId}`
-    await t.age((await t.occurrences(policy.id))[0].id, 0.1)
+    await t.age((await t.occurrences(policy.id))[0].id, 2)
     await tick()
     expect(await t.scheduleRow(policy.id)).toEqual({
       status: "blocked",
@@ -358,7 +376,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     })
     await t.approve(revoked, manager.cookie)
     await admin`update member set role = 'viewer', can_publish = false where user_id = ${manager.userId}`
-    await t.age((await t.occurrences(revoked.id))[0].id, 0.1)
+    await t.age((await t.occurrences(revoked.id))[0].id, 2)
     await tick()
     expect(await t.scheduleRow(revoked.id)).toEqual({
       status: "blocked",
@@ -373,7 +391,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     ])
   })
 
-  it("publishes only the latest occurrence within 24 hours and records older ones as missed", async () => {
+  it("publishes only inside the 5-minute window and records anything later as missed", async () => {
     const t = await tenant(),
       s = await t.schedule(await t.draft(), {
         frequency: "daily",
@@ -383,23 +401,61 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       })
     await t.approve(s)
     const [first, second, third] = await t.occurrences(s.id)
-    await t.age(first.id, 50)
-    await t.age(second.id, 30)
+    await t.age(first.id, 50 * 60)
+    await t.age(second.id, 6)
     await t.age(third.id, 2)
     await tick()
     const after = await t.occurrences(s.id)
     expect(after.map((o) => `${o.status}:${o.status_reason ?? ""}`)).toEqual([
-      "missed:outside_grace_period",
-      "missed:outside_grace_period",
+      "missed:outside_dispatch_window",
+      "missed:outside_dispatch_window",
       "published:",
       "scheduled:",
     ])
     expect(creates()).toHaveLength(1)
     const missed =
-      await admin`select count(*)::int as count from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_missed'`
-    expect(missed[0].count).toBe(2)
+      await admin`select reason from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_missed'`
+    expect(missed.map((row) => row.reason)).toEqual([
+      "outside_dispatch_window",
+      "outside_dispatch_window",
+    ])
     await tick()
     expect(creates()).toHaveLength(1)
+  })
+
+  it("records a one-time slot missed while publishing is paused, and never publishes it late", async () => {
+    const t = await tenant(),
+      s = await t.schedule(await t.draft(), {
+        frequency: "once",
+        startDate: tomorrow(),
+        localTime: "09:00",
+      })
+    await t.approve(s)
+    // The whole job runner is paused, so the tick claims nothing at all;
+    // the sweep still runs. The app caches the pause table for 5 seconds.
+    const settlePauses = () =>
+      new Promise((resolve) => setTimeout(resolve, 5_300))
+    await admin`
+      update ops_pause_control set paused = true, reason = 'post-schedules test', changed_by = 'post-schedules test'
+      where scope = 'jobs'`
+    await settlePauses()
+    try {
+      await t.age((await t.occurrences(s.id))[0].id, 6)
+      await tick()
+      expect((await t.occurrences(s.id))[0]).toMatchObject({
+        status: "missed",
+        status_reason: "outside_dispatch_window",
+      })
+      expect(await t.scheduleRow(s.id)).toEqual({
+        status: "needs_review",
+        status_reason: "outside_dispatch_window",
+      })
+    } finally {
+      await admin`update ops_pause_control set paused = false where scope = 'jobs'`
+      await settlePauses()
+    }
+    await tick()
+    expect(creates()).toHaveLength(0)
   })
 
   it("does not publish an expired event late", async () => {
@@ -426,7 +482,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       localTime: "09:00",
     })
     await t.approve(s)
-    await t.age((await t.occurrences(s.id))[0].id, 0.1)
+    await t.age((await t.occurrences(s.id))[0].id, 2)
     await tick()
     expect((await t.occurrences(s.id))[0]).toMatchObject({
       status: "missed",
@@ -435,7 +491,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     expect(creates()).toHaveLength(0)
   })
 
-  it("keeps an ambiguous publication visible, blocks the schedule and never resubmits it", async () => {
+  it("keeps an uncertain publication blocked, resolves it from its receipt and never re-creates it", async () => {
     const t = await tenant(),
       s = await t.schedule(await t.draft(), {
         frequency: "daily",
@@ -446,64 +502,173 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     await t.approve(s)
     const [first, second] = await t.occurrences(s.id)
     await t.age(first.id, 1)
-    state.createStatus = 503
+    // The create lands at Google, but neither its answer nor the list can
+    // be read.
     state.listStatus = 503
+    google.respond(
+      { method: "POST", pathIncludes: "/localPosts" },
+      async (call) => {
+        const path = new URL(call.path, "https://stub.test").pathname.replace(
+          /^\/v4\//,
+          ""
+        )
+        state.posts.push({
+          ...(call.body as object),
+          name: `${path}/p${state.posts.length + 1}`,
+          state: "LIVE",
+        })
+        return { status: 503, json: { error: { status: "UNAVAILABLE" } } }
+      }
+    )
     await tick()
     expect((await t.occurrences(s.id))[0]).toMatchObject({
       status: "ambiguous",
+      status_reason: "response_ambiguous",
     })
     expect(await t.scheduleRow(s.id)).toEqual({
       status: "blocked",
       status_reason: "prior_occurrence_unresolved",
     })
-    state.createStatus = 200
-    state.listStatus = 200
-    await t.age(second.id, 0.5)
-    await tick()
+    const [receipt] = await admin<{ id: string; state: string }[]>`
+      select m.id::text as id, m.state from mutation_operation m join post_publication_occurrence o
+        on o.organisation_id = m.organisation_id and o.intent_id = m.intent_id
+      where o.id = ${first.id}`
+    expect(receipt.state).toBe("uncertain")
+    // Blocked: nothing more is sent, the next occurrence included.
+    await t.age(second.id, 1)
     await tick()
     expect(creates()).toHaveLength(1)
-    expect((await t.occurrences(s.id))[1]).toMatchObject({
-      status: "scheduled",
-    })
-    const kinds =
-      await admin`select kind from notification_incident where organisation_id = ${t.owner.organisationId} and status = 'open' order by kind`
-    expect(kinds.map((row) => row.kind)).toEqual(
-      expect.arrayContaining(["schedule_blocked"])
+    expect((await t.occurrences(s.id))[1].status).toBe("scheduled")
+
+    // Google is readable again; mutation_recover reads it back (its first
+    // readback is brought forward here instead of waiting two minutes).
+    // Meanwhile the second occurrence's window closes while the schedule is
+    // blocked.
+    await t.age(second.id, 6)
+    state.listStatus = 200
+    await admin`update mutation_operation set next_recovery_at = now() - interval '1 second' where id = ${receipt.id}`
+    await tick()
+    const [recovered] =
+      await admin`select state from mutation_operation where id = ${receipt.id}`
+    expect(recovered.state).toBe("awaiting_confirmation")
+    // The next tick's sweep settles the occurrence from the receipt and
+    // unblocks the schedule; the second occurrence is missed, not caught up.
+    await tick()
+    const rows = new Map(
+      (await t.occurrences(s.id)).map((o) => [
+        o.id,
+        `${o.status}:${o.status_reason ?? ""}`,
+      ])
     )
+    expect(rows.get(first.id)).toBe("published:")
+    expect(rows.get(second.id)).toBe("missed:outside_dispatch_window")
+    expect([...rows.values()]).toContain("scheduled:")
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "active",
+      status_reason: null,
+    })
+    // Resolved, never re-created.
+    expect(creates()).toHaveLength(1)
   })
 
-  it("pauses, resumes and cancels without losing or duplicating occurrences", async () => {
-    const t = await tenant(),
-      s = await t.schedule(await t.draft(), {
-        frequency: "weekly",
-        startDate: tomorrow(),
-        localTime: "12:00",
-        weekdays: [1, 2, 3, 4, 5, 6, 7],
-        end: { type: "date", date: inDays(8) },
-      })
-    await t.approve(s)
-    const before = await t.occurrences(s.id)
-    await t.api(`/post-schedules/${s.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ action: "pause" }),
+  it("blocks a schedule whose Google link was moved or reconnected after approval", async () => {
+    const t = await tenant()
+    const once = {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    }
+    const reconnected = await t.schedule(await t.draft(), once)
+    expect((await t.approve(reconnected)).status).toBe(200)
+    await admin`update google_connection set credential_generation = credential_generation + 1 where id = ${t.connection.connectionId}`
+    await t.age((await t.occurrences(reconnected.id))[0].id, 2)
+    await tick()
+    expect(await t.scheduleRow(reconnected.id)).toEqual({
+      status: "blocked",
+      status_reason: "connection_changed",
     })
-    await t.age(before[0].id, 0.2)
+
+    const relinked = await t.schedule(await t.draft(), once)
+    expect((await t.approve(relinked)).status).toBe(200)
+    const other = await seedGoogleConnection(admin, {
+      organisationId: t.owner.organisationId,
+    })
+    await admin`
+      update external_location set google_connection_id = ${other.connectionId}, google_account_name = ${other.googleAccountName}
+      where id = ${t.linked.externalLocationId}`
+    await t.age((await t.occurrences(relinked.id))[0].id, 2)
+    await tick()
+    expect(await t.scheduleRow(relinked.id)).toEqual({
+      status: "blocked",
+      status_reason: "connection_changed",
+    })
+    expect(creates()).toHaveLength(0)
+    const incidents =
+      await admin`select reason from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_blocked'`
+    expect(incidents.map((row) => row.reason)).toEqual([
+      "connection_changed",
+      "connection_changed",
+    ])
+  })
+
+  it("records slots that came due while paused as missed, needs a new time instead of resuming, and cancels", async () => {
+    const t = await tenant()
+    const act = (id: string, action: string) =>
+      t.api(`/post-schedules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action }),
+      })
+    const repeating = await t.schedule(await t.draft(), {
+      frequency: "weekly",
+      startDate: tomorrow(),
+      localTime: "12:00",
+      weekdays: [1, 2, 3, 4, 5, 6, 7],
+      end: { type: "date", date: inDays(8) },
+    })
+    await t.approve(repeating)
+    const before = await t.occurrences(repeating.id)
+    expect((await act(repeating.id, "pause")).status).toBe(200)
+    await t.age(before[0].id, 6)
+    await tick()
+    expect((await t.occurrences(repeating.id))[0]).toMatchObject({
+      status: "missed",
+      status_reason: "paused_when_due",
+    })
+    // A repeating schedule resumes with its next occurrence; the missed one
+    // is not caught up.
+    expect((await act(repeating.id, "resume")).status).toBe(200)
     await tick()
     expect(creates()).toHaveLength(0)
-    await t.api(`/post-schedules/${s.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ action: "resume" }),
+
+    const single = await t.schedule(await t.draft(), {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "12:00",
     })
+    await t.approve(single)
+    expect((await act(single.id, "pause")).status).toBe(200)
+    await t.age((await t.occurrences(single.id))[0].id, 6)
     await tick()
-    expect(creates()).toHaveLength(1)
-    const cancelled = await t.api(`/post-schedules/${s.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ action: "cancel" }),
+    expect(await t.scheduleRow(single.id)).toEqual({
+      status: "needs_review",
+      status_reason: "paused_when_due",
     })
+    const resumed = await act(single.id, "resume")
+    expect(resumed.status).toBe(409)
+    expect(await resumed.json()).toMatchObject({ error: "schedule_missed" })
+    expect(creates()).toHaveLength(0)
+    const missed =
+      await admin`select reason from notification_incident where organisation_id = ${t.owner.organisationId} and kind = 'schedule_missed'`
+    expect(missed.map((row) => row.reason)).toEqual([
+      "paused_when_due",
+      "paused_when_due",
+    ])
+
+    const cancelled = await act(repeating.id, "cancel")
     expect(
       scheduleResponseSchema.parse(await cancelled.json()).schedule.status
     ).toBe("cancelled")
-    const after = await t.occurrences(s.id)
+    const after = await t.occurrences(repeating.id)
     expect(after).toHaveLength(before.length)
     expect(after.filter((o) => o.status === "scheduled")).toHaveLength(0)
   })
@@ -567,7 +732,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       })
     }
 
-    await t.age((await t.occurrences(due.id))[0].id, 0.05)
+    await t.age((await t.occurrences(due.id))[0].id, 2)
     await tick()
     expect(await t.scheduleRow(due.id)).toEqual({
       status: "blocked",
@@ -665,7 +830,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     const repeating = await t.schedule(await t.draft(), daily)
     expect((await t.approve(repeating)).status).toBe(200)
     await setFeature(t.owner.organisationId, "post_scheduling_recurring", false)
-    await t.age((await t.occurrences(repeating.id))[0].id, 0.05)
+    await t.age((await t.occurrences(repeating.id))[0].id, 2)
     await tick()
     expect(await t.scheduleRow(repeating.id)).toEqual({
       status: "blocked",
@@ -1060,7 +1225,7 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       })
     expect((await t.approve(s)).status).toBe(200)
     const [first] = await t.occurrences(s.id)
-    await t.age(first.id, 0.02)
+    await t.age(first.id, 1)
     const migration = await readFile(
       new URL(
         "../../../supabase/migrations/0240_post_schedule_quarantine.sql",
