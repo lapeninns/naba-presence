@@ -23,6 +23,11 @@ import {
   BULK_MAX_NEW_PHOTOS_PER_LOCATION,
   bulkPhotoInputSchema,
 } from "@/lib/domain/bulk-photos"
+import {
+  bulkReviewApprovalInputSchema,
+  bulkReviewTemplateInputSchema,
+  isBulkReviewOperation,
+} from "@/lib/domain/bulk-reviews"
 import type {
   HoursSelection,
   NormalizedHours,
@@ -181,6 +186,12 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
    * (lib/domain/bulk-photos.ts).
    */
   bulkPhotoInputSchema,
+  /**
+   * Reviews (P09-R8): one child per review, started from the inbox
+   * (lib/server/bulk-reviews.ts), never part of a listing change list.
+   */
+  bulkReviewApprovalInputSchema,
+  bulkReviewTemplateInputSchema,
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
@@ -222,6 +233,9 @@ export function bulkChangeParts(input: BulkOperationInput): string[] {
     // Each asset once per batch: a listing gets a photo at most once.
     case "photos":
       return [`photos:${input.assetId}`]
+    case "review_approval":
+    case "review_template_reply":
+      return [`review:${input.reviewId}`]
   }
 }
 
@@ -231,6 +245,17 @@ export const bulkChangeListSchema = z
   .min(1)
   .max(BULK_MAX_CHANGES)
   .superRefine((items, context) => {
+    // Review work is started from the inbox, one child per review, not as
+    // a change applied to every selected listing.
+    items.forEach((item, index) => {
+      if (isBulkReviewOperation(item.operation))
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message:
+            "Review replies are sent from the inbox, not as a listing change.",
+        })
+    })
     const owner = new Map<string, number>()
     items.forEach((item, index) => {
       for (const part of bulkChangeParts(item)) {
@@ -387,6 +412,7 @@ export type BulkResourceKey =
   | "food_menus"
   | "posts"
   | "media"
+  | "reviews"
 export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
   switch (operation) {
     case "attributes":
@@ -412,6 +438,11 @@ export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
     // own uploads, which have their own per-content guard (lib/server/media.ts).
     case "photos":
       return "media"
+    // Replies at one listing go out one at a time; each review's own
+    // publish pipeline guards the reply itself.
+    case "review_approval":
+    case "review_template_reply":
+      return "reviews"
     default:
       return "hours"
   }

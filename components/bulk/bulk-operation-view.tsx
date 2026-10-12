@@ -117,6 +117,28 @@ const REASON: Record<string, string> = {
   media_needs_resolution:
     "Google didn’t confirm the photo; check the listing’s photos and resolve it there",
   media_create_in_progress: "This photo is still being added to Google",
+  // Review replies (P09-R8).
+  submitted_for_approval: "Submitted for approval; nothing sent to Google yet",
+  approval_withdrawn:
+    "Not sent: the approval was withdrawn or replaced after this batch started",
+  review_changed: "The review changed after this batch started; open it",
+  approval_draft_changed: "The reply changed after it was approved; open it",
+  approval_not_pending: "No longer waiting for approval",
+  publish_retry_scheduled:
+    "Google asked us to wait; the reply is resent automatically",
+  publish_in_progress: "Another publish of this reply is still finishing",
+  google_reply_rejected: "Google rejected the reply",
+  verification_failed: "The template reply didn’t pass its checks; open it",
+  verification_required: "The template reply’s checks didn’t finish; open it",
+  template_review_has_text: "The review has text, so it needs a personal reply",
+  template_review_busy: "The review already has a draft or a reply under way",
+  template_has_reply: "The review already has a reply",
+  template_has_draft: "The review already has a draft",
+  template_low_rating: "1 or 2 stars, left for a personal reply",
+  review_restricted: "The review is restricted from replies",
+  review_not_found: "The review is no longer available",
+  publish_superseded: "Replaced by a later publish of this reply",
+  drafts_paused: "Drafting is paused",
 }
 const reason = (code: string | null) =>
   code
@@ -139,6 +161,8 @@ const OPERATION_LABEL: Record<Operation["operation"], string> = {
   food_menus: "Menus",
   post_draft: "Post drafts",
   photos: "Photos",
+  review_approval: "Approved replies",
+  review_template_reply: "Template replies",
   mixed: "Several changes",
 }
 

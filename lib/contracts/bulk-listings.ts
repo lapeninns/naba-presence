@@ -11,6 +11,7 @@ import {
   bulkOperationInputSchema,
   type BulkOperationInput,
 } from "@/lib/domain/bulk-merge"
+import { isBulkReviewOperation } from "@/lib/domain/bulk-reviews"
 
 const BULK_OPERATIONS = [
   "regular_hours",
@@ -24,6 +25,8 @@ const BULK_OPERATIONS = [
   "food_menus",
   "post_draft",
   "photos",
+  "review_approval",
+  "review_template_reply",
 ] as const
 
 export const bulkPreviewRequestSchema = z
@@ -54,6 +57,13 @@ export const bulkPreviewRequestSchema = z
       })
       return
     }
+    if (value.input && isBulkReviewOperation(value.input.operation))
+      context.addIssue({
+        code: "custom",
+        path: ["input"],
+        message:
+          "Review replies are sent from the inbox, not as a listing change.",
+      })
     const changes = value.items?.length ?? 1
     if (value.locationIds.length * changes > BULK_MAX_ITEMS)
       context.addIssue({
@@ -119,6 +129,10 @@ export const bulkChildSchema = z.object({
   dependsOn: z.array(z.uuid()),
   /** The receipt of this listing's write (`GET /api/mutations/{id}`), once one was sent. */
   mutationOperationId: z.uuid().nullable(),
+  /** A review child's review (P09-R8), while it exists. */
+  reviewId: z.uuid().nullable().optional(),
+  /** A review child's reply publish attempt, once its publish started. */
+  publishAttemptId: z.uuid().nullable().optional(),
 })
 export type BulkChild = z.infer<typeof bulkChildSchema>
 

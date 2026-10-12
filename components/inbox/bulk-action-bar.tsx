@@ -1,6 +1,7 @@
 "use client"
 
 import { Check, MessageSquareText, UserPlus, X } from "lucide-react"
+import Link from "next/link"
 import * as React from "react"
 
 import { useSelection } from "@/components/inbox/selection-context"
@@ -46,7 +47,14 @@ import { useMembers } from "@/lib/queries/use-members"
  * afterwards that two were not theirs to approve. Results come back per row,
  * so a stale row never discards the rest of the batch.
  */
-function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
+function BulkActionBar({
+  rows,
+  bulkEngine = false,
+}: {
+  rows: ReviewRow[]
+  /** Approve and template replies run as a bulk batch (the job runner sends them). */
+  bulkEngine?: boolean
+}) {
   const { selected, clear, replace } = useSelection()
   const bulk = useBulkReviewAction()
   const toast = useToastManager()
@@ -73,15 +81,14 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
     (member) =>
       member.role !== "viewer" &&
       (member.locations.length === 0 ||
-        member.locations.some((grant) =>
-          chosenLocations.has(grant.locationId)
-        ))
+        member.locations.some((grant) => chosenLocations.has(grant.locationId)))
   )
 
   const templateDialog = templateRows ? (
     <TemplateReplyDialog
       open
       rows={templateRows}
+      bulkEngine={bulkEngine}
       onOpenChange={(open) => {
         if (!open) setTemplateRows(null)
       }}
@@ -164,7 +171,9 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
   const partial = approvable.length < chosen.length && approvable.length > 0
   const failures = outcome
-    ? outcome.results.filter((row) => row.status !== "ok")
+    ? outcome.results.filter(
+        (row) => row.status !== "ok" && row.status !== "queued"
+      )
     : []
 
   return (
@@ -203,9 +212,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
                 {member.displayName ?? member.email}
               </DropdownMenuItem>
             ))}
-            {assignees.length > 0 ? (
-              <DropdownMenuSeparator />
-            ) : null}
+            {assignees.length > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem onClick={() => void run("assign", null)}>
               Unassign
             </DropdownMenuItem>
@@ -271,6 +278,18 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
         </p>
       ) : null}
 
+      {outcome?.operationId ? (
+        <p className="text-caption text-ink-on-charcoal" aria-live="polite">
+          The approved replies are sent in the background.{" "}
+          <Link
+            href={`/listings/bulk/${outcome.operationId}`}
+            className="font-semibold underline underline-offset-2"
+          >
+            Follow this batch
+          </Link>
+        </p>
+      ) : null}
+
       {failures.length > 0 ? (
         <ul className="flex flex-col gap-1" aria-live="polite">
           {failures.map((row) => (
@@ -301,8 +320,9 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
             {approvable.length === 1 ? "reply" : "replies"} to Google?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Each approved reply is sent to Google straight away and appears on
-            the business&apos;s profile under its name.
+            {bulkEngine
+              ? "Each approved reply is sent to Google in the background, one after another, and appears on the business’s profile under its name. You can close this tab; the batch page shows each result."
+              : "Each approved reply is sent to Google straight away and appears on the business’s profile under its name."}
             {approvable.length < chosen.length
               ? ` The other ${chosen.length - approvable.length} selected are not ready for your approval and are left as they are.`
               : ""}

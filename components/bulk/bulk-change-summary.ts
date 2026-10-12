@@ -277,6 +277,11 @@ export function describeChildChange(
       return postRows(proposed)
     case "photos":
       return photoRows(current, proposed)
+    // A review child carries no listing value: its review and reply are
+    // shown from its outcome code.
+    case "review_approval":
+    case "review_template_reply":
+      return []
   }
 }
 

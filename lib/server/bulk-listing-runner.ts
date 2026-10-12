@@ -86,6 +86,8 @@ async function settle(
      * the latest send's receipt.
      */
     operationId?: string | null
+    /** A review child's reply publish attempt (0267), the receipt it waits on. */
+    publishAttemptId?: string | null
   } = {}
 ) {
   await withTenant(
@@ -96,7 +98,8 @@ async function settle(
       finished_at = ${status === "queued" ? null : sql`now()`},
       next_attempt_at = ${status === "queued" ? sql`now() + interval '1 minute'` : null},
       current_value = case when ${fields.observed !== undefined} then ${fields.observed === undefined ? null : jsonColumn(sql, fields.observed)} else current_value end,
-      mutation_operation_id = ${fields.operationId ?? null}::uuid
+      mutation_operation_id = ${fields.operationId ?? null}::uuid,
+      publish_attempt_id = ${fields.publishAttemptId ?? null}::uuid
     where id = ${childId} and status = 'running'`
   )
 }
@@ -183,6 +186,8 @@ export async function processBulkChild(
     // two-person flag still holds with two different people, and the
     // listing is still linked through the frozen connection and credential
     // generation (lib/server/authz/approval-policy.ts).
+    // Review families name their own actions and are decided per review
+    // (BulkFamily.recheck).
     const recheck = await recheckApprovedWork(sql, {
       organisationId,
       locationId: child.locationId,
@@ -192,6 +197,7 @@ export async function processBulkChild(
       connectionId: child.connectionId,
       generation: child.credentialGeneration,
       approverSecurityVersion: child.authorisedSecurityVersion,
+      ...(family.recheck ?? {}),
     })
     if (!recheck.ok) return { code: recheckCode(recheck) }
     const [approver] = await sql<
@@ -261,12 +267,15 @@ export async function processBulkChild(
   ): Promise<Outcome | { failed: string }> => {
     const receipt = await receiptFor(organisationId, intentId)
     const operationId = result.operationId ?? receipt?.id ?? null
+    const publishAttemptId = result.publishAttemptId ?? null
     switch (result.kind) {
       case "succeeded":
         await settle(organisationId, childId, "succeeded", {
+          code: result.code ?? null,
           confirmation: result.confirmation,
           observed: result.observed,
           operationId,
+          publishAttemptId,
         })
         return "succeeded"
       case "conflict":
@@ -274,6 +283,7 @@ export async function processBulkChild(
           code: result.code,
           observed: result.observed,
           operationId,
+          publishAttemptId,
         })
         return "conflict"
       case "expired":
@@ -294,12 +304,15 @@ export async function processBulkChild(
           confirmation: "unresolved",
           observed: result.observed,
           operationId,
+          publishAttemptId,
         })
         return "ambiguous"
       case "failed":
         await settle(organisationId, childId, "failed", {
           code: result.code,
+          observed: result.observed,
           operationId,
+          publishAttemptId,
         })
         return { failed: result.code }
     }
@@ -423,24 +436,36 @@ async function reconcileResolvedChildren(
           operationId: string
           locationId: string
           operation: BulkOperationInput["operation"]
-          state: OperationOutcome
+          state: OperationOutcome | null
           errorCode: string | null
           attemptStatus: string | null
+          publishAttemptId: string | null
         }[]
       >`
         select c.operation_id::text as "operationId", c.location_id::text as "locationId", c.input->>'operation' as operation,
-          m.state, m.error_code as "errorCode", m.receipt->>'attemptStatus' as "attemptStatus"
+          m.state, m.error_code as "errorCode", m.receipt->>'attemptStatus' as "attemptStatus",
+          c.publish_attempt_id::text as "publishAttemptId"
         from bulk_listing_child c
-        join mutation_operation m on m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
+        left join mutation_operation m on m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
         where c.id = ${row.childId} and c.status = 'ambiguous'
         for update of c`
       if (!child) return null
       const family = bulkFamily(child.operation)
-      const verdict = family.reconcile({
-        state: child.state,
-        errorCode: child.errorCode,
-        attemptStatus: child.attemptStatus,
-      })
+      // A review child waits on its reply publish attempt (0267); every
+      // other family on its mutation receipt (0262).
+      const verdict = child.state
+        ? family.reconcile({
+            state: child.state,
+            errorCode: child.errorCode,
+            attemptStatus: child.attemptStatus,
+          })
+        : child.publishAttemptId && family.reconcileAttempt
+          ? await family.reconcileAttempt(sql, {
+              organisationId: row.organisationId,
+              childId: row.childId,
+              publishAttemptId: child.publishAttemptId,
+            })
+          : null
       if (!verdict) return null
       // A write that did not apply leaves nothing behind locally either
       // (an hours child puts back the schedule it saved).
@@ -481,6 +506,7 @@ async function reconcileResolvedChildren(
           operationId: child.operationId,
           outcome: verdict.kind,
           receiptState: child.state,
+          publishAttemptId: child.publishAttemptId,
           ...undone,
         },
       })
@@ -594,6 +620,11 @@ export async function runDueBulkChildren(options: {
   }
   const env = getServerEnv(),
     deadline = Date.now() + options.budgetMs
+  // A review child whose claim was interrupted (its lease ran out) runs
+  // again: re-running it is safe, because its template draft has a stable
+  // id and the reply pipeline recovers any publish it finds under the
+  // reply's idempotency key before sending (0267).
+  await getDatabase()`select requeue_interrupted_review_children(${env.JOBS_BATCH_SIZE})`
   while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
     const claimed = await getDatabase()<
       { organisationId: string; childId: string }[]

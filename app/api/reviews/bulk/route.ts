@@ -7,6 +7,11 @@ import {
 } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { recheckAuthorisation } from "@/lib/server/authz/actor"
+import {
+  bulkReviewEngineEnabled,
+  startBulkReviewApprovals,
+  startBulkTemplateReplies,
+} from "@/lib/server/bulk-reviews"
 import { ApiError } from "@/lib/server/http"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAction } from "@/lib/server/permissions"
@@ -47,6 +52,15 @@ type Row = BulkReviewResult["results"][number]
  * each row then needs `triage` or `assign` at its own location
  * (requireLocationAction), and an assignee must be a member of this
  * organisation who could edit that review themselves.
+ *
+ * With the organisation's `bulk_actions` feature on, approve and template
+ * replies run on the bulk engine instead (lib/server/bulk-reviews.ts): the
+ * rows are checked (and approvals recorded) here, the publishes are sent by
+ * the job runner, and the answer names the batch to follow
+ * (`operationId`, rows `queued`). Without it, approve stays this per-row
+ * loop and template replies are not offered here (404 feature_disabled;
+ * the inbox runs them itself). Assign and "no reply needed" are always
+ * synchronous.
  */
 export const POST = route({
   roles: ["owner", "admin", "member"],
@@ -56,12 +70,39 @@ export const POST = route({
       await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
     }
 
+    const engine = await tenant((sql) =>
+      bulkReviewEngineEnabled(sql, session.organisationId)
+    )
+    if (body.action === "template_reply") {
+      if (!engine)
+        throw new ApiError(
+          404,
+          "feature_disabled",
+          "Bulk changes are not available for this workspace."
+        )
+      await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
+      return startBulkTemplateReplies(session, body, {
+        requestId,
+        clientRequestId,
+      }) satisfies Promise<BulkReviewResult>
+    }
+    if (body.action === "approve" && engine) {
+      return startBulkReviewApprovals(session, body.approvals, {
+        requestId,
+        clientRequestId,
+      }) satisfies Promise<BulkReviewResult>
+    }
+
     const results: Row[] = []
 
     if (body.action === "approve") {
       for (const item of body.approvals) {
         results.push(
-          await approveRow(session, item, { requestId, clientRequestId, tenant })
+          await approveRow(session, item, {
+            requestId,
+            clientRequestId,
+            tenant,
+          })
         )
       }
       return { results } satisfies BulkReviewResult
@@ -112,7 +153,8 @@ export const POST = route({
           await writeAudit(sql, {
             organisationId: session.organisationId,
             actorUserId: session.userId,
-            action: body.action === "assign" ? "review.assigned" : "review.triaged",
+            action:
+              body.action === "assign" ? "review.assigned" : "review.triaged",
             subjectType: "review",
             subjectId: reviewId,
             requestId,

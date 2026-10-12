@@ -186,6 +186,8 @@ anything is recorded. Row outcomes are truthful about the two commits an
 approval spans (`lib/server/review-bulk-outcome.ts`): `skipped`/`failed`
 before the decision commits, `approved_not_published` or `uncertain` after it,
 and an unexpected fault on one row is that row's outcome, not the batch's.
+With `bulk_actions` on, approvals are recorded the same way and the publishes
+run as a bulk batch instead (see "Bulk listing changes", P09-R8).
 
 Two-person approval holds on every publication path. For replies,
 `has_qualifying_approval` (`lib/server/publishing/intent.ts`) counts only an
@@ -1535,7 +1537,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265; P09-R7, 0266)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263; P09-R5, 0264; P09-R6, 0265; P09-R7, 0266; P09-R8, 0267)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1760,6 +1762,37 @@ re-claimed child settles from its earlier receipt instead of sending again;
 an unconfirmed create waits for recovery or a person's resolution on the
 listing's photos tab, and the bulk reconcile then records the publication
 (`afterReconcile`).
+
+Bulk review work (P09-R8, 0267). With `bulk_actions` on, the inbox's bulk
+approve and its template replies run on this engine
+(`lib/server/bulk-reviews.ts`, families in
+`lib/server/bulk-families/reviews.ts`): `POST /api/reviews/bulk` answers with
+the batch (`operationId`) and rows `queued`, the job runner sends each
+review, and the batch page (`/listings/bulk/[id]`) shows each outcome after
+the tab closes. Without the feature, approve stays the synchronous per-row
+loop and template replies stay the inbox's own two-step run; assign and "no
+reply needed" are always synchronous. A review batch is one child per
+review at its location (up to 100, `seq` 0..99, resource key `reviews`), and
+is started and decided by one person, so it carries no batch-level
+two-person flag: the runner's recheck is per item (`perItemApproval` in
+`lib/server/authz/approval-policy.ts`, with each family's own actions), and
+each review's approval rules apply at publish as they always have. Approvals
+are recorded when the batch starts, one savepoint per row, by
+`recordApprovalDecision` with the draft and review version shown; a child
+publishes only while that decision is still the review's latest (a
+rejection or newer decision since is `approval_withdrawn`). A template child
+drafts through `createReviewDraft` (`lib/server/review-drafts.ts`, the drafts
+route's own code, template only) under a draft id derived from the child, so
+a re-run claim finds its draft, and checks it before publishing or
+submitting it for approval (`submitted_for_approval`). Every send goes
+through `executePublish`, whose idempotency key and recovery make a re-run
+safe; an unresolved publish (ambiguous, or a 429 parked for the reply retry
+runner) leaves the child waiting on its `publish_attempt_id` until the reply
+pipeline settles it (`bulk_children_to_reconcile`, now including those
+attempts). A review child whose lease ran out is queued again within its
+dispatch window, at most five runs (`requeue_interrupted_review_children`).
+The requester of a review batch may cancel or retry it; retry leaves a child
+whose publish attempt is still unsettled alone.
 
 ## Reporting provenance (WP9)
 

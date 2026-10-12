@@ -38,6 +38,7 @@ import {
   secondApproverSatisfied,
 } from "@/lib/server/authz/approval-policy"
 import { ApiError } from "@/lib/server/http"
+import { isBulkReviewOperation } from "@/lib/domain/bulk-reviews"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import {
   grantsFor,
@@ -389,6 +390,7 @@ async function project(
     select c.id::text as id, c.location_id::text as "locationId", l.name as "locationName", c.eligibility, c.skip_reason as "skipReason", ${effectiveChildStatus(sql)} as status,
       c.confirmation_state as "confirmationState", ${effectiveChildCode(sql)} as "resultCode", c.current_value as "currentValue", c.proposed_value as "proposedValue",
       c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt", c.mutation_operation_id::text as "mutationOperationId",
+      c.review_id::text as "reviewId", c.publish_attempt_id::text as "publishAttemptId",
       c.seq, c.item_key as "itemKey", c.input->>'operation' as operation, c.input, array(select d::text from unnest(c.depends_on) d) as "dependsOn"
     from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id join location l on l.id = c.location_id
     where c.operation_id = ${operationId} order by l.name, c.location_id, c.seq, c.id`
@@ -423,6 +425,7 @@ async function loadForUpdate(sql: TransactionSql, operationId: string) {
   const [row] = await sql<
     {
       status: string
+      operation: string
       previewHash: string
       requestedBy: string
       requireTwoPersonApproval: boolean
@@ -430,11 +433,33 @@ async function loadForUpdate(sql: TransactionSql, operationId: string) {
       dispatchExpiresAt: Date | null
     }[]
   >`
-    select status, preview_hash as "previewHash", requested_by::text as "requestedBy", require_two_person_approval as "requireTwoPersonApproval",
+    select status, operation, preview_hash as "previewHash", requested_by::text as "requestedBy", require_two_person_approval as "requireTwoPersonApproval",
       preview_expires_at as "previewExpiresAt", dispatch_expires_at as "dispatchExpiresAt"
     from bulk_listing_operation where id = ${operationId} for update`
   if (!row) throw NOT_FOUND()
   return row
+}
+
+/**
+ * Who may stop or retry a batch: an owner or admin, or, for a review batch
+ * (P09-R8), the person who started it, since they are its only decider.
+ */
+function requireBatchControl(
+  session: Session,
+  row: { operation: string; requestedBy: string },
+  verb: "cancel" | "retry"
+) {
+  if (isManagerialRole(session.role)) return
+  if (
+    isBulkReviewOperation(row.operation) &&
+    row.requestedBy === session.userId
+  )
+    return
+  throw new ApiError(
+    403,
+    "forbidden",
+    `Only an owner or administrator can ${verb} a bulk change.`
+  )
 }
 
 /** Whether an approved batch's dispatch window (24 hours after approval) is still open. */
@@ -647,7 +672,7 @@ export async function cancelBulkOperation(
   operationId: string,
   requestId: string
 ) {
-  if (!isManagerialRole(session.role))
+  if (session.role === "viewer")
     throw new ApiError(
       403,
       "forbidden",
@@ -656,6 +681,7 @@ export async function cancelBulkOperation(
   return withTenant(session.organisationId, async (sql) => {
     await requireBulkFeature(sql, session)
     const row = await loadForUpdate(sql, operationId)
+    requireBatchControl(session, row, "cancel")
     if (
       ["completed", "completed_with_failures", "cancelled", "expired"].includes(
         row.status
@@ -694,7 +720,7 @@ export async function retryBulkOperation(
   operationId: string,
   requestId: string
 ) {
-  if (!isManagerialRole(session.role))
+  if (session.role === "viewer")
     throw new ApiError(
       403,
       "forbidden",
@@ -703,6 +729,7 @@ export async function retryBulkOperation(
   return withTenant(session.organisationId, async (sql) => {
     await requireBulkFeature(sql, session)
     const row = await loadForUpdate(sql, operationId)
+    requireBatchControl(session, row, "retry")
     if (!["completed_with_failures", "running"].includes(row.status))
       throw new ApiError(
         409,
@@ -738,6 +765,12 @@ export async function retryBulkOperation(
           select 1 from mutation_operation m
           where m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
             and m.state = 'uncertain' and m.next_recovery_at is not null)))
+        -- A review child waiting on its reply's publish attempt is left to
+        -- the reply pipeline (retry runner, readback) and settled from it.
+        and not exists (
+          select 1 from publish_attempt pa
+          where pa.id = c.publish_attempt_id
+            and pa.status in ('started', 'accepted', 'retryable', 'ambiguous'))
       returning c.id`
     if (retried.length)
       await sql`update bulk_listing_operation set status = 'running', finished_at = null, updated_at = now() where id = ${operationId}`

@@ -147,6 +147,15 @@ export type ApprovedWork = {
    * verify.
    */
   approverSecurityVersion?: number | null
+  /**
+   * The work carries no batch-level approval: each item is decided under
+   * its own rules when it is sent (bulk review work, where every reply's
+   * approval is the review's own: lib/server/review-approval.ts and the
+   * publish gates in lib/server/publishing). The frozen two-person flag,
+   * the second-approver rule and the manager rule are then not this
+   * recheck's to apply; both people's grants for the actions still are.
+   */
+  perItemApproval?: boolean
 }
 
 export type ApprovedWorkRefusal =
@@ -184,9 +193,13 @@ export async function recheckApprovedWork(
   if (!work.connectionId || work.generation === null)
     return { ok: false, reason: "connection_changed", subject: "approver" }
   const policy = await currentApprovalPolicy(sql, work.organisationId)
-  if (policy.requireTwoPersonApproval !== work.requireTwoPersonApproval)
+  if (
+    !work.perItemApproval &&
+    policy.requireTwoPersonApproval !== work.requireTwoPersonApproval
+  )
     return { ok: false, reason: "approval_policy_changed", subject: "policy" }
   if (
+    !work.perItemApproval &&
     !secondApproverSatisfied(
       work.requireTwoPersonApproval,
       work.requestedBy,
@@ -213,7 +226,7 @@ export async function recheckApprovedWork(
   })
   if (!approver.ok)
     return { ok: false, reason: approver.reason, subject: "approver" }
-  if (!isManagerialRole(approver.scope.role))
+  if (!work.perItemApproval && !isManagerialRole(approver.scope.role))
     return { ok: false, reason: "approver_not_manager", subject: "approver" }
   return { ok: true, approver: approver.scope }
 }

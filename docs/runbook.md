@@ -1641,6 +1641,17 @@ approver is no longer an owner or admin), `approval_policy_changed`,
 security version the MFA stream records but this build cannot verify) were
 never sent either: fix access or the policy, then prepare a new preview.
 
+Review batches (bulk approve and template replies from the inbox, with
+`bulk_actions` on) show on the same batch page. `approval_withdrawn` means the
+approval was rejected or replaced after the batch started, so the reply was
+not sent; `submitted_for_approval` means the template reply was parked for
+someone who can publish. A child "Outcome unknown" with
+`response_ambiguous` or `publish_retry_scheduled` waits on the reply's own
+publish attempt: the job runner's reply retry or readback settles it, and
+the child follows; retrying the batch does not touch it. An interrupted
+review child is run again by the next tick (at most five times); each run
+reads Google back before sending, so it is never published twice.
+
 Two-person approval and business information: every business-information
 update needs a reviewed change set, and accepting Google's suggested update in
 one step is refused (`business_info_review_required`) while two-person

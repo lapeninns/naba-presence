@@ -308,4 +308,47 @@ describe("approval policy -- worker recheck", () => {
     })
     expect(recheck.mock.calls[1][1]).toMatchObject({ securityVersion: 7 })
   })
+
+  it("rechecks per-item work (bulk reviews) by its actions only", async () => {
+    // One person decides a review batch; each review keeps its own approval
+    // rules at publish, so the frozen flag, the second-approver rule and the
+    // manager rule are not the recheck's to apply.
+    const recheck = vi.fn(async () => allowed("member"))
+    const result = await recheckApprovedWork(
+      scriptedSql({ policy: TWO_PERSON }).sql,
+      work({
+        requestedBy: APPROVER,
+        requireTwoPersonApproval: false,
+        perItemApproval: true,
+        requesterAction: "request_approval",
+        approverAction: "request_approval",
+      }),
+      recheck
+    )
+    expect(result).toEqual({
+      ok: true,
+      approver: { userId: APPROVER, role: "member", canPublish: false },
+    })
+    expect((recheck.mock.calls as unknown[][])[1]?.[1]).toMatchObject({
+      action: "request_approval",
+      connectionId: CONNECTION,
+      generation: 4,
+    })
+    // Their grants still count.
+    const refused = vi.fn(async (): Promise<RecheckResult> => ({
+      ok: false,
+      reason: "action_denied",
+    }))
+    await expect(
+      recheckApprovedWork(
+        scriptedSql({ policy: TWO_PERSON }).sql,
+        work({ requestedBy: APPROVER, perItemApproval: true }),
+        refused
+      )
+    ).resolves.toEqual({
+      ok: false,
+      reason: "action_denied",
+      subject: "requester",
+    })
+  })
 })

@@ -10,6 +10,10 @@ import { lodgingFamily } from "@/lib/server/bulk-families/industry"
 import { photosFamily } from "@/lib/server/bulk-families/photos"
 import { placeActionsFamily } from "@/lib/server/bulk-families/place-actions"
 import { postDraftsFamily } from "@/lib/server/bulk-families/posts"
+import {
+  reviewApprovalFamily,
+  reviewTemplateReplyFamily,
+} from "@/lib/server/bulk-families/reviews"
 import type { BulkFamily } from "@/lib/server/bulk-families/types"
 
 /**
@@ -30,6 +34,8 @@ const FAMILIES: Record<BulkOperation, BulkFamily> = {
   food_menus: foodMenusFamily as BulkFamily,
   post_draft: postDraftsFamily as BulkFamily,
   photos: photosFamily as BulkFamily,
+  review_approval: reviewApprovalFamily as BulkFamily,
+  review_template_reply: reviewTemplateReplyFamily as BulkFamily,
 }
 
 export function bulkFamily(operation: BulkOperation): BulkFamily {

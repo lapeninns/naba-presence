@@ -20,7 +20,12 @@ import { ApiError } from "@/lib/server/http"
  * and reads it back before sending.
  */
 export function bulkIntentId(childId: string, attempt: number): string {
-  const hex = sha256(`bulk_listing_child:${childId}:${attempt}`)
+  return uuidFromSeed(`bulk_listing_child:${childId}:${attempt}`)
+}
+
+/** A stable UUID for a seed: the same seed always names the same row. */
+export function uuidFromSeed(seed: string): string {
+  const hex = sha256(seed)
   // RFC 9562 layout: version 8 (custom), variant 10.
   return [
     hex.slice(0, 8),

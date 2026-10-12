@@ -8,6 +8,7 @@ import type {
   BulkOperationInput,
   BulkResourceKey,
 } from "@/lib/domain/bulk-merge"
+import type { LocationAction } from "@/lib/server/authz/actor"
 import type { GbpWriteSurface } from "@/lib/server/env"
 import type { GbpLocationContext } from "@/lib/server/gbp-management"
 import type { Session } from "@/lib/server/session"
@@ -90,8 +91,18 @@ export type DispatchOutcome = {
    * still unresolved). Defaults to this claim's receipt.
    */
   operationId?: string
+  /**
+   * A review child's reply publish attempt (lib/server/publishing), its
+   * receipt: an unresolved child settles from it (`reconcileAttempt`).
+   */
+  publishAttemptId?: string
 } & (
-  | { kind: "succeeded"; confirmation: "confirmed" | "unrecorded" }
+  | {
+      kind: "succeeded"
+      confirmation: "confirmed" | "unrecorded"
+      /** What the success was, when it is not plainly "applied" (a reply submitted for approval). */
+      code?: string
+    }
   | { kind: "conflict"; code: string }
   | { kind: "expired" }
   | { kind: "deferred"; code: string }
@@ -159,4 +170,29 @@ export type BulkFamily<TInput extends BulkOperationInput = BulkOperationInput> =
       child: { organisationId: string; childId: string; locationId: string },
       verdict: ReconcileOutcome
     ): Promise<void>
+    /**
+     * What the runner rechecks before dispatch, when it is not a listing
+     * change approved by a manager (lib/server/authz/approval-policy.ts
+     * `recheckApprovedWork`). Review families are decided per review: the
+     * person who started the batch is its only actor, and each review's
+     * own approval rules apply at publish.
+     */
+    recheck?: {
+      requesterAction: LocationAction
+      approverAction: LocationAction
+      perItemApproval: true
+    }
+    /**
+     * Settles an unresolved child from the reply publish attempt it waits
+     * on (review families), inside the reconcile transaction. Null while
+     * the attempt is unsettled.
+     */
+    reconcileAttempt?(
+      sql: TransactionSql,
+      child: {
+        organisationId: string
+        childId: string
+        publishAttemptId: string
+      }
+    ): Promise<ReconcileOutcome | null>
   }
