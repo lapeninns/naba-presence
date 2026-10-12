@@ -96,8 +96,9 @@ minutes before a sensitive action: a route handler declares
 authenticator app. The handlers that declare it (team, Google connection and
 onboarding writes, every publish, approve and execute path, settings,
 legal holds and privacy requests) are pinned by
-`tests/mfa-step-up-contract.test.ts`; bulk review approval and editing a
-published post call `requireRecentMfa` for that branch only. Reads,
+`tests/mfa-step-up-contract.test.ts`; bulk review approval, editing a
+published post and resuming a paused schedule call `requireRecentMfa` for
+that branch only. Reads,
 enrollment, exports and workspace switching stay at aal1, and members and
 viewers are not held to it. `POST /api/auth/mfa/step-up` takes the password
 and a current code (primary or backup factor; abuse scopes `mfa_verify` and
@@ -591,7 +592,9 @@ The env flags above are read once per process, so on their own they take a
 redeploy. `ops_pause_control` (migration 0090) is the hot layer on top:
 one row per scope (the env switches' own names, plus `scheduled_post`,
 `bulk`, `mutation_recover`, `invitation_email` (invitation email delivery),
-and `billing` reserved for work that lands later), read through `lib/server/pause-controls.ts` with a
+and `billing`, which holds Stripe event processing on the job tick and the
+hourly `/api/billing/reconcile` tick while the Stripe webhook receiver keeps
+recording receipts), read through `lib/server/pause-controls.ts` with a
 5-second cache. A scope runs only when its env flag is on **and** its row is
 not paused: the env flag stays the hard override, and a row can add a pause
 but never lift one. The checks sit where work starts:
@@ -729,8 +732,10 @@ without one, `rejected` for Google's own 4xx refusal, `uncertain` for an
 ambiguous write, otherwise `failed`. `GET /api/mutations/{id}`
 (`app/api/mutations/[operationId]/route.ts`) returns the receipt by operation
 id or by intent id, so a client that lost the answer can ask what happened;
-a receipt follows its location's visibility. `approval_ref`,
-`security_version` and the recovery columns are reserved for later slices.
+a receipt follows its location's visibility. `security_version` (0105) is
+recorded with each write (`lib/server/mutation-operations.ts`), and scheduled
+and bulk writes record their `approval_ref`; only the comparison of the
+recorded version in `mutation_recover` is still open.
 `recheckAuthorisation` (`lib/server/authz/actor.ts`) takes the recorded
 `google_connection_id` and `connection_generation` together: a relink to
 another connection is `connection_changed`, the same connection holding
@@ -2336,6 +2341,10 @@ With the env flag on, an organisation with no billing row is enforced too.
   session switching, privacy export and requests, legal holds, Google
   disconnect, unlinking, invitation accept and revoke, member removal,
   cancelling or pausing queued work and a person's own notification state.
+  Resuming a paused schedule shares its route with pausing and cancelling
+  but re-arms an approved publication, so that handler refuses `resume`
+  while read-only (and without a recent two-step verification), like
+  retrying a bulk batch.
   `ENTITLEMENT_EXEMPT_ROUTES` lists them, and
   `tests/route-entitlements.test.ts` fails when a route and the list disagree.
 - Workers: a publish `retry` for a read-only organisation is held for an hour

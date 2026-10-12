@@ -93,7 +93,8 @@ without bypassing RLS. It contains:
   connection is overdue)
 - `schedulerHeartbeatAt` and `schedulerHeartbeatStale`
 - `schedulerTicks`, one entry per tick (`jobs`, `reconcile`, `retention`,
-  `performance`, `keywords`, `presence-resources`, `sweep`, `health`) with
+  `performance`, `keywords`, `presence-resources`, `sweep`, `health`,
+  `billing-reconcile`) with
   `lastCompletedAt`, `staleAfterSeconds` and `stale`, and the run ledger
   (0089): `neverCompleted`, `registeredAt`, `lastStartedAt`, `lastSkippedAt`,
   `consecutiveSkips`, `lockWedged`, `lastFailedAt`, `lastErrorCode`,
@@ -125,7 +126,13 @@ is stamped by that tick's own lease **on a completed run**, so a tick that never
 finishes reports stale. `staleAfterSeconds` is a small multiple of that tick's
 documented interval — one missed run is noise, a stopped tick is not — and it
 is served by the endpoint rather than hard-coded in the monitor, so an interval
-change moves the threshold with it. Since migration 0046 the sweep's fleet
+change moves the threshold with it. `billing-reconcile` (the hourly
+`/api/billing/reconcile` cron) goes stale after 10,800 seconds (three hours);
+it completes with nothing to do while billing is disabled, so its absence is a
+fault unless the operator `billing` scope pauses it. A tick its pause scope
+holds (`TICK_PAUSE_SCOPES` in `lib/server/ops-liveness.ts`: `jobs`, `sync` for
+reconcile and sweep, `retention`, `notifications` for health, `billing` for
+billing-reconcile) reports `paused` and raises no stale alert. Since migration 0046 the sweep's fleet
 enqueue takes `naba:sweep`, so `sweep` is listed like the other ticks.
 
 Since migration 0089 each row is also the tick's run ledger

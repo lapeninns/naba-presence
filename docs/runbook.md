@@ -246,8 +246,9 @@ where organisation_id = '<organisation id>';
 An enforced read-only organisation gets 402 `billing_read_only` on new work;
 its publish retries and bulk children wait an hour at a time instead of
 reaching Google, and its scheduled posts are held like a publishing pause:
-each runner tick re-checks the schedule, a due occurrence waits while it is
-inside its grace period and is then marked missed. The `schedule_blocked`
+each runner tick re-checks the schedule, a due occurrence waits only inside
+the occurrence's 5-minute dispatch window and is then recorded missed
+(`outside_dispatch_window`), never published late. The `schedule_blocked`
 incident (reason `billing_read_only`) opens once per occurrence, not per
 tick. Its read-backs and syncs keep running.
 Linking past the plan's location limit answers 402 `location_limit_reached`
@@ -458,7 +459,9 @@ row per scope: `jobs`, `publish`, `sync`, `notifications`, `retention`,
 `placeActions`, `foodMenus`, `performance`, `keywords`), `scheduled_post`,
 `bulk`, `invitation_email` (invitation emails: nothing is claimed while it is
 paused, queued rows stay pending and go out after it lifts; Copy link keeps
-working), the reserved `billing`, plus `mutation_recover` (the
+working), `billing` (Stripe event processing on the job tick and the hourly
+`/api/billing/reconcile` tick; the webhook receiver keeps recording receipts,
+which are processed after the pause lifts), plus `mutation_recover` (the
 uncertain-write recovery kind).
 A paused row has the same effect as its env flag being off, at the same
 places: the runner's claim, provider dispatch (`runGbpWrite`, the reply
@@ -490,7 +493,8 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   be read, claims and Google writes stop (fail closed) and the answer says
   `pauseStateUnknown: true`; the liveness report keeps alerting (fail open).
 - A tick held by its scope (`jobs`, `sync` for reconcile and sweep,
-  `retention`, `notifications` for health) reports `paused: true` in
+  `retention`, `notifications` for health, `billing` for billing-reconcile)
+  reports `paused: true` in
   `schedulerTicks` and raises no stale or never-completed alert while paused.
   A wedged lease is still alerted. The performance and keywords ticks only
   enqueue, keep completing under a pause of their scope, and stay alerted.
