@@ -65,7 +65,8 @@ const SCHEMA = `
   create role naba_app_runtime;
   create table schema_migration (version text primary key);
   create table organisation (id uuid primary key);
-  -- security_version (0200): beginOperation stamps the actor's.
+  -- security_version (0200): beginOperation records the requesting
+  -- session's, else the actor's current one.
   create table app_user (
     id uuid primary key,
     security_version integer not null default 1
@@ -223,7 +224,7 @@ describe("mutation operation ledger", () => {
       attempt_id: result.attemptId,
       state: "confirmed_applied",
       approval_ref: null,
-      // The actor's version when the intent was recorded.
+      // No session on this write: the actor's version when it was recorded.
       security_version: 3,
     })
     expect(result.operationId).toBe(operation.id)
@@ -432,6 +433,22 @@ describe("mutation operation ledger", () => {
       state: "confirmed_applied",
     })
     expect(mutations).toBe(2)
+  })
+
+  it("records the requesting session's security version, not the actor's current one", async () => {
+    // The route wrapper passes the session's version on the ambient intent;
+    // the actor's row has moved on to 3 since that session was minted.
+    await withMutationIntent(
+      INTENT,
+      () =>
+        runGbpWrite(base("a"), {
+          withTenant,
+          requireDispatch: dispatchOpen,
+        }),
+      { securityVersion: 2 }
+    )
+    const [operation] = await operations()
+    expect(operation.security_version).toBe(2)
   })
 
   /**

@@ -420,6 +420,38 @@ describeDatabase(
       expect((await stored(postId)).approvedBy).toBe(second.userId)
     })
 
+    it("does not let an approval stand once its approver was recovered", async () => {
+      const { owner, second, locationId, allowCreate } = await twoPersonTenant({
+        failCreate: true,
+      })
+      const postId = await createDraft(owner.cookie, locationId, "Quiz night")
+      await send(owner.cookie, "POST", url(locationId, `/${postId}/publish`))
+      await send(
+        second.cookie,
+        "POST",
+        url(locationId, `/${postId}/approval`),
+        { decision: "approve", expectedRevision: 1 }
+      )
+      expect((await stored(postId)).status).toBe("failed")
+
+      // Operator MFA recovery (0201) bumps the approver's security version:
+      // what they approved before it no longer counts, so the retry parks.
+      await admin`
+        update app_user set security_version = security_version + 1
+        where id = ${second.userId}
+      `
+      allowCreate()
+      const writesBefore = providerWrites().length
+      const retried = await send(
+        owner.cookie,
+        "POST",
+        url(locationId, `/${postId}/publish`)
+      )
+      expect(retried.status, await retried.clone().text()).toBe(202)
+      expect(providerWrites()).toHaveLength(writesBefore)
+      expect((await stored(postId)).status).toBe("awaiting_approval")
+    })
+
     it("lets the approver retry the publish they approved", async () => {
       const { owner, second, locationId, allowCreate } = await twoPersonTenant({
         failCreate: true,

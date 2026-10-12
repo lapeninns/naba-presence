@@ -93,14 +93,21 @@ and `mutation_approval_decision` gain `authorised_aal`,
 `gbp_change_set`, `post_publication_schedule` and `bulk_listing_operation`
 the matching `approved_*` columns (a schedule revision clears them). `publish_attempt` records
 who authorised the reply mutation (`authorised_by`, assurance, security
-version and `authorised_connection_id`), and `retryPublishAttempt`
-(`lib/server/publishing/retry.ts`) re-decides it through
+version, `authorised_connection_id` and the approval policy it passed), and
+`retryPublishAttempt` (`lib/server/publishing/retry.ts`) re-decides it through
 `recheckAuthorisation` before every replay: a removed member, a lost publish
-grant, a changed connection or a bumped security version settles the attempt
-`failed` (`authorisation_revoked`, reason in the event) with no provider
-call, and a row with nobody recorded fails closed
-(`authorisation_unverifiable`). `beginOperation` stamps the actor's security
-version on `mutation_operation`. Operator recovery is
+grant, a changed connection, a bumped security version or (for a publish) a
+changed approval policy settles the attempt `failed` (`authorisation_revoked`,
+reason in the event) with no provider call, and a row with nobody or no policy
+recorded fails closed (`authorisation_unverifiable`); 0201 backfills the
+attempts in flight when it runs. `gbp_local_post_attempt` records the
+assurance beside `actor_user_id` (a scheduled publish records its approval's).
+A security version bump also voids stored reply and post approvals, a
+reviewed change set at execute, and approved schedules and bulk listing
+operations in their runners, wherever a version was recorded. `beginOperation` records the requesting
+session's security version on `mutation_operation` (the actor's current one
+for a worker re-running a recorded intent). It is recorded for audit and
+nothing compares it yet; `mutation_recover` will once it rechecks (P03-S6). Operator recovery is
 `scripts/mfa-recover.mjs` (`pnpm ops:mfa-recover`), outside the app runtime:
 `recover_user_mfa` (owner connection only) bumps `security_version`, deletes
 sessions and tickets, zeroes `mfa_factor_count` and audits

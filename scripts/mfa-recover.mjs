@@ -19,8 +19,10 @@ import { describeDatabaseTarget } from "./migration-rules.mjs"
 //
 //   1. recover_user_mfa(user, operator, reason) (migration 0201), in the
 //      database: bumps app_user.security_version (every session the person
-//      holds stops resolving and every dispatch they queued is refused by
-//      recheckAuthorisation), deletes their sessions and pending MFA tickets,
+//      holds stops resolving, and what they authorised or approved before it
+//      is voided wherever the recorded version is compared: reply retries,
+//      stored reply and post approvals, change sets at execute, the schedule
+//      and bulk listing runners), deletes their sessions and pending MFA tickets,
 //      zeroes mfa_factor_count, and writes one `user.mfa_recovered` audit row
 //      per organisation they belong to, naming the operator and the reason.
 //   2. At the auth provider (Supabase Auth admin API, service-role key):

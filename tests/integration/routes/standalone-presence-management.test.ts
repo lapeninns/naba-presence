@@ -500,6 +500,13 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     expect(await self.json()).toMatchObject({ error: "second_approver_required" })
     const approved = await fetch(url, { method: "POST", headers: jsonHeaders(reviewer.cookie, "second-services"), body: JSON.stringify(approval) })
     expect(approved.status).toBe(200)
+    // Operator MFA recovery since the approval (0201) voids it at execute.
+    await admin`update app_user set security_version = security_version + 1 where id = ${reviewer.userId}`
+    const writesBeforeRecovered = google.calls.filter((call) => call.method === "PATCH").length
+    const recovered = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "recovered-services"), body: JSON.stringify({ ...body, changeSetId: change.id, operation: "update_location", confirmation: "publish_business_information_to_google" }) })
+    expect(recovered.status).toBe(409)
+    expect(await recovered.json()).toMatchObject({ error: "approval_actor_access_changed" })
+    expect(google.calls.filter((call) => call.method === "PATCH")).toHaveLength(writesBeforeRecovered)
     await admin`delete from member where organisation_id = ${owner.organisationId} and user_id = ${reviewer.userId}`
     const revoked = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "revoked-services"), body: JSON.stringify({ ...body, changeSetId: change.id, operation: "update_location", confirmation: "publish_business_information_to_google" }) })
     expect(revoked.status).toBe(409)

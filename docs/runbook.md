@@ -652,13 +652,52 @@ DIRECT_DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
 
 `recover_user_mfa` (0201; the runtime role cannot execute it) bumps the
 person's `security_version`, so every session they hold stops resolving and
-every queued dispatch they authorised is refused; deletes their sessions and
+what they authorised or approved before it is voided wherever the recorded
+version is compared: queued reply retries, stored reply and post approvals,
+reviewed change sets at execute, and scheduled posts and bulk listing
+operations they approved (the runners block or fail them as
+`approval_invalid`). Records made before 0201 carry no version and are judged
+on membership and role alone. It also deletes their sessions and
 pending MFA tickets; zeroes `mfa_factor_count`, so their next sensitive action
 asks them to enroll again; and writes one `user.mfa_recovered` audit row per
 organisation naming the operator and reason. The script then deletes every
 TOTP factor at the provider. If that step fails the person is signed out
 everywhere but still needs a code; re-run it (safe). `--skip-provider` does
 only the database step; without it a missing key refuses to start.
+
+#### Reply attempts in flight when 0201 is applied
+
+0201 backfills who authorised each in-flight reply attempt (from the
+`publish_requested` / `delete_requested` audit row, or the reply's publisher)
+so the retry worker can recheck it. A row it cannot attribute fails closed
+(`authorisation_unverifiable`) on its next retry, and its reply is marked
+failed for the person to send again. Before deploying, count them with the
+owner connection:
+
+```sql
+select count(*) from publish_attempt pa
+join review_reply rr on rr.id = pa.review_reply_id
+where pa.status in ('started', 'accepted', 'retryable', 'ambiguous')
+  and not (pa.operation = 'publish' and rr.published_by is not null)
+  and not exists (
+    select 1 from audit_log a
+    where a.organisation_id = pa.organisation_id
+      and a.action in ('review.reply.publish_requested',
+                       'review.reply.delete_requested')
+      and a.subject_type = 'review'
+      and a.subject_id = rr.review_id::text
+      and a.metadata->>'publishAttemptId' = pa.id::text
+      and a.actor_user_id is not null
+  );
+```
+
+and after it, find the ones left unattributed:
+
+```sql
+select organisation_id, id, operation, status from publish_attempt
+where status in ('started', 'accepted', 'retryable', 'ambiguous')
+  and authorised_by is null;
+```
 
 ### Support impersonation
 

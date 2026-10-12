@@ -110,6 +110,14 @@ export async function loadPublishRecord(
           -- Two people means two people: the draft's author approving it
           -- is the author publishing it, whoever pressed Request.
           and ad.decided_by is distinct from d.created_by
+          -- Operator MFA recovery since the approval (0201) voids it.
+          and (
+            ad.authorised_security_version is null
+            or ad.authorised_security_version = (
+              select u.security_version from app_user u
+              where u.id = ad.decided_by
+            )
+          )
       ) as has_qualifying_approval,
       coalesce(rr.publish_generation, 0) as publish_generation
     from review r

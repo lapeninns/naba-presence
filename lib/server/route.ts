@@ -411,7 +411,10 @@ export function route<
       }
       // Only impersonated sessions and requests with an intent pay for an
       // async context; every other request calls the handler as before.
-      const run = () => withMutationIntent(intentId, () => config.handler(ctx))
+      const run = () =>
+        withMutationIntent(intentId, () => config.handler(ctx), {
+          securityVersion: session?.securityVersion ?? null,
+        })
       const result = await (session?.supportActor
         ? withAuditActor(
             {

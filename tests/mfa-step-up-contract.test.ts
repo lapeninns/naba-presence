@@ -27,6 +27,8 @@ const STEP_UP: readonly string[] = [
   "PATCH app/api/members/route.ts",
   "DELETE app/api/members/route.ts",
   "PUT app/api/members/[userId]/client-access/route.ts",
+  "POST app/api/clients/[clientId]/locations/route.ts",
+  "DELETE app/api/clients/[clientId]/locations/route.ts",
   "POST app/api/invitations/route.ts",
   "POST app/api/google/connect/start/route.ts",
   "POST app/api/google/connections/[id]/disconnect/route.ts",
@@ -92,6 +94,9 @@ const IN_HANDLER: Record<string, string> = {
   "POST app/api/reviews/bulk/route.ts": "app/api/reviews/bulk/route.ts",
   // Editing a published post republishes it; editing a draft does not.
   "PATCH app/api/locations/[id]/posts/[postId]/route.ts": "lib/server/posts.ts",
+  // Detaching every location; renaming or recolouring a client does not.
+  "PATCH app/api/clients/[clientId]/route.ts":
+    "app/api/clients/[clientId]/route.ts",
 }
 
 /** Routes that must stay reachable at aal1. */

@@ -105,7 +105,10 @@ export function attemptAuthorisation(
 /**
  * Re-arm a settled (`retryable`) row as a fresh `started` intent. Publish
  * re-arms also pin the intended body; delete re-arms leave it untouched.
- * The person re-arming it becomes the one who authorised it.
+ * The person re-arming it becomes the one who authorised it, under the
+ * organisation's approval policy as it stands in this transaction (the one
+ * the approval gate just passed): the retry worker refuses a publish replay
+ * once that policy changed.
  */
 export async function rearmAttempt(
   sql: TransactionSql,
@@ -126,6 +129,14 @@ export async function rearmAttempt(
             authorised_mfa_verified_at = ${auth.assurance.mfaVerifiedAt},
             authorised_security_version = ${auth.assurance.securityVersion},
             authorised_connection_id = ${auth.connectionId},
+            authorised_approval_required = (
+              select o.approval_required from organisation o
+              where o.id = publish_attempt.organisation_id
+            ),
+            authorised_two_person_approval = (
+              select o.require_two_person_approval from organisation o
+              where o.id = publish_attempt.organisation_id
+            ),
             status = 'started',
             attempt_no = attempt_no + 1,
             provider_http_status = null,
@@ -145,6 +156,14 @@ export async function rearmAttempt(
             authorised_mfa_verified_at = ${auth.assurance.mfaVerifiedAt},
             authorised_security_version = ${auth.assurance.securityVersion},
             authorised_connection_id = ${auth.connectionId},
+            authorised_approval_required = (
+              select o.approval_required from organisation o
+              where o.id = publish_attempt.organisation_id
+            ),
+            authorised_two_person_approval = (
+              select o.require_two_person_approval from organisation o
+              where o.id = publish_attempt.organisation_id
+            ),
             status = 'started',
             attempt_no = attempt_no + 1,
             provider_http_status = null,
@@ -197,7 +216,9 @@ export async function insertAttempt(
       authorised_aal,
       authorised_mfa_verified_at,
       authorised_security_version,
-      authorised_connection_id
+      authorised_connection_id,
+      authorised_approval_required,
+      authorised_two_person_approval
     )
     values (
       ${input.organisationId},
@@ -214,7 +235,9 @@ export async function insertAttempt(
       ${auth.assurance.aal},
       ${auth.assurance.mfaVerifiedAt},
       ${auth.assurance.securityVersion},
-      ${auth.connectionId}
+      ${auth.connectionId},
+      (select approval_required from organisation where id = ${input.organisationId}),
+      (select require_two_person_approval from organisation where id = ${input.organisationId})
     )
     on conflict (organisation_id, idempotency_key) do nothing
     returning id::text as id, attempt_no

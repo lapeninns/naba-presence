@@ -233,6 +233,33 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "published",
       summary: "Sunday roast is back",
     })
+    // The scheduled dispatch records the approval's assurance (0201).
+    const [attempt] = await admin<
+      { actor: string; aal: string | null; version: number | null }[]
+    >`
+      select actor_user_id::text as actor, authorised_aal as aal,
+        authorised_security_version as version
+      from gbp_local_post_attempt where post_id = ${done.post_id}`
+    expect(attempt).toEqual({ actor: t.owner.userId, aal: "aal1", version: 1 })
+  })
+
+  it("blocks without publishing when the approver was recovered after approving", async () => {
+    const t = await tenant()
+    const s = await t.schedule(await t.draft(), {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    // Operator MFA recovery (recover_user_mfa) bumps the version.
+    await admin`update app_user set security_version = security_version + 1 where id = ${t.owner.userId}`
+    await t.age((await t.occurrences(s.id))[0].id, 0.1)
+    await tick()
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "blocked",
+      status_reason: "approval_invalid",
+    })
+    expect(creates()).toHaveLength(0)
   })
 
   it("requires a different approver under two-person policy and invalidates approval when content is edited", async () => {

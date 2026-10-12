@@ -228,7 +228,9 @@ describeDatabase("durable background jobs", () => {
         authorised_by,
         authorised_aal,
         authorised_security_version,
-        authorised_connection_id
+        authorised_connection_id,
+        authorised_approval_required,
+        authorised_two_person_approval
       )
       values (
         ${subject.owner.organisationId},
@@ -254,7 +256,10 @@ describeDatabase("durable background jobs", () => {
           from review r
           join external_location e on e.id = r.external_location_id
           where r.id = ${subject.reviewId}
-        )
+        ),
+        -- The approval policy it was queued under (0201).
+        (select approval_required from organisation where id = ${subject.owner.organisationId}),
+        (select require_two_person_approval from organisation where id = ${subject.owner.organisationId})
       )
       returning id::text as id
     `

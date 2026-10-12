@@ -771,7 +771,10 @@ export async function approveListingChange<TBody, TResult>(
           body: parsed.data,
           requestId: input.requestId,
         }),
-      { followers: [approved.id] }
+      {
+        followers: [approved.id],
+        securityVersion: input.session.securityVersion ?? null,
+      }
     )
   } catch (error) {
     await settle({

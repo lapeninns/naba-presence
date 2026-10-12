@@ -5,15 +5,35 @@ begin;
 --
 -- 1. publish_attempt records who authorised the reply mutation and under
 --    what: the person (authorised_by), the session's assurance level and
---    when its code was verified, the person's security_version at the time
---    and the Google connection the mutation was prepared against. The retry
---    worker (lib/server/publishing/retry.ts) re-decides from these before
---    every re-dispatch: the person must still be a member allowed to publish
---    at the location, the location must still be served by that connection,
---    and the person's security_version must not have moved on (operator MFA
---    recovery, scripts/mfa-recover.mjs). A row with no authorised_by (queued
---    before this migration, or its person deleted) cannot be rechecked and is
---    settled failed rather than sent.
+--    when its code was verified, the person's security_version at the time,
+--    the Google connection the mutation was prepared against and the
+--    organisation's approval policy (approval_required,
+--    require_two_person_approval) it passed. The retry worker
+--    (lib/server/publishing/retry.ts) re-decides from these before every
+--    re-dispatch: the person must still be a member allowed to publish at the
+--    location, the location must still be served by that connection, the
+--    person's security_version must not have moved on (operator MFA
+--    recovery, scripts/mfa-recover.mjs), and a publish must still be under
+--    the policy it was queued under (turning approval on must not let a
+--    queued reply skip it). A row with no authorised_by (its person deleted)
+--    cannot be rechecked and is settled failed rather than sent.
+--
+--    Live rows: attempts still in flight when this runs (started, accepted,
+--    retryable, ambiguous) are backfilled so a reply queued just before the
+--    release is rechecked, not dropped: authorised_by from the
+--    publish_requested / delete_requested audit row naming the attempt (a
+--    publish falls back to review_reply.published_by),
+--    authorised_connection_id from the review's external location, and the
+--    policy from the organisation now. Assurance and security_version stay
+--    null (unknown), so those rows are rechecked on membership, grant,
+--    connection and policy only. A row no audit or reply names stays null
+--    and fails closed (authorisation_unverifiable). Count them before
+--    deploying (docs/runbook.md, "MFA recovery").
+--
+--    gbp_local_post_attempt records the same assurance beside its existing
+--    actor_user_id (who caused the dispatch): the session's, or for a
+--    scheduled publish the schedule approval's. Evidence only: post
+--    dispatches are not retried by a worker.
 --
 -- 2. Every approval records the assurance it was given with: the reply
 --    approval_decision, the post_approval_decision (0081), the listing
@@ -28,8 +48,13 @@ begin;
 --    authenticator apps (scripts/mfa-recover.mjs is the entry point, which
 --    also deletes the factors at the auth provider). It bumps the person's
 --    security_version, which ends every session they hold (lookupSession)
---    and stops every queued dispatch they authorised
---    (recheckAuthorisation); deletes their sessions and pending MFA tickets;
+--    and voids what they authorised or approved before it, wherever the
+--    recorded version is compared: reply retries (recheckAuthorisation),
+--    stored reply and post approvals (the qualifying-approval queries),
+--    reviewed change sets at execute, and the schedule and bulk listing
+--    runners. Records from before this migration carry no version and are
+--    judged on membership and role alone. It deletes their sessions and
+--    pending MFA tickets;
 --    zeroes mfa_factor_count, so the next sensitive action asks them to
 --    enroll afresh; and writes one user.mfa_recovered audit row per
 --    organisation they belong to. Not for the application: execute is
@@ -47,7 +72,47 @@ alter table publish_attempt
   add column if not exists authorised_mfa_verified_at timestamptz,
   add column if not exists authorised_security_version integer
     check (authorised_security_version is null or authorised_security_version >= 1),
-  add column if not exists authorised_connection_id uuid;
+  add column if not exists authorised_connection_id uuid,
+  add column if not exists authorised_approval_required boolean,
+  add column if not exists authorised_two_person_approval boolean;
+
+update publish_attempt pa
+set
+  authorised_by = coalesce(
+    (
+      select a.actor_user_id
+      from audit_log a
+      where a.organisation_id = pa.organisation_id
+        and a.action in (
+          'review.reply.publish_requested',
+          'review.reply.delete_requested'
+        )
+        and a.subject_type = 'review'
+        and a.subject_id = rr.review_id::text
+        and a.metadata->>'publishAttemptId' = pa.id::text
+        and a.actor_user_id is not null
+      order by a.created_at desc
+      limit 1
+    ),
+    case when pa.operation = 'publish' then rr.published_by end
+  ),
+  authorised_connection_id = e.google_connection_id,
+  authorised_approval_required = o.approval_required,
+  authorised_two_person_approval = o.require_two_person_approval
+from review_reply rr
+join review r on r.id = rr.review_id
+join external_location e on e.id = r.external_location_id
+join organisation o on o.id = rr.organisation_id
+where rr.id = pa.review_reply_id
+  and pa.status in ('started', 'accepted', 'retryable', 'ambiguous')
+  and pa.authorised_by is null;
+
+alter table gbp_local_post_attempt
+  add column if not exists authorised_aal text
+    check (authorised_aal is null or authorised_aal in ('aal1', 'aal2')),
+  add column if not exists authorised_mfa_verified_at timestamptz,
+  add column if not exists authorised_security_version integer
+    check (authorised_security_version is null or authorised_security_version >= 1);
 
 alter table approval_decision
   add column if not exists authorised_aal text

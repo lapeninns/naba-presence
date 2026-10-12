@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -134,6 +136,14 @@ describeDatabase("durable publish lifecycle", () => {
         userId?: string | null
         securityVersion?: number | null
         connectionId?: string | null
+        /**
+         * The approval policy it was queued under. Defaults to the
+         * organisation's current one; null models a row with none recorded.
+         */
+        policy?: {
+          approvalRequired: boolean
+          requireTwoPersonApproval: boolean
+        } | null
       }
     }
   ) {
@@ -143,6 +153,18 @@ describeDatabase("durable publish lifecycle", () => {
       connectionId: fixture.connectionId,
       ...input.authorisation,
     }
+    const [current] = await admin<
+      { approvalRequired: boolean; requireTwoPersonApproval: boolean }[]
+    >`
+      select
+        approval_required as "approvalRequired",
+        require_two_person_approval as "requireTwoPersonApproval"
+      from organisation where id = ${fixture.owner.organisationId}
+    `
+    const policy =
+      input.authorisation?.policy === undefined
+        ? current
+        : input.authorisation.policy
     const bodyHash = sha256(fixture.body)
     const idempotencyKey = sha256(
       `${fixture.owner.organisationId}:${fixture.review.reviewId}:0:${bodyHash}`
@@ -179,7 +201,9 @@ describeDatabase("durable publish lifecycle", () => {
         authorised_by,
         authorised_aal,
         authorised_security_version,
-        authorised_connection_id
+        authorised_connection_id,
+        authorised_approval_required,
+        authorised_two_person_approval
       )
       values (
         ${fixture.owner.organisationId},
@@ -197,7 +221,9 @@ describeDatabase("durable publish lifecycle", () => {
         ${authorisation.userId},
         ${authorisation.userId ? "aal1" : null},
         ${authorisation.securityVersion},
-        ${authorisation.connectionId}
+        ${authorisation.connectionId},
+        ${policy?.approvalRequired ?? null},
+        ${policy?.requireTwoPersonApproval ?? null}
       )
       returning id::text as id
     `
@@ -259,6 +285,25 @@ describeDatabase("durable publish lifecycle", () => {
       operation: "publish",
     })
     expect(response.status, await response.clone().text()).toBe(200)
+    // The intent records the approval policy it passed (0201), so a retry
+    // can tell when it changed.
+    const [recorded] = await admin<
+      { matches: boolean; approvalRequired: boolean | null }[]
+    >`
+      select
+        pa.authorised_approval_required = o.approval_required
+          and pa.authorised_two_person_approval = o.require_two_person_approval
+          as matches,
+        pa.authorised_approval_required as "approvalRequired"
+      from publish_attempt pa
+      join review_reply rr on rr.id = pa.review_reply_id
+      join organisation o on o.id = pa.organisation_id
+      where rr.review_id = ${fixture.review.reviewId}
+      order by pa.started_at desc
+      limit 1
+    `
+    expect(recorded.approvalRequired).not.toBeNull()
+    expect(recorded.matches).toBe(true)
     const [settled] = await admin<{ status: string }[]>`
       select pa.status
       from publish_attempt pa
@@ -662,6 +707,106 @@ describeDatabase("durable publish lifecycle", () => {
         code: "authorisation_revoked",
         reason: "security_version_changed",
       })
+    }, 30_000)
+
+    it("refuses a publish queued before approval was turned on", async () => {
+      const { fixture, seeded } = await queued({
+        policy: { approvalRequired: false, requireTwoPersonApproval: false },
+      })
+      await admin`
+        update organisation
+        set approval_required = true
+        where id = ${fixture.owner.organisationId}
+      `
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toEqual({
+        status: "failed",
+        code: "authorisation_revoked",
+        publishStatus: "failed",
+        reason: "policy_changed",
+      })
+    }, 30_000)
+
+    it("refuses a publish queued before two-person approval was turned on", async () => {
+      const { fixture, seeded } = await queued()
+      await admin`
+        update organisation
+        set require_two_person_approval = not require_two_person_approval
+        where id = ${fixture.owner.organisationId}
+      `
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toMatchObject({
+        status: "failed",
+        code: "authorisation_revoked",
+        reason: "policy_changed",
+      })
+    }, 30_000)
+
+    it("refuses a publish with no approval policy recorded", async () => {
+      const { fixture, seeded } = await queued({ policy: null })
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(0)
+      expect(settled).toMatchObject({
+        status: "failed",
+        code: "authorisation_unverifiable",
+        reason: "policy_missing",
+      })
+    }, 30_000)
+
+    it("rechecks and replays a row queued before 0201 once backfilled", async () => {
+      const { fixture, seeded } = await queued({
+        userId: null,
+        securityVersion: null,
+        connectionId: null,
+        policy: null,
+      })
+      await admin`
+        insert into audit_log (
+          organisation_id, actor_user_id, action, subject_type, subject_id,
+          metadata
+        )
+        values (
+          ${fixture.owner.organisationId}, ${fixture.owner.userId},
+          'review.reply.publish_requested', 'review',
+          ${fixture.review.reviewId},
+          ${admin.json({ publishAttemptId: seeded.attemptId })}
+        )
+      `
+      // The live-row backfill exactly as 0201 runs it.
+      const migration = readFileSync(
+        join(process.cwd(), "supabase/migrations/0201_authorised_dispatch.sql"),
+        "utf8"
+      )
+      const start = migration.indexOf("update publish_attempt pa")
+      const backfill = migration.slice(start, migration.indexOf(";", start))
+      expect(start).toBeGreaterThan(0)
+      await admin.unsafe(backfill)
+      const [row] = await admin<
+        {
+          by: string | null
+          connection: string | null
+          version: number | null
+          policyRecorded: boolean
+        }[]
+      >`
+        select authorised_by::text as by,
+          authorised_connection_id::text as connection,
+          authorised_security_version as version,
+          authorised_approval_required is not null
+            and authorised_two_person_approval is not null as "policyRecorded"
+        from publish_attempt where id = ${seeded.attemptId}
+      `
+      expect(row).toEqual({
+        by: fixture.owner.userId,
+        connection: fixture.connectionId,
+        version: null,
+        policyRecorded: true,
+      })
+      const { puts, settled } = await runRetry(fixture, seeded)
+      expect(puts).toHaveLength(1)
+      expect(settled.status).toBe("succeeded")
     }, 30_000)
 
     it("refuses a row queued before authorisations were recorded", async () => {

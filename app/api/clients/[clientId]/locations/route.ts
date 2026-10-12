@@ -26,6 +26,9 @@ export const runtime = "nodejs"
  * every extension is audited per member.
  */
 export const POST = route({
+  // Assigning (and with grantToClientMembers, granting) changes who sees
+  // what, like PUT members/[userId]/client-access (P02-S9).
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: clientIdParamsSchema,
   body: clientAssignLocationsSchema,
@@ -88,6 +91,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: clientIdParamsSchema,
   body: clientAssignLocationsSchema.pick({ locationIds: true }),

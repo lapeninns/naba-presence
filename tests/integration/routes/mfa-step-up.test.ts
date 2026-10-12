@@ -176,6 +176,8 @@ describeDatabase("MFA step-up (P02-S9)", () => {
     ["PATCH", () => "/api/members"],
     ["DELETE", () => "/api/members"],
     ["PUT", () => `/api/members/${id()}/client-access`],
+    ["POST", () => `/api/clients/${id()}/locations`],
+    ["DELETE", () => `/api/clients/${id()}/locations`],
     ["POST", () => "/api/google/connect/start"],
     ["POST", () => `/api/google/connections/${id()}/disconnect`],
     ["PATCH", () => "/api/google/accounts"],
@@ -271,6 +273,40 @@ describeDatabase("MFA step-up (P02-S9)", () => {
     })
     const admitted = await send("PATCH", "/api/settings", fresh)
     expect(MFA_CODES.has((await errorOf(admitted)) ?? "")).toBe(false)
+  })
+
+  it("asks for it to detach a client's locations, not to rename it", async () => {
+    const owner = await manager()
+    const clientId = id()
+    await admin`
+      insert into client (id, organisation_id, name, slug)
+      values (${clientId}, ${owner.organisationId}, 'Step-up client', ${`step-up-${clientId}`})
+    `
+    await admin`
+      insert into location (organisation_id, name, client_id)
+      values (${owner.organisationId}, ${`Step-up location ${clientId}`}, ${clientId})
+    `
+    const renamed = await send(
+      "PATCH",
+      `/api/clients/${clientId}`,
+      owner.cookie,
+      {
+        name: "Step-up client renamed",
+      }
+    )
+    expect(renamed.status).toBe(200)
+    const detached = await send(
+      "PATCH",
+      `/api/clients/${clientId}`,
+      owner.cookie,
+      { archived: true, detachLocations: true }
+    )
+    expect(detached.status).toBe(403)
+    expect(await errorOf(detached)).toBe("mfa_step_up_required")
+    const [still] = await admin<{ count: number }[]>`
+      select count(*)::int as count from location where client_id = ${clientId}
+    `
+    expect(still.count).toBe(1)
   })
 
   it("does not hold members to it", async () => {

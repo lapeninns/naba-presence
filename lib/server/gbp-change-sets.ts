@@ -20,6 +20,7 @@ type ChangeSetRow = {
   readonly target_resource_name: string
   readonly requested_by: string
   readonly approved_by: string | null
+  readonly approved_security_version: number | null
   readonly payload: Record<string, unknown>
   readonly payload_hash: string
   readonly baseline: Record<string, unknown>
@@ -45,9 +46,17 @@ async function currentPolicy(sql: TransactionSql): Promise<boolean> {
   return row.require_two_person_approval
 }
 
-async function requireCurrentManager(sql: TransactionSql, userId: string) {
-  const [member] = await sql<{ role: string }[]>`select role from member where user_id = ${userId}`
+/**
+ * The person must still be an owner or admin. For the approver, the security
+ * version the approval recorded (0201) must also still be theirs: operator
+ * MFA recovery since then voids it. Approvals from before 0201 carry none.
+ */
+async function requireCurrentManager(sql: TransactionSql, userId: string, approvedSecurityVersion: number | null = null) {
+  const [member] = await sql<{ role: string; securityVersion: number }[]>`select m.role, u.security_version as "securityVersion" from member m join app_user u on u.id = m.user_id where m.user_id = ${userId}`
   if (!member || (member.role !== "owner" && member.role !== "admin")) {
+    throw new ApiError(409, "approval_actor_access_changed", "An initiating or approving user's access changed. Generate a new review.")
+  }
+  if (approvedSecurityVersion !== null && approvedSecurityVersion !== member.securityVersion) {
     throw new ApiError(409, "approval_actor_access_changed", "An initiating or approving user's access changed. Generate a new review.")
   }
 }
@@ -143,7 +152,7 @@ export async function readGbpChangeSet(session: Session, locationId: string, cha
     const linked = await resolveGbpLocationContext(sql, session, locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot review changes for this location.")
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
-    if (row.approved_by) await requireCurrentManager(sql, row.approved_by)
+    if (row.approved_by) await requireCurrentManager(sql, row.approved_by, row.approved_security_version)
     return { changeSet: project(row, session, linked.locationName), privatePayload: row.private_payload }
   })
 }
@@ -186,7 +195,7 @@ export async function approvedGbpChange(input: {
   return withTenant(session.organisationId, async (sql) => {
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
     if (!row.approved_by) throw new ApiError(409, "approval_required", "Review and approve the exact change before publishing.")
-    await requireCurrentManager(sql, row.approved_by)
+    await requireCurrentManager(sql, row.approved_by, row.approved_security_version)
     if (row.payload_hash !== lodgingChangeHash(payload, updateMask)) throw new ApiError(409, "approval_stale", "The payload or selected fields changed after review.")
     return row
   })

@@ -64,6 +64,8 @@ type RetryPrecheck = Omit<RetryAttemptContext, "attemptNo"> & {
   authorisedBy: string | null
   authorisedSecurityVersion: number | null
   authorisedConnectionId: string | null
+  authorisedApprovalRequired: boolean | null
+  authorisedTwoPersonApproval: boolean | null
 }
 
 /**
@@ -96,6 +98,8 @@ async function precheckRetry(
       pa.authorised_by::text as "authorisedBy",
       pa.authorised_security_version as "authorisedSecurityVersion",
       pa.authorised_connection_id::text as "authorisedConnectionId",
+      pa.authorised_approval_required as "authorisedApprovalRequired",
+      pa.authorised_two_person_approval as "authorisedTwoPersonApproval",
       exists (
         select 1
         from publish_attempt newer
@@ -118,8 +122,15 @@ async function precheckRetry(
 /**
  * Re-decides the authorisation recorded on the attempt (0201) before a
  * replay. Null when it still holds; otherwise the code the attempt settles
- * with. A row with nobody recorded (queued before 0201, or its person
- * deleted) cannot be rechecked and is refused rather than replayed.
+ * with. A row with nobody recorded (its person deleted, or a pre-0201 row
+ * the backfill could not attribute) cannot be rechecked and is refused
+ * rather than replayed, as is a publish with no policy recorded.
+ *
+ * A publish must also still be under the approval policy it was queued
+ * under: the replay never passes the approval gate again, so a reply queued
+ * before an owner turned approval (or two-person approval) on would
+ * otherwise reach Google unapproved. A delete is remediation and is never
+ * held for approval, so its policy is not compared.
  */
 async function recheckRetryAuthorisation(
   sql: TransactionSql,
@@ -132,6 +143,14 @@ async function recheckRetryAuthorisation(
       reason: "authorised_by_missing",
     }
   }
+  const isPublish = precheck.operation === "publish"
+  if (
+    isPublish &&
+    (precheck.authorisedApprovalRequired === null ||
+      precheck.authorisedTwoPersonApproval === null)
+  ) {
+    return { code: "authorisation_unverifiable", reason: "policy_missing" }
+  }
   const recheck = await recheckAuthorisation(sql, {
     organisationId,
     actorUserId: precheck.authorisedBy,
@@ -139,6 +158,13 @@ async function recheckRetryAuthorisation(
     action: "publish",
     connectionId: precheck.authorisedConnectionId,
     securityVersion: precheck.authorisedSecurityVersion,
+    policy: isPublish
+      ? {
+          approvalRequired: precheck.authorisedApprovalRequired as boolean,
+          requireTwoPersonApproval:
+            precheck.authorisedTwoPersonApproval as boolean,
+        }
+      : null,
   })
   if (recheck.ok) {
     // The replay itself goes through the review's connection; it must be the
@@ -222,8 +248,9 @@ async function claimRetry(
   }
 
   // The person who asked for this mutation must still be allowed to make it,
-  // through the same Google connection, under the same security version
-  // (P02-S9): the replay is made on their behalf, possibly hours later.
+  // through the same Google connection, under the same security version and
+  // approval policy (P02-S9): the replay is made on their behalf, possibly
+  // hours later.
   const refusal = await recheckRetryAuthorisation(sql, organisationId, precheck)
   if (refusal) {
     return failBeforeDispatch(sql, organisationId, precheck, refusal.code, {

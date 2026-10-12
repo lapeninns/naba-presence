@@ -295,6 +295,21 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     expect(patches()).toHaveLength(0)
   })
 
+  it("fails, without writing, listings approved by someone recovered since", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await t.read(await t.approve(op))
+    expect((await t.api(`/${op.id}/execute`, {})).status).toBe(202)
+    // Operator MFA recovery (recover_user_mfa) bumps the approver's version.
+    await admin`update app_user set security_version = security_version + 1 where id = ${t.owner.userId}`
+    await tick()
+    const [child] = await admin<{ status: string; code: string | null }[]>`
+      select status, result_code as code from bulk_listing_child
+      where operation_id = ${op.id}`
+    expect(child).toEqual({ status: "failed", code: "approval_invalid" })
+    expect(patches()).toHaveLength(0)
+  })
+
   it("cancels unstarted listings without rolling back and settles an interrupted child from readback", async () => {
     const t = await tenant(2)
     const op = await t.preview()
