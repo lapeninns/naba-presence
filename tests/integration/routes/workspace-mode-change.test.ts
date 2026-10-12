@@ -23,11 +23,35 @@ describeDatabase("workspace mode change", () => {
     server = await startAppServer()
   })
 
+  const planSuffix = randomUUID().replace(/-/g, "").slice(0, 10)
+  let agencyPlanId: string | null = null
+
   afterAll(async () => {
     await server.stop()
     await destroyTenants(admin, organisations)
+    if (agencyPlanId) {
+      await admin`delete from billing_plan where id = ${agencyPlanId}`
+    }
     await admin.end()
   })
+
+  /** A test-environment plan for agency workspaces (0109 checks the mode). */
+  async function agencyPlan(): Promise<string> {
+    if (agencyPlanId) return agencyPlanId
+    const [row] = await admin<{ id: string }[]>`
+      insert into billing_plan (
+        code, version, workspace_mode, environment, name, stripe_price_id,
+        location_limit, ai_draft_credits_per_period, is_test_offer, active
+      )
+      values (
+        ${`wm_agency_${planSuffix}`}, 1, 'agency', 'test', 'Mode switch (test)',
+        ${`price_wm${planSuffix}`}, 5, 40, true, true
+      )
+      returning id::text as id
+    `
+    agencyPlanId = row.id
+    return row.id
+  }
 
   async function fixture(
     options: Parameters<typeof createTestTenant>[1] = {},
@@ -499,5 +523,78 @@ describeDatabase("workspace mode change", () => {
     await expect(
       seedLocation(owner.organisationId, "Elsewhere", archived)
     ).rejects.toMatchObject({ code: "23514" })
+  })
+
+  it("refuses to switch while billing still holds a plan for the current mode", async () => {
+    const planId = await agencyPlan()
+    const id = () => randomUUID().replace(/-/g, "").slice(0, 16)
+    const subscribed = async (state: string) => {
+      const owner = await fixture()
+      await admin`
+        update organisation_billing
+        set state = ${state}, plan_id = ${planId}, environment = 'test',
+          stripe_customer_id = ${`cus_wm${id()}`},
+          stripe_subscription_id = ${`sub_wm${id()}`},
+          trial_ends_at = now() + interval '7 days',
+          current_period_start = now() - interval '1 day',
+          current_period_end = now() + interval '29 days',
+          grace_ends_at = ${state === "grace" ? admin`now() + interval '3 days'` : null}
+        where organisation_id = ${owner.organisationId}
+      `
+      return owner
+    }
+
+    for (const state of [
+      "trialing",
+      "active",
+      "past_due",
+      "grace",
+      "read_only",
+    ]) {
+      const owner = await subscribed(state)
+      const response = await changeMode(owner.cookie, "business")
+      expect(response.status, state).toBe(409)
+      expect(await response.json()).toMatchObject({
+        error: "billing_subscription_active",
+        details: { reason: "subscription", state },
+      })
+      expect((await shape(owner.organisationId)).mode, state).toBe("agency")
+      expect(await modeAudits(owner.organisationId), state).toHaveLength(0)
+    }
+
+    // A pilot paying through an open Checkout session for this mode's plan.
+    const checkingOut = await fixture()
+    await admin`
+      update organisation_billing
+      set checkout_session_id = ${`cs_test_wm${id()}`},
+        checkout_plan_id = ${planId},
+        checkout_expires_at = now() + interval '1 hour'
+      where organisation_id = ${checkingOut.organisationId}
+    `
+    const open = await changeMode(checkingOut.cookie, "business")
+    expect(open.status).toBe(409)
+    expect(await open.json()).toMatchObject({
+      error: "billing_subscription_active",
+      details: { reason: "checkout_open", state: "pilot" },
+    })
+    await admin`
+      update organisation_billing
+      set checkout_expires_at = now() - interval '1 minute'
+      where organisation_id = ${checkingOut.organisationId}
+    `
+    const expired = await changeMode(checkingOut.cookie, "business")
+    expect(expired.status, await expired.clone().text()).toBe(200)
+
+    // A canceled subscription switches and keeps its history (0109 does not
+    // check an ended record).
+    const canceled = await subscribed("canceled")
+    const switched = await changeMode(canceled.cookie, "business")
+    expect(switched.status, await switched.clone().text()).toBe(200)
+    expect((await shape(canceled.organisationId)).mode).toBe("business")
+    const [kept] = await admin<{ planId: string | null }[]>`
+      select plan_id::text as "planId" from organisation_billing
+      where organisation_id = ${canceled.organisationId}
+    `
+    expect(kept.planId).toBe(planId)
   })
 })

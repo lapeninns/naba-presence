@@ -4,6 +4,7 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
+import { STUB_TOTP_CODE, startAuthProviderStub } from "../helpers/auth-provider"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
   createTestTenant,
@@ -180,5 +181,135 @@ describeDatabase("billing read-only enforcement", () => {
       const response = await send(owner.cookie, "PATCH", "/api/settings", {})
       expect(response.status, JSON.stringify(options)).not.toBe(402)
     }
+  })
+})
+
+/**
+ * Read-only with two-step verification on (P02-S9 with P07-S3): the exempt
+ * routes that need a fresh proof (billing first) send the owner to POST
+ * /api/auth/mfa/step-up or /enroll, so those must not answer 402 themselves,
+ * or a read-only organisation could never pay its way back.
+ */
+describeDatabase("billing read-only enforcement with MFA on", () => {
+  const PASSWORD = "Correct horse!42"
+  const MFA_CODES = ["mfa_step_up_required", "mfa_enrollment_required"]
+  let admin: ReturnType<typeof postgres>
+  let auth: Awaited<ReturnType<typeof startAuthProviderStub>>
+  let server: Awaited<ReturnType<typeof startAppServer>>
+  const tenants: string[] = []
+
+  beforeAll(async () => {
+    admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+    auth = await startAuthProviderStub()
+    server = await startAppServer({
+      PASSWORD_AUTH_ENABLED: "true",
+      MFA_ENABLED: "true",
+      SUPABASE_URL: auth.baseUrl,
+      SUPABASE_PUBLISHABLE_KEY: "stub-publishable-key",
+      BILLING_ENFORCEMENT_ENABLED: "true",
+    })
+  })
+
+  afterAll(async () => {
+    await server.stop()
+    await auth.stop()
+    await destroyTenants(admin, tenants)
+    await admin.end()
+  })
+
+  /** A read-only, enforced owner who signs in with a password (aal1). */
+  async function readOnlyOwner(enrolled: boolean) {
+    const owner = await createTestTenant(admin)
+    tenants.push(owner.organisationId)
+    const subject = randomUUID()
+    auth.addUser({ id: subject, email: owner.email, password: PASSWORD })
+    if (enrolled) auth.addFactor(owner.email)
+    await admin`
+      update app_user
+      set auth_provider = 'supabase',
+          auth_subject = ${subject},
+          mfa_factor_count = ${enrolled ? 1 : 0}
+      where id = ${owner.userId}
+    `
+    await admin`
+      update organisation_billing
+      set state = 'read_only', enforcement_enabled = true
+      where organisation_id = ${owner.organisationId}
+    `
+    return owner
+  }
+
+  function send(
+    cookie: string,
+    method: string,
+    path: string,
+    body: unknown = {}
+  ) {
+    return fetch(`${server.baseUrl}${path}`, {
+      method,
+      headers: { cookie, "content-type": "application/json" },
+      body: method === "GET" ? undefined : JSON.stringify(body),
+    })
+  }
+
+  async function errorOf(response: Response): Promise<string | null> {
+    const text = await response.text()
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown }
+      return typeof parsed.error === "string" ? parsed.error : null
+    } catch {
+      return null
+    }
+  }
+
+  function sessionCookie(response: Response): string | null {
+    for (const header of response.headers.getSetCookie()) {
+      const pair = header.split(";")[0] ?? ""
+      if (pair.startsWith("naba_session=") && pair.length > 13) return pair
+    }
+    return null
+  }
+
+  it("lets a read-only owner step up and then reach checkout", async () => {
+    const owner = await readOnlyOwner(true)
+
+    const refused = await send(owner.cookie, "POST", "/api/billing/checkout")
+    expect(refused.status).toBe(403)
+    expect(await errorOf(refused)).toBe("mfa_step_up_required")
+
+    const steppedUp = await send(
+      owner.cookie,
+      "POST",
+      "/api/auth/mfa/step-up",
+      { password: PASSWORD, code: STUB_TOTP_CODE }
+    )
+    expect(steppedUp.status, await steppedUp.clone().text()).toBe(200)
+    const cookie = sessionCookie(steppedUp)
+    expect(cookie).not.toBeNull()
+
+    const checkout = await send(cookie!, "POST", "/api/billing/checkout")
+    const code = await errorOf(checkout.clone())
+    expect(checkout.status, await checkout.text()).not.toBe(402)
+    expect(MFA_CODES).not.toContain(code)
+
+    // Other exempt, stepped-up routes are reachable too; new work is not.
+    const hold = await send(cookie!, "POST", "/api/legal-holds", {})
+    expect(hold.status, await hold.clone().text()).not.toBe(402)
+    expect(MFA_CODES).not.toContain(await errorOf(hold))
+    const write = await send(cookie!, "PATCH", "/api/settings", {})
+    expect(write.status).toBe(402)
+    expect(await errorOf(write)).toBe("billing_read_only")
+  })
+
+  it("lets a read-only owner with no factor start enrolling", async () => {
+    const owner = await readOnlyOwner(false)
+    const refused = await send(owner.cookie, "POST", "/api/billing/checkout")
+    expect(refused.status).toBe(403)
+    expect(await errorOf(refused)).toBe("mfa_enrollment_required")
+
+    const enroll = await send(owner.cookie, "POST", "/api/auth/mfa/enroll", {
+      password: PASSWORD,
+    })
+    expect(enroll.status, await enroll.clone().text()).toBe(200)
   })
 })

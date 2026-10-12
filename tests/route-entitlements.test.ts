@@ -56,6 +56,7 @@ type Handler = {
   path: string
   auth: string
   entitlement: string | null
+  mfa: string | null
 }
 
 function routeFiles(dir: string): string[] {
@@ -86,6 +87,7 @@ function handlers(): Handler[] {
           path,
           auth: block.match(/auth:\s*"(\w+)"/)?.[1] ?? "session",
           entitlement: block.match(/entitlement:\s*"(\w+)"/)?.[1] ?? null,
+          mfa: block.match(/\bmfa:\s*"(\w+)"/)?.[1] ?? null,
         },
       ]
     })
@@ -157,6 +159,30 @@ describe("route entitlements: static scan of app/api", () => {
       expect(source, key).not.toContain("INTEGRATION")
       expect(source, key).toContain("refuseSupportSession(session)")
     }
+  })
+
+  it("keeps the routes that produce the step-up proof exempt while any exempt route needs it", () => {
+    // A read-only owner refused with mfa_step_up_required (or
+    // mfa_enrollment_required) on an exempt route is sent to these. Were
+    // they "write", the 402 would leave no way to the proof, and so no way
+    // to pay, comply or leave. POST auth/mfa/verify is public, so the scan
+    // does not see it and route() never applies an entitlement to it.
+    const PROOF_ROUTES = ["POST auth/mfa/step-up", "POST auth/mfa/enroll"]
+    const steppedUpExempt = session.filter(
+      (handler) =>
+        handler.mfa === "step_up" &&
+        (handler.entitlement === "exempt" || exemptByPrefix(handler.path))
+    )
+    expect(steppedUpExempt.length).toBeGreaterThan(0)
+    for (const key of PROOF_ROUTES) {
+      const handler = session.find((entry) => entry.key === key)
+      expect(handler, key).toBeDefined()
+      expect(handler?.entitlement, key).toBe("exempt")
+      expect(handler?.mfa ?? null, key).toBeNull()
+      expect(exempt.has(key), key).toBe(true)
+    }
+    const verify = all.find((handler) => handler.key === "POST auth/mfa/verify")
+    expect(verify?.auth).toBe("public")
   })
 
   it("classifies every background job kind, tick runner and cron while read-only", () => {

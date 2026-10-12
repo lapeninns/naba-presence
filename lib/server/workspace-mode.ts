@@ -3,6 +3,8 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import type { WorkspaceMode } from "@/lib/contracts/session"
+import { SUBSCRIBED_STATES } from "@/lib/domain/billing-lifecycle"
+import type { BillingState } from "@/lib/domain/entitlements"
 import { writeAudit } from "@/lib/server/audit"
 import { createHomeClient } from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
@@ -33,6 +35,48 @@ async function freeHomeClientName(
 }
 
 /**
+ * Locks the organisation's billing row and refuses a mode switch while it
+ * could still carry a plan for the current mode (see changeWorkspaceMode).
+ */
+async function refuseWhileSubscribed(
+  sql: TransactionSql,
+  organisationId: string
+): Promise<void> {
+  const [billing] = await sql<
+    {
+      state: BillingState
+      hasSubscription: boolean
+      checkoutOpen: boolean
+    }[]
+  >`
+    select
+      state,
+      stripe_subscription_id is not null as "hasSubscription",
+      coalesce(checkout_expires_at > now(), false) as "checkoutOpen"
+    from organisation_billing
+    where organisation_id = ${organisationId}
+    for update
+  `
+  if (!billing) return
+  const reason = SUBSCRIBED_STATES.includes(billing.state)
+    ? "subscription"
+    : billing.state === "read_only" && billing.hasSubscription
+      ? "subscription"
+      : billing.checkoutOpen
+        ? "checkout_open"
+        : null
+  if (!reason) return
+  throw new ApiError(
+    409,
+    "billing_subscription_active",
+    reason === "checkout_open"
+      ? "A subscription checkout is open for this workspace. Finish it or let it expire before switching workspace mode."
+      : "This workspace's subscription is for its current mode. Cancel it from Billing, and switch once it has ended.",
+    { details: { reason, state: billing.state } }
+  )
+}
+
+/**
  * Switches an organisation between business and agency mode. Runs inside
  * the organisation's tenant transaction; the caller has already checked the
  * actor is an owner.
@@ -59,6 +103,18 @@ async function freeHomeClientName(
  * caller sends `confirmReportShares`; the audit row records the share ids.
  * Migration 0103's location trigger holds new locations to the same lock, so
  * the count of locations to refile is exact.
+ *
+ * A billing plan belongs to one workspace mode (0109's
+ * organisation_billing_plan_matches), so the switch is refused (409
+ * `billing_subscription_active`) while billing could still hold a plan for
+ * the current mode: a running subscription (trialing, active, past_due,
+ * grace), a read-only one Stripe can still recover, or an unexpired Checkout
+ * session. Switching then would derive access from the other mode's plan and
+ * make the processor's next write fail the trigger until its events went
+ * dead. The billing row is locked after the organisation row (the order the
+ * billing writers never reverse: they lock billing and only read the
+ * organisation), so no write lands between the check and the commit. A
+ * pilot, a canceled subscription and an ended read-only one switch freely.
  *
  * A request for the mode the organisation is already in changes nothing and
  * writes no audit row.
@@ -92,6 +148,7 @@ export async function changeWorkspaceMode(
       refiledLocations: 0,
     }
   }
+  await refuseWhileSubscribed(sql, organisationId)
 
   let homeClientId: string | null
   let refiledLocations = 0

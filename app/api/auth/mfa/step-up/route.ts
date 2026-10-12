@@ -26,8 +26,13 @@ export const runtime = "nodejs"
  * The password is asked again because the app holds no provider token for a
  * session (the same reason enrollment asks for it). Counted against the same
  * code-guessing budgets as the sign-in verify, per user, IP and account.
+ *
+ * Entitlement-exempt: the read-only routes that stay available (billing,
+ * privacy requests, legal holds, disconnecting Google, removing members)
+ * need a fresh proof, so a read-only owner must still be able to get one.
  */
 export const POST = route({
+  entitlement: "exempt",
   body: mfaStepUpSchema,
   handler: async ({
     session,

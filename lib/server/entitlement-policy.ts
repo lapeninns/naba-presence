@@ -44,7 +44,7 @@ import type { Session } from "@/lib/server/session"
  *     `locationLimitError` maps its error to 402 `location_limit_reached`.
  *
  * Read-only keeps everything that lets a customer leave, comply or come
- * back: sign-in and session switching, billing, data export, privacy
+ * back: sign-in and session switching, getting a two-step proof, billing, data export, privacy
  * requests and legal holds, disconnecting Google and unlinking locations,
  * accepting or revoking invitations, removing members, cancelling or pausing
  * queued work, and their own notification state.
@@ -61,6 +61,9 @@ export const ENTITLEMENT_EXEMPT_ROUTES = [
   // Sign-in and the session itself.
   "POST session/switch",
   "DELETE support/impersonation",
+  // The two-step proof the stepped-up exempt routes below need (P02-S9).
+  "POST auth/mfa/step-up",
+  "POST auth/mfa/enroll",
   // Export, privacy and compliance.
   "POST privacy/export",
   "POST privacy/requests",

@@ -46,6 +46,8 @@ const COPY: Record<string, string> = {
     "A business workspace holds one client. Archive the others on the Clients page, then switch.",
   workspace_mode_change_unavailable:
     "Changing between a business and an agency workspace is not available for this account yet.",
+  billing_subscription_active:
+    "This workspace's subscription or open checkout is for its current mode. Cancel it from Billing, or let the checkout expire, then switch.",
   business_mode_single_client:
     "This workspace has a single business, so another one cannot be added.",
   // ---- Listing change approvals (two-person mode, P02-S2b) ---------------
@@ -162,8 +164,7 @@ const COPY: Record<string, string> = {
     "This workspace already has a subscription. Reload the billing page to see it.",
   checkout_completed:
     "Checkout has been completed and the subscription is being confirmed. Reload the billing page in a minute.",
-  billing_missing:
-    "This workspace has no billing record. Contact support.",
+  billing_missing: "This workspace has no billing record. Contact support.",
   billing_customer_missing:
     "Start a subscription before managing payment details and invoices.",
   subscription_not_changeable:
@@ -173,8 +174,7 @@ const COPY: Record<string, string> = {
   billing_out_of_sync:
     "The subscription is being updated. Try again in a minute.",
   plan_unavailable: "That plan is not available for this workspace.",
-  support_session_forbidden:
-    "Billing can't be changed from a support session.",
+  support_session_forbidden: "Billing can't be changed from a support session.",
   ai_allowance_unknown:
     "Your AI credit allowance is not confirmed yet, so AI drafting is off for now. You can still write a reply yourself.",
   // 429 that lasts until the period resets, so "wait a moment" would mislead.

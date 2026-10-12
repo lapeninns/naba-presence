@@ -28,8 +28,12 @@ export const runtime = "nodejs"
  * allows enrolling another factor only at aal2. The answer carries the
  * secret for the authenticator app; the factor counts once POST
  * /api/auth/mfa/verify checks a code from it.
+ *
+ * Entitlement-exempt, like step-up: a read-only owner with no factor is sent
+ * here before the stepped-up routes that stay available (billing first).
  */
 export const POST = route({
+  entitlement: "exempt",
   body: mfaEnrollSchema,
   handler: async ({ session, body, request, tenant }) => {
     requireMfaEnabled()

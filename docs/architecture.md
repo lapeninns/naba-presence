@@ -1175,7 +1175,12 @@ home client) and refiles every other location under it. Report shares are
 scoped by `location.client_id` when read (`lib/server/shared-report.ts`), so
 when the refile would put locations under a client with live share links the
 switch is refused (409 `workspace_mode_report_shares`, with the counts) until
-the owner confirms with `confirmReportShares`. Each change is audited as
+the owner confirms with `confirmReportShares`. A billing plan belongs to one
+workspace mode (migration 0109's `organisation_billing_plan_matches`), so the
+switch also locks the organisation's billing row after the organisation row
+and is refused (409 `billing_subscription_active`) while a subscription is
+running (trialing, active, past_due, grace), a read-only one still has a
+Stripe subscription, or a Checkout session is open. Each change is audited as
 `organisation.mode.changed`, with the refiled count and those share ids.
 Migration 0102's `client_guard_business_single` trigger refuses an active
 non-home client in a business workspace, and migration 0103's
