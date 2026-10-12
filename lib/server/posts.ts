@@ -1630,7 +1630,10 @@ async function publishLocalPost(input: {
   deadline?: Date
   /** Scheduled only: the schedule approval the receipt names. */
   approvalRef?: string
-  /** Scheduled only: the approver's frozen security version (reserved). */
+  /**
+   * Scheduled only: the approver's security version at approval (0106),
+   * recorded on the receipt; the runner rechecked it before this publish.
+   */
   securityVersion?: number | null
 }) {
   const { linked, post } = input
