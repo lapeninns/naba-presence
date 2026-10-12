@@ -60,6 +60,7 @@ export const GET = route({
  * signed in.
  */
 export const POST = route({
+  entitlement: "exempt",
   params: invitationLookupParamsSchema,
   limits: ({ session }) => ({ scope: "invitation_accept", user: session.userId }),
   handler: async ({ session, params, requestId }) => {
@@ -80,6 +81,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   params: invitationRevokeParamsSchema,
   handler: async ({ session, params, requestId, tenant }) => {

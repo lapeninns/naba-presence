@@ -7,6 +7,7 @@ export const runtime = "nodejs"
 const params = z.object({ id: z.uuid() })
 
 export const POST = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"], params,
   handler: async ({ session, params, requestId }) => ({ operation: await cancelBulkOperation(session, params.id, requestId) }),
 })

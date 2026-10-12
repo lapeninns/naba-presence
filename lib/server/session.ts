@@ -11,6 +11,7 @@ import {
 } from "@/lib/server/billing/state"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
+import { enforcementApplies } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { createSession } from "@/lib/server/session-store"
@@ -43,11 +44,18 @@ export type Session = {
   /**
    * The organisation's billing access when the session was looked up
    * (lib/domain/entitlements.ts deriveAccess; read-only without a billing
-   * row). Informational until central enforcement (plan P07-S3). Optional
-   * so existing `Session` fixtures stay valid; `lookupSession` always sets
-   * it.
+   * row). Optional so existing `Session` fixtures stay valid;
+   * `lookupSession` always sets it.
    */
   access?: Access
+  /**
+   * Whether central billing enforcement applies to this organisation
+   * (BILLING_ENFORCEMENT_ENABLED and its own enforcement flag;
+   * lib/server/entitlement-policy.ts). When true, route() refuses new work
+   * that `access` does not allow. Absent reads as not enforced, so fixtures
+   * without it keep their behaviour.
+   */
+  entitlementEnforced?: boolean
 }
 
 async function lookupSession(rawToken: string): Promise<Session | null> {
@@ -136,7 +144,11 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
     `
     if (!session) return null
     const billing = await getOrganisationBilling(sql, session.organisationId)
-    return { ...session, access: accessFromView(billing, new Date()) }
+    return {
+      ...session,
+      access: accessFromView(billing, new Date()),
+      entitlementEnforced: enforcementApplies(billing),
+    }
   }) as Promise<Session | null>
 }
 

@@ -212,6 +212,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: memberRemoveSchema,
   handler: async ({

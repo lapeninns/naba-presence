@@ -23,6 +23,8 @@ export type OrganisationBilling = BillingRecord & {
   stripeCustomerId: string | null
   stripeSubscriptionId: string | null
   environment: "test" | "live" | null
+  /** Per-organisation enforcement rollout flag (0223). */
+  enforcementEnabled: boolean
   version: number
 }
 
@@ -48,6 +50,7 @@ type Row = {
   graceEndsAt: Date | null
   cancelAtPeriodEnd: boolean
   firstPaymentSucceeded: boolean
+  enforcementEnabled: boolean
   version: number
   planLocationLimit: number | null
   planMemberLimit: number | null
@@ -109,6 +112,7 @@ async function readBilling(
       b.grace_ends_at as "graceEndsAt",
       b.cancel_at_period_end as "cancelAtPeriodEnd",
       b.first_payment_succeeded as "firstPaymentSucceeded",
+      b.enforcement_enabled as "enforcementEnabled",
       b.version,
       p.location_limit as "planLocationLimit",
       p.member_limit as "planMemberLimit",

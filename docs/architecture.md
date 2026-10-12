@@ -1545,8 +1545,9 @@ stops only queued children.
 ## Billing foundation and entitlements (P07, 0220)
 
 Migration `supabase/migrations/0220_billing_foundation.sql` adds the
-commercial records; nothing refuses work on them yet (central enforcement is a
-later slice), so the app behaves as before.
+commercial records. Nothing refuses work on them until central enforcement is
+switched on (see "Central entitlement enforcement" below), so by default the
+app behaves as before.
 
 - `billing_plan` is the versioned catalog: platform-level, readable by the
   runtime, written only from the operator connection. A version's terms never
@@ -1589,8 +1590,53 @@ read-only (`record_incomplete`). The reasons are the `ACCESS_REASONS` list,
 which the wire contract pins. The local bootstrap organisation
 (`provision_local_bootstrap`) gets its pilot record from
 `ensureDevelopmentSession`. `lookupSession` attaches the result as
-`Session.access` (informational for now). Wire shapes live in
-`lib/contracts/billing.ts`.
+`Session.access`, and whether enforcement applies as
+`Session.entitlementEnforced`. Wire shapes live in `lib/contracts/billing.ts`.
+
+### Central entitlement enforcement (P07-S3, 0223)
+
+`lib/server/entitlement-policy.ts` is the one place that decides whether an
+organisation's billing lets it start new work. It applies only when both
+switches are on: `BILLING_ENFORCEMENT_ENABLED` (env, default off, a hard
+override) and `organisation_billing.enforcement_enabled` (per organisation,
+added by `supabase/migrations/0223_entitlement_enforcement.sql`, default off).
+With the env flag on, an organisation with no billing row is enforced too.
+
+- Routes: `route()` (`lib/server/route.ts`) refuses every session mutation
+  (any method but GET/HEAD/OPTIONS) with 402 `billing_read_only` while the
+  organisation is read-only. A route declares `entitlement: "ai"` for AI work
+  (`Access.canUseAi`) or `entitlement: "exempt"` for what read-only keeps:
+  session switching, privacy export and requests, legal holds, Google
+  disconnect, unlinking, invitation accept and revoke, member removal,
+  cancelling or pausing queued work and a person's own notification state.
+  `ENTITLEMENT_EXEMPT_ROUTES` lists them, and
+  `tests/route-entitlements.test.ts` fails when a route and the list disagree.
+- Workers: a publish `retry` for a read-only organisation is held for an hour
+  with `provider_error_code = 'billing_read_only'` and audited once
+  (`publish.retry_held_billing`, `lib/server/jobs.ts`); a bulk listing child
+  is re-queued for an hour with that result code
+  (`lib/server/bulk-listing-runner.ts`); a scheduled post is held like a
+  publishing pause (`schedule_blocked` with reason `billing_read_only`,
+  `lib/server/publication-schedule-runner.ts`), so a due occurrence is
+  missed once it leaves the grace period. Read-backs (`recover`,
+  `mutation_recover`) and the syncs, which only read, keep running.
+- Location limit: the `location_link_enforce_limit` trigger refuses a new
+  active link (an insert, or an inactive link turned active) once the
+  organisation's distinct active Google locations reach the lower of the
+  current and the scheduled plan's limit; re-linking a Google location that is
+  already linked takes no seat, a pilot has no limit, and a subscription state
+  without a plan has a limit of 0. It never touches existing links, so a
+  downgrade never unlinks anything. A link whose connection expired or was
+  revoked still counts until unlinked; a disconnect deactivates links, and
+  reactivating one goes back through the trigger. The env override reaches
+  the trigger as the transaction setting `app.billing_enforcement`, which
+  `withTenant` sets (`lib/server/db.ts`). `apiError` maps the trigger's error
+  to 402 `location_limit_reached` with the limit (`locationLimitError` in
+  `lib/server/http.ts`); after a Google login the automatic link reports
+  `location_limit_reached` as its setup outcome and keeps the connection.
+- Capabilities: `lib/server/capabilities.ts` returns `canWrite` and turns the
+  write flags off while read-only, so the UI disables what the routes refuse
+  (`lib/locations/gating.ts` explains the billing block first).
 
 ### AI credit periods and generation ids (P07-S2)
 

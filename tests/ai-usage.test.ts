@@ -77,6 +77,7 @@ describe("verification usage", () => {
         "create table schema_migration (version text primary key);" +
         "create table organisation (id uuid primary key);" +
         "create table app_user (id uuid primary key);" +
+        "create table location_link (id uuid primary key default gen_random_uuid(), organisation_id uuid not null, location_id uuid not null, external_location_id uuid not null, is_active boolean not null default true);" +
         "insert into organisation (id) values ('" +
         ORG +
         "');"
@@ -84,6 +85,7 @@ describe("verification usage", () => {
     await db.exec(migration)
     await db.exec(read("0220_billing_foundation.sql"))
     await db.exec(read("0221_billing_period_checks.sql"))
+    await db.exec(read("0223_entitlement_enforcement.sql"))
   })
   afterAll(async () => {
     await db.close()

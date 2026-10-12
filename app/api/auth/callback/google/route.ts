@@ -19,7 +19,7 @@ import {
   completeAuthorisation,
   scopeMissingError,
 } from "@/lib/server/google/connections"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, locationLimitError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { route } from "@/lib/server/route"
@@ -213,15 +213,27 @@ async function completeOAuth({
       requestId,
     })
   } catch (error) {
-    const handledError =
-      error instanceof Error ? error : new Error(String(error))
-    log.warn("google.automatic_setup_fallback", {
-      requestId,
-      organisationId: session.organisationId,
-      userId: session.userId,
-      error: handledError,
-    })
-    setup = { kind: "manual_error" }
+    // The plan's location limit (0223) refused the link: the connection
+    // stands, nothing was linked, and the page says why.
+    const limitReached = locationLimitError(error)
+    if (limitReached) {
+      log.info("google.automatic_setup_location_limit", {
+        requestId,
+        organisationId: session.organisationId,
+      })
+      const details = limitReached.details as { limit: number | null }
+      setup = { kind: "location_limit_reached", limit: details.limit }
+    } else {
+      const handledError =
+        error instanceof Error ? error : new Error(String(error))
+      log.warn("google.automatic_setup_fallback", {
+        requestId,
+        organisationId: session.organisationId,
+        userId: session.userId,
+        error: handledError,
+      })
+      setup = { kind: "manual_error" }
+    }
   }
   if (setup.kind === "automatic" && getServerEnv().SYNC_ENABLED) {
     after(async () => {
@@ -302,7 +314,7 @@ export const GET = route({
     // where the flow started.
     const origin = await startedFrom()
     try {
-      const { returnTo, authorisation } = await completeOAuth({
+      const { returnTo, authorisation, setup } = await completeOAuth({
         request,
         requestId,
         clientRequestId,
@@ -322,6 +334,7 @@ export const GET = route({
             ...(authorisation.catchUpLocationIds.length
               ? { catchup: String(authorisation.catchUpLocationIds.length) }
               : {}),
+            ...(setup.kind === "location_limit_reached" ? { limit: "1" } : {}),
           }),
           baseUrl
         )

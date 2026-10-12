@@ -881,4 +881,86 @@ describeDatabase("durable background jobs", () => {
       expect((await attemptState(attemptId)).status).toBe("succeeded")
     }, 60_000)
   })
+
+  // Central billing enforcement (plan P07-S3): a read-only organisation's
+  // new dispatch is held, its read-backs still run.
+  describe("with billing enforcement on", () => {
+    let enforced: Awaited<ReturnType<typeof startAppServer>>
+
+    beforeAll(async () => {
+      enforced = await startAppServer({
+        GOOGLE_API_PROXY_BASE: stub.baseUrl,
+        GOOGLE_TIMEOUT_MS: "2500",
+        GOOGLE_MUTATION_TIMEOUT_MS: "2500",
+        BILLING_ENFORCEMENT_ENABLED: "true",
+      })
+    }, 60_000)
+
+    afterAll(async () => {
+      await enforced.stop()
+    })
+
+    async function readOnly(subject: Fixture) {
+      await admin`
+        update organisation_billing
+        set state = 'read_only', enforcement_enabled = true
+        where organisation_id = ${subject.owner.organisationId}
+      `
+    }
+
+    it("holds a read-only organisation's retry and still reads back its uncertain write", async () => {
+      const held = await fixture()
+      const recovering = await fixture()
+      await readOnly(held)
+      await readOnly(recovering)
+      const body = "A reply already visible at Google."
+      stub.reset()
+      stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+        status: 200,
+        json: { comment: "x", updateTime: "2026-08-20T10:00:00.000Z" },
+      }))
+      stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+        status: 200,
+        json: {
+          reviewId: "stub",
+          reviewReply: { comment: body, updateTime: "2026-08-20T10:00:00.000Z" },
+        },
+      }))
+      const retryId = await seedPublishAttempt(
+        held,
+        "retryable",
+        "A retry billing must hold."
+      )
+      const recoverId = await seedPublishAttempt(recovering, "started", body)
+
+      await runTick(enforced.baseUrl)
+      await runTick(enforced.baseUrl)
+
+      const after = await attemptState(retryId)
+      expect(after).toMatchObject({
+        status: "retryable",
+        providerErrorCode: "billing_read_only",
+        leaseExpiresAt: null,
+      })
+      expect(after.gapMs).toBeGreaterThan(50 * 60_000)
+      expect(stub.calls.filter((call) => call.method === "PUT")).toEqual([])
+      const audits = await admin<{ n: number }[]>`
+        select count(*)::int as n from audit_log
+        where organisation_id = ${held.owner.organisationId}
+          and action = 'publish.retry_held_billing'
+          and subject_id = ${retryId}
+      `
+      expect(audits[0].n).toBe(1)
+      expect((await attemptState(recoverId)).status).toBe("succeeded")
+
+      // Restored billing: the held retry goes out once it is due again.
+      await admin`
+        update organisation_billing set state = 'pilot'
+        where organisation_id = ${held.owner.organisationId}
+      `
+      await makeAttemptDue(retryId, 0)
+      await runTick(enforced.baseUrl)
+      expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+    }, 60_000)
+  })
 })

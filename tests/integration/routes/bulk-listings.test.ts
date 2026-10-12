@@ -50,6 +50,9 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       PUBLISH_ENABLED: "true",
       JOBS_ENABLED: "true",
       GBP_PROFILE_WRITES_ENABLED: "true",
+      // Applies only to organisations whose own flag is on: every tenant
+      // here is a pilot with it off, except the billing hold case.
+      BILLING_ENFORCEMENT_ENABLED: "true",
     })
   })
   afterAll(async () => {
@@ -342,6 +345,22 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       status: "queued",
       result_code: "google_rate_limited",
     })
+  })
+
+  it("holds a confirmed batch while billing is read-only, without writing", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await t.read(await t.approve(op))
+    await t.api(`/${op.id}/execute`, {})
+    await admin`update organisation_billing set state = 'read_only', enforcement_enabled = true where organisation_id = ${t.owner.organisationId}`
+    await tick()
+    expect(patches(t.linked[0].googleLocationName)).toHaveLength(0)
+    const [child] = await admin<{ status: string; result_code: string; wait: number }[]>`
+      select status, result_code,
+        extract(epoch from (next_attempt_at - now()))::int as wait
+      from bulk_listing_child where operation_id = ${op.id}`
+    expect(child).toMatchObject({ status: "queued", result_code: "billing_read_only" })
+    expect(child.wait).toBeGreaterThan(50 * 60)
   })
 
   it("refuses a batch naming a hidden listing without saying which, and more than 100 listings", async () => {

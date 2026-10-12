@@ -210,6 +210,28 @@ keeps its status and its `next_attempt_at` untouched. A tick that is claiming a
 reduced set logs `jobs.kinds_paused` with the flags responsible. Nothing is
 re-armed, and no retry or recovery budget is spent, while a flag is off.
 
+### Billing enforcement
+
+`BILLING_ENFORCEMENT_ENABLED` (default `false`) switches on central
+entitlement enforcement (`lib/server/entitlement-policy.ts`). It is a hard
+override: off, nothing is refused for billing, whatever an organisation's own
+flag says. On, it applies only to organisations whose
+`organisation_billing.enforcement_enabled` is true (and to any organisation
+with no billing row). Roll it out per organisation from the operator
+connection:
+
+```sql
+update organisation_billing set enforcement_enabled = true
+where organisation_id = '<organisation id>';
+```
+
+An enforced read-only organisation gets 402 `billing_read_only` on new work;
+its publish retries, bulk children and scheduled posts wait (an hour at a
+time) instead of reaching Google, and its read-backs and syncs keep running.
+Linking past the plan's location limit answers 402 `location_limit_reached`;
+nothing is ever unlinked automatically. To stop enforcing at once, set the
+env flag to `false` and redeploy, or clear the organisation's flag.
+
 ### Operator pauses
 
 `ops_pause_control` (migration 0090, `lib/server/pause-controls.ts`) holds one

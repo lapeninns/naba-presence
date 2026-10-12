@@ -83,6 +83,7 @@ function expectedLanguage(draft: DraftRecord): string | null {
 }
 
 export const POST = route({
+  entitlement: "ai",
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {

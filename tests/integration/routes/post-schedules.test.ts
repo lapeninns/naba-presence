@@ -43,6 +43,9 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       GBP_POSTS_ENABLED: "true",
       PUBLISH_ENABLED: "true",
       JOBS_ENABLED: "true",
+      // Applies only to organisations whose own flag is on: every tenant
+      // here is a pilot with it off, except the billing hold case.
+      BILLING_ENFORCEMENT_ENABLED: "true",
     })
   })
   afterAll(async () => {
@@ -233,6 +236,28 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "published",
       summary: "Sunday roast is back",
     })
+  })
+
+  it("holds an approved schedule while billing is read-only and publishes once restored", async () => {
+    const t = await tenant(),
+      s = await t.schedule(await t.draft(), {
+        frequency: "once",
+        startDate: tomorrow(),
+        localTime: "09:00",
+      })
+    expect((await t.approve(s)).status).toBe(200)
+    await admin`update organisation_billing set state = 'read_only', enforcement_enabled = true where organisation_id = ${t.owner.organisationId}`
+    const [occurrence] = await t.occurrences(s.id)
+    await t.age(occurrence.id, 0.1)
+    await tick()
+    expect(creates()).toHaveLength(0)
+    const [held] = await t.occurrences(s.id)
+    expect(held.status).toBe("scheduled")
+    expect(await t.scheduleRow(s.id)).toMatchObject({ status: "active" })
+    await admin`update organisation_billing set state = 'pilot' where organisation_id = ${t.owner.organisationId}`
+    await tick()
+    expect(creates()).toHaveLength(1)
+    expect((await t.occurrences(s.id))[0]).toMatchObject({ status: "published" })
   })
 
   it("requires a different approver under two-person policy and invalidates approval when content is edited", async () => {

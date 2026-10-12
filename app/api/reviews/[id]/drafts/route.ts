@@ -202,6 +202,7 @@ async function replayGeneration(
 }
 
 export const POST = route({
+  entitlement: "ai",
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
   body: draftInputSchema,

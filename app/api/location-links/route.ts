@@ -277,6 +277,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   // A bare uuid (see unlinkLocationQuerySchema) so a missing/invalid value
   // keeps producing the `_root` field error the old handler emitted.

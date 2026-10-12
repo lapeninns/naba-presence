@@ -133,10 +133,16 @@ const COPY: Record<string, string> = {
   // the reset date from details.resetsAt when the server sent one.
   ai_credits_exhausted:
     "You have used all your AI drafts for this period. You can still write a reply yourself.",
-  // 402 while billing derives read-only, and while a trial or paid period
-  // has no confirmed allowance yet: neither is fixed by trying again.
+  // 402 while billing derives read-only (central enforcement refuses every
+  // new change, lib/server/entitlement-policy.ts; AI work is refused even
+  // before that), and while a trial or paid period has no confirmed
+  // allowance yet: neither is fixed by trying again.
   billing_read_only:
-    "AI drafting is unavailable while this workspace's subscription is read-only. You can still write a reply yourself.",
+    "This workspace's subscription is read-only, so new changes are unavailable. Billing, exports, privacy requests and disconnecting Google still work.",
+  // 402 from the location-limit trigger (0223): existing links are never
+  // removed, so the owner unlinks one or changes plan.
+  location_limit_reached:
+    "This workspace has reached its plan's location limit. Unlink a location or change plan to link another.",
   ai_allowance_unknown:
     "Your AI credit allowance is not confirmed yet, so AI drafting is off for now. You can still write a reply yourself.",
   // 429 that lasts until the period resets, so "wait a moment" would mislead.

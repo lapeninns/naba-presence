@@ -33,6 +33,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  entitlement: "exempt",
   roles: ["owner"],
   body: legalHoldCreateSchema,
   handler: async ({
@@ -94,6 +95,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner"],
   body: legalHoldReleaseSchema,
   handler: async ({

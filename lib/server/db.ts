@@ -115,8 +115,17 @@ export async function withTenant<T>(
       let outcome = "success"
       try {
         return (await getDatabase().begin(async (transaction) => {
+          // app.billing_enforcement carries the BILLING_ENFORCEMENT_ENABLED
+          // hard override to the location-limit trigger (0223): 'off' turns
+          // it off whatever the organisation's own flag says.
           await transaction`
-            select set_config('app.organisation_id', ${organisationId}, true)
+            select
+              set_config('app.organisation_id', ${organisationId}, true),
+              set_config(
+                'app.billing_enforcement',
+                ${getServerEnv().BILLING_ENFORCEMENT_ENABLED ? "on" : "off"},
+                true
+              )
           `
           return callback(transaction)
         })) as T

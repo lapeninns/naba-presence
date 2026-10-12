@@ -66,6 +66,7 @@ const REASON: Record<string, string> = {
   readback_failed: "Google couldn’t be read to confirm",
   google_rate_limited: "Waiting for Google quota",
   publishing_paused: "Publishing is paused",
+  billing_read_only: "Waiting: the subscription is read-only",
 }
 const reason = (code: string | null) =>
   code

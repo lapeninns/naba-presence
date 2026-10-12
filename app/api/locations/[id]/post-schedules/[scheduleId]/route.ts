@@ -14,6 +14,7 @@ export const PUT = route({
 })
 /** Pause, resume or cancel: an owner or administrator's call. */
 export const PATCH = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"], params, body: scheduleActionSchema,
   handler: async ({ session, params, body, requestId }) => ({ schedule: await actOnPublicationSchedule(session, params.id, params.scheduleId, body.action, requestId) }),
 })

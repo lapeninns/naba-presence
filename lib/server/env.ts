@@ -152,6 +152,14 @@ export const serverEnvSchema = z.object({
   // deleting the row it presents (lib/server/session.ts). The secret alone
   // no longer turns it on.
   SUPPORT_IMPERSONATION_ENABLED: featureFlag(false),
+  // Central billing enforcement (plan P07-S3): read-only organisations get
+  // 402 billing_read_only on new work, the job runner holds their new
+  // provider dispatch, and the location limit binds new links. Off by
+  // default and a hard override: off, nothing is enforced whatever an
+  // organisation's own organisation_billing.enforcement_enabled says. On,
+  // only organisations with that flag (or with no billing row at all) are
+  // enforced (lib/server/entitlement-policy.ts).
+  BILLING_ENFORCEMENT_ENABLED: featureFlag(false),
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),

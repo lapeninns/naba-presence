@@ -18,6 +18,7 @@ export const runtime = "nodejs"
 const EXPORT_LIMIT = 1000
 
 export const POST = route({
+  entitlement: "exempt",
   roles: ["owner"],
   body: privacyExportBodySchema,
   handler: async ({

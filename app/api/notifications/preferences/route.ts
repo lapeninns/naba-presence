@@ -7,6 +7,7 @@ export const runtime = "nodejs"
 /** The signed-in person's own notification choices, separate from Google's notification settings. */
 export const GET = route({ handler: async ({ session }) => readNotificationPreferences(session) })
 export const PUT = route({
+  entitlement: "exempt",
   body: notificationPreferencesUpdateSchema,
   handler: async ({ session, body, requestId }) => updateNotificationPreferences(session, body, requestId),
 })

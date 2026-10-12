@@ -79,6 +79,7 @@ describe("0220 billing foundation migration", () => {
         create table schema_migration (version text primary key);
         create table organisation (id uuid primary key);
         create table app_user (id uuid primary key);
+        create table location_link (id uuid primary key default gen_random_uuid(), organisation_id uuid not null, location_id uuid not null, external_location_id uuid not null, is_active boolean not null default true);
         insert into organisation values ('${ORG_A}'), ('${ORG_B}');
       `)
       await db.exec(aiCredits)
@@ -88,6 +89,7 @@ describe("0220 billing foundation migration", () => {
       `)
       await db.exec(migration)
       await db.exec(periodChecks)
+      await db.exec(read("0223_entitlement_enforcement.sql"))
       await db.exec(`insert into organisation values ('${ORG_NEW}');`)
     })
 
