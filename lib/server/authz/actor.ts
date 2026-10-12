@@ -86,9 +86,14 @@ export type AuthorisationRecheck = {
    */
   generation?: number | null
   /**
-   * The job kind whose entitlement must still be held. Reserved for
-   * deriveAccess (P07-S1); until it exists a supplied value cannot be
-   * verified, so the recheck refuses rather than ignoring it.
+   * Deliberately unused: any value is refused as `entitlement_unverifiable`
+   * rather than ignored. Billing entitlement is not this recheck's to decide.
+   * Each worker checks it itself, in the same tenant transaction, through
+   * organisationWriteBlock (lib/server/entitlement-policy.ts, deriveAccess):
+   * the publish retry (lib/server/jobs.ts), the bulk runner
+   * (lib/server/bulk-listing-runner.ts) and the scheduled post runner
+   * (lib/server/publication-schedule-runner.ts), each with its own hold.
+   * A caller that passes this expecting it to be checked fails closed.
    */
   entitlement?: string | null
 }

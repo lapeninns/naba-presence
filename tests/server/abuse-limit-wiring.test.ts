@@ -9,6 +9,8 @@ import {
   GET as lookupInvitation,
   POST as acceptInvitation,
 } from "@/app/api/invitations/[token]/route"
+import { POST as uploadAsset } from "@/app/api/assets/route"
+import { POST as enrollMfa } from "@/app/api/auth/mfa/enroll/route"
 import { POST as draft } from "@/app/api/reviews/[id]/drafts/route"
 import { POST as impersonate } from "@/app/api/support/impersonation/route"
 import { GET as confirmEmail } from "@/app/auth/confirm/route"
@@ -83,6 +85,7 @@ beforeAll(() => {
   vi.stubEnv("PASSWORD_AUTH_ENABLED", "true")
   vi.stubEnv("SUPPORT_IMPERSONATION_ENABLED", "true")
   vi.stubEnv("SUPPORT_IMPERSONATION_SECRET", SECRET)
+  vi.stubEnv("MFA_ENABLED", "true")
 })
 
 beforeEach(() => {
@@ -172,6 +175,28 @@ describe.each([
       user: session.userId,
       organisation: session.organisationId,
     },
+  },
+  {
+    name: "MFA enrollment",
+    send: () => call(enrollMfa, post("/x", { password: "Password!1" })),
+    scope: "mfa_enroll",
+    keys: { ip: IP, user: session.userId },
+  },
+  {
+    name: "photo upload start",
+    send: () =>
+      call(
+        uploadAsset,
+        post("/x", {
+          fileName: "front.jpg",
+          contentType: "image/jpeg",
+          byteLength: 20_000,
+          sha256: "a".repeat(64),
+        })
+      ),
+    scope: "asset_upload",
+    code: "asset_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
   },
 ])("$name", ({ send, scope, keys, code = "auth_rate_limited" }) => {
   it(`counts against ${scope} and answers 429 when refused`, async () => {
