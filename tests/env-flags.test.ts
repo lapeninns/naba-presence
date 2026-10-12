@@ -160,7 +160,7 @@ describe("provider timeouts", () => {
     ).toBe(45_000)
   })
 
-  it("rejects a OpenAI timeout that could outlast the transaction holding it", () => {
+  it("rejects an OpenAI timeout that could outlast the transaction holding it", () => {
     expect(() =>
       serverEnvSchema.parse({ ...baseEnv, OPENAI_TIMEOUT_MS: "60000" })
     ).toThrow()
