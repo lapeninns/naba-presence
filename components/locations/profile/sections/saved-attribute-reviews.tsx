@@ -31,7 +31,7 @@ export function SavedAttributeReviews({ locationId, enabled, metadata, publishRe
       if (!selected.approvedBy) await approveBusinessAttributes(locationId, selected.id, selected.payloadHash)
       return publishBusinessAttributes(locationId, parsed.data)
     } }] : [],
-    invalidate: [queryKeys.locationBusinessInformation(locationId), queryKeys.locationActivity(locationId).slice(0, -1)],
+    invalidate: [queryKeys.locationBusinessInformation(locationId), queryKeys.locationActivity(locationId)],
     onSuccess: () => setSelected(null),
   })
   if (!enabled || (!saved.data?.length && !saved.isError)) return null

@@ -1,6 +1,28 @@
 import type { ZodType } from "zod"
 
+import { hardNavigate } from "@/lib/client/hard-navigate"
+import {
+  MFA_ENROLLMENT_REQUIRED,
+  MFA_STEP_UP_REQUIRED,
+} from "@/lib/contracts/auth"
+import {
+  LISTING_CHANGE_AWAITING_APPROVAL,
+  listingChangeParkedResponseSchema,
+} from "@/lib/contracts/listing-changes"
+import { INTENT_HEADER } from "@/lib/contracts/mutation-operations"
+
 import { stashAllDrafts } from "./draft-stash"
+
+/**
+ * True for the 202 a listing write answers when two-person approval parked
+ * it: not a failure, and nothing reached Google.
+ */
+export function isAwaitingApproval(error: unknown): error is ApiClientError {
+  return (
+    error instanceof ApiClientError &&
+    error.code === LISTING_CHANGE_AWAITING_APPROVAL
+  )
+}
 
 export class ApiClientError extends Error {
   readonly status: number
@@ -10,6 +32,11 @@ export class ApiClientError extends Error {
   readonly retryable: boolean
   readonly reconnectRequired: boolean
   readonly requestId?: string
+  /**
+   * The intent id the failed mutation was sent under. After an uncertain
+   * failure, `GET /api/mutations/{intentId}` says what became of it.
+   */
+  readonly intentId?: string
 
   constructor(
     status: number,
@@ -21,6 +48,7 @@ export class ApiClientError extends Error {
       retryable?: boolean
       reconnectRequired?: boolean
       requestId?: string
+      intentId?: string
     } = {}
   ) {
     super(message)
@@ -32,6 +60,7 @@ export class ApiClientError extends Error {
     this.retryable = Boolean(extras.retryable)
     this.reconnectRequired = Boolean(extras.reconnectRequired)
     this.requestId = extras.requestId
+    this.intentId = extras.intentId
   }
 }
 
@@ -47,7 +76,11 @@ export class ApiClientError extends Error {
 export type RequestOptions = {
   signal?: AbortSignal
   background?: boolean
-  /** One token per user intent, resent unchanged after a lost response. */
+  /**
+   * One token per user intent, resent unchanged after a lost response; the
+   * same `Idempotency-Key` an `intentId` sends (`intentId` wins when both
+   * are given).
+   */
   idempotencyKey?: string
 }
 
@@ -55,6 +88,58 @@ type ApiFetchOptions<T> = RequestOptions & {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   body?: unknown
   schema?: ZodType<T>
+  /**
+   * The intent this mutation belongs to, sent as `Idempotency-Key`. Pass the
+   * same id when retrying the same user action so the server answers from
+   * its receipt instead of writing twice. Omitted, every mutation gets a
+   * fresh one.
+   */
+  intentId?: string
+}
+
+/**
+ * What a `lib/api` mutation wrapper accepts besides its input: the intent the
+ * call belongs to (see `intentId` above). `useResourceMutation` and
+ * `usePublishFlow` hand one to every call and resend it on a retry of the
+ * same action.
+ */
+export type MutationOptions = { intentId?: string }
+
+/** A fresh intent id, or undefined where the browser offers no UUIDs (non-secure origins). */
+export function mintIntentId(): string | undefined {
+  try {
+    return globalThis.crypto?.randomUUID?.()
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * A stable fingerprint of what a call sends, for deciding whether a retry is
+ * the same action. Files are compared by name, size, type and modification
+ * time: their bytes are not read, and two different files never look alike
+ * to JSON (both serialise as `{}`).
+ */
+export function intentFingerprint(value: unknown): string {
+  return (
+    JSON.stringify(value, (_key, item: unknown) => {
+      if (typeof Blob !== "undefined" && item instanceof Blob) {
+        const file = item as Blob & { name?: string; lastModified?: number }
+        return {
+          blob: [
+            file.name ?? null,
+            file.size,
+            file.type,
+            file.lastModified ?? null,
+          ],
+        }
+      }
+      if (typeof FormData !== "undefined" && item instanceof FormData) {
+        return { form: [...item.entries()] }
+      }
+      return item
+    }) ?? "undefined"
+  )
 }
 
 async function readPayload(response: Response): Promise<{
@@ -93,12 +178,103 @@ async function readPayload(response: Response): Promise<{
   }
 }
 
+/**
+ * An answer that says this session may no longer see or act on what a path
+ * names: a 403 from an access check, or the 404 that a hidden location or
+ * client answers exactly like a missing one (lib/server/permissions.ts).
+ * `method` lets the handler tell a refused read from a refused action.
+ */
+export type AccessLost = {
+  path: string
+  method: string
+  status: number
+  code: string
+}
+
+const ACCESS_LOST_CODES: Readonly<Record<number, ReadonlySet<string>>> = {
+  403: new Set([
+    "permission_denied",
+    "publish_not_allowed",
+    "forbidden",
+    "administration_access_denied",
+    "verification_access_changed",
+  ]),
+  // `review_not_found` is the default code of the location access checks
+  // (requireLocationAccess and friends), which many /api/locations/{id}/*
+  // reads use without naming their own; the handler only acts on location
+  // and client paths, so the same code on /api/reviews/* changes nothing.
+  404: new Set(["location_not_found", "client_not_found", "review_not_found"]),
+}
+
+let accessLostHandler: ((lost: AccessLost) => void) | null = null
+
+/**
+ * Registers the one handler told about every `AccessLost` answer. The query
+ * provider installs it (lib/queries/scope-reset.ts) so that the cache of the
+ * location or client a request named is dropped: what was readable under a
+ * wider scope must not stay on screen. Returns the unregister function.
+ */
+export function setAccessLostHandler(
+  handler: (lost: AccessLost) => void
+): () => void {
+  accessLostHandler = handler
+  return () => {
+    if (accessLostHandler === handler) accessLostHandler = null
+  }
+}
+
+function reportAccessLost(
+  path: string,
+  method: string,
+  status: number,
+  code: string
+): void {
+  if (!accessLostHandler || !ACCESS_LOST_CODES[status]?.has(code)) return
+  try {
+    accessLostHandler({ path, method, status, code })
+  } catch {
+    // Dropping a cache is best-effort; the caller still gets its error.
+  }
+}
+
+/**
+ * The window event a sensitive action's 403 raises when two-step
+ * verification is due (`mfa_step_up_required`) or not set up yet
+ * (`mfa_enrollment_required`). components/auth/mfa-step-up-prompt.tsx
+ * listens for it and asks for the code; the caller still gets the error,
+ * so its own error path keeps the edit and says what happened.
+ */
+export const MFA_STEP_UP_EVENT = "naba:mfa-step-up"
+
+export type MfaStepUpEventDetail = {
+  code: typeof MFA_STEP_UP_REQUIRED | typeof MFA_ENROLLMENT_REQUIRED
+}
+
+/** True for the 403 a sensitive action answers when a code is due. */
+export function isMfaStepUpError(error: unknown): error is ApiClientError {
+  return (
+    error instanceof ApiClientError &&
+    error.status === 403 &&
+    (error.code === MFA_STEP_UP_REQUIRED ||
+      error.code === MFA_ENROLLMENT_REQUIRED)
+  )
+}
+
+function requestStepUp(code: MfaStepUpEventDetail["code"]): void {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(
+    new CustomEvent<MfaStepUpEventDetail>(MFA_STEP_UP_EVENT, {
+      detail: { code },
+    })
+  )
+}
+
 function handleUnauthorized(): void {
   stashAllDrafts()
   const next = encodeURIComponent(
     window.location.pathname + window.location.search
   )
-  window.location.assign(`/sign-in?next=${next}`)
+  hardNavigate(`/sign-in?next=${next}`)
 }
 
 /**
@@ -119,19 +295,40 @@ export async function apiFetch<T = unknown>(
   path: string,
   options: ApiFetchOptions<T> = {}
 ): Promise<T> {
-  const { method = "GET", body, schema, signal, background = false, idempotencyKey } = options
-  const response = await fetch(path, {
-    method,
-    signal,
-    headers:
-      body === undefined && !idempotencyKey
-        ? undefined
-        : {
-            ...(body === undefined ? {} : { "content-type": "application/json" }),
-            ...(idempotencyKey ? { "idempotency-key": idempotencyKey } : {}),
-          },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  const { method = "GET", body, schema, signal, background = false } = options
+  const intentId =
+    method === "GET"
+      ? undefined
+      : (options.intentId ?? options.idempotencyKey ?? mintIntentId())
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers["content-type"] = "application/json"
+  if (intentId) headers[INTENT_HEADER] = intentId
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method,
+      signal,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch (error) {
+    // fetch() rejects with a TypeError when the connection drops or the
+    // request never got an answer -- for a write, the one case where it may
+    // still have been applied. Wrapped so the error keeps the intent it was
+    // sent under, which a retry resends and `GET /api/mutations/{intentId}`
+    // answers for (the upload XHR in lib/api/location-media.ts does the
+    // same). Reads, and an aborted or timed-out request, rethrow as they are.
+    if (intentId && error instanceof TypeError) {
+      throw new ApiClientError(
+        0,
+        "network_error",
+        "We couldn’t reach NabaPresence. Check your connection and try again.",
+        undefined,
+        { intentId }
+      )
+    }
+    throw error
+  }
   const payload = await readPayload(response)
 
   if (!response.ok) {
@@ -143,6 +340,14 @@ export async function apiFetch<T = unknown>(
     ) {
       handleUnauthorized()
     }
+    reportAccessLost(path, method, response.status, code)
+    if (
+      response.status === 403 &&
+      (code === MFA_STEP_UP_REQUIRED || code === MFA_ENROLLMENT_REQUIRED) &&
+      !background
+    ) {
+      requestStepUp(code)
+    }
     throw new ApiClientError(
       response.status,
       code,
@@ -153,6 +358,7 @@ export async function apiFetch<T = unknown>(
         retryable: payload.retryable,
         reconnectRequired: payload.reconnectRequired,
         requestId: payload.requestId,
+        intentId,
       }
     )
   }
@@ -161,14 +367,39 @@ export async function apiFetch<T = unknown>(
   // and surprise callers such as signOut.
   if (response.status === 204) return undefined as T
 
+  // A listing write parked for a second publisher's approval (two-person
+  // mode, lib/server/listing-changes.ts): nothing was sent to Google, so it
+  // is not the answer the caller's schema describes. Raised as its own
+  // code -- never a failure -- with the change request in `details`, so
+  // every editor's error path can say "sent for approval" and keep the edit.
+  if (response.status === 202) {
+    const parked = listingChangeParkedResponseSchema.safeParse(payload.raw)
+    if (parked.success) {
+      throw new ApiClientError(
+        202,
+        LISTING_CHANGE_AWAITING_APPROVAL,
+        "Sent for approval. Another publisher needs to approve this change before it goes to Google.",
+        {
+          changeRequest: parked.data.changeRequest,
+          operationId: parked.data.operation.operationId,
+          outcome: "awaiting_approval",
+        },
+        { requestId: payload.requestId, intentId }
+      )
+    }
+  }
+
   if (!schema) return payload.raw as T
   const parsed = schema.safeParse(payload.raw)
   if (!parsed.success) {
+    // The server answered 2xx, so a write behind it was applied: the intent
+    // lets a retry be answered from its receipt instead of writing again.
     throw new ApiClientError(
       500,
       "malformed_response",
       "The server response did not match the expected shape.",
-      parsed.error.issues
+      parsed.error.issues,
+      { intentId }
     )
   }
   return parsed.data

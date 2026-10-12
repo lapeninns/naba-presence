@@ -5,6 +5,8 @@ import {
 } from "@/lib/contracts/clients"
 import { writeAudit } from "@/lib/server/audit"
 import {
+  businessSingleClientError,
+  isBusinessSingleClientViolation,
   listClientSummaries,
   loadClientSummary,
   uniqueClientSlug,
@@ -43,11 +45,7 @@ export const POST = route({
         where id = ${session.organisationId}
       `
       if (organisation?.workspaceMode === "business") {
-        throw new ApiError(
-          409,
-          "business_mode_single_client",
-          "This workspace has a single business, so another one cannot be added."
-        )
+        throw businessSingleClientError()
       }
       const slug = await uniqueClientSlug(sql, body.name)
       const [created] = await sql<{ id: string }[]>`
@@ -62,7 +60,12 @@ export const POST = route({
         )
         on conflict (organisation_id, name) do nothing
         returning id::text as id
-      `
+      `.catch((error: unknown) => {
+        if (isBusinessSingleClientViolation(error)) {
+          throw businessSingleClientError()
+        }
+        throw error
+      })
       if (!created) {
         // The unique constraint is the check: two operators creating the same
         // client at once both pass a pre-read, and only one insert survives.

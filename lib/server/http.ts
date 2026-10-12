@@ -76,7 +76,52 @@ export function apiError(error: unknown, requestId?: string) {
   return requestId ? withRequestIdHeader(response, requestId) : response
 }
 
-function mapError(error: unknown, requestId?: string) {
+/** `details.retryAfter` (seconds) on a 429, as the Retry-After header. */
+function retryAfterHeaders(error: ApiError): HeadersInit | undefined {
+  if (error.status !== 429) return undefined
+  const retryAfter = (error.details as { retryAfter?: unknown } | undefined)
+    ?.retryAfter
+  return typeof retryAfter === "number" &&
+    Number.isFinite(retryAfter) &&
+    retryAfter > 0
+    ? { "retry-after": String(Math.ceil(retryAfter)) }
+    : undefined
+}
+
+/**
+ * The location-limit trigger's refusal (0110 location_link_enforce_limit:
+ * SQLSTATE 23514, message `location_limit_reached`, the limit as its
+ * detail) as the 402 every linking surface answers with; null for anything
+ * else. Mapped here so every route that links a location answers the same
+ * way without each one catching it. Flows that catch errors themselves and
+ * record an error code (the onboarding creation and match links) call it in
+ * their catch and record `location_limit_reached`.
+ */
+export function locationLimitError(error: unknown): ApiError | null {
+  if (typeof error !== "object" || error === null) return null
+  const { code, message, detail } = error as {
+    code?: unknown
+    message?: unknown
+    detail?: unknown
+  }
+  if (code !== "23514" || message !== "location_limit_reached") return null
+  const limit = typeof detail === "string" ? Number.parseInt(detail, 10) : NaN
+  return locationLimitReachedError(Number.isFinite(limit) ? limit : null)
+}
+
+/** The 402 a linking surface answers with once the location limit is reached. */
+export function locationLimitReachedError(limit: number | null): ApiError {
+  return new ApiError(
+    402,
+    "location_limit_reached",
+    "This workspace has reached its plan's location limit. Unlink a location or change plan to link another.",
+    { details: { limit } }
+  )
+}
+
+function mapError(error: unknown, requestId?: string): NextResponse {
+  const limitReached = locationLimitError(error)
+  if (limitReached) return mapError(limitReached, requestId)
   if (error instanceof ApiError) {
     return NextResponse.json(
       errorBody({
@@ -88,7 +133,7 @@ function mapError(error: unknown, requestId?: string) {
         details: error.details,
         requestId: error.requestId ?? requestId,
       }),
-      { status: error.status }
+      { status: error.status, headers: retryAfterHeaders(error) }
     )
   }
   if (error instanceof ZodError) {

@@ -1,10 +1,12 @@
 import "server-only"
-import { z } from "zod"
 
-import type {
-  LocationActivityItem,
-  LocationActivityQuery,
-  LocationActivityState,
+import {
+  decodeLocationActivityCursor,
+  encodeLocationActivityCursor,
+  locationActivityItemSchema,
+  type LocationActivityItem,
+  type LocationActivityQuery,
+  type LocationActivityState,
 } from "@/lib/contracts/location-activity"
 import { withTenant } from "@/lib/server/db"
 import { retiredStoredGoogleResource, retiredGoogleMessage } from "@/lib/domain/google-support"
@@ -12,23 +14,13 @@ import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 import { ApiError } from "@/lib/server/http"
 import { locationActivityProjection } from "./location-activity-projection"
-import { locationActivityItemSchema } from "@/lib/contracts/location-activity"
-
-const cursorSchema = z.object({
-  version: z.literal(1), locationId: z.uuid(),
-  at: z.iso.datetime(), id: z.string().regex(/^(management|hours|profile|menus|links|media|posts|reviews):[0-9a-f-]{36}$/),
-}).strict()
 
 function parseCursor(value: string | undefined, locationId: string) {
   if (!value) return null
-  try {
-    const cursor = cursorSchema.parse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")))
-    if (cursor.locationId !== locationId) throw new ApiError(400, "invalid_cursor", "This cursor belongs to another location.")
-    return cursor
-  } catch (error) {
-    if (error instanceof ApiError) throw error
-    throw new ApiError(400, "invalid_cursor", "The activity cursor is invalid.")
-  }
+  const cursor = decodeLocationActivityCursor(value)
+  if (!cursor) throw new ApiError(400, "invalid_cursor", "The activity cursor is invalid.")
+  if (cursor.locationId !== locationId) throw new ApiError(400, "invalid_cursor", "This cursor belongs to another location.")
+  return cursor
 }
 
 // The item/state shapes are the wire contract
@@ -41,9 +33,7 @@ export async function listLocationActivity(
   locationId: string,
   options: LocationActivityQuery = {}
 ): Promise<LocationActivityState> {
-  const page = Math.max(1, Math.floor(options.page ?? 1))
   const pageSize = Math.min(50, Math.max(1, Math.floor(options.pageSize ?? 20)))
-  const offset = (page - 1) * pageSize
   const cursor = parseCursor(options.cursor, locationId)
 
   return withTenant(organisationId, async (sql) => {
@@ -80,12 +70,12 @@ export async function listLocationActivity(
       left join app_user u on u.id = m.actor_user_id
       ${cursor ? sql`where (m.created_at, m.id) < (${cursor.at}::text::timestamptz, ${cursor.id}::text)` : sql``}
       order by m.created_at desc, m.id desc
-      limit ${pageSize + 1} offset ${cursor ? 0 : offset}
+      limit ${pageSize + 1}
     `
     const items = rows.slice(0, pageSize)
     const last = items.at(-1)
     const nextCursor = rows.length > pageSize && last
-      ? Buffer.from(JSON.stringify({ version: 1, locationId, at: last.cursorTimestamp, id: last.id })).toString("base64url")
+      ? encodeLocationActivityCursor({ version: 1, locationId, at: last.cursorTimestamp, id: last.id })
       : null
     return {
       canManage: session.role === "owner" || session.role === "admin",
@@ -98,7 +88,6 @@ export async function listLocationActivity(
           : null,
       })),
       total,
-      page,
       pageSize,
       nextCursor,
     }

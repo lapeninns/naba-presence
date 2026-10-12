@@ -10,11 +10,12 @@ import {
   type PostApprovalOutcome,
   type PostPublishOutcome,
   type PostRow,
+  type PostsListQuery,
   type PostsListResponse,
   type PostUpdateResponse,
 } from "@/lib/contracts/location-posts"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type Post = PostRow
 export type PostsState = PostsListResponse
@@ -24,8 +25,19 @@ export type PublishPostResult = PostPublishOutcome
 // outcome instead (see postUpdateResponseSchema).
 export type UpdatePostResult = PostUpdateResponse
 
-export function fetchPosts(id: string, options?: RequestOptions): Promise<PostsState> {
-  return apiFetch(`/api/locations/${id}/posts`, { schema: postsListResponseSchema, ...options })
+/** One page of one status view (or, with `post`, that one post). */
+export function fetchPosts(
+  id: string,
+  params: PostsListQuery = {},
+  options?: RequestOptions
+): Promise<PostsState> {
+  const query = new URLSearchParams()
+  if (params.filter && params.filter !== "all") query.set("filter", params.filter)
+  if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.cursor) query.set("cursor", params.cursor)
+  if (params.post) query.set("post", params.post)
+  const suffix = query.size ? `?${query}` : ""
+  return apiFetch(`/api/locations/${id}/posts${suffix}`, { schema: postsListResponseSchema, ...options })
 }
 
 export function createPost(id: string, input: LocalPostInputValues) {
@@ -44,21 +56,28 @@ export function updatePost(id: string, postId: string, input: LocalPostInputValu
   })
 }
 
-export function publishPost(id: string, postId: string): Promise<PublishPostResult> {
+export function publishPost(
+  id: string,
+  postId: string,
+  options: MutationOptions = {}
+): Promise<PublishPostResult> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/publish`, {
     method: "POST",
     schema: postPublishOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 
 export function decidePostApproval(
   id: string,
   postId: string,
-  decision: PostApprovalDecision["decision"]
+  decision: PostApprovalDecision["decision"],
+  /** The post's `contentRevision` as the approver saw it. */
+  expectedRevision: number | undefined
 ): Promise<PostApprovalOutcome> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/approval`, {
     method: "POST",
-    body: { decision } satisfies PostApprovalDecision,
+    body: { decision, expectedRevision } satisfies PostApprovalDecision,
     schema: postApprovalOutcomeSchema,
   })
 }

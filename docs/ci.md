@@ -3,13 +3,27 @@
 How changes are checked before they reach production: which workflows run,
 on which runner, what is required to merge, and how to debug a red run.
 
+The project runs locally. The release evidence is the local gate,
+`pnpm verify:release` (§5), and its receipt, which `pnpm release:promote`
+(§7) requires. The GitHub workflows below are kept in the repository and
+describe the same graph, but they are not a release gate, they have not run
+since about 2026-10-04, and nothing in a release waits for them to run again.
+Sections 1 to 4 and 8 to 11 describe the hosted setup as configured, for when
+it runs.
+
 - Workflows: `.github/workflows/ci.yml`, `nightly.yml`, `codeql.yml`,
   `claude-review.yml`; Dependabot: `.github/dependabot.yml`.
 - Shared install step: `.github/actions/setup` (pnpm from `packageManager`,
   Node from `.nvmrc`, `pnpm install --frozen-lockfile`).
+- Node runtime: Node 24 everywhere. `.nvmrc` (`24`) drives local nvm, CI and
+  nightly; `package.json` `engines.node` (`>=24 <25`) drives Vercel and, with
+  `engineStrict: true` in `pnpm-workspace.yaml`, makes `pnpm install` refuse
+  another major. `tests/server/toolchain-parity.test.ts` fails on any drift.
 - CI scripts: `scripts/ci/` (throwaway Postgres, migration policy, PG client,
   runner-hook reference copies), `scripts/db-migrate.mjs`,
-  `scripts/vercel-ignore-build.mjs`.
+  `scripts/vercel-ignore-build.mjs`; local release gate:
+  `scripts/release/verify-local.mjs` (§5); production promotion:
+  `scripts/release/promote.mjs` (§7).
 
 ## 1. What runs when
 
@@ -21,7 +35,7 @@ on which runner, what is required to merge, and how to debug a red run.
 | Draft PR | every job | as same-repo | yes | never (label ignored) | preview build |
 | Fork PR | every job, **after a maintainer approves the run** | always hosted | yes | never (no secrets; comment path re-checks) | preview build |
 | Dependabot PR | every job | always hosted | yes | never | preview skipped |
-| Push to `main` | every job, never cancelled | hosted; Mac when enabled | yes | – | production build |
+| Push to `main` | every job, never cancelled | hosted; Mac when enabled | yes | – | none; production is promoted by `pnpm release:promote` (§7) |
 | Nightly 04:17 UTC | `ci.yml` with `full: true` (full-history gitleaks) + `pnpm audit` | hosted; Mac when enabled | weekly, Mon 05:41 UTC | – | – |
 
 "Docs-only" means every changed file is under `docs/` or ends in `.md`,
@@ -83,12 +97,30 @@ cluster, so shards never share advisory locks or roles.
 ## 3. Required checks
 
 **`CI result` is the only check to require.** It runs with `if: always()`,
-reads `needs.*.result`, and fails if any job is `failure` or `cancelled`. A
-`skipped` job counts as a pass: that is how a docs-only PR stays green while
-its code jobs skip, and how Dependency review skips on pushes.
+checks out only `scripts/ci`, and runs `node scripts/ci/aggregate-results.mjs`
+with `needs`, Plan's `code` output and the event. Aggregation is strict: every
+job that applies to the change must be `success`. `skipped`, `failure` and
+`cancelled` all fail, except for these planned skips:
 
-To add, split or shard a job, add it to `result`'s `needs` list. No ruleset
-change is needed, because the ruleset only knows `CI result`. Job `name:`s
+| Jobs | May skip when |
+|---|---|
+| Plan, Secret scan | never |
+| Gate, Build, Migrations, Integration, E2E | Plan succeeded and reported `code=false` on a pull request (docs-only PR) |
+| Dependency review | the event is not `pull_request` |
+
+Anything uncertain fails closed: Plan not `success`, a missing or unexpected
+`code` output, `code=false` on an event other than `pull_request`, a job
+missing from `needs`, or a job in `needs` the script does not classify. So a
+skipped Build no longer turns Integration and E2E into silent passes, and a
+broken Plan cannot make a code PR look docs-only. The rules are unit-tested in
+`tests/server/ci-aggregate.test.ts`, which also reads `ci.yml` and fails if
+`result`'s `needs` differs from the script's job sets.
+
+To add, split or shard a job, add it to `result`'s `needs` list and to one of
+the job sets in `scripts/ci/aggregate-results.mjs` (`REQUIRED_ALWAYS`,
+`CODE_JOBS` or `PR_ONLY`); a code job also needs
+`if: needs.plan.outputs.code == 'true'`. No ruleset change is needed, because
+the ruleset only knows `CI result`. Job `name:`s
 use the same string on both lanes, so moving between hosted and the Mac
 never renames a check either.
 
@@ -150,11 +182,78 @@ the Actions cache.
 pnpm verify        # typecheck + lint + unit tests; no database. Before every push.
 pnpm verify:full   # verify + build + integration; needs the local Supabase stack.
 pnpm test:e2e      # browser journeys; pnpm test:a11y for accessibility only.
+pnpm verify:release # the whole CI graph on a fresh worktree and throwaway Postgres; writes a receipt.
 ```
 
 Run `verify` before pushing. Run `verify:full`, `test:e2e` and `test:a11y`
 as well when you touch server code, the database or UI flows. CI runs
 everything, plus migrations, secret scanning, dependency review and CodeQL.
+
+### Local release gate (`pnpm verify:release`)
+
+Hosted CI is not a release gate: GitHub Actions has not run since about
+2026-10-04 and the project runs locally. The release evidence is
+`pnpm verify:release` (`scripts/release/verify-local.mjs`), which runs the
+`ci.yml` graph plus the nightly audit on this machine, in order:
+
+| Step | What runs |
+|---|---|
+| `frozen-install` | `pnpm install --frozen-lockfile` |
+| `typecheck`, `lint`, `unit` | `pnpm typecheck`, `pnpm lint` (zero warnings), `pnpm test` |
+| `build` | `pnpm build` (webpack standalone) |
+| `migration-policy` | `node scripts/ci/migration-policy.mjs` against the base (see below) |
+| `migrate-fresh` | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
+| `migrate-upgrade` | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
+| `migrate-concurrent` | two `db:migrate` runs at once; each version recorded exactly once |
+| `integration` | `pnpm test:integration` on a freshly migrated database |
+| `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy) |
+| `audit` | `pnpm audit --prod --audit-level high` |
+| `secret-scan` | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see); **skipped with a note** when gitleaks is not installed |
+
+The base is what production runs: the `sha` of the newest committed
+promotion receipt in `docs/release/receipts/`, read at `HEAD`. Before the
+first promotion there is none: pass `--base-ref <the SHA production runs>`
+(`release.sha` from the platform health check). Without either it falls back
+to `origin/main`, which suits a branch; on the `origin/main` commit itself the
+merge base is `HEAD`, so `migration-policy` and `migrate-upgrade` would
+compare `HEAD` with itself, and promotion refuses that receipt. The receipt
+records the base and where it came from (`base.source`).
+
+It checks `HEAD` out into a fresh detached worktree under the OS temp
+directory, so no `.env*` file, untracked file or local build output takes
+part (uncommitted changes in your checkout are not tested; it warns). The
+gate's own code runs from your checkout, so uncommitted changes under
+`scripts/release/`, `scripts/ci/`, `lib/domain/redaction.ts`, `package.json`
+or `.nvmrc` are recorded in the receipt (`gateSource`) and promotion refuses
+it. It starts its own PostgreSQL 17 with `scripts/ci/postgres.mjs` and stops
+it at the end, even on failure or Ctrl-C. The steps inherit only an allowlist
+of your shell's variables (`PATH`, `HOME`, temp and terminal variables, the
+pnpm, npm config, corepack and nvm ones, `NABA_PG_BIN`/`NABA_PG_MODE`, Docker,
+proxy and Playwright browser locations; `INHERITED_ENV` in
+`scripts/release/verify-local.mjs`), so database URLs, CI variables and any
+provider credentials you have sourced never reach integration or e2e, and it
+never reaches the shared dev database on 54322. It sets `ci.yml`'s
+placeholder `env:` values and `LC_ALL`/`LANG` (Homebrew Postgres needs a
+UTF-8 locale). It must run on the `.nvmrc` Node major.
+
+Every step runs even after a failure, unless `--fail-fast`. A step whose
+prerequisite failed is `not-run`. The full output goes to `verify.log` in the
+printed run directory. The receipt is written to
+`docs/release/receipts/local/<UTC time>-<sha12>.json` (gitignored, so the
+checkout stays clean for promotion): SHA, base ref, base and merge-base SHAs,
+Node, pnpm, PostgreSQL and gitleaks versions, and each step's status,
+duration, test counts and note. The exit code is 0 only when the gate passed.
+`--skip <id,...>` and `--fail-fast` are for iterating; such a receipt never
+passes promotion. `--list` prints the steps; `--keep-worktree` keeps the
+worktree for debugging. Rules are unit-tested in
+`tests/server/release-verify-local.test.ts`.
+
+`test:integration`, `test:e2e` and `test:a11y` go through
+`scripts/run-test-command.mjs`, which refuses a non-local host in
+`TEST_RUNTIME_DATABASE_URL`, `DIRECT_DATABASE_URL` or `DATABASE_SESSION_URL`
+(the advisory-lock connection) unless `ALLOW_REMOTE_TEST_DB=1` is set
+deliberately. The harness seeds and deletes tenants in whatever those URLs
+reach.
 
 **Pre-push hook (opt-in):** `pnpm hooks:install` sets
 `core.hooksPath=.githooks`. `.githooks/pre-push` then runs `pnpm verify` and,
@@ -172,6 +271,16 @@ script, so CI and Vercel installs never install hooks.
 and `.worktrees`, matching ESLint's ignores. TypeScript already skips
 dot-directories under `**` wildcards, but the gitignored `ds-bundle/` output
 (60 generated files) was being typechecked wherever it existed.
+
+`pnpm lint` runs `eslint --max-warnings 0`, so a warning fails the gate the
+same way an error does. ESLint also ignores the gitignored local evidence and
+report directories (`.omo`, `.superpowers`, `test-results`,
+`playwright-report`, `coverage`, `.pnpm-store`), and `tsconfig.json` excludes
+`.omo` and `.superpowers`. `.omo` holds QA evidence with copied source trees
+that would otherwise be linted as app code. Ignoring these directories does
+not delete them. For a full-document navigation inside the app, use
+`hardNavigate` from `lib/client/hard-navigate.ts`, not a relative
+`location.assign`, which Next's lint rule flags.
 
 ## 6. Migrations
 
@@ -234,6 +343,19 @@ dot-directories under `**` wildcards, but the gitignored `ds-bundle/` output
 Integration and E2E then migrate their own databases and create the runtime
 role, and every test runs through that non-superuser role.
 
+### Required-migrations manifest
+
+`lib/server/schema-manifest.ts` lists every migration version the code may
+rely on. **Every PR that adds a migration appends its version there.**
+`tests/schema-compat.test.ts` fails until the manifest holds exactly the
+versions in `supabase/migrations` (it uses `listMigrationVersions` from
+`scripts/migration-rules.mjs`, the same rule `db:migrate` and `db:status`
+use). In production, `assertProductionSafety` refuses to start when a listed
+version is missing from `schema_migration`; extra applied versions are
+allowed, so expand-only migrations can run ahead of the code.
+`tests/integration/startup-assertion.test.ts` checks both directions against
+the migrated CI database through the runtime role.
+
 ### Production: manual, from the operator's machine
 
 Vercel does **not** run migrations. The project has no Build Command
@@ -244,23 +366,99 @@ purpose.
 
 For a PR that adds a migration:
 
-1. The PR is green, including the Migrations job, and the migration is
-   expand-only.
+1. `pnpm verify:release` has passed for the commit whose migrations you are
+   applying (the branch head when migrating before merge), and the migration
+   is expand-only. Never run `db:migrate` against production before the gate
+   has passed: it is the only check that the migrations apply from scratch
+   and from production's schema.
 2. Take a restorable database snapshot, and note the current production
    deployment (the rollback unit in `docs/runbook.md`).
 3. From your machine, with the admin URL (direct, or session pooler on 5432):
-   `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then `pnpm db:status`.
+   `DIRECT_DATABASE_URL='<admin url>' pnpm db:migrate`, then
+   `DIRECT_DATABASE_URL='<admin url>' pnpm db:status --expect-current`
+   (exits 1 while anything is pending; check that the printed `target` is the
+   production host).
    Run this **before merging** when the new code depends on the new schema:
    the live code tolerates an expand-only migration, but the new code would
    fail against the old schema.
-4. Merge. Vercel builds and promotes production.
+4. Merge, then promote with `pnpm release:promote` (§7). Merging does not
+   deploy production; the promotion script runs `db:status --expect-current`
+   again and refuses while anything is pending.
 5. On failure, restore the snapshot and promote the noted deployment
    together. Never run ad-hoc down migrations.
 
 ## 7. Deploys (Vercel)
 
-Vercel deploys through its own GitHub integration, so GitHub environment
-protection rules do not apply.
+**Production ships from the operator's machine, not from a merge.** Merging
+to `main` does not deploy production: the operator runs
+`vercel deploy --prod` from a clean worktree of `origin/main`, through
+`pnpm release:promote` (`scripts/release/promote.mjs`). Whether the Vercel
+GitHub integration is still connected for previews, and whether it could
+promote production on its own, is a dashboard check recorded under D-38 in
+`docs/release/decision-log.md`; if it can, turn off automatic production
+promotion or require `CI result` through Vercel Deployment Checks.
+
+### Promotion (`pnpm release:promote`)
+
+First run the local release gate (§5) on the `origin/main` commit and keep
+the receipt path it prints; production migrations (§6) come after it has
+passed, never before. Then, from a fresh worktree of `origin/main`
+(`git worktree add`), with `pnpm install --frozen-lockfile` run, the project
+linked (`vercel link`) and the production admin URL in the environment:
+
+```bash
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt> --dry-run
+DIRECT_DATABASE_URL='<admin url>' pnpm release:promote --local-receipt <receipt>
+```
+
+The script refuses, before deploying anything, unless every gate holds
+(`checkCandidate`, unit-tested in `tests/server/release-promote.test.ts`):
+
+- The worktree has no changed, staged or untracked files, and no ignored
+  `.env*` or `.dev.vars` file that `vercel deploy` would upload.
+- `HEAD` equals `origin/main` after a fetch.
+- `--local-receipt` names a `verify:release` receipt for exactly that SHA,
+  produced in a fresh worktree on the `.nvmrc` Node major, with no
+  `--skip`, and every required step `passed` (only `secret-scan` may be
+  `skipped`, for a missing gitleaks), no uncommitted edits to the gate's own
+  code, and a base equal to the `sha` of the newest committed promotion
+  receipt (with no promotion receipt yet, any base whose merge base is not
+  the commit itself). The gate re-judges the steps
+  (`scripts/release/local-receipt.mjs`), so a receipt edited to say `ok`
+  over a failed step still refuses. Hosted check runs are not consulted.
+- `db:status --expect-current` against `DIRECT_DATABASE_URL` reports no
+  pending migration (it prints the target; confirm it is production).
+  `DIRECT_DATABASE_URL` must be set explicitly, so a local `.env` can never
+  stand in for production.
+
+It then runs
+`vercel deploy --prod --yes --format json --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha> --meta releaseSha=<sha>`
+and writes `docs/release/receipts/<UTC time>-<sha12>.json`:
+
+- build: `sha`, `deploymentId`, `url`, and `localGate`: the local receipt's
+  file name, the sha256 of its bytes, its finish time, base and each step's
+  status, and `copy`, the `<receipt>.local.json` file beside it holding the
+  local receipt's exact bytes, so the sha256 stays checkable;
+- migrations: every `supabase/migrations` version the commit ships, with the
+  file's sha256;
+- configuration: the production variable **names** from
+  `vercel env ls production` (values are never read into the receipt), plus
+  `operator` (`git config user.name`) and `timestamp`.
+
+The script refuses to write a receipt in which any value would be changed by
+`lib/domain/redaction.ts`, or a configuration entry that is not a variable
+name. It validates a provisional receipt before deploying, so those refusals
+happen before production changes, and prints the deployment ID and URL as soon
+as the deploy returns. If the receipt write still fails after that, roll back
+or write the receipt by hand from the printed values. Commit the receipt and
+its `.local.json` copy; the next release's gate takes its base from it.
+
+Smoke check: `GET /api/operations/health?scope=platform` with the cron
+bearer returns `release.sha` (equal to the receipt's `sha`, with `source`
+`naba_release_sha`) and `schema.compatible: true`. Only the platform scope
+reports these; the session scope does not.
+
+### Ignored build step
 
 - `vercel.json` `ignoreCommand` runs `scripts/vercel-ignore-build.mjs`. Exit 0
   means **skip**; exit 1 means build.
@@ -270,11 +468,7 @@ protection rules do not apply.
     (`VERCEL_GIT_PREVIOUS_SHA..VERCEL_GIT_COMMIT_SHA`) is docs-only.
   - Anything uncertain builds: an unknown `VERCEL_ENV`, no previous SHA, or a
     SHA outside Vercel's shallow clone.
-- **Recommended, not enabled yet (an owner dashboard task):** Vercel
-  **Deployment Checks** (Project →
-  Settings → Deployment Checks) requiring the GitHub check `CI result`. The
-  production domain is then assigned only after CI passes on that commit.
-  Previews stay ungated. Deployment Checks gate promotion, not the build.
+- GitHub environment protection rules do not apply to Vercel deploys.
 
 ## 8. Self-hosted runner runbook
 
@@ -441,8 +635,12 @@ A failed scheduled run emails the repository owner.
 
 ## 11. Debugging a red run
 
-**Start with `CI result`.** Its log lists every job's result. Then open the
-first failed job.
+**Start with `CI result`.** Its log lists every job's result, then one
+`::error::` line per problem, each naming the job, its result and the rule it
+broke (for example `integration: skipped (code changed)`). Open the first job
+that is not `success` upstream of the others: under strict aggregation a job
+skipped because its dependency failed (Integration and E2E after a failed
+Build) is reported too, but it is a consequence, not the cause.
 
 **E2E traces:** a failing shard uploads `e2e-traces-shard-N`.
 
@@ -453,8 +651,20 @@ pnpm exec playwright show-trace /tmp/traces/<test>/trace.zip
 
 **Re-run one job or shard:** in the UI, re-run that job, or run
 `gh run rerun <run-id> --job <job-id>`. `gh run view <run-id> --json jobs`
-lists the job IDs. A re-run reuses the run's standalone artifact, which
-expires after 1 day; after that, re-run all jobs so Build runs again.
+lists the job IDs. GitHub also re-runs every job that depends on it, so
+`CI result` aggregates again with the new result. Re-running only `CI result`
+does not help: it re-reads the same job results and fails the same way.
+
+- **Re-run failed jobs** covers the failed jobs and their
+  dependents, which includes Integration and E2E skipped behind a failed
+  Build. Prefer it to re-running a single shard.
+- A job skipped because Plan failed or reported no `code` output can only
+  recover through Plan: re-run Plan (or all jobs), because a re-run job keeps
+  the old Plan outputs.
+- A cancelled run (a newer push to the same PR supersedes it) stays red;
+  look at the newest run instead of re-running the cancelled one.
+- A re-run reuses the run's standalone artifact, which expires after 1 day;
+  after that, re-run all jobs so Build runs again.
 
 **Reproduce a CI database locally:** this uses the same script as CI.
 
@@ -490,4 +700,7 @@ Check Settings → Actions → Runners. If `mac-1`/`mac-2` are offline, flip the
 variable to `false` and re-run all jobs.
 
 **Docs-only PR shows no Gate/Build:** expected. `Plan` printed `Code jobs:
-false` and `CI result` is still green.
+false`, and `CI result` stays green because the aggregation allows code jobs
+to skip on a docs-only pull request. If `CI result` is red with
+`plan output code: missing`, Plan failed or did not write its output: fix or
+re-run Plan; the code jobs are then required.

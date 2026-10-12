@@ -98,6 +98,7 @@
 
 import type { ReactNode } from "react"
 
+import { ListingChangeRequests } from "@/components/locations/listing-change-requests"
 import { TabError, TabLoading } from "@/components/locations/tab-states"
 import { Empty } from "@/components/ui/empty"
 import {
@@ -108,6 +109,7 @@ import {
   type LocationGate,
   type TabGateReasons,
 } from "@/lib/locations/gating"
+import type { ListingChangeEditor } from "@/lib/contracts/listing-changes"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 
 /**
@@ -240,7 +242,29 @@ function LocationTabResource<T>({
   const enabled = writesEnabled
     ? writesEnabled(data)
     : defaultWritesEnabled(data)
+  const approvalEditor = resource ? APPROVAL_EDITOR[resource] : undefined
   return (
-    <>{children({ data, caps, ...tabGateReasons(caps, resource, enabled) })}</>
+    <>
+      {approvalEditor ? (
+        <ListingChangeRequests
+          locationId={locationId}
+          editor={approvalEditor}
+          enabled={caps?.listingChangeApprovals === true}
+        />
+      ) : null}
+      {children({ data, caps, ...tabGateReasons(caps, resource, enabled) })}
+    </>
   )
+}
+
+/**
+ * The listing editors whose Google writes park for a second publisher in
+ * two-person mode, by capability resource: each shows its pending requests
+ * above the editor (components/locations/listing-change-requests.tsx).
+ */
+const APPROVAL_EDITOR: Record<string, ListingChangeEditor | undefined> = {
+  hours: "hours",
+  businessInformation: "profile",
+  menu: "menus",
+  photos: "photos",
 }

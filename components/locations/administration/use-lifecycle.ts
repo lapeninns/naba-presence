@@ -34,7 +34,7 @@ export function useLifecycle(locationId: string, accessBlocked = false) {
     void client.invalidateQueries({ queryKey: ["lifecycle-workflows", locationId] })
     void client.invalidateQueries({ queryKey: ["lifecycle-latest-attempt", locationId] })
     void client.invalidateQueries({ queryKey: queryKeys.locationAdministration(locationId) })
-    void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId).slice(0, -1) })
+    void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
   }
   // A confirmed deletion or transfer changes the listing's state everywhere
   // it is summarised (the page header chip, the board and the directory).

@@ -2,6 +2,7 @@ import "server-only"
 
 import type { TransactionSql } from "postgres"
 
+import type { LocationScope } from "@/lib/contracts/members"
 import {
   ACCOUNT_SCOPED_KINDS,
   defaultNotificationMode,
@@ -10,6 +11,7 @@ import {
   type NotificationEventKind,
   type NotificationMode,
 } from "@/lib/domain/notification-preferences"
+import { isManagerialRole } from "@/lib/server/permissions"
 
 type Role = "owner" | "admin" | "member" | "viewer"
 export type NotificationMember = {
@@ -25,8 +27,15 @@ export type ScopedIncident = {
 }
 
 /**
- * Current members with their location assignments. A member with no
- * location_member rows sees every location, as visibilityPredicate has it.
+ * Current members with the locations they can see, by the rule in
+ * lib/server/permissions.ts: owners, admins and scope 'all' see every
+ * location (`assigned` is null); scope 'assigned' sees exactly its
+ * location_member rows, and nothing when there are none. Absence never
+ * means "all", so email recipients match the inbox's visibilityPredicate.
+ *
+ * Both reads filter on the tenant transaction's app.organisation_id as
+ * permissions.ts does: outside a tenant transaction nothing matches, and a
+ * scope or row from another organisation cannot widen this one.
  */
 export async function loadNotificationMembers(
   sql: TransactionSql
@@ -36,12 +45,19 @@ export async function loadNotificationMembers(
       userId: string
       role: Role
       email: string | null
+      locationScope: LocationScope
       locations: string[] | null
     }[]
   >`
     select m.user_id::text as "userId", m.role, u.email,
-      (select array_agg(lm.location_id::text) from location_member lm where lm.user_id = m.user_id) as locations
-    from member m join app_user u on u.id = m.user_id`
+      m.location_scope as "locationScope",
+      (
+        select array_agg(lm.location_id::text) from location_member lm
+        where lm.organisation_id = m.organisation_id and lm.user_id = m.user_id
+      ) as locations
+    from member m join app_user u on u.id = m.user_id
+    where m.organisation_id =
+      nullif(current_setting('app.organisation_id', true), '')::uuid`
   return new Map(
     rows.map((row) => [
       row.userId,
@@ -49,7 +65,10 @@ export async function loadNotificationMembers(
         userId: row.userId,
         role: row.role,
         email: row.email,
-        assigned: row.locations ? new Set(row.locations) : null,
+        assigned:
+          isManagerialRole(row.role) || row.locationScope === "all"
+            ? null
+            : new Set(row.locations ?? []),
       },
     ])
   )

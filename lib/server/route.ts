@@ -4,16 +4,30 @@ import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 import type { ZodType } from "zod"
 
+import {
+  clientIpFromRequest,
+  takeAbuseBudget,
+  type AbuseLimit,
+} from "@/lib/server/abuse-limits"
 import { withAuditActor } from "@/lib/server/audit"
 import { secretEqual } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
+import {
+  assertRouteEntitled,
+  type RouteEntitlement,
+} from "@/lib/server/entitlement-policy"
+import { appOrigins, getServerEnv } from "@/lib/server/env"
 import {
   ApiError,
   apiError,
   serverRequestId,
   withRequestIdHeader,
 } from "@/lib/server/http"
+import { requireRecentMfa } from "@/lib/server/mfa"
+import {
+  parseIntentHeader,
+  withMutationIntent,
+} from "@/lib/server/mutation-operations"
 import { requireRole, requireSession, type Session } from "@/lib/server/session"
 
 /**
@@ -28,36 +42,85 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      requestId)` so every error body carries it. Handlers pass
  *      `ctx.requestId` to `writeAudit` / `log` — never call `serverRequestId`
  *      again inside a handler;
- *   2. authentication — `auth: "session"` (default) runs `requireSession()`;
+ *   2. the same-origin guard — a mutation (any method but GET/HEAD/OPTIONS)
+ *      on an `origin: "same"` route (the default for `auth: "session"`) is
+ *      refused with 403 `cross_origin_request` unless its `Origin` is the
+ *      request's own origin, NEXTAUTH_URL's or one in APP_ALLOWED_ORIGINS.
+ *      "Own origin" is `request.url`'s, which depends on the host: self-hosted
+ *      `next start` / standalone builds it from the bound hostname and port
+ *      (`localhost:<port>` by default), not from the browser's Host header,
+ *      so a self-hosted deployment (and the E2E harness on :3100) relies on
+ *      NEXTAUTH_URL or APP_ALLOWED_ORIGINS. Whether Vercel previews pass on
+ *      their own origin is unverified (SEC-04).
+ *      With no `Origin`, `Sec-Fetch-Site` decides (`same-origin` and `none`
+ *      pass). A request carrying neither header is not a browser and cannot
+ *      ride a victim's cookies, so it passes: that keeps
+ *      `scripts/scheduler.mjs`, the integration helpers and other
+ *      server-to-server callers working. A valid cron bearer also passes, for
+ *      session-or-cron hybrids marked `origin: "same"`. Cron, webhook and
+ *      support-secret routes default to (or declare) `origin: "any"`;
+ *      public routes that act on cookies or credentials (sign-out, the
+ *      password forms, the sync hybrids) declare `origin: "same"`;
+ *   3. authentication — `auth: "session"` (default) runs `requireSession()`;
  *      `auth: "cron"` requires `authorization: Bearer <CRON_SECRET>` compared
  *      with `secretEqual` and throws 401 `invalid_cron_token` otherwise;
  *      `auth: "public"` gives `session: null` (the handler may still call
  *      `getSession()` itself, e.g. session-or-cron hybrids);
- *   3. organisation-level role gating — `roles: ["owner", "admin"]` runs
+ *   4. organisation-level role gating — `roles: ["owner", "admin"]` runs
  *      `requireRole` (403 `permission_denied`). Roles are declared in the
  *      route, not inside the handler. Location-level access is NOT a wrapper
  *      concern: handlers still call `requireLocationAccess`,
  *      `canPublishLocation` or `grantsFor` from `lib/server/permissions`
- *      inside `ctx.tenant(...)` once they know which location is involved;
- *   4. parsing — `params` (zod schema over the awaited `context.params`),
+ *      inside `ctx.tenant(...)` once they know which location is involved.
+ *      `mfa: "step_up"` then holds an owner or admin to a two-step
+ *      verification from the last 15 minutes (`requireRecentMfa`,
+ *      lib/server/mfa.ts; 403 `mfa_step_up_required` or
+ *      `mfa_enrollment_required`). Declare it on every handler that changes
+ *      the team, a Google connection, organisation settings, or publishes or
+ *      approves; never on reads, enrollment, exports or invoice viewing. It
+ *      does nothing while MFA_ENABLED is off;
+ *   5. parsing — `params` (zod schema over the awaited `context.params`),
  *      `query` (zod schema over an object built from `searchParams`, where a
  *      repeated key becomes a string array; or a plain function receiving the
  *      raw `URLSearchParams` for bespoke decoding) and `body` (zod schema
  *      over the JSON body; a missing or unparsable body becomes `{}` before
  *      validation so `.default()` fields work and required fields produce a
- *      400 instead of a 500). Zod failures map to 400 `invalid_request` with
- *      `fieldErrors`, exactly as `apiError` always did;
- *   5. the tenant transaction — `ctx.tenant(fn)` is
+ *      400 instead of a 500; a non-empty body that is not declared
+ *      `application/json` (or `+json`) is refused with 415
+ *      `unsupported_media_type`, so a cross-site `text/plain` form post can
+ *      never reach a schema). Zod failures map to 400 `invalid_request` with
+ *      `fieldErrors`, exactly as `apiError` always did. Then abuse limits:
+ *      `limits` (a function of the parsed context) names a scope in
+ *      `lib/server/abuse-limits.ts` and the keys to count it against (email,
+ *      user, token, organisation); the wrapper adds the client IP from the
+ *      trusted platform header. Any key over its limit answers 429 with
+ *      `details.retryAfter` and a Retry-After header, before the handler
+ *      runs. Requests refused earlier (origin, auth, validation) are not
+ *      counted;
+ *   6. the tenant transaction — `ctx.tenant(fn)` is
  *      `withTenant(session.organisationId, fn)` and is only present when
  *      `auth` is `"session"`. Cron/public handlers import `withTenant` /
  *      `getDatabase` directly (cross-tenant enumeration must be commented as
  *      such in the route file);
- *   6. the response — a returned `Response`/`NextResponse` is passed through
+ *   7. the response — a returned `Response`/`NextResponse` is passed through
  *      (build one when you need a non-200 status, a redirect or a non-JSON
  *      body); any other value becomes `NextResponse.json(value)`;
- *   7. error mapping — everything thrown (ApiError, ZodError, unknown) goes
+ *   8. error mapping — everything thrown (ApiError, ZodError, unknown) goes
  *      through `apiError(error, requestId)` unchanged;
- *   8. support attribution — when the session was minted by
+ *   9. the intent — a mutation's `Idempotency-Key` header (a client-minted
+ *      UUID, one per user intent, resent unchanged on a retry) is parsed into
+ *      `ctx.intentId` (400 `invalid_intent_id` when it is not a UUID; null
+ *      when absent, on GET/HEAD/OPTIONS, or on a route without a session,
+ *      which ignores the header) and made the handler's ambient intent, so
+ *      the first `runGbpWrite` of a surface that records receipts files it
+ *      in the operation ledger (lib/server/mutation-operations.ts). Without
+ *      the header nothing changes;
+ *  4b. billing entitlement -- a session mutation (any method but
+ *      GET/HEAD/OPTIONS) answers 402 `billing_read_only` while central
+ *      enforcement applies to the organisation and its billing is read-only
+ *      (`entitlement`, default "write"; "ai" for AI work; "exempt" for the
+ *      routes lib/server/entitlement-policy.ts lists);
+ *  10. support attribution — when the session was minted by
  *      `POST /api/support/impersonation` the handler runs inside
  *      `withAuditActor`, so every `writeAudit` it reaches records the support
  *      engineer and the stated reason. The session carries the customer's own
@@ -117,6 +180,8 @@ export type RouteContext<
   request: Request
   requestId: string
   clientRequestId: string | null
+  /** The `Idempotency-Key` intent id on a mutation, or null. */
+  intentId: string | null
   params: P
   query: Q
   body: B
@@ -135,8 +200,27 @@ export type RouteConfig<
 > = {
   /** Defaults to "session". */
   auth?: A
+  /**
+   * Whether mutations must come from the app's own origin. Defaults to
+   * "same" for auth "session" and "any" otherwise. See the header comment.
+   */
+  origin?: "same" | "any"
   /** Organisation roles allowed through. Only with auth "session". */
   roles?: A extends "session" ? Session["role"][] : never
+  /**
+   * "step_up": a sensitive action. Owners and admins need a recent two-step
+   * verification (see the header comment). Only with auth "session".
+   */
+  mfa?: A extends "session" ? "step_up" : never
+  /**
+   * What billing must allow for a session mutation (any method but
+   * GET/HEAD/OPTIONS) to run: "write" (the default) or "ai" refuse with 402
+   * `billing_read_only` while central enforcement applies and the
+   * organisation is read-only; "exempt" always runs and must be listed in
+   * ENTITLEMENT_EXEMPT_ROUTES (lib/server/entitlement-policy.ts). Ignored on
+   * safe methods and without a session.
+   */
+  entitlement?: A extends "session" ? RouteEntitlement : never
   /** Validates the awaited `context.params`. */
   params?: ZodType<P>
   /**
@@ -146,6 +230,11 @@ export type RouteConfig<
   query?: ZodType<Q> | ((searchParams: URLSearchParams) => Q)
   /** Validates the JSON body; missing/invalid JSON becomes `{}` first. */
   body?: ZodType<B>
+  /**
+   * The abuse limit this request counts against, from the parsed context;
+   * null counts nothing. The client IP is added by the wrapper.
+   */
+  limits?: (ctx: RouteContext<A, P, Q, B>) => AbuseLimit | null
   handler: (ctx: RouteContext<A, P, Q, B>) => RouteResult | Promise<RouteResult>
 }
 
@@ -198,9 +287,56 @@ export function searchParamsToObject(
   return result
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"])
+
+function crossOrigin(): ApiError {
+  return new ApiError(
+    403,
+    "cross_origin_request",
+    "This request did not come from the application."
+  )
+}
+
+/**
+ * Refuses a browser mutation from another origin. Exported for routes that
+ * need the same check outside `route()`; the wrapper calls it itself.
+ */
+export function assertSameOrigin(request: Request): void {
+  if (SAFE_METHODS.has(request.method.toUpperCase())) return
+  const origin = request.headers.get("origin")
+  if (origin === null) {
+    const site = request.headers.get("sec-fetch-site")
+    if (site === null || site === "same-origin" || site === "none") return
+    if (isCronRequest(request)) return
+    throw crossOrigin()
+  }
+  if (origin === new URL(request.url).origin) return
+  if (appOrigins(getServerEnv()).includes(origin)) return
+  if (isCronRequest(request)) return
+  throw crossOrigin()
+}
+
+function isJsonMediaType(contentType: string | null): boolean {
+  if (!contentType) return false
+  const type = contentType.split(";")[0].trim().toLowerCase()
+  return type === "application/json" || /^application\/[^/]+\+json$/.test(type)
+}
+
 async function readJsonBody(request: Request): Promise<unknown> {
-  const parsed = await request.json().catch(() => undefined)
-  return parsed ?? {}
+  const text = await request.text().catch(() => "")
+  if (text.trim() === "") return {}
+  if (!isJsonMediaType(request.headers.get("content-type"))) {
+    throw new ApiError(
+      415,
+      "unsupported_media_type",
+      "Send the request body as application/json."
+    )
+  }
+  try {
+    return JSON.parse(text) ?? {}
+  } catch {
+    return {}
+  }
 }
 
 function isZodSchema(value: unknown): value is ZodType {
@@ -236,10 +372,16 @@ export function route<
   B = undefined,
 >(config: RouteConfig<A, P, Q, B>): RouteHandler {
   const auth = (config.auth ?? "session") as A
+  const origin = config.origin ?? (auth === "session" ? "same" : "any")
   return async (request, context?: NextRouteContext) => {
     const rid = serverRequestId(request)
     try {
+      if (origin === "same") assertSameOrigin(request)
       const session = await authenticate(request, auth, config.roles)
+      if (session && config.mfa === "step_up") requireRecentMfa(session)
+      if (session && !SAFE_METHODS.has(request.method.toUpperCase())) {
+        assertRouteEntitled(session, config.entitlement ?? "write")
+      }
       const rawParams = (await context?.params) ?? {}
       const params = (
         config.params ? config.params.parse(rawParams) : rawParams
@@ -255,10 +397,18 @@ export function route<
       const body = (
         config.body ? config.body.parse(await readJsonBody(request)) : undefined
       ) as B
+      // Only a session's mutations take an intent: cron and public routes
+      // (Pub/Sub, RISC) never record receipts, and a sender or proxy adding
+      // its own Idempotency-Key must not get their deliveries refused.
+      const intentId =
+        !session || SAFE_METHODS.has(request.method.toUpperCase())
+          ? null
+          : parseIntentHeader(request)
       const base = {
         request,
         requestId: rid.id,
         clientRequestId: rid.clientId,
+        intentId,
         params,
         query,
         body,
@@ -273,17 +423,28 @@ export function route<
             }
           : { ...base, session: null }
       ) as unknown as RouteContext<A, P, Q, B>
-      // Only impersonated sessions pay for the async context; every other
-      // request calls the handler exactly as before.
+      const limit = config.limits?.(ctx)
+      if (limit) {
+        await takeAbuseBudget(limit.scope, {
+          ip: clientIpFromRequest(request),
+          ...limit,
+        })
+      }
+      // Only impersonated sessions and requests with an intent pay for an
+      // async context; every other request calls the handler as before.
+      const run = () =>
+        withMutationIntent(intentId, () => config.handler(ctx), {
+          securityVersion: session?.securityVersion ?? null,
+        })
       const result = await (session?.supportActor
         ? withAuditActor(
             {
               supportActor: session.supportActor,
               impersonationReason: session.impersonationReason,
             },
-            () => config.handler(ctx)
+            run
           )
-        : config.handler(ctx))
+        : run())
       return withRequestIdHeader(toResponse(result), rid.id)
     } catch (error) {
       return apiError(error, rid.id)

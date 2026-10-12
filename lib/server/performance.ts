@@ -9,14 +9,16 @@ import {
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   googlePerformanceMetrics,
   type GooglePerformancePoint,
 } from "@/lib/server/google"
-import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import {
+  gbpIngestionScopes,
+  requireScopesEnabled,
+} from "@/lib/server/pause-controls"
 
 const performanceTracer = trace.getTracer("nabapresence.performance")
 const performanceMeter = metrics.getMeter("nabapresence.performance")
@@ -319,17 +321,37 @@ export async function syncDuePerformance(
     requestId: string
     externalLocationId?: string
     maxLocations?: number
+    /**
+     * Epoch milliseconds past which no further location is claimed. At least
+     * one location is always attempted, so a deadline already in the past
+     * still makes progress; `truncated` then says the walk stopped early.
+     */
+    deadline?: number
   }
-): Promise<PerformanceSyncOutcome[]> {
-  // Ingestion boundary: GBP_PERFORMANCE_ENABLED pauses provider reads and
+): Promise<{ outcomes: PerformanceSyncOutcome[]; truncated: boolean }> {
+  // Ingestion boundary: GBP_PERFORMANCE_ENABLED, or an operator pause of
+  // `performance` (lib/server/pause-controls.ts), pauses provider reads and
   // checkpoint creation; stored metrics stay readable.
-  if (!gbpIngestionEnabled(getServerEnv(), "performance")) {
-    throw new ApiError(503, "sync_paused", "Performance ingestion is paused.")
-  }
+  await requireScopesEnabled(gbpIngestionScopes("performance"), {
+    code: "sync_paused",
+    message: "Performance ingestion is paused.",
+  })
   await ensurePerformanceCheckpoints(organisationId)
   const outcomes: PerformanceSyncOutcome[] = []
   const maxLocations = Math.min(50, Math.max(1, options.maxLocations ?? 25))
+  let truncated = false
   for (let index = 0; index < maxLocations; index += 1) {
+    // Checked before the claim, never after it: a claimed checkpoint is
+    // leased 'running', and leaving it unworked would hold it until the
+    // reaper. Same rule as the fleet walks: processed > 0 && now >= deadline.
+    if (
+      outcomes.length > 0 &&
+      options.deadline !== undefined &&
+      Date.now() >= options.deadline
+    ) {
+      truncated = true
+      break
+    }
     const location = await claimDuePerformanceLocation(
       organisationId,
       options.externalLocationId
@@ -404,7 +426,7 @@ export async function syncDuePerformance(
     outcomes.push(outcome)
     if (options.externalLocationId) break
   }
-  return outcomes
+  return { outcomes, truncated }
 }
 
 export function isGooglePerformanceMetric(

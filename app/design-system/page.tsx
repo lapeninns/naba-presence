@@ -1265,7 +1265,7 @@ export default function Page() {
                   {
                     id: "1",
                     label: "Description",
-                    state: "live",
+                    state: "confirmed_applied",
                     detail: "Confirmed by verification",
                   },
                   {

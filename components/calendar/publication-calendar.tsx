@@ -15,9 +15,11 @@ import {
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
+import { ApiClientError } from "@/lib/api/client"
 import { fetchScheduleOccurrences } from "@/lib/api/publication-schedules"
 import type { ScheduleOccurrence } from "@/lib/contracts/publication-schedules"
 import { clockChangeNote } from "@/lib/domain/publication-schedule"
+import { occurrenceReasonText } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
@@ -88,7 +90,10 @@ export function PublicationCalendar() {
     queryKey: queryKeys.scheduleOccurrences(params),
     queryFn: (context) =>
       fetchScheduleOccurrences(params, requestOptions(context)),
+    // Switched off for the workspace is an answer, not a failure to retry.
+    retry: (count, error) => !isUnavailable(error) && count < 1,
   })
+  const unavailable = isUnavailable(query.error)
   const byDate = useMemo(() => {
     const map = new Map<string, ScheduleOccurrence[]>()
     for (const occurrence of query.data ?? [])
@@ -192,23 +197,37 @@ export function PublicationCalendar() {
           </SegmentedControl>
         </div>
       </div>
-      <QueryStates
-        status={queryStatus(query)}
-        pendingLabel="scheduled publications"
-        error="Scheduled publications could not be loaded"
-        onRetry={() => void query.refetch()}
-      >
-        {view === "agenda" ? (
-          <Agenda days={days} byDate={byDate} />
-        ) : (
-          <Grid
-            days={days}
-            byDate={byDate}
-            month={view === "month" ? anchor.getUTCMonth() : null}
-          />
-        )}
-      </QueryStates>
+      {unavailable ? (
+        <p role="status" className="text-ui text-ink-muted">
+          Scheduled publishing is not switched on for this workspace.
+        </p>
+      ) : (
+        <QueryStates
+          status={queryStatus(query)}
+          pendingLabel="scheduled publications"
+          error="Scheduled publications could not be loaded"
+          onRetry={() => void query.refetch()}
+        >
+          {view === "agenda" ? (
+            <Agenda days={days} byDate={byDate} />
+          ) : (
+            <Grid
+              days={days}
+              byDate={byDate}
+              month={view === "month" ? anchor.getUTCMonth() : null}
+            />
+          )}
+        </QueryStates>
+      )}
     </>
+  )
+}
+
+/** The organisation's `post_scheduling` feature is off (the occurrences route's 404). */
+function isUnavailable(error: unknown) {
+  return (
+    error instanceof ApiClientError &&
+    error.code === "post_scheduling_unavailable"
   )
 }
 
@@ -444,13 +463,18 @@ function Grid({
   )
 }
 
-/** The listing's timezone, and what a clock change did to this run. */
+/**
+ * The listing's timezone, what a clock change did to this run and, for one
+ * that did not publish, why (a missed run is never retried: P08-R5).
+ */
 function OccurrenceMeta({ occurrence }: { occurrence: ScheduleOccurrence }) {
   const note = clockChangeNote(occurrence.adjustment)
+  const reason = occurrenceReasonText(occurrence)
   return (
     <span className="block px-1.5 text-caption text-ink-muted">
       {occurrence.timezone}
       {note ? ` · ${note}` : ""}
+      {reason ? ` · ${reason}` : ""}
     </span>
   )
 }

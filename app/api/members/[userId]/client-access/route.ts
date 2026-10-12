@@ -5,7 +5,7 @@ import {
   clientAccessUpdateSchema,
   type ClientAccessResponse,
 } from "@/lib/contracts/client-access"
-import type { MemberRole } from "@/lib/contracts/members"
+import type { LocationScope, MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import { loadClientCatalogue, loadGrants } from "@/lib/server/client-access"
 import { ApiError } from "@/lib/server/http"
@@ -22,20 +22,23 @@ export const runtime = "nodejs"
 /**
  * Which clients one member or viewer can see, edited a client at a time.
  *
- * Stored as location_member rows and nothing else (lib/server/permissions.ts
- * is the only reader). PUT replaces the member's rows in one transaction
- * with exactly the listings of the chosen clients; `listings: "unchanged"`
+ * Stored as location_member rows plus the membership's location_scope
+ * (lib/server/permissions.ts is the only reader). PUT replaces the member's
+ * rows and sets the scope in one transaction, with exactly the listings of
+ * the chosen clients; `listings: "unchanged"`
  * keeps older per-listing grants for a client as they are. Owners and admins
  * are refused: they see every client whatever rows they hold.
  */
 
 async function loadMember(sql: TransactionSql, userId: string, lock: boolean) {
   const [member] = lock
-    ? await sql<{ role: MemberRole }[]>`
-        select role from member where user_id = ${userId} limit 1 for update
+    ? await sql<{ role: MemberRole; locationScope: LocationScope }[]>`
+        select role, location_scope as "locationScope"
+        from member where user_id = ${userId} limit 1 for update
       `
-    : await sql<{ role: MemberRole }[]>`
-        select role from member where user_id = ${userId} limit 1
+    : await sql<{ role: MemberRole; locationScope: LocationScope }[]>`
+        select role, location_scope as "locationScope"
+        from member where user_id = ${userId} limit 1
       `
   if (!member) {
     throw new ApiError(404, "member_not_found", "Member not found.")
@@ -46,6 +49,7 @@ async function loadMember(sql: TransactionSql, userId: string, lock: boolean) {
 function respond(
   userId: string,
   role: MemberRole,
+  locationScope: LocationScope,
   grants: AccessGrant[],
   catalogue: ClientCatalogueEntry[]
 ): ClientAccessResponse {
@@ -56,7 +60,8 @@ function respond(
       name: entry.name,
       archived: entry.archived,
       total: entry.listingIds.length,
-    }))
+    })),
+    locationScope
   )
   return {
     userId,
@@ -77,11 +82,18 @@ export const GET = route({
       const member = await loadMember(sql, params.userId, false)
       const grants = await loadGrants(sql, params.userId)
       const catalogue = await loadClientCatalogue(sql)
-      return respond(params.userId, member.role, grants, catalogue)
+      return respond(
+        params.userId,
+        member.role,
+        member.locationScope,
+        grants,
+        catalogue
+      )
     }),
 })
 
 export const PUT = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: clientAccessParamsSchema,
   body: clientAccessUpdateSchema,
@@ -109,6 +121,14 @@ export const PUT = route({
       })
       if (!plan.ok) throw new ApiError(plan.status, plan.code, plan.message)
 
+      // The scope is written with the rows it describes (supabase 0082):
+      // "every client" is `all`, anything narrower is exactly these rows,
+      // and no rows on `assigned` is no access.
+      const locationScope: LocationScope = plan.allClients ? "all" : "assigned"
+      await sql`
+        update member set location_scope = ${locationScope}
+        where user_id = ${params.userId}
+      `
       await sql`delete from location_member where user_id = ${params.userId}`
       if (plan.rows.length > 0) {
         await sql`
@@ -133,7 +153,8 @@ export const PUT = route({
         metadata: {
           request: body,
           before: {
-            allClients: before.length === 0,
+            allClients: member.locationScope === "all",
+            locationScope: member.locationScope,
             grants: before.map(({ locationId, canPublish }) => ({
               locationId,
               canPublish,
@@ -141,11 +162,18 @@ export const PUT = route({
           },
           after: {
             allClients: plan.allClients,
+            locationScope,
             grants: plan.rows,
           },
           clientRequestId,
         },
       })
-      return respond(params.userId, member.role, after, catalogue)
+      return respond(
+        params.userId,
+        member.role,
+        locationScope,
+        after,
+        catalogue
+      )
     }),
 })

@@ -4,28 +4,9 @@
  * exactly what the person is looking at.
  */
 
-export type CsvCell = string | number | null | undefined
+import { toCsv, type CsvCell } from "@/lib/domain/csv"
 
-/**
- * One cell. Text is always quoted, with a leading `=`, `+`, `-`, `@`, tab or
- * carriage return defused by an apostrophe, because a spreadsheet would
- * otherwise run a location or search term named "=HYPERLINK(…)" as a
- * formula. Numbers are written bare so they stay numbers; a missing figure
- * is an empty cell, never 0.
- */
-export function csvCell(value: CsvCell): string {
-  if (value === null || value === undefined) return ""
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? String(value) : ""
-  }
-  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
-  return `"${guarded.replaceAll('"', '""')}"`
-}
-
-/** Rows to CSV text, CRLF line endings as RFC 4180 has them. */
-export function toCsv(rows: ReadonlyArray<ReadonlyArray<CsvCell>>): string {
-  return rows.map((row) => row.map(csvCell).join(",")).join("\r\n")
-}
+export { csvCell, toCsv, type CsvCell } from "@/lib/domain/csv"
 
 /**
  * A file name from a report's title and period: lower case, hyphenated,

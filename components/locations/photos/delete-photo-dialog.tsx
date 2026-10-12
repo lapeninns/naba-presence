@@ -11,6 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { answerOutcome } from "@/lib/editors/outcome"
 import {
   deleteMediaItem,
   type MediaItem,
@@ -40,16 +41,26 @@ export function DeletePhotoDialog({
   onDeleted: () => void
 }) {
   const remove = useResourceMutation<MediaMutationResult, MediaItem>({
-    mutationFn: (target) =>
-      deleteMediaItem(locationId, target.id, {
-        expectedGoogleHash: target.googleHash,
-      }),
+    mutationFn: (target, intent) =>
+      deleteMediaItem(
+        locationId,
+        target.id,
+        { expectedGoogleHash: target.googleHash },
+        { intentId: intent.intentId }
+      ),
     invalidate: onDeleted,
-    successToast: (result) =>
-      result.status === "succeeded"
-        ? "Photo deleted from Google"
-        : "Delete sent to Google",
+    successToast: (result) => {
+      const outcome = answerOutcome(result)
+      return {
+        outcome,
+        title:
+          outcome === "confirmed_applied"
+            ? "Photo deleted from Google"
+            : "Delete sent to Google",
+      }
+    },
     onSuccess: onClose,
+    onParked: onClose,
   })
 
   const categoryLabel = item ? humaniseCategory(item.category) : ""

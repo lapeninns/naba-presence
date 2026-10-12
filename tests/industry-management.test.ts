@@ -14,6 +14,10 @@ vi.mock("@/lib/server/env", () => ({
   gbpWritesEnabled: () => true,
   getServerEnv: () => ({}),
 }))
+// The dispatch gate reads the operator pause table; nothing is paused here.
+vi.mock("@/lib/server/pause-controls", () => ({
+  requireGbpDispatch: async () => {},
+}))
 vi.mock("@/lib/server/gbp-management", () => ({
   resolveGbpLocationContext: async () => ({
     connectionId: "con1",
@@ -57,7 +61,10 @@ vi.mock("@/lib/server/route", () => ({
 import { industryMutationSchema } from "@/lib/contracts/location-industry"
 import { retiredGoogleApi } from "@/lib/domain/google-retired-apis"
 import { ApiError } from "@/lib/server/http"
-import { loadIndustryManagement } from "@/lib/server/industry-management"
+import {
+  loadIndustryManagement,
+  mutateIndustryManagement,
+} from "@/lib/server/industry-management"
 import type { Session } from "@/lib/server/session"
 
 const session: Session = {
@@ -148,4 +155,28 @@ describe("industry route retired operations", () => {
       expect(mocks.request).not.toHaveBeenCalled()
     }
   )
+})
+
+describe("industry direct writes", () => {
+  it("refuses an unreviewed lodging write before it reaches Google", async () => {
+    // Given: a lodging update with no approved change set behind it.
+    const write = mutateIndustryManagement({
+      session,
+      locationId: "l1",
+      operation: "update_lodging",
+      payload: { property: {} },
+      updateMask: ["property"],
+      requestId: "r1",
+    })
+
+    // Then: it is refused, nothing is recorded, sent or cached. Whether a
+    // reviewed write's answer is uncertain is tested in gbp-confirmation.
+    await expect(write).rejects.toMatchObject({
+      status: 409,
+      code: "approval_required",
+    })
+    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.request).not.toHaveBeenCalled()
+    expect(mocks.snapshot).not.toHaveBeenCalled()
+  })
 })

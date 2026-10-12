@@ -68,7 +68,13 @@ describeDatabase("per-location capabilities route", () => {
       canPublish: boolean
       resources: Record<string, { state: string; reasonCode?: string }>
     },
-    expected: { canEditCanonical: boolean; canPublish: boolean }
+    expected: {
+      canEditCanonical: boolean
+      canPublish: boolean
+      canEdit?: boolean
+      canRequestApproval?: boolean
+      canDecideApproval?: boolean
+    }
   ) {
     expect(actual).toMatchObject(expected)
     expect(actual.resources).toBeTypeOf("object")
@@ -116,10 +122,15 @@ describeDatabase("per-location capabilities route", () => {
       connectionId: connection.connectionId,
       googleAccountName: connection.googleAccountName,
     })
-    const viewer = await seedMemberUser(admin, tenant.organisationId, "viewer", false)
+    // can_publish = true on the member row must not leak into a viewer's
+    // capabilities: the post routes refuse every viewer action.
+    const viewer = await seedMemberUser(admin, tenant.organisationId, "viewer", true)
     expectCaps((await caps(viewer.cookie, location.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: false,
+      canEdit: false,
+      canRequestApproval: false,
+      canDecideApproval: false,
     })
   })
 
@@ -137,10 +148,17 @@ describeDatabase("per-location capabilities route", () => {
     expectCaps((await caps(canPub.cookie, location.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: true,
+      canEdit: true,
+      canRequestApproval: false,
+      canDecideApproval: true,
     })
+    // A drafting member edits and asks for approval but cannot decide one.
     expectCaps((await caps(noPub.cookie, location.locationId)).capabilities, {
       canEditCanonical: false,
       canPublish: false,
+      canEdit: true,
+      canRequestApproval: true,
+      canDecideApproval: false,
     })
   })
 

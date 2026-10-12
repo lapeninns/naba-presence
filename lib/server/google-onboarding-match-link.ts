@@ -8,7 +8,7 @@ import { jsonColumn, withTenant } from "./db"
 import { stableGoogleHash } from "./gbp-management"
 import { checkedOnboardingDraft } from "./google-onboarding-drafts"
 import { checkedOnboardingMatchLinkReview, observeOnboardingMatchLinkProvider } from "./google-onboarding-match-link-reviews"
-import { ApiError } from "./http"
+import { ApiError, locationLimitError } from "./http"
 import type { Session } from "./session"
 
 type OperationRow = {
@@ -128,7 +128,9 @@ export async function submitOnboardingMatchLink(session: Session, accountId: str
     })
   } catch (error) {
     return withTenant(session.organisationId, async (sql) => {
-      const code = error instanceof ApiError ? error.code : "onboarding_match_link_failed"
+      // The location limit trigger (0110) refuses the link: record its code so
+      // the UI can explain it, and the link can be retried once a seat frees.
+      const code = (locationLimitError(error) ?? (error instanceof ApiError ? error : null))?.code ?? "onboarding_match_link_failed"
       await sql`select id from google_onboarding_draft where id = ${draftId} for update`
       await sql`update google_onboarding_match_link set state = 'failed', error_code = ${code}, updated_at = now() where id = ${claimed.row.id} and state = 'pending' and attempt_generation = ${claimed.row.attempt_generation}`
       const row = await load(sql, draftId, reviewId)

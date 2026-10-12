@@ -9,7 +9,7 @@ const describeDatabase = run ? describe : describe.skip
 
 const CRON_BEARER = "Bearer route-harness-cron-secret"
 
-// The seven Vercel Cron paths from `vercel.json`, with the scheduler-parity
+// The Vercel Cron paths from `vercel.json`, with the scheduler-parity
 // page sizes. The harness database ships seeded organisations, so these prove
 // the GET shims walk a real (small) fleet exactly the way the scheduler's
 // POSTs did — same auth, same single-page shapes, same cron-branch isolation.
@@ -20,7 +20,8 @@ const ticks = [
   "/api/sync/performance?maxOrganisations=100&maxLocations=25",
   "/api/sync/sweep",
   "/api/sync/keywords?maxOrganisations=100&maxLocations=10",
-  "/api/cron/retention?batch_size=100",
+  "/api/cron/retention",
+  "/api/billing/reconcile?maxOrganisations=100",
 ]
 
 describeDatabase("vercel cron tick shims", () => {
@@ -153,11 +154,27 @@ describeDatabase("vercel cron tick shims", () => {
   })
 
   it("sweeps retention through GET /api/cron/retention", async () => {
-    const response = await authed("/api/cron/retention?batch_size=100")
+    // The five-minute dispatcher: it works on the day's cycle, or answers
+    // `cycle: null` before 03:00 UTC with nothing running.
+    const response = await authed("/api/cron/retention")
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({
+      completed: expect.any(Boolean),
       organisations: expect.any(Array),
       failures: expect.any(Array),
+    })
+  })
+
+  it("completes the billing reconciliation while billing is disabled", async () => {
+    const response = await authed("/api/billing/reconcile?maxOrganisations=100")
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      enabled: false,
+      reason: "billing_disabled",
+      skipped: false,
+      processed: 0,
+      nextCursor: null,
+      failures: [],
     })
   })
 

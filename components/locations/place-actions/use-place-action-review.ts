@@ -24,7 +24,7 @@ export function usePlaceActionReview(locationId: string) {
       if (shared) setError(message)
       return { ok: false, error: message }
     }
-    finally { claim.current = false; setBusy(false); setRevision((value) => value + 1); void client.invalidateQueries({ queryKey: [...queryKeys.locationBooking(locationId), "workflows"] }); void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId).slice(0, -1) }) }
+    finally { claim.current = false; setBusy(false); setRevision((value) => value + 1); void client.invalidateQueries({ queryKey: [...queryKeys.locationBooking(locationId), "workflows"] }); void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) }) }
   }
   function accept(saved: PlaceActionAttempt) {
     setOutcome(saved); setUncertain(false)

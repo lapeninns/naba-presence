@@ -5,14 +5,16 @@ import { metrics, trace } from "@opentelemetry/api"
 import { retryDelayMs } from "@/lib/domain/retry"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
   googleSearchKeywordImpressions,
   type GoogleSearchKeywordPoint,
 } from "@/lib/server/google"
-import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import {
+  gbpIngestionScopes,
+  requireScopesEnabled,
+} from "@/lib/server/pause-controls"
 
 const keywordTracer = trace.getTracer("nabapresence.keywords")
 const keywordMeter = metrics.getMeter("nabapresence.keywords")
@@ -363,21 +365,37 @@ export async function syncDueKeywords(
     requestId: string
     externalLocationId?: string
     maxLocations?: number
+    /**
+     * Epoch milliseconds past which no further location is claimed. At least
+     * one location is always attempted, so a deadline already in the past
+     * still makes progress; `truncated` then says the walk stopped early.
+     */
+    deadline?: number
   }
-): Promise<KeywordSyncOutcome[]> {
-  // Ingestion boundary: GBP_KEYWORDS_ENABLED pauses provider reads and
+): Promise<{ outcomes: KeywordSyncOutcome[]; truncated: boolean }> {
+  // Ingestion boundary: GBP_KEYWORDS_ENABLED, or an operator pause of
+  // `keywords` (lib/server/pause-controls.ts), pauses provider reads and
   // checkpoint creation; stored keyword months stay readable.
-  if (!gbpIngestionEnabled(getServerEnv(), "keywords")) {
-    throw new ApiError(
-      503,
-      "sync_paused",
-      "Search keyword ingestion is paused."
-    )
-  }
+  await requireScopesEnabled(gbpIngestionScopes("keywords"), {
+    code: "sync_paused",
+    message: "Search keyword ingestion is paused.",
+  })
   await ensureKeywordCheckpoints(organisationId)
   const outcomes: KeywordSyncOutcome[] = []
   const maxLocations = Math.min(25, Math.max(1, options.maxLocations ?? 10))
+  let truncated = false
   for (let index = 0; index < maxLocations; index += 1) {
+    // Checked before the claim, never after it: a claimed checkpoint is
+    // leased 'running', and leaving it unworked would hold it until the
+    // reaper. Same rule as the fleet walks: processed > 0 && now >= deadline.
+    if (
+      outcomes.length > 0 &&
+      options.deadline !== undefined &&
+      Date.now() >= options.deadline
+    ) {
+      truncated = true
+      break
+    }
     const location = await claimDueKeywordLocation(
       organisationId,
       options.externalLocationId
@@ -487,5 +505,5 @@ export async function syncDueKeywords(
     outcomes.push(outcome)
     if (options.externalLocationId) break
   }
-  return outcomes
+  return { outcomes, truncated }
 }

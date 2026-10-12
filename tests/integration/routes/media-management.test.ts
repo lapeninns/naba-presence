@@ -210,6 +210,122 @@ describeDatabase("Google media management", () => {
     `
     expect(Number(ledger.count)).toBe(3)
   }, 30_000)
+
+  it("hands a create Google answered without the item name to a person when no item matches", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    // 2xx, but not the created item: the photo may exist on Google now.
+    google.respond({ method: "POST", pathIncludes: "/media" }, () => ({
+      status: 200,
+      json: {},
+    }))
+
+    const create = await fetch(
+      `${server.baseUrl}/api/locations/${linked.locationId}/media`,
+      {
+        method: "POST",
+        headers: jsonHeaders(owner.cookie, "create-media-nameless"),
+        body: JSON.stringify({
+          confirmation: "create_google_media",
+          mediaFormat: "PHOTO",
+          category: "FOOD_AND_DRINK",
+          sourceUrl: "https://images.example.com/nameless.jpg",
+        }),
+      }
+    )
+    // The live list holds no matching item, so it is neither adopted nor
+    // sent again (tests/integration/routes/media-checkpoints.test.ts).
+    expect(create.status, await create.clone().text()).toBe(502)
+    expect((await create.json()).error).toBe("media_needs_resolution")
+
+    const [attempt] = await admin<{ status: string; uploadPhase: string }[]>`
+      select status, upload_phase as "uploadPhase"
+      from gbp_media_mutation
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(attempt).toEqual({
+      status: "needs_resolution",
+      uploadPhase: "create_sent",
+    })
+  }, 30_000)
+
+  it("pages the library by keyset cursor without gaps or repeats while the cache changes", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const parent = `${connection.googleAccountName}/${linked.googleLocationName}`
+    const item = (name: string, createTime?: string) => ({
+      name: `${parent}/media/${name}`,
+      mediaFormat: "PHOTO",
+      locationAssociation: { category: "INTERIOR" },
+      googleUrl: `https://google.example/${name}.jpg`,
+      ...(createTime ? { createTime } : {}),
+    })
+    google.reset()
+    google.respond({ method: "GET", pathIncludes: "/media?" }, () => ({
+      status: 200,
+      json: { mediaItems: [item("m-new", "2026-07-03T10:00:00Z"), item("m-tie-a", "2026-07-02T10:00:00.000001Z"), item("m-tie-b", "2026-07-02T10:00:00.000001Z"), item("m-undated")] },
+    }))
+    google.respond({ method: "GET", pathIncludes: "/media/customers" }, () => ({
+      status: 200,
+      json: { mediaItems: [item("c-old", "2026-07-01T10:00:00Z"), item("c-new", "2026-07-05T10:00:00Z")] },
+    }))
+    const base = `${server.baseUrl}/api/locations/${linked.locationId}/media`
+    const read = async (query: string) => {
+      const response = await fetch(`${base}${query}`, { headers: { cookie: owner.cookie } })
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (await response.json()).media as { items: { id: string; googleMediaName: string }[]; total: number; nextCursor: string | null }
+    }
+    const first = await read("?pageSize=2")
+    expect(first.total).toBe(6)
+    const reads = () => google.calls.filter((call) => call.method === "GET").length
+    const readsAfterFirst = reads()
+    const ids = new Map(
+      (await admin<{ id: string; name: string }[]>`select id::text as id, google_media_name as name from gbp_media_item where location_id = ${linked.locationId}`)
+        .map((row) => [row.name.split("/").at(-1) as string, row.id])
+    )
+    const tied = [ids.get("m-tie-a"), ids.get("m-tie-b")].sort()
+    // Customer items first (ownership sorts by name), newest first, undated last.
+    const expected = [ids.get("c-new"), ids.get("c-old"), ids.get("m-new"), ...tied, ids.get("m-undated")]
+
+    // A newer customer item cached between pages sorts above the cursor.
+    await admin`
+      insert into gbp_media_item (organisation_id, location_id, external_location_id, google_media_name, ownership, media_format, google_hash, google_create_time)
+      select organisation_id, location_id, external_location_id, ${`${parent}/media/c-later`}, 'customer', 'PHOTO', 'hash', '2026-08-01T00:00:00Z'
+      from gbp_media_item where location_id = ${linked.locationId} limit 1`
+    const pages = [first]
+    while (pages.at(-1)?.nextCursor) {
+      pages.push(await read(`?pageSize=2&cursor=${pages.at(-1)?.nextCursor}`))
+    }
+    expect(pages.map((page) => page.items.length)).toEqual([2, 2, 2])
+    expect(pages.flatMap((page) => page.items.map((row) => row.id))).toEqual(expected)
+    // Later pages read the cache only; they never re-list Google.
+    expect(reads()).toBe(readsAfterFirst)
+
+    // A cursor belongs to its filters and location.
+    const merchantOnly = await read("?pageSize=1&ownership=merchant")
+    expect(merchantOnly.total).toBe(4)
+    for (const query of [`?cursor=${merchantOnly.nextCursor}`, `?ownership=customer&cursor=${merchantOnly.nextCursor}`, "?cursor=garbage"]) {
+      const refused = await fetch(`${base}${query}`, { headers: { cookie: owner.cookie } })
+      expect(refused.status).toBe(400)
+      expect((await refused.json()).error).toBe("invalid_cursor")
+    }
+  })
 })
 
 function jsonHeaders(cookie: string, requestId: string) {

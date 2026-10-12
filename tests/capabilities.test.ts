@@ -1,9 +1,17 @@
 import type { TransactionSql } from "postgres"
 import { describe, expect, it } from "vitest"
 
+import { deriveAccess } from "@/lib/domain/entitlements"
+import {
+  editDisabledReason,
+  publishDisabledReason,
+  resourceDisabledReason,
+} from "@/lib/locations/gating"
 import {
   reviewCapabilities,
   reviewCapabilitiesForLocations,
+  NO_SETTINGS_FEATURES,
+  settingsCapabilities,
 } from "@/lib/server/capabilities"
 import type { Session } from "@/lib/server/session"
 
@@ -11,7 +19,7 @@ import type { Session } from "@/lib/server/session"
 // reviewCapabilitiesForLocations/reviewCapabilities directly, with a
 // stubbed `sql` so the queries it issues (the organisation approval flag,
 // and the single grantsFor query from lib/server/permissions.ts that reads
-// hasAssignments + the per-location `location_member` grants) are fully
+// the member's location_scope + the per-location `location_member` grants) are fully
 // controlled. This is faster and more precise than round-tripping through
 // a real Postgres instance for every role x membership permutation.
 //
@@ -22,7 +30,7 @@ import type { Session } from "@/lib/server/session"
 // export supports both call shapes, and grantsFor relies on both.
 
 type FakeQueryScript = {
-  hasAssignments: boolean
+  locationScope: "all" | "assigned" | null
   grants: { locationId: string; canPublish: boolean }[]
   // D2: organisation.approval_required, read once per call regardless of
   // role. Defaults to true, mirroring the DB column's own default (see
@@ -45,7 +53,7 @@ function createFakeSql(script: FakeQueryScript): TransactionSql {
           { approvalRequired: script.approvalRequired ?? true },
         ])
       }
-      if (text.includes('as "hasAssignments"') && text.includes("as grants")) {
+      if (text.includes('as "locationScope"') && text.includes("as grants")) {
         // grantsFor: one row, grants as the json_object_agg map (null when
         // the member is assigned to none of the requested locations).
         const grants = script.grants.length
@@ -54,7 +62,7 @@ function createFakeSql(script: FakeQueryScript): TransactionSql {
             )
           : null
         return Promise.resolve([
-          { hasAssignments: script.hasAssignments, grants },
+          { locationScope: script.locationScope, grants },
         ])
       }
       throw new Error(`FakeSql: unexpected query -- ${text}`)
@@ -89,7 +97,7 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
   it("case 1: member ASSIGNED to the location with can_publish=false -> canPublish false, canEdit true", async () => {
     const session = makeSession({ canPublish: true })
     const sql = createFakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: [{ locationId: LOCATION_A, canPublish: false }],
       approvalRequired: true,
     })
@@ -106,7 +114,7 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
   it("case 1b: same assignment, but the org does not require approval -> canRequestApproval false", async () => {
     const session = makeSession({ canPublish: true })
     const sql = createFakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: [{ locationId: LOCATION_A, canPublish: false }],
       approvalRequired: false,
     })
@@ -122,12 +130,12 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
 
   it("case 2: member with assignments elsewhere but NOT assigned to this location -> canPublish false, canEdit false", async () => {
     const session = makeSession({ canPublish: true })
-    // hasAssignments is true (the member has at least one location_member
-    // row somewhere), but the grants query for LOCATION_B returns nothing
+    // The scope is 'assigned' (the member holds location_member rows
+    // somewhere), but the grants query for LOCATION_B returns nothing
     // -- exactly what happens when the member is assigned to a different
     // location than the one being checked.
     const sql = createFakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: [],
       approvalRequired: true,
     })
@@ -144,11 +152,11 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
   })
 
   it.each([true, false])(
-    "case 3: member with NO assignments at all falls back to session.canPublish=%s, canEdit true",
+    "case 3: member on scope all publishes per member.can_publish=%s, canEdit true",
     async (canPublish) => {
       const session = makeSession({ canPublish })
       const sql = createFakeSql({
-        hasAssignments: false,
+        locationScope: "all",
         grants: [],
         approvalRequired: true,
       })
@@ -163,10 +171,30 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
     }
   )
 
+  it.each(["member", "viewer"] as const)(
+    "case 4: %s on scope assigned with no rows at all sees nothing",
+    async (role) => {
+      const session = makeSession({ role, canPublish: true })
+      const sql = createFakeSql({
+        locationScope: "assigned",
+        grants: [],
+        approvalRequired: true,
+      })
+
+      const result = await reviewCapabilities(sql, session, LOCATION_A)
+
+      expect(result).toEqual({
+        canPublish: false,
+        canEdit: false,
+        canRequestApproval: false,
+      })
+    }
+  )
+
   it("batches multiple locations in one call, deduping repeats, mixing assigned and unassigned", async () => {
     const session = makeSession({ canPublish: true })
     const sql = createFakeSql({
-      hasAssignments: true,
+      locationScope: "assigned",
       grants: [{ locationId: LOCATION_A, canPublish: true }],
       approvalRequired: true,
     })
@@ -188,5 +216,87 @@ describe("reviewCapabilities -- member branch (mirrors permissions.ts)", () => {
       canEdit: false,
       canRequestApproval: false,
     })
+  })
+})
+
+// Central billing enforcement (plan P07-S3): a read-only subscription under
+// enforcement offers no control, so the UI never shows what the route
+// refuses with 402 billing_read_only.
+describe("capabilities under billing enforcement", () => {
+  const readOnly = deriveAccess(
+    {
+      state: "read_only",
+      trialEndsAt: null,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
+      graceEndsAt: null,
+      cancelAtPeriodEnd: false,
+      firstPaymentSucceeded: true,
+      pendingEffectiveAt: null,
+    },
+    { current: { locationLimit: 3, memberLimit: null }, pending: null },
+    new Date("2026-10-11T00:00:00Z")
+  )
+
+  it("turns every review action off while read-only and enforced", async () => {
+    const session = makeSession({
+      role: "owner",
+      access: readOnly,
+      entitlementEnforced: true,
+    })
+    const sql = createFakeSql({ locationScope: "all", grants: [] })
+    expect(await reviewCapabilities(sql, session, LOCATION_A)).toEqual({
+      canPublish: false,
+      canEdit: false,
+      canRequestApproval: false,
+    })
+  })
+
+  it("keeps role capabilities while enforcement does not apply", async () => {
+    const session = makeSession({
+      role: "owner",
+      access: readOnly,
+      entitlementEnforced: false,
+    })
+    const sql = createFakeSql({ locationScope: "all", grants: [] })
+    const caps = await reviewCapabilities(sql, session, LOCATION_A)
+    expect(caps.canPublish).toBe(true)
+    expect(caps.canEdit).toBe(true)
+  })
+
+  it("turns settings edits off but keeps team and connection management", () => {
+    expect(
+      settingsCapabilities(
+        makeSession({ role: "owner", access: readOnly, entitlementEnforced: true }),
+        NO_SETTINGS_FEATURES
+      )
+    ).toEqual({
+      canManageTeam: true,
+      canManageConnections: true,
+      canEditSettings: false,
+      canWrite: false,
+      privacy: "none",
+    })
+    expect(
+      settingsCapabilities(makeSession({ role: "owner" }), NO_SETTINGS_FEATURES)
+    ).toMatchObject({
+      canEditSettings: true,
+      canWrite: true,
+    })
+  })
+
+  it("explains the billing block before the role gates", () => {
+    const caps = {
+      canEditCanonical: true,
+      canPublish: false,
+      canWrite: false,
+      resources: {
+        hours: { state: "readOnly" as const, reasonCode: "billing_read_only" },
+      },
+    }
+    const copy = /subscription is read-only/
+    expect(editDisabledReason(caps)).toMatch(copy)
+    expect(publishDisabledReason(caps, true)).toMatch(copy)
+    expect(resourceDisabledReason(caps, "hours", true)).toMatch(copy)
   })
 })

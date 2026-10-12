@@ -30,6 +30,11 @@ describe("public legal pages", () => {
     expect(screen.getByText(/at most 30 days after we last received it/)).toBeInTheDocument()
     expect(screen.getByText(/Seven days later we delete/)).toBeInTheDocument()
     expect(screen.getByText(/encrypted with AES-256-GCM/)).toBeInTheDocument()
+    // The 30-day purge clears the reviewer's photo link with the name
+    // (lib/server/retention/purge.ts); the page must not promise to keep it.
+    expect(screen.getByText(/reviewer profile photo links, review photos and the raw data/)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/keep[^.]*profile photo link/i)
+    expect(screen.getByText(/are never deleted while the allowance period/)).toBeInTheDocument()
     expect(screen.getAllByText(new RegExp(escape(LEGAL_OPERATOR.privacyEmail))).length).toBeGreaterThan(0)
   })
 

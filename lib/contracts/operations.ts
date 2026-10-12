@@ -47,16 +47,47 @@ const rejectionRowSchema = z.object({
 
 /**
  * One scheduled tick's liveness. `lastCompletedAt` is the `ops_heartbeat` row
- * the tick's advisory lease stamps when a run completes, and
+ * the tick's advisory lease stamps when a scheduled run completes, and
  * `staleAfterSeconds` is the multiple of that tick's documented interval past
  * which the absence of a run is worth acting on. A tick that has never
  * completed reports `null` and `stale: true`.
+ *
+ * The run ledger (0089) fields carry a `.default(...)` so a monitor or panel
+ * reading a response from a build without them still parses it:
+ * - `lastStartedAt` / `lastSkippedAt` / `lastFailedAt` / `lastErrorCode` are
+ *   the scheduled runs' attempts, lock skips and failures;
+ * - `consecutiveSkips` counts lock skips since the lease was last taken, and
+ *   `lockWedged` is true once that streak is long enough to act on;
+ * - `neverCompleted` is a tick with no completed scheduled run, and
+ *   `registeredAt` the grace anchor for alerting on it;
+ * - `lastManualCompletedAt` is the last session-driven run under the same
+ *   lease, kept apart so it cannot stand in for the cron;
+ * - `lastCycleCompletedAt`, `cycleStaleAfterSeconds` and `cycleStale` are
+ *   for ticks whose work spans several runs (the retention walk); the window
+ *   is null for every other tick.
+ * - `paused` is a tick a pause scope holds (an env flag off or an operator
+ *   pause, migration 0090), and `pausedScopes` which; a paused tick that is
+ *   also `stale` is paused, not dead, and is not alerted on.
  */
 export const schedulerTickSchema = z.object({
   name: z.string(),
   lastCompletedAt: z.string().nullable(),
   staleAfterSeconds: z.number(),
   stale: z.boolean(),
+  neverCompleted: z.boolean().default(false),
+  registeredAt: z.string().nullable().default(null),
+  lastStartedAt: z.string().nullable().default(null),
+  lastSkippedAt: z.string().nullable().default(null),
+  consecutiveSkips: z.number().int().nonnegative().default(0),
+  lockWedged: z.boolean().default(false),
+  lastFailedAt: z.string().nullable().default(null),
+  lastErrorCode: z.string().nullable().default(null),
+  lastManualCompletedAt: z.string().nullable().default(null),
+  lastCycleCompletedAt: z.string().nullable().default(null),
+  cycleStaleAfterSeconds: z.number().nullable().default(null),
+  cycleStale: z.boolean().default(false),
+  paused: z.boolean().default(false),
+  pausedScopes: z.array(z.string()).default([]),
 })
 export type SchedulerTick = z.infer<typeof schedulerTickSchema>
 
@@ -160,6 +191,148 @@ export const operationsHealthSchema = z.object({
     .default({ queued: 0, oldestQueuedAt: null, states7d: [], retryable: 0 }),
 })
 export type OperationsHealth = z.infer<typeof operationsHealthSchema>
+
+/**
+ * Coverage fields of the platform-scope health response
+ * (`?scope=platform`). The tenant walk is time-budgeted, so a large fleet can
+ * answer with only some organisations read: `partial` is then true, the
+ * summed counters are lower bounds, and `organisationsCovered` says how many
+ * of `organisationCount` were read. Defaulted so a monitor parsing a response
+ * from a build without the budget reads it as complete.
+ */
+export const platformHealthCoverageSchema = z.object({
+  partial: z.boolean().default(false),
+  organisationsCovered: z.number().int().nonnegative().default(0),
+})
+export type PlatformHealthCoverage = z.infer<
+  typeof platformHealthCoverageSchema
+>
+
+/**
+ * Release fields of the platform-scope health response only; the tenant
+ * (session) scope never carries them. `release.sha` is the deployed commit
+ * (lib/server/release.ts), for a smoke check to compare with the release
+ * receipt `pnpm release:promote` wrote. `schema` compares the database's
+ * `schema_migration` with the migrations this build requires
+ * (lib/server/schema-manifest.ts): `compatible` is null when the ledger
+ * could not be read. Defaulted so a monitor parsing a response from an
+ * older build reads both as unknown.
+ */
+export const platformReleaseSchema = z.object({
+  release: z
+    .object({
+      sha: z.string(),
+      source: z.enum(["naba_release_sha", "vercel_git_commit_sha", "unknown"]),
+    })
+    .default({ sha: "unknown", source: "unknown" }),
+  schema: z
+    .object({
+      compatible: z.boolean().nullable(),
+      requiredCount: z.number().int().nonnegative(),
+      missing: z.array(z.string()),
+    })
+    .default({ compatible: null, requiredCount: 0, missing: [] }),
+})
+export type PlatformRelease = z.infer<typeof platformReleaseSchema>
+
+/**
+ * Metric export state in the answering process (lib/server/telemetry-
+ * status.ts). `reason` says why export is `disabled` and is null otherwise.
+ * `lastErrorName` is an error class name, never a message.
+ */
+export const telemetryStatusSchema = z.object({
+  state: z.enum(["disabled", "configured", "exporting", "failing"]),
+  reason: z.enum(["no_endpoint", "sdk_disabled", "exporter_none"]).nullable(),
+  lastExportAt: z.string().nullable(),
+  lastFailureAt: z.string().nullable(),
+  consecutiveFailures: z.number().int().nonnegative(),
+  lastErrorName: z.string().nullable(),
+})
+export type TelemetryStatus = z.infer<typeof telemetryStatusSchema>
+
+export const READINESS_STATUSES = ["ready", "degraded", "not_ready"] as const
+export type ReadinessStatus = (typeof READINESS_STATUSES)[number]
+
+/**
+ * One reason the deployment is not plainly ready. `severity` is the status
+ * it forces on its own: any `not_ready` reason makes the response 503.
+ * `subject` names the tick, pause scope or migration it is about, where one
+ * applies. Codes are listed in docs/observability.md ("Readiness").
+ */
+export const readinessReasonSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["degraded", "not_ready"]),
+  subject: z.string().nullable(),
+})
+export type ReadinessReason = z.infer<typeof readinessReasonSchema>
+
+/** One tick as readiness judged it; the full ledger is on the health scope. */
+export const readinessTickSchema = z.object({
+  name: z.string(),
+  state: z.enum([
+    "ok",
+    "paused",
+    "stale",
+    "never_completed",
+    "awaiting_first_run",
+  ]),
+  lastCompletedAt: z.string().nullable(),
+  staleAfterSeconds: z.number(),
+  lockWedged: z.boolean(),
+  cycleStale: z.boolean(),
+})
+export type ReadinessTick = z.infer<typeof readinessTickSchema>
+
+/**
+ * GET `/api/operations/readiness` (cron bearer). A bounded, platform-level
+ * answer for an external probe: a fixed handful of reads, no tenant walk and
+ * no tenant data. 200 for `ready` and `degraded`, 503 for `not_ready`.
+ *
+ * - `release`/`schema`: the deployed commit and the required-migration check,
+ *   as on the platform health scope (platformReleaseSchema).
+ * - `database.reachable`: false when the database did not answer; every
+ *   database-derived field below is then null or empty.
+ * - `scheduler`: the jobs tick's `scheduler` stamp.
+ * - `ticks`: every scheduled tick, the health tick included: the health tick
+ *   cannot alert on its own absence, so this endpoint is where that shows.
+ * - `pause`: scopes paused now, env flag or operator table, and whether the
+ *   table could be read.
+ * - `email`: whether operator alerts can be emailed at all.
+ * - `incidents`: open platform incidents, how many no operator was told
+ *   about (every delivery failed or was suppressed), and how many are Google
+ *   quota pressure; null when the read failed.
+ */
+export const readinessResponseSchema = z.object({
+  status: z.enum(READINESS_STATUSES),
+  ok: z.boolean(),
+  generatedAt: z.string(),
+  reasons: z.array(readinessReasonSchema),
+  release: platformReleaseSchema.shape.release,
+  schema: platformReleaseSchema.shape.schema,
+  database: z.object({ reachable: z.boolean() }),
+  scheduler: z
+    .object({ heartbeatAt: z.string().nullable(), stale: z.boolean() })
+    .nullable(),
+  ticks: z.array(readinessTickSchema),
+  pause: z.object({
+    scopes: z.array(z.string()),
+    readFailed: z.boolean(),
+  }),
+  email: z.object({
+    provider: z.enum(["none", "resend"]),
+    configured: z.boolean(),
+    opsRecipients: z.number().int().nonnegative(),
+  }),
+  telemetry: telemetryStatusSchema,
+  incidents: z
+    .object({
+      open: z.number().int().nonnegative(),
+      undelivered: z.number().int().nonnegative(),
+      quotaPressure: z.number().int().nonnegative(),
+    })
+    .nullable(),
+})
+export type ReadinessResponse = z.infer<typeof readinessResponseSchema>
 
 export const webhookFailureSchema = z.object({
   id: z.string(),

@@ -6,12 +6,12 @@ import { z } from "zod"
 import { googleOnboardingReviewSchema, type GoogleOnboardingReview, type googleOnboardingReviewInputSchema } from "@/lib/contracts/google-onboarding"
 import { writeAudit } from "./audit"
 import { getDatabase, jsonColumn, withTenant } from "./db"
-import { gbpWritesEnabled, getServerEnv } from "./env"
 import { stableGoogleHash } from "./gbp-management"
 import { connectionAccessToken, createGoogleLocation, googleAccountManagementApi } from "./google"
 import { checkedOnboardingDraft, requireEditableOnboardingDraft } from "./google-onboarding-drafts"
 import { requireOnboardingServiceSupport } from "./google-onboarding-services"
 import { ApiError } from "./http"
+import { requireGbpDispatch } from "./pause-controls"
 import type { Session } from "./session"
 
 type Draft = Awaited<ReturnType<typeof checkedOnboardingDraft>>
@@ -24,7 +24,7 @@ type ReviewRow = {
 }
 
 function requireWritesEnabled() {
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google listing writes are paused.")
+  return requireGbpDispatch("profileWrites", { code: "google_writes_paused", message: "Google listing writes are paused." })
 }
 
 async function requireManager(sql: TransactionSql, userId: string) {
@@ -70,7 +70,7 @@ function project(row: ReviewRow, session: Session) {
 }
 
 export async function previewOnboardingCreation(session: Session, accountId: string, draftId: string, input: ReviewInput, requestId: string) {
-  requireWritesEnabled()
+  await requireWritesEnabled()
   const initial = await withTenant(session.organisationId, async (sql) => {
     const draft = await checkedOnboardingDraft(sql, session, accountId, draftId)
     await requireEditableOnboardingDraft(sql, draftId)
@@ -84,7 +84,7 @@ export async function previewOnboardingCreation(session: Session, accountId: str
   await requireOnboardingServiceSupport(token, initial.frozen.payload, initial.frozen.connectionId)
   const response = await createGoogleLocation(token, { accountName: initial.frozen.accountName, requestId: validationRequestId, validateOnly: true, payload: initial.frozen.payload }, { connectionKey: initial.frozen.connectionId })
   if (!z.record(z.string(), z.unknown()).safeParse(response).success || Object.hasOwn(response, "error")) throw new ApiError(502, "onboarding_validation_unconfirmed", "Google returned an incomplete validation response. Validate again before approval.")
-  requireWritesEnabled()
+  await requireWritesEnabled()
   return withTenant(session.organisationId, async (sql) => {
     const current = await checkedOnboardingDraft(sql, session, accountId, draftId)
     await requireEditableOnboardingDraft(sql, draftId)
@@ -122,7 +122,7 @@ export async function getOnboardingReview(session: Session, accountId: string, d
 }
 
 export async function approveOnboardingCreation(session: Session, accountId: string, draftId: string, reviewId: string, expectedReviewHash: string, requestId: string) {
-  requireWritesEnabled()
+  await requireWritesEnabled()
   return withTenant(session.organisationId, async (sql) => {
     const row = await checkedOnboardingReview(sql, session, accountId, draftId, reviewId)
     if (row.review_hash !== expectedReviewHash) throw new ApiError(409, "approval_stale", "The reviewed details changed. Restore the review before approving.")

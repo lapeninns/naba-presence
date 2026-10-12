@@ -80,15 +80,15 @@ export const ROLE_MATRIX: { capability: string; cells: Capability[] }[] = [
 
 /**
  * Which clients a member can see, for the Team row. Owners and admins see
- * everything; a member or viewer with no location_member rows sees every
- * client, including ones added later; one with rows sees the clients those
- * rows fall in, and "Old Crown (3 of 5 listings)" when older per-listing
- * grants hold only part of a client (lib/server/permissions.ts,
+ * everything; a member or viewer on scope `all` sees every client, including
+ * ones added later; one on `assigned` sees the clients their rows fall in,
+ * "Old Crown (3 of 5 listings)" when older per-listing grants hold only part
+ * of a client, and nothing when they hold no rows (lib/server/permissions.ts,
  * lib/settings/client-access.ts). Without `clients` (a response from before
  * client access) it falls back to a listing count.
  */
 export function accessSummary(
-  member: Pick<Member, "role" | "locations">,
+  member: Pick<Member, "role" | "locations" | "locationScope">,
   clients?: MemberClientTotal[],
   mode: "business" | "agency" = "agency"
 ): {
@@ -100,12 +100,15 @@ export function accessSummary(
     if (member.role === "owner" || member.role === "admin") {
       return { label: "All locations", detail: null }
     }
-    const count = member.locations.length
-    if (count === 0) {
+    if (member.locationScope === "all") {
       return {
         label: "All locations",
         detail: "Including locations added later",
       }
+    }
+    const count = member.locations.length
+    if (count === 0) {
+      return { label: "No locations", detail: "Sees nothing until given access" }
     }
     return {
       label: count === 1 ? "1 location" : `${count} locations`,
@@ -121,16 +124,20 @@ export function accessSummary(
           clientId: location.clientId ?? null,
           canPublish: location.canPublish,
         })),
-        clients
+        clients,
+        member.locationScope
       )
     )
   }
   if (member.role === "owner" || member.role === "admin") {
     return { label: "All clients", detail: null }
   }
+  if (member.locationScope === "all") {
+    return { label: "All clients", detail: "Including clients added later" }
+  }
   const count = member.locations.length
   if (count === 0) {
-    return { label: "All clients", detail: "Including clients added later" }
+    return { label: "No clients", detail: "Sees nothing until given access" }
   }
   return {
     label: `${count} ${count === 1 ? "listing" : "listings"}`,

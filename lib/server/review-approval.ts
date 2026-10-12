@@ -5,6 +5,7 @@ import type { TransactionSql } from "postgres"
 import type { ApprovalInput, ApprovalResult } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
 import { canPublishLocation, requireLocationAccess } from "@/lib/server/permissions"
 import { executePublish } from "@/lib/server/publishing"
 import type { Session } from "@/lib/server/session"
@@ -23,7 +24,8 @@ import type { Session } from "@/lib/server/session"
  *  2. Two-person mode always requires an approver other than the requester.
  *  3. The decision names ONE draft: the parked one, never "whichever is
  *     newest", so a stale pane gets a 409 rather than credit for approving
- *     text it never showed.
+ *     text it never showed. When the caller says which review version it
+ *     showed, a review that has moved since is a 409 too.
  *  4. Rejection returns the reply to draft and records the decision.
  */
 export type ApprovalDecision =
@@ -123,10 +125,44 @@ export async function recordApprovalDecision(
       "This reply changed after you opened it. Read the current draft before deciding."
     )
   }
+  // The draft's author is the other half of the two people, whoever asked:
+  // an approval by them would never count (has_qualifying_approval in
+  // publishing/intent.ts excludes it), so refuse it here rather than record a
+  // decision the publish then parks again.
+  if (record.require_two_person_approval && input.decision === "approve") {
+    const [draft] = await sql<{ created_by: string | null }[]>`
+      select created_by::text as created_by from draft where id = ${draftId}
+    `
+    if (draft?.created_by === session.userId) {
+      throw new ApiError(
+        403,
+        "second_approver_required",
+        "A different authorised user must approve this reply."
+      )
+    }
+  }
 
+  // Bound to what the approver read: a review edited on Google after the
+  // pane loaded would otherwise be approved here and only refused later by
+  // executePublish, after the decision row and audit already claimed it.
+  if (
+    input.expectedReviewUpdateTime !== undefined &&
+    new Date(input.expectedReviewUpdateTime).getTime() !==
+      record.update_time.getTime()
+  ) {
+    throw new ApiError(
+      409,
+      "review_changed",
+      "The review changed after you opened it. Read it again before deciding."
+    )
+  }
+
+  // The assurance the decision was made with (0106), as evidence.
+  const assurance = authorisationAssurance(session)
   await sql`
     insert into approval_decision (
-      organisation_id, review_id, draft_id, decided_by, decision, note
+      organisation_id, review_id, draft_id, decided_by, decision, note,
+      authorised_aal, authorised_mfa_verified_at, authorised_security_version
     )
     values (
       ${session.organisationId},
@@ -134,7 +170,10 @@ export async function recordApprovalDecision(
       ${draftId},
       ${session.userId},
       ${input.decision === "approve" ? "approved" : "rejected"},
-      ${input.note ?? null}
+      ${input.note ?? null},
+      ${assurance.aal},
+      ${assurance.mfaVerifiedAt},
+      ${assurance.securityVersion}
     )
   `
   await writeAudit(sql, {
@@ -208,7 +247,13 @@ export async function completeApproval(
     throw new ApiError(
       outcome.providerError?.status === 429 ? 429 : 409,
       outcome.providerError?.code ?? "google_publish_failed",
-      outcome.providerError?.message ?? "Google rejected the reply."
+      outcome.providerError?.message ?? "Google rejected the reply.",
+      // The attempt is parked for the retry runner; callers that report
+      // per-row outcomes (bulk approve) must not say "try again" when the
+      // decision is already spent and the resend is automatic.
+      outcome.retryScheduledAt
+        ? { details: { retryScheduledAt: outcome.retryScheduledAt } }
+        : {}
     )
   }
   return {

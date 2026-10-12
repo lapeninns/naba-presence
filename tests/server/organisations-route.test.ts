@@ -3,6 +3,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { PATCH } from "@/app/api/organisations/route"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
+import { changeWorkspaceMode } from "@/lib/server/workspace-mode"
 import type { Session } from "@/lib/server/session"
 import { cookies } from "next/headers"
 
@@ -12,6 +14,12 @@ vi.mock("@/lib/server/db", () => ({
   withTenant: vi.fn(),
 }))
 vi.mock("@/lib/server/audit", () => ({ writeAudit: vi.fn() }))
+vi.mock("@/lib/server/org-features", () => ({
+  isOrgFeatureEnabled: vi.fn(),
+}))
+vi.mock("@/lib/server/workspace-mode", () => ({
+  changeWorkspaceMode: vi.fn(),
+}))
 
 const ORG = "00000000-0000-4000-8000-000000000001"
 
@@ -93,5 +101,90 @@ describe("PATCH /api/organisations", () => {
     signedIn(owner)
     const response = await patch({ name: "   " })
     expect(response.status).toBe(400)
+  })
+})
+
+describe("PATCH /api/organisations { workspaceMode }", () => {
+  it("switches mode for an owner when the feature is on", async () => {
+    signedIn(owner)
+    vi.mocked(isOrgFeatureEnabled).mockResolvedValue(true)
+    vi.mocked(changeWorkspaceMode).mockResolvedValue({
+      workspaceMode: "agency",
+      changed: true,
+      refiledLocations: 0,
+    })
+    const response = await patch({ workspaceMode: "agency" })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      organisation: { organisationId: ORG, workspaceMode: "agency" },
+      changed: true,
+      refiledLocations: 0,
+    })
+    expect(vi.mocked(isOrgFeatureEnabled)).toHaveBeenCalledWith(
+      expect.anything(),
+      ORG,
+      "workspace_mode_change"
+    )
+    expect(vi.mocked(changeWorkspaceMode)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        organisationId: ORG,
+        actorUserId: owner.userId,
+        workspaceMode: "agency",
+      })
+    )
+    expect(vi.mocked(writeAudit)).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "organisation.renamed" })
+    )
+  })
+
+  it("passes the owner's report-share confirmation through", async () => {
+    signedIn(owner)
+    vi.mocked(isOrgFeatureEnabled).mockResolvedValue(true)
+    vi.mocked(changeWorkspaceMode).mockResolvedValue({
+      workspaceMode: "business",
+      changed: true,
+      refiledLocations: 2,
+    })
+    const response = await patch({
+      workspaceMode: "business",
+      confirmReportShares: true,
+    })
+    expect(response.status).toBe(200)
+    expect(vi.mocked(changeWorkspaceMode)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        workspaceMode: "business",
+        confirmReportShares: true,
+      })
+    )
+  })
+
+  it("refuses while the organisation's feature is off", async () => {
+    signedIn(owner)
+    vi.mocked(isOrgFeatureEnabled).mockResolvedValue(false)
+    const response = await patch({ workspaceMode: "agency" })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      error: "workspace_mode_change_unavailable",
+    })
+    expect(vi.mocked(changeWorkspaceMode)).not.toHaveBeenCalled()
+  })
+
+  it("refuses an admin before reading anything", async () => {
+    signedIn({ ...owner, role: "admin" })
+    const response = await patch({ workspaceMode: "agency" })
+    expect(response.status).toBe(403)
+    expect(vi.mocked(withTenant)).not.toHaveBeenCalled()
+  })
+
+  it("refuses an unknown mode and a body that renames and switches at once", async () => {
+    signedIn(owner)
+    expect((await patch({ workspaceMode: "franchise" })).status).toBe(400)
+    expect(
+      (await patch({ name: "Lapen Inns", workspaceMode: "agency" })).status
+    ).toBe(400)
+    expect(vi.mocked(changeWorkspaceMode)).not.toHaveBeenCalled()
   })
 })

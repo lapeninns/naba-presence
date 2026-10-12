@@ -6,14 +6,18 @@ import {
   type MediaItem,
   type MediaMutationOutcome,
   type MediaOwnership,
+  type MediaResolution,
   type MediaState,
+  type MediaUnresolvedCreate,
   type MediaUpdateRequest,
 } from "@/lib/contracts/location-media"
 import { GOOGLE_MEDIA_CATEGORIES, type GoogleMediaCategory } from "@/lib/domain/google-contract"
 
-import { ApiClientError, apiFetch, type RequestOptions } from "./client"
+import { INTENT_HEADER } from "@/lib/contracts/mutation-operations"
 
-export type { MediaItem, MediaOwnership, MediaState }
+import { ApiClientError, apiFetch, mintIntentId, type MutationOptions, type RequestOptions } from "./client"
+
+export type { MediaItem, MediaOwnership, MediaResolution, MediaState, MediaUnresolvedCreate }
 
 export const MEDIA_CATEGORIES = GOOGLE_MEDIA_CATEGORIES
 export type MediaCategory = GoogleMediaCategory
@@ -23,8 +27,9 @@ export type MediaMutationResult = MediaMutationOutcome
 export function fetchMedia(
   id: string,
   params: {
-    page?: number
     pageSize?: number
+    /** Where the page starts (the previous page's `nextCursor`). */
+    cursor?: string
     refresh?: boolean
     category?: MediaCategory
     ownership?: MediaOwnership
@@ -32,8 +37,8 @@ export function fetchMedia(
   options?: RequestOptions
 ): Promise<MediaState> {
   const query = new URLSearchParams()
-  if (params.page) query.set("page", String(params.page))
   if (params.pageSize) query.set("pageSize", String(params.pageSize))
+  if (params.cursor) query.set("cursor", params.cursor)
   if (params.refresh) query.set("refresh", "1")
   if (params.category) query.set("category", params.category)
   if (params.ownership) query.set("ownership", params.ownership)
@@ -44,12 +49,12 @@ export function fetchMedia(
   }).then((r) => r.media)
 }
 
-export function createMediaFromUrl(id: string, input: MediaCreateInput, idempotencyKey?: string) {
+export function createMediaFromUrl(id: string, input: MediaCreateInput, options: MutationOptions = {}) {
   return apiFetch(`/api/locations/${id}/media`, {
     method: "POST",
-    idempotencyKey,
     body: { ...input, confirmation: "create_google_media" },
     schema: mediaMutationOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 
@@ -61,13 +66,16 @@ export function uploadMediaFile(
   id: string,
   form: FormData,
   onProgress?: (fraction: number) => void,
-  idempotencyKey?: string
+  options: MutationOptions = {}
 ): Promise<MediaMutationResult> {
   form.set("confirmation", "create_google_media")
+  // apiFetch mints the intent for its own calls; this one does it here, so a
+  // retried upload of the same file can resend it.
+  const intentId = options.intentId ?? mintIntentId()
   return new Promise<MediaMutationResult>((resolve, reject) => {
     const xhr = new XMLHttpRequest()
     xhr.open("POST", `/api/locations/${id}/media`)
-    if (idempotencyKey) xhr.setRequestHeader("idempotency-key", idempotencyKey)
+    if (intentId) xhr.setRequestHeader(INTENT_HEADER, intentId)
     if (onProgress && xhr.upload) {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onProgress(event.loaded / event.total)
@@ -90,25 +98,44 @@ export function uploadMediaFile(
       const nested = record.error && typeof record.error === "object" ? (record.error as Record<string, unknown>) : null
       const code = typeof record.error === "string" ? record.error : nested && typeof nested.code === "string" ? nested.code : "http_error"
       const message = typeof record.message === "string" ? record.message : nested && typeof nested.message === "string" ? nested.message : `Request failed (${xhr.status}).`
-      reject(new ApiClientError(xhr.status, code, message, record.details))
+      reject(new ApiClientError(xhr.status, code, message, record.details, { intentId }))
     }
-    xhr.onerror = () => reject(new ApiClientError(0, "network_error", "The upload could not be completed. Check your connection and try again."))
+    xhr.onerror = () =>
+      reject(
+        new ApiClientError(0, "network_error", "The upload could not be completed. Check your connection and try again.", undefined, {
+          intentId,
+        })
+      )
     xhr.send(form)
   })
 }
 
-export function updateMediaCategory(id: string, mediaId: string, input: Omit<MediaUpdateRequest, "confirmation">) {
+export function updateMediaCategory(id: string, mediaId: string, input: Omit<MediaUpdateRequest, "confirmation">, options: MutationOptions = {}) {
   return apiFetch(`/api/locations/${id}/media/${mediaId}`, {
     method: "PATCH",
     body: { ...input, confirmation: "update_google_media" },
     schema: mediaMutationOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 
-export function deleteMediaItem(id: string, mediaId: string, input: Omit<MediaDeleteRequest, "confirmation">) {
+export function deleteMediaItem(id: string, mediaId: string, input: Omit<MediaDeleteRequest, "confirmation">, options: MutationOptions = {}) {
   return apiFetch(`/api/locations/${id}/media/${mediaId}`, {
     method: "DELETE",
     body: { ...input, confirmation: "delete_google_media" },
+    schema: mediaMutationOutcomeSchema,
+    intentId: options.intentId,
+  })
+}
+
+/**
+ * Records whether a create Google never confirmed is on the listing
+ * (`adopted`) or not (`abandoned`). Nothing is sent to Google.
+ */
+export function resolveMediaCreate(id: string, attemptId: string, resolution: MediaResolution) {
+  return apiFetch(`/api/locations/${id}/media/resolutions/${attemptId}`, {
+    method: "POST",
+    body: { resolution, confirmation: "resolve_google_media" },
     schema: mediaMutationOutcomeSchema,
   })
 }

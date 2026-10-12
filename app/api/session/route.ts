@@ -3,10 +3,12 @@ import { NextResponse } from "next/server"
 import type { SessionResponse } from "@/lib/contracts/session"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
+import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { route } from "@/lib/server/route"
 import {
   clearSession,
+  dropSessionCookie,
   ensureDevelopmentSession,
   getSession,
   isLocalBootstrapEnabled,
@@ -31,8 +33,15 @@ export const GET = route({
 // Public: signing out must succeed whether or not a valid session exists.
 // `?scope=all` signs the person out everywhere (every device, every
 // organisation); Google connections and background sync are untouched.
+//
+// The answer is truthful: 204 only when what was asked for happened. When
+// revoking every session fails, this browser is still signed out (its own
+// row is deleted when the database allows, and its cookie always is) and
+// the route answers 503 `sign_out_everywhere_failed`, so the client can say
+// other devices may still be signed in rather than claim they are not.
 export const DELETE = route({
   auth: "public",
+  origin: "same",
   query: (searchParams) => ({ everywhere: searchParams.get("scope") === "all" }),
   handler: async ({ query, requestId, clientRequestId }) => {
     // Signing out of a support impersonation ends it; record that, as
@@ -64,8 +73,27 @@ export const DELETE = route({
         })
       })
     }
-    if (query.everywhere) await revokeAllSessions()
-    else await clearSession()
+    if (!query.everywhere) {
+      await clearSession()
+      return new NextResponse(null, { status: 204 })
+    }
+    try {
+      await revokeAllSessions()
+    } catch (error) {
+      log.error("session.revoke_all_failed", { requestId, error })
+      await clearSession().catch((clearError: unknown) => {
+        log.error("session.clear_after_revoke_failed", {
+          requestId,
+          error: clearError,
+        })
+      })
+      await dropSessionCookie()
+      throw new ApiError(
+        503,
+        "sign_out_everywhere_failed",
+        "Signed out on this device only. Other sessions may still be active."
+      )
+    }
     return new NextResponse(null, { status: 204 })
   },
 })

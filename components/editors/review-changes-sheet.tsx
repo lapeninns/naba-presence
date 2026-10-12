@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
+import { OperationReceiptNotice } from "@/components/locations/operation-outcome"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -19,7 +20,10 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import type { PublishStepResult } from "@/lib/editors/use-publish-flow"
+import {
+  stepOutcome,
+  type PublishStepResult,
+} from "@/lib/editors/use-publish-flow"
 
 /**
  * The confirmation step in front of every Google write (reference review
@@ -32,10 +36,11 @@ import type { PublishStepResult } from "@/lib/editors/use-publish-flow"
  * the actual diff rather than a sentence claiming there is one.
  *
  * Step wording follows what the app can prove. A step that saved
- * NabaPresence's copy says "Saved here"; a Google write whose request
- * succeeded says "Sent to Google", never "Live on Google", because the app
- * has no verification evidence at that moment. The editor's own status
- * (refetched afterwards) is what says the listing matches Google.
+ * NabaPresence's copy says "Saved here". A finished Google write says "Live
+ * on Google" only when its step is `verified`: the endpoint read Google back
+ * and the result matched before it answered (hours, food menus, the profile
+ * publish, business information). Any other finished write, such as
+ * attributes or lodging, says "Sent to Google".
  */
 function ReviewChangesSheet({
   open,
@@ -48,6 +53,7 @@ function ReviewChangesSheet({
   results,
   error,
   publishDisabledReason,
+  selection,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -65,6 +71,18 @@ function ReviewChangesSheet({
   error?: string | null
   /** Why publishing can't run right now (paused, no permission). */
   publishDisabledReason?: string | null
+  /**
+   * Present when the resource can publish part of a change (hours: single
+   * days, dates and services). `rows` should then hold only the chosen
+   * parts' rows; whatever is left out stays saved here.
+   */
+  selection?: {
+    options: ReadonlyArray<{ key: string; label: string }>
+    selected: ReadonlySet<string>
+    onChange: (key: string, checked: boolean) => void
+    /** What happens to the parts left out, in the resource's words. */
+    note?: string
+  }
 }) {
   const unresolved = rows.filter((row) => row.blocking)
   const conflicts = rows.filter((row) => row.state === "conflict")
@@ -78,6 +96,16 @@ function ReviewChangesSheet({
     setWasOpen(open)
     if (open) setAcknowledged(false)
   }
+  // Choosing another part that overwrites a Google change asks again: the
+  // tick covered the conflicts on screen when it was given.
+  const conflictSignature = conflicts
+    .map((row) => row.key ?? row.field)
+    .join("\n")
+  const [ackedSignature, setAckedSignature] = React.useState(conflictSignature)
+  if (conflictSignature !== ackedSignature) {
+    setAckedSignature(conflictSignature)
+    setAcknowledged(false)
+  }
 
   const blocked =
     (conflicts.length > 0 && !acknowledged) ||
@@ -89,6 +117,14 @@ function ReviewChangesSheet({
   const failed = failedAt !== -1
   const laterSteps = failed && results ? results.length - failedAt - 1 : 0
   const steps = results ? stepsView(results) : []
+  const failedStep = failed ? results?.[failedAt] : undefined
+  const failedOutcome = failedStep ? stepOutcome(failedStep) : null
+  const unconfirmed =
+    failedStep &&
+    failedStep.kind !== "local" &&
+    (failedOutcome === "uncertain" || failedOutcome === "sent")
+      ? failedStep
+      : null
   // Once any Google request went out, the left column is the reviewed
   // baseline rather than what Google holds now.
   const sent = Boolean(
@@ -110,6 +146,30 @@ function ReviewChangesSheet({
         </SheetHeader>
 
         <SheetBody>
+          {selection && selection.options.length > 1 ? (
+            <fieldset className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
+              <legend className="px-1 text-ui font-semibold text-ink">
+                Choose what to publish
+              </legend>
+              {selection.options.map((option) => (
+                <Checkbox
+                  key={option.key}
+                  checked={selection.selected.has(option.key)}
+                  disabled={publishing}
+                  onCheckedChange={(checked) =>
+                    selection.onChange(option.key, Boolean(checked))
+                  }
+                  label={option.label}
+                  labelClassName="text-ui"
+                />
+              ))}
+              <p className="text-caption text-ink-muted">
+                {selection.note ??
+                  "Anything left out stays as Google has it now."}
+              </p>
+            </fieldset>
+          ) : null}
+
           <ChangeDiff
             rows={rows}
             caption={`Changes to publish for ${locationName}`}
@@ -170,6 +230,15 @@ function ReviewChangesSheet({
               </h3>
               <PublishSteps steps={steps} aria-label="Publish progress" />
             </section>
+          ) : null}
+
+          {unconfirmed?.intentId ? (
+            // A Google step whose answer was lost: its receipt says what
+            // became of it once the recovery job has read Google back.
+            <OperationReceiptNotice
+              receiptId={unconfirmed.intentId}
+              fallback={stepOutcome(unconfirmed) ?? "uncertain"}
+            />
           ) : null}
 
           {error ? (
@@ -239,12 +308,15 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         stateLabel: "Nothing to send",
         detail: "Already matches Google, so no request was made.",
       }
+    // The outcome words (lib/editors/outcome.ts) say the rest: a local
+    // save is "Saved here"; a Google write is what the server answered
+    // (stepOutcome): "Live on Google" only when Google was read back holding
+    // it, "Waiting for Google" or "Sent to Google" when it was not.
     if (step.status === "done")
       return {
         id: step.key,
         label: step.label,
-        state: local ? "skipped" : "sent",
-        stateLabel: local ? "Saved here" : "Sent to Google",
+        state: stepOutcome(step) ?? "sent",
         detail: local
           ? "NabaPresence’s copy. Not on Google by itself."
           : undefined,
@@ -260,7 +332,7 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       return {
         id: step.key,
         label: step.label,
-        state: "failed",
+        state: stepOutcome(step) ?? "failed",
         stateLabel: step.code === "google_confirmation_required" ? "Not confirmed" : undefined,
         detail: step.message,
         errorCode: step.code,

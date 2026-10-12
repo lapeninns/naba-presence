@@ -7,15 +7,22 @@ export const runtime = "nodejs"
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   body: loginSchema,
+  limits: ({ body }) => ({ scope: "login", email: body.email }),
   handler: async ({ body, requestId, clientRequestId }) => {
-    const identity = await signInWithPassword(body.email, body.password)
-    await completeEmailAuthentication({
-      identity,
+    const signedIn = await signInWithPassword(body.email, body.password)
+    const result = await completeEmailAuthentication({
+      identity: signedIn.identity,
       inviteToken: body.inviteToken,
       requestId,
       clientRequestId,
+      authMethod: "password",
+      provider: signedIn,
     })
-    return { authenticated: true } satisfies LoginResponse
+    return {
+      authenticated: !result.mfaRequired,
+      mfaRequired: result.mfaRequired,
+    } satisfies LoginResponse
   },
 })

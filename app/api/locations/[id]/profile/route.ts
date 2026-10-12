@@ -9,10 +9,11 @@ import {
   type SaveProfileResponse,
 } from "@/lib/contracts/location-profile"
 import { ApiError } from "@/lib/server/http"
+import { submitListingChange } from "@/lib/server/listing-change-registry"
+import { invalidatePendingListingChanges } from "@/lib/server/listing-changes"
 import {
   getProfileState,
   importProfileFromGoogle,
-  publishProfileToGoogle,
   saveCanonicalProfile,
 } from "@/lib/server/profile"
 import { route } from "@/lib/server/route"
@@ -27,24 +28,35 @@ const paramsSchema = z.object({ id: z.uuid() })
 export const GET = route({
   params: paramsSchema,
   handler: async ({ session, params }) =>
-    ({ profile: await getProfileState(session, params.id) }) satisfies ProfileResponse,
+    ({
+      profile: await getProfileState(session, params.id),
+    }) satisfies ProfileResponse,
 })
 
 export const PUT = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: saveProfileBodySchema,
-  handler: async ({ session, params, body, requestId }) =>
-    (await saveCanonicalProfile({
+  handler: async ({ session, params, body, requestId }) => {
+    const saved = (await saveCanonicalProfile({
       session,
       locationId: params.id,
       expectedCanonicalRevision: body.expectedCanonicalRevision,
       values: body.values,
       requestId,
-    })) satisfies SaveProfileResponse,
+    })) satisfies SaveProfileResponse
+    // A publish waiting for approval was for the profile before this save.
+    await invalidatePendingListingChanges({
+      organisationId: session.organisationId,
+      locationId: params.id,
+      kinds: ["profile_publish"],
+    })
+    return saved
+  },
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: profileOperationBodySchema,
@@ -56,16 +68,15 @@ export const POST = route({
         "The profile operation confirmation does not match its direction."
       )
     }
+    // A publish parks for a second publisher in two-person mode
+    // (lib/server/listing-change-registry.ts); an import only changes
+    // NabaPresence's own copy and is never held.
     const result =
       body.direction === "to_google"
-        ? await publishProfileToGoogle({
+        ? await submitListingChange("profile_publish", {
             session,
             locationId: params.id,
-            selectedFields: body.selectedFields,
-            expectedCanonicalRevision: body.expectedCanonicalRevision,
-            expectedCanonicalHash: body.expectedCanonicalHash,
-            expectedGoogleHash: body.expectedGoogleHash,
-            confirmOverwriteGoogleChanges: body.confirmOverwriteGoogleChanges,
+            body,
             requestId,
           })
         : await importProfileFromGoogle({
@@ -75,9 +86,10 @@ export const POST = route({
             expectedCanonicalRevision: body.expectedCanonicalRevision,
             expectedCanonicalHash: body.expectedCanonicalHash,
             expectedGoogleHash: body.expectedGoogleHash,
-            confirmOverwriteCanonicalChanges: body.confirmOverwriteCanonicalChanges,
+            confirmOverwriteCanonicalChanges:
+              body.confirmOverwriteCanonicalChanges,
             requestId,
           })
-    return result satisfies ProfileOperationResponse
+    return result satisfies ProfileOperationResponse | Response
   },
 })

@@ -1,6 +1,7 @@
 // Wire shapes shared by the GBP management surfaces (business information,
 // industry, administration, booking). Client-safe: zod only.
 import { z } from "zod"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 export const gbpExecutionStateSchema = z.enum(["unrecorded", "pending", "accepted", "rejected", "unknown"])
 export const gbpConfirmationStateSchema = z.enum(["unrecorded", "pending", "confirmed", "unresolved"])
@@ -10,6 +11,7 @@ export const gbpMutationResultSchema = z.object({
   id: z.string(),
   status: z.string(),
   idempotent: z.boolean(),
+  ...operationSummaryField,
   executionState: gbpExecutionStateSchema.optional(),
   confirmationState: gbpConfirmationStateSchema.optional(),
 })

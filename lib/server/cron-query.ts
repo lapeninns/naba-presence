@@ -2,7 +2,9 @@ import "server-only"
 
 /**
  * Query-string input for the Vercel Cron GET shims on the scheduler tick
- * routes (`/api/jobs/run`, `/api/sync/*`, `/api/cron/retention`).
+ * routes (`/api/jobs/run`, `/api/sync/*`). `/api/cron/retention` has its
+ * own query parser: with no `cursor` it is a dispatcher over a persisted
+ * daily cycle (lib/server/retention/cycle.ts), not a single page.
  *
  * Vercel Cron fires HTTP GET with no body, while the scheduler POSTs a JSON
  * body validated by the zod schemas in `lib/contracts/sync`. The GET shims

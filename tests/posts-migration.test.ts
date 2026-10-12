@@ -55,6 +55,26 @@ describe("Local Posts migration", () => {
     expect(server).not.toContain("scheduled_publish_time")
   })
 
+  // Publication schedules (0079) replaced the per-post columns; 0116 marks
+  // them deprecated and copies unpublished values out for an owner's review
+  // instead of turning them into jobs.
+  it("0116 deprecates the legacy per-post schedule columns", () => {
+    const quarantine = readFileSync(
+      join(
+        process.cwd(),
+        "supabase/migrations/0116_post_schedule_quarantine.sql"
+      ),
+      "utf8"
+    )
+    for (const column of ["scheduled_publish_time", "recurrence"])
+      expect(quarantine).toMatch(
+        new RegExp(
+          `comment on column gbp_local_post\\.${column} is\\s+'Deprecated`
+        )
+      )
+    expect(quarantine).toContain("insert into gbp_local_post_legacy_schedule")
+  })
+
   it("0037 bounds the publish claim with a lease the reaper can expire", () => {
     expect(lifecycle).toContain(
       "add column publish_lease_expires_at timestamptz"

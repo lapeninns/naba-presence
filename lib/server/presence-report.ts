@@ -7,6 +7,7 @@ import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
+import { summariseReportCoverage } from "@/lib/domain/report-coverage"
 import { gbpIngestionEnabled, getServerEnv } from "@/lib/server/env"
 import {
   visibilityPredicate,
@@ -38,6 +39,7 @@ type CheckpointRow = {
   status: string
   lastErrorCode: string | null
   lastSucceededAt: Date | null
+  lastMetricDate: string | null
 }
 
 /** A location whose last successful performance fetch is older than this counts as stale. */
@@ -110,7 +112,9 @@ export async function loadPresenceReport(
     group by p.metric, p.metric_date
     order by p.metric_date, p.metric
   `
-  const previousRows = await sql<Array<{ metric: GooglePerformanceMetric; value: string }>>`
+  const previousRows = await sql<
+    Array<{ metric: GooglePerformanceMetric; value: string }>
+  >`
     select p.metric, sum(p.value)::text as value
     from performance_metric_daily p
     join location_link ll
@@ -140,7 +144,8 @@ export async function loadPresenceReport(
       l.id::text as "locationId",
       sc.status,
       sc.last_error_code as "lastErrorCode",
-      sc.last_succeeded_at as "lastSucceededAt"
+      sc.last_succeeded_at as "lastSucceededAt",
+      sc.last_metric_date::text as "lastMetricDate"
     from sync_checkpoint sc
     join location_link ll
       on ll.external_location_id = sc.external_location_id
@@ -151,6 +156,38 @@ export async function loadPresenceReport(
       ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
       and ${visibility}
   `
+  // Per-location newest stored day in the window, for a checkpoint that has
+  // no watermark (rows written before last_metric_date existed, or seeded
+  // directly). Older rows add nothing to this window, so they cover nothing.
+  const latestStored = await sql<Array<{ locationId: string; latest: string }>>`
+    select l.id::text as "locationId", max(p.metric_date)::text as latest
+    from performance_metric_daily p
+    join location_link ll
+      on ll.external_location_id = p.external_location_id
+     and ll.is_active = true
+    join location l on l.id = ll.location_id
+    where p.metric_date between ${start}::date and ${end}::date
+      ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
+      ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
+      and ${visibility}
+    group by l.id
+  `
+  // The window always ends today and Google never dates a metric later, so a
+  // watermark needs no cap at the end; one before `start` covers nothing.
+  const completeness = summariseReportCoverage(
+    locations,
+    checkpoints.map((checkpoint) => ({
+      locationId: checkpoint.locationId,
+      status: checkpoint.status,
+      watermark: checkpoint.lastMetricDate,
+    })),
+    {
+      windowStart: start,
+      latestStored: new Map(
+        latestStored.map((row) => [row.locationId, row.latest])
+      ),
+    }
+  )
   // A metric with no rows stays null: Google sent nothing, which is not zero.
   const totals = emptyTotals()
   const byDate = new Map<
@@ -182,7 +219,9 @@ export async function loadPresenceReport(
   const previousTotals = emptyTotals()
   for (const row of previousRows) previousTotals[row.metric] = Number(row.value)
   const staleBefore = now.getTime() - PERFORMANCE_STALE_AFTER_HOURS * 3_600_000
-  const byLocation = new Map(checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint]))
+  const byLocation = new Map(
+    checkpoints.map((checkpoint) => [checkpoint.locationId, checkpoint])
+  )
   const succeeded = checkpoints
     .map((checkpoint) => checkpoint.lastSucceededAt)
     .filter((value): value is Date => value !== null)
@@ -190,14 +229,21 @@ export async function loadPresenceReport(
   const coverage = {
     eligible: locations.length,
     reporting: reportingLocations.length,
-    unavailable: locations.filter((location) => byLocation.get(location.id)?.status === "failed").length,
+    unavailable: locations.filter(
+      (location) => byLocation.get(location.id)?.status === "failed"
+    ).length,
     stale: locations.filter((location) => {
       const checkpoint = byLocation.get(location.id)
-      return checkpoint?.lastSucceededAt ? checkpoint.lastSucceededAt.getTime() < staleBefore : false
+      return checkpoint?.lastSucceededAt
+        ? checkpoint.lastSucceededAt.getTime() < staleBefore
+        : false
     }).length,
     pending: locations.filter((location) => {
       const checkpoint = byLocation.get(location.id)
-      return !checkpoint || (!checkpoint.lastSucceededAt && checkpoint.status !== "failed")
+      return (
+        !checkpoint ||
+        (!checkpoint.lastSucceededAt && checkpoint.status !== "failed")
+      )
     }).length,
   }
   return {
@@ -209,14 +255,21 @@ export async function loadPresenceReport(
       ? { from: previousStart, to: previousEnd, totals: previousTotals }
       : null,
     fetchedAt: {
-      oldest: succeeded.length ? new Date(Math.min(...succeeded)).toISOString() : null,
-      newest: succeeded.length ? new Date(Math.max(...succeeded)).toISOString() : null,
+      oldest: succeeded.length
+        ? new Date(Math.min(...succeeded)).toISOString()
+        : null,
+      newest: succeeded.length
+        ? new Date(Math.max(...succeeded)).toISOString()
+        : null,
     },
     coverage,
     dateBasis: "google_daily",
     freshThrough,
     locations: [...locations],
+    // A metric with no rows in the window stays null. With no covered
+    // location there are no rows, so every figure is missing, never a zero.
     totals,
+    completeness,
     series: Array.from(byDate, ([date, metrics]) => ({ date, metrics })),
     unavailableReasons: Array.from(
       new Set(

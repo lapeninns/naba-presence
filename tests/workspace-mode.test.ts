@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest"
 
-import { sessionSchema } from "@/lib/contracts/session"
+import {
+  organisationUpdateSchema,
+  sessionSchema,
+} from "@/lib/contracts/session"
+import { registerSchema } from "@/lib/domain/auth"
 import { clientAccessUpdateSchema } from "@/lib/contracts/client-access"
 import { summariseHealth } from "@/lib/clients/health"
 import {
@@ -122,26 +126,53 @@ describe("accessSummary in business mode", () => {
       clientId: "home",
     }))
 
-  it("says all locations for managers and unscoped members", () => {
+  it("says all locations for managers and members on scope all", () => {
     expect(
-      accessSummary({ role: "admin", locations: [] }, [], "business").label
+      accessSummary(
+        { role: "admin", locationScope: "all", locations: [] },
+        [],
+        "business"
+      ).label
     ).toBe("All locations")
     expect(
-      accessSummary({ role: "member", locations: [] }, [], "business")
+      accessSummary(
+        { role: "member", locationScope: "all", locations: [] },
+        [],
+        "business"
+      )
     ).toEqual({
       label: "All locations",
       detail: "Including locations added later",
     })
   })
 
+  it("says no locations for an assigned member with none, never all", () => {
+    expect(
+      accessSummary(
+        { role: "member", locationScope: "assigned", locations: [] },
+        [],
+        "business"
+      )
+    ).toEqual({
+      label: "No locations",
+      detail: "Sees nothing until given access",
+    })
+  })
+
   it("counts the locations a scoped member holds", () => {
     expect(
-      accessSummary({ role: "member", locations: locations(1) }, [], "business")
-        .label
+      accessSummary(
+        { role: "member", locationScope: "assigned", locations: locations(1) },
+        [],
+        "business"
+      ).label
     ).toBe("1 location")
     expect(
-      accessSummary({ role: "viewer", locations: locations(3) }, [], "business")
-        .label
+      accessSummary(
+        { role: "viewer", locationScope: "assigned", locations: locations(3) },
+        [],
+        "business"
+      ).label
     ).toBe("3 locations")
   })
 })
@@ -191,14 +222,10 @@ describe("location access requests", () => {
     })
   })
 
-  it("refuses an empty selection instead of widening to every location", () => {
+  it("saves an empty selection as no locations, never every location", () => {
     expect(
       planClientAccess({ ...base, role: "member", request: { locations: [] } })
-    ).toMatchObject({
-      ok: false,
-      status: 409,
-      code: "would_widen_to_all_clients",
-    })
+    ).toEqual({ ok: true, allClients: false, rows: [] })
   })
 
   it("refuses unknown and duplicate locations", () => {
@@ -287,5 +314,46 @@ describe("planClientAccess workspace mode", () => {
         request: { locations: [{ locationId: "l1" }] },
       })
     ).toMatchObject({ ok: true })
+  })
+})
+
+describe("registration workspace mode", () => {
+  const account = {
+    displayName: "Sam Patel",
+    email: "sam@example.test",
+    password: "Correct horse!42",
+  }
+
+  it("defaults a new owner to business", () => {
+    expect(registerSchema.parse(account).workspaceMode).toBe("business")
+  })
+
+  it("accepts agency and refuses anything else", () => {
+    expect(
+      registerSchema.parse({ ...account, workspaceMode: "agency" })
+        .workspaceMode
+    ).toBe("agency")
+    expect(
+      registerSchema.safeParse({ ...account, workspaceMode: "franchise" })
+        .success
+    ).toBe(false)
+  })
+})
+
+describe("organisationUpdateSchema", () => {
+  it("takes a rename or a mode change, never both", () => {
+    expect(organisationUpdateSchema.parse({ name: " Lapen " })).toEqual({
+      name: "Lapen",
+    })
+    expect(organisationUpdateSchema.parse({ workspaceMode: "agency" })).toEqual(
+      { workspaceMode: "agency" }
+    )
+    expect(
+      organisationUpdateSchema.safeParse({
+        name: "Lapen",
+        workspaceMode: "agency",
+      }).success
+    ).toBe(false)
+    expect(organisationUpdateSchema.safeParse({}).success).toBe(false)
   })
 })

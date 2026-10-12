@@ -8,20 +8,29 @@ import {
 } from "@/lib/contracts/privacy"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { executeReplyDelete } from "@/lib/server/publishing"
-import { supersedeAttempts } from "@/lib/server/publishing/attempt"
+import {
+  eraseReviews,
+  OPEN_STATUSES,
+  PRIVACY_WITHDRAWAL_PARK_GRACE,
+  RESOLUTION_COLUMNS,
+  settleWithdrawal,
+  withdrawReplies,
+  type ErasureScrub,
+} from "@/lib/server/privacy/fulfil"
 import { route } from "@/lib/server/route"
-import type { Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 // The erasure branch withdraws replies at Google, one provider round trip per
 // matched reply, so this handler is as long-running as the reply delete route.
 export const maxDuration = 60
 
-/** The two states a request can still be acted on from. */
-const OPEN_STATUSES = ["pending", "in_progress"]
+/**
+ * How long the inline withdrawal round may keep starting provider calls.
+ * It leaves room under `maxDuration` for the last call to time out and the
+ * round to settle; replies it has no time for are deferred to the job tick.
+ */
+const INLINE_WITHDRAWAL_BUDGET_MS = 40_000
 
 /**
  * Mirrors `enforce_privacy_request_transition`
@@ -32,20 +41,6 @@ const ALLOWED_STATUS_MOVES: Record<string, readonly string[]> = {
   pending: ["pending", "in_progress", "completed", "rejected"],
   in_progress: ["in_progress", "completed", "rejected"],
 }
-
-/**
- * `review_reply.publish_status` values that mean nothing is left at Google.
- * Everything else -- including `awaiting_approval` and `accepted`, which
- * `executeReplyDelete` withdraws locally -- goes through the delete pipeline.
- * This is the same predicate `loadDeleteRecord` answers 404 to.
- */
-const WITHDRAWN_REPLY_STATUSES = new Set(["deleted", "not_published"])
-
-/**
- * What `draft.body` becomes on erasure. The column is `not null`, so the
- * reviewer's name is replaced rather than dropped.
- */
-const ERASED_DRAFT_BODY = "[Removed at the data subject's request]"
 
 function assertOpen(status: string) {
   if (!OPEN_STATUSES.includes(status)) {
@@ -102,207 +97,22 @@ async function lockRequest(
   return privacyRequest
 }
 
-/** The PATCH response projection, shared by all four resolution updates. */
-const RESOLUTION_COLUMNS = `
-  id::text as id, request_type as "requestType", status,
-  subject_reference as "subjectReference",
-  resolution_note as "resolutionNote", resolved_at as "resolvedAt"
-`
-
-type ErasureScrub = {
-  reviewsAffected: number
-  mediaRemoved: number
-  draftsRedacted: number
-  repliesRedacted: number
-  attemptBodiesRedacted: number
-  /** Reviews whose reply still has to be withdrawn at Google. */
-  withdrawals: string[]
-}
-
 /**
- * Drop the intended body from every settled attempt for these replies.
- *
- * An unsettled row keeps its body on purpose: `decideRecovery` compares
- * `intended_body` with what Google actually holds, so scrubbing a `started`
- * or `ambiguous` attempt mid-flight would turn a recoverable write into an
- * unresolvable one. Those rows are scrubbed on the second pass, once the
- * withdrawal has forced them through recovery.
+ * An erasure parked with replies still to withdraw and no automatic retry
+ * coming: the budget is spent, the owner it ran as lost access, or a legal
+ * hold landed. A constant fragment, so sql.unsafe carries no input.
  */
-async function scrubAttemptBodies(sql: TransactionSql, replyIds: string[]) {
-  const scrubbed = await sql`
-    update publish_attempt
-    set intended_body = null
-    where review_reply_id in ${sql(replyIds)}
-      and intended_body is not null
-      and status not in ('started', 'ambiguous')
-    returning id
-  `
-  return scrubbed.count
-}
-
-/**
- * The local half of an erasure.
- *
- * Beyond the review row, the reviewer's name lives in every derived body:
- * `lib/domain/rating-only.ts` greets the reviewer by name, and that string is
- * stored in `draft.body`, copied into `review_reply.current_body` by
- * `startPublishIntent` and into `publish_attempt.intended_body`. None of
- * those three tables is touched by the retention sweep, so an erasure that
- * only anonymises `review` leaves the name readable indefinitely -- and
- * readable back out through the subject export.
- */
-async function eraseReviews(
-  sql: TransactionSql,
-  organisationId: string,
-  reviewIds: string[]
-): Promise<ErasureScrub> {
-  const media = await sql`
-    delete from review_media_item
-    where review_id in ${sql(reviewIds)}
-    returning id
-  `
-  // `erased_at` is the marker `upsertGoogleReview` keys its re-ingestion
-  // guard on (0030_review_erasure_and_checkpoints.sql); without it the next
-  // reconcile tick writes every field below straight back. coalesce keeps the
-  // first erasure's timestamp when a request is fulfilled more than once.
-  const reviews = await sql`
-    update review
-    set
-      reviewer_display_name = 'Removed reviewer',
-      reviewer_profile_photo_url = null,
-      review_text = null,
-      raw_payload = null,
-      erased_at = coalesce(erased_at, now())
-    where id in ${sql(reviewIds)}
-    returning id
-  `
-  const drafts = await sql`
-    update draft
-    set
-      body = ${ERASED_DRAFT_BODY},
-      body_bytes = ${Buffer.byteLength(ERASED_DRAFT_BODY)}
-    where review_id in ${sql(reviewIds)}
-      and body <> ${ERASED_DRAFT_BODY}
-    returning id
-  `
-  const counts = {
-    reviewsAffected: reviews.count,
-    mediaRemoved: media.count,
-    draftsRedacted: drafts.count,
-  }
-
-  const replies = await sql<
-    { id: string; reviewId: string; publishStatus: string }[]
-  >`
-    select
-      id::text as id,
-      review_id::text as "reviewId",
-      publish_status as "publishStatus"
-    from review_reply
-    where review_id in ${sql(reviewIds)}
-    order by review_id
-  `
-  if (replies.length === 0) {
-    return {
-      ...counts,
-      repliesRedacted: 0,
-      attemptBodiesRedacted: 0,
-      withdrawals: [],
-    }
-  }
-  const replyIds = replies.map(({ id }) => id)
-
-  // A `retryable` attempt is armed work the runner replays verbatim on a
-  // later tick. Retire it here: left armed it would either republish the
-  // erased reviewer's name or fail the tick on a null intended_body.
-  const queued = await sql<{ id: string }[]>`
-    select id::text as id
-    from publish_attempt
-    where review_reply_id in ${sql(replyIds)}
-      and status = 'retryable'
-  `
-  await supersedeAttempts(sql, {
-    organisationId,
-    attemptIds: queued.map(({ id }) => id),
-    reason: "subject_erasure",
-  })
-  const attemptBodiesRedacted = await scrubAttemptBodies(sql, replyIds)
-  const redacted = await sql`
-    update review_reply
-    set current_body = null
-    where id in ${sql(replyIds)}
-      and current_body is not null
-    returning id
-  `
-  return {
-    ...counts,
-    repliesRedacted: redacted.count,
-    attemptBodiesRedacted,
-    withdrawals: replies
-      .filter((reply) => !WITHDRAWN_REPLY_STATUSES.has(reply.publishStatus))
-      .map((reply) => reply.reviewId),
-  }
-}
-
-/**
- * Withdraw the replies an erasure matched, one provider round trip each.
- *
- * Deliberately outside the erasure transaction -- a provider call never runs
- * inside an open tenant transaction -- and outside its failure boundary: a
- * reply Google refuses to drop must not roll back the local scrub. Each
- * failure is collected instead, and leaves the request open for a retry.
- */
-async function withdrawReplies(input: {
-  organisationId: string
-  session: Session
-  requestId: string
-  reviewIds: string[]
-}) {
-  const withdrawn: string[] = []
-  const pending: { reviewId: string; code: string }[] = []
-  // Withdrawing a reply is a Google write, and the manual delete route pauses
-  // on the same flag. Nothing is lost by honouring it: the local scrub is
-  // already committed and the request stays open until publishing resumes.
-  if (!getServerEnv().PUBLISH_ENABLED) {
-    return {
-      withdrawn,
-      pending: input.reviewIds.map((reviewId) => ({
-        reviewId,
-        code: "publishing_paused",
-      })),
-    }
-  }
-  for (const reviewId of input.reviewIds) {
-    try {
-      const outcome = await executeReplyDelete({
-        organisationId: input.organisationId,
-        session: input.session,
-        reviewId,
-        requestId: input.requestId,
-      })
-      // An ambiguous delete is Google not confirming; the reply may still be
-      // live, so it is not a withdrawal yet.
-      if (outcome.status === "ambiguous") {
-        pending.push({ reviewId, code: "google_mutation_ambiguous" })
-      } else {
-        withdrawn.push(reviewId)
-      }
-    } catch (error) {
-      pending.push({
-        reviewId,
-        code:
-          error instanceof ApiError ? error.code : "google_reply_delete_failed",
-      })
-    }
-  }
-  return { withdrawn, pending }
-}
+const WITHDRAWAL_STALLED_SQL = `(
+  status = 'in_progress'
+  and cardinality(pending_review_ids) > 0
+  and next_attempt_at is null
+)`
 
 export const GET = route({
   roles: ["owner", "admin"],
   handler: async ({ tenant }) => {
-    // Open requests first, the closest to their statutory deadline at the
-    // top, then resolved ones by recency. Ordering is the only fulfilment
+    // Stalled withdrawals first, then open requests, the closest to their
+    // statutory deadline at the top, then resolved ones by recency. Ordering is the only fulfilment
     // signal the console has: nothing else tells an owner which of 500 rows
     // is about to breach.
     const requests = await tenant(
@@ -318,12 +128,25 @@ export const GET = route({
           resolution_note as "resolutionNote",
           resolved_at as "resolvedAt",
           due_at as "dueAt",
-          (status in ('pending', 'in_progress') and due_at < now()) as overdue,
+          ${sql.unsafe(WITHDRAWAL_STALLED_SQL)} as "withdrawalStalled",
+          -- A stalled withdrawal is overdue whatever its deadline: nothing
+          -- will finish it before a person acts.
+          (
+            (status in ('pending', 'in_progress') and due_at < now())
+            or ${sql.unsafe(WITHDRAWAL_STALLED_SQL)}
+          ) as overdue,
+          withdrawal_attempts as "withdrawalAttempts",
+          next_attempt_at as "nextAttemptAt",
+          last_error_code as "lastErrorCode",
           created_at as "createdAt",
           updated_at as "updatedAt"
         from privacy_request
         order by
-          case when status in ('pending', 'in_progress') then 0 else 1 end,
+          case
+            when ${sql.unsafe(WITHDRAWAL_STALLED_SQL)} then 0
+            when status in ('pending', 'in_progress') then 1
+            else 2
+          end,
           case when status in ('pending', 'in_progress') then due_at end,
           created_at desc
         limit 500
@@ -334,6 +157,8 @@ export const GET = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: privacyRequestCreateSchema,
   handler: async ({
@@ -388,6 +213,8 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner"],
   body: privacyRequestUpdateSchema,
   handler: async ({
@@ -483,13 +310,23 @@ export const PATCH = route({
         const withdrawals = scrub?.withdrawals ?? []
         // A live reply still greets the subject by name on Google, so the
         // request is not complete until it is gone. Park it `in_progress`
-        // and let the provider phase below decide.
+        // and let the provider phase below decide. The owner fulfilling it
+        // becomes the actor the background tick withdraws as, and a fulfil
+        // by hand is a human taking it over, so the retry budget restarts.
+        // The first automatic round waits out the inline one: it only runs
+        // if this process dies before settling.
         const [row] = withdrawals.length
           ? await sql`
               update privacy_request
               set
                 status = 'in_progress',
-                pending_review_ids = ${withdrawals}::uuid[]
+                pending_review_ids = ${withdrawals}::uuid[],
+                resolution_note = ${input.resolutionNote},
+                withdrawal_actor_id = ${session.userId},
+                withdrawal_attempts = 0,
+                next_attempt_at =
+                  now() + ${PRIVACY_WITHDRAWAL_PARK_GRACE}::interval,
+                last_error_code = null
               where id = ${input.id}
               returning ${sql.unsafe(RESOLUTION_COLUMNS)}
             `
@@ -520,67 +357,56 @@ export const PATCH = route({
 
       const removal = await withdrawReplies({
         organisationId: session.organisationId,
-        session,
+        actor: session,
         requestId,
         reviewIds: result.withdrawals,
+        deadline: Date.now() + INLINE_WITHDRAWAL_BUDGET_MS,
       })
-      const settled = await tenant(async (sql) => {
-        // The withdrawal forced every in-flight attempt through recovery, so
-        // the bodies phase one had to leave alone can go now.
-        const replies = await sql<{ id: string }[]>`
-          select rr.id::text as id
-          from review_reply rr
-          where rr.review_id in ${sql(result.withdrawals)}
-        `
-        const attemptBodiesRedacted = replies.length
-          ? await scrubAttemptBodies(
-              sql,
-              replies.map(({ id }) => id)
-            )
-          : 0
-        await writeAudit(sql, {
-          organisationId: session.organisationId,
-          actorUserId: session.userId,
-          action: "privacy.request.replies_withdrawn",
-          subjectType: "privacy_request",
-          subjectId: input.id,
-          requestId,
-          metadata: {
-            withdrawn: removal.withdrawn.length,
-            pending: removal.pending,
-            attemptBodiesRedacted,
-            clientRequestId,
-          },
-        })
-        if (removal.pending.length) return null
-        const [row] = await sql`
-          update privacy_request
-          set
-            status = 'completed',
-            pending_review_ids = '{}',
-            resolution_note = ${input.resolutionNote},
-            resolved_by = ${session.userId},
-            resolved_at = now()
-          where id = ${input.id}
-            and status in ('pending', 'in_progress')
-          returning ${sql.unsafe(RESOLUTION_COLUMNS)}
-        `
-        return row ?? null
+      const settled = await settleWithdrawal({
+        organisationId: session.organisationId,
+        privacyRequestId: input.id,
+        actorUserId: session.userId,
+        requestId,
+        clientRequestId,
+        source: "fulfil",
+        reviewIds: result.withdrawals,
+        removal,
       })
-      if (!settled) {
-        // The local scrub is committed either way; the request stays open so
-        // the operator can retry the withdrawal, which is idempotent.
+      if (settled.outcome === "resolved_elsewhere") {
+        // A background round claimed before this fulfil can finish the
+        // erasure while the inline round runs. The owner asked for exactly
+        // that, so it is a success, not a conflict.
+        const [current] = await tenant(
+          (sql) => sql`
+            select ${sql.unsafe(RESOLUTION_COLUMNS)}
+            from privacy_request
+            where id = ${input.id}
+          `
+        )
+        if (current?.status === "completed") return { request: current }
+        throw new ApiError(
+          409,
+          "privacy_request_resolved",
+          "This privacy request has already been resolved."
+        )
+      }
+      if (settled.outcome !== "completed") {
+        // The local scrub is committed either way; the request stays open and
+        // the job tick retries the withdrawal with backoff
+        // (lib/server/privacy/withdrawals.ts). Fulfilling again by hand is
+        // still allowed and idempotent.
         return NextResponse.json(
           {
             error: "privacy_reply_withdraw_failed",
             message:
-              "The reply could not be withdrawn from Google. The request stays open.",
+              "The reply could not be withdrawn from Google. The request stays open and is retried automatically.",
             pending: removal.pending,
+            request: settled.request,
           },
           { status: 409 }
         )
       }
-      return { request: settled }
+      return { request: settled.request }
     }
     const privacyRequest = await tenant(async (sql) => {
       const current = await lockRequest(sql, input.id)
@@ -590,6 +416,20 @@ export const PATCH = route({
           409,
           "privacy_request_transition_invalid",
           "A privacy request cannot move back to that status."
+        )
+      }
+      if (
+        (input.status === "completed" || input.status === "rejected") &&
+        current.pendingReviewIds.length > 0
+      ) {
+        // An erasure already scrubbed here with replies still live on Google.
+        // Closing it by status would stop the job tick's retry (it claims only
+        // `in_progress` rows) and record a finished or refused erasure while
+        // the reply stays published. Fulfilling again is the way out.
+        throw new ApiError(
+          409,
+          "privacy_withdrawal_pending",
+          "This erasure still has replies to withdraw from Google. Fulfil it again, or wait for the automatic retry."
         )
       }
       const [row] = await sql`

@@ -23,6 +23,20 @@ export function PresenceProvenance({ data }: { data: PresenceResponse }) {
         : `Last fetched between ${formatDateTime(data.fetchedAt.oldest, viewerZone)} and ${formatDateTime(data.fetchedAt.newest ?? data.fetchedAt.oldest, viewerZone)}`
       : "Not fetched successfully yet",
   ]
+  // The oldest per-location watermark, when it trails the newest date: every
+  // location is complete up to it, only some beyond it.
+  const completeThrough = data.completeness?.completeThrough
+  if (
+    completeThrough &&
+    data.freshThrough &&
+    completeThrough < data.freshThrough
+  ) {
+    parts.splice(
+      1,
+      0,
+      `All reporting locations complete through ${formatDate(completeThrough, "UTC")}`
+    )
+  }
   const coverageParts = coverage
     ? [
         `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} reporting`,

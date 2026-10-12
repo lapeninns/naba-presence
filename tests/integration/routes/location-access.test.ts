@@ -4,7 +4,12 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
-import { createTestTenant, destroyTenants } from "../helpers/tenant"
+import {
+  createTestTenant,
+  destroyTenants,
+  seedMemberUser,
+  seedReview,
+} from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -111,15 +116,25 @@ describeDatabase("location access in a business", () => {
     )
   })
 
-  it("refuses an empty selection rather than widening to every location", async () => {
-    const { owner, memberId } = await fixture()
+  it("saves an empty selection as no access rather than widening to every location", async () => {
+    const { owner, locations, memberId } = await fixture()
+    await call(server, owner.cookie, memberId, "PUT", {
+      locations: [{ locationId: locations[0] }],
+    })
     const put = await call(server, owner.cookie, memberId, "PUT", {
       locations: [],
     })
-    expect(put.status).toBe(409)
+    expect(put.status, await put.clone().text()).toBe(200)
     expect(await put.json()).toMatchObject({
-      error: "would_widen_to_all_clients",
+      allClients: false,
+      noAccess: true,
+      locationGrants: [],
     })
+    const [member] = await admin<{ locationScope: string }[]>`
+      select location_scope as "locationScope" from member
+      where user_id = ${memberId}
+    `
+    expect(member.locationScope).toBe("assigned")
   })
 
   it("refuses a location from another organisation", async () => {
@@ -146,5 +161,132 @@ describeDatabase("location access in a business", () => {
     }
     expect(body.allClients).toBe(true)
     expect(body.locationGrants).toEqual([])
+  })
+})
+
+/**
+ * The reader switch (P02-S4): an assigned member whose last listing goes
+ * sees nothing, never every location.
+ */
+describeDatabase("explicit scope: removing the last assignment", () => {
+  let admin: ReturnType<typeof postgres>
+  let server: Awaited<ReturnType<typeof startAppServer>>
+  const organisations: string[] = []
+
+  beforeAll(async () => {
+    admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 2 })
+    server = await startAppServer()
+  })
+
+  afterAll(async () => {
+    await server.stop()
+    await destroyTenants(admin, organisations)
+    await admin.end()
+  })
+
+  const status = async (cookie: string, reviewId: string) =>
+    (
+      await fetch(`${server.baseUrl}/api/reviews/${reviewId}`, {
+        headers: { cookie },
+      })
+    ).status
+
+  async function fixture(role: "member" | "viewer") {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const assigned = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    const other = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    const member = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      role,
+      assignLocationId: assigned.locationId,
+    })
+    return { owner, assigned, other, member }
+  }
+
+  it.each(["member", "viewer"] as const)(
+    "a %s whose final location_member row is deleted sees nothing",
+    async (role) => {
+      const { assigned, other, member } = await fixture(role)
+      expect(await status(member.cookie, assigned.reviewId)).toBe(200)
+      expect(await status(member.cookie, other.reviewId)).toBe(404)
+
+      // What a listing deletion's cascade does to the rows.
+      await admin`delete from location_member where user_id = ${member.userId}`
+
+      expect(await status(member.cookie, assigned.reviewId)).toBe(404)
+      expect(await status(member.cookie, other.reviewId)).toBe(404)
+      const [row] = await admin<{ locationScope: string }[]>`
+        select location_scope as "locationScope" from member
+        where user_id = ${member.userId}
+      `
+      expect(row.locationScope).toBe("assigned")
+    }
+  )
+
+  it("an owner choosing no clients removes access; All clients restores it", async () => {
+    const { owner, assigned, other, member } = await fixture("member")
+    const put = (body: unknown) =>
+      fetch(`${server.baseUrl}/api/members/${member.userId}/client-access`, {
+        method: "PUT",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+    const none = await put({ clients: [] })
+    expect(none.status, await none.clone().text()).toBe(200)
+    expect(await none.json()).toMatchObject({
+      allClients: false,
+      noAccess: true,
+    })
+    expect(await status(member.cookie, assigned.reviewId)).toBe(404)
+    expect(await status(member.cookie, other.reviewId)).toBe(404)
+
+    const all = await put({ allClients: true })
+    expect(all.status).toBe(200)
+    expect(await status(member.cookie, assigned.reviewId)).toBe(200)
+    expect(await status(member.cookie, other.reviewId)).toBe(200)
+  })
+
+  it("scope 'all' in another organisation does not widen an assigned-empty membership", async () => {
+    const { owner, assigned, other, member } = await fixture("member")
+    await admin`delete from location_member where user_id = ${member.userId}`
+    // The same user is 'all' in a second organisation.
+    const elsewhere = await createTestTenant(admin)
+    organisations.push(elsewhere.organisationId)
+    await admin`
+      insert into member (organisation_id, user_id, role, can_publish, location_scope)
+      values (${elsewhere.organisationId}, ${member.userId}, 'member', true, 'all')
+    `
+    expect(await status(member.cookie, assigned.reviewId)).toBe(404)
+    expect(await status(member.cookie, other.reviewId)).toBe(404)
+    // The owner of the first organisation still sees both.
+    expect(await status(owner.cookie, assigned.reviewId)).toBe(200)
+  })
+
+  it("a row inserted under scope all narrows the member to it (0083)", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const first = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    const second = await seedReview(admin, {
+      organisationId: owner.organisationId,
+    })
+    const member = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+    })
+    expect(await status(member.cookie, second.reviewId)).toBe(200)
+    // An acceptance written by code older than 0082: a row, scope untouched.
+    await admin`
+      insert into location_member (organisation_id, location_id, user_id)
+      values (${owner.organisationId}, ${first.locationId}, ${member.userId})
+    `
+    expect(await status(member.cookie, first.reviewId)).toBe(200)
+    expect(await status(member.cookie, second.reviewId)).toBe(404)
   })
 })

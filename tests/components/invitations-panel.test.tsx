@@ -7,9 +7,13 @@ import { InvitationsPanel } from "@/components/settings/invitations-panel"
 import { Toaster } from "@/components/ui/toast"
 import * as invitationsApi from "@/lib/api/invitations"
 import type { Invitation } from "@/lib/api/invitations"
+import { ApiClientError } from "@/lib/api/client"
 
 const useInvitationsMock = vi.fn()
-vi.mock("@/lib/queries/use-invitations", () => ({
+vi.mock("@/lib/queries/use-invitations", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/queries/use-invitations")
+  >()),
   useInvitations: () => useInvitationsMock(),
 }))
 const useClientsMock = vi.fn()
@@ -24,9 +28,12 @@ function clientItem(id: string, name: string, locationCount: number) {
   return { id, name, locationCount }
 }
 
-function renderPanel(items: Invitation[]) {
+function renderPanel(
+  items: Invitation[],
+  options: { emailDelivery?: boolean } = {}
+) {
   useInvitationsMock.mockReturnValue({
-    data: { items },
+    data: { items, emailDelivery: options.emailDelivery },
     isPending: false,
     isError: false,
     refetch: vi.fn(),
@@ -280,5 +287,186 @@ describe("InvitationsPanel", () => {
       },
     ])
     expect(screen.getByText("Old Crown")).toBeInTheDocument()
+  })
+
+  describe("with invitation email on", () => {
+    const pending = {
+      role: "member" as const,
+      canPublish: false,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      acceptedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }
+    const SENT = "22222222-2222-4222-8222-222222222222"
+    const QUEUED = "33333333-3333-4333-8333-333333333333"
+    const UNSENT = "44444444-4444-4444-8444-444444444444"
+
+    function delivery(
+      status: "pending" | "sent" | "failed" | "suppressed" | "uncertain",
+      errorCode: string | null = null
+    ) {
+      return {
+        id: `d-${status}`,
+        kind: "initial" as const,
+        status,
+        errorCode,
+        attempts: 1,
+        sentAt: status === "sent" ? "2026-01-01T00:01:00.000Z" : null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }
+    }
+
+    it("shows where each email stands, with Resend and the Copy link fallback", async () => {
+      const user = userEvent.setup()
+      const resend = vi
+        .spyOn(invitationsApi, "resendInvitation")
+        .mockResolvedValue({ delivery: delivery("sent") })
+      renderPanel(
+        [
+          {
+            ...pending,
+            id: SENT,
+            email: "sent@test",
+            inviteUrl: "https://app.test/invite/a",
+            delivery: delivery("sent"),
+          },
+          {
+            ...pending,
+            id: QUEUED,
+            email: "queued@test",
+            inviteUrl: "https://app.test/invite/b",
+            delivery: delivery("pending"),
+          },
+          {
+            ...pending,
+            id: UNSENT,
+            email: "unsent@test",
+            inviteUrl: "https://app.test/invite/c",
+            delivery: delivery("suppressed", "provider_not_configured"),
+          },
+        ],
+        { emailDelivery: true }
+      )
+
+      expect(screen.getByRole("columnheader", { name: "Email" })).toBeInTheDocument()
+      expect(screen.getByText("Email sent")).toBeInTheDocument()
+      expect(screen.getByText("Sending")).toBeInTheDocument()
+      expect(screen.getByText("Not sent")).toBeInTheDocument()
+      expect(
+        screen.getByText(/Email isn’t set up for this workspace yet/)
+      ).toBeInTheDocument()
+      // The link is still there for the one that was not emailed.
+      expect(
+        screen.getByRole("button", { name: "Copy invite link for unsent@test" })
+      ).toBeInTheDocument()
+
+      // No second email while one is queued.
+      expect(
+        screen.getByRole("button", {
+          name: "Resend invitation email to queued@test",
+        })
+      ).toHaveAttribute("aria-disabled", "true")
+
+      await user.click(
+        screen.getByRole("button", {
+          name: "Resend invitation email to unsent@test",
+        })
+      )
+      await waitFor(() => expect(resend).toHaveBeenCalledWith(UNSENT))
+      expect(
+        await screen.findByText("Invitation emailed to unsent@test")
+      ).toBeInTheDocument()
+    })
+
+    it("says why a Resend was refused", async () => {
+      const user = userEvent.setup()
+      vi.spyOn(invitationsApi, "resendInvitation").mockRejectedValue(
+        new ApiClientError(429, "invitation_email_rate_limited", "Too many")
+      )
+      renderPanel(
+        [
+          {
+            ...pending,
+            id: SENT,
+            email: "sent@test",
+            inviteUrl: "https://app.test/invite/a",
+            delivery: delivery("failed", "email_http_422"),
+          },
+        ],
+        { emailDelivery: true }
+      )
+      expect(screen.getByText("Email failed")).toBeInTheDocument()
+      await user.click(
+        screen.getByRole("button", {
+          name: "Resend invitation email to sent@test",
+        })
+      )
+      expect(
+        await screen.findByText(/Too many invitation emails were sent/)
+      ).toBeInTheDocument()
+    })
+
+    it("hides the email column and Resend while the feature is off", () => {
+      renderPanel([
+        {
+          ...pending,
+          id: SENT,
+          email: "sent@test",
+          inviteUrl: "https://app.test/invite/a",
+        },
+      ])
+      expect(
+        screen.queryByRole("columnheader", { name: "Email" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: /Resend invitation email/ })
+      ).not.toBeInTheDocument()
+    })
+
+    it("sends on create and keeps the link when the email was not sent", async () => {
+      const user = userEvent.setup()
+      vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue({
+        invitation: {
+          ...pending,
+          id: "i10",
+          email: "chef@test.com",
+          delivery: delivery("suppressed", "invitation_email_rate_limited"),
+        },
+        inviteUrl: "https://app.test/invite/fallback",
+      })
+      renderPanel([], { emailDelivery: true })
+      await user.type(
+        screen.getByRole("textbox", { name: "Email address" }),
+        "chef@test.com"
+      )
+      await user.click(screen.getByRole("button", { name: "Send invitation" }))
+      expect(
+        await screen.findByText("Invitation created, but the email wasn’t sent")
+      ).toBeInTheDocument()
+      expect(screen.getByText(/Too many invitation emails/)).toBeInTheDocument()
+      expect(screen.getByRole("textbox", { name: "Invite link" })).toHaveValue(
+        "https://app.test/invite/fallback"
+      )
+    })
+
+    it("confirms an emailed invitation", async () => {
+      const user = userEvent.setup()
+      vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue({
+        invitation: {
+          ...pending,
+          id: "i11",
+          email: "chef@test.com",
+          delivery: delivery("sent"),
+        },
+        inviteUrl: "https://app.test/invite/sent",
+      })
+      renderPanel([], { emailDelivery: true })
+      await user.type(
+        screen.getByRole("textbox", { name: "Email address" }),
+        "chef@test.com"
+      )
+      await user.click(screen.getByRole("button", { name: "Send invitation" }))
+      expect(await screen.findByText("Invitation emailed")).toBeInTheDocument()
+    })
   })
 })

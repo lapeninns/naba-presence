@@ -38,9 +38,14 @@ import {
   describeScheduleRule,
   eventOffsetsSchema,
   expandSchedule,
+  formatUtcOffset,
+  planOnceSlot,
+  resolveLocalSlot,
   scheduleRuleSchema,
+  slotProblemMessage,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
+import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
 
@@ -52,13 +57,22 @@ function currentTime() {
   return Date.now()
 }
 
-function initial(existing: PublicationSchedule | undefined, openedAt: number) {
+function initial(
+  existing: PublicationSchedule | undefined,
+  openedAt: number,
+  recurring: boolean,
+  zone: string,
+  suggested?: { startDate: string; localTime: string }
+) {
   const rule = existing?.rule
   const tomorrow = new Date(openedAt + 86_400_000).toISOString().slice(0, 10)
+  const hint = usableSuggestion(suggested, zone, openedAt)
   return {
-    frequency: (rule?.frequency ?? "once") as Frequency,
-    startDate: rule?.startDate ?? tomorrow,
-    localTime: rule?.localTime ?? "09:00",
+    // Without the repeating feature, a repeating schedule can only be
+    // changed into a single publication.
+    frequency: (recurring ? (rule?.frequency ?? "once") : "once") as Frequency,
+    startDate: rule?.startDate ?? hint?.startDate ?? tomorrow,
+    localTime: rule?.localTime ?? hint?.localTime ?? "09:00",
     weekdays: rule?.frequency === "weekly" ? rule.weekdays : [1],
     dayOfMonth: rule?.frequency === "monthly" ? rule.dayOfMonth : 1,
     endType: (rule && rule.frequency !== "once" ? rule.end.type : "count") as
@@ -73,6 +87,8 @@ function initial(existing: PublicationSchedule | undefined, openedAt: number) {
         : tomorrow,
     startDays: existing?.eventOffsets?.startDays ?? 0,
     endDays: existing?.eventOffsets?.endDays ?? 0,
+    /** A one-time slot's chosen UTC offset, for a time that happens twice. */
+    offsetMinutes: existing?.offsetMinutes ?? null,
   }
 }
 
@@ -80,6 +96,11 @@ function initial(existing: PublicationSchedule | undefined, openedAt: number) {
  * Prepares a publication schedule for one post, or a new revision of an
  * existing schedule. The preview is the exact expansion the approver will
  * see; submitting saves it for approval and publishes nothing.
+ *
+ * One-time publication is the only frequency offered unless the
+ * organisation has repeating schedules switched on (`recurring`).
+ * `suggested` pre-fills a new schedule's date and time (an old per-post
+ * time under review); `newTime` titles the sheet for a missed slot.
  */
 export function SchedulePostSheet({
   locationId,
@@ -87,18 +108,26 @@ export function SchedulePostSheet({
   timezone,
   existing,
   trigger,
+  recurring = false,
+  suggested,
+  newTime = false,
 }: {
   locationId: string
   post: { id: string; topicType: string; summary: string }
   timezone: string
   existing?: PublicationSchedule
   trigger?: (open: () => void) => React.ReactNode
+  recurring?: boolean
+  suggested?: { startDate: string; localTime: string }
+  newTime?: boolean
 }) {
   const [open, setOpen] = useState(false)
   // Captured when the sheet opens, so rendering stays pure.
   const [openedAt, setOpenedAt] = useState(0)
-  const [form, setForm] = useState(() => initial(existing, 0))
   const [zone, setZone] = useState(existing?.timezone ?? timezone)
+  const [form, setForm] = useState(() =>
+    initial(existing, 0, recurring, zone, suggested)
+  )
   const [failure, setFailure] = useState<string | null>(null)
   const client = useQueryClient()
   const id = useId()
@@ -149,7 +178,30 @@ export function SchedulePostSheet({
           endDays: form.endDays,
         })
       : null
-  const expansion = parsed.success ? expandSchedule(parsed.data, zone) : null
+  // One-time slots are strict (P08-R2): a time the clocks skip is refused
+  // and a time that happens twice needs its UTC offset chosen.
+  const slot =
+    parsed.success && parsed.data.frequency === "once"
+      ? resolveLocalSlot(parsed.data.startDate, parsed.data.localTime, zone)
+      : null
+  const offsetMinutes =
+    slot?.kind === "ambiguous" &&
+    slot.choices.some((choice) => choice.offsetMinutes === form.offsetMinutes)
+      ? form.offsetMinutes
+      : null
+  const once =
+    parsed.success && parsed.data.frequency === "once"
+      ? planOnceSlot(parsed.data, zone, offsetMinutes, new Date(openedAt))
+      : null
+  const expansion = !parsed.success
+    ? null
+    : once
+      ? {
+          occurrences: once.ok ? [once.occurrence] : [],
+          skippedDates: [],
+          truncated: false,
+        }
+      : expandSchedule(parsed.data, zone)
   const future =
     expansion?.occurrences.filter(
       (occurrence) => Date.parse(occurrence.intendedAt) > openedAt
@@ -158,9 +210,11 @@ export function SchedulePostSheet({
     ? (parsed.error.issues[0]?.message ?? "Check the schedule.")
     : offsets && !offsets.success
       ? (offsets.error.issues[0]?.message ?? "Check the event dates.")
-      : future.length === 0
-        ? "Every time in this schedule has already passed."
-        : null
+      : once && !once.ok
+        ? slotProblemMessage(once.problem)
+        : future.length === 0
+          ? "Every time in this schedule has already passed."
+          : null
 
   const save = useMutation({
     mutationFn: () => {
@@ -171,12 +225,14 @@ export function SchedulePostSheet({
             rule,
             timezone: zone,
             eventOffsets,
+            offsetMinutes,
           })
         : createPostSchedule(locationId, {
             postId: post.id,
             rule,
             timezone: zone,
             eventOffsets,
+            offsetMinutes,
           })
     },
     onSuccess: () => {
@@ -187,6 +243,10 @@ export function SchedulePostSheet({
       })
       void client.invalidateQueries({
         queryKey: queryKeys.scheduleOccurrencesAll,
+      })
+      // Scheduling a post closes the review of any old time it carried.
+      void client.invalidateQueries({
+        queryKey: queryKeys.legacyPostSchedules(locationId),
       })
     },
     onError: (error) =>
@@ -200,7 +260,7 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
-    setForm(initial(existing, at))
+    setForm(initial(existing, at, recurring, zone, suggested))
     setOpen(true)
   }
 
@@ -222,9 +282,11 @@ export function SchedulePostSheet({
         <SheetContent side="right" size="wide" className="flex flex-col gap-0">
           <SheetHeader>
             <SheetTitle>
-              {existing
-                ? "Change publication schedule"
-                : "Schedule publication"}
+              {newTime
+                ? "Choose a new publication time"
+                : existing
+                  ? "Change publication schedule"
+                  : "Schedule publication"}
             </SheetTitle>
             <SheetDescription>
               When NabaPresence publishes this post, separate from any repeat in
@@ -233,18 +295,22 @@ export function SchedulePostSheet({
             </SheetDescription>
           </SheetHeader>
           <SheetBody className="flex flex-col gap-5">
-            <SegmentedControl
-              value={form.frequency}
-              onValueChange={(value) => set("frequency", value as Frequency)}
-              aria-label="How often"
-            >
-              <SegmentedControlItem value="once">Once</SegmentedControlItem>
-              <SegmentedControlItem value="daily">Daily</SegmentedControlItem>
-              <SegmentedControlItem value="weekly">Weekly</SegmentedControlItem>
-              <SegmentedControlItem value="monthly">
-                Monthly
-              </SegmentedControlItem>
-            </SegmentedControl>
+            {recurring ? (
+              <SegmentedControl
+                value={form.frequency}
+                onValueChange={(value) => set("frequency", value as Frequency)}
+                aria-label="How often"
+              >
+                <SegmentedControlItem value="once">Once</SegmentedControlItem>
+                <SegmentedControlItem value="daily">Daily</SegmentedControlItem>
+                <SegmentedControlItem value="weekly">
+                  Weekly
+                </SegmentedControlItem>
+                <SegmentedControlItem value="monthly">
+                  Monthly
+                </SegmentedControlItem>
+              </SegmentedControl>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-ui text-ink">
                 {form.frequency === "once" ? "Date" : "Starting"}
@@ -290,6 +356,30 @@ export function SchedulePostSheet({
                 </SelectContent>
               </Select>
             </div>
+            {slot?.kind === "ambiguous" ? (
+              <div className="flex flex-col gap-1.5">
+                <span id={`${id}-offset`} className="text-ui text-ink">
+                  Which {form.localTime}
+                </span>
+                <SegmentedControl
+                  value={offsetMinutes === null ? "" : String(offsetMinutes)}
+                  onValueChange={(value) =>
+                    set("offsetMinutes", value === "" ? null : Number(value))
+                  }
+                  aria-labelledby={`${id}-offset`}
+                >
+                  {slot.choices.map((choice, index) => (
+                    <SegmentedControlItem
+                      key={choice.offsetMinutes}
+                      value={String(choice.offsetMinutes)}
+                    >
+                      {index === 0 ? "First" : "Second"} (
+                      {formatUtcOffset(choice.offsetMinutes)})
+                    </SegmentedControlItem>
+                  ))}
+                </SegmentedControl>
+              </div>
+            ) : null}
             {form.frequency === "weekly" ? (
               <fieldset className="flex flex-col gap-2">
                 <legend className="text-ui text-ink">On</legend>
@@ -422,7 +512,11 @@ export function SchedulePostSheet({
               ) : parsed.success && expansion ? (
                 <>
                   <p className="text-ui text-ink">
-                    {describeScheduleRule(parsed.data, zone)}
+                    {describeScheduleRule(
+                      parsed.data,
+                      zone,
+                      once?.ok ? once.offsetMinutes : null
+                    )}
                   </p>
                   <p className="text-caption text-ink-muted">
                     {future.length}{" "}
@@ -431,8 +525,8 @@ export function SchedulePostSheet({
                     {expansion.skippedDates.length
                       ? ` · skipped months: ${expansion.skippedDates.join(", ")}`
                       : ""}
-                    . A missed time publishes up to 24 hours late at most; an
-                    ended event or offer is never published late.
+                    . Publishing starts at that time; if it cannot start within
+                    5 minutes, the time is missed and nothing publishes late.
                   </p>
                   <ol className="flex flex-col gap-1 text-ui text-ink-secondary">
                     {future.slice(0, 8).map((occurrence) => (

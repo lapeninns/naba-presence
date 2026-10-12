@@ -28,12 +28,16 @@
       "schedule": "0 2 * * *"
     },
     {
-      "path": "/api/cron/retention?batch_size=100",
-      "schedule": "0 3 * * *"
+      "path": "/api/cron/retention",
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/health",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/billing/reconcile?maxOrganisations=100",
+      "schedule": "17 * * * *"
     }
   ]
 }

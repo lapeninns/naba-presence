@@ -97,7 +97,40 @@ describe("aggregate hours review", () => {
           expectedCanonicalHash: "local",
           expectedGoogleHash: "google",
           approvedUpdateMask: ["moreHours"],
-        })
+        }),
+        { intentId: expect.any(String) }
+      )
+    )
+  })
+  it("publishes exactly the parts shown, pinned to the Google parts read for the page", async () => {
+    hours.value = {
+      ...state(),
+      status: "conflict",
+      googlePartHashes: { "more:BAR": "b".repeat(64) },
+      partStatus: { "more:BAR": "core_dirty" },
+    }
+    const publish = vi
+      .spyOn(hoursApi, "publishHours")
+      .mockResolvedValue({ status: "published" })
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    // The whole schedule reads as a conflict, but the only part going out
+    // is a local change: no overwrite confirmation is asked for.
+    expect(screen.queryByText("Google changed too")).toBeNull()
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Publish 1 area to Google" }))
+    await waitFor(() =>
+      expect(publish).toHaveBeenCalledWith(
+        "l1",
+        expect.objectContaining({
+          approvedUpdateMask: ["moreHours"],
+          confirmOverwriteGoogleChanges: false,
+          selection: {
+            moreHoursTypes: ["BAR"],
+            expectedGoogleParts: { "more:BAR": "b".repeat(64) },
+          },
+        }),
+        { intentId: expect.any(String) }
       )
     )
   })

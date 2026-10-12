@@ -61,6 +61,9 @@ import {
 import type { ClientResponse, ClientSummary } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
+import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
+import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { formatAddressLine } from "@/lib/locations/address"
 import { queryKeys } from "@/lib/queries/keys"
@@ -155,15 +158,11 @@ function ClientSettings({ clientId }: { clientId: string }) {
 function SettingsHeader({
   clientId,
   name,
-  confirmLeave,
 }: {
   clientId: string
   name: string | null
-  /** Asks before leaving with unsaved details; resolves true to go. */
-  confirmLeave?: () => Promise<boolean>
 }) {
-  const router = useRouter()
-  const href = `/clients/${clientId}`
+  // With unsaved details, the details form's leave guard holds this link.
   return (
     <PageHeader
       title="Client settings"
@@ -171,21 +170,8 @@ function SettingsHeader({
       description="Rename the client, file its listings, or archive it."
       actions={
         <Link
-          href={href}
+          href={`/clients/${clientId}`}
           className={cn(buttonVariants({ variant: "secondary" }))}
-          onClick={
-            confirmLeave
-              ? (event) => {
-                  // A modified click opens a new tab and leaves this one,
-                  // edits included, where it is.
-                  if (event.metaKey || event.ctrlKey || event.shiftKey) return
-                  event.preventDefault()
-                  void confirmLeave().then((go) => {
-                    if (go) router.push(href)
-                  })
-                }
-              : undefined
-          }
         >
           {name ? `Back to ${name}` : "Back to client"}
         </Link>
@@ -208,7 +194,6 @@ function SettingsBody({
   const toast = useToastManager()
   const router = useRouter()
   const queryClient = useQueryClient()
-  const leaveGuard = React.useRef<(() => Promise<boolean>) | null>(null)
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [busy, setBusy] = React.useState<string | null>(null)
@@ -344,11 +329,7 @@ function SettingsBody({
 
   return (
     <>
-      <SettingsHeader
-        clientId={clientId}
-        name={client.name}
-        confirmLeave={() => leaveGuard.current?.() ?? Promise.resolve(true)}
-      />
+      <SettingsHeader clientId={clientId} name={client.name} />
       <div className="grid items-start gap-6 @min-[760px]:grid-cols-[minmax(11rem,13.75rem)_minmax(0,1fr)]">
         <nav
           aria-label="Client settings sections"
@@ -368,9 +349,6 @@ function SettingsBody({
         <div className="flex min-w-0 flex-col gap-6">
           <ClientDetailsForm
             client={client}
-            registerGuard={(guard) => {
-              leaveGuard.current = guard
-            }}
             onSave={async (input) => {
               await update.mutateAsync({ clientId, ...input })
               toast.add({ type: "success", title: "Client updated" })
@@ -927,12 +905,9 @@ function ArchiveSection({
 function ClientDetailsForm({
   client,
   onSave,
-  registerGuard,
 }: {
   client: ClientResponse["client"]
   onSave: (input: ClientDetails) => Promise<void>
-  /** Hands the page a way to ask before leaving with unsaved edits. */
-  registerGuard: (guard: () => Promise<boolean>) => void
 }) {
   const [name, setName] = React.useState(client.name)
   const [notes, setNotes] = React.useState(client.notes ?? "")
@@ -947,19 +922,22 @@ function ClientDetailsForm({
     (colour ?? null) !== (client.colour ?? null)
 
   // Warns on a tab close or reload while edits are unsaved, and keeps them
-  // through a forced sign-out; the page's Back link asks through it too.
-  const { confirmDiscard } = useDirtyGuard({
-    key: `client-details:${client.id}`,
+  // through a forced sign-out; the page's Back link, any other in-app link
+  // and the back button ask first.
+  const draftKey = useDraftKey({
+    resource: "client-details",
+    resourceId: client.id,
+    schemaVersion: 1,
+  })
+  const { markDiscarded } = useDirtyGuard({
+    key: draftKey,
     isDirty: dirty && !pending,
     snapshot: () => JSON.stringify({ name, notes, colour }),
-    askConfirm: async () =>
-      window.confirm(
-        "You have unsaved changes to this client’s details. Leave without saving?"
-      ),
   })
-  React.useEffect(() => {
-    registerGuard(confirmDiscard)
-  }, [registerGuard, confirmDiscard])
+  const leave = useLeaveGuard({
+    when: dirty && !pending,
+    onLeave: markDiscarded,
+  })
 
   return (
     <form
@@ -1069,6 +1047,13 @@ function ClientDetailsForm({
           </div>
         </CardFooter>
       </Card>
+      <DiscardDialog
+        {...leave}
+        title="Leave without saving?"
+        confirmLabel="Leave and discard"
+        announce={false}
+        description="Your changes to this client’s details aren’t saved. Leaving throws them away."
+      />
     </form>
   )
 }

@@ -26,7 +26,10 @@ import {
   type FoodMenusState,
 } from "@/lib/api/location-menu"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
-import { usePublishFlow } from "@/lib/editors/use-publish-flow"
+import {
+  usePublishFlow,
+  type PublishStep,
+} from "@/lib/editors/use-publish-flow"
 import { formatNumber } from "@/lib/format"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
 import type { TabGateReasons } from "@/lib/locations/gating"
@@ -80,7 +83,7 @@ function MenuForm({
   const editor = useEditorDraft({
     initial: state.canonicalMenus,
     revision: state.canonicalResource.revision,
-    key: `location-menu-${locationId}`,
+    scope: { resource: "location-menu", resourceId: locationId, schemaVersion: 1 },
   })
   const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -113,7 +116,7 @@ function MenuForm({
   } | null>(null)
   const saved = useRef<FoodMenusState | null>(null)
   const buildSteps = useCallback(
-    () => [
+    (): PublishStep[] => [
       {
         key: "save",
         label: "Save the menu in NabaPresence",
@@ -144,13 +147,18 @@ function MenuForm({
       {
         key: "publish",
         label: "Replace the food menu on Google",
-        run: async () => {
+        // The Food Menus publish reads Google back and compares it.
+        verified: true,
+        run: async (intent) => {
           const fresh = saved.current
           if (!fresh || !reviewed) throw new Error("The menu was not saved.")
-          await publishFoodMenus(locationId, {
+          const body = {
             expectedCanonicalRevision: fresh.canonicalResource.revision,
             expectedCanonicalHash: fresh.canonicalHash,
             expectedGoogleHash: reviewed.googleHash,
+          }
+          return publishFoodMenus(locationId, body, {
+            intentId: intent.idFor(body),
           })
         },
       },
@@ -167,7 +175,13 @@ function MenuForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Menu published to Google",
+    successToast: (outcome) => ({
+      outcome,
+      title:
+        outcome === "confirmed_applied"
+          ? "Menu live on Google"
+          : "Menu sent to Google",
+    }),
     onSuccess: () => {
       setReviewOpen(false)
       setServerError(null)
@@ -190,7 +204,7 @@ function MenuForm({
       queryKeys.clientsAll,
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Saved here. Not on Google until you publish.",
+    successToast: { outcome: "saved_locally" },
     onSuccess: () => {
       expectSave()
       setServerError(null)

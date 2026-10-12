@@ -1,4 +1,5 @@
 import type { LatestVerification } from "@/lib/api/reviews"
+import { describeOutcome, type OperationOutcome } from "@/lib/editors/outcome"
 import {
   evaluateApproval,
   evaluatePublish,
@@ -209,6 +210,12 @@ export type ReplyStatus = {
   icon: ReplyStatusIcon
   /** A muted qualifier after the sentence on the publish bar. */
   note?: string
+  /**
+   * The reply's publish outcome in the shared vocabulary
+   * (lib/editors/outcome.ts), on the statuses that report one. The list pill
+   * reads its tone from this rather than from the words.
+   */
+  outcome?: OperationOutcome
 }
 
 function status(
@@ -325,14 +332,25 @@ export function deriveReplyStatus(input: ReplyStateInput): ReplyStatus {
   // has not yet told us what became of it.
   if (action.settled) {
     return publishStatus === "published"
-      ? status("Live on Google", "Replied", "neutral", "check-circle")
-      : status(
-          "Sent to Google",
-          "Sent",
-          "neutral",
-          "cloud",
-          "not live until Google confirms"
-        )
+      ? {
+          ...status(
+            describeOutcome("confirmed_applied").label,
+            "Replied",
+            "neutral",
+            "check-circle"
+          ),
+          outcome: "confirmed_applied",
+        }
+      : {
+          ...status(
+            describeOutcome("sent").label,
+            "Sent",
+            "neutral",
+            "cloud",
+            "not live until Google confirms"
+          ),
+          outcome: "sent",
+        }
   }
 
   if (work.draftBody === null && work.liveBody === null) {

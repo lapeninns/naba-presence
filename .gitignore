@@ -70,3 +70,9 @@ next-env.d.ts
 
 # A package-manager cache written into the repo when HOME points here.
 /Library/
+
+# Local release-gate receipts (pnpm verify:release). Running the gate must not
+# dirty the checkout promotion requires clean; promotion pins the one it cites
+# by sha256 and commits a copy beside its receipt. See
+# docs/release/receipts/README.md.
+/docs/release/receipts/local/

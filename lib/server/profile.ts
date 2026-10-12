@@ -24,7 +24,7 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, withTenant } from "@/lib/server/db"
+import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   attemptStore,
@@ -35,9 +35,18 @@ import {
   runGbpWrite,
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
-import { getGoogleLocation, patchGoogleLocationProfile } from "@/lib/server/google"
+import {
+  getGoogleLocation,
+  patchGoogleLocationProfile,
+} from "@/lib/server/google"
 import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
+import { operationSummary } from "@/lib/server/mutation-operations"
+import {
+  storeSettle,
+  type RecoveryAdapter,
+  type RecoveryAttempt,
+} from "@/lib/server/mutation-recovery"
 import type { Session } from "@/lib/server/session"
 
 const PROFILE_READ_MASK = [
@@ -230,7 +239,10 @@ async function readLiveProfile(session: Session, locationId: string) {
 
 type LiveProfile = Awaited<ReturnType<typeof readLiveProfile>>
 
-export async function getProfileState(session: Session, locationId: string): Promise<ProfileState> {
+export async function getProfileState(
+  session: Session,
+  locationId: string
+): Promise<ProfileState> {
   return (await readProfileStateBundle(session, locationId)).state
 }
 
@@ -267,52 +279,84 @@ export async function readProfileStateBundle(
       attemptedAt: live.attemptedAt,
     })
   )
-  const latestAttempt = await withTenant(session.organisationId, async (sql) => {
-    const [row] = await sql<{
-      id: string
-      direction: string
-      status: string
-      selectedFields: string[]
-      createdAt: Date
-      finishedAt: Date | null
-    }[]>`
+  const latestAttempt = await withTenant(
+    session.organisationId,
+    async (sql) => {
+      const [row] = await sql<
+        {
+          id: string
+          direction: string
+          status: string
+          selectedFields: string[]
+          createdAt: Date
+          finishedAt: Date | null
+        }[]
+      >`
       select id::text as id, direction, status, selected_fields as "selectedFields",
         created_at as "createdAt", finished_at as "finishedAt"
       from profile_sync_attempt where location_id = ${locationId}
       order by created_at desc limit 1
     `
-    return row ?? null
-  })
-  const primaryCategory = live.googleLocation.categories?.primaryCategory?.displayName
-    ?? live.googleLocation.categories?.primaryCategory?.name ?? null
-  const additionalCategories = live.googleLocation.categories?.additionalCategories?.flatMap(
-    (category) => category.displayName ?? category.name ?? []
-  ) ?? []
+      return row ?? null
+    }
+  )
+  const primaryCategory =
+    live.googleLocation.categories?.primaryCategory?.displayName ??
+    live.googleLocation.categories?.primaryCategory?.name ??
+    null
+  const additionalCategories =
+    live.googleLocation.categories?.additionalCategories?.flatMap(
+      (category) => category.displayName ?? category.name ?? []
+    ) ?? []
   const state: ProfileState = {
-    location: { id: live.context.locationId, name: live.context.locationName, googleLocationName: live.context.googleLocationName },
-    canonicalResource: { revision: live.resource.revision, updatedAt: live.resource.updatedAt.toISOString() },
+    location: {
+      id: live.context.locationId,
+      name: live.context.locationName,
+      googleLocationName: live.context.googleLocationName,
+    },
+    canonicalResource: {
+      revision: live.resource.revision,
+      updatedAt: live.resource.updatedAt.toISOString(),
+    },
     canonicalHash: live.canonicalHash,
     googleHash: live.googleHash,
     canPublish: live.context.canPublish,
     googleWritesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
     fields,
     googleDetails: { primaryCategory, additionalCategories },
-    latestAttempt: latestAttempt ? {
-      ...latestAttempt,
-      createdAt: latestAttempt.createdAt.toISOString(),
-      finishedAt: latestAttempt.finishedAt?.toISOString() ?? null,
-    } : null,
+    latestAttempt: latestAttempt
+      ? {
+          ...latestAttempt,
+          createdAt: latestAttempt.createdAt.toISOString(),
+          finishedAt: latestAttempt.finishedAt?.toISOString() ?? null,
+        }
+      : null,
   }
   return { state, context: live.context }
 }
 
-function assertSelectedFields(selectedFields: ProfileFieldKey[], direction: "to_google" | "from_google") {
+function assertSelectedFields(
+  selectedFields: ProfileFieldKey[],
+  direction: "to_google" | "from_google"
+) {
   const selected = [...new Set(selectedFields)]
-  if (!selected.length) throw new ApiError(400, "profile_fields_required", "Select at least one profile field.")
+  if (!selected.length)
+    throw new ApiError(
+      400,
+      "profile_fields_required",
+      "Select at least one profile field."
+    )
   for (const field of selected) {
     const policy = PROFILE_FIELD_POLICIES[field]
-    if (policy === "google_read_only" || (direction === "to_google" && policy !== "bidirectional")) {
-      throw new ApiError(409, "profile_field_direction_unsupported", `${field} cannot be changed in that direction.`)
+    if (
+      policy === "google_read_only" ||
+      (direction === "to_google" && policy !== "bidirectional")
+    ) {
+      throw new ApiError(
+        409,
+        "profile_field_direction_unsupported",
+        `${field} cannot be changed in that direction.`
+      )
     }
   }
   return selected
@@ -320,13 +364,22 @@ function assertSelectedFields(selectedFields: ProfileFieldKey[], direction: "to_
 
 function assertSnapshotFresh(
   live: LiveProfile,
-  expected: { expectedCanonicalRevision: string; expectedCanonicalHash: string; expectedGoogleHash: string }
+  expected: {
+    expectedCanonicalRevision: string
+    expectedCanonicalHash: string
+    expectedGoogleHash: string
+  }
 ) {
   if (
     live.resource.revision !== expected.expectedCanonicalRevision ||
     live.canonicalHash !== expected.expectedCanonicalHash ||
     live.googleHash !== expected.expectedGoogleHash
-  ) throw new ApiError(409, "profile_snapshot_stale", "The profile changed after review. Refresh first.")
+  )
+    throw new ApiError(
+      409,
+      "profile_snapshot_stale",
+      "The profile changed after review. Refresh first."
+    )
 }
 
 /**
@@ -342,10 +395,19 @@ async function assertOverwriteConfirmed(input: {
   confirmed: boolean
   error: { code: string; message: string }
 }) {
-  const stored = await loadStoredStates(input.session.organisationId, input.locationId)
-  const comparisons = fieldComparisons({ canonical: input.live.canonical, google: input.live.google, stored })
+  const stored = await loadStoredStates(
+    input.session.organisationId,
+    input.locationId
+  )
+  const comparisons = fieldComparisons({
+    canonical: input.live.canonical,
+    google: input.live.google,
+    stored,
+  })
   const needsConfirmation = comparisons.some(
-    (field) => input.selected.includes(field.key) && input.dirtyStatuses.includes(field.status)
+    (field) =>
+      input.selected.includes(field.key) &&
+      input.dirtyStatuses.includes(field.status)
   )
   if (needsConfirmation && !input.confirmed) {
     throw new ApiError(409, input.error.code, input.error.message)
@@ -360,35 +422,57 @@ export async function saveCanonicalProfile(input: {
   requestId: string
 }) {
   const live = await readLiveProfile(input.session, input.locationId)
-  if (!live.context.canPublish) throw new ApiError(403, "canonical_edit_permission_required", "You cannot edit this location.")
+  if (!live.context.canPublish)
+    throw new ApiError(
+      403,
+      "canonical_edit_permission_required",
+      "You cannot edit this location."
+    )
   if (live.resource.revision !== input.expectedCanonicalRevision) {
-    throw new ApiError(409, "canonical_resource_stale", "The profile changed after it was loaded.")
+    throw new ApiError(
+      409,
+      "canonical_resource_stale",
+      "The profile changed after it was loaded."
+    )
   }
-  const allowed = new Set(PROFILE_FIELD_KEYS.filter((key) => PROFILE_FIELD_POLICIES[key] === "bidirectional"))
+  const allowed = new Set(
+    PROFILE_FIELD_KEYS.filter(
+      (key) => PROFILE_FIELD_POLICIES[key] === "bidirectional"
+    )
+  )
   const canonical = { ...live.canonical }
-  for (const [key, value] of Object.entries(input.values) as Array<[ProfileFieldKey, string | null]>) {
-    if (allowed.has(key)) canonical[key] = typeof value === "string" ? value.trim() || null : null
+  for (const [key, value] of Object.entries(input.values) as Array<
+    [ProfileFieldKey, string | null]
+  >) {
+    if (allowed.has(key))
+      canonical[key] = typeof value === "string" ? value.trim() || null : null
   }
-  const updated = await withTenant(input.session.organisationId, async (sql) => {
-    const resource = await updateCanonicalResource({
-      sql,
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      resourceType: "profile",
-      expectedRevision: input.expectedCanonicalRevision,
-      payload: canonical,
-    })
-    await writeAudit(sql, {
-      organisationId: input.session.organisationId,
-      actorUserId: input.session.userId,
-      action: "profile.canonical.updated",
-      subjectType: "location",
-      subjectId: input.locationId,
-      requestId: input.requestId,
-      metadata: { revision: resource.revision, fields: Object.keys(input.values) },
-    })
-    return resource
-  })
+  const updated = await withTenant(
+    input.session.organisationId,
+    async (sql) => {
+      const resource = await updateCanonicalResource({
+        sql,
+        organisationId: input.session.organisationId,
+        locationId: input.locationId,
+        resourceType: "profile",
+        expectedRevision: input.expectedCanonicalRevision,
+        payload: canonical,
+      })
+      await writeAudit(sql, {
+        organisationId: input.session.organisationId,
+        actorUserId: input.session.userId,
+        action: "profile.canonical.updated",
+        subjectType: "location",
+        subjectId: input.locationId,
+        requestId: input.requestId,
+        metadata: {
+          revision: resource.revision,
+          fields: Object.keys(input.values),
+        },
+      })
+      return resource
+    }
+  )
   return { saved: true as const, revision: updated.revision }
 }
 
@@ -404,7 +488,12 @@ export async function importProfileFromGoogle(input: {
 }) {
   const selected = assertSelectedFields(input.selectedFields, "from_google")
   const live = await readLiveProfile(input.session, input.locationId)
-  if (!live.context.canPublish) throw new ApiError(403, "canonical_edit_permission_required", "You cannot edit this location.")
+  if (!live.context.canPublish)
+    throw new ApiError(
+      403,
+      "canonical_edit_permission_required",
+      "You cannot edit this location."
+    )
   assertSnapshotFresh(live, input)
   await assertOverwriteConfirmed({
     session: input.session,
@@ -415,32 +504,40 @@ export async function importProfileFromGoogle(input: {
     confirmed: input.confirmOverwriteCanonicalChanges,
     error: {
       code: "canonical_overwrite_confirmation_required",
-      message: "NabaPresence changed independently. Confirm the selected overwrite.",
+      message:
+        "NabaPresence changed independently. Confirm the selected overwrite.",
     },
   })
   const canonical = { ...live.canonical }
   for (const field of selected) canonical[field] = live.google[field]
-  const updated = await withTenant(input.session.organisationId, async (sql) => {
-    const resource = await updateCanonicalResource({
-      sql,
-      organisationId: input.session.organisationId,
-      locationId: input.locationId,
-      resourceType: "profile",
-      expectedRevision: input.expectedCanonicalRevision,
-      payload: canonical,
-    })
-    await writeAudit(sql, {
-      organisationId: input.session.organisationId,
-      actorUserId: input.session.userId,
-      action: "profile.google.imported",
-      subjectType: "location",
-      subjectId: input.locationId,
-      requestId: input.requestId,
-      metadata: { revision: resource.revision, selectedFields: selected },
-    })
-    return resource
-  })
-  return { status: "imported" as const, revision: updated.revision, idempotent: false }
+  const updated = await withTenant(
+    input.session.organisationId,
+    async (sql) => {
+      const resource = await updateCanonicalResource({
+        sql,
+        organisationId: input.session.organisationId,
+        locationId: input.locationId,
+        resourceType: "profile",
+        expectedRevision: input.expectedCanonicalRevision,
+        payload: canonical,
+      })
+      await writeAudit(sql, {
+        organisationId: input.session.organisationId,
+        actorUserId: input.session.userId,
+        action: "profile.google.imported",
+        subjectType: "location",
+        subjectId: input.locationId,
+        requestId: input.requestId,
+        metadata: { revision: resource.revision, selectedFields: selected },
+      })
+      return resource
+    }
+  )
+  return {
+    status: "imported" as const,
+    revision: updated.revision,
+    idempotent: false,
+  }
 }
 
 /**
@@ -495,13 +592,15 @@ type PublishProfileInput = {
   requestId: string
 }
 
+const PROFILE_PUBLISHING_DISABLED = {
+  status: 409,
+  code: "profile_publishing_disabled",
+  message: "Profile publishing is currently disabled.",
+}
+
 /** Everything before the write pipeline: gates, snapshot checks and the patch. */
 async function prepareProfilePublish(input: PublishProfileInput) {
-  requireGbpWrite(getServerEnv(), "profileWrites", {
-    status: 409,
-    code: "profile_publishing_disabled",
-    message: "Profile publishing is currently disabled.",
-  })
+  requireGbpWrite(getServerEnv(), "profileWrites", PROFILE_PUBLISHING_DISABLED)
   const selected = assertSelectedFields(input.selectedFields, "to_google")
   const live = await readLiveProfile(input.session, input.locationId)
   requirePublishGrant(live.context, {
@@ -529,18 +628,42 @@ async function prepareProfilePublish(input: PublishProfileInput) {
   return { selected, live, patch }
 }
 
+/**
+ * Publishes the selected canonical fields. The live read, the snapshot and
+ * overwrite checks, the PATCH and its readback all run under the location's
+ * business-information lock (`<org>:<location>:business_info`), the key the
+ * business-information editor and bulk business-information and category
+ * children take (lib/server/bulk-listing-runner.ts): a bulk website or
+ * description write cannot land between this publish's read and its PATCH,
+ * and this publish waits for a running bulk child, then reads what it left.
+ */
 export async function publishProfileToGoogle(input: PublishProfileInput) {
+  return withSessionConnection((connection) =>
+    connection.begin(async (lock) => {
+      await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:business_info`}, 0))`
+      return publishProfileLocked(input)
+    })
+  )
+}
+
+async function publishProfileLocked(input: PublishProfileInput) {
   const { selected, live, patch } = await prepareProfilePublish(input)
   const organisationId = input.session.organisationId
   const patchGoogle = (validateOnly: boolean) =>
-    patchGoogleLocationProfile(live.accessToken, {
-      locationName: live.context.googleLocationName,
-      updateMask: patch.updateMask,
-      validateOnly,
-      payload: patch.payload,
-    }, { connectionKey: live.context.googleConnectionId })
+    patchGoogleLocationProfile(
+      live.accessToken,
+      {
+        locationName: live.context.googleLocationName,
+        updateMask: patch.updateMask,
+        validateOnly,
+        payload: patch.payload,
+      },
+      { connectionKey: live.context.googleConnectionId }
+    )
 
   const result = await runGbpWrite({
+    surface: "profileWrites",
+    paused: PROFILE_PUBLISHING_DISABLED,
     organisationId,
     actorUserId: input.session.userId,
     requestId: input.requestId,
@@ -565,14 +688,31 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
       update_mask: patch.updateMask,
       intended_payload: (sql: TransactionSql) => jsonColumn(sql, patch.payload),
     },
-    inProgress: { code: "profile_operation_in_progress", message: "This profile publish is already in progress." },
+    inProgress: {
+      code: "profile_operation_in_progress",
+      message: "This profile publish is already in progress.",
+    },
     failureCode: "google_profile_failed",
+    operation: {
+      surface: "profile",
+      action: "publish",
+      locationId: input.locationId,
+      targetType: "location",
+      targetRef: live.context.googleLocationName,
+      payloadHash: idempotencyKey([
+        selected,
+        sha256(JSON.stringify(patch.payload)),
+      ]),
+      expectedRevision: live.resource.revision,
+      googleConnectionId: live.context.googleConnectionId,
+    },
     validate: async () => {
       await patchGoogle(true)
     },
     mutate: () => patchGoogle(false),
-    // Profile keeps "fail" for now; hours uses "readback" and convergence on "readback" is intended.
-    onAmbiguous: "fail",
+    // An ambiguous PATCH is settled by the field-hash readback below, as hours
+    // does: a match proves it landed, a mismatch that it did not.
+    onAmbiguous: "readback",
     readback: {
       read: async () => {
         const location = await fetchGoogleProfile(live.context, live.accessToken, { maxAttempts: 3 })
@@ -599,8 +739,103 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
       action: "profile.publish.succeeded",
       subjectType: "profile_sync_attempt",
       subjectId: ctx.attemptId,
-      metadata: { locationId: input.locationId, selectedFields: selected, canonicalRevision: live.resource.revision },
+      metadata: {
+        locationId: input.locationId,
+        selectedFields: selected,
+        canonicalRevision: live.resource.revision,
+      },
     }),
   })
-  return { status: "published" as const, attemptId: result.attemptId, idempotent: result.idempotent }
+  return {
+    status: "published" as const,
+    attemptId: result.attemptId,
+    idempotent: result.idempotent,
+    operation: operationSummary(result),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (lib/server/mutation-recovery.ts)
+// ---------------------------------------------------------------------------
+
+type ProfileRecoveryAttempt = RecoveryAttempt & {
+  externalLocationId: string
+  direction: string
+  selectedFields: ProfileFieldKey[]
+  updateMask: string[]
+  intendedPayload: GoogleLocationProfile
+}
+
+/** The Google mask entry each publishable field is written under. */
+const PROFILE_FIELD_MASK: Partial<Record<ProfileFieldKey, string>> = {
+  name: "title",
+  description: "profile",
+  phone: "phoneNumbers",
+  website: "websiteUri",
+}
+
+/**
+ * Reads an uncertain profile publish back field by field, as the publish's
+ * own readback does: every selected field the patch wrote must hash equal
+ * to the value the recorded payload carried, after the same normalisation.
+ */
+export const profileRecoveryAdapter: RecoveryAdapter<ProfileRecoveryAttempt> = {
+  surface: "profile",
+  attemptTable: "profile_sync_attempt",
+  async load(sql, attemptId) {
+    const [row] = await sql<ProfileRecoveryAttempt[]>`
+      select
+        id::text as id,
+        status as "rawStatus",
+        started_at as "startedAt",
+        provider_error_code as "errorCode",
+        external_location_id::text as "externalLocationId",
+        direction,
+        selected_fields as "selectedFields",
+        update_mask as "updateMask",
+        intended_payload as "intendedPayload"
+      from profile_sync_attempt
+      where id = ${attemptId}
+    `
+    return row ?? null
+  },
+  async readback({ attempt, link }) {
+    const written = attempt.selectedFields.filter((key) => {
+      const mask = PROFILE_FIELD_MASK[key]
+      return mask !== undefined && attempt.updateMask.includes(mask)
+    })
+    // Nothing a readback can compare: not a publish, or no selected field
+    // the patch wrote.
+    if (attempt.direction !== "to_google" || written.length === 0) {
+      return { kind: "unverifiable", errorCode: "recovery_unsupported" }
+    }
+    if (attempt.externalLocationId !== link.externalLocationId) {
+      return { kind: "unverifiable", errorCode: "target_changed" }
+    }
+    const location = await fetchGoogleProfile(link, await link.accessToken(), {
+      maxAttempts: 3,
+    })
+    const readback = normalizeGoogleProfile(location)
+    const intended = normalizeGoogleProfile(attempt.intendedPayload)
+    // As the publish's own readback: a phone write also carries the
+    // additional numbers it preserved, which must read back unchanged.
+    const landed =
+      written.every(
+        (key) =>
+          hashProfileValue(intended[key]) === hashProfileValue(readback[key])
+      ) &&
+      (!written.includes("phone") ||
+        additionalPhonesMatch(
+          location.phoneNumbers?.additionalPhones,
+          attempt.intendedPayload.phoneNumbers?.additionalPhones ?? []
+        ))
+    return landed
+      ? {
+          kind: "landed",
+          confirmed: true,
+          responseHash: hashGoogleProfile(location, readback),
+        }
+      : { kind: "not_landed", errorCode: "google_readback_mismatch" }
+  },
+  settle: storeSettle(profileAttempts),
 }

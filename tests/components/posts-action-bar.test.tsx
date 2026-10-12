@@ -19,10 +19,27 @@ const api = vi.hoisted(() => ({
   updatePost: vi.fn(),
 }))
 vi.mock("@/lib/api/location-posts", () => api)
+const receipts = vi.hoisted(() => ({ fetchMutationReceipt: vi.fn() }))
+vi.mock("@/lib/api/mutations", () => receipts)
 
 const POSTS_KEY = queryKeys.locationPosts("loc-1")
 const OWNER: LocationCapabilities = { canEditCanonical: true, canPublish: true }
-const MEMBER: LocationCapabilities = { canEditCanonical: false, canPublish: false }
+// A drafting member: may edit and request approval, may not decide or publish.
+const MEMBER: LocationCapabilities = {
+  canEditCanonical: false,
+  canPublish: false,
+  canEdit: true,
+  canRequestApproval: true,
+  canDecideApproval: false,
+}
+// The flags lib/server/capabilities.ts emits for a viewer.
+const VIEWER: LocationCapabilities = {
+  canEditCanonical: false,
+  canPublish: false,
+  canEdit: false,
+  canRequestApproval: false,
+  canDecideApproval: false,
+}
 
 function post(overrides: Partial<Post> = {}): Post {
   return {
@@ -62,8 +79,10 @@ describe("PostsActionBar", () => {
     expect(within(confirm).getByText("Open late tonight")).toBeInTheDocument()
     await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
 
-    expect(await screen.findByText("Post published to Google")).toBeInTheDocument()
-    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
+    expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
+      intentId: expect.any(String),
+    })
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
   })
 
@@ -108,7 +127,9 @@ describe("PostsActionBar", () => {
   it("approves and rejects an awaiting-approval post with the matching copy", async () => {
     api.decidePostApproval.mockResolvedValueOnce({ status: "published", postId: "p1", googlePostName: null })
     api.decidePostApproval.mockResolvedValueOnce({ status: "draft" })
-    const client = renderBar({ post: post({ status: "awaiting_approval" }) })
+    const client = renderBar({
+      post: post({ status: "awaiting_approval", contentRevision: 3 }),
+    })
 
     await userEvent.click(screen.getByRole("button", { name: "Approve" }))
     // Approving publishes, so the approver sees the post first.
@@ -117,13 +138,13 @@ describe("PostsActionBar", () => {
     expect(within(dialog).getByText("Preview")).toBeInTheDocument()
     expect(api.decidePostApproval).not.toHaveBeenCalled()
     await userEvent.click(within(dialog).getByRole("button", { name: "Approve and publish" }))
-    expect(await screen.findByText("Post published to Google")).toBeInTheDocument()
-    expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve")
+    expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+    expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve", 3)
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
 
     await userEvent.click(screen.getByRole("button", { name: "Reject" }))
     expect(await screen.findByText("Sent back to draft")).toBeInTheDocument()
-    expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject")
+    expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject", 3)
   })
 
   it("deletes after confirmation, closes the dialog and invalidates", async () => {
@@ -162,12 +183,36 @@ describe("PostsActionBar", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
   })
 
-  it("gates live actions on canPublish but leaves reject and draft delete to the pause switch", () => {
+  it("gates approve and reject on decide_approval but leaves draft delete to the edit grant", () => {
     renderBar({ post: post({ status: "awaiting_approval" }), caps: MEMBER })
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled()
+    // Rejecting is the same decision as approving: the route answers 403
+    // permission_denied without decide_approval.
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
     // A draft has no Google post, so deleting it needs no publish permission.
     expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled()
+  })
+
+  it("lets a decide_approval holder reject even without the posts resource", () => {
+    renderBar({
+      post: post({ status: "awaiting_approval" }),
+      caps: { ...MEMBER, canPublish: true, canDecideApproval: true, canRequestApproval: false },
+    })
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled()
+  })
+
+  it("keeps a viewer's draft read-only: no request, edit or delete", () => {
+    renderBar({ caps: VIEWER })
+    expect(screen.getByRole("button", { name: "Request approval" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
+    expect(screen.getByText("Your role can view this location but not change it.")).toBeInTheDocument()
+  })
+
+  it("never offers a viewer a decision on someone's request", () => {
+    renderBar({ post: post({ status: "awaiting_approval" }), caps: VIEWER })
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
   })
 
   it("requires publish permission to delete a post that is live on Google", () => {
@@ -199,7 +244,9 @@ describe("PostsActionBar", () => {
 
     await userEvent.click(button)
     expect(await screen.findByText("Post submitted for approval.")).toBeInTheDocument()
-    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1")
+    expect(api.publishPost).toHaveBeenCalledWith("loc-1", "p1", {
+      intentId: expect.any(String),
+    })
   })
 
   it("keeps the pause switch over Request approval", () => {
@@ -236,7 +283,117 @@ describe("PostsActionBar", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Check Google" }))
 
-    expect(api.fetchPosts).toHaveBeenCalledWith("loc-1")
+    // It asks after this post alone: the list is paged, and the post may not
+    // be on the first page.
+    expect(api.fetchPosts).toHaveBeenCalledWith("loc-1", { post: "p1" })
     await waitFor(() => expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true))
+  })
+
+  describe("publish outcomes", () => {
+    async function publishFromDialog() {
+      await userEvent.click(screen.getByRole("button", { name: "Publish" }))
+      const confirm = await screen.findByRole("alertdialog")
+      await userEvent.click(within(confirm).getByRole("button", { name: "Publish to Google" }))
+    }
+
+    it("says live only when the route's outcome is confirmed_applied", async () => {
+      api.publishPost.mockResolvedValue({
+        status: "published",
+        postId: "p1",
+        googlePostName: "locations/1/localPosts/9",
+        operation: { operationId: "op-1", outcome: "confirmed_applied" },
+      })
+      renderBar()
+      await publishFromDialog()
+      expect(await screen.findByText("Post live on Google")).toBeInTheDocument()
+    })
+
+    it("does not say live while Google is still reviewing the post", async () => {
+      api.publishPost.mockResolvedValue({
+        status: "published",
+        postId: "p1",
+        googlePostName: "locations/1/localPosts/9",
+        operation: { operationId: "op-1", outcome: "awaiting_confirmation" },
+      })
+      renderBar()
+      await publishFromDialog()
+      expect(await screen.findByText("Post sent to Google")).toBeInTheDocument()
+      expect(screen.queryByText(/live on Google/i)).toBeNull()
+    })
+
+    it("follows the receipt of an ambiguous publish, and resends its intent on retry", async () => {
+      const intentIds: string[] = []
+      api.publishPost.mockImplementation(async (_l: string, _p: string, options: { intentId: string }) => {
+        intentIds.push(options.intentId)
+        throw new ApiClientError(502, "google_mutation_ambiguous", "unclear", undefined, {
+          intentId: options.intentId,
+        })
+      })
+      receipts.fetchMutationReceipt.mockResolvedValue({
+        id: "op-1",
+        intentId: "x",
+        surface: "local_post",
+        action: "create",
+        locationId: "loc-1",
+        targetType: "local_post",
+        targetRef: "p1",
+        outcome: "uncertain",
+        errorCode: null,
+        attemptId: "a1",
+        createdAt: "2026-10-10T10:00:00.000Z",
+        updatedAt: "2026-10-10T10:00:00.000Z",
+      })
+      renderBar()
+      await publishFromDialog()
+      const notice = await screen.findByRole("status")
+      expect(notice).toHaveAttribute("data-outcome", "uncertain")
+      expect(notice).not.toHaveTextContent("Live on Google")
+      await waitFor(() => expect(receipts.fetchMutationReceipt).toHaveBeenCalledWith(intentIds[0], expect.anything()))
+
+      await publishFromDialog()
+      await waitFor(() => expect(intentIds).toHaveLength(2))
+      expect(intentIds[1]).toBe(intentIds[0])
+    })
+
+    // A dropped connection rejects fetch() with a bare TypeError: the most
+    // common lost answer, and the one the receipt notice exists for.
+    it("follows the receipt when the connection drops mid-publish", async () => {
+      const actual = await vi.importActual<
+        typeof import("@/lib/api/location-posts")
+      >("@/lib/api/location-posts")
+      api.publishPost.mockImplementation(actual.publishPost)
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValue(new TypeError("Failed to fetch"))
+      receipts.fetchMutationReceipt.mockResolvedValue({
+        id: "op-1",
+        intentId: "x",
+        surface: "local_post",
+        action: "create",
+        locationId: "loc-1",
+        targetType: "local_post",
+        targetRef: "p1",
+        outcome: "uncertain",
+        errorCode: null,
+        attemptId: "a1",
+        createdAt: "2026-10-10T10:00:00.000Z",
+        updatedAt: "2026-10-10T10:00:00.000Z",
+      })
+      renderBar()
+      await publishFromDialog()
+      const notice = await screen.findByRole("status")
+      expect(notice).toHaveAttribute("data-outcome", "uncertain")
+      const sent = new Headers(fetchSpy.mock.calls[0][1]?.headers).get(
+        "Idempotency-Key"
+      )
+      expect(sent).toEqual(expect.any(String))
+      await waitFor(() =>
+        expect(receipts.fetchMutationReceipt).toHaveBeenCalledWith(
+          sent,
+          expect.anything()
+        )
+      )
+      fetchSpy.mockRestore()
+    })
   })
 })

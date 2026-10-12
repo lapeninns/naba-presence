@@ -196,6 +196,21 @@ export async function loadSharedClientReport(
             previous: presence.previous ?? null,
             fetchedAt: presence.fetchedAt,
             coverage: presence.coverage,
+            completeness: presence.completeness
+              ? {
+                  state: presence.completeness.state,
+                  expected: presence.completeness.expected,
+                  covered: presence.completeness.covered,
+                  completeThrough: presence.completeness.completeThrough,
+                  missing: presence.completeness.missing.map((location) => ({
+                    name: location.name,
+                    reason: location.reason,
+                  })),
+                  refreshFailed: presence.completeness.refreshFailed.map(
+                    (location) => ({ name: location.name })
+                  ),
+                }
+              : null,
             series: presence.series.map((point) => ({
               date: point.date,
               metrics: Object.fromEntries(

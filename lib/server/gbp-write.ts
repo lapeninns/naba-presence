@@ -12,7 +12,9 @@ import "server-only"
  *
  * It owns:
  *   - loadLinkedLocation   the one "linked Google location" context query
- *   - requireGbpWrite      capability + kill-switch gate (module keeps its code)
+ *   - requireGbpWrite      capability + env kill-switch gate (module keeps its code)
+ *   - the dispatch pause gate in runGbpWrite (env + operator pause table,
+ *     lib/server/pause-controls.ts), checked before anything is written
  *   - requirePublishGrant  the 403 for members without publish rights
  *   - idempotencyKey       one key recipe
  *   - AttemptStore         a module's attempt table behind one interface,
@@ -20,6 +22,9 @@ import "server-only"
  *   - runGbpWrite          the phase machine (start / validate / publish /
  *                          readback / settle / audit)
  *   - GBP_ATTEMPT_STATUSES the status vocabulary, exported once
+ *   - the operation receipt for the request's intent, when the surface
+ *     describes itself (`operation`) and the request carries an
+ *     `Idempotency-Key` (lib/server/mutation-operations.ts)
  *
  * Each module keeps its own attempt table, mapped onto the canonical status
  * vocabulary by `attemptStore`. The behavioural contract -- ambiguous vs
@@ -31,6 +36,7 @@ import "server-only"
 
 import type { Parameter, TransactionSql } from "postgres"
 
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import {
@@ -48,6 +54,23 @@ import { connectionAccessToken } from "@/lib/server/google/connections"
 import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import {
+  requireGbpDispatch,
+  type PausedError,
+} from "@/lib/server/pause-controls"
+import {
+  beginOperation,
+  claimAmbientIntent,
+  errorReceipt,
+  failureOutcome,
+  linkOperationAttempt,
+  outcomeForAttemptStatus,
+  receiptError,
+  settleOperationsForAttempt,
+  successOutcome,
+  type MutationOperation,
+  type OperationDescriptor,
+} from "@/lib/server/mutation-operations"
 import {
   canPublishLocation,
   requireLocationAccess,
@@ -358,6 +381,12 @@ export type AttemptSettleInput = {
   response?: unknown
   responseHash?: string | null
   httpStatus?: number | null
+  /**
+   * Settle only while the row still holds this raw status. Reconciling a row
+   * another request may be re-arming at the same moment passes the status it
+   * read, so a late verdict cannot overwrite a write that has started since.
+   */
+  expectedStatus?: string
 }
 
 /**
@@ -365,15 +394,21 @@ export type AttemptSettleInput = {
  * the tenant transaction `runGbpWrite` opens for them.
  */
 export interface AttemptStore<TIntent = IntentColumns> {
+  /**
+   * The attempt table, recorded on operation receipts so settling an attempt
+   * settles the receipts linked to it. A store without one writes no receipts.
+   */
+  readonly table?: string
   find(
     sql: TransactionSql,
     input: { organisationId: string; key: string }
   ): Promise<AttemptRow | null>
   /**
-   * Insert the intent as `validating` (or re-arm `existing`). Null means
-   * another request claimed the key between `find` and this insert; the
+   * Insert the intent as `validating` (or re-arm `existing`, only while it
+   * still holds the status `find` read). Null means another request claimed
+   * the key -- or re-armed the row -- between `find` and this write; the
    * pipeline re-reads it rather than letting the unique violation abort the
-   * tenant transaction.
+   * tenant transaction or sending a second write under one row.
    */
   start(
     sql: TransactionSql,
@@ -384,7 +419,14 @@ export interface AttemptStore<TIntent = IntentColumns> {
     sql: TransactionSql,
     input: { id: string; validated: boolean }
   ): Promise<void>
-  settle(sql: TransactionSql, input: AttemptSettleInput): Promise<void>
+  /**
+   * Settle the row. False means `expectedStatus` was given and the row no
+   * longer held it, so nothing was written; void counts as settled.
+   */
+  settle(
+    sql: TransactionSql,
+    input: AttemptSettleInput
+  ): Promise<boolean | void>
 }
 
 export type AttemptStoreConfig = {
@@ -460,6 +502,8 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
     )
 
   return {
+    table,
+
     async find(sql, input) {
       const startedAt = columns.startedAt
         ? sql`, ${sql(columns.startedAt)} as "startedAt"`
@@ -486,9 +530,10 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
           update ${sql(table)}
           set ${sql(rearm)}${columns.startedAt ? sql`, ${sql(columns.startedAt)} = now()` : sql``}
           where id = ${input.existing.id}
+            and status = ${input.existing.rawStatus}
           returning id::text as id, status
         `
-        return rowOf(row)
+        return row ? rowOf(row) : null
       }
       const insert: Record<string, unknown> = {
         organisation_id: input.organisationId,
@@ -548,11 +593,17 @@ export function attemptStore(config: AttemptStoreConfig): AttemptStore {
         succeeded && columns.validatedAt
           ? sql`, ${sql(columns.validatedAt)} = coalesce(${sql(columns.validatedAt)}, now())`
           : sql``
-      await sql`
+      const expected =
+        input.expectedStatus === undefined
+          ? sql``
+          : sql`and status = ${input.expectedStatus}`
+      const settled = await sql`
         update ${sql(table)}
         set ${sql(update)}, ${sql(columns.finishedAt)} = now()${validated}
-        where id = ${input.id}
+        where id = ${input.id} ${expected}
+        returning id
       `
+      return settled.length > 0
     },
   }
 }
@@ -611,6 +662,14 @@ export type TenantTransaction = <T>(
 export type GbpWriteDeps = {
   /** Test seam; defaults to lib/server/db withTenant. */
   withTenant?: TenantTransaction
+  /**
+   * Test seam for the dispatch pause gate; defaults to
+   * lib/server/pause-controls requireGbpDispatch (env and operator table).
+   */
+  requireDispatch?: (
+    surface: GbpWriteSurface,
+    paused?: PausedError
+  ) => Promise<void>
 }
 
 export type GbpWritePhaseContext = { attemptId: string }
@@ -640,7 +699,33 @@ export type GbpReadback<TResponse, TReadback> = {
   hash?: (readback: TReadback) => string
   /** Thrown (and recorded) when verify is false; default 502 google_readback_mismatch. */
   mismatch?: GateError
+  /**
+   * The outcome a verified readback stands for, when Google's own state for
+   * the resource can say less than "applied": a local post Google holds but
+   * is still reviewing (`awaiting_confirmation`) or refused to show
+   * (`rejected`). Default `confirmed_applied`.
+   */
+  outcome?: (readback: TReadback) => GbpSuccessOutcome
+  /**
+   * The same judgement for an attempt that had already succeeded before
+   * this request -- an unchanged re-publish answered from its row, or a
+   * receipt joining a row another request settled -- read from what the
+   * module stored, in the claim transaction. Only consulted when `outcome`
+   * is set; without it (or when it returns null) such a row is recorded
+   * `awaiting_confirmation`, never `confirmed_applied`, because nothing in
+   * this request read the resource's state.
+   */
+  settledOutcome?: (
+    sql: TransactionSql,
+    attempt: AttemptRow
+  ) => Promise<GbpSuccessOutcome | null>
 }
+
+/** The outcomes a settled-successful write may stand for. */
+export type GbpSuccessOutcome = Extract<
+  OperationOutcome,
+  "confirmed_applied" | "awaiting_confirmation" | "rejected"
+>
 
 export type GbpWriteSuccess<TResponse, TReadback> = {
   attemptId: string
@@ -662,19 +747,41 @@ type GbpWriteBase<TResponse, TReadback, TIntent> = {
   organisationId: string
   actorUserId: string
   requestId: string
+  /**
+   * The kill-switch surface this write belongs to. Checked against the env
+   * flags and the operator pause table (lib/server/pause-controls.ts) at
+   * dispatch, before anything is written, so a pause set after the module's
+   * own early gate still stops the provider call.
+   */
+  surface: GbpWriteSurface
+  /** The module's paused error; defaults to 503 `google_writes_paused`. */
+  paused?: GateError
   store: AttemptStore<TIntent>
   key: string
   intent: TIntent
   /**
    * "resume" (default): succeeded -> idempotent result; in flight -> 409
-   * `inProgress`; settled failure -> store.start re-arms. "replay": any
-   * existing row is returned as idempotent.
+   * `inProgress`; settled `ambiguous` -> read back first (409
+   * `mutation_uncertain` without a readback); settled failure ->
+   * store.start re-arms. "replay": any existing row is returned as
+   * idempotent.
    */
   onExisting?: "resume" | "replay"
   /** Required for "resume". */
   inProgress?: GateError
   /** Recorded when a thrown error carries no code. */
   failureCode: string
+  /**
+   * What this write is, for the operation receipt. Without it the write
+   * records no receipt even when the request carries an intent.
+   */
+  operation?: OperationDescriptor
+  /**
+   * The intent this write belongs to. Defaults to the request's ambient
+   * intent (the `Idempotency-Key` header, via lib/server/route.ts); a worker
+   * re-running a recorded intent passes it. Null records no receipt.
+   */
+  intentId?: string | null
   /**
    * Optional validateOnly provider call; any failure settles `failed`. The
    * resolved value is ignored, so a provider call that returns something can
@@ -704,7 +811,7 @@ export type GbpWriteInput<TResponse, TReadback, TIntent> =
       readback?: GbpReadback<TResponse, TReadback>
     })
 
-export type GbpWriteResult<TResponse, TReadback> =
+export type GbpWriteResult<TResponse, TReadback> = (
   | {
       idempotent: true
       attemptId: string
@@ -715,6 +822,16 @@ export type GbpWriteResult<TResponse, TReadback> =
       TResponse,
       TReadback
     >)
+) & {
+  /** The operation receipt this write recorded or replayed, if any. */
+  operationId?: string
+  /**
+   * What this answer means in the shared outcome vocabulary
+   * (lib/contracts/mutation-operations.ts): the receipt's state when one was
+   * recorded, otherwise the same judgement the receipt would have made.
+   */
+  outcome: OperationOutcome
+}
 
 /**
  * How long an in-flight attempt is assumed to still be running. Inside the
@@ -728,6 +845,50 @@ export type GbpWriteResult<TResponse, TReadback> =
 const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000
 
 /**
+ * A reconcile lost its row to another request between reading it and
+ * settling it (lib/server/gbp-write.ts `expectedStatus`). Never escapes
+ * runGbpWrite: it becomes the module's in-progress 409.
+ */
+class AttemptMovedError extends Error {
+  constructor() {
+    super("The attempt row moved on while it was being reconciled.")
+  }
+}
+
+/**
+ * The 409 for a settled `ambiguous` attempt on a surface that cannot read
+ * the provider back: sending it again could apply the change twice, and
+ * nothing here can tell whether the first one landed.
+ */
+export function mutationUncertainError(attemptId: string): ApiError {
+  return new ApiError(
+    409,
+    "mutation_uncertain",
+    "Google did not confirm whether the last attempt at this change was applied. Check Google before trying again.",
+    { details: { attemptId } }
+  )
+}
+
+/**
+ * Whether `key` already has an attempt row. A surface that checks freshness
+ * against the editor's baseline before runGbpWrite asks this first and skips
+ * the check when it does: a retry of a write that landed would otherwise read
+ * its own change as a Google-side edit and answer stale, where the pipeline
+ * would replay the stored row ("replay") or resume it ("resume").
+ */
+export async function hasGbpAttempt(
+  store: Pick<AttemptStore<unknown>, "find">,
+  input: { organisationId: string; key: string },
+  deps: GbpWriteDeps = {}
+): Promise<boolean> {
+  const withTenant = deps.withTenant ?? defaultWithTenant
+  const row = await withTenant(input.organisationId, (sql) =>
+    store.find(sql, input)
+  )
+  return row !== null
+}
+
+/**
  * The phase machine:
  *   (a) tenant txn: find/start the attempt row as `validating`, recovering an
  *       interrupted one by readback first (docs/architecture.md,
@@ -739,6 +900,10 @@ const IN_FLIGHT_GRACE_MS = 2 * 60 * 1000
  *   (f) tenant txn: settle succeeded (+ onSuccess + audit) or failed/ambiguous
  * Throws exactly what the provider/readback threw (or the mismatch ApiError)
  * after settling, so routes keep their existing error mapping.
+ *
+ * Before (a), the dispatch gate: a paused surface (env or operator table)
+ * throws the module's paused error with nothing written, so a paused write
+ * leaves no attempt row and no receipt to reconcile later.
  */
 export async function runGbpWrite<
   TResponse,
@@ -755,6 +920,10 @@ export async function runGbpWrite<
       'runGbpWrite: `inProgress` is required when onExisting is "resume"'
     )
   }
+  await (deps.requireDispatch ?? requireGbpDispatch)(
+    input.surface,
+    input.paused
+  )
   const scope = { organisationId: input.organisationId, key: input.key }
   const inProgressError = () =>
     input.inProgress
@@ -771,12 +940,122 @@ export async function runGbpWrite<
   type Decision =
     | { kind: "idempotent"; row: AttemptRow }
     | { kind: "in_flight"; row: AttemptRow }
+    | { kind: "uncertain"; row: AttemptRow }
     | { kind: "start"; row: AttemptRow | null }
   /** What phase (a) settled on. */
   type Claim =
-    | { kind: "idempotent"; row: AttemptRow }
+    | { kind: "idempotent"; row: AttemptRow; outcome: OperationOutcome }
     | { kind: "in_flight"; row: AttemptRow }
+    | { kind: "uncertain"; row: AttemptRow }
     | { kind: "started"; row: AttemptRow }
+    | { kind: "receipt"; operation: MutationOperation }
+
+  // The operation receipt (lib/server/mutation-operations.ts). Only a surface
+  // that describes itself and names its attempt table takes the request's
+  // intent, so a write that records nothing leaves it for one that does.
+  const attemptTable = input.store.table ?? null
+  const ledger = Boolean(input.operation && attemptTable)
+  const intentId = !ledger
+    ? null
+    : input.intentId !== undefined
+      ? input.intentId
+      : claimAmbientIntent()
+  const readbackVerified = Boolean(input.readback)
+  let operationId: string | undefined
+
+  /** The outcome a settled success stands for (GbpReadback.outcome). */
+  const successState = (
+    success: Pick<GbpWriteSuccess<TResponse, TReadback>, "readback">
+  ): OperationOutcome =>
+    readbackVerified &&
+    input.readback?.outcome &&
+    success.readback !== undefined
+      ? input.readback.outcome(success.readback)
+      : successOutcome(readbackVerified)
+
+  /**
+   * Records the intent in the claim transaction. Returns the stored receipt
+   * when the intent has already settled, so the caller answers from it and
+   * sends nothing.
+   */
+  const beginIntent = async (
+    sql: TransactionSql
+  ): Promise<MutationOperation | null> => {
+    if (!intentId || !input.operation) return null
+    const { operation } = await beginOperation(sql, {
+      organisationId: input.organisationId,
+      intentId,
+      actorUserId: input.actorUserId,
+      descriptor: input.operation,
+      payloadHash: input.operation.payloadHash ?? input.key,
+      attemptTable,
+    })
+    operationId = operation.id
+    return operation
+  }
+
+  /**
+   * The outcome a row this request did not settle stands for. A succeeded
+   * row on a surface whose readback can say less than "applied" is asked of
+   * the module (GbpReadback.settledOutcome), so a post Google is still
+   * reviewing or refused is not recorded live.
+   */
+  const rowOutcome = async (
+    sql: TransactionSql,
+    row: AttemptRow
+  ): Promise<OperationOutcome> => {
+    if (row.status !== "succeeded" || !input.readback?.outcome) {
+      return outcomeForAttemptStatus(row.status, readbackVerified)
+    }
+    return (
+      (await input.readback.settledOutcome?.(sql, row)) ??
+      "awaiting_confirmation"
+    )
+  }
+
+  /**
+   * Links this request's receipt to `row` and, when `row` is settled, settles
+   * it -- with `known` when the caller has just read the outcome back, and
+   * otherwise with `rowOutcome`. Returns this request's receipt when it
+   * settled it, so the caller can answer from it.
+   */
+  const recordOnRow = async (
+    sql: TransactionSql,
+    row: AttemptRow,
+    known?: OperationOutcome
+  ): Promise<MutationOperation | null> => {
+    if (!operationId) return null
+    await linkOperationAttempt(sql, {
+      operationId,
+      attemptTable,
+      attemptId: row.id,
+    })
+    const state =
+      row.status === "succeeded" && known !== undefined
+        ? known
+        : await rowOutcome(sql, row)
+    if (state === "sent") return null
+    const settled = await settleOperationsForAttempt(sql, {
+      organisationId: input.organisationId,
+      attemptTable,
+      attemptId: row.id,
+      state,
+      errorCode: null,
+      receipt: {
+        attemptId: row.id,
+        attemptStatus: row.status,
+        rawStatus: row.rawStatus,
+      },
+    })
+    return settled.find((operation) => operation.id === operationId) ?? null
+  }
+
+  const intentInProgress = () =>
+    new ApiError(
+      409,
+      "intent_in_progress",
+      "This change is still being sent. Check its status before retrying."
+    )
 
   const decide = (existing: AttemptRow | null): Decision => {
     if (!existing) return { kind: "start", row: null }
@@ -785,6 +1064,11 @@ export async function runGbpWrite<
     }
     if (isInFlightStatus(existing.status)) {
       return { kind: "in_flight", row: existing }
+    }
+    // A settled `ambiguous` row may have landed. Re-arming it blindly is a
+    // second write -- a duplicate create -- so it is read back first.
+    if (existing.status === "ambiguous") {
+      return { kind: "uncertain", row: existing }
     }
     return { kind: "start", row: existing }
   }
@@ -796,7 +1080,38 @@ export async function runGbpWrite<
    */
   const claim = (): Promise<Claim> =>
     withTenant(input.organisationId, async (sql) => {
+      const operation = await beginIntent(sql)
+      if (operation && operation.state !== "sent") {
+        return { kind: "receipt" as const, operation }
+      }
       const decided = decide(await input.store.find(sql, scope))
+      // The intent is still in flight on another attempt row (a key that
+      // moved, or a re-armed `retry: "insert"` row). Sending again under the
+      // same intent is exactly what the receipt exists to prevent.
+      if (
+        operation?.attemptId &&
+        (decided.row === null || decided.row.id !== operation.attemptId)
+      ) {
+        throw intentInProgress()
+      }
+      if (operation?.attemptId && decided.row) {
+        // The receipt's own row. Settled while the receipt still says `sent`
+        // means something other than runGbpWrite settled it (a reaper that
+        // predates the receipt link, or one that failed to commit it):
+        // answer from the row's outcome rather than re-arm or replay it.
+        const settled = await recordOnRow(sql, decided.row)
+        if (settled) return { kind: "receipt" as const, operation: settled }
+        // Still in flight. A replay surface would answer `idempotent` from
+        // the unfinished row -- a 200 before Google has answered -- so a
+        // second request under the same intent waits for the first instead.
+        // A resume surface recovers the row by readback below.
+        if (onExisting === "replay") throw intentInProgress()
+      }
+      if (decided.kind === "idempotent") {
+        const outcome = await rowOutcome(sql, decided.row)
+        await recordOnRow(sql, decided.row, outcome)
+        return { ...decided, outcome }
+      }
       if (decided.kind !== "start") return decided
       const row = await input.store.start(sql, {
         organisationId: input.organisationId,
@@ -806,29 +1121,62 @@ export async function runGbpWrite<
         intent: input.intent,
         existing: decided.row,
       })
-      if (row) return { kind: "started" as const, row }
+      if (row) {
+        await recordOnRow(sql, row)
+        return { kind: "started" as const, row }
+      }
       // The key was claimed between the find and the insert. The winner's
       // transaction has committed (the unique index would otherwise still be
       // blocking ours), so re-read and answer from its row.
       const again = decide(await input.store.find(sql, scope))
       if (again.kind === "start") throw inProgressError()
+      if (again.kind === "idempotent") {
+        const outcome = await rowOutcome(sql, again.row)
+        await recordOnRow(sql, again.row, outcome)
+        return { ...again, outcome }
+      }
       return again
     })
 
   const settleSucceeded = async (
     success: GbpWriteSuccess<TResponse, TReadback>,
-    httpStatus?: number
+    httpStatus?: number,
+    expectedStatus?: string
   ) => {
     try {
       await withTenant(input.organisationId, async (sql) => {
-        await input.store.settle(sql, {
+        const written = await input.store.settle(sql, {
           id: success.attemptId,
           status: "succeeded",
           errorCode: null,
           response: success.readback ?? success.response,
           responseHash: success.readbackHash ?? null,
           httpStatus,
+          expectedStatus,
         })
+        if (expectedStatus !== undefined && written === false) {
+          throw new AttemptMovedError()
+        }
+        // Also without an intent of its own: this may be settling a row an
+        // earlier request's receipt is waiting on.
+        if (ledger) {
+          // The table's own word for success, which a replay answers with.
+          const settled = await input.store.find(sql, scope)
+          await settleOperationsForAttempt(sql, {
+            organisationId: input.organisationId,
+            attemptTable,
+            attemptId: success.attemptId,
+            state: successState(success),
+            errorCode: null,
+            receipt: {
+              attemptId: success.attemptId,
+              attemptStatus: "succeeded",
+              rawStatus:
+                settled?.id === success.attemptId ? settled.rawStatus : null,
+              httpStatus: httpStatus ?? null,
+            },
+          })
+        }
         if (input.onSuccess) await input.onSuccess(sql, success)
         const audit =
           typeof input.audit === "function" ? input.audit(success) : input.audit
@@ -845,6 +1193,7 @@ export async function runGbpWrite<
         }
       })
     } catch (error) {
+      if (error instanceof AttemptMovedError) throw error
       // The provider write landed but this transaction did not commit, so the
       // row is still in flight and the module's own success work (canonical
       // reconcile, audit) did not happen. Record that, because the repair is
@@ -863,96 +1212,222 @@ export async function runGbpWrite<
   const settleFailure = (
     attemptId: string,
     status: Exclude<GbpSettledStatus, "succeeded">,
-    errorCode: string
+    errorCode: string,
+    error?: unknown,
+    expectedStatus?: string
   ) =>
-    withTenant(input.organisationId, (sql) =>
-      input.store.settle(sql, { id: attemptId, status, errorCode })
-    )
+    withTenant(input.organisationId, async (sql) => {
+      const written = await input.store.settle(sql, {
+        id: attemptId,
+        status,
+        errorCode,
+        expectedStatus,
+      })
+      if (expectedStatus !== undefined && written === false) {
+        throw new AttemptMovedError()
+      }
+      if (!ledger) return
+      await settleOperationsForAttempt(sql, {
+        organisationId: input.organisationId,
+        attemptTable,
+        attemptId,
+        state: failureOutcome(status, error),
+        errorCode,
+        receipt: { attemptId, attemptStatus: status, ...errorReceipt(error) },
+      })
+    })
 
   /**
-   * An attempt left in flight by an interrupted request. Returns the settled
-   * success when the provider proves the write landed, or null when it proves
-   * it did not and the caller should re-arm the row and publish.
+   * Reads back a row whose outcome is unknown: one left in flight by an
+   * interrupted request (`in_flight`, only past the grace window) or one
+   * settled `ambiguous` (`uncertain`). Returns the settled success when the
+   * provider proves the write landed, or null when it proves it did not and
+   * the caller should re-arm the row and publish. Every settle here is
+   * conditional on the status read, so a concurrent request that re-armed
+   * the row in the meantime keeps it (the module's 409 here instead).
    */
-  const recoverInFlight = async (
-    row: AttemptRow
+  const reconcile = async (
+    row: AttemptRow,
+    kind: "in_flight" | "uncertain"
   ): Promise<GbpWriteSuccess<TResponse, TReadback> | null> => {
-    const startedAt = row.startedAt
     const readbackSpec = input.readback
-    if (
-      !startedAt ||
-      Date.now() - startedAt.getTime() < IN_FLIGHT_GRACE_MS ||
-      !readbackSpec
-    ) {
-      throw inProgressError()
+    if (kind === "in_flight") {
+      const startedAt = row.startedAt
+      if (
+        !startedAt ||
+        Date.now() - startedAt.getTime() < IN_FLIGHT_GRACE_MS ||
+        !readbackSpec
+      ) {
+        throw inProgressError()
+      }
+    } else if (!readbackSpec) {
+      throw mutationUncertainError(row.id)
     }
-    let readback: TReadback
+    const spec = readbackSpec as GbpReadback<TResponse, TReadback>
     try {
-      readback = await readbackSpec.read({
+      let readback: TReadback
+      try {
+        readback = await spec.read({
+          attemptId: row.id,
+          response: undefined,
+          providerAmbiguous: true,
+        })
+      } catch (error) {
+        // The provider state is still unknown, so the row stays unknown too.
+        await settleFailure(
+          row.id,
+          "ambiguous",
+          providerErrorCode(error, input.failureCode),
+          error,
+          row.rawStatus
+        )
+        throw error
+      }
+      let verified: boolean | string = false
+      let readbackHash: string | undefined
+      let mismatchCode = spec.mismatch?.code ?? "google_readback_mismatch"
+      try {
+        verified = spec.verify({ readback, response: undefined })
+        if (verified !== false) {
+          readbackHash =
+            typeof verified === "string" ? verified : spec.hash?.(readback)
+        }
+      } catch (error) {
+        // Food menus throws instead of returning false; either way the read
+        // completed, so the provider state is known and it is not the intent.
+        verified = false
+        mismatchCode = providerErrorCode(error, mismatchCode)
+      }
+      if (verified === false) {
+        await settleFailure(
+          row.id,
+          "failed",
+          mismatchCode,
+          undefined,
+          row.rawStatus
+        )
+        return null
+      }
+      const success: GbpWriteSuccess<TResponse, TReadback> = {
         attemptId: row.id,
         response: undefined,
+        readback,
+        readbackHash,
         providerAmbiguous: true,
-      })
+      }
+      await settleSucceeded(success, undefined, row.rawStatus)
+      return success
     } catch (error) {
-      // The provider state is still unknown, so the row stays unknown too.
-      await settleFailure(
-        row.id,
-        "ambiguous",
-        providerErrorCode(error, input.failureCode)
-      )
+      if (error instanceof AttemptMovedError) throw inProgressError()
       throw error
     }
-    let verified: boolean | string = false
-    let readbackHash: string | undefined
-    let mismatchCode = readbackSpec.mismatch?.code ?? "google_readback_mismatch"
+  }
+
+  /** Answers a replayed intent from its settled receipt, sending nothing. */
+  const replayReceipt = (
+    operation: MutationOperation
+  ): GbpWriteResult<TResponse, TReadback> => {
+    // A `rejected` receipt on a succeeded attempt is Google holding the
+    // resource and refusing to show it (GbpReadback.outcome): the write
+    // landed, and the first answer was a success that said so. Replaying it
+    // as a failure would claim nothing was applied.
+    const landedRejected =
+      operation.state === "rejected" &&
+      operation.receipt?.attemptStatus === "succeeded"
+    if (
+      !operation.attemptId ||
+      (operation.state !== "confirmed_applied" &&
+        operation.state !== "awaiting_confirmation" &&
+        !landedRejected)
+    ) {
+      throw receiptError(operation)
+    }
+    return {
+      idempotent: true,
+      attemptId: operation.attemptId,
+      status: "succeeded",
+      rawStatus: operation.receipt?.rawStatus ?? "succeeded",
+      operationId: operation.id,
+      outcome: operation.state,
+    }
+  }
+
+  /**
+   * Reconciles an in-flight row another request (or an interrupted earlier
+   * one) holds, or a settled `ambiguous` one. When that leaves the row as it
+   * was -- still inside the grace window, still `ambiguous` because the
+   * provider could not be read or has no readback -- this
+   * request's new receipt joins that row, so it settles with it instead of
+   * staying `sent` with nothing sent for it. On the re-arm path it stays
+   * unlinked until this request starts its own write.
+   */
+  const recoverForIntent = async (
+    row: AttemptRow,
+    kind: "in_flight" | "uncertain"
+  ) => {
     try {
-      verified = readbackSpec.verify({ readback, response: undefined })
-      if (verified !== false) {
-        readbackHash =
-          typeof verified === "string"
-            ? verified
-            : readbackSpec.hash?.(readback)
-      }
+      return await reconcile(row, kind)
     } catch (error) {
-      // Food menus throws instead of returning false; either way the read
-      // completed, so the provider state is known and it is not the intent.
-      verified = false
-      mismatchCode = providerErrorCode(error, mismatchCode)
+      if (operationId) {
+        try {
+          await withTenant(input.organisationId, async (sql) => {
+            const found = await input.store.find(sql, scope)
+            await recordOnRow(sql, found?.id === row.id ? found : row)
+          })
+        } catch (linkError) {
+          log.error("gbp_write.receipt_link_failed", {
+            organisationId: input.organisationId,
+            requestId: input.requestId,
+            attemptId: row.id,
+            error:
+              linkError instanceof Error
+                ? linkError.message
+                : String(linkError),
+          })
+        }
+      }
+      throw error
     }
-    if (verified === false) {
-      await settleFailure(row.id, "failed", mismatchCode)
-      return null
-    }
-    const success: GbpWriteSuccess<TResponse, TReadback> = {
-      attemptId: row.id,
-      response: undefined,
-      readback,
-      readbackHash,
-      providerAmbiguous: true,
-    }
-    await settleSucceeded(success)
-    return success
   }
 
   let claimed = await claim()
-  if (claimed.kind === "in_flight") {
-    const recovered = await recoverInFlight(claimed.row)
+  if (claimed.kind === "receipt") return replayReceipt(claimed.operation)
+  if (claimed.kind === "in_flight" || claimed.kind === "uncertain") {
+    const recovered = await recoverForIntent(claimed.row, claimed.kind)
     if (recovered) {
-      // The interrupted write had landed; it is now settled, reconciled and
-      // audited, and this request wrote nothing of its own.
-      const settled = await withTenant(input.organisationId, (sql) =>
-        input.store.find(sql, scope)
-      )
+      // The interrupted or uncertain write had landed; it is now settled,
+      // reconciled and audited, and this request wrote nothing of its own.
+      // This request's receipt joins the row only now, after the settle
+      // above (which settles receipts still `sent` on it), so it takes the
+      // outcome the readback just read rather than the bare row status.
+      const outcome = successState(recovered)
+      const settled = await withTenant(input.organisationId, async (sql) => {
+        const row = await input.store.find(sql, scope)
+        if (row) {
+          await recordOnRow(
+            sql,
+            row,
+            row.id === recovered.attemptId ? outcome : undefined
+          )
+        }
+        return row
+      })
       return {
         idempotent: true,
         attemptId: recovered.attemptId,
         status: settled?.status ?? "succeeded",
         rawStatus: settled?.rawStatus ?? "succeeded",
+        operationId,
+        outcome,
       }
     }
-    // The row is settled `failed` now, so this re-arms it.
+    // The row is settled `failed` now, so this re-arms it. Anything else
+    // means another request reached it first and owns it now.
     claimed = await claim()
-    if (claimed.kind === "in_flight") throw inProgressError()
+    if (claimed.kind === "receipt") return replayReceipt(claimed.operation)
+    if (claimed.kind === "in_flight" || claimed.kind === "uncertain") {
+      throw inProgressError()
+    }
   }
   if (claimed.kind === "idempotent") {
     return {
@@ -960,6 +1435,8 @@ export async function runGbpWrite<
       attemptId: claimed.row.id,
       status: claimed.row.status,
       rawStatus: claimed.row.rawStatus,
+      operationId,
+      outcome: claimed.outcome,
     }
   }
   const attemptId = claimed.row.id
@@ -1021,7 +1498,8 @@ export async function runGbpWrite<
     await settleFailure(
       attemptId,
       classifyFailure(phase, error),
-      providerErrorCode(error, input.failureCode)
+      providerErrorCode(error, input.failureCode),
+      error
     )
     throw error
   }
@@ -1035,7 +1513,13 @@ export async function runGbpWrite<
     providerAmbiguous,
   }
   await settleSucceeded(success, 200)
-  return { idempotent: false, status: "succeeded", ...success }
+  return {
+    idempotent: false,
+    status: "succeeded",
+    ...success,
+    operationId,
+    outcome: successState(success),
+  }
 }
 
 /** Re-export for modules that only need the jsonb helper type. */

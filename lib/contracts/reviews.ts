@@ -7,6 +7,7 @@
 
 import { z } from "zod"
 
+import { fromBase64Url, toBase64Url } from "@/lib/contracts/cursor"
 import type { VerificationReason as DomainVerificationReason } from "@/lib/domain/verification"
 import {
   REVIEW_WORKFLOW_STATES,
@@ -178,7 +179,9 @@ export const reviewsQuerySchema = z.object({
   clientId: z.uuid().optional(),
   queue: reviewQueueSchema.optional(),
   /** "me" and "unassigned" are resolved server-side against the session. */
-  assignee: z.union([z.literal("me"), z.literal("unassigned"), z.uuid()]).optional(),
+  assignee: z
+    .union([z.literal("me"), z.literal("unassigned"), z.uuid()])
+    .optional(),
   ratings: z.array(z.number().int().min(1).max(5)).optional(),
   /**
    * Whether the reviewer wrote anything. `rating_only` is the stars-and-
@@ -244,24 +247,6 @@ const WIRE = {
   cursor: "cursor",
 } as const
 
-// base64url(JSON) without Node's Buffer so the module stays client-safe. The
-// output is byte-identical to `Buffer.from(json).toString("base64url")`.
-function toBase64Url(text: string): string {
-  const bytes = new TextEncoder().encode(text)
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
-function fromBase64Url(value: string): string {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/")
-  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4)
-  const binary = atob(padded)
-  return new TextDecoder().decode(
-    Uint8Array.from(binary, (char) => char.charCodeAt(0))
-  )
-}
-
 export function encodeReviewsCursor(cursor: ReviewsCursor): string {
   return toBase64Url(
     JSON.stringify({
@@ -305,10 +290,7 @@ export function encodeReviewsQuery(
   }
   // One param carries both shapes: a single id stays `location_id=<uuid>`,
   // several become a comma list, so old links keep working unchanged.
-  set(
-    WIRE.locationId,
-    csv(filters.locationIds) ?? filters.locationId ?? null
-  )
+  set(WIRE.locationId, csv(filters.locationIds) ?? filters.locationId ?? null)
   set(WIRE.clientId, filters.clientId)
   set(WIRE.queue, filters.queue)
   set(WIRE.assignee, filters.assignee)
@@ -543,20 +525,67 @@ export type ReviewCounts = z.infer<typeof reviewCountsSchema>
 // Bulk triage
 // ---------------------------------------------------------------------------
 
-export const BULK_REVIEW_ACTIONS = ["approve", "assign", "mark_reviewed"] as const
+export const BULK_REVIEW_ACTIONS = [
+  "approve",
+  "assign",
+  "mark_reviewed",
+  "template_reply",
+] as const
 export type BulkReviewAction = (typeof BULK_REVIEW_ACTIONS)[number]
 
-export const bulkReviewActionSchema = z
-  .object({
-    action: z.enum(BULK_REVIEW_ACTIONS),
-    reviewIds: z.array(z.uuid()).min(1).max(100),
-    /** Required for `assign`; null clears the assignee. */
-    assigneeId: z.uuid().nullable().optional(),
-  })
-  .refine(
-    (value) => value.action !== "assign" || value.assigneeId !== undefined,
-    { message: "Choose who to assign these to", path: ["assigneeId"] }
-  )
+/**
+ * One approval as the operator saw it: the draft on screen and the review's
+ * update time when it was shown. The server refuses the row (409) when either
+ * moved, so a bulk approve can never publish text nobody in the batch read,
+ * or answer a review that was edited after the reply was written.
+ */
+export const bulkApprovalItemSchema = z.object({
+  reviewId: z.uuid(),
+  draftId: z.uuid(),
+  reviewUpdateTime: z.iso.datetime({ offset: true }),
+})
+export type BulkApprovalItem = z.infer<typeof bulkApprovalItemSchema>
+
+const bulkReviewIdsSchema = z.array(z.uuid()).min(1).max(100)
+
+export const bulkReviewActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("approve"),
+    approvals: z
+      .array(bulkApprovalItemSchema)
+      .min(1)
+      .max(100)
+      .refine(
+        (items) =>
+          new Set(items.map((item) => item.reviewId)).size === items.length,
+        { message: "Each review can be approved once per batch" }
+      ),
+  }),
+  z.object({
+    action: z.literal("assign"),
+    reviewIds: bulkReviewIdsSchema,
+    /** null clears the assignee. */
+    assigneeId: z.uuid({ error: "Choose who to assign these to" }).nullable(),
+  }),
+  z.object({
+    action: z.literal("mark_reviewed"),
+    reviewIds: bulkReviewIdsSchema,
+  }),
+  /**
+   * Rating-only reviews answered from the standard template, on the bulk
+   * engine (organisations with bulk changes on): each review is drafted,
+   * checked and published (or submitted for approval) by the job runner,
+   * and the batch's progress survives the tab closing.
+   */
+  z.object({
+    action: z.literal("template_reply"),
+    reviewIds: bulkReviewIdsSchema.refine(
+      (ids) => new Set(ids).size === ids.length,
+      { message: "Select each review once" }
+    ),
+    includeLowRatings: z.boolean().default(false),
+  }),
+])
 export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
 
 /**
@@ -564,12 +593,39 @@ export type BulkReviewActionInput = z.infer<typeof bulkReviewActionSchema>
  * reviews where three are no longer pending must apply the other seventeen
  * and say which three it skipped — failing the batch would punish the
  * operator for someone else's concurrent edit.
+ *
+ * - `ok`: the action took effect (for approve: Google accepted the reply).
+ * - `skipped`: the row was not eligible; nothing changed.
+ * - `failed`: the row could not be processed; nothing is known to have
+ *   changed for it.
+ * - `approved_not_published`: the approval is recorded but the reply is not
+ *   live on Google (a refusal, a reply Google answered with REJECTED, a review
+ *   that moved, or a rate limit, which `publish_retry_scheduled` marks as
+ *   queued for an automatic resend). It is not "skipped".
+ * - `uncertain`: the approval is recorded and Google may or may not have the
+ *   reply (unconfirmed write, a diverged live reply, a publish still in
+ *   flight). Its state must be checked before anyone retries.
+ * - `queued`: the row joined a bulk batch (`operationId`) and the job runner
+ *   will send it; its outcome is followed on the batch, not here. For an
+ *   approval the decision is already recorded.
  */
+export const BULK_REVIEW_ROW_STATUSES = [
+  "ok",
+  "skipped",
+  "failed",
+  "approved_not_published",
+  "uncertain",
+  "queued",
+] as const
+export type BulkReviewRowStatus = (typeof BULK_REVIEW_ROW_STATUSES)[number]
+
 export const bulkReviewResultSchema = z.object({
+  /** The bulk batch the queued rows run in (`GET /api/listings/bulk/{id}`). */
+  operationId: z.uuid().optional(),
   results: z.array(
     z.object({
       reviewId: z.string(),
-      status: z.enum(["ok", "skipped", "failed"]),
+      status: z.enum(BULK_REVIEW_ROW_STATUSES),
       code: z.string().optional(),
     })
   ),
@@ -643,6 +699,13 @@ export type DeleteReplyResult = z.infer<typeof deleteReplyResultSchema>
 export const approvalInputSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   draftId: z.uuid().optional(),
+  /**
+   * The review's update time as the approver saw it. When present, a review
+   * that has since changed is refused with 409 `review_changed` instead of
+   * being approved against text the approver never read. Bulk approve always
+   * sends it.
+   */
+  expectedReviewUpdateTime: z.iso.datetime({ offset: true }).optional(),
   note: z.string().trim().max(2000).optional(),
 })
 export type ApprovalInput = z.infer<typeof approvalInputSchema>

@@ -112,6 +112,14 @@ describeDatabase("Google search keyword analytics", () => {
           thresholded: true,
         },
       ],
+      // Every month walked to the current one: one location, fully covered.
+      completeness: {
+        state: "complete",
+        expected: 1,
+        covered: 1,
+        completeThrough: new Date().toISOString().slice(0, 7),
+        missing: [],
+      },
     })
 
     const isolated = await fetch(
@@ -295,6 +303,82 @@ describeDatabase("Google search keyword analytics", () => {
       months: 18,
     })
   }, 30_000)
+
+  it("stops an owner's refresh at the budget inside the organisation", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const seed = {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    }
+    const locations = [
+      await seedLinkedLocation(admin, seed),
+      await seedLinkedLocation(admin, seed),
+    ]
+    google.respond(
+      { method: "GET", pathIncludes: "/searchkeywords/impressions/monthly" },
+      () => ({
+        status: 200,
+        json: {
+          searchKeywordsCounts: [
+            {
+              searchKeyword: "budgeted pub",
+              insightsValue: { value: "7" },
+            },
+          ],
+        },
+      })
+    )
+    // A 1ms budget is already spent by the first claim: the walk must take
+    // that one location and stop, rather than draining every due location
+    // past the deadline while it holds the fleet lease.
+    const budgetServer = await startAppServer({
+      GOOGLE_API_PROXY_BASE: google.baseUrl,
+      GBP_KEYWORDS_ENABLED: "true",
+      KEYWORDS_BUDGET_MS: "1",
+    })
+    try {
+      const response = await fetch(
+        `${budgetServer.baseUrl}/api/sync/keywords`,
+        {
+          method: "POST",
+          headers: jsonHeaders(owner.cookie),
+          body: JSON.stringify({ maxLocations: 25 }),
+        }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const body = (await response.json()) as {
+        organisations: Array<{ outcomes: unknown[] }>
+        truncated: boolean
+        nextCursor: string | null
+      }
+      expect(body.truncated).toBe(true)
+      expect(body.organisations).toHaveLength(1)
+      expect(body.organisations[0].outcomes).toHaveLength(1)
+      // A session refresh never hands out a fleet cursor.
+      expect(body.nextCursor).toBeNull()
+
+      // The location it did not reach is still due, not leased.
+      const checkpoints = await admin<{ status: string }[]>`
+        select status from sync_checkpoint
+        where organisation_id = ${owner.organisationId}
+          and sync_type = 'keywords'
+          and external_location_id in ${admin(
+            locations.map((location) => location.externalLocationId)
+          )}
+        order by status`
+      expect(checkpoints.map((row) => row.status).sort()).toEqual([
+        "pending",
+        "succeeded",
+      ])
+    } finally {
+      await budgetServer.stop()
+    }
+  }, 60_000)
 })
 
 function jsonHeaders(cookie: string) {

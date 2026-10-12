@@ -12,6 +12,8 @@ import { renderWithProviders } from "../helpers/render"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import {
   NOTHING_TO_SEND,
+  publishOutcome,
+  stepOutcome,
   usePublishFlow,
   type PublishStep,
 } from "@/lib/editors/use-publish-flow"
@@ -166,6 +168,73 @@ describe("usePublishFlow no-op steps", () => {
   })
 })
 
+describe("publish outcome", () => {
+  it("is live only when every Google write that went out was read back", () => {
+    expect(
+      publishOutcome([
+        { key: "save", label: "Save", status: "done", kind: "local" },
+        {
+          key: "hours",
+          label: "Hours",
+          status: "done",
+          kind: "google",
+          verified: true,
+        },
+      ])
+    ).toBe("confirmed_applied")
+    expect(
+      publishOutcome([
+        {
+          key: "profile",
+          label: "Profile",
+          status: "done",
+          kind: "google",
+          verified: true,
+        },
+        {
+          key: "attributes",
+          label: "Attributes",
+          status: "done",
+          kind: "google",
+        },
+      ])
+    ).toBe("sent")
+    // A step that sent nothing has nothing to verify.
+    expect(
+      publishOutcome([
+        {
+          key: "attributes",
+          label: "Attributes",
+          status: "done",
+          kind: "google",
+          noop: true,
+        },
+      ])
+    ).toBe("confirmed_applied")
+  })
+
+  it("words the success toast by the outcome the steps reached", async () => {
+    const steps: PublishStep[] = [
+      { key: "save", label: "Save", kind: "local", run: async () => {} },
+      { key: "publish", label: "Publish", verified: true, run: async () => {} },
+    ]
+    const { result } = renderHook(
+      () =>
+        usePublishFlow({
+          steps: () => steps,
+          successToast: (outcome) => ({ outcome }),
+        }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    const toasts = screen.getByRole("region", { name: "Notifications" })
+    expect(await within(toasts).findByText("Live on Google")).toBeVisible()
+    expect(within(toasts).queryByText("Sent to Google")).toBeNull()
+  })
+})
+
 describe("ReviewChangesSheet", () => {
   it("keeps an unresolved outcome visible and prevents immediate resubmission", async () => {
     const publish = vi.fn()
@@ -260,6 +329,44 @@ describe("ReviewChangesSheet", () => {
     expect(
       within(sheet).getByRole("button", { name: "Try again" })
     ).toBeEnabled()
+  })
+
+  it("says live only for a finished step whose endpoint verified it", async () => {
+    renderWithProviders(
+      <ReviewChangesSheet
+        open
+        onOpenChange={() => {}}
+        rows={[{ field: "Phone", before: "1", after: "2" }]}
+        locationName="Old Crown"
+        onPublish={vi.fn()}
+        results={[
+          { key: "save", label: "Save here", status: "done", kind: "local" },
+          {
+            key: "profile",
+            label: "Publish name",
+            status: "done",
+            kind: "google",
+            verified: true,
+          },
+          {
+            key: "attributes",
+            label: "Publish attributes",
+            status: "done",
+            kind: "google",
+          },
+        ]}
+      />
+    )
+    const sheet = await screen.findByRole("dialog")
+    const rows = within(sheet).getAllByRole("listitem")
+    expect(rows.map((row) => row.getAttribute("data-state"))).toEqual([
+      "saved_locally",
+      "confirmed_applied",
+      "sent",
+    ])
+    expect(rows[1]).toHaveTextContent("Live on Google")
+    expect(rows[2]).toHaveTextContent("Sent to Google")
+    expect(rows[2]).not.toHaveTextContent("Live on Google")
   })
 
   it("publishes a plain change without asking for anything", async () => {
@@ -403,4 +510,109 @@ describe("publication error scope", () => {
       expect(result.current.results[0].message).toBe(result.current.error)
     }
   )
+})
+
+describe("usePublishFlow outcomes and intents", () => {
+  it("takes each finished step's outcome from the route's answer", async () => {
+    const steps: PublishStep[] = [
+      {
+        key: "post",
+        label: "Post",
+        verified: true,
+        run: async () => ({
+          status: "published",
+          operation: { operationId: "op-1", outcome: "awaiting_confirmation" },
+        }),
+      },
+    ]
+    const { result } = renderHook(
+      () => usePublishFlow({ steps: () => steps }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    // Verified endpoint or not, the server's own word wins: Google has not
+    // shown the change yet, so nothing may call it live.
+    expect(stepOutcome(result.current.results[0]!)).toBe(
+      "awaiting_confirmation"
+    )
+    expect(publishOutcome(result.current.results)).toBe("awaiting_confirmation")
+  })
+
+  it("reports an ambiguous failure as not confirmed and resends its intent on retry", async () => {
+    const seen: (string | undefined)[] = []
+    const body = { expectedCanonicalRevision: "4" }
+    let fail = true
+    const steps: PublishStep[] = [
+      {
+        key: "hours",
+        label: "Hours",
+        run: async (intent) => {
+          seen.push(intent.idFor(body))
+          if (fail)
+            throw new ApiClientError(
+              502,
+              "google_mutation_ambiguous",
+              "unclear",
+              undefined,
+              { intentId: seen.at(-1) }
+            )
+          return {
+            operation: { operationId: "op", outcome: "confirmed_applied" },
+          }
+        },
+      },
+    ]
+    const { result } = renderHook(
+      () => usePublishFlow({ steps: () => steps }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    const failed = result.current.results[0]!
+    expect(stepOutcome(failed)).toBe("uncertain")
+    expect(failed.intentId).toBe(seen[0])
+
+    fail = false
+    await act(async () => {
+      await result.current.publish()
+    })
+    expect(seen[1]).toBe(seen[0])
+    expect(stepOutcome(result.current.results[0]!)).toBe("confirmed_applied")
+
+    // A later publish of the same body is a new action.
+    await act(async () => {
+      await result.current.publish()
+    })
+    expect(seen[2]).not.toBe(seen[1])
+  })
+
+  it("sends a changed body under a new intent even after an ambiguous failure", async () => {
+    const seen: (string | undefined)[] = []
+    let body = { expectedCanonicalRevision: "4" }
+    const steps: PublishStep[] = [
+      {
+        key: "hours",
+        label: "Hours",
+        run: async (intent) => {
+          seen.push(intent.idFor(body))
+          throw new ApiClientError(502, "google_mutation_ambiguous", "unclear")
+        },
+      },
+    ]
+    const { result } = renderHook(
+      () => usePublishFlow({ steps: () => steps }),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.publish()
+    })
+    body = { expectedCanonicalRevision: "5" }
+    await act(async () => {
+      await result.current.publish()
+    })
+    expect(seen[1]).not.toBe(seen[0])
+  })
 })

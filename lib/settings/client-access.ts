@@ -3,6 +3,7 @@ import {
   type ClientAccessRow,
   type ClientPublishing,
 } from "@/lib/contracts/client-access"
+import type { LocationScope } from "@/lib/contracts/members"
 import type { MemberRole } from "@/lib/settings/forms/invitation"
 
 /**
@@ -11,8 +12,9 @@ import type { MemberRole } from "@/lib/settings/forms/invitation"
  * Pure and client-safe: the route (lib/server/client-access.ts) and the Team
  * screens share it, so what Team says and what the server saves are the
  * same arithmetic. Nothing here decides visibility — lib/server/permissions.ts
- * does, from location_member rows. This only groups those rows by client and
- * turns a client-level request back into rows.
+ * does, from the membership's location_scope and its location_member rows.
+ * This only groups those rows by client and turns a client-level request
+ * back into rows.
  */
 
 /** One location_member row, with the client its listing is filed under. */
@@ -41,6 +43,8 @@ export type ClientCatalogueEntry = {
 
 export type ClientAccessSummary = {
   allClients: boolean
+  /** Scope `assigned` with no listings at all: they see nothing. */
+  noAccess: boolean
   clients: ClientAccessRow[]
 }
 
@@ -58,11 +62,13 @@ function publishingOf(grants: AccessGrant[]): ClientPublishing {
 /**
  * Group a member's rows by client. `clients` sets the order and the set of
  * rows returned (pass the unfiled group as `UNFILED_CLIENT_ID` when it has
- * listings). A member with no rows at all is `allClients`.
+ * listings). `allClients` is the membership's scope, never inferred from the
+ * rows: an `assigned` member with no rows sees no client.
  */
 export function summariseClientAccess(
   grants: AccessGrant[],
-  clients: ClientTotal[]
+  clients: ClientTotal[],
+  locationScope: LocationScope
 ): ClientAccessSummary {
   const byClient = new Map<string, AccessGrant[]>()
   for (const grant of grants) {
@@ -70,7 +76,8 @@ export function summariseClientAccess(
     byClient.set(key, [...(byClient.get(key) ?? []), grant])
   }
   return {
-    allClients: grants.length === 0,
+    allClients: locationScope === "all",
+    noAccess: locationScope === "assigned" && grants.length === 0,
     clients: clients.map((client) => {
       const held = byClient.get(client.clientId) ?? []
       return {
@@ -106,6 +113,9 @@ export function describeMemberAccess(
   }
   const held = summary.clients.filter((client) => client.granted > 0)
   const partial = held.filter((client) => client.granted < client.total)
+  if (summary.noAccess) {
+    return { label: "No clients", detail: "Sees nothing until given access" }
+  }
   if (held.length === 0) {
     // Rows exist but none of them match a listed client (a listing moved or
     // was removed between reads). Still scoped; say so rather than guess.
@@ -159,11 +169,11 @@ export type ClientAccessPlan =
  * The rows a member should hold after a client-level change, or why the
  * change is refused.
  *
- * THE TRAP this guards: a member or viewer with no location_member rows
- * sees every client (lib/server/permissions.ts). So a request that would
- * leave them with no rows — no clients ticked, or only clients that have no
- * listings — is refused with `would_widen_to_all_clients` instead of saved.
- * "Every client" has to be asked for by name, as `{ allClients: true }`.
+ * "Every client" is asked for by name, as `{ allClients: true }`, and saved
+ * as scope `all`. Anything else is scope `assigned` with exactly these rows,
+ * and that includes none at all (no clients ticked, or only clients with no
+ * listings): an assigned member with no rows sees nothing
+ * (lib/server/permissions.ts), never every client.
  */
 export function planClientAccess(input: {
   role: MemberRole
@@ -239,15 +249,6 @@ export function planClientAccess(input: {
         message: "Viewers cannot receive publish permission.",
       }
     }
-    if (wanted.length === 0) {
-      return {
-        ok: false,
-        status: 409,
-        code: "would_widen_to_all_clients",
-        message:
-          "That leaves them with no locations, and someone with no locations sees every location. Choose at least one location, or choose All locations.",
-      }
-    }
     return {
       ok: true,
       allClients: false,
@@ -310,15 +311,6 @@ export function planClientAccess(input: {
     }
   }
 
-  if (rows.length === 0) {
-    return {
-      ok: false,
-      status: 409,
-      code: "would_widen_to_all_clients",
-      message:
-        "That leaves them with no listings, and someone with no listings sees every client. Choose at least one client that has listings, or choose All clients.",
-    }
-  }
   return { ok: true, allClients: false, rows }
 }
 
@@ -360,8 +352,13 @@ export function describeAccessChange(input: {
   const granted = selected.filter((client) => client.listings > 0)
   if (granted.length === 0) {
     return {
-      consequence: `Choose at least one client. With none, ${name} would see every client, so it can’t be saved that way.`,
-      warning: null,
+      consequence: `${name} will see no clients or listings until you give them access.`,
+      warning: before.noAccess
+        ? null
+        : {
+            title: `This removes ${name}’s access`,
+            body: "They stay on the team but cannot see any client’s reviews or listings.",
+          },
     }
   }
   const count = granted.reduce((sum, client) => sum + client.listings, 0)

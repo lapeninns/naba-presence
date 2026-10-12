@@ -29,6 +29,7 @@ import {
 } from "@/components/inbox/dirty-context"
 import { isReviewWorkflowState } from "@/lib/contracts/reviews"
 import { isAllowedReviewTransition } from "@/lib/domain/workflow"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
 import {
@@ -39,7 +40,10 @@ import {
 import { greetingName, replyGuidance } from "@/lib/inbox/reply-guidance"
 import { hasVerifiedDraft } from "@/lib/inbox/reply-state"
 import { replyWork } from "@/lib/inbox/review-situation"
-import { describeCreditsLeft } from "@/lib/contracts/ai-credits"
+import {
+  aiCreditsBlocked,
+  describeCreditsLeft,
+} from "@/lib/contracts/ai-credits"
 import { isAiCreditsExhausted } from "@/lib/api/ai-credits"
 import { useAiCredits } from "@/lib/queries/use-ai-credits"
 import { useGenerateOrSaveDraft } from "@/lib/queries/use-draft-mutations"
@@ -92,7 +96,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   })
   const seededBody = draftBody ?? liveBody ?? ""
 
-  const guardKey = `inbox:reply:${reviewId}`
+  const guardKey = useDraftKey({
+    resource: "inbox-reply",
+    resourceId: reviewId,
+    schemaVersion: 1,
+  })
   const fieldId = useId()
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
@@ -183,10 +191,11 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   const generateOrSave = useGenerateOrSaveDraft(reviewId)
   const aiCredits = useAiCredits()
-  // Only a loaded balance of zero turns Generate off; while it loads, or if
-  // it cannot load, the server still decides (it answers 402).
+  // Only a loaded balance turns Generate off (none left, an unknown
+  // allowance, or read-only billing); while it loads, or if it cannot load,
+  // the server still decides (it answers 402).
   const creditsExhausted = aiCredits.data
-    ? aiCredits.data.remaining <= 0
+    ? aiCreditsBlocked(aiCredits.data)
     : false
   const toasts = useToastManager()
 
@@ -439,7 +448,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {generateError.creditsOut
           ? aiCredits.data && creditsExhausted
             ? describeCreditsLeft(aiCredits.data)
-            : "Out of AI credits for this month. You can still write a reply yourself."
+            : "Out of AI credits for this period. You can still write a reply yourself."
           : generateError.message}
       </span>
       <span className="flex items-center gap-2">

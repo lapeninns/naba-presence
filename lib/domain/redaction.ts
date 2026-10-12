@@ -3,11 +3,45 @@ const sensitiveKey =
 const verificationPinKey = /^(?:verification[-_]?)?pin(?:[-_]?code)?$/i
 const bearerPattern = /\bBearer\s+[A-Za-z0-9._~+/=-]+/gi
 const jwtPattern = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g
+// `scheme://user:password@host`: the credentials between `//` and `@`, which
+// cannot contain `/`, `?` or `#` (those end the authority). The scheme is
+// bounded: unbounded, every word boundary in a long `a.a.a…` run restarts a
+// scan to the end of the run, which is quadratic in the string's length.
+const userinfoPattern = /\b([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/?#@"'<>]+@/gi
+// `?name=value` / `&name=value` anywhere in a string: a request URL, a path
+// with a query or a provider redirect quoted in an error message. `#` counts
+// too, for fragment-carried tokens (`#access_token=…` in an implicit-grant
+// redirect).
+const queryParamPattern = /([?&;#])([^=&#?;\s"'<>]+)=([^&#;\s"'<>]*)/g
+// Query parameter names that carry credentials: everything `sensitiveKey`
+// covers (access_token, client_secret, api_key, …) plus OAuth codes, bare
+// keys and URL signatures.
+const sensitiveParam =
+  /(authorization|cookie|secret|token|password|passwd|credential|api[-_]?key|^key$|^code$|^sig$|signature|^auth$)/i
+
+/** Strips credentials from every URL-shaped substring of `value`. */
+export function redactUrls(value: string): string {
+  return value
+    .replace(userinfoPattern, "$1[REDACTED]@")
+    .replace(queryParamPattern, (match, separator: string, name: string) =>
+      sensitiveParam.test(decodeParamName(name))
+        ? `${separator}${name}=[REDACTED]`
+        : match
+    )
+}
+
+function decodeParamName(name: string): string {
+  try {
+    return decodeURIComponent(name)
+  } catch {
+    return name
+  }
+}
 
 export function redactForLog(value: unknown, depth = 0): unknown {
   if (depth > 6) return "[TRUNCATED]"
   if (typeof value === "string") {
-    return value
+    return redactUrls(value)
       .replace(bearerPattern, "Bearer [REDACTED]")
       .replace(jwtPattern, "[REDACTED_JWT]")
   }

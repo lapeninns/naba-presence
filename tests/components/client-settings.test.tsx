@@ -371,14 +371,22 @@ describe("ClientSettings", () => {
     renderSettings()
     fireEvent.click(await screen.findByRole("button", { name: /^Pine/ }))
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
-    // Leaving through the page's own link asks first.
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
+    // Leaving through the page's own link asks first; staying keeps the
+    // edit.
     fireEvent.click(
       screen.getByRole("link", { name: "Back to Old Crown Group" })
     )
-    expect(confirm).toHaveBeenCalled()
-    await waitFor(() => expect(push).not.toHaveBeenCalled())
-    confirm.mockRestore()
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "Leave without saving?",
+    })
+    fireEvent.click(
+      within(prompt).getByRole("button", { name: "Keep editing" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    )
+    expect(push).not.toHaveBeenCalled()
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
     await waitFor(() =>
       expect(

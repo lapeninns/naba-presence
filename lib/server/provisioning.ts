@@ -3,12 +3,21 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
-import { grantClientListings } from "@/lib/server/client-access"
+import { seedPilotBilling } from "@/lib/server/billing/state"
+import type { LocationScope } from "@/lib/contracts/members"
+import type { WorkspaceMode } from "@/lib/contracts/session"
+import {
+  grantClientListings,
+  grantLocationListings,
+} from "@/lib/server/client-access"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { createHomeClient } from "@/lib/server/clients"
-import { createSession } from "@/lib/server/session-store"
+import {
+  createSession,
+  type SessionAssurance,
+} from "@/lib/server/session-store"
 import { requireOpenRegistration } from "@/lib/server/registration"
 
 export type GoogleProfile = {
@@ -24,6 +33,11 @@ export type AuthenticatedIdentity = {
   email: string
   displayName: string
   emailVerified: boolean
+  /**
+   * The mode a new owner chose at registration. Only read when this
+   * identity creates an organisation; absent means business.
+   */
+  workspaceMode?: WorkspaceMode
 }
 
 function mapIdentityProvisioningError(error: unknown): never {
@@ -95,7 +109,8 @@ async function provisionAuthenticatedUser(
 }
 
 export async function provisionAuthenticatedOwner(
-  identity: AuthenticatedIdentity
+  identity: AuthenticatedIdentity,
+  options: { assurance?: SessionAssurance } = {}
 ) {
   return getDatabase()
     .begin(async (sql) => {
@@ -154,28 +169,36 @@ export async function provisionAuthenticatedOwner(
         // ORIGINAL organisation already holds the identity-derived slug, so
         // organisation_slug_key would turn the login loop into a permanent
         // 500 instead of fixing it.
+        // Business is the default. Only a business has the hidden home client
+        // (0061); an agency starts with none and adds its clients itself.
+        const workspaceMode = identity.workspaceMode ?? "business"
         await sql`
           insert into organisation (id, slug, name, workspace_mode)
           values (
             ${organisationId},
             ${`${slugBase || "organisation"}-${organisationId.slice(0, 8)}`},
             ${`${identity.displayName}'s organisation`},
-            'business'
+            ${workspaceMode}
           )
         `
-        await createHomeClient(
-          sql,
-          organisationId,
-          `${identity.displayName}'s organisation`
-        )
+        // Explicit pilot access until an owner converts (plan P07).
+        await seedPilotBilling(sql, organisationId)
+        if (workspaceMode === "business") {
+          await createHomeClient(
+            sql,
+            organisationId,
+            `${identity.displayName}'s organisation`
+          )
+        }
         await sql`
           insert into member (
             organisation_id,
             user_id,
             role,
-            can_publish
+            can_publish,
+            location_scope
           )
-          values (${organisationId}, ${user.id}, 'owner', true)
+          values (${organisationId}, ${user.id}, 'owner', true, 'all')
         `
         await sql`
           update app_user
@@ -187,7 +210,9 @@ export async function provisionAuthenticatedOwner(
           select set_config('app.organisation_id', ${organisationId}, true)
         `
       }
-      const token = await createSession(sql, user.id, organisationId)
+      const token = await createSession(sql, user.id, organisationId, {
+        assurance: options.assurance,
+      })
       return {
         organisationId,
         userId: user.id,
@@ -198,16 +223,40 @@ export async function provisionAuthenticatedOwner(
     .catch(mapAuthenticatedIdentityError)
 }
 
+type PendingInvitationScope = {
+  role: string
+  canPublish: boolean
+  clientIds: string[] | null
+  locationIds: string[] | null
+  locationScope: LocationScope
+}
+
 /**
- * Turns a client-scoped invitation into location_member rows, inside the
- * acceptance transaction, for BOTH acceptance paths below. Returns how many
- * listings were granted (0 for an unscoped invitation).
+ * The scope a membership created from `pending` starts with (supabase 0082).
+ * Owners and admins are always `all`; a member or viewer copies the
+ * invitation's scope, which the 0082 CHECK ties to its client or location
+ * ids.
+ */
+function invitedMemberScope(pending: PendingInvitationScope): LocationScope {
+  if (pending.role !== "member" && pending.role !== "viewer") return "all"
+  return pending.locationScope
+}
+
+/**
+ * Turns a scoped invitation into location_member rows, inside the acceptance
+ * transaction, for BOTH acceptance paths below. Returns how many listings
+ * were granted (0 for an unscoped invitation).
  *
- * Only a membership this acceptance created is scoped: the do-nothing insert
- * above never rewrites an existing membership, and adding rows to one would
- * narrow someone the invitation was never about. A scoped invitation whose
- * clients no longer hold any listing is REFUSED: accepted with no rows, the
- * invitee would see every client, the opposite of what was asked for.
+ * A client scope grants every listing filed under those clients now; a
+ * location scope (business workspaces) grants the named listings that still
+ * exist. Only a membership this acceptance created is scoped: the do-nothing
+ * insert above never rewrites an existing membership, and adding rows to one
+ * would narrow someone the invitation was never about. A scoped invitation
+ * whose targets no longer hold any listing is REFUSED: accepted with no rows,
+ * the invitee would join an `assigned` scope that sees nothing, which is not
+ * what was asked for either.
+ * The membership was inserted with scope `assigned` in this transaction, so
+ * the refusal rolls both back together.
  */
 async function applyInvitationScope(
   sql: TransactionSql,
@@ -215,25 +264,33 @@ async function applyInvitationScope(
     organisationId: string
     userId: string
     joined: boolean
-    pending: { role: string; canPublish: boolean; clientIds: string[] | null }
+    pending: PendingInvitationScope
   }
 ): Promise<number> {
   const { pending } = input
-  if (!input.joined || !pending.clientIds || pending.clientIds.length === 0) {
-    return 0
-  }
-  if (pending.role !== "member" && pending.role !== "viewer") return 0
-  const granted = await grantClientListings(sql, {
-    organisationId: input.organisationId,
-    userId: input.userId,
-    clientIds: pending.clientIds,
-    canPublish: pending.role === "member" && pending.canPublish,
-  })
+  if (!input.joined || invitedMemberScope(pending) !== "assigned") return 0
+  const canPublish = pending.role === "member" && pending.canPublish
+  const granted =
+    pending.locationIds && pending.locationIds.length > 0
+      ? await grantLocationListings(sql, {
+          organisationId: input.organisationId,
+          userId: input.userId,
+          locationIds: pending.locationIds,
+          canPublish,
+        })
+      : await grantClientListings(sql, {
+          organisationId: input.organisationId,
+          userId: input.userId,
+          clientIds: pending.clientIds ?? [],
+          canPublish,
+        })
   if (granted.length === 0) {
     throw new ApiError(
       409,
       "invitation_scope_empty",
-      "The clients this invitation was for have no listings any more. Ask for a new invitation."
+      pending.locationIds
+        ? "The locations this invitation was for no longer exist. Ask for a new invitation."
+        : "The clients this invitation was for have no listings any more. Ask for a new invitation."
     )
   }
   return granted.length
@@ -247,7 +304,8 @@ export async function provisionAuthenticatedMember(
     role: string
     canPublish: boolean
   },
-  requestId: string
+  requestId: string,
+  options: { assurance?: SessionAssurance } = {}
 ): Promise<{
   organisationId: string
   userId: string
@@ -272,6 +330,8 @@ export async function provisionAuthenticatedMember(
           expiresAt: Date
           acceptedAt: Date | null
           clientIds: string[] | null
+          locationIds: string[] | null
+          locationScope: LocationScope
         }[]
       >`
         select
@@ -281,7 +341,9 @@ export async function provisionAuthenticatedMember(
           can_publish as "canPublish",
           expires_at as "expiresAt",
           accepted_at as "acceptedAt",
-          client_ids::text[] as "clientIds"
+          client_ids::text[] as "clientIds",
+          location_ids::text[] as "locationIds",
+          location_scope as "locationScope"
         from invitation
         where id = ${invitation.id}
           and organisation_id = ${invitation.organisationId}
@@ -337,13 +399,15 @@ export async function provisionAuthenticatedMember(
           organisation_id,
           user_id,
           role,
-          can_publish
+          can_publish,
+          location_scope
         )
         values (
           ${invitation.organisationId},
           ${user.id},
           ${pending.role},
-          ${pending.canPublish}
+          ${pending.canPublish},
+          ${invitedMemberScope(pending)}
         )
         on conflict (organisation_id, user_id) do nothing
         returning user_id
@@ -380,10 +444,17 @@ export async function provisionAuthenticatedMember(
           role: pending.role,
           canPublish: pending.canPublish,
           clientIds: pending.clientIds,
+          locationIds: pending.locationIds,
+          locationScope: invitedMemberScope(pending),
           scopedListings,
         },
       })
-      const token = await createSession(sql, user.id, invitation.organisationId)
+      const token = await createSession(
+        sql,
+        user.id,
+        invitation.organisationId,
+        { assurance: options.assurance }
+      )
       return {
         organisationId: invitation.organisationId,
         userId: user.id,
@@ -414,7 +485,9 @@ export async function acceptInvitationForSessionUser(
     role: string
     canPublish: boolean
   },
-  requestId: string
+  requestId: string,
+  /** The accepting session's assurance, carried into the new session. */
+  options: { assurance?: SessionAssurance } = {}
 ): Promise<{ organisationId: string; userId: string; token: string }> {
   if (user.supportActor) {
     throw new ApiError(
@@ -436,6 +509,8 @@ export async function acceptInvitationForSessionUser(
         expiresAt: Date
         acceptedAt: Date | null
         clientIds: string[] | null
+        locationIds: string[] | null
+        locationScope: LocationScope
       }[]
     >`
       select
@@ -445,7 +520,9 @@ export async function acceptInvitationForSessionUser(
         can_publish as "canPublish",
         expires_at as "expiresAt",
         accepted_at as "acceptedAt",
-        client_ids::text[] as "clientIds"
+        client_ids::text[] as "clientIds",
+          location_ids::text[] as "locationIds",
+          location_scope as "locationScope"
       from invitation
       where id = ${invitation.id}
         and organisation_id = ${invitation.organisationId}
@@ -491,12 +568,19 @@ export async function acceptInvitationForSessionUser(
     // Same do-nothing rule as provisionAuthenticatedMember: acceptance may
     // create a membership but never rewrite an existing one.
     const joined = await sql`
-      insert into member (organisation_id, user_id, role, can_publish)
+      insert into member (
+        organisation_id,
+        user_id,
+        role,
+        can_publish,
+        location_scope
+      )
       values (
         ${invitation.organisationId},
         ${user.userId},
         ${pending.role},
-        ${pending.canPublish}
+        ${pending.canPublish},
+        ${invitedMemberScope(pending)}
       )
       on conflict (organisation_id, user_id) do nothing
       returning user_id
@@ -526,13 +610,16 @@ export async function acceptInvitationForSessionUser(
         role: pending.role,
         canPublish: pending.canPublish,
         clientIds: pending.clientIds,
+        locationIds: pending.locationIds,
+        locationScope: invitedMemberScope(pending),
         scopedListings,
       },
     })
     const token = await createSession(
       sql,
       user.userId,
-      invitation.organisationId
+      invitation.organisationId,
+      { assurance: options.assurance }
     )
     return {
       organisationId: invitation.organisationId,
@@ -600,6 +687,7 @@ export async function provisionOwner(profile: GoogleProfile) {
           'business'
         )
       `
+        await seedPilotBilling(sql, organisationId)
         await createHomeClient(
           sql,
           organisationId,
@@ -610,9 +698,10 @@ export async function provisionOwner(profile: GoogleProfile) {
           organisation_id,
           user_id,
           role,
-          can_publish
+          can_publish,
+          location_scope
         )
-        values (${organisationId}, ${user.id}, 'owner', true)
+        values (${organisationId}, ${user.id}, 'owner', true, 'all')
       `
         await sql`
         update app_user

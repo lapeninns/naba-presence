@@ -4,15 +4,17 @@ import {
   reviewIdParamsSchema,
   type VerifyResult,
 } from "@/lib/contracts/reviews"
-import { tokenBackstopReached } from "@/lib/server/ai-credits"
-import { recordAiUsageDetached } from "@/lib/server/ai-usage"
+import { semanticVerificationEnabled } from "@/lib/server/ai"
+import { finishVerifyUsage, reserveVerifyUsage } from "@/lib/server/ai-usage"
 import { writeAudit } from "@/lib/server/audit"
 import {
   buildEvidenceHash,
   runSemanticVerification,
+  SEMANTIC_UNAVAILABLE,
   verifyStoredDraft,
   type SemanticOutcome,
 } from "@/lib/server/drafts"
+import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
@@ -82,55 +84,72 @@ function expectedLanguage(draft: DraftRecord): string | null {
 }
 
 export const POST = route({
+  entitlement: "ai",
   roles: ["owner", "admin", "member"],
   params: reviewIdParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {
     const { id } = params
 
     // Load, commit, call the provider with no connection held, then settle —
-    // see the note in app/api/reviews/[id]/drafts/route.ts.
-    const { draft, backstopReached } = await tenant(async (sql) => {
+    // see the note in app/api/reviews/[id]/drafts/route.ts. The call's token
+    // budget is reserved under the organisation lock in the first
+    // transaction (verification costs no credit), so verify and draft calls
+    // running at once cannot together pass the backstop; the usage is then
+    // recorded against the credit period it was reserved in.
+    const enabled = semanticVerificationEnabled()
+    const { draft, reservationId, refused } = await tenant(async (sql) => {
       const record = await loadDraft(sql, id)
       await requireLocationAccess(sql, session, record.location_id)
+      const reservation = enabled
+        ? await reserveVerifyUsage(sql, {
+            organisationId: session.organisationId,
+            model: getServerEnv().OPENAI_MODEL_VERIFY,
+            reviewId: record.review_id,
+            draftId: record.id,
+            requestKey: `${requestId}:verification`,
+            userId: session.userId,
+          })
+        : null
       return {
         draft: record,
-        backstopReached: await tokenBackstopReached(
-          sql,
-          session.organisationId
-        ),
+        reservationId:
+          reservation && "id" in reservation ? reservation.id : null,
+        refused:
+          reservation && "refused" in reservation ? reservation.refused : null,
       }
     })
 
-    // Past the token backstop the check is skipped (reported as not run), so
-    // the draft stays pending and cannot be published unverified.
-    const semantic: SemanticOutcome = backstopReached
-      ? { status: "skipped", reasons: [] }
-      : await runSemanticVerification({
-          body: draft.body,
-          reviewText: draft.review_text,
-          reviewerName: draft.reviewer_name,
-          locationName: draft.location_name,
-          rating: draft.rating,
-          expectedLanguage: expectedLanguage(draft) ?? "en",
-        })
+    // Past the token backstop the check is skipped (reported as not run). A
+    // request key already in the ledger is not the backstop: the pass did
+    // not run, so the draft is left `pending` (`unavailable`).
+    const semantic: SemanticOutcome =
+      refused === "backstop"
+        ? { status: "skipped", reasons: [] }
+        : refused === "duplicate"
+          ? { status: "unavailable", reasons: [SEMANTIC_UNAVAILABLE] }
+          : await runSemanticVerification({
+              body: draft.body,
+              reviewText: draft.review_text,
+              reviewerName: draft.reviewer_name,
+              locationName: draft.location_name,
+              rating: draft.rating,
+              expectedLanguage: expectedLanguage(draft) ?? "en",
+            }).catch(async (error: unknown) => {
+              if (reservationId) {
+                await finishVerifyUsage(tenant, { id: reservationId })
+              }
+              throw error
+            })
 
     // The provider call was paid for; record it apart from the settle
     // transaction so a 404 or a later throw cannot roll it back and a ledger
     // failure cannot fail the verify.
-    if (semantic.usage && semantic.model) {
-      await recordAiUsageDetached(tenant, [
-        {
-          organisationId: session.organisationId,
-          kind: "verify",
-          credits: 0,
-          model: semantic.model,
-          usage: semantic.usage,
-          reviewId: draft.review_id,
-          draftId: draft.id,
-          requestId: `${requestId}:verification`,
-          userId: session.userId,
-        },
-      ])
+    if (reservationId) {
+      await finishVerifyUsage(tenant, {
+        id: reservationId,
+        usage: semantic.usage,
+        model: semantic.model,
+      })
     }
 
     const result = await tenant(async (sql) => {

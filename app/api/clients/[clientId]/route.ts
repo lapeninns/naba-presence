@@ -5,8 +5,14 @@ import {
   type ClientResponse,
 } from "@/lib/contracts/clients"
 import { writeAudit } from "@/lib/server/audit"
-import { loadClientSummary, uniqueClientSlug } from "@/lib/server/clients"
+import {
+  businessSingleClientError,
+  isBusinessSingleClientViolation,
+  loadClientSummary,
+  uniqueClientSlug,
+} from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
+import { requireRecentMfa } from "@/lib/server/mfa"
 import {
   requireClientAccess,
   visibilityPredicate,
@@ -88,7 +94,23 @@ export const PATCH = route({
           )
         }
         if (body.detachLocations) {
+          // Detaching is DELETE ../locations for every location at once, so
+          // it asks for the same step-up; a rename or recolour does not.
+          requireRecentMfa(session)
           await sql`update location set client_id = null where client_id = ${params.clientId}`
+        }
+      }
+
+      if (body.archived === false) {
+        // Restoring an archived client into a business workspace would give
+        // it a second active client; migration 0102 refuses it as well.
+        const [organisation] = await sql<{ workspaceMode: string }[]>`
+          select workspace_mode as "workspaceMode"
+          from organisation
+          where id = ${session.organisationId}
+        `
+        if (organisation?.workspaceMode === "business") {
+          throw businessSingleClientError()
         }
       }
 
@@ -107,7 +129,12 @@ export const PATCH = route({
                 : null
           }
         where id = ${params.clientId}
-      `
+      `.catch((error: unknown) => {
+        if (isBusinessSingleClientViolation(error)) {
+          throw businessSingleClientError()
+        }
+        throw error
+      })
       await writeAudit(sql, {
         organisationId: session.organisationId,
         actorUserId: session.userId,

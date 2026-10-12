@@ -65,16 +65,16 @@ export function createGoogleMediaItem(
   )
 }
 
-export async function uploadGoogleMediaBytes(
+/**
+ * Reserves an upload reference for the bytes (`media:startUpload`). The two
+ * upload steps are separate calls so lib/server/media.ts can record each
+ * checkpoint on the attempt before the next one goes out.
+ */
+export async function startGoogleMediaUpload(
   accessToken: string,
-  input: {
-    accountName: string
-    locationName: string
-    bytes: ArrayBuffer
-    contentType: string
-  },
+  input: { accountName: string; locationName: string },
   options: { connectionKey?: string } = {}
-) {
+): Promise<{ resourceName: string }> {
   const start = googleMediaStartUploadRequest(input)
   const dataRef = await googleRequest<{ resourceName?: string }>(
     start.url,
@@ -82,6 +82,9 @@ export async function uploadGoogleMediaBytes(
     start.init,
     { ...options, mode: "mutation" }
   )
+  // Stays a plain failure, unlike the other malformed answers: starting an
+  // upload only reserves a reference, so with none returned no bytes were
+  // sent and no media item can exist.
   if (!dataRef.resourceName) {
     throw new ApiError(
       502,
@@ -89,16 +92,25 @@ export async function uploadGoogleMediaBytes(
       "Google did not return a media upload reference."
     )
   }
-  const upload = googleMediaBinaryUploadRequest({
-    resourceName: dataRef.resourceName,
-    bytes: input.bytes,
-    contentType: input.contentType,
-  })
+  return { resourceName: dataRef.resourceName }
+}
+
+/**
+ * Sends the bytes to a reserved reference. Uploading alone puts nothing on
+ * the listing: only a create that names the reference does.
+ */
+export async function sendGoogleMediaBytes(
+  accessToken: string,
+  input: { resourceName: string; bytes: ArrayBuffer; contentType: string },
+  options: { connectionKey?: string } = {}
+): Promise<void> {
+  const upload = googleMediaBinaryUploadRequest(input)
+  // The upload answer is never read: its 2xx status alone confirms the bytes.
   await googleRequest<unknown>(upload.url, accessToken, upload.init, {
     ...options,
     mode: "mutation",
+    successBody: "ignored",
   })
-  return { resourceName: dataRef.resourceName }
 }
 
 export function getGoogleMediaItem(

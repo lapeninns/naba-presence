@@ -10,14 +10,14 @@ import type { AuthMessage } from "@/lib/api/auth-errors"
 const COPY = {
   "sign-in": {
     eyebrow: "Welcome back",
-    title: "Sign in to your clients’ reviews",
-    description: "Every client's Google Business Profile, from one inbox.",
+    title: "Sign in to NabaPresence",
+    description: "Your Google reviews and Business Profiles, from one inbox.",
   },
   "create-account": {
-    eyebrow: "New agency",
+    eyebrow: "New account",
     title: "Create your NabaPresence account",
     description:
-      "Name your agency, then add your first client and connect its Google account.",
+      "Set it up for your own business or for an agency, then connect Google.",
   },
 } satisfies Record<
   SignInMode,
@@ -30,17 +30,33 @@ function SignInPanel({
   nextPath,
   statusMessage,
   registrationAllowed = true,
+  workspaceChoice = false,
 }: {
   initialMode?: SignInMode
   inviteToken?: string
   nextPath?: string | null
   statusMessage?: AuthMessage
   registrationAllowed?: boolean
+  /** REGISTRATION_WORKSPACE_CHOICE_ENABLED: offer business or agency. */
+  workspaceChoice?: boolean
 }) {
   const [mode, setMode] = useState<SignInMode>(
     registrationAllowed ? initialMode : "sign-in"
   )
-  const copy = COPY[mode]
+  // An invited person joins the inviting organisation, so the business or
+  // agency choice the create-account copy mentions is not theirs to make.
+  const copy =
+    inviteToken && mode === "create-account"
+      ? {
+          ...COPY[mode],
+          description: "Create an account with the invited email address.",
+        }
+      : mode === "create-account" && !workspaceChoice
+        ? {
+            ...COPY[mode],
+            description: "Set it up for your business, then connect Google.",
+          }
+        : COPY[mode]
 
   return (
     <AuthCard
@@ -50,7 +66,7 @@ function SignInPanel({
       footer={
         <p>
           {registrationAllowed
-            ? "Access is by invitation or a new agency account."
+            ? "Access is by invitation or a new account."
             : "NabaPresence is available by invitation during the pilot."}
         </p>
       }
@@ -61,8 +77,8 @@ function SignInPanel({
         <Alert variant="info">
           <AlertTitle>Sign in to accept your invitation</AlertTitle>
           <AlertDescription>
-            Use the email address the invitation was sent to. You’ll join the
-            agency straight after.
+            Use the email address the invitation was sent to. You’ll join
+            straight after.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -73,6 +89,7 @@ function SignInPanel({
         nextPath={nextPath}
         statusMessage={statusMessage}
         registrationAllowed={registrationAllowed}
+        workspaceChoice={workspaceChoice}
       />
     </AuthCard>
   )

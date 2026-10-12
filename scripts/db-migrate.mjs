@@ -5,13 +5,13 @@ import { fileURLToPath } from "node:url"
 import nextEnv from "@next/env"
 import postgres from "postgres"
 
-import { prepareMigration } from "./migration-rules.mjs"
+import { migrationDatabaseUrl, prepareMigration } from "./migration-rules.mjs"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const { loadEnvConfig } = nextEnv
 loadEnvConfig(root)
 
-const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL
+const url = migrationDatabaseUrl(process.env)
 if (!url) {
   throw new Error("DIRECT_DATABASE_URL or DATABASE_URL is required")
 }

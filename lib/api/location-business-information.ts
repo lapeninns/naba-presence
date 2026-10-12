@@ -10,7 +10,7 @@ import {
   type BusinessInformationState,
 } from "@/lib/contracts/location-business-information"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 import { gbpChangeSetResponseSchema, gbpChangeSetsResponseSchema } from "@/lib/contracts/gbp-change-set"
 import { serviceAttemptResponseSchema } from "@/lib/contracts/service-attempt"
 import { serviceWorkflowsResponseSchema } from "@/lib/contracts/service-workflows"
@@ -61,7 +61,8 @@ export function fetchBusinessInformationReviews(id: string, options?: RequestOpt
 
 export function publishBusinessInformation(
   id: string,
-  input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash" | "changeSetId">
+  input: Pick<BusinessInformationLocationUpdate, "updateMask" | "payload" | "expectedGoogleHash" | "changeSetId">,
+  options: MutationOptions = {}
 ) {
   const body: BusinessInformationLocationUpdate = {
     operation: "update_location",
@@ -75,6 +76,7 @@ export function publishBusinessInformation(
     method: "PATCH",
     body,
     schema: businessInformationMutationResultSchema,
+    intentId: options.intentId,
   })
 }
 
@@ -92,7 +94,8 @@ export function approveBusinessInformation(id: string, changeSetId: string, expe
 
 export function publishBusinessAttributes(
   id: string,
-  input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash" | "changeSetId">
+  input: Pick<BusinessInformationAttributeUpdate, "attributeMask" | "attributes" | "expectedGoogleHash" | "changeSetId">,
+  options: MutationOptions = {}
 ) {
   const body: BusinessInformationAttributeUpdate = {
     operation: "update_attributes",
@@ -106,6 +109,7 @@ export function publishBusinessAttributes(
     method: "PATCH",
     body,
     schema: businessInformationMutationResultSchema,
+    intentId: options.intentId,
   })
 }
 

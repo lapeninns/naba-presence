@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
+import { appOrigins } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { type RawParams, route, type RouteHandler } from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
@@ -64,6 +65,8 @@ beforeAll(() => {
   vi.stubEnv("NEXTAUTH_SECRET", "n".repeat(32))
   vi.stubEnv("TOKEN_ENCRYPTION_KEY", "t".repeat(32))
   vi.stubEnv("CRON_SECRET", CRON_SECRET)
+  vi.stubEnv("NEXTAUTH_URL", "https://app.example.test/some/path")
+  vi.stubEnv("APP_ALLOWED_ORIGINS", "https://proxy.example.test")
 })
 
 beforeEach(() => {
@@ -156,7 +159,11 @@ describe("route() — errors", () => {
     expect(await empty.json()).toEqual({ tone: "warm" })
     const invalid = await call(
       POST,
-      request("/api/test", { method: "POST", body: "{not json" })
+      request("/api/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+      })
     )
     expect(await invalid.json()).toEqual({ tone: "warm" })
   })
@@ -314,6 +321,190 @@ describe("route() — support impersonation attribution", () => {
     const { GET, rows } = auditingRoute()
     await call(GET, request())
     expect(rows[0]).toEqual({ released: true })
+  })
+})
+
+describe("route() — same-origin guard", () => {
+  const handler = vi.fn(async () => ({ ok: true }))
+
+  function post(headers: Record<string, string>) {
+    return request("/api/test", { method: "POST", headers })
+  }
+
+  it("refuses a cross-origin session POST with 403 cross_origin_request", async () => {
+    const POST = route({ handler })
+    const response = await call(POST, post({ origin: "https://evil.example" }))
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toBe("cross_origin_request")
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("refuses an opaque null origin and a cross-site Sec-Fetch-Site", async () => {
+    const POST = route({ handler })
+    expect((await call(POST, post({ origin: "null" }))).status).toBe(403)
+    for (const site of ["cross-site", "same-site"]) {
+      const response = await call(POST, post({ "sec-fetch-site": site }))
+      expect(response.status).toBe(403)
+    }
+  })
+
+  it("accepts the request's own origin, NEXTAUTH_URL's and APP_ALLOWED_ORIGINS", async () => {
+    const POST = route({ handler })
+    for (const origin of [
+      "http://localhost",
+      "https://app.example.test",
+      "https://proxy.example.test",
+    ]) {
+      const response = await call(POST, post({ origin }))
+      expect(response.status).toBe(200)
+    }
+  })
+
+  it("lets the E2E harness through via NEXTAUTH_URL; request.url follows the bound host", async () => {
+    // `next start` builds request.url from the bound hostname and port
+    // (localhost:<port> by default), never from the browser's Host header.
+    // The harness browses 127.0.0.1:3100, so it passes only because
+    // playwright.config.ts sets NEXTAUTH_URL to that origin.
+    expect(
+      appOrigins({ NEXTAUTH_URL: "http://127.0.0.1:3100", APP_ALLOWED_ORIGINS: [] })
+    ).toEqual(["http://127.0.0.1:3100"])
+    const POST = route({ handler })
+    const asNextBuildsIt = (origin: string) =>
+      new Request("http://localhost:3100/api/test", {
+        method: "POST",
+        headers: { origin },
+      })
+    // This suite's NEXTAUTH_URL is https://app.example.test.
+    expect(
+      (await call(POST, asNextBuildsIt("https://app.example.test"))).status
+    ).toBe(200)
+    // An origin that is neither configured nor request.url's own is refused,
+    // even though it is the host the browser actually used.
+    expect(
+      (await call(POST, asNextBuildsIt("http://127.0.0.1:3100"))).status
+    ).toBe(403)
+  })
+
+  it("lets a missing Origin through when Sec-Fetch-Site is same-origin or none", async () => {
+    const POST = route({ handler })
+    for (const site of ["same-origin", "none"]) {
+      const response = await call(POST, post({ "sec-fetch-site": site }))
+      expect(response.status).toBe(200)
+    }
+  })
+
+  it("lets a non-browser caller with neither header through", async () => {
+    const POST = route({ handler })
+    expect((await call(POST, post({}))).status).toBe(200)
+  })
+
+  it("never checks safe methods", async () => {
+    const GET = route({ handler })
+    const response = await call(
+      GET,
+      request("/api/test", { headers: { origin: "https://evil.example" } })
+    )
+    expect(response.status).toBe(200)
+  })
+
+  it("leaves cron and public routes alone unless they opt in", async () => {
+    const cron = route({ auth: "cron", handler })
+    const cronResponse = await call(
+      cron,
+      post({
+        origin: "https://evil.example",
+        authorization: `Bearer ${CRON_SECRET}`,
+      })
+    )
+    expect(cronResponse.status).toBe(200)
+    const webhook = route({ auth: "public", handler })
+    expect(
+      (await call(webhook, post({ origin: "https://pubsub.example" }))).status
+    ).toBe(200)
+    const explicit = route({ auth: "public", origin: "any", handler })
+    expect(
+      (await call(explicit, post({ origin: "https://pubsub.example" }))).status
+    ).toBe(200)
+  })
+
+  it("guards a public route that opts in, except for the cron bearer", async () => {
+    const POST = route({ auth: "public", origin: "same", handler })
+    const forged = await call(POST, post({ origin: "https://evil.example" }))
+    expect(forged.status).toBe(403)
+    expect((await forged.json()).error).toBe("cross_origin_request")
+    const scheduler = await call(
+      POST,
+      post({
+        "sec-fetch-site": "cross-site",
+        authorization: `Bearer ${CRON_SECRET}`,
+      })
+    )
+    expect(scheduler.status).toBe(200)
+  })
+
+  it("refuses a session route with origin: same before looking up the session", async () => {
+    signedIn(null)
+    const POST = route({ handler })
+    const response = await call(POST, post({ origin: "https://evil.example" }))
+    expect(response.status).toBe(403)
+  })
+})
+
+describe("route() — JSON bodies", () => {
+  const schema = z.object({ name: z.string().default("none") })
+
+  it("returns 415 unsupported_media_type for a text/plain body", async () => {
+    const POST = route({ body: schema, handler: async ({ body }) => body })
+    const response = await call(
+      POST,
+      request("/api/test", {
+        method: "POST",
+        headers: { "content-type": "text/plain;charset=UTF-8" },
+        body: JSON.stringify({ name: "x" }),
+      })
+    )
+    expect(response.status).toBe(415)
+    expect((await response.json()).error).toBe("unsupported_media_type")
+  })
+
+  it("refuses a form-encoded body too", async () => {
+    const POST = route({ body: schema, handler: async ({ body }) => body })
+    const response = await call(
+      POST,
+      request("/api/test", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "name=x",
+      })
+    )
+    expect(response.status).toBe(415)
+  })
+
+  it("accepts application/json with parameters and +json types", async () => {
+    const POST = route({ body: schema, handler: async ({ body }) => body })
+    for (const contentType of [
+      "application/json; charset=utf-8",
+      "application/merge-patch+json",
+    ]) {
+      const response = await call(
+        POST,
+        request("/api/test", {
+          method: "POST",
+          headers: { "content-type": contentType },
+          body: JSON.stringify({ name: "x" }),
+        })
+      )
+      expect(await response.json()).toEqual({ name: "x" })
+    }
+  })
+
+  it("does not check the type of a route without a body schema", async () => {
+    const POST = route({ handler: async () => ({ ok: true }) })
+    const response = await call(
+      POST,
+      request("/api/test", { method: "POST", body: "anything" })
+    )
+    expect(response.status).toBe(200)
   })
 })
 

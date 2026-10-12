@@ -4,6 +4,7 @@ import {
   memberRemoveSchema,
   memberUpdateSchema,
   type MemberClientTotal,
+  type LocationScope,
   type MemberRemovedResponse,
   type MemberRole,
 } from "@/lib/contracts/members"
@@ -50,6 +51,7 @@ export const GET = route({
           u.display_name as "displayName",
           m.role,
           m.can_publish as "canPublish",
+          m.location_scope as "locationScope",
           m.created_at as "createdAt",
           coalesce(
             json_agg(
@@ -67,7 +69,7 @@ export const GET = route({
           on lm.organisation_id = m.organisation_id
          and lm.user_id = m.user_id
         left join location l on l.id = lm.location_id
-        group by u.id, m.role, m.can_publish, m.created_at
+        group by u.id, m.role, m.can_publish, m.location_scope, m.created_at
         order by
           case m.role
             when 'owner' then 1
@@ -91,6 +93,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   handler: () => {
     throw new ApiError(
@@ -102,6 +105,7 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: memberUpdateSchema,
   handler: async ({
@@ -113,8 +117,17 @@ export const PATCH = route({
   }) => {
     assertRoleChangeAllowed(session.role, input.role)
     const member = await tenant(async (sql) => {
-      const [current] = await sql<{ role: MemberRole; canPublish: boolean }[]>`
-        select role, can_publish as "canPublish"
+      const [current] = await sql<
+        {
+          role: MemberRole
+          canPublish: boolean
+          locationScope: LocationScope
+        }[]
+      >`
+        select
+          role,
+          can_publish as "canPublish",
+          location_scope as "locationScope"
         from member
         where user_id = ${input.userId}
         limit 1
@@ -132,14 +145,49 @@ export const PATCH = route({
       if (current.role === "owner" && input.role !== "owner") {
         await assertAnotherOwnerRemains(sql)
       }
-      const [row] = await sql`
+      // The scope moves with the role (supabase 0082) so the change grants
+      // exactly what it granted before the scope existed:
+      //   to owner/admin               -> 'all'; their rows stay, latent, so
+      //                                   a later demotion restores them.
+      //   member/viewer -> either      -> unchanged.
+      //   owner/admin -> member/viewer -> 'assigned' when they hold rows (the
+      //                                   latent rows become active, as they
+      //                                   always have, restored as they were
+      //                                   at promotion: extendClientHolders
+      //                                   skips 'all' holders, so listings
+      //                                   filed meanwhile are not among
+      //                                   them), otherwise 'all'.
+      // Decided inside the UPDATE, against the row it locks, so a concurrent
+      // client-access save cannot leave a scope computed from a stale read.
+      const [row] = await sql<
+        {
+          userId: string
+          role: MemberRole
+          canPublish: boolean
+          locationScope: LocationScope
+          createdAt: Date
+        }[]
+      >`
         update member
-        set role = ${input.role}, can_publish = ${input.canPublish}
+        set
+          role = ${input.role},
+          can_publish = ${input.canPublish},
+          location_scope = case
+            when ${input.role} in ('owner', 'admin') then 'all'
+            when member.role in ('member', 'viewer') then member.location_scope
+            when exists (
+              select 1 from location_member lm
+              where lm.organisation_id = member.organisation_id
+                and lm.user_id = member.user_id
+            ) then 'assigned'
+            else 'all'
+          end
         where user_id = ${input.userId}
         returning
           user_id::text as "userId",
           role,
           can_publish as "canPublish",
+          location_scope as "locationScope",
           created_at as "createdAt"
       `
       await writeAudit(sql, {
@@ -151,7 +199,11 @@ export const PATCH = route({
         requestId,
         metadata: {
           before: current,
-          after: { role: input.role, canPublish: input.canPublish },
+          after: {
+            role: input.role,
+            canPublish: input.canPublish,
+            locationScope: row.locationScope,
+          },
           clientRequestId,
         },
       })
@@ -162,6 +214,8 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  mfa: "step_up",
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: memberRemoveSchema,
   handler: async ({

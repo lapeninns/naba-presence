@@ -6,7 +6,7 @@ import {
   type InvitationCreatedResponse,
   type InvitationsResponse,
 } from "@/lib/contracts/invitations"
-import { type MemberRole } from "@/lib/contracts/members"
+import { type LocationScope, type MemberRole } from "@/lib/contracts/members"
 import { writeAudit } from "@/lib/server/audit"
 import {
   decryptSecret,
@@ -16,6 +16,13 @@ import {
 } from "@/lib/server/crypto"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import {
+  attemptInvitationDelivery,
+  enqueueInvitationDelivery,
+  invitationEmailEnabled,
+  latestDelivery,
+  serialiseDelivery,
+} from "@/lib/server/invitations/delivery"
 import { assertRoleChangeAllowed } from "@/lib/server/member-roles"
 import { route } from "@/lib/server/route"
 
@@ -34,8 +41,9 @@ function isUniqueViolation(error: unknown) {
  * Checks a scoped invitation before it is stored, and returns the client ids
  * de-duplicated. The scope only means something for members and viewers,
  * every id must be a client of this organisation (RLS scopes the lookup), and
- * together they must hold at least one listing: accepted with none, the
- * invitee would have no location_member rows, which means every client.
+ * together they must hold at least one listing: an `assigned` scope with
+ * nothing in it would join the invitee seeing nothing, so it is refused here
+ * as acceptance refuses it (invitation_scope_empty), never widened.
  */
 async function validateClientScope(
   sql: TransactionSql,
@@ -67,17 +75,62 @@ async function validateClientScope(
   if (found.every((client) => client.listings === 0)) {
     throw new ApiError(
       409,
-      "would_widen_to_all_clients",
-      "Those clients have no listings yet, so the invitation would give every client. Add their listings first, or invite for all clients."
+      "invitation_scope_empty",
+      "Those clients have no listings yet, so the invitation would give access to nothing. Add their listings first, or invite for all clients."
     )
   }
   return clientIds
 }
 
+/**
+ * Checks a business invitation's listings before it is stored, and returns
+ * them de-duplicated. Same rules as a client scope: members and viewers only,
+ * and every id must be a listing of this organisation (RLS scopes the
+ * lookup). Business workspaces grant a location at a time, so an agency
+ * workspace is pointed at clients instead, as the Client access dialog is.
+ */
+async function validateLocationScope(
+  sql: TransactionSql,
+  role: MemberRole,
+  workspaceMode: "business" | "agency" | undefined,
+  requested: string[]
+) {
+  if (role === "owner" || role === "admin") {
+    throw new ApiError(
+      409,
+      "role_sees_all_clients",
+      "Owners and admins always see every location. Invite them without choosing locations."
+    )
+  }
+  if (workspaceMode === "agency") {
+    throw new ApiError(
+      409,
+      "wrong_workspace_mode",
+      "Access is granted a client at a time in an agency workspace."
+    )
+  }
+  const locationIds = [...new Set(requested.map((id) => id.toLowerCase()))]
+  const found = await sql<{ id: string }[]>`
+    select id::text as id from location where id in ${sql(locationIds)}
+  `
+  if (found.length !== locationIds.length) {
+    throw new ApiError(
+      404,
+      "location_not_found",
+      "One or more of those locations was not found."
+    )
+  }
+  return locationIds
+}
+
 export const GET = route({
   roles: ["owner", "admin"],
-  handler: async ({ tenant }) => {
-    const items = await tenant(async (sql) => {
+  handler: async ({ session, tenant }) => {
+    const { items, emailDelivery } = await tenant(async (sql) => {
+      const emailDelivery = await invitationEmailEnabled(
+        sql,
+        session.organisationId
+      )
       const rows = await sql<
         Array<{
           id: string
@@ -85,14 +138,25 @@ export const GET = route({
           role: MemberRole
           canPublish: boolean
           clients: { id: string; name: string }[] | null
+          locations: { id: string; name: string }[] | null
+          locationScope: LocationScope
           tokenCiphertext: Buffer
           expiresAt: Date
           acceptedAt: Date | null
           createdAt: Date
+          delivery: {
+            id: string
+            kind: "initial" | "resend"
+            status: "pending" | "sent" | "failed" | "suppressed" | "uncertain"
+            errorCode: string | null
+            attempts: number
+            sentAt: string | null
+            createdAt: string
+          } | null
         }>
       >`
         select
-          id::text as id,
+          i.id::text as id,
           email,
           role,
           can_publish as "canPublish",
@@ -104,16 +168,40 @@ export const GET = route({
             from client c
             where c.id = any(i.client_ids)
           ) end as clients,
+          case when i.location_ids is null then null else (
+            select coalesce(
+              json_agg(json_build_object('id', l.id::text, 'name', l.name) order by lower(l.name)),
+              '[]'::json
+            )
+            from location l
+            where l.id = any(i.location_ids)
+          ) end as locations,
+          location_scope as "locationScope",
           token_ciphertext as "tokenCiphertext",
           expires_at as "expiresAt",
-          accepted_at as "acceptedAt",
-          created_at as "createdAt"
+          i.accepted_at as "acceptedAt",
+          i.created_at as "createdAt",
+          (
+            select json_build_object(
+              'id', d.id::text,
+              'kind', d.kind,
+              'status', d.status,
+              'errorCode', d.last_error_code,
+              'attempts', d.attempts,
+              'sentAt', d.sent_at,
+              'createdAt', d.created_at
+            )
+            from invitation_delivery d
+            where d.invitation_id = i.id
+            order by d.created_at desc, d.id desc
+            limit 1
+          ) as delivery
         from invitation i
-        where accepted_at is null
-        order by created_at desc
+        where i.accepted_at is null
+        order by i.created_at desc
       `
       const baseUrl = getServerEnv().NEXTAUTH_URL ?? "http://localhost:3000"
-      return rows.map(({ tokenCiphertext, ...row }) => ({
+      const items = rows.map(({ tokenCiphertext, delivery, ...row }) => ({
         ...row,
         expiresAt: row.expiresAt.toISOString(),
         acceptedAt: row.acceptedAt?.toISOString() ?? null,
@@ -122,13 +210,22 @@ export const GET = route({
           `/invite/${decryptSecret(tokenCiphertext)}`,
           baseUrl
         ).toString(),
+        delivery: delivery
+          ? serialiseDelivery({
+              ...delivery,
+              sentAt: delivery.sentAt ? new Date(delivery.sentAt) : null,
+              createdAt: new Date(delivery.createdAt),
+            })
+          : null,
       }))
+      return { items, emailDelivery }
     })
-    return { items } satisfies InvitationsResponse
+    return { items, emailDelivery } satisfies InvitationsResponse
   },
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: invitationCreateSchema,
   handler: async ({
@@ -142,6 +239,10 @@ export const POST = route({
     assertRoleChangeAllowed(session.role, input.role)
     const token = randomToken()
     let invitation: InvitationCreatedResponse["invitation"]
+    // Set when the organisation emails its invitations: the row written in
+    // the same transaction as the invitation (and counted against the abuse
+    // limit there), sent once it commits unless the limit suppressed it.
+    let queued: { id: string; queued: boolean } | null = null
     try {
       invitation = await tenant(async (sql) => {
         // Invitations are for people who are not in the organisation yet.
@@ -167,12 +268,25 @@ export const POST = route({
         const clientIds = input.clientIds
           ? await validateClientScope(sql, input.role, input.clientIds)
           : null
+        const locationIds = input.locationIds
+          ? await validateLocationScope(
+              sql,
+              input.role,
+              session.workspaceMode,
+              input.locationIds
+            )
+          : null
+        // Written with the ids it describes, in the same row: the 0082 CHECK
+        // refuses a scope that disagrees with them.
+        const locationScope: LocationScope =
+          clientIds || locationIds ? "assigned" : "all"
         const [row] = await sql<
           Array<{
             id: string
             email: string
             role: MemberRole
             canPublish: boolean
+            locationScope: LocationScope
             expiresAt: Date
             createdAt: Date
           }>
@@ -183,6 +297,8 @@ export const POST = route({
             role,
             can_publish,
             client_ids,
+            location_ids,
+            location_scope,
             token_hash,
             token_ciphertext,
             invited_by,
@@ -194,6 +310,8 @@ export const POST = route({
             ${input.role},
             ${input.canPublish},
             ${clientIds ? sql.array(clientIds) : null}::uuid[],
+            ${locationIds ? sql.array(locationIds) : null}::uuid[],
+            ${locationScope},
             ${sha256(token)},
             ${encryptSecret(token)},
             ${session.userId},
@@ -204,6 +322,7 @@ export const POST = route({
             email,
             role,
             can_publish as "canPublish",
+            location_scope as "locationScope",
             expires_at as "expiresAt",
             created_at as "createdAt"
         `
@@ -219,15 +338,33 @@ export const POST = route({
             role: input.role,
             canPublish: input.canPublish,
             clientIds,
+            locationIds,
+            locationScope,
             clientRequestId,
           },
         })
+        if (await invitationEmailEnabled(sql, session.organisationId)) {
+          queued = await enqueueInvitationDelivery(sql, {
+            organisationId: session.organisationId,
+            invitationId: row.id,
+            email: input.email,
+            requestedBy: session.userId,
+            kind: "initial",
+          })
+        }
         return {
           ...row,
           clients: clientIds
             ? await sql<{ id: string; name: string }[]>`
                 select id::text as id, name from client
                 where id in ${sql(clientIds)}
+                order by lower(name)
+              `.then((rows) => rows.map(({ id, name }) => ({ id, name })))
+            : null,
+          locations: locationIds
+            ? await sql<{ id: string; name: string }[]>`
+                select id::text as id, name from location
+                where id in ${sql(locationIds)}
                 order by lower(name)
               `.then((rows) => rows.map(({ id, name }) => ({ id, name })))
             : null,
@@ -244,6 +381,26 @@ export const POST = route({
         )
       }
       throw error
+    }
+    // Read through a const: TypeScript does not see the assignment inside
+    // the transaction callback.
+    const delivery = queued as { id: string; queued: boolean } | null
+    if (delivery) {
+      // Inline, so the inviter sees Sent (or why not) straight away. The
+      // invitation is committed either way; a send this request does not
+      // settle is the job tick's.
+      if (delivery.queued) {
+        await attemptInvitationDelivery({
+          organisationId: session.organisationId,
+          deliveryId: delivery.id,
+          requestId,
+        })
+      }
+      const invitationId = invitation.id
+      invitation = {
+        ...invitation,
+        delivery: await tenant((sql) => latestDelivery(sql, invitationId)),
+      }
     }
     const baseUrl = getServerEnv().NEXTAUTH_URL ?? new URL(request.url).origin
     return NextResponse.json(

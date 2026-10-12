@@ -210,6 +210,34 @@ export function verifyOAuthState(value: string, signature: string): boolean {
   return false
 }
 
+/**
+ * Seals an opaque client-held cursor: `payload.mac`, the MAC an HMAC under
+ * NEXTAUTH_SECRET over the payload and a `binding` that names what the cursor
+ * may continue (for example an organisation and a subject hash). The binding
+ * is never written into the cursor, so a cursor reveals nothing about it, and
+ * neither the payload (position, page index) nor the binding can be changed
+ * without the key. Rotating NEXTAUTH_SECRET invalidates cursors in flight;
+ * their holders start again from the first page.
+ */
+export function sealCursor(payload: string, binding: string): string {
+  const { NEXTAUTH_SECRET } = getServerEnv()
+  return `${payload}.${hmac(NEXTAUTH_SECRET, `naba-cursor:${binding}:${payload}`)}`
+}
+
+/** The payload of a cursor `sealCursor` made for `binding`, or `null`. */
+export function openCursor(
+  sealed: string | null | undefined,
+  binding: string
+): string | null {
+  if (!sealed) return null
+  const separator = sealed.lastIndexOf(".")
+  if (separator <= 0) return null
+  const payload = sealed.slice(0, separator)
+  return constantTimeEqual(sealCursor(payload, binding), sealed)
+    ? payload
+    : null
+}
+
 export function secretEqual(
   provided: string | null | undefined,
   expected: string

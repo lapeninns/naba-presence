@@ -3,10 +3,10 @@ import type { z } from "zod"
 import { reconcileSchema } from "@/lib/contracts/sync"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { withAdvisoryLock } from "@/lib/server/leases"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
   linkedLocations,
   syncLinkedLocation,
@@ -19,6 +19,13 @@ import { getSession, requireRole, type Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
+
+// SYNC_ENABLED is the hard override; the operator pause table
+// (lib/server/pause-controls.ts) pauses the same scope without a redeploy.
+const SYNC_PAUSED = {
+  code: "sync_paused",
+  message: "Review sync is paused.",
+}
 
 type ReconcileFailure = {
   organisationId: string
@@ -252,8 +259,12 @@ async function runReconcilePage({
   requestId,
   clientRequestId,
 }: ReconcilePageInput) {
-  const result = await withAdvisoryLock("naba:reconcile", () =>
-    reconcile({ session, input, requestId, clientRequestId })
+  // A session reconcile takes the fleet lease too; recorded as manual so it
+  // cannot stand in for the cron's heartbeat.
+  const result = await withAdvisoryLock(
+    "naba:reconcile",
+    () => reconcile({ session, input, requestId, clientRequestId }),
+    { trigger: session ? "manual" : "cron" }
   )
   if ("skipped" in result) {
     return {
@@ -269,11 +280,10 @@ async function runReconcilePage({
 
 export const POST = route({
   auth: "public",
+  origin: "same",
   handler: async ({ request, requestId, clientRequestId }) => {
     const session = await authenticate(request)
-    if (!getServerEnv().SYNC_ENABLED) {
-      throw new ApiError(503, "sync_paused", "Review sync is paused.")
-    }
+    await requireScopesEnabled("sync", SYNC_PAUSED)
     const input = reconcileSchema.parse(await request.json().catch(() => ({})))
     return runReconcilePage({ session, input, requestId, clientRequestId })
   },
@@ -289,9 +299,7 @@ export const POST = route({
 export const GET = route({
   auth: "cron",
   handler: async ({ query, requestId }) => {
-    if (!getServerEnv().SYNC_ENABLED) {
-      throw new ApiError(503, "sync_paused", "Review sync is paused.")
-    }
+    await requireScopesEnabled("sync", SYNC_PAUSED)
     reconcileSchema.parse(cronPageInput(query))
     return enqueueRecurring("reconcile", requestId)
   },

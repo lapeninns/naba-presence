@@ -26,3 +26,15 @@ be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_e
 be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:2
 be0f36c3aa4b2f9899bc0387e22891375f1496c7:supabase/.temp/start-secrets/supabase_edge_runtime_nabapresence/env/docker.env:jwt:3
 c476bcafe9135a3f978cb41c97fc46b107e1c710:.superpowers/brainstorm/8133-1785323857/state/server.log:generic-api-key:1
+#
+# Stream B billing test fixtures (P07-S4/S5, merged in feat/integration-waves):
+# made-up Stripe-shaped strings (sk_test_/sk_live_/rk_live_ plus a word) given
+# to the config parser and a local Stripe stub; never real keys. The merge
+# shortened them so the current tree no longer matches; these entries cover
+# the stream's own commits, which the merge keeps in history.
+fa3faf23be2a8656e4768f9aaa708a5a97a08bf3:tests/billing-webhook.test.ts:generic-api-key:169
+fa3faf23be2a8656e4768f9aaa708a5a97a08bf3:tests/billing-webhook.test.ts:generic-api-key:178
+d198a098b46fb4af004617e006598fa445ef6de5:tests/integration/routes/billing-checkout.test.ts:stripe-access-token:242
+fa3faf23be2a8656e4768f9aaa708a5a97a08bf3:tests/integration/routes/billing-events.test.ts:stripe-access-token:216
+fa3faf23be2a8656e4768f9aaa708a5a97a08bf3:tests/integration/routes/billing-events.test.ts:stripe-access-token:230
+fa3faf23be2a8656e4768f9aaa708a5a97a08bf3:tests/integration/routes/billing-events.test.ts:stripe-access-token:242

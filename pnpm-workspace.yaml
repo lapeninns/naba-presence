@@ -1,5 +1,9 @@
 packages: []
 
+# Refuse to install on a Node outside package.json `engines` (Node 24, the
+# same major as .nvmrc, CI and the Vercel project).
+engineStrict: true
+
 allowBuilds:
   sharp: true
   unrs-resolver: true

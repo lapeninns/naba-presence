@@ -3,6 +3,8 @@
 import { PencilIcon, Plus } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 
+import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { DraftNotices } from "@/components/editors/draft-notices"
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button } from "@/components/ui/button"
 import { ToggleChip } from "@/components/ui/chip"
@@ -43,7 +45,8 @@ import {
   type LocalPostActionType,
   type LocalPostTopicType,
 } from "@/lib/contracts/location-posts"
-import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useCloseGuard } from "@/lib/editors/use-close-guard"
+import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   localPostFormSchema,
   type LocalPostFormValues,
@@ -110,6 +113,36 @@ const EMPTY: Values = {
   action: "",
   actionUrl: "",
   ...NO_RECURRENCE,
+}
+
+/**
+ * A new post's untouched form: the type picker alone, or whitespace, is not
+ * something to ask about before closing.
+ */
+function sameNewPost(a: Values, b: Values): boolean {
+  return (Object.keys(EMPTY) as Array<keyof Values>).every((key) => {
+    if (key === "topicType") return true
+    const left = a[key]
+    const right = b[key]
+    return typeof left === "string" && typeof right === "string"
+      ? left.trim() === right.trim()
+      : JSON.stringify(left) === JSON.stringify(right)
+  })
+}
+
+/** A stashed draft back into the fields, or null when its shape is not ours. */
+function parseValues(value: unknown): Values | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const stashed = value as Record<string, unknown>
+  const fits = (Object.keys(EMPTY) as Array<keyof Values>).every((key) =>
+    Array.isArray(EMPTY[key])
+      ? Array.isArray(stashed[key])
+      : typeof stashed[key] === typeof EMPTY[key]
+  )
+  if (!fits) return null
+  return Object.fromEntries(
+    Object.keys(EMPTY).map((key) => [key, stashed[key]])
+  ) as Values
 }
 
 type Errors = Partial<
@@ -311,9 +344,21 @@ export function PostComposerSheet({
 }) {
   const editing = Boolean(post)
   const [open, setOpen] = useState(false)
-  const [values, setValues] = useState<Values>(() =>
-    post ? postFormValues(post, timezone) : EMPTY
-  )
+  // The fields start from the saved post (or an empty one) and follow it
+  // when it changes, without overwriting unsaved edits: a newer save by
+  // someone else is offered, as are edits stashed when the page was left.
+  const editor = useEditorDraft<Values>({
+    initial: post ? postFormValues(post, timezone) : EMPTY,
+    revision: post ? post.updatedAt : "new",
+    scope: post
+      ? { resource: "location-post-edit", resourceId: `${locationId}/${post.id}`, schemaVersion: 1 }
+      : { resource: "location-post-new", resourceId: locationId, schemaVersion: 1 },
+    parseStashed: parseValues,
+    isEqual: post ? undefined : sameNewPost,
+  })
+  const values = editor.draft
+  const setValues = editor.setDraft
+  const isDirty = editor.isDirty
   const [errors, setErrors] = useState<Errors>({})
   const [serverError, setServerError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -327,33 +372,17 @@ export function PostComposerSheet({
   const set = <K extends keyof Values>(key: K, value: Values[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
 
-  const isDirty = post
-    ? JSON.stringify(values) !== JSON.stringify(postFormValues(post, timezone))
-    : (Object.keys(EMPTY) as Array<keyof Values>).some((key) => {
-        if (key === "topicType") return false
-        const value = values[key]
-        return typeof value === "string"
-          ? value.trim() !== EMPTY[key]
-          : JSON.stringify(value) !== JSON.stringify(EMPTY[key])
-      })
-  useDirtyGuard({
-    key: post
-      ? `location-posts-edit-${locationId}-${post.id}`
-      : `location-posts-composer-${locationId}`,
+  // Closing with unsaved edits (Escape, a click outside, Cancel) asks
+  // first; discarding puts the fields back to the saved post.
+  const close = useCloseGuard({
     isDirty,
-    snapshot: () => JSON.stringify(values),
-  })
-
-  function changeOpen(next: boolean) {
-    // Each edit starts from the post as it is saved now, not from whatever
-    // was typed and cancelled last time.
-    if (next && post) {
-      setValues(postFormValues(post, timezone))
+    onOpenChange: setOpen,
+    onDiscard: () => {
+      editor.discard()
       setErrors({})
       setServerError(null)
-    }
-    setOpen(next)
-  }
+    },
+  })
 
   // After a failed save, move focus to the first field that needs fixing.
   useEffect(() => {
@@ -375,7 +404,9 @@ export function PostComposerSheet({
     errorContext: "post",
     onError: (_error, message) => setServerError(message),
     onSuccess: () => {
-      if (!post) setValues(EMPTY)
+      // A new post's fields empty for the next one; an edit keeps the saved
+      // values until the refetched post (its own save) replaces them.
+      if (!post) editor.discard()
       setErrors({})
       setServerError(null)
       setOpen(false)
@@ -431,6 +462,7 @@ export function PostComposerSheet({
       return
     }
     setServerError(null)
+    if (post) editor.expectSave()
     create.mutate(parsed.data)
   }
 
@@ -444,7 +476,7 @@ export function PostComposerSheet({
           Paused: publishing to Google is switched off
         </span>
       ) : null}
-      <Sheet open={open} onOpenChange={changeOpen}>
+      <Sheet open={open} onOpenChange={close.onOpenChange}>
         {editing ? (
           <SheetTrigger
             render={<Button size="sm" variant="ghost" disabled={disabled} />}
@@ -476,6 +508,7 @@ export function PostComposerSheet({
           </SheetHeader>
 
           <SheetBody className="@container/composer">
+            <DraftNotices drafts={[editor]} noun="this post" />
             <div className="grid grid-cols-1 items-start gap-6 @[760px]/composer:grid-cols-[minmax(0,1fr)_300px]">
               <div ref={formRef} className="flex min-w-0 flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
@@ -867,7 +900,7 @@ export function PostComposerSheet({
             <span className="hidden text-caption text-ink-muted sm:mr-auto sm:block">
               Posts publish when you press Publish; scheduling isn’t available.
             </span>
-            <Button variant="ghost" onClick={() => changeOpen(false)}>
+            <Button variant="ghost" onClick={close.requestClose}>
               Cancel
             </Button>
             <Button
@@ -879,6 +912,17 @@ export function PostComposerSheet({
               {editing ? "Save changes" : "Save draft"}
             </Button>
           </SheetFooter>
+          <DiscardDialog
+            {...close.prompt}
+            title="Close without saving?"
+            confirmLabel="Close and discard"
+            announce={false}
+            description={
+              editing
+                ? "Your edits to this post aren’t saved. Closing throws them away and keeps the saved draft. Google is not affected."
+                : "This post isn’t saved. Closing throws it away. Google is not affected."
+            }
+          />
         </SheetContent>
       </Sheet>
     </div>

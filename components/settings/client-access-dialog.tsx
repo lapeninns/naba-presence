@@ -200,7 +200,9 @@ export function ClientAccessForm({
         title: "Client access saved",
         description: result.allClients
           ? `${member.displayName} can see every client.`
-          : undefined,
+          : result.noAccess
+            ? `${member.displayName} can’t see any client until you give them access.`
+            : undefined,
         type: "success",
       })
       onDone()
@@ -228,9 +230,6 @@ export function ClientAccessForm({
     selected,
     totalClients: rows.filter((row) => row.total > 0).length,
   })
-  const nothingGranted =
-    mode === "some" && selected.every((client) => client.listings === 0)
-
   const update = (next: (current: Map<string, ClientPick>) => void) => {
     setPicks((current) => {
       const copy = new Map(current)
@@ -433,7 +432,7 @@ export function ClientAccessForm({
       <DialogFooter>
         <DialogClose render={<Button variant="ghost">Cancel</Button>} />
         <Button
-          disabled={!dirty || nothingGranted}
+          disabled={!dirty}
           pending={save.isPending}
           pendingLabel="Saving…"
           onClick={onSave}

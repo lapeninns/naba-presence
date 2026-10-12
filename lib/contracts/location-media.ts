@@ -7,7 +7,10 @@
  */
 import { z } from "zod"
 
+import { decodeCursor, encodeCursor } from "@/lib/contracts/cursor"
+import { httpUrl } from "@/lib/contracts/http-url"
 import { GOOGLE_MEDIA_CATEGORIES } from "@/lib/domain/google-contract"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -27,23 +30,53 @@ export const MIN_PHOTO_UPLOAD_BYTES = 10 * 1024
 // Requests
 // ---------------------------------------------------------------------------
 
-/** GET `/media` query (`page`/`pageSize` arrive as strings). */
+/**
+ * GET `/media` query (`pageSize` arrives as a string). Paging is by keyset
+ * `cursor` within one set of filters.
+ */
 export const mediaListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().optional(),
+  cursor: z.string().max(1024).optional(),
   refresh: z.literal("1").optional(),
   category: z.enum(GOOGLE_MEDIA_CATEGORIES).optional(),
   ownership: z.enum(MEDIA_OWNERSHIPS).optional(),
 })
 export type MediaListQuery = z.infer<typeof mediaListQuerySchema>
 
+/**
+ * The position after a page's last item in the library's order: customer
+ * before merchant, newest Google create time first (none last), then id.
+ * Bound to its location and filters; the server refuses it anywhere else
+ * (400 `invalid_cursor`).
+ */
+export const mediaCursorSchema = z
+  .object({
+    version: z.literal(1),
+    locationId: z.uuid(),
+    category: z.enum(GOOGLE_MEDIA_CATEGORIES).nullable(),
+    ownershipFilter: z.enum(MEDIA_OWNERSHIPS).nullable(),
+    ownership: z.enum(MEDIA_OWNERSHIPS),
+    at: z.iso.datetime().nullable(),
+    id: z.uuid(),
+  })
+  .strict()
+export type MediaCursor = z.infer<typeof mediaCursorSchema>
+
+export function encodeMediaCursor(cursor: MediaCursor): string {
+  return encodeCursor(cursor)
+}
+
+export function decodeMediaCursor(
+  value: string | null | undefined
+): MediaCursor | null {
+  return decodeCursor(value, mediaCursorSchema)
+}
+
 /** Create-from-URL fields (the JSON branch of POST `/media`). */
 export const mediaCreateSchema = z.object({
   mediaFormat: z.enum(MEDIA_FORMATS),
   category: z.enum(GOOGLE_MEDIA_CATEGORIES),
-  sourceUrl: z
-    .url()
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol)),
+  sourceUrl: httpUrl(),
   description: z.string().trim().max(1500).optional(),
 })
 export type MediaCreateInput = z.infer<typeof mediaCreateSchema>
@@ -80,9 +113,47 @@ export const mediaDeleteRequestSchema = z.object({
 })
 export type MediaDeleteRequest = z.infer<typeof mediaDeleteRequestSchema>
 
+/**
+ * A person's verdict on a create Google never confirmed: `adopted` -- it is
+ * on Google; `abandoned` -- it is not, so it may be added again.
+ */
+export const MEDIA_RESOLUTIONS = ["adopted", "abandoned"] as const
+export type MediaResolution = (typeof MEDIA_RESOLUTIONS)[number]
+
+/** POST `/media/resolutions/[attemptId]` body. */
+export const mediaResolveRequestSchema = z.object({
+  resolution: z.enum(MEDIA_RESOLUTIONS),
+  confirmation: z.literal("resolve_google_media"),
+})
+export type MediaResolveRequest = z.infer<typeof mediaResolveRequestSchema>
+
 // ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
+
+/**
+ * A create whose outcome is unknown and that no single live media item
+ * accounts for (`needs_resolution`, or sent and not yet reconciled). Another
+ * create of the same content is refused (409 `media_needs_resolution`) until
+ * a person resolves it.
+ */
+export const mediaUnresolvedCreateSchema = z.object({
+  attemptId: z.string(),
+  mediaFormat: z.string().nullable(),
+  category: z.string().nullable(),
+  description: z.string().nullable(),
+  /** Set for an upload. */
+  fileName: z.string().nullable(),
+  /** Set for a create from a URL. */
+  sourceUrl: z.string().nullable(),
+  startedAt: z.string(),
+})
+export type MediaUnresolvedCreateWire = z.input<
+  typeof mediaUnresolvedCreateSchema
+>
+export type MediaUnresolvedCreate = z.output<
+  typeof mediaUnresolvedCreateSchema
+>
 
 /**
  * One `gbp_media_item` row. Google leaves customer photos uncategorised; the
@@ -118,11 +189,14 @@ export const mediaStateSchema = z.object({
   writesEnabled: z.boolean(),
   categories: z.array(z.enum(GOOGLE_MEDIA_CATEGORIES)).readonly(),
   items: z.array(mediaItemSchema),
+  /** Every item matching the filters, not just this page. */
   total: z.number().int().nonnegative(),
-  page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
+  /** Where the next page starts; `null` on the last page. */
+  nextCursor: z.string().nullable(),
   category: z.string().nullable().optional(),
   ownership: z.enum(MEDIA_OWNERSHIPS).nullable().optional(),
+  unresolvedCreates: z.array(mediaUnresolvedCreateSchema).default([]),
 })
 export type MediaStateWire = z.input<typeof mediaStateSchema>
 export type MediaState = z.output<typeof mediaStateSchema>
@@ -137,5 +211,6 @@ export const mediaMutationOutcomeSchema = z.object({
   id: z.string(),
   status: z.string(),
   idempotent: z.boolean(),
+  ...operationSummaryField,
 })
 export type MediaMutationOutcome = z.infer<typeof mediaMutationOutcomeSchema>

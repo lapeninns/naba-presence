@@ -3,6 +3,7 @@ import { AgencyNameForm } from "@/components/settings/agency-name-form"
 import { PolicyForm } from "@/components/settings/policy-form"
 import { SettingsNav } from "@/components/settings/settings-nav"
 import { UsageCard } from "@/components/settings/usage-card"
+import { WorkspaceModeCard } from "@/components/settings/workspace-mode-card"
 import {
   Card,
   CardContent,
@@ -10,6 +11,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { withTenant } from "@/lib/server/db"
+import { getServerEnv } from "@/lib/server/env"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { getSession } from "@/lib/server/session"
 import { workspaceTerms } from "@/lib/workspace/terms"
 
@@ -19,6 +23,18 @@ export default async function SettingsPolicyPage() {
   const session = await getSession()
   const role = session?.role ?? null
   const terms = workspaceTerms(session?.workspaceMode ?? "agency")
+  // Owner-only and dark until the organisation's workspace_mode_change
+  // feature is on; PATCH /api/organisations checks both again.
+  const modeChangeAvailable =
+    session?.role === "owner"
+      ? await withTenant(session.organisationId, (sql) =>
+          isOrgFeatureEnabled(
+            sql,
+            session.organisationId,
+            "workspace_mode_change"
+          )
+        )
+      : false
   return (
     <>
       <PageHeader
@@ -40,7 +56,9 @@ export default async function SettingsPolicyPage() {
             <AgencyNameForm />
           </CardContent>
         </Card>
-        <UsageCard />
+        {modeChangeAvailable ? <WorkspaceModeCard /> : null}
+        {/* With billing on, credits live on the shared Usage screen. */}
+        {getServerEnv().BILLING_ENABLED ? null : <UsageCard />}
         <PolicyForm role={role} />
       </div>
     </>

@@ -9,6 +9,7 @@ import {
   GOOGLE_PERFORMANCE_METRICS,
   type GooglePerformanceMetric,
 } from "@/lib/domain/google-contract"
+import { checkAbuseBudget } from "@/lib/server/abuse-limits"
 import { withTenant } from "@/lib/server/db"
 import {
   recordReportShareView,
@@ -16,6 +17,18 @@ import {
 } from "@/lib/server/report-shares"
 import { loadSharedClientReport } from "@/lib/server/shared-report"
 
+vi.mock("next/headers", () => ({
+  headers: async () =>
+    new Headers({ "x-vercel-forwarded-for": "203.0.113.7" }),
+}))
+vi.mock("@/lib/server/abuse-limits", () => ({
+  checkAbuseBudget: vi.fn(async () => ({
+    allowed: true,
+    retryAfterSeconds: 0,
+  })),
+  clientIpFromHeaders: (headers: Headers) =>
+    headers.get("x-vercel-forwarded-for"),
+}))
 vi.mock("@/lib/server/report-shares", () => ({
   resolveReportShare: vi.fn(),
   recordReportShareView: vi.fn(),
@@ -139,6 +152,29 @@ describe("/share/report/[token]", () => {
     expect(afterCallbacks).toHaveLength(0)
   })
 
+  it("counts the lookup against the client IP before resolving the token", async () => {
+    vi.mocked(resolveReportShare).mockResolvedValue(SHARE)
+    vi.mocked(loadSharedClientReport).mockResolvedValue(REPORT)
+    await call(TOKEN)
+    expect(checkAbuseBudget).toHaveBeenCalledWith("report_share", {
+      ip: "203.0.113.7",
+    })
+  })
+
+  it("is the same 404, resolving nothing, for an address over its limit", async () => {
+    vi.mocked(checkAbuseBudget).mockResolvedValueOnce({
+      allowed: false,
+      retryAfterSeconds: 120,
+    })
+    vi.mocked(resolveReportShare).mockResolvedValue(SHARE)
+    await expect(call(TOKEN)).rejects.toMatchObject({
+      digest: expect.stringMatching(/404/),
+    })
+    expect(resolveReportShare).not.toHaveBeenCalled()
+    expect(withTenant).not.toHaveBeenCalled()
+    expect(afterCallbacks).toHaveLength(0)
+  })
+
   it("is the same 404 when the client has gone since the link was made", async () => {
     vi.mocked(resolveReportShare).mockResolvedValue(SHARE)
     vi.mocked(loadSharedClientReport).mockResolvedValue(null)
@@ -245,6 +281,69 @@ describe("SharedClientReportView", () => {
     expect(
       screen.queryByRole("heading", { name: "Google Business Profile" })
     ).not.toBeInTheDocument()
+  })
+
+  it("states the venues it covers and never shows a missing venue as zero", () => {
+    const { container } = render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          google: {
+            ...REPORT.google!,
+            totals: {
+              ...REPORT.google!.totals,
+              BUSINESS_BOOKINGS: null,
+            },
+            completeness: {
+              state: "partial",
+              expected: 3,
+              covered: 2,
+              completeThrough: "2026-09-12",
+              missing: [{ name: "Old Crown, Cheam", reason: "unavailable" }],
+              refreshFailed: [],
+            },
+          },
+        }}
+      />
+    )
+    const banner = container.querySelector(
+      "[data-slot=partial-coverage]"
+    ) as HTMLElement
+    expect(within(banner).getByText("Showing 2 of 3 venues")).toBeInTheDocument()
+    expect(
+      within(banner).getByText(/Could not be refreshed: Old Crown, Cheam/)
+    ).toBeInTheDocument()
+    expect(
+      within(banner).getByText(/Complete for every venue shown through 12 Sept/)
+    ).toBeInTheDocument()
+    // The oldest complete date also reads in the provenance line.
+    expect(
+      screen.getByText(/All reporting locations complete through 12 Sept/)
+    ).toBeInTheDocument()
+  })
+
+  it("shows no coverage banner for a complete report", () => {
+    const { container } = render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          google: {
+            ...REPORT.google!,
+            completeness: {
+              state: "complete",
+              expected: 2,
+              covered: 2,
+              completeThrough: "2026-09-18",
+              missing: [],
+              refreshFailed: [],
+            },
+          },
+        }}
+      />
+    )
+    expect(
+      container.querySelector("[data-slot=partial-coverage]")
+    ).toBeNull()
   })
 
   it("says so when there were no reviews in either window", () => {

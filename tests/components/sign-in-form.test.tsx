@@ -58,7 +58,7 @@ describe("sign-in mode", () => {
 
   it("submits credentials and lands on /inbox", async () => {
     const user = userEvent.setup()
-    vi.spyOn(authApi, "signIn").mockResolvedValue(undefined)
+    vi.spyOn(authApi, "signIn").mockResolvedValue({ mfaRequired: false })
     render(<SignInForm />)
     await user.type(screen.getByLabelText("Email address"), "a@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
@@ -73,13 +73,27 @@ describe("sign-in mode", () => {
 
   it("honours a validated next path", async () => {
     const user = userEvent.setup()
-    vi.spyOn(authApi, "signIn").mockResolvedValue(undefined)
+    vi.spyOn(authApi, "signIn").mockResolvedValue({ mfaRequired: false })
     render(<SignInForm nextPath="/inbox?queue=needs_reply" />)
     await user.type(screen.getByLabelText("Email address"), "a@example.test")
     await user.type(screen.getByLabelText("Password"), "correct-horse-9")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith("/inbox?queue=needs_reply")
+    )
+  })
+
+  it("sends an enrolled person to the code screen, keeping the next path", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(authApi, "signIn").mockResolvedValue({ mfaRequired: true })
+    render(<SignInForm nextPath="/inbox?queue=needs_reply" />)
+    await user.type(screen.getByLabelText("Email address"), "a@example.test")
+    await user.type(screen.getByLabelText("Password"), "correct-horse-9")
+    await user.click(screen.getByRole("button", { name: "Sign in" }))
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith(
+        `/sign-in/verify?next=${encodeURIComponent("/inbox?queue=needs_reply")}`
+      )
     )
   })
 
@@ -143,8 +157,8 @@ describe("sign-in mode", () => {
     let release: () => void = () => {}
     vi.spyOn(authApi, "signIn").mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
-          release = () => resolve()
+        new Promise<{ mfaRequired: boolean }>((resolve) => {
+          release = () => resolve({ mfaRequired: false })
         })
     )
     render(<SignInForm />)
@@ -248,6 +262,103 @@ describe("create-account mode", () => {
     expect(assign).not.toHaveBeenCalled()
   })
 
+  async function fillValidAccount(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText("Your name"), "Sam Patel")
+    await user.type(screen.getByLabelText("Email address"), "sam@example.test")
+    await user.type(screen.getByLabelText("Password"), "correct-horse-9!")
+    await user.type(
+      screen.getByLabelText("Confirm password"),
+      "correct-horse-9!"
+    )
+  }
+
+  it("offers a business or agency workspace and defaults to business", async () => {
+    const user = userEvent.setup()
+    const registerSpy = vi
+      .spyOn(authApi, "register")
+      .mockResolvedValue({ authenticated: false, confirmationRequired: true })
+    render(<SignInForm initialMode="create-account" workspaceChoice />)
+    const group = screen.getByRole("radiogroup", {
+      name: "What are you setting up?",
+    })
+    expect(
+      within(group).getByRole("radio", { name: "My business" })
+    ).toBeChecked()
+    expect(
+      within(group).getByRole("radio", { name: "An agency" })
+    ).not.toBeChecked()
+    await fillValidAccount(user)
+    await user.click(screen.getByRole("button", { name: "Create account" }))
+    await waitFor(() => expect(registerSpy).toHaveBeenCalledTimes(1))
+    expect(registerSpy.mock.calls[0]?.[0]).toMatchObject({
+      workspaceMode: "business",
+    })
+  })
+
+  it("registers an agency when the owner picks it", async () => {
+    const user = userEvent.setup()
+    const registerSpy = vi
+      .spyOn(authApi, "register")
+      .mockResolvedValue({ authenticated: false, confirmationRequired: true })
+    render(<SignInForm initialMode="create-account" workspaceChoice />)
+    await user.click(screen.getByRole("radio", { name: "An agency" }))
+    await fillValidAccount(user)
+    await user.click(screen.getByRole("button", { name: "Create account" }))
+    await waitFor(() => expect(registerSpy).toHaveBeenCalledTimes(1))
+    expect(registerSpy.mock.calls[0]?.[0]).toMatchObject({
+      workspaceMode: "agency",
+    })
+  })
+
+  it("hides the workspace choice and registers a business while it is switched off", async () => {
+    const user = userEvent.setup()
+    const registerSpy = vi
+      .spyOn(authApi, "register")
+      .mockResolvedValue({ authenticated: false, confirmationRequired: true })
+    render(<SignInPanel registrationAllowed initialMode="create-account" />)
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
+    expect(screen.queryByText(/agency/i)).not.toBeInTheDocument()
+    await fillValidAccount(user)
+    await user.click(screen.getByRole("button", { name: "Create account" }))
+    await waitFor(() => expect(registerSpy).toHaveBeenCalledTimes(1))
+    expect(registerSpy.mock.calls[0]?.[0]).not.toMatchObject({
+      workspaceMode: "agency",
+    })
+  })
+
+  it("does not offer the workspace choice to an invited person", () => {
+    render(
+      <SignInPanel
+        registrationAllowed
+        workspaceChoice
+        inviteToken="invitation-token"
+        initialMode="create-account"
+      />
+    )
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Create an account with the invited email address.")
+    ).toBeInTheDocument()
+  })
+
+  it("speaks to a business as much as to an agency", () => {
+    const { container } = render(
+      <SignInPanel
+        registrationAllowed
+        workspaceChoice
+        initialMode="create-account"
+      />
+    )
+    expect(
+      screen.getByRole("heading", {
+        level: 1,
+        name: "Create your NabaPresence account",
+      })
+    ).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/new agency|your clients/i)
+    expect(container.textContent).not.toMatch(/agency\.co\.uk/)
+  })
+
   it("locks the email field for an invited address", () => {
     render(
       <SignInForm
@@ -282,7 +393,7 @@ describe("mode toggle", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Sign in to your clients’ reviews",
+        name: "Sign in to NabaPresence",
       })
     ).toBeInTheDocument()
 

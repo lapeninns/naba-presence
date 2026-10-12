@@ -53,7 +53,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
 
   async function createActor(
     organisationId: string,
-    role: "admin" | "member" | "viewer"
+    role: "owner" | "admin" | "member" | "viewer"
   ) {
     const userId = randomUUID()
     const token = randomBytes(32).toString("base64url")
@@ -73,7 +73,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     `
     await admin`
       insert into member (organisation_id, user_id, role, can_publish)
-      values (${organisationId}, ${userId}, ${role}, false)
+      values (${organisationId}, ${userId}, ${role}, ${role === "owner"})
     `
     await admin`
       insert into app_session (
@@ -140,7 +140,9 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     let cursor: string | null = null
     do {
       const query = new URLSearchParams({ batch_size: "100" })
-      if (cursor) query.set("cursor", cursor)
+      // A hand-run page (an explicit cursor, empty for the head), so the
+      // walk covers the whole fleet now instead of waiting for the cycle.
+      query.set("cursor", cursor ?? "")
       const response = await fetch(
         `${server.baseUrl}/api/cron/retention?${query}`,
         {
@@ -514,13 +516,7 @@ describeDatabase("privacy fulfilment and audit retention", () => {
           now() - interval '100 days'
         )
     `
-    const response = await fetch(`${server.baseUrl}/api/cron/retention`, {
-      method: "POST",
-      headers: {
-        authorization: "Bearer route-harness-cron-secret",
-      },
-    })
-    expect(response.status).toBe(200)
+    await runRetention()
     const rows = await admin<{ subject_id: string }[]>`
       select subject_id
       from audit_log
@@ -937,6 +933,429 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     stub.reset()
   })
 
+  // ---------------------------------------------------------------------
+  // Background-resumable withdrawals (plan P04-5)
+  // ---------------------------------------------------------------------
+
+  /** One job tick; the privacy runner shares it (lib/server/jobs.ts). */
+  async function runJobsTick(baseUrl = server.baseUrl) {
+    const response = await fetch(`${baseUrl}/api/jobs/run`, {
+      method: "POST",
+      headers: { authorization: "Bearer route-harness-cron-secret" },
+    })
+    expect(response.status, await response.clone().text()).toBe(200)
+    return (await response.json()) as {
+      privacy?: Record<string, number>
+    }
+  }
+
+  type RetryState = {
+    status: string
+    withdrawalAttempts: number
+    nextAttemptAt: Date | null
+    lastErrorCode: string | null
+    pendingReviewIds: string[]
+    resolvedBy: string | null
+  }
+
+  async function retryState(id: string): Promise<RetryState> {
+    const [row] = await admin<RetryState[]>`
+      select
+        status,
+        withdrawal_attempts as "withdrawalAttempts",
+        next_attempt_at as "nextAttemptAt",
+        last_error_code as "lastErrorCode",
+        pending_review_ids::text[] as "pendingReviewIds",
+        resolved_by::text as "resolvedBy"
+      from privacy_request
+      where id = ${id}
+    `
+    return row
+  }
+
+  /** Make a parked request due now, as if its backoff had elapsed. */
+  async function makeDue(id: string) {
+    await admin`
+      update privacy_request
+      set next_attempt_at = now() - interval '1 second',
+          withdrawal_lease_expires_at = null
+      where id = ${id}
+    `
+  }
+
+  /** An erasure whose live reply Google refuses to drop with `status`. */
+  async function parkedErasure(failStatus: number, label: string) {
+    stub.reset()
+    stub.respond({ method: "DELETE", pathEndsWith: "/reply" }, () => ({
+      status: failStatus,
+      json: {
+        error: {
+          status: failStatus === 403 ? "PERMISSION_DENIED" : "INTERNAL",
+        },
+      },
+    }))
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const seed = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+      replyState: "APPROVED",
+    })
+    const reviewerName = `${label} reviewer ${randomUUID()}`
+    await admin`
+      update review
+      set reviewer_display_name = ${reviewerName}
+      where id = ${seed.reviewId}
+    `
+    const request = await createRequest(owner.cookie, "erasure", reviewerName)
+    const response = await fulfil(owner.cookie, request.id)
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body.error).toBe("privacy_reply_withdraw_failed")
+    return { owner, seed, request }
+  }
+
+  it("refuses to close a parked erasure by status while replies are still live", async () => {
+    const { owner, request } = await parkedErasure(500, "Unclosable")
+
+    for (const status of ["rejected", "completed"] as const) {
+      const response = await changeStatus(owner.cookie, request.id, status)
+      expect(response.status).toBe(409)
+      expect((await response.json()).error).toBe("privacy_withdrawal_pending")
+    }
+    // Still open, still parked, so the job tick keeps retrying it.
+    const parked = await retryState(request.id)
+    expect(parked.status).toBe("in_progress")
+    expect(parked.pendingReviewIds).toHaveLength(1)
+    expect(parked.nextAttemptAt).toBeInstanceOf(Date)
+    stub.reset()
+  })
+
+  it("retries a parked withdrawal on the job tick and completes it with an audit", async () => {
+    const { owner, seed, request } = await parkedErasure(500, "Background")
+
+    const parked = await retryState(request.id)
+    expect(parked.status).toBe("in_progress")
+    expect(parked.withdrawalAttempts).toBe(1)
+    expect(parked.lastErrorCode).toBe("google_mutation_ambiguous")
+    // Backoff: the next round is scheduled, not immediate.
+    expect(parked.nextAttemptAt).toBeInstanceOf(Date)
+    expect(parked.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now())
+
+    // Not due yet: a tick leaves it alone.
+    await runJobsTick()
+    expect((await retryState(request.id)).status).toBe("in_progress")
+
+    // Google recovers and the backoff elapses: the tick finishes the erasure
+    // as the owner who fulfilled it, with no one re-fulfilling by hand.
+    stub.reset()
+    await makeDue(request.id)
+    const tick = await runJobsTick()
+    expect(tick.privacy?.claimed).toBeGreaterThanOrEqual(1)
+
+    const settled = await retryState(request.id)
+    expect(settled).toMatchObject({
+      status: "completed",
+      pendingReviewIds: [],
+      nextAttemptAt: null,
+      lastErrorCode: null,
+      resolvedBy: owner.userId,
+    })
+    const [reply] = await admin<{ publishStatus: string }[]>`
+      select publish_status as "publishStatus"
+      from review_reply
+      where review_id = ${seed.reviewId}
+    `
+    expect(reply.publishStatus).toBe("deleted")
+    const audits = await admin<
+      { action: string; metadata: { source?: string; pending?: unknown[] } }[]
+    >`
+      select action, metadata
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.replies_withdrawn'
+      order by created_at
+    `
+    expect(audits.map(({ metadata }) => metadata.source)).toEqual([
+      "fulfil",
+      "background",
+    ])
+    expect(audits[1]!.metadata.pending).toEqual([])
+    stub.reset()
+  })
+
+  it("keeps a withdrawal pending, at no cost to its budget, while publishing is off", async () => {
+    const paused = await startAppServer({
+      GOOGLE_API_PROXY_BASE: stub.baseUrl,
+      PUBLISH_ENABLED: "false",
+    })
+    try {
+      stub.reset()
+      const owner = await createTestTenant(admin)
+      organisations.push(owner.organisationId)
+      const connection = await seedGoogleConnection(admin, {
+        organisationId: owner.organisationId,
+      })
+      const seed = await seedLinkedReview(admin, {
+        organisationId: owner.organisationId,
+        connectionId: connection.connectionId,
+        googleAccountName: connection.googleAccountName,
+        replyState: "APPROVED",
+      })
+      const reviewerName = `Paused reviewer ${randomUUID()}`
+      await admin`
+        update review
+        set reviewer_display_name = ${reviewerName}
+        where id = ${seed.reviewId}
+      `
+      const request = await createRequest(owner.cookie, "erasure", reviewerName)
+      const response = await fetch(`${paused.baseUrl}/api/privacy/requests`, {
+        method: "PATCH",
+        headers: { cookie: owner.cookie, "content-type": "application/json" },
+        body: JSON.stringify({
+          id: request.id,
+          action: "fulfil",
+          resolutionNote: "Fulfilled.",
+        }),
+      })
+      expect(response.status).toBe(409)
+      expect((await retryState(request.id)).lastErrorCode).toBe(
+        "publishing_paused"
+      )
+
+      await makeDue(request.id)
+      await runJobsTick(paused.baseUrl)
+      const state = await retryState(request.id)
+      expect(state).toMatchObject({
+        status: "in_progress",
+        withdrawalAttempts: 0,
+        lastErrorCode: "publishing_paused",
+        pendingReviewIds: [seed.reviewId],
+      })
+      // Deferred, not abandoned: it comes round again.
+      expect(state.nextAttemptAt).toBeInstanceOf(Date)
+      expect(
+        stub.calls.some(
+          (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+        )
+      ).toBe(false)
+    } finally {
+      await paused.stop()
+    }
+  })
+
+  it("stops retrying as an owner who lost the owner role, and surfaces it", async () => {
+    const { owner, request } = await parkedErasure(500, "Revoked")
+    // An organisation keeps at least one owner, so another takes over before
+    // the fulfilling owner is demoted.
+    const successor = randomUUID()
+    await admin`
+      insert into app_user (id, email, display_name, default_organisation_id)
+      values (
+        ${successor},
+        ${`successor-${successor.slice(0, 8)}@nabapresence.test`},
+        'Successor owner',
+        ${owner.organisationId}
+      )
+    `
+    await admin`
+      insert into member (organisation_id, user_id, role, can_publish)
+      values (${owner.organisationId}, ${successor}, 'owner', true)
+    `
+    await admin`
+      update member
+      set role = 'admin'
+      where organisation_id = ${owner.organisationId}
+        and user_id = ${owner.userId}
+    `
+    stub.reset()
+    await makeDue(request.id)
+    await runJobsTick()
+
+    const state = await retryState(request.id)
+    expect(state).toMatchObject({
+      status: "in_progress",
+      lastErrorCode: "actor_revoked",
+      nextAttemptAt: null,
+      withdrawalAttempts: 1,
+    })
+    expect(
+      stub.calls.some(
+        (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+      )
+    ).toBe(false)
+    const [held] = await admin<{ metadata: { reason: string } }[]>`
+      select metadata
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.withdrawal_held'
+    `
+    expect(held.metadata.reason).toBe("role_changed")
+
+    // The console (admins can read it) shows it as needing a person.
+    const listed = await fetch(`${server.baseUrl}/api/privacy/requests`, {
+      headers: { cookie: owner.cookie },
+    })
+    expect(listed.status).toBe(200)
+    const { requests } = (await listed.json()) as {
+      requests: {
+        id: string
+        overdue: boolean
+        withdrawalStalled: boolean
+        lastErrorCode: string | null
+      }[]
+    }
+    expect(requests[0]).toMatchObject({
+      id: request.id,
+      overdue: true,
+      withdrawalStalled: true,
+      lastErrorCode: "actor_revoked",
+    })
+  })
+
+  it("surfaces a withdrawal as overdue once its retry budget is spent", async () => {
+    const { owner, request } = await parkedErasure(403, "Exhausted")
+    await admin`
+      update privacy_request
+      set withdrawal_attempts = 11
+      where id = ${request.id}
+    `
+    await makeDue(request.id)
+    await runJobsTick()
+
+    const state = await retryState(request.id)
+    expect(state).toMatchObject({
+      status: "in_progress",
+      withdrawalAttempts: 12,
+      nextAttemptAt: null,
+    })
+    expect(state.lastErrorCode).not.toBeNull()
+    const [exhausted] = await admin<{ action: string }[]>`
+      select action
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.withdrawal_exhausted'
+    `
+    expect(exhausted).toBeDefined()
+
+    // Exhausted rows are not claimed again.
+    const before = await retryState(request.id)
+    await runJobsTick()
+    expect(await retryState(request.id)).toEqual(before)
+
+    const listed = await fetch(`${server.baseUrl}/api/privacy/requests`, {
+      headers: { cookie: owner.cookie },
+    })
+    const { requests } = (await listed.json()) as {
+      requests: { id: string; overdue: boolean; withdrawalStalled: boolean }[]
+    }
+    expect(requests[0]).toMatchObject({
+      id: request.id,
+      overdue: true,
+      withdrawalStalled: true,
+    })
+    stub.reset()
+  })
+
+  it("holds a parked withdrawal when a legal hold lands, without calling Google", async () => {
+    const { owner, seed, request } = await parkedErasure(500, "Held")
+    await admin`
+      insert into legal_hold (organisation_id, review_id, reason, approved_by)
+      values (
+        ${owner.organisationId},
+        ${seed.reviewId},
+        'Dispute after erasure',
+        ${owner.userId}
+      )
+    `
+    stub.reset()
+    await makeDue(request.id)
+    await runJobsTick()
+
+    expect(await retryState(request.id)).toMatchObject({
+      status: "in_progress",
+      lastErrorCode: "privacy_legal_hold",
+      nextAttemptAt: null,
+      // A hold is a human decision, not a failed round.
+      withdrawalAttempts: 1,
+      pendingReviewIds: [seed.reviewId],
+    })
+    expect(
+      stub.calls.some(
+        (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+      )
+    ).toBe(false)
+    const [held] = await admin<{ metadata: { code: string } }[]>`
+      select metadata
+      from audit_log
+      where subject_id = ${request.id}
+        and action = 'privacy.request.withdrawal_held'
+    `
+    expect(held.metadata.code).toBe("privacy_legal_hold")
+  })
+
+  it("restarts the budget and takes over as actor when an owner re-fulfils an exhausted withdrawal", async () => {
+    const { owner, request } = await parkedErasure(403, "Takeover")
+    await admin`
+      update privacy_request
+      set withdrawal_attempts = 11
+      where id = ${request.id}
+    `
+    await makeDue(request.id)
+    await runJobsTick()
+    expect(await retryState(request.id)).toMatchObject({
+      withdrawalAttempts: 12,
+      nextAttemptAt: null,
+    })
+
+    // Another owner picks it up while Google still refuses.
+    const successor = await createActor(owner.organisationId, "owner")
+    const retry = await fulfil(successor.cookie, request.id)
+    expect(retry.status).toBe(409)
+    expect((await retry.json()).error).toBe("privacy_reply_withdraw_failed")
+
+    const state = await retryState(request.id)
+    expect(state.status).toBe("in_progress")
+    // Reset to zero by the re-fulfil, then its own inline round.
+    expect(state.withdrawalAttempts).toBe(1)
+    expect(state.nextAttemptAt).toBeInstanceOf(Date)
+    const [actor] = await admin<{ actorUserId: string | null }[]>`
+      select withdrawal_actor_id::text as "actorUserId"
+      from privacy_request
+      where id = ${request.id}
+    `
+    expect(actor.actorUserId).toBe(successor.userId)
+    stub.reset()
+  })
+
+  it("completes a parked withdrawal whose reply was deleted out of band, without calling Google", async () => {
+    const { owner, seed, request } = await parkedErasure(500, "Out of band")
+    await admin`
+      update review_reply
+      set publish_status = 'deleted'
+      where review_id = ${seed.reviewId}
+    `
+    stub.reset()
+    await makeDue(request.id)
+    await runJobsTick()
+
+    expect(await retryState(request.id)).toMatchObject({
+      status: "completed",
+      pendingReviewIds: [],
+      nextAttemptAt: null,
+      resolvedBy: owner.userId,
+    })
+    expect(
+      stub.calls.some(
+        (call) => call.method === "DELETE" && call.path.endsWith("/reply")
+      )
+    ).toBe(false)
+  })
+
   it("will not fulfil a rejected request, nor reopen a completed one", async () => {
     const fixture = await createFixture()
     const rejected = await createRequest(
@@ -1073,7 +1492,38 @@ describeDatabase("privacy fulfilment and audit retention", () => {
     expect(requests.map((row) => row.overdue)).toEqual([true, false, false])
   })
 
-  it("reports the true match count and truncation flag on the export", async () => {
+  async function exportPage(
+    cookie: string,
+    body: { subject: string; cursor?: string; pageSize?: number }
+  ) {
+    return fetch(`${server.baseUrl}/api/privacy/export`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  }
+
+  async function exportAudits(organisationId: string) {
+    return admin<
+      {
+        metadata: {
+          page?: number
+          records?: number
+          totalMatched?: number
+          truncated?: boolean
+          complete?: boolean
+        }
+      }[]
+    >`
+      select metadata
+      from audit_log
+      where organisation_id = ${organisationId}
+        and action = 'privacy.data.exported'
+      order by created_at, id
+    `
+  }
+
+  it("reports the true match count and completion on a single-page export", async () => {
     const fixture = await createFixture()
     const second = await seedReview(admin, {
       organisationId: fixture.owner.organisationId,
@@ -1084,34 +1534,360 @@ describeDatabase("privacy fulfilment and audit retention", () => {
       where id = ${second.reviewId}
     `
 
-    const response = await fetch(`${server.baseUrl}/api/privacy/export`, {
-      method: "POST",
-      headers: {
-        cookie: fixture.owner.cookie,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ subject: fixture.reviewerName }),
+    const response = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
     })
     expect(response.status).toBe(200)
     const payload = await response.json()
     expect(payload.totalMatched).toBe(2)
     expect(payload.returned).toBe(2)
+    expect(payload.page).toBe(1)
     expect(payload.truncated).toBe(false)
+    expect(payload.nextCursor).toBeNull()
+    expect(payload.complete).toBe(true)
+    expect(payload.addedDuringExport).toBe(0)
     expect(payload.reviews).toHaveLength(2)
-    // No row carries the window count out with it.
+    // No row carries the keyset position or a window count out with it.
     expect(payload.reviews[0].totalMatched).toBeUndefined()
+    expect(payload.reviews[0].cursorCreateTime).toBeUndefined()
 
-    const [audit] = await admin<
-      { metadata: { totalMatched?: number; truncated?: boolean } }[]
+    const audits = await exportAudits(fixture.owner.organisationId)
+    expect(audits).toHaveLength(1)
+    expect(audits[0].metadata).toMatchObject({
+      page: 1,
+      records: 2,
+      totalMatched: 2,
+      truncated: false,
+      complete: true,
+    })
+  })
+
+  it("exports 1200 matches across keyset pages with no gaps or duplicates and resumes from a cursor", async () => {
+    const fixture = await createFixture()
+    // 1199 copies of the fixture review. Every third one shares a create
+    // time with its neighbours (the id breaks the tie) and the rest differ
+    // only by microseconds, which a millisecond cursor would skip or repeat.
+    await admin`
+      insert into review (
+        id, organisation_id, location_id, external_location_id,
+        google_review_name_ciphertext, google_review_name_hash,
+        google_review_id_ciphertext, google_review_id_hash,
+        reviewer_display_name, reviewer_is_anonymous, star_rating, review_text,
+        detected_language_code, language_confidence, has_media,
+        create_time, update_time, content_hash, workflow_status, raw_payload
+      )
+      select
+        gen_random_uuid(), r.organisation_id, r.location_id,
+        r.external_location_id,
+        r.google_review_name_ciphertext,
+        encode(sha256(convert_to('bulk-name-' || g || '-' || r.id, 'UTF8')), 'hex'),
+        r.google_review_id_ciphertext,
+        encode(sha256(convert_to('bulk-id-' || g || '-' || r.id, 'UTF8')), 'hex'),
+        r.reviewer_display_name, r.reviewer_is_anonymous, r.star_rating,
+        r.review_text, r.detected_language_code, r.language_confidence,
+        r.has_media,
+        timestamptz '2026-09-01T12:00:00.000000Z'
+          - (g / 3) * interval '1 microsecond',
+        r.update_time,
+        r.content_hash, r.workflow_status, r.raw_payload
+      from review r
+      cross join generate_series(1, 1199) as g
+      where r.id = ${fixture.review.reviewId}
+    `
+    // Another reviewer's review never leaks into the subject's pages.
+    await seedReview(admin, { organisationId: fixture.owner.organisationId })
+    const [{ expected }] = await admin<{ expected: number }[]>`
+      select count(*)::int as expected
+      from review
+      where organisation_id = ${fixture.owner.organisationId}
+        and reviewer_display_name = ${fixture.reviewerName}
+    `
+    expect(expected).toBe(1200)
+
+    // The first page and the second are fetched; then the download is
+    // "interrupted" and resumed from the second page's cursor.
+    const ids: string[] = []
+    const pages: { page: number; returned: number; total: number }[] = []
+    let cursor: string | undefined
+    let resumeFrom: string | undefined
+    for (let guard = 0; guard < 10; guard++) {
+      const response = await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 500,
+        ...(cursor ? { cursor } : {}),
+      })
+      expect(response.status).toBe(200)
+      const payload = (await response.json()) as {
+        page: number
+        returned: number
+        totalMatched: number
+        truncated: boolean
+        nextCursor: string | null
+        reviews: { id: string; googleReviewId: string }[]
+      }
+      expect(payload.truncated).toBe(payload.nextCursor !== null)
+      pages.push({
+        page: payload.page,
+        returned: payload.returned,
+        total: payload.totalMatched,
+      })
+      ids.push(...payload.reviews.map((review) => review.id))
+      if (payload.page === 2) resumeFrom = payload.nextCursor ?? undefined
+      if (!payload.nextCursor) break
+      cursor = payload.nextCursor
+    }
+    expect(pages).toEqual([
+      { page: 1, returned: 500, total: 1200 },
+      { page: 2, returned: 500, total: 1200 },
+      { page: 3, returned: 200, total: 1200 },
+    ])
+    expect(ids).toHaveLength(1200)
+    expect(new Set(ids).size).toBe(1200)
+
+    // Resuming from the cursor returns exactly the third page again.
+    const resumed = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 500,
+      cursor: resumeFrom,
+    })
+    expect(resumed.status).toBe(200)
+    const resumedPayload = (await resumed.json()) as {
+      page: number
+      nextCursor: string | null
+      reviews: { id: string }[]
+    }
+    expect(resumedPayload.page).toBe(3)
+    expect(resumedPayload.nextCursor).toBeNull()
+    expect(resumedPayload.reviews.map((review) => review.id)).toEqual(
+      ids.slice(1000)
+    )
+    expect(resumed.headers.get("content-disposition")).toContain(
+      "privacy-export-page-3.json"
+    )
+
+    // One audit row per page served, each naming its page.
+    const audits = await exportAudits(fixture.owner.organisationId)
+    expect(audits.map((row) => row.metadata.page)).toEqual([1, 2, 3, 3])
+    expect(audits.map((row) => row.metadata.records)).toEqual([
+      500, 500, 200, 200,
+    ])
+    expect(audits.map((row) => row.metadata.complete)).toEqual([
+      false,
+      false,
+      true,
+      true,
+    ])
+    expect(audits.every((row) => row.metadata.totalMatched === 1200)).toBe(true)
+  })
+
+  it("rejects a malformed cursor and one minted for another subject", async () => {
+    const fixture = await createFixture()
+    const second = await seedReview(admin, {
+      organisationId: fixture.owner.organisationId,
+    })
+    await admin`
+      update review
+      set reviewer_display_name = ${fixture.reviewerName}
+      where id = ${second.reviewId}
+    `
+    const first = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 1,
+    })
+    expect(first.status).toBe(200)
+    const { nextCursor } = (await first.json()) as { nextCursor: string }
+    expect(nextCursor).toEqual(expect.any(String))
+
+    const garbled = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      cursor: "not-a-cursor",
+    })
+    expect(garbled.status).toBe(400)
+    expect((await garbled.json()).error).toBe("invalid_cursor")
+
+    const crossSubject = await exportPage(fixture.owner.cookie, {
+      subject: "Somebody else entirely",
+      cursor: nextCursor,
+    })
+    expect(crossSubject.status).toBe(400)
+    expect((await crossSubject.json()).error).toBe("invalid_cursor")
+
+    // The cursor names nothing about the subject, and its page index and
+    // position cannot be edited under the MAC.
+    const separator = nextCursor.lastIndexOf(".")
+    const payload = JSON.parse(
+      Buffer.from(nextCursor.slice(0, separator), "base64url").toString()
+    ) as Record<string, unknown>
+    expect(Object.keys(payload).sort()).toEqual([
+      "createTime",
+      "id",
+      "page",
+      "startedAt",
+      "v",
+    ])
+    const forged = `${Buffer.from(
+      JSON.stringify({ ...payload, page: 9 })
+    ).toString("base64url")}${nextCursor.slice(separator)}`
+    const forgedResponse = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      cursor: forged,
+    })
+    expect(forgedResponse.status).toBe(400)
+    expect((await forgedResponse.json()).error).toBe("invalid_cursor")
+
+    const oversized = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 1001,
+    })
+    expect(oversized.status).toBe(400)
+  })
+
+  /** Seeds one more review for the fixture subject at each create time. */
+  async function seedSubjectReviews(
+    fixture: Awaited<ReturnType<typeof createFixture>>,
+    createTimes: string[]
+  ) {
+    const ids: string[] = []
+    for (const createTime of createTimes) {
+      const seeded = await seedReview(admin, {
+        organisationId: fixture.owner.organisationId,
+      })
+      await admin`
+        update review
+        set reviewer_display_name = ${fixture.reviewerName},
+          create_time = ${createTime}::timestamptz
+        where id = ${seeded.reviewId}
+      `
+      ids.push(seeded.reviewId)
+    }
+    return ids
+  }
+
+  type ExportPayload = {
+    page: number
+    complete: boolean
+    addedDuringExport: number
+    nextCursor: string | null
+    reviews: { id: string }[]
+  }
+
+  it("still serves a review whose update time a sync bumps mid-export", async () => {
+    const fixture = await createFixture()
+    await admin`
+      update review set create_time = '2026-01-01T00:00:00Z'
+      where id = ${fixture.review.reviewId}
+    `
+    const [newest, middle] = await seedSubjectReviews(fixture, [
+      "2026-03-01T00:00:00Z",
+      "2026-02-01T00:00:00Z",
+    ])
+
+    const first = (await (
+      await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 1,
+      })
+    ).json()) as ExportPayload
+    expect(first.reviews.map((review) => review.id)).toEqual([newest])
+
+    // The subject edits the oldest review upstream and a sync rewrites its
+    // update time to now: newer than anything already served.
+    await admin`
+      update review set update_time = now()
+      where id = ${fixture.review.reviewId}
+    `
+
+    const ids = [...first.reviews.map((review) => review.id)]
+    let cursor = first.nextCursor
+    let last = first
+    while (cursor) {
+      const response = await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 1,
+        cursor,
+      })
+      expect(response.status).toBe(200)
+      last = (await response.json()) as ExportPayload
+      ids.push(...last.reviews.map((review) => review.id))
+      cursor = last.nextCursor
+    }
+    expect(ids).toEqual([newest, middle, fixture.review.reviewId])
+    expect(last.complete).toBe(true)
+    expect(last.addedDuringExport).toBe(0)
+  })
+
+  it("reports an export incomplete when a matching review is first stored after page 1", async () => {
+    const fixture = await createFixture()
+    await admin`
+      update review set create_time = '2026-01-01T00:00:00Z'
+      where id = ${fixture.review.reviewId}
+    `
+    const [older] = await seedSubjectReviews(fixture, ["2026-02-01T00:00:00Z"])
+
+    const first = (await (
+      await exportPage(fixture.owner.cookie, {
+        subject: fixture.reviewerName,
+        pageSize: 1,
+      })
+    ).json()) as ExportPayload
+    expect(first.reviews.map((review) => review.id)).toEqual([older])
+
+    // A sync imports the subject's newest review, which sorts ahead of the
+    // cursor into ground page 1 already covered.
+    const [added] = await seedSubjectReviews(fixture, ["2026-04-01T00:00:00Z"])
+
+    const second = await exportPage(fixture.owner.cookie, {
+      subject: fixture.reviewerName,
+      pageSize: 1,
+      cursor: first.nextCursor ?? undefined,
+    })
+    expect(second.status).toBe(200)
+    const payload = (await second.json()) as ExportPayload & {
+      totalMatched: number
+    }
+    expect(payload.nextCursor).toBeNull()
+    expect(payload.reviews.map((review) => review.id)).toEqual([
+      fixture.review.reviewId,
+    ])
+    expect(payload.totalMatched).toBe(3)
+    expect(payload.addedDuringExport).toBe(1)
+    expect(payload.complete).toBe(false)
+
+    const audits = await admin<
+      {
+        metadata: {
+          page: number
+          complete: boolean
+          addedDuringExport: number
+          after: { createTime: string; id: string } | null
+        }
+      }[]
     >`
       select metadata
       from audit_log
       where organisation_id = ${fixture.owner.organisationId}
         and action = 'privacy.data.exported'
-      order by created_at desc
-      limit 1
+      order by created_at, id
     `
-    expect(audit.metadata.totalMatched).toBe(2)
-    expect(audit.metadata.truncated).toBe(false)
+    expect(audits.map((row) => row.metadata)).toMatchObject([
+      { page: 1, complete: false, addedDuringExport: 0, after: null },
+      {
+        page: 2,
+        complete: false,
+        addedDuringExport: 1,
+        after: { createTime: "2026-02-01T00:00:00.000000Z", id: older },
+      },
+    ])
+
+    // Restarting from page 1 carries the added review.
+    const restarted = (await (
+      await exportPage(fixture.owner.cookie, { subject: fixture.reviewerName })
+    ).json()) as ExportPayload
+    expect(restarted.reviews.map((review) => review.id)).toEqual([
+      added,
+      older,
+      fixture.review.reviewId,
+    ])
+    expect(restarted.complete).toBe(true)
   })
 })

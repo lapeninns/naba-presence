@@ -6,6 +6,7 @@ import {
   Trash2Icon,
   UploadIcon,
 } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import {
@@ -20,6 +21,10 @@ import {
   PostComposerSheet,
   postFormValues,
 } from "@/components/locations/posts/post-composer-sheet"
+import {
+  OperationReceiptNotice,
+  unconfirmedReceiptId,
+} from "@/components/locations/operation-outcome"
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -31,7 +36,14 @@ import {
   type PostsState,
 } from "@/lib/api/location-posts"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
-import { resourceDisabledReason } from "@/lib/locations/gating"
+import {
+  contentEditDisabledReason,
+  decideApprovalDisabledReason,
+  resourceDisabledReason,
+} from "@/lib/locations/gating"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
+import type { OutcomeMessage } from "@/lib/editors/outcome"
+import { errorOutcome } from "@/lib/errors/action-errors"
 import { POST_ACTION_LABEL, postImageUrl } from "@/lib/locations/post-display"
 import {
   DEFAULT_TIMEZONE,
@@ -41,12 +53,35 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { cn } from "@/lib/utils"
 
-function publishOutcomeTitle(status: string) {
-  if (status === "awaiting_approval") return "Post submitted for approval."
-  // A rejected post is on Google and invisible to everyone, so the success
-  // toast must not say it was published.
-  if (status === "rejected") return "Google rejected this post."
-  return "Post published to Google"
+/**
+ * The toast for a publish answer. The route's `operation.outcome` says what
+ * Google's own state for the post shows (lib/domain/post-outcome.ts): live,
+ * still being reviewed, or rejected. Without one the post was only sent.
+ */
+export function publishOutcome(result: {
+  status: string
+  operation?: { outcome: OperationOutcome }
+}): OutcomeMessage {
+  // Waiting for an approver: nothing has gone to Google yet.
+  if (result.status === "awaiting_approval")
+    return { outcome: "saved_locally", title: "Post submitted for approval." }
+  const outcome = result.operation?.outcome
+  // A rejected post is on Google and invisible to everyone, so the toast
+  // must not say it was published.
+  if (result.status === "rejected" || outcome === "rejected")
+    return { outcome: "rejected", title: "Google rejected this post." }
+  if (outcome === "confirmed_applied")
+    return { outcome, title: "Post live on Google" }
+  if (outcome === "awaiting_confirmation")
+    return {
+      outcome,
+      title: "Post sent to Google",
+      description: "Google is still reviewing it, so it may not show yet.",
+    }
+  if (outcome === "uncertain") return { outcome }
+  // "published" with no outcome: Google took the post and did not reject
+  // it; it may still be processing, so this is "sent", not "live".
+  return { outcome: "sent", title: "Post sent to Google" }
 }
 
 // What the Check Google round-trip found. `reconciliationError` is the only
@@ -68,6 +103,7 @@ export function PostsActionBar({
   caps,
   writesEnabled,
   timezone = DEFAULT_TIMEZONE,
+  scheduling,
 }: {
   locationId: string
   post: Post
@@ -75,7 +111,14 @@ export function PostsActionBar({
   writesEnabled: boolean
   /** The listing's IANA timezone, for when a repeat ends. */
   timezone?: string
+  /**
+   * Set when the organisation schedules posts (P08-R5): Publish reads
+   * "Publish now" beside Schedule, and a post with a one-time schedule
+   * (`scheduledFor`, its description) says that publishing now replaces it.
+   */
+  scheduling?: { scheduledFor: string | null }
 }) {
+  const queryClient = useQueryClient()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   // Approving publishes, so the approver sees exactly what goes to Google.
@@ -83,21 +126,26 @@ export function PostsActionBar({
   const invalidate = [queryKeys.locationPosts(locationId)]
 
   const publish = useResourceMutation({
-    mutationFn: () => publishPost(locationId, post.id),
+    mutationFn: (_: void, intent) =>
+      publishPost(locationId, post.id, { intentId: intent.intentId }),
+    // The publish sends the post as it is now, so a retry is the same action
+    // only while the post is the same revision; an edit mints a new intent.
+    intentKey: () => [post.id, post.contentRevision],
     invalidate,
-    successToast: (result) => publishOutcomeTitle(result.status),
+    successToast: (result) => publishOutcome(result),
     errorContext: "post",
     onSuccess: () => setPublishOpen(false),
     onError: () => setPublishOpen(false),
   })
   const decide = useResourceMutation({
     mutationFn: (decision: "approve" | "reject") =>
-      decidePostApproval(locationId, post.id, decision),
+      // Bound to the revision on screen: an edit since the list loaded makes
+      // the server refuse (approval_post_changed) rather than approve text
+      // this approver never read.
+      decidePostApproval(locationId, post.id, decision, post.contentRevision),
     invalidate,
     successToast: (result, decision) =>
-      decision === "reject"
-        ? "Sent back to draft"
-        : publishOutcomeTitle(result.status),
+      decision === "reject" ? "Sent back to draft" : publishOutcome(result),
     errorContext: "post",
   })
   const remove = useResourceMutation({
@@ -110,8 +158,9 @@ export function PostsActionBar({
   const check = useResourceMutation({
     // The GET is the check: listLocalPosts reconciles against Google's live
     // list first, which is what resolves an ambiguous post one way or the
-    // other. The invalidation is what re-renders the row.
-    mutationFn: () => fetchPosts(locationId),
+    // other. It asks after this post alone, which may not be on the first
+    // page. The invalidation is what re-renders the row.
+    mutationFn: () => fetchPosts(locationId, { post: post.id }),
     invalidate,
     successToast: (state) => checkOutcomeTitle(state, post.id),
     errorContext: "post",
@@ -131,15 +180,27 @@ export function PostsActionBar({
   // `publish_not_allowed` (lib/server/capabilities.ts), the gate the approval
   // flow exists to route around, which is why nothing in the product could
   // ever reach the approval half of the lifecycle.
+  // A viewer may neither request approval nor edit (requireLocationAction
+  // "request_approval" / "edit"), so the same button stays visible but
+  // disabled with the reason.
   const offerRequestApproval = caps ? !caps.canPublish : false
-  const primaryReason = offerRequestApproval ? pausedReason : publishReason
-  const approveReason = resourceDisabledReason(caps, "posts", writesEnabled)
-  const rejectReason = pausedReason
+  const editReason = contentEditDisabledReason(caps)
+  const primaryReason = offerRequestApproval
+    ? (pausedReason ?? editReason)
+    : publishReason
+  // Approve publishes, so it needs the posts resource to be writable as well
+  // as the decide_approval authority; reject is local-only but is the same
+  // decision, so it needs that authority too (never mere visibility).
+  const decideReason = decideApprovalDisabledReason(caps)
+  const approveReason =
+    resourceDisabledReason(caps, "posts", writesEnabled) ?? decideReason
+  const rejectReason = pausedReason ?? decideReason
   // Deleting a live (published) post needs publish permission; a draft delete
-  // still 503s when paused, so it is gated on writesEnabled too.
+  // still 503s when paused, so it is gated on writesEnabled too, and it is an
+  // edit, which a viewer may not make.
   const deleteReason = post.googlePostName
     ? resourceDisabledReason(caps, "posts", writesEnabled)
-    : pausedReason
+    : (pausedReason ?? editReason)
 
   const live = Boolean(post.googlePostName)
   // A post whose publish outcome is unknown has no Google name, so deleting
@@ -150,6 +211,9 @@ export function PostsActionBar({
 
   const editable = post.status === "draft" || post.status === "failed"
   const preview = postFormValues(post, timezone)
+  // A publish whose answer was lost or ambiguous: follow its receipt until
+  // the recovery job settles it, then re-read the post.
+  const receiptId = unconfirmedReceiptId(publish.error)
 
   const previewNode = (
     <PostPreview
@@ -192,15 +256,17 @@ export function PostsActionBar({
             ? "Request approval"
             : post.status === "failed"
               ? "Retry publish"
-              : "Publish"}
+              : scheduling
+                ? "Publish now"
+                : "Publish"}
         </Button>
       ) : null}
       {editable ? (
         // Editing a draft touches NabaPresence only, so the pause switch
-        // that blocks Google writes doesn't block it.
+        // that blocks Google writes doesn't block it; the edit grant does.
         <PostComposerSheet
           locationId={locationId}
-          disabledReason={null}
+          disabledReason={editReason}
           post={post}
           timezone={timezone}
         />
@@ -262,6 +328,18 @@ export function PostsActionBar({
         <Trash2Icon aria-hidden />
         Delete
       </Button>
+      {receiptId ? (
+        <OperationReceiptNotice
+          className="w-full"
+          receiptId={receiptId}
+          fallback={errorOutcome(publish.error)}
+          onSettled={() => {
+            void queryClient.invalidateQueries({
+              queryKey: queryKeys.locationPosts(locationId),
+            })
+          }}
+        />
+      ) : null}
       {primaryReason &&
       (post.status === "draft" || post.status === "failed") ? (
         <span className="w-full text-caption text-ink-muted">
@@ -280,6 +358,12 @@ export function PostsActionBar({
             Customers see it on the listing as soon as Google accepts it. To
             change it afterwards, edit it here and it is sent again.
           </AlertDialogDescription>
+          {scheduling?.scheduledFor ? (
+            <p className="text-ui text-ink">
+              This post is also scheduled ({scheduling.scheduledFor}).
+              Publishing it now means the scheduled publication does not run.
+            </p>
+          ) : null}
           {previewNode}
           <AlertDialogFooter>
             <AlertDialogClose

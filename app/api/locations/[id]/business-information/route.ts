@@ -72,6 +72,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: businessInformationPatchSchema,
@@ -107,6 +108,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params: paramsSchema, body: z.union([businessInformationConfirmationSchema, businessInformationApprovalSchema]),
   handler: async ({ session, params, body, requestId }) => "mutationId" in body
     ? confirmBusinessInformation(session, params.id, body.mutationId, requestId)

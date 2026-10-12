@@ -7,7 +7,7 @@ import {
   fieldErrorsFrom,
 } from "@/lib/api/auth-errors"
 import { sanitiseNextPath } from "@/lib/api/next-path"
-import { signOut } from "@/lib/api/auth"
+import { signedOutHereOnly, signOut } from "@/lib/api/auth"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -124,6 +124,42 @@ describe("signOut", () => {
       vi.fn(async () => new Response(null, { status: 204 }))
     )
     await expect(signOut()).resolves.toBeUndefined()
+  })
+
+  it("rejects on a server error instead of reporting success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "internal_error" }, { status: 500 })
+      )
+    )
+    const error = await signOut().catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect(signedOutHereOnly(error)).toBe(false)
+  })
+
+  it("marks a partial sign-out everywhere as signed out here only", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({ error: "sign_out_everywhere_failed" }, { status: 503 })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const error = await signOut({ everywhere: true }).catch(
+      (caught: unknown) => caught
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/session?scope=all",
+      expect.objectContaining({ method: "DELETE" })
+    )
+    expect(signedOutHereOnly(error)).toBe(true)
+    expect(signedOutHereOnly(new Error("offline"))).toBe(false)
+  })
+})
+
+describe("sign_out_everywhere_failed status", () => {
+  it("tells the sign-in page other devices may still be signed in", () => {
+    const message = confirmStatusMessage("sign_out_everywhere_failed")
+    expect(message.title).toBe("You’re signed out on this device.")
+    expect(message.description).toMatch(/other devices may still be signed in/)
   })
 })
 

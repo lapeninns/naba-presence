@@ -3,6 +3,7 @@ import {
   type KeywordRange,
   type KeywordsResponse,
 } from "@/lib/contracts/analytics"
+import { summariseReportCoverage } from "@/lib/domain/report-coverage"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
@@ -22,7 +23,12 @@ type KeywordRow = {
 }
 
 type LocationRow = { id: string; name: string }
-type CheckpointRow = { status: string; lastErrorCode: string | null }
+type CheckpointRow = {
+  locationId: string
+  status: string
+  lastErrorCode: string | null
+  lastKeywordMonth: string | null
+}
 
 export const GET = route({
   query: (searchParams) =>
@@ -78,8 +84,10 @@ export const GET = route({
       `
       const checkpoints = await sql<CheckpointRow[]>`
         select
+          l.id::text as "locationId",
           sc.status,
-          sc.last_error_code as "lastErrorCode"
+          sc.last_error_code as "lastErrorCode",
+          sc.last_keyword_month::text as "lastKeywordMonth"
         from sync_checkpoint sc
         join location_link ll
           on ll.external_location_id = sc.external_location_id
@@ -90,13 +98,47 @@ export const GET = route({
           ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
           and ${visibility}
       `
-      return { locations, rows, checkpoints }
+      // Newest stored month in the window per location, for a checkpoint
+      // without a watermark. Older months add nothing, so they cover nothing.
+      const latestStored = await sql<
+        Array<{ locationId: string; latest: string }>
+      >`
+        select l.id::text as "locationId", max(k.metric_month)::text as latest
+        from performance_search_keyword_monthly k
+        join location_link ll
+          on ll.external_location_id = k.external_location_id
+         and ll.is_active = true
+        join location l on l.id = ll.location_id
+        where k.metric_month >= ${from}::date
+          ${query.locationId ? sql`and l.id = ${query.locationId}` : sql``}
+          ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
+          and ${visibility}
+        group by l.id
+      `
+      return { locations, rows, checkpoints, latestStored }
     })
+    const coverage = summariseReportCoverage(
+      payload.locations,
+      payload.checkpoints.map((checkpoint) => ({
+        locationId: checkpoint.locationId,
+        status: checkpoint.status,
+        watermark: checkpoint.lastKeywordMonth,
+      })),
+      {
+        // A month watermark (first of the month) before `from` is out of window.
+        windowStart: from,
+        latestStored: new Map(
+          payload.latestStored.map((row) => [row.locationId, row.latest])
+        ),
+      }
+    )
     const state = !payload.locations.length
       ? "no_link"
       : payload.rows.length
         ? "ready"
-        : payload.checkpoints.some((checkpoint) => checkpoint.status === "failed")
+        : payload.checkpoints.some(
+              (checkpoint) => checkpoint.status === "failed"
+            )
           ? "unavailable"
           : payload.checkpoints.some((checkpoint) =>
                 ["pending", "running"].includes(checkpoint.status)
@@ -121,6 +163,10 @@ export const GET = route({
           latestMonth: row.latestMonth.slice(0, 7),
         }
       }),
+      completeness: {
+        ...coverage,
+        completeThrough: coverage.completeThrough?.slice(0, 7) ?? null,
+      },
       unavailableReasons: Array.from(
         new Set(
           payload.checkpoints

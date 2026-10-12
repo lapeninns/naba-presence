@@ -13,6 +13,7 @@ export {
   type FoodMenuCounts,
   type FoodMenusSyncStatus,
 } from "@/lib/domain/food-menus-vocabulary"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // --- menu hierarchy ---------------------------------------------------------
 // Google FoodMenu resources are passthrough records: the editor reads known
@@ -102,5 +103,6 @@ export const publishFoodMenusResultSchema = z.object({
   status: z.string(),
   attemptId: z.string().optional(),
   idempotent: z.boolean().optional(),
+  ...operationSummaryField,
 })
 export type PublishFoodMenusResult = z.infer<typeof publishFoodMenusResultSchema>

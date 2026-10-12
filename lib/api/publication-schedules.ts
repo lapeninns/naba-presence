@@ -1,6 +1,7 @@
 import type { z } from "zod"
 
 import {
+  legacySchedulesResponseSchema,
   occurrencesResponseSchema,
   scheduleResponseSchema,
   schedulesResponseSchema,
@@ -25,3 +26,8 @@ export function fetchScheduleOccurrences(query: { from: string; to: string; clie
   const params = new URLSearchParams(Object.entries(query).filter((entry): entry is [string, string] => Boolean(entry[1])))
   return apiFetch(`/api/post-schedules/occurrences?${params}`, { schema: occurrencesResponseSchema, ...options }).then((result) => result.occurrences)
 }
+const legacyBase = (locationId: string) => `/api/locations/${locationId}/legacy-post-schedules`
+export const fetchLegacySchedules = (locationId: string, options?: RequestOptions) =>
+  apiFetch(legacyBase(locationId), { schema: legacySchedulesResponseSchema, ...options }).then((result) => result.legacySchedules)
+export const dismissLegacySchedule = (locationId: string, legacyId: string) =>
+  apiFetch(`${legacyBase(locationId)}/${legacyId}`, { method: "PATCH", body: { action: "dismiss" } })

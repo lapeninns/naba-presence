@@ -10,7 +10,7 @@ import {
   type SaveHoursResponse,
 } from "@/lib/contracts/location-hours"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 
 export type {
   GoogleHoursUpdateMask,
@@ -37,11 +37,16 @@ export function saveHours(id: string, input: SaveHoursInput): Promise<SaveHoursR
   })
 }
 
-export function publishHours(id: string, input: PublishHoursInput): Promise<PublishHoursResponse> {
+export function publishHours(
+  id: string,
+  input: PublishHoursInput,
+  options: MutationOptions = {}
+): Promise<PublishHoursResponse> {
   const body: PublishHoursBody = { confirmation: "publish_nabapresence_hours_to_google", ...input }
   return apiFetch(`/api/locations/${id}/hours`, {
     method: "POST",
     body,
     schema: publishHoursResponseSchema,
+    intentId: options.intentId,
   })
 }

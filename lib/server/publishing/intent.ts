@@ -18,10 +18,12 @@ import { ApiError } from "@/lib/server/http"
 import {
   canPublishLocation,
   requireLocationAccess,
+  requireLocationAction,
 } from "@/lib/server/permissions"
 
 import { requestApproval, requiresApproval } from "./approval"
 import {
+  attemptAuthorisation,
   findAttemptByKey,
   insertAttempt,
   rearmAttempt,
@@ -105,6 +107,17 @@ export async function loadPublishRecord(
           and ad.draft_id = d.id
           and ad.decision = 'approved'
           and ad.decided_by is distinct from rr.approval_requested_by
+          -- Two people means two people: the draft's author approving it
+          -- is the author publishing it, whoever pressed Request.
+          and ad.decided_by is distinct from d.created_by
+          -- Operator MFA recovery since the approval (0106) voids it.
+          and (
+            ad.authorised_security_version is null
+            or ad.authorised_security_version = (
+              select u.security_version from app_user u
+              where u.id = ad.decided_by
+            )
+          )
       ) as has_qualifying_approval,
       coalesce(rr.publish_generation, 0) as publish_generation
     from review r
@@ -310,10 +323,15 @@ export async function startPublishIntent(
       published_by = excluded.published_by
     returning id::text as id
   `
+  const authorisation = attemptAuthorisation(
+    input.session,
+    record.connection_id
+  )
   const attempt = key.existing
     ? await rearmAttempt(sql, {
         attemptId: key.existing.id,
         intendedBody: record.body,
+        authorisation,
       })
     : await insertAttempt(sql, {
         organisationId: input.organisationId,
@@ -324,6 +342,7 @@ export async function startPublishIntent(
         operation: "publish",
         intendedBody: record.body,
         publishGeneration: record.publish_generation,
+        authorisation,
       })
   if (!attempt) return null
   await supersedeQueuedSiblings(sql, {
@@ -395,6 +414,13 @@ export async function preparePublish(
       record.location_id
     )
     if (requiresApproval(record, canPublish)) {
+      // Asking for approval changes the reply's workflow; a viewer may not.
+      await requireLocationAction(
+        sql,
+        input.session,
+        record.location_id,
+        "request_approval"
+      )
       return {
         kind: "outcome",
         outcome: await requestApproval(sql, input, record.body),

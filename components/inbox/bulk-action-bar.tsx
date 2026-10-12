@@ -1,6 +1,7 @@
 "use client"
 
 import { Check, MessageSquareText, UserPlus, X } from "lucide-react"
+import Link from "next/link"
 import * as React from "react"
 
 import { useSelection } from "@/components/inbox/selection-context"
@@ -22,8 +23,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useToastManager } from "@/components/ui/toast"
-import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
+import type {
+  BulkReviewActionInput,
+  BulkReviewResult,
+  ReviewRow,
+} from "@/lib/contracts/reviews"
 import { describeErrorCode } from "@/lib/errors/action-errors"
+import {
+  BULK_ROW_STATUS_LABEL,
+  summariseBulkOutcome,
+} from "@/lib/inbox/bulk-outcome"
 import { isRatingOnly } from "@/lib/inbox/template-batch"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
@@ -38,7 +47,14 @@ import { useMembers } from "@/lib/queries/use-members"
  * afterwards that two were not theirs to approve. Results come back per row,
  * so a stale row never discards the rest of the batch.
  */
-function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
+function BulkActionBar({
+  rows,
+  bulkEngine = false,
+}: {
+  rows: ReviewRow[]
+  /** Approve and template replies run as a bulk batch (the job runner sends them). */
+  bulkEngine?: boolean
+}) {
   const { selected, clear, replace } = useSelection()
   const bulk = useBulkReviewAction()
   const toast = useToastManager()
@@ -56,11 +72,23 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
   // The member list is only needed to assign, so it is fetched when a
   // selection exists rather than on every visit to the inbox.
   const members = useMembers({ enabled: chosen.length > 0 })
+  // Offer only people the server would accept for at least one chosen row:
+  // never a viewer, and a member scoped to locations only when one of the
+  // chosen reviews is at one of them. The server still checks every row
+  // (`assignee_not_eligible`); this just keeps certain refusals off the menu.
+  const chosenLocations = new Set(chosen.map((row) => row.location.id))
+  const assignees = (members.data?.members ?? []).filter(
+    (member) =>
+      member.role !== "viewer" &&
+      (member.locations.length === 0 ||
+        member.locations.some((grant) => chosenLocations.has(grant.locationId)))
+  )
 
   const templateDialog = templateRows ? (
     <TemplateReplyDialog
       open
       rows={templateRows}
+      bulkEngine={bulkEngine}
       onOpenChange={(open) => {
         if (!open) setTemplateRows(null)
       }}
@@ -73,39 +101,54 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
   if (chosen.length === 0) return templateDialog
 
+  // Approval is bound to the draft on screen: a row with no draft has
+  // nothing the operator could have read, so it cannot be approved here.
   const approvable = chosen.filter(
     (row) =>
-      row.workflowStatus === "awaiting_approval" && row.capabilities.canPublish
+      row.workflowStatus === "awaiting_approval" &&
+      row.capabilities.canPublish &&
+      row.draftId !== null
   )
 
   const run = async (
     action: "approve" | "assign" | "mark_reviewed",
     assigneeId?: string | null
   ) => {
-    const ids =
+    const input: BulkReviewActionInput | null =
       action === "approve"
-        ? approvable.map((row) => row.id)
-        : chosen.map((row) => row.id)
-    if (ids.length === 0) return
+        ? approvable.length === 0
+          ? null
+          : {
+              action,
+              // Exactly what this list showed: the server refuses a row whose
+              // draft or review has moved since (approval_draft_changed,
+              // review_changed) instead of approving it unread.
+              approvals: approvable.map((row) => ({
+                reviewId: row.id,
+                draftId: row.draftId!,
+                reviewUpdateTime: row.updateTime,
+              })),
+            }
+        : chosen.length === 0
+          ? null
+          : action === "assign"
+            ? {
+                action,
+                reviewIds: chosen.map((row) => row.id),
+                assigneeId: assigneeId ?? null,
+              }
+            : { action, reviewIds: chosen.map((row) => row.id) }
+    if (!input) return
     try {
-      const result = await bulk.mutateAsync({
-        action,
-        reviewIds: ids,
-        ...(action === "assign" ? { assigneeId: assigneeId ?? null } : {}),
-      })
+      const result = await bulk.mutateAsync(input)
       setOutcome(result)
-      const ok = result.results.filter((row) => row.status === "ok").length
-      const skipped = result.results.length - ok
+      const summary = summariseBulkOutcome(result)
       toast.add({
-        title:
-          skipped === 0
-            ? `${ok} ${ok === 1 ? "review" : "reviews"} updated`
-            : `${ok} updated, ${skipped} skipped`,
-        description:
-          skipped === 0 ? undefined : "The bar lists which, and why.",
-        type: skipped === 0 ? "success" : "warning",
+        title: summary.title,
+        description: summary.description,
+        type: summary.tone,
       })
-      if (skipped === 0) clear()
+      if (summary.allOk) clear()
     } catch (error) {
       toast.add({
         title: "That batch did not run",
@@ -128,7 +171,9 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
   const partial = approvable.length < chosen.length && approvable.length > 0
   const failures = outcome
-    ? outcome.results.filter((row) => row.status !== "ok")
+    ? outcome.results.filter(
+        (row) => row.status !== "ok" && row.status !== "queued"
+      )
     : []
 
   return (
@@ -159,7 +204,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
             Assign
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="center">
-            {(members.data?.members ?? []).map((member) => (
+            {assignees.map((member) => (
               <DropdownMenuItem
                 key={member.userId}
                 onClick={() => void run("assign", member.userId)}
@@ -167,9 +212,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
                 {member.displayName ?? member.email}
               </DropdownMenuItem>
             ))}
-            {(members.data?.members ?? []).length > 0 ? (
-              <DropdownMenuSeparator />
-            ) : null}
+            {assignees.length > 0 ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem onClick={() => void run("assign", null)}>
               Unassign
             </DropdownMenuItem>
@@ -230,8 +273,20 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
 
       {partial ? (
         <p className="text-caption text-ink-muted-on-charcoal">
-          {chosen.length - approvable.length} of these are not awaiting your
+          {chosen.length - approvable.length} of these are not ready for your
           approval, so Approve will skip them.
+        </p>
+      ) : null}
+
+      {outcome?.operationId ? (
+        <p className="text-caption text-ink-on-charcoal" aria-live="polite">
+          The approved replies are sent in the background.{" "}
+          <Link
+            href={`/listings/bulk/${outcome.operationId}`}
+            className="font-semibold underline underline-offset-2"
+          >
+            Follow this batch
+          </Link>
         </p>
       ) : null}
 
@@ -243,7 +298,7 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
               className="flex items-center gap-2 text-caption text-ink-on-charcoal"
             >
               <span className="font-semibold">
-                {row.status === "failed" ? "Failed" : "Skipped"}
+                {BULK_ROW_STATUS_LABEL[row.status]}
               </span>
               <span className="min-w-0 truncate">
                 {describeRow(row.reviewId)}
@@ -265,10 +320,11 @@ function BulkActionBar({ rows }: { rows: ReviewRow[] }) {
             {approvable.length === 1 ? "reply" : "replies"} to Google?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Each approved reply is sent to Google straight away and appears on
-            the business&apos;s profile under its name.
+            {bulkEngine
+              ? "Each approved reply is sent to Google in the background, one after another, and appears on the business’s profile under its name. You can close this tab; the batch page shows each result."
+              : "Each approved reply is sent to Google straight away and appears on the business’s profile under its name."}
             {approvable.length < chosen.length
-              ? ` The other ${chosen.length - approvable.length} selected are not awaiting your approval and are left as they are.`
+              ? ` The other ${chosen.length - approvable.length} selected are not ready for your approval and are left as they are.`
               : ""}
           </AlertDialogDescription>
           <AlertDialogFooter>

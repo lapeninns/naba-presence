@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ReactNode } from "react"
@@ -82,13 +82,56 @@ describe("aggregate menu review", () => {
       screen.getByRole("button", { name: "Publish 1 area to Google" })
     )
     await waitFor(() =>
-      expect(publish).toHaveBeenCalledWith("l1", {
-        expectedCanonicalRevision: "4",
-        expectedCanonicalHash: "reviewed-local",
-        expectedGoogleHash: "reviewed-google",
-      })
+      expect(publish).toHaveBeenCalledWith(
+        "l1",
+        {
+          expectedCanonicalRevision: "4",
+          expectedCanonicalHash: "reviewed-local",
+          expectedGoogleHash: "reviewed-google",
+        },
+        { intentId: expect.any(String) }
+      )
     )
     expect(refresh).not.toHaveBeenCalled()
+  })
+  it("says live only once the verified publish has finished", async () => {
+    const user = userEvent.setup()
+    menus.value = state(["A"], ["B"])
+    let answer: (value: { status: "published" }) => void = () => {}
+    vi.spyOn(menuApi, "publishFoodMenus").mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve
+      }) as ReturnType<typeof menuApi.publishFoodMenus>
+    )
+    renderWithProviders(<ReviewPublish locationId="l1" role="owner" />)
+    await user.click(
+      screen.getByRole("button", { name: "Publish 1 area to Google" })
+    )
+    // In flight: the request left the app and Google hasn't answered.
+    expect(
+      await screen.findByText("Sent to Google — waiting for the answer")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Live on Google")).toBeNull()
+
+    answer({ status: "published" })
+    const finished = () =>
+      within(screen.getByRole("list", { name: "Publish results" })).getByRole(
+        "listitem"
+      )
+    await waitFor(() =>
+      expect(finished()).toHaveAttribute("data-state", "confirmed_applied")
+    )
+    const step = finished()
+    expect(step).toHaveTextContent("Live on Google")
+    const toasts = screen.getByRole("region", { name: "Notifications" })
+    expect(await within(toasts).findByText("Live on Google")).toBeVisible()
+    // The page's own result heading, not only the toast's.
+    expect(
+      screen
+        .getAllByRole("heading", { level: 2, name: "Live on Google" })
+        .some((heading) => !toasts.contains(heading))
+    ).toBe(true)
+    expect(screen.queryByText("Accepted by Google")).toBeNull()
   })
   it("blocks unresolved duplicate matches in aggregate review", () => {
     menus.value = state(["A", "B"], ["C", "D"])

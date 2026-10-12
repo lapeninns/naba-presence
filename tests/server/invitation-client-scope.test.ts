@@ -27,6 +27,7 @@ type Pending = {
   role: string
   canPublish: boolean
   clientIds: string[] | null
+  locationIds?: string[] | null
 }
 
 /**
@@ -50,6 +51,13 @@ function fakeAcceptance(input: {
             email: "ben@example.test",
             expiresAt: new Date(Date.now() + 60_000),
             acceptedAt: null,
+            locationIds: null,
+            // What the 0082 CHECK guarantees: 'assigned' exactly when ids
+            // are named.
+            locationScope:
+              input.pending.clientIds || input.pending.locationIds
+                ? "assigned"
+                : "all",
             ...input.pending,
           },
         ])
@@ -102,6 +110,10 @@ describe("accepting a client-scoped invitation (session path)", () => {
       s.text.includes("insert into location_member")
     )
     expect(grant?.values).toEqual([ORG, USER, true, { array: [CROWN] }])
+    expect(grant?.text).toContain("l.client_id = any(")
+    // The membership is created assigned, in the same transaction as the rows.
+    const member = statements.find((s) => s.text.includes("insert into member"))
+    expect(member?.values.at(-1)).toBe("assigned")
     expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -133,10 +145,52 @@ describe("accepting a client-scoped invitation (session path)", () => {
     })
   })
 
+  it("grants a business invitation's named locations", async () => {
+    const pending = {
+      role: "member",
+      canPublish: true,
+      clientIds: null,
+      locationIds: ["l1", "l2"],
+    }
+    const statements = fakeAcceptance({ pending, granted: ["l1"] })
+    await accept(pending)
+    const grant = statements.find((s) =>
+      s.text.includes("insert into location_member")
+    )
+    expect(grant?.text).toContain("l.id = any(")
+    expect(grant?.values).toEqual([ORG, USER, true, { array: ["l1", "l2"] }])
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          locationIds: ["l1", "l2"],
+          locationScope: "assigned",
+          scopedListings: 1,
+        }),
+      })
+    )
+  })
+
+  it("refuses a location scope whose listings have all gone", async () => {
+    const pending = {
+      role: "viewer",
+      canPublish: false,
+      clientIds: null,
+      locationIds: ["gone"],
+    }
+    fakeAcceptance({ pending, granted: [] })
+    await expect(accept(pending)).rejects.toMatchObject({
+      status: 409,
+      code: "invitation_scope_empty",
+    })
+  })
+
   it("leaves an unscoped invitation as all clients", async () => {
     const pending = { role: "member", canPublish: false, clientIds: null }
     const statements = fakeAcceptance({ pending })
     await accept(pending)
+    const member = statements.find((s) => s.text.includes("insert into member"))
+    expect(member?.values.at(-1)).toBe("all")
     expect(
       statements.some((s) => s.text.includes("insert into location_member"))
     ).toBe(false)
@@ -189,6 +243,8 @@ describe("client-access helpers", () => {
       /having count\(distinct lm\.location_id\) = \(select count\(\*\) from others\)/
     )
     expect(result.text).toMatch(/id <> all/)
+    // Owners, admins and anyone scoped 'all' hold rows only latently.
+    expect(result.text).toMatch(/m\.location_scope = 'assigned'/)
     expect(result.text).toMatch(
       /on conflict \(location_id, user_id\) do nothing/
     )

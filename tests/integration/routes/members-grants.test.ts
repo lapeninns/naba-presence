@@ -4,7 +4,11 @@ import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
-import { createTestTenant, destroyTenants } from "../helpers/tenant"
+import {
+  createTestTenant,
+  destroyTenants,
+  seedMemberUser,
+} from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -224,5 +228,229 @@ describeDatabase("member removal, location grants and the last owner", () => {
       where organisation_id = ${first.organisationId} and role = 'owner'
     `
     expect(owners.count).toBe(1)
+  })
+
+  // ---------------------------------------------------------------------------
+  // Explicit location scope (supabase 0082): written with the rows, never
+  // apart from them. Reads still come from the rows; these pin the dual
+  // write the readers will switch to.
+  // ---------------------------------------------------------------------------
+
+  async function scopeOf(organisationId: string, userId: string) {
+    const [row] = await admin<{ locationScope: string; rows: number }[]>`
+      select
+        m.location_scope as "locationScope",
+        (
+          select count(*)::int from location_member lm
+          where lm.organisation_id = m.organisation_id
+            and lm.user_id = m.user_id
+        ) as rows
+      from member m
+      where m.organisation_id = ${organisationId} and m.user_id = ${userId}
+    `
+    return row
+  }
+
+  async function putAccess(
+    cookie: string,
+    userId: string,
+    body: Record<string, unknown>
+  ) {
+    return fetch(`${server.baseUrl}/api/members/${userId}/client-access`, {
+      method: "PUT",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  }
+
+  async function patchRole(
+    cookie: string,
+    userId: string,
+    role: string,
+    canPublish: boolean
+  ) {
+    return fetch(`${server.baseUrl}/api/members`, {
+      method: "PATCH",
+      headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ userId, role, canPublish }),
+    })
+  }
+
+  it("writes the location scope with the client-access rows", async () => {
+    const owner = await createTestTenant(admin, { workspaceMode: "business" })
+    organisations.push(owner.organisationId)
+    const flagship = await seedLocation(owner.organisationId, "Flagship")
+    const member = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+    })
+    await expect(scopeOf(owner.organisationId, member.userId)).resolves.toEqual(
+      { locationScope: "all", rows: 0 }
+    )
+
+    const narrowed = await putAccess(owner.cookie, member.userId, {
+      locations: [{ locationId: flagship, canPublish: true }],
+    })
+    expect(narrowed.status, await narrowed.clone().text()).toBe(200)
+    await expect(scopeOf(owner.organisationId, member.userId)).resolves.toEqual(
+      { locationScope: "assigned", rows: 1 }
+    )
+
+    const widened = await putAccess(owner.cookie, member.userId, {
+      allClients: true,
+    })
+    expect(widened.status, await widened.clone().text()).toBe(200)
+    await expect(scopeOf(owner.organisationId, member.userId)).resolves.toEqual(
+      { locationScope: "all", rows: 0 }
+    )
+
+    const [audit] = await admin<{ metadata: Record<string, unknown> }[]>`
+      select metadata from audit_log
+      where organisation_id = ${owner.organisationId}
+        and action = 'member.client_access_changed'
+      order by created_at desc
+      limit 1
+    `
+    expect(audit.metadata).toMatchObject({
+      before: { locationScope: "assigned" },
+      after: { locationScope: "all" },
+    })
+  })
+
+  it("rolls the scope back with the rows when a client-access save fails", async () => {
+    const owner = await createTestTenant(admin, { workspaceMode: "business" })
+    organisations.push(owner.organisationId)
+    const flagship = await seedLocation(owner.organisationId, "Flagship")
+    const member = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+    })
+    // Fail the row insert, which runs after the scope update, for this one
+    // member only: the save has then written 'assigned' and must lose it.
+    const suffix = member.userId.replaceAll("-", "")
+    const fn = `fail_location_member_${suffix}`
+    await admin.unsafe(`
+      create function ${fn}() returns trigger language plpgsql as $$
+      begin
+        if new.user_id = '${member.userId}'::uuid then
+          raise exception 'injected location_member failure';
+        end if;
+        return new;
+      end;
+      $$;
+      create trigger ${fn} before insert on location_member
+        for each row execute function ${fn}();
+    `)
+    try {
+      const refused = await putAccess(owner.cookie, member.userId, {
+        locations: [{ locationId: flagship, canPublish: false }],
+      })
+      expect(refused.status).toBe(500)
+    } finally {
+      await admin.unsafe(`
+        drop trigger if exists ${fn} on location_member;
+        drop function if exists ${fn}();
+      `)
+    }
+    await expect(scopeOf(owner.organisationId, member.userId)).resolves.toEqual(
+      { locationScope: "all", rows: 0 }
+    )
+    const [audits] = await admin<{ count: number }[]>`
+      select count(*)::int as count from audit_log
+      where organisation_id = ${owner.organisationId}
+        and action = 'member.client_access_changed'
+    `
+    expect(audits.count).toBe(0)
+  })
+
+  it("moves the scope with the role and keeps latent rows", async () => {
+    const owner = await createTestTenant(admin, { workspaceMode: "business" })
+    organisations.push(owner.organisationId)
+    const flagship = await seedLocation(owner.organisationId, "Flagship")
+    const assigned = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      assignLocationId: flagship,
+    })
+    const unassigned = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+    })
+
+    // Promotion: owners and admins are every location; the row stays latent.
+    expect(
+      (await patchRole(owner.cookie, assigned.userId, "admin", true)).status
+    ).toBe(200)
+    await expect(
+      scopeOf(owner.organisationId, assigned.userId)
+    ).resolves.toEqual({ locationScope: "all", rows: 1 })
+
+    // Demotion: the latent row becomes active again, as it always has.
+    const demoted = await patchRole(
+      owner.cookie,
+      assigned.userId,
+      "viewer",
+      false
+    )
+    expect(demoted.status, await demoted.clone().text()).toBe(200)
+    expect(
+      ((await demoted.json()) as { member: { locationScope: string } }).member
+        .locationScope
+    ).toBe("assigned")
+    await expect(
+      scopeOf(owner.organisationId, assigned.userId)
+    ).resolves.toEqual({ locationScope: "assigned", rows: 1 })
+
+    // Demoting an admin with no rows leaves them seeing every location.
+    expect(
+      (await patchRole(owner.cookie, unassigned.userId, "admin", true)).status
+    ).toBe(200)
+    expect(
+      (await patchRole(owner.cookie, unassigned.userId, "member", false)).status
+    ).toBe(200)
+    await expect(
+      scopeOf(owner.organisationId, unassigned.userId)
+    ).resolves.toEqual({ locationScope: "all", rows: 0 })
+
+    // A member/viewer change keeps the scope it already has.
+    expect(
+      (await patchRole(owner.cookie, assigned.userId, "member", true)).status
+    ).toBe(200)
+    await expect(
+      scopeOf(owner.organisationId, assigned.userId)
+    ).resolves.toEqual({ locationScope: "assigned", rows: 1 })
+  })
+
+  it("extends a newly filed listing only to assigned holders", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const [client] = await admin<{ id: string }[]>`
+      insert into client (organisation_id, name, slug)
+      values (${owner.organisationId}, 'Old Crown', ${`old-crown-${randomUUID().slice(0, 8)}`})
+      returning id::text as id
+    `
+    const first = await seedLocation(owner.organisationId, "Old Crown")
+    await admin`update location set client_id = ${client.id} where id = ${first}`
+    const holder = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      assignLocationId: first,
+    })
+    // An admin holding the same listing: latent, scope 'all'.
+    const latent = await seedMemberUser(admin, {
+      organisationId: owner.organisationId,
+      assignLocationId: first,
+    })
+    expect(
+      (await patchRole(owner.cookie, latent.userId, "admin", true)).status
+    ).toBe(200)
+
+    const second = await seedLocation(owner.organisationId, "Old Crown annexe")
+    const { withTenant } = await import("@/lib/server/db")
+    const { extendClientHolders } = await import("@/lib/server/client-access")
+    const extended = await withTenant(owner.organisationId, async (sql) => {
+      await sql`update location set client_id = ${client.id} where id = ${second}`
+      return extendClientHolders(sql, {
+        organisationId: owner.organisationId,
+        clientId: client.id,
+        locationIds: [second],
+      })
+    })
+    expect(extended.map((grant) => grant.userId)).toEqual([holder.userId])
   })
 })

@@ -1,4 +1,9 @@
 import { ApiClientError } from "@/lib/api/client"
+import { LISTING_CHANGE_AWAITING_APPROVAL } from "@/lib/contracts/listing-changes"
+import {
+  operationOutcomeSchema,
+  type OperationOutcome,
+} from "@/lib/contracts/mutation-operations"
 
 /**
  * The single mapping layer from server error codes to GB-English user copy.
@@ -36,6 +41,45 @@ const APPROVAL_COPY: Record<ActionErrorContext, Record<string, string>> = {
 }
 
 const COPY: Record<string, string> = {
+  // ---- Workspace mode (P06-5) ----------------------------------------------
+  workspace_mode_too_many_clients:
+    "A business workspace holds one client. Archive the others on the Clients page, then switch.",
+  workspace_mode_change_unavailable:
+    "Changing between a business and an agency workspace is not available for this account yet.",
+  billing_subscription_active:
+    "This workspace's subscription or open checkout is for its current mode. Cancel it from Billing, or let the checkout expire, then switch.",
+  business_mode_single_client:
+    "This workspace has a single business, so another one cannot be added.",
+  // ---- Listing change approvals (two-person mode, P02-S2b) ---------------
+  // Not a failure: the change is held for a second publisher.
+  listing_change_awaiting_approval:
+    "Sent for approval. Another publisher needs to approve this change before it goes to Google.",
+  listing_change_upload_unsupported:
+    "Uploads can’t be sent for approval yet. Add the photo by its web address instead.",
+  listing_second_approver_required:
+    "A different publisher must approve this change.",
+  // Two-person mode: business information only changes through a reviewed
+  // change set (P09-R2), so Google's suggested update can't be accepted in
+  // one step.
+  business_info_review_required:
+    "Two-person approval is on. Review Google’s suggested changes in Business information so a second person can approve them.",
+  change_request_not_pending: "This change is no longer waiting for approval.",
+  change_request_changed:
+    "This is not the change you were shown. Reload and review it again.",
+  change_request_not_found: "This change request was not found.",
+  change_request_invalid:
+    "This change can no longer be sent as it was requested. Make it again.",
+  change_request_decided:
+    "This change was already approved and sent. Reload to see where it stands.",
+  approval_rejected:
+    "Another publisher rejected this change. Nothing was sent to Google.",
+  approval_withdrawn: "This change was withdrawn. Nothing was sent to Google.",
+  approval_superseded:
+    "A newer request replaced this change. Nothing was sent from this one.",
+  approval_invalidated:
+    "The saved content changed after this request, so it was not sent. Make the change again.",
+  approval_dispatch_interrupted:
+    "This approval was interrupted before anything was sent to Google. Make the change again.",
   google_confirmation_required:
     "Google has not confirmed this change. Check the recorded outcome in Activity before publishing again.",
   // ---- Session / permissions (shared) -------------------------------------
@@ -53,6 +97,10 @@ const COPY: Record<string, string> = {
     "You do not have permission to publish to Google for this location.",
   canonical_edit_permission_required:
     "Only owners and admins can edit this location.",
+  // DELETE /api/session?scope=all: this browser is signed out, the rest are
+  // unknown. Never say "everywhere" happened.
+  sign_out_everywhere_failed:
+    "You’re signed out on this device, but other devices may still be signed in. Sign in again and retry “Sign out everywhere”.",
 
   // ---- Google write gates / pauses ---------------------------------------
   // Divergence: inbox "Publishing is temporarily paused. Try again shortly."
@@ -61,6 +109,10 @@ const COPY: Record<string, string> = {
   publishing_paused:
     "Publishing to Google is temporarily paused. Try again shortly.",
   drafts_paused: "Draft saving is temporarily paused. Try again shortly.",
+  // Our own burst limit (lib/server/abuse-limits.ts), not the monthly
+  // allowance: waiting is enough.
+  draft_rate_limited:
+    "Too many drafts were requested in a short time. Wait a moment and try again.",
   google_writes_paused: "Publishing to Google is currently unavailable.",
   // A Business Profile API Google has switched off for good (Business Calls,
   // provider attributes, insurance networks, Q&A). No retry will help.
@@ -91,13 +143,54 @@ const COPY: Record<string, string> = {
   ai_empty_response:
     "The AI returned nothing this time. Try again, or write the reply yourself.",
 
-  // 402 when the month's draft allowance is spent; describeActionError adds
+  // 402 when the period's draft allowance is spent; describeActionError adds
   // the reset date from details.resetsAt when the server sent one.
   ai_credits_exhausted:
-    "You have used all your AI drafts for this month. You can still write a reply yourself.",
-  // 429 that lasts until the month resets, so "wait a moment" would mislead.
+    "You have used all your AI drafts for this period. You can still write a reply yourself.",
+  // 402 while billing derives read-only (central enforcement refuses every
+  // new change, lib/server/entitlement-policy.ts; AI work is refused even
+  // before that), and while a trial or paid period has no confirmed
+  // allowance yet: neither is fixed by trying again.
+  billing_read_only:
+    "This workspace's subscription is read-only, so new changes are unavailable. Billing, exports, privacy requests and disconnecting Google still work.",
+  // 402 from the location-limit trigger (0110): existing links are never
+  // removed, so the owner unlinks one or changes plan.
+  location_limit_reached:
+    "This workspace has reached its plan's location limit. Unlink a location or change plan to link another.",
+  // 409 from a plan change below the linked locations (P07-S5).
+  location_limit_exceeded:
+    "That plan allows fewer locations than are linked. Unlink locations first; linked locations are never removed automatically.",
+  // ---- Billing (app/api/billing/**, P07-S5) ---------------------------------
+  // 503 while billing is switched off, misconfigured or paused: nothing
+  // reached Stripe, so say that rather than blaming Google.
+  billing_unavailable:
+    "Billing is not available right now. Nothing has been charged. Try again later.",
+  subscription_exists:
+    "This workspace already has a subscription. Reload the billing page to see it.",
+  checkout_completed:
+    "Checkout has been completed and the subscription is being confirmed. Reload the billing page in a minute.",
+  billing_missing: "This workspace has no billing record. Contact support.",
+  billing_customer_missing:
+    "Start a subscription before managing payment details and invoices.",
+  subscription_not_changeable:
+    "This subscription can't be changed right now. Plans can be changed during a trial or while the subscription is active.",
+  cancel_scheduled:
+    "The subscription is set to end. Resume it before changing plan.",
+  billing_out_of_sync:
+    "The subscription is being updated. Try again in a minute.",
+  plan_unavailable: "That plan is not available for this workspace.",
+  support_session_forbidden: "Billing can't be changed from a support session.",
+  ai_allowance_unknown:
+    "Your AI credit allowance is not confirmed yet, so AI drafting is off for now. You can still write a reply yourself.",
+  // 429 that lasts until the period resets, so "wait a moment" would mislead.
   ai_token_backstop:
-    "AI drafting is paused for this month because of unusually high usage. You can still write a reply yourself.",
+    "AI drafting is paused for this period because of unusually high usage. You can still write a reply yourself.",
+  // A retried generation (same Idempotency-Key) while the first still runs,
+  // or after it ended without a draft.
+  generation_in_progress:
+    "This reply is still being written. Try again in a moment.",
+  generation_not_repeatable:
+    "That generation did not produce a reply. Generate again.",
 
   // ---- Inbox: drafts, verification, publishing ----------------------------
   verified_draft_required: "Verify a draft before publishing this reply.",
@@ -114,6 +207,11 @@ const COPY: Record<string, string> = {
   // and what changed is the text they were about to approve.
   approval_draft_changed:
     "This reply changed after you opened it. Read the current draft before approving or rejecting it.",
+  // Google posts: the approval names the revision the approver read.
+  approval_post_changed:
+    "This post changed after you opened it. Read the current version before approving or rejecting it.",
+  expected_revision_required:
+    "Reload this post, then approve the version you can see.",
   stale_draft_evidence:
     "The review changed after this reply was checked. Press Publish again to re-check it against the current review.",
   google_mutation_ambiguous:
@@ -128,6 +226,19 @@ const COPY: Record<string, string> = {
     "We could not confirm this reply on Google. Try again shortly.",
   verification_required:
     "This reply needs re-verifying before it can be published. Re-verify and try again.",
+  // Bulk rows: an unexpected fault on one row is reported on that row. After
+  // an approval it may already have reached Google, so it is not "failed".
+  publish_outcome_unknown:
+    "The approval is recorded but we could not tell whether the reply reached Google. Check the review before trying again.",
+  bulk_row_failed: "Something went wrong with this one. Nothing was changed.",
+  // After a bulk approval: the decision is spent, so "try again" would only
+  // earn approval_not_pending. Say what happens next instead.
+  publish_retry_scheduled:
+    "The approval is recorded. Google could not take the reply just now, so it will be sent again automatically.",
+  google_reply_rejected:
+    "The approval is recorded, but Google rejected the reply, so it is not on the profile. Edit the reply and publish it again.",
+  publish_not_sent:
+    "The approval is recorded, but the reply was not sent to Google. Open the review to check its state.",
   publish_in_progress:
     "A publish for this reply is already under way. Wait a moment and try again.",
   // The Google write pipeline raises these while another request for the same
@@ -213,6 +324,16 @@ const COPY: Record<string, string> = {
     "Google accepted the upload but did not name it, so we can’t show it yet. Refresh in a moment.",
   media_not_found:
     "That photo or video is no longer on this location. Refresh the tab.",
+  media_needs_resolution:
+    "Google did not confirm whether this was added. Check the listing on Google, then mark it as added or not added before trying again.",
+  media_create_in_progress:
+    "This is still being added to Google. Wait a moment, then refresh.",
+  media_upload_interrupted:
+    "The upload to Google did not finish, so nothing was added. Try again.",
+  media_resolution_not_pending:
+    "That upload no longer needs a decision. Refresh the tab.",
+  media_resolution_conflict:
+    "This was marked as not added while it was still being sent, and Google has now added it. Check the listing’s photos before adding it again.",
 
   // ---- Locations: booking --------------------------------------------------
   place_action_stale:
@@ -233,6 +354,13 @@ const COPY: Record<string, string> = {
   // answer is that nothing was published.
   google_post_not_published:
     "Google does not list this post, so nothing was published. You can publish it again.",
+  // A post update Google never confirmed. Re-sending it is safe (it replaces
+  // the post's text rather than adding a post), so the copy says so.
+  google_post_update_unconfirmed:
+    "Google did not confirm this change to the post. Publish it again to resend it.",
+  // An unconfirmed create: sending again could make a second live post.
+  post_publish_uncertain:
+    "Google has not confirmed whether this post went live. Refresh the posts list before changing it.",
 
   // ---- Locations: business information (Google-direct) --------------------
   business_information_stale:
@@ -283,12 +411,22 @@ const COPY: Record<string, string> = {
   already_a_member:
     "That person is already in this organisation. Change their role from the team list instead.",
   invitation_not_found: "That invitation is no longer available.",
+  // Invitation email (P06-6).
+  invitation_email_pending:
+    "An email for this invitation is still being sent. Wait a moment before resending.",
+  invitation_email_unavailable:
+    "Emailing invitations isn’t available for this account yet. Copy the link and send it yourself.",
+  invitation_email_rate_limited:
+    "Too many invitation emails were sent in a short time. Copy the link and send it yourself, or try again later.",
+  invitation_expired:
+    "This invitation has expired. Revoke it and invite them again.",
+  invitation_accepted: "This invitation has already been accepted.",
   viewer_cannot_publish: "Viewers can’t be given publishing access.",
   duplicate_location: "That location appears more than once.",
   location_not_found: "That location no longer exists.",
   // Client access (PUT /api/members/[userId]/client-access, invitations).
-  would_widen_to_all_clients:
-    "Choose at least one client that has listings. Someone with no listings sees every client, so choose All clients if that’s what you mean.",
+  invitation_scope_empty:
+    "Those clients or locations have no listings left, so the invitation would give access to nothing. Choose others, or invite for all of them.",
   role_sees_all_clients:
     "Owners and admins always see every client. Change their role to limit what they see.",
   duplicate_client: "That client appears more than once.",
@@ -305,10 +443,13 @@ const COPY: Record<string, string> = {
   privacy_request_transition_invalid:
     "A privacy request can’t move back to that status.",
   // The local erasure committed; only the withdrawal at Google failed, and
-  // the request is deliberately left open. The 409 fallback ("refresh and try
-  // again") hides that half the work is already done and durable.
+  // the request is deliberately left open while the job tick retries it. The
+  // 409 fallback ("refresh and try again") hides that half the work is
+  // already done and durable.
+  privacy_withdrawal_pending:
+    "This erasure was carried out here but a reply is still live on Google, so it can’t be closed yet. Fulfil it again, or wait for the automatic retry.",
   privacy_reply_withdraw_failed:
-    "The reply could not be withdrawn from Google. The local records were erased and the request stays open — retry it once Google is reachable.",
+    "The reply could not be withdrawn from Google yet. The local records were erased and the request stays open — the withdrawal is retried automatically.",
   legal_hold_not_found: "There’s no active legal hold for that review.",
   review_not_found: "That review no longer exists.",
 
@@ -377,6 +518,10 @@ const COPY: Record<string, string> = {
     "Google didn’t accept those details. Check them and try again. Nothing was changed.",
 
   // ---- Client-side --------------------------------------------------------
+  // A write whose request got no answer (apiFetch, the upload XHR). Same
+  // sentence as NETWORK_ERROR_COPY below.
+  network_error:
+    "We couldn’t reach NabaPresence. Check your connection and try again.",
   malformed_response:
     "The server sent an unexpected response. Refresh and try again.",
 }
@@ -443,7 +588,19 @@ export function describeActionError(
           month: "long",
           timeZone: "UTC",
         })
-        return `You have used all your AI drafts for this month. They reset on ${formatted}. You can still write a reply yourself.`
+        return `You have used all your AI drafts for this period. They reset on ${formatted}. You can still write a reply yourself.`
+      }
+    }
+    if (
+      error.code === "location_limit_reached" ||
+      error.code === "location_limit_exceeded"
+    ) {
+      const limit = (error.details as { limit?: unknown } | undefined)?.limit
+      if (typeof limit === "number" && Number.isInteger(limit)) {
+        const noun = limit === 1 ? "location" : "locations"
+        return error.code === "location_limit_reached"
+          ? `This workspace's plan allows ${limit} ${noun}, and that limit is reached. Unlink a location or change plan to link another.`
+          : `That plan allows ${limit} ${noun}, and more are linked. Unlink locations first; linked locations are never removed automatically.`
       }
     }
     const mapped = APPROVAL_COPY[context][error.code] ?? COPY[error.code]
@@ -454,7 +611,8 @@ export function describeActionError(
     return GENERIC_ERROR_COPY
   }
   // fetch() rejects with a TypeError when the network is down or the request
-  // never reached the server; apiFetch does not wrap it.
+  // never reached the server; apiFetch wraps it as `network_error` only for
+  // writes.
   if (error instanceof TypeError) return NETWORK_ERROR_COPY
   // An aborted or timed-out request rejects with a DOMException, NOT a
   // TypeError, so it used to fall through to "Something went wrong" — the one
@@ -507,4 +665,102 @@ export function isNotLinkedError(error: unknown): boolean {
 /** Review sync is paused by ops — settings shows a paused notice, not an error. */
 export function isPausedError(error: unknown): boolean {
   return error instanceof ApiClientError && error.code === "sync_paused"
+}
+
+// ---- Outcomes of failed writes -------------------------------------------
+
+/**
+ * Codes that say the write may have reached Google and nothing yet shows
+ * whether it applied. Retrying blindly could apply it twice.
+ */
+const UNCERTAIN_CODES = new Set([
+  "google_mutation_ambiguous",
+  "mutation_uncertain",
+  "post_publish_uncertain",
+  "publish_outcome_unknown",
+  "media_needs_resolution",
+  "network_error",
+  // A reviewed change-set write was sent and Google has not confirmed it
+  // (lib/editors/use-publish-flow.ts).
+  "google_confirmation_required",
+])
+
+/**
+ * What a failed write call means in the shared outcome vocabulary
+ * (lib/contracts/mutation-operations.ts), judged from the error alone:
+ *
+ *   uncertain  the request may have been applied: an ambiguous provider
+ *              answer, a dropped connection or timeout, or a gateway error
+ *              that carried no answer from the app at all;
+ *   sent       another request under the same intent (or for the same
+ *              change) is still on its way;
+ *   rejected   Google answered and refused (its own status word as code);
+ *   failed     anything else: the app refused before sending, or the
+ *              request completed without applying.
+ *
+ * A replayed receipt names its outcome in `details.outcome`, which wins.
+ * The receipt itself (`GET /api/mutations/{intentId}`) is the authority;
+ * this is the best guess until it has been read.
+ */
+export function errorOutcome(
+  error: unknown
+): Extract<
+  OperationOutcome,
+  "uncertain" | "sent" | "rejected" | "failed" | "awaiting_approval"
+> {
+  if (error instanceof ApiClientError) {
+    // A listing write parked for a second publisher (lib/api/client.ts).
+    if (error.code === LISTING_CHANGE_AWAITING_APPROVAL) {
+      return "awaiting_approval"
+    }
+    const named = operationOutcomeSchema.safeParse(
+      (error.details as { outcome?: unknown } | undefined)?.outcome
+    )
+    if (
+      named.success &&
+      (named.data === "uncertain" ||
+        named.data === "sent" ||
+        named.data === "rejected" ||
+        named.data === "failed")
+    ) {
+      return named.data
+    }
+    if (UNCERTAIN_CODES.has(error.code)) return "uncertain"
+    if (error.code.endsWith("_in_progress")) return "sent"
+    // The same test the server's receipts use (lib/server/mutation-operations.ts
+    // failureOutcome): Google's own 4xx refusal, not auth, timeout or rate
+    // limiting.
+    if (
+      error.status >= 400 &&
+      error.status < 500 &&
+      ![401, 408, 429].includes(error.status) &&
+      !error.reconnectRequired &&
+      (/^[A-Z][A-Z_]+$/.test(error.code) || error.code === "google_api_error")
+    )
+      return "rejected"
+    // No JSON answer from the app (a proxy's 502/504), an unhandled server
+    // error (the provider write may have landed and only the settle after it
+    // failed), or a 2xx whose body did not parse: the handler may have run to
+    // completion. Typed 5xx codes are the app's own verdicts and stay failed.
+    if (
+      error.status >= 500 &&
+      (error.code === "http_error" ||
+        error.code === "internal_error" ||
+        error.code === "malformed_response")
+    )
+      return "uncertain"
+    return "failed"
+  }
+  if (error instanceof TypeError || isTimeoutError(error)) return "uncertain"
+  return "failed"
+}
+
+/**
+ * True when a retry of the same action must reuse its intent: the first
+ * request may have been applied, so the server has to answer the retry from
+ * the receipt rather than write again.
+ */
+export function isUnconfirmedFailure(error: unknown): boolean {
+  const outcome = errorOutcome(error)
+  return outcome === "uncertain" || outcome === "sent"
 }

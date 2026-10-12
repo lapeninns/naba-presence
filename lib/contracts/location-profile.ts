@@ -3,6 +3,7 @@
 // (lib/domain/profile.ts hashes with node:crypto; see lib/domain/README.md).
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
 import {
   PROFILE_DRIFT_STATUSES,
   PROFILE_FIELD_KEYS,
@@ -17,6 +18,7 @@ export {
   type ProfileFieldKey,
   type ProfileFieldPolicy,
 } from "@/lib/domain/profile-vocabulary"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // Vocabularies come from the domain; the schemas only wrap them.
 export const profileFieldKeySchema = z.enum(PROFILE_FIELD_KEYS)
@@ -36,7 +38,7 @@ export const saveProfileBodySchema = z.object({
     name: z.string().max(255).nullable().optional(),
     description: z.string().max(750).nullable().optional(),
     phone: z.string().max(50).nullable().optional(),
-    website: z.url().max(2048).nullable().optional(),
+    website: httpUrl().nullable().optional(),
   }),
 })
 export type SaveProfileInput = z.input<typeof saveProfileBodySchema>
@@ -112,5 +114,6 @@ export const profileOperationResponseSchema = z.object({
   revision: z.string().optional(),
   attemptId: z.string().optional(),
   idempotent: z.boolean().optional(),
+  ...operationSummaryField,
 })
 export type ProfileOperationResponse = z.infer<typeof profileOperationResponseSchema>

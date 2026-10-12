@@ -6,6 +6,7 @@ import { z } from "zod"
 import {
   HOURS_DRIFT_STATUSES,
   HOURS_UPDATE_MASKS,
+  hoursSelectionKeys,
   type NormalizedHours,
 } from "@/lib/domain/hours-vocabulary"
 
@@ -14,8 +15,10 @@ export {
   HOURS_DRIFT_STATUSES,
   HOURS_UPDATE_MASKS,
   type HoursDriftStatus,
+  type HoursSelection,
   type NormalizedHours,
 } from "@/lib/domain/hours-vocabulary"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // Vocabularies come from the domain; the schemas only wrap them.
 export const hoursUpdateMaskSchema = z.enum(HOURS_UPDATE_MASKS)
@@ -118,13 +121,70 @@ export const saveHoursBodySchema = z.object({
 })
 export type SaveHoursInput = z.input<typeof saveHoursBodySchema>
 
+function unique<T>(values: readonly T[]) {
+  return new Set(values).size === values.length
+}
+
+/**
+ * The parts of the saved schedule to publish (see `HoursSelection`), each
+ * pinned to the Google part hash the operator reviewed (`googlePartHashes`
+ * from the GET; null for a date or service Google did not have). Other parts
+ * are re-read from Google at publish time and preserved, so a Google edit to
+ * an unselected part does not make the review stale.
+ */
+export const hoursSelectionSchema = z
+  .object({
+    regularDays: z
+      .array(z.number().int().min(0).max(6))
+      .min(1)
+      .max(7)
+      .refine(unique, "Each weekday may be selected once.")
+      .optional(),
+    specialDates: z
+      .array(z.iso.date())
+      .min(1)
+      .max(366)
+      .refine(unique, "Each date may be selected once.")
+      .optional(),
+    moreHoursTypes: z
+      .array(z.string().min(1).max(100))
+      .min(1)
+      .max(50)
+      .refine(unique, "Each service may be selected once.")
+      .optional(),
+    expectedGoogleParts: z.record(z.string(), hashSchema.nullable()),
+  })
+  .superRefine((selection, context) => {
+    const keys = hoursSelectionKeys(selection)
+    if (keys.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "Select at least one day, date or service to publish.",
+      })
+      return
+    }
+    const pinned = Object.keys(selection.expectedGoogleParts).sort()
+    if (pinned.join("\n") !== keys.join("\n")) {
+      context.addIssue({
+        code: "custom",
+        path: ["expectedGoogleParts"],
+        message: "Pin exactly the selected parts.",
+      })
+    }
+  })
+export type HoursSelectionInput = z.input<typeof hoursSelectionSchema>
+
 export const publishHoursBodySchema = z.object({
   confirmation: z.literal("publish_nabapresence_hours_to_google"),
   expectedCanonicalRevision: revisionSchema,
   expectedCanonicalHash: hashSchema,
+  /** Compared only for a whole-schedule publish (no `selection`). */
   expectedGoogleHash: hashSchema,
+  /** For a selection: exactly the fields the selection writes. */
   approvedUpdateMask: z.array(hoursUpdateMaskSchema).min(1),
   confirmOverwriteGoogleChanges: z.boolean().default(false),
+  /** Absent: the whole saved schedule replaces Google's (the default). */
+  selection: hoursSelectionSchema.optional(),
 })
 export type PublishHoursBody = z.input<typeof publishHoursBodySchema>
 /** What callers of `publishHours` supply; the client adds the confirmation. */
@@ -191,6 +251,13 @@ export const hoursStateSchema = z.object({
   canonicalHash: z.string(),
   googleHash: z.string(),
   updateMask: z.array(hoursUpdateMaskSchema),
+  /** Google's hash per present part, for pinning a selective publish. */
+  googlePartHashes: z.record(z.string(), z.string()).optional(),
+  /**
+   * Drift per differing part, when a part baseline exists. Parts left out
+   * are in sync; absent entirely, only the whole `status` is known.
+   */
+  partStatus: z.record(z.string(), hoursDriftStatusSchema).optional(),
   warnings: z.array(z.string()),
   supportedHoursTypes: z
     .array(z.object({ hoursTypeId: z.string(), displayName: z.string() }))
@@ -221,8 +288,14 @@ export const saveHoursResponseSchema = z.object({
 export type SaveHoursResponse = z.infer<typeof saveHoursResponseSchema>
 
 export const publishHoursResponseSchema = z.object({
-  status: z.enum(["in_sync", "published"]),
+  /**
+   * `in_sync`: the whole schedule already matches Google. `selection_in_sync`:
+   * every selected part already matches Google, so nothing was sent, while
+   * other parts may still differ.
+   */
+  status: z.enum(["in_sync", "selection_in_sync", "published"]),
   attemptId: z.string().optional(),
   idempotent: z.boolean().optional(),
+  ...operationSummaryField,
 })
 export type PublishHoursResponse = z.infer<typeof publishHoursResponseSchema>

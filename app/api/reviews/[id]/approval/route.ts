@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 
 import { approvalInputSchema, reviewIdParamsSchema } from "@/lib/contracts/reviews"
-import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
+import { REPLY_PUBLISHING_PAUSED } from "@/lib/server/publishing"
 import {
   completeApproval,
   recordApprovalDecision,
@@ -18,6 +18,7 @@ export const maxDuration = 60
  * drift — approval is the human boundary in front of a provider write.
  */
 export const POST = route({
+  mfa: "step_up",
   params: reviewIdParamsSchema,
   body: approvalInputSchema,
   handler: async ({
@@ -28,9 +29,9 @@ export const POST = route({
     clientRequestId,
     tenant,
   }) => {
-    if (!getServerEnv().PUBLISH_ENABLED) {
-      throw new ApiError(503, "publishing_paused", "Publishing is temporarily paused.")
-    }
+    // The reply pipeline's own gate (env and operator pause table), before
+    // the decision is recorded: a paused publish leaves no approval behind.
+    await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
     const decision = await tenant((sql) =>
       recordApprovalDecision(sql, session, params.id, input, {
         requestId,

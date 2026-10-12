@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { webhookReplaySchema } from "@/lib/contracts/operations"
 import { writeAudit } from "@/lib/server/audit"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { linkedLocations } from "@/lib/server/reviews"
 import { route } from "@/lib/server/route"
 
@@ -11,9 +11,10 @@ export const runtime = "nodejs"
 export const POST = route({
   roles: ["owner", "admin"],
   handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
-    if (!getServerEnv().SYNC_ENABLED) {
-      throw new ApiError(503, "sync_paused", "Review sync is paused.")
-    }
+    await requireScopesEnabled("sync", {
+      code: "sync_paused",
+      message: "Review sync is paused.",
+    })
     // The kill switch must win over validation, so the body is parsed here
     // rather than through the wrapper's `body` option.
     const input = webhookReplaySchema.parse(await request.json())

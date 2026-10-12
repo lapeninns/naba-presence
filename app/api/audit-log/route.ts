@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { auditLogQuerySchema } from "@/lib/contracts/operations"
+import { csvCell } from "@/lib/domain/csv"
 import { writeAudit } from "@/lib/server/audit"
 import { route } from "@/lib/server/route"
 
@@ -13,17 +14,6 @@ function decodeCursor(value: string | null) {
   } catch {
     return undefined
   }
-}
-
-function csvCell(value: unknown) {
-  const text =
-    value === null || value === undefined
-      ? ""
-      : typeof value === "string"
-        ? value
-        : JSON.stringify(value)
-  const guarded = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
-  return `"${guarded.replaceAll('"', '""')}"`
 }
 
 export const GET = route({

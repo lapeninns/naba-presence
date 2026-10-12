@@ -21,7 +21,9 @@ import type {
 //
 //   * loadClientCatalogue / loadGrants   -> what the Client access dialog and
 //     PUT /api/members/[userId]/client-access work from;
-//   * grantClientListings                -> a scoped invitation, on acceptance;
+//   * grantClientListings                -> a client-scoped invitation, on acceptance;
+//   * grantLocationListings              -> a location-scoped (business)
+//     invitation, on acceptance;
 //   * extendClientHolders                -> a listing newly filed under a
 //     client reaches the people who already hold the whole client.
 //
@@ -99,8 +101,9 @@ export async function loadGrants(
 /**
  * Grants `userId` every listing filed under `clientIds` now. Returns the
  * listing ids granted; an empty result means the clients hold no listings
- * any more, which the caller must treat as a refusal — no rows means every
- * client (lib/server/permissions.ts).
+ * any more, which the caller must treat as a refusal — an `assigned` scope
+ * with no rows sees nothing (lib/server/permissions.ts), which is not what
+ * the scope asked for.
  */
 export async function grantClientListings(
   sql: TransactionSql,
@@ -123,6 +126,34 @@ export async function grantClientListings(
   return rows.map((row) => row.locationId)
 }
 
+/**
+ * Grants `userId` the listings in `locationIds` that still exist in this
+ * organisation (RLS scopes the lookup, so an id that is gone or belongs to
+ * another organisation matches nothing). Returns the listing ids granted;
+ * as with `grantClientListings`, an empty result must be treated as a
+ * refusal by the caller.
+ */
+export async function grantLocationListings(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    userId: string
+    locationIds: readonly string[]
+    canPublish: boolean
+  }
+): Promise<string[]> {
+  if (input.locationIds.length === 0) return []
+  const rows = await sql<{ locationId: string }[]>`
+    insert into location_member (organisation_id, location_id, user_id, can_publish)
+    select ${input.organisationId}, l.id, ${input.userId}, ${input.canPublish}
+    from location l
+    where l.id = any(${sql.array([...input.locationIds])}::uuid[])
+    on conflict (location_id, user_id) do nothing
+    returning location_id::text as "locationId"
+  `
+  return rows.map((row) => row.locationId)
+}
+
 export type ExtendedGrant = {
   userId: string
   locationId: string
@@ -138,9 +169,17 @@ export type ExtendedGrant = {
  * would be invisible to him with nothing on screen saying so. The rule is
  * deliberately narrow: only a user who holds EVERY other listing of the
  * client gets the new one. Someone scoped to one branch stays scoped to it,
- * and "All clients" people (no rows) already see it. Viewers never publish;
+ * and "All clients" people (scope `all`) already see it. Viewers never publish;
  * a member publishes to the new listing when they publish to most of the
  * client's others (a tie is Drafts only).
+ *
+ * Only memberships whose scope is `assigned` (supabase 0082) are extended:
+ * an owner or admin, or anyone whose scope is `all`, already sees every
+ * listing, and rows they hold are latent, not a promise to keep current.
+ * So an admin later demoted gets back their rows as they were at promotion:
+ * a listing filed under one of their clients while they were an admin is
+ * not among them (before 0082 it would have been). That narrows, never
+ * widens, and the owner can re-grant the client from Client access.
  *
  * `locationIds` are the listings just filed; they are left out of "the
  * other listings", so this works whether it runs before or after the
@@ -180,7 +219,9 @@ export async function extendClientHolders(
       holder.majority_publish and m.role = 'member'
     from unnest(${newIds}::uuid[]) as new_location(id)
     cross join holder
-    join member m on m.user_id = holder.user_id
+    join member m
+      on m.user_id = holder.user_id
+     and m.location_scope = 'assigned'
     on conflict (location_id, user_id) do nothing
     returning
       user_id::text as "userId",

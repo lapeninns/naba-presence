@@ -200,9 +200,12 @@ describe("describeActionError — merged map", () => {
     const copy = describeActionError(api(409, "privacy_reply_withdraw_failed"))
     expect(copy).toMatch(/erased/i)
     expect(copy).toMatch(/stays open/i)
+    // The job tick retries it; the copy must not send the owner to do it.
+    expect(copy).toMatch(/retried automatically/i)
     expectMapped([
       ["privacy_request_resolved", 409, /already been completed or rejected/i],
       ["privacy_request_transition_invalid", 409, /move back to that status/i],
+      ["privacy_withdrawal_pending", 409, /still live on Google/i],
     ])
   })
 

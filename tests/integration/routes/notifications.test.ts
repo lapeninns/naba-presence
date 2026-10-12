@@ -18,6 +18,7 @@ const describeDatabase = run ? describe : describe.skip
 
 const CRON_BEARER = "Bearer route-harness-cron-secret"
 const OPS = "ops-alerts@nabapresence.test"
+const OPS_SECOND = "ops-second@nabapresence.test"
 
 type SentEmail = { to: string[]; subject: string; text: string; from: string }
 
@@ -41,7 +42,7 @@ describeDatabase("operational notifications", () => {
       EMAIL_API_KEY: "test-email-key",
       EMAIL_FROM: "alerts@nabapresence.test",
       EMAIL_API_BASE_URL: email.baseUrl,
-      OPS_ALERT_EMAILS: OPS,
+      OPS_ALERT_EMAILS: `${OPS},${OPS_SECOND}`,
       LISTING_STALE_AFTER_HOURS: "6",
     })
   })
@@ -50,7 +51,10 @@ describeDatabase("operational notifications", () => {
     await server.stop()
     await email.stop()
     await destroyTenants(admin, organisations)
-    await admin`delete from platform_incident where subject = 'reconcile'`
+    await admin`
+      delete from platform_incident
+      where subject in ('reconcile', 'keywords', 'presence-resources', 'retention')
+    `
     await admin.end()
   })
 
@@ -230,6 +234,72 @@ describeDatabase("operational notifications", () => {
     expect(sent).toEqual({ status: "sent", providerMessageId: "retried" })
   }, 120_000)
 
+  it("retries a possibly-sent email only inside its idempotency window", async () => {
+    const tenant = await tenantWithLogin()
+    const organisationId = tenant.owner.organisationId
+    await breakLogin(organisationId, tenant.connectionId)
+    await runTick()
+    expect(sentTo(tenant.owner.email)).toHaveLength(1)
+    const delivery = () => admin<
+      {
+        status: string
+        deliveryState: string
+        mayHaveSent: boolean
+        code: string | null
+      }[]
+    >`
+      select status, delivery_state as "deliveryState",
+        may_have_sent as "mayHaveSent", last_error_code as code
+      from notification_delivery
+      where organisation_id = ${organisationId}
+    `
+    const markUncertain = (age: string) => admin`
+      update notification_delivery
+      set status = 'uncertain', delivery_state = 'unknown', may_have_sent = true,
+          last_error_code = 'email_timeout', next_attempt_at = null,
+          created_at = now() - ${age}::interval
+      where organisation_id = ${organisationId}
+    `
+    const retry = async () => {
+      const response = await fetch(
+        `${server.baseUrl}/api/operations/notification-deliveries/retry`,
+        { method: "POST", headers: { cookie: tenant.owner.cookie } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      return (await response.json()) as { requeued: number }
+    }
+
+    // Inside the window the operator may requeue it; the mark stays.
+    await markUncertain("2 hours")
+    expect(await retry()).toEqual({ requeued: 1 })
+    expect(await delivery()).toEqual([
+      { status: "pending", deliveryState: "queued", mayHaveSent: true, code: null },
+    ])
+
+    // Claimed only after the window has passed (a pause, a skipped tick), it
+    // is not sent again: the provider would no longer deduplicate it.
+    await admin`
+      update notification_delivery set created_at = now() - interval '24 hours'
+      where organisation_id = ${organisationId}
+    `
+    email.reset()
+    await runTick()
+    expect(sentTo(tenant.owner.email)).toHaveLength(0)
+    expect(await delivery()).toEqual([
+      {
+        status: "uncertain",
+        deliveryState: "unknown",
+        mayHaveSent: true,
+        code: "email_idempotency_window_expired",
+      },
+    ])
+
+    // Outside the window the operator retry leaves it alone.
+    await markUncertain("24 hours")
+    expect(await retry()).toEqual({ requeued: 0 })
+    expect((await delivery())[0]).toMatchObject({ status: "uncertain" })
+  }, 120_000)
+
   it("flags a listing with no successful check for six hours, not a fresh one", async () => {
     const tenant = await tenantWithLogin()
     const stale = await seedLinkedReview(admin, {
@@ -385,8 +455,12 @@ describeDatabase("operational notifications", () => {
       headers: { cookie: member.cookie },
     })
     expect(scoped.status).toBe(200)
-    const scopedBody = (await scoped.json()) as { incidents: { subjectId: string }[] }
-    expect(scopedBody.incidents.map((incident) => incident.subjectId)).not.toContain(first.connectionId)
+    const scopedBody = (await scoped.json()) as {
+      incidents: { subjectId: string }[]
+    }
+    expect(
+      scopedBody.incidents.map((incident) => incident.subjectId)
+    ).not.toContain(first.connectionId)
   }, 120_000)
 
   it("alerts operators when a tick that used to run stops", async () => {
@@ -421,6 +495,250 @@ describeDatabase("operational notifications", () => {
       `
     }
   }, 120_000)
+
+  it("delivers operator alerts per recipient and retries one without resending the other", async () => {
+    const [before] = await admin<{ beatAt: Date | null }[]>`
+      select beat_at as "beatAt" from ops_heartbeat where name = 'presence-resources'
+    `
+    await admin`
+      insert into ops_heartbeat (name, beat_at)
+      values ('presence-resources', now() - interval '2 days')
+      on conflict (name) do update set beat_at = excluded.beat_at
+    `
+    let refusedOnce = false
+    email.reset()
+    email.respond({ method: "POST", pathEndsWith: "/emails" }, (call) => {
+      const body = call.body as SentEmail
+      if (
+        body.to.includes(OPS_SECOND) &&
+        body.subject.includes("presence-resources") &&
+        !refusedOnce
+      ) {
+        refusedOnce = true
+        return { status: 500, json: { message: "provider error" } }
+      }
+      return { status: 200, json: { id: `email-${(messageId += 1)}` } }
+    })
+    const alerts = (address: string) =>
+      email.calls.filter(
+        (call) =>
+          call.path.endsWith("/emails") &&
+          (call.body as SentEmail).to.includes(address) &&
+          (call.body as SentEmail).subject.includes(
+            "presence-resources tick has stopped"
+          )
+      )
+    try {
+      await runTick()
+      const deliveries = () => admin<
+        {
+          recipient: string
+          status: string
+          attempts: number
+          code: string | null
+        }[]
+      >`
+        select d.recipient, d.status, d.attempts, d.last_error_code as code
+        from platform_incident_delivery d
+        join platform_incident i on i.id = d.incident_id
+        where i.kind = 'stale_heartbeat' and i.subject = 'presence-resources'
+          and i.status = 'open'
+        order by d.recipient
+      `
+      expect(await deliveries()).toEqual([
+        { recipient: OPS, status: "sent", attempts: 1, code: null },
+        {
+          recipient: OPS_SECOND,
+          status: "pending",
+          attempts: 1,
+          code: "email_http_500",
+        },
+      ])
+      const [summary] = await admin<{ notifyStatus: string }[]>`
+        select notify_status as "notifyStatus" from platform_incident
+        where kind = 'stale_heartbeat' and subject = 'presence-resources' and status = 'open'
+      `
+      expect(summary).toEqual({ notifyStatus: "sent" })
+
+      await admin`
+        update platform_incident_delivery d set next_attempt_at = now()
+        from platform_incident i
+        where i.id = d.incident_id and i.subject = 'presence-resources'
+          and d.status = 'pending'
+      `
+      await runTick()
+      await runTick()
+      expect(await deliveries()).toEqual([
+        { recipient: OPS, status: "sent", attempts: 1, code: null },
+        { recipient: OPS_SECOND, status: "sent", attempts: 2, code: null },
+      ])
+      expect(alerts(OPS)).toHaveLength(1)
+      // Refused once, then accepted: both sends carry the row's one key.
+      const keys = alerts(OPS_SECOND).map(
+        (call) => call.headers?.["idempotency-key"]
+      )
+      expect(keys).toHaveLength(2)
+      expect(new Set(keys).size).toBe(1)
+      expect(String(keys[0])).toMatch(/^platform-incident-delivery\//)
+    } finally {
+      await admin`
+        update ops_heartbeat set beat_at = ${before?.beatAt ?? new Date()}
+        where name = 'presence-resources'
+      `
+      await admin`delete from platform_incident where subject = 'presence-resources'`
+    }
+  }, 120_000)
+
+  it("suppresses an operator alert whose incident resolved before it went out", async () => {
+    const [incident] = await admin<{ id: string }[]>`
+      insert into platform_incident (kind, subject, status, resolved_at)
+      values ('stale_heartbeat', 'presence-resources', 'resolved', now())
+      returning id::text as id
+    `
+    await admin`
+      insert into platform_incident_delivery (incident_id, recipient)
+      values (${incident.id}, ${OPS})
+    `
+    try {
+      await runTick()
+      const [delivery] = await admin<
+        { status: string; code: string | null; attempts: number }[]
+      >`
+        select status, last_error_code as code, attempts
+        from platform_incident_delivery where incident_id = ${incident.id}
+      `
+      expect(delivery).toEqual({
+        status: "suppressed",
+        code: "incident_resolved",
+        attempts: 1,
+      })
+      const [summary] = await admin<
+        { notifyStatus: string; notifyError: string }[]
+      >`
+        select notify_status as "notifyStatus", notify_error as "notifyError"
+        from platform_incident where id = ${incident.id}
+      `
+      expect(summary).toEqual({
+        notifyStatus: "suppressed",
+        notifyError: "incident_resolved",
+      })
+      expect(
+        sentTo(OPS).filter((mail) => mail.subject.includes("presence-resources"))
+      ).toHaveLength(0)
+    } finally {
+      await admin`delete from platform_incident where id = ${incident.id}`
+    }
+  }, 120_000)
+
+  it("alerts operators when a retention cycle completes with organisations it could not retain", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    // Dated ahead of any cycle another test leaves, so it is the latest.
+    const [cycle] = await admin<{ id: string }[]>`
+      insert into retention_cycle (
+        cycle_date, status, completed_at, enumeration_completed_at,
+        enumerated, succeeded, failed
+      )
+      values ('2099-01-01', 'completed', now(), now(), 4, 3, 1)
+      returning id::text as id
+    `
+    await admin`
+      insert into retention_cycle_org (
+        cycle_id, organisation_id, status, attempts, last_error_code, finished_at
+      )
+      values (${cycle.id}, ${owner.organisationId}, 'failed', 3, 'internal_error', now())
+    `
+    try {
+      await runTick()
+      await runTick()
+      const [incident] = await admin<
+        {
+          notifyStatus: string
+          details: { failed: number; organisations: { organisationId: string }[] }
+        }[]
+      >`
+        select notify_status as "notifyStatus", details
+        from platform_incident
+        where kind = 'tick_cycle_failures' and subject = 'retention'
+          and status = 'open'
+      `
+      expect(incident).toMatchObject({
+        notifyStatus: "sent",
+        details: {
+          failed: 1,
+          organisations: [{ organisationId: owner.organisationId }],
+        },
+      })
+      const alerts = sentTo(OPS).filter((mail) =>
+        mail.subject.includes("retention cycle left organisations unretained")
+      )
+      expect(alerts).toHaveLength(1)
+      expect(alerts[0].text).toContain(
+        `${owner.organisationId}: internal_error after 3 runs`
+      )
+    } finally {
+      await admin`delete from retention_cycle where id = ${cycle.id}`
+    }
+    // Once that cycle is no longer the latest with failures, the next tick
+    // stops reporting it (and resolves the incident if no other cycle has
+    // failures).
+    await runTick()
+    const open = await admin`
+      select 1 from platform_incident
+      where kind = 'tick_cycle_failures' and subject = 'retention'
+        and status = 'open' and details->>'cycleId' = ${cycle.id}
+    `
+    expect(open).toHaveLength(0)
+  }, 120_000)
+
+  it("alerts a tick that never completed after grace", async () => {
+    const [before] = await admin<{ beatAt: Date | null; registeredAt: Date }[]>`
+      select beat_at as "beatAt", registered_at as "registeredAt"
+      from ops_heartbeat where name = 'keywords'
+    `
+    // keywords is a daily tick with a two-day grace: registered three days
+    // ago and never completed by the cron, only by a manual refresh.
+    await admin`
+      update ops_heartbeat
+      set beat_at = null,
+          registered_at = now() - interval '3 days',
+          last_manual_completed_at = now()
+      where name = 'keywords'
+    `
+    try {
+      await runTick()
+      await runTick()
+      const [incident] = await admin<
+        { status: string; notifyStatus: string }[]
+      >`
+        select status, notify_status as "notifyStatus"
+        from platform_incident
+        where kind = 'tick_never_completed' and subject = 'keywords'
+          and status = 'open'
+      `
+      expect(incident).toEqual({ status: "open", notifyStatus: "sent" })
+      expect(
+        sentTo(OPS).filter((mail) =>
+          mail.subject.includes("keywords tick has never completed")
+        )
+      ).toHaveLength(1)
+    } finally {
+      await admin`
+        update ops_heartbeat
+        set beat_at = ${before?.beatAt ?? null},
+            registered_at = ${before?.registeredAt ?? new Date()}
+        where name = 'keywords'
+      `
+    }
+    // Back inside its grace, the incident resolves on the next tick.
+    await runTick()
+    const open = await admin`
+      select 1 from platform_incident
+      where kind = 'tick_never_completed' and subject = 'keywords'
+        and status = 'open'
+    `
+    expect(open).toHaveLength(0)
+  }, 120_000)
 })
 
 describeDatabase("notifications without an email provider", () => {
@@ -430,7 +748,11 @@ describeDatabase("notifications without an email provider", () => {
     const server = await startAppServer({
       EMAIL_PROVIDER: "none",
       EMAIL_API_BASE_URL: email.baseUrl,
+      OPS_ALERT_EMAILS: OPS,
     })
+    const [before] = await admin<{ beatAt: Date | null }[]>`
+      select beat_at as "beatAt" from ops_heartbeat where name = 'presence-resources'
+    `
     const organisations: string[] = []
     try {
       const owner = await createTestTenant(admin)
@@ -456,8 +778,47 @@ describeDatabase("notifications without an email provider", () => {
         status: "suppressed",
         code: "provider_not_configured",
       })
+
+      // Operator alerts are recorded per recipient the same way.
+      await admin`
+        insert into ops_heartbeat (name, beat_at)
+        values ('presence-resources', now() - interval '2 days')
+        on conflict (name) do update set beat_at = excluded.beat_at
+      `
+      const again = await fetch(`${server.baseUrl}/api/cron/health`, {
+        method: "POST",
+        headers: { authorization: CRON_BEARER },
+      })
+      expect(again.status).toBe(200)
+      const platform = await admin<
+        {
+          recipient: string
+          status: string
+          code: string
+          notifyStatus: string
+        }[]
+      >`
+        select d.recipient, d.status, d.last_error_code as code, i.notify_status as "notifyStatus"
+        from platform_incident_delivery d
+        join platform_incident i on i.id = d.incident_id
+        where i.kind = 'stale_heartbeat' and i.subject = 'presence-resources'
+          and i.status = 'open'
+      `
+      expect(platform).toEqual([
+        {
+          recipient: OPS,
+          status: "suppressed",
+          code: "provider_not_configured",
+          notifyStatus: "suppressed",
+        },
+      ])
       expect(email.calls).toHaveLength(0)
     } finally {
+      await admin`
+        update ops_heartbeat set beat_at = ${before?.beatAt ?? new Date()}
+        where name = 'presence-resources'
+      `
+      await admin`delete from platform_incident where subject = 'presence-resources'`
       await server.stop()
       await email.stop()
       await destroyTenants(admin, organisations)

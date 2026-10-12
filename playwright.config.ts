@@ -39,10 +39,21 @@ export default defineConfig({
       GBP_PLACE_ACTIONS_ENABLED: "true",
       GBP_PERFORMANCE_ENABLED: "true",
       GBP_KEYWORDS_ENABLED: "true",
+      // The specs sign in and draft far faster than any person, and the
+      // counters outlive a run in the shared database, so back-to-back runs
+      // would trip them. tests/integration/routes/abuse-limits.test.ts owns
+      // the limiter's behaviour.
+      ABUSE_LIMITS_ENABLED: "false",
       // `pnpm start` is a production build, so the route defaults off. The
       // accessibility and axe specs measure it, so turn it on here - this
       // object is merged last into the served app's environment.
       DESIGN_SYSTEM_EVIDENCE_ENABLED: "true",
+      // Off by default (P06-5); auth.spec.ts covers the choice itself.
+      REGISTRATION_WORKSPACE_CHOICE_ENABLED: "true",
+      // The Billing and Usage screens (P07-S6) exist only with billing on.
+      // No Stripe key is set, so every billing action stays fail-closed
+      // (503 billing_unavailable); tests/e2e/billing.spec.ts stubs reads.
+      BILLING_ENABLED: "true",
     },
     reuseExistingServer: false,
     timeout: 30_000,

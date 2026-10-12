@@ -49,6 +49,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  mfa: "step_up",
   params: paramsSchema,
   handler: async ({ session, params, requestId }) => {
     if (!gbpWritesEnabled(getServerEnv(), "posts")) {

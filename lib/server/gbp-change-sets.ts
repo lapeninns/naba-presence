@@ -4,11 +4,13 @@ import type { TransactionSql } from "postgres"
 import type { z } from "zod"
 import type { GbpChangeSet, lodgingPreviewRequestSchema } from "@/lib/contracts/gbp-change-set"
 import { jsonColumn, withTenant } from "@/lib/server/db"
-import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import { googleLodgingApi } from "@/lib/server/google"
 import { resolveGbpLocationContext, stableGoogleHash, type GbpLocationContext } from "@/lib/server/gbp-management"
 import { writeAudit } from "@/lib/server/audit"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
+import { requireGbpDispatch } from "@/lib/server/pause-controls"
+import { currentApprovalPolicy, requireCurrentManager, requireSecondApprover, requireUnchangedTwoPersonPolicy, secondApproverSatisfied } from "@/lib/server/authz/approval-policy"
 import type { Session } from "@/lib/server/session"
 
 type ChangeSetRow = {
@@ -19,6 +21,7 @@ type ChangeSetRow = {
   readonly target_resource_name: string
   readonly requested_by: string
   readonly approved_by: string | null
+  readonly approved_security_version: number | null
   readonly payload: Record<string, unknown>
   readonly payload_hash: string
   readonly baseline: Record<string, unknown>
@@ -31,21 +34,11 @@ type ChangeSetRow = {
 
 type ChangeResource = "lodging" | "business_info" | "attributes" | "verification_start" | "verification_complete" | "administration_access" | "location_lifecycle" | "place_action"
 
+const LISTING_DISPATCH = { scope: "profileWrites", paused: { code: "google_writes_paused", message: "Google writes are paused." } } as const
+const PLACE_ACTION_DISPATCH = { scope: "placeActions", paused: { status: 503, code: "place_actions_paused", message: "Place Action writes are paused." } } as const
+
 export function lodgingChangeHash(payload: unknown, updateMask: readonly string[]) {
   return stableGoogleHash({ payload, updateMask: [...new Set(updateMask)].sort() })
-}
-
-async function currentPolicy(sql: TransactionSql): Promise<boolean> {
-  const [row] = await sql<{ require_two_person_approval: boolean }[]>`select require_two_person_approval from organisation limit 1`
-  if (!row) throw new ApiError(404, "organisation_not_found", "Organisation not found.")
-  return row.require_two_person_approval
-}
-
-async function requireCurrentManager(sql: TransactionSql, userId: string) {
-  const [member] = await sql<{ role: string }[]>`select role from member where user_id = ${userId}`
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    throw new ApiError(409, "approval_actor_access_changed", "An initiating or approving user's access changed. Generate a new review.")
-  }
 }
 
 function project(row: ChangeSetRow, session: Session, locationName: string): GbpChangeSet {
@@ -54,7 +47,7 @@ function project(row: ChangeSetRow, session: Session, locationName: string): Gbp
     payload: row.payload, baseline: row.baseline, updateMask: row.update_mask,
     requestedBy: row.requested_by, approvedBy: row.approved_by,
     requiresSecondApprover: row.require_two_person_approval,
-    canApprove: !row.require_two_person_approval || row.requested_by !== session.userId,
+    canApprove: secondApproverSatisfied(row.require_two_person_approval, row.requested_by, session.userId),
     expiresAt: new Date(row.approval_expires_at).toISOString(),
   }
 }
@@ -70,9 +63,9 @@ async function checkedRow(sql: TransactionSql, session: Session, linked: GbpLoca
   if (!row) throw new ApiError(404, "change_set_not_found", "The reviewed change was not found.")
   checkTarget(row, linked)
   if (new Date(row.approval_expires_at).getTime() <= Date.now()) throw new ApiError(409, "approval_expired", "This review expired. Generate a new review.")
-  if (await currentPolicy(sql) !== row.require_two_person_approval) throw new ApiError(409, "approval_policy_changed", "The approval policy changed. Generate a new review.")
-  await requireCurrentManager(sql, row.requested_by)
-  await requireCurrentManager(sql, session.userId)
+  await requireUnchangedTwoPersonPolicy(sql, session.organisationId, row.require_two_person_approval)
+  await requireCurrentManager(sql, session.organisationId, row.requested_by)
+  await requireCurrentManager(sql, session.organisationId, session.userId)
   if (row.payload_hash !== lodgingChangeHash(row.payload, row.update_mask)) throw new ApiError(409, "approval_stale", "The reviewed content changed. Generate a new review.")
   return row
 }
@@ -119,8 +112,10 @@ export async function saveGbpChangeSet(input: {
   const baselineHash = stableGoogleHash(baseline)
   const payloadHash = lodgingChangeHash(payload, updateMask)
   return withTenant(session.organisationId, async (sql) => {
-    await requireCurrentManager(sql, session.userId)
-    const policy = await currentPolicy(sql)
+    await requireCurrentManager(sql, session.organisationId, session.userId)
+    // Current policy, current manager and the second-approver rule come from
+    // the shared approval-policy helper, as bulk listing batches do.
+    const policy = (await currentApprovalPolicy(sql, session.organisationId)).requireTwoPersonApproval
     const [row] = await sql<ChangeSetRow[]>`
       insert into gbp_change_set (organisation_id, location_id, google_account_id, connection_id, target_resource_name, resource_type, requested_by, payload, payload_hash, update_mask, baseline, baseline_hash, require_two_person_approval, private_payload, approval_expires_at)
       values (${session.organisationId}, ${locationId}, ${linked.googleAccountId}, ${linked.connectionId}, ${linked.googleLocationName}, ${resourceType}, ${session.userId}, ${jsonColumn(sql, payload)}, ${payloadHash}, ${updateMask}, ${jsonColumn(sql, baseline)}, ${baselineHash}, ${policy}, ${input.privatePayload ?? null}, now() + case when ${resourceType} in ('verification_start', 'verification_complete') then interval '20 minutes' else interval '24 hours' end) returning *
@@ -139,7 +134,7 @@ export async function readGbpChangeSet(session: Session, locationId: string, cha
     const linked = await resolveGbpLocationContext(sql, session, locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot review changes for this location.")
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
-    if (row.approved_by) await requireCurrentManager(sql, row.approved_by)
+    if (row.approved_by) await requireCurrentManager(sql, session.organisationId, row.approved_by, { securityVersion: row.approved_security_version })
     return { changeSet: project(row, session, linked.locationName), privatePayload: row.private_payload }
   })
 }
@@ -154,9 +149,11 @@ export async function approveGbpChange(input: {
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot approve for this location.")
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
     if (row.payload_hash !== expectedPayloadHash) throw new ApiError(409, "approval_stale", "The reviewed content changed. Generate a new review.")
-    if (row.require_two_person_approval && row.requested_by === session.userId) throw new ApiError(409, "second_approver_required", "A different authorised user must review and approve this change.")
+    requireSecondApprover(row.require_two_person_approval, row.requested_by, session.userId, "A different authorised user must review and approve this change.")
     if (row.approved_by) return project(row, session, linked.locationName)
-    const [approved] = await sql<ChangeSetRow[]>`update gbp_change_set set approved_by = ${session.userId}, approved_at = now() where id = ${row.id} returning *`
+    // The assurance the approval was given with (0106), as evidence.
+    const assurance = authorisationAssurance(session)
+    const [approved] = await sql<ChangeSetRow[]>`update gbp_change_set set approved_by = ${session.userId}, approved_at = now(), approved_aal = ${assurance.aal}, approved_mfa_verified_at = ${assurance.mfaVerifiedAt}, approved_security_version = ${assurance.securityVersion} where id = ${row.id} returning *`
     await writeAudit(sql, { organisationId: session.organisationId, actorUserId: session.userId, action: "google.change_set.approved", subjectType: "location", subjectId: locationId, requestId, metadata: { changeSetId, payloadHash: row.payload_hash } })
     return project(approved, session, linked.locationName)
   })
@@ -171,11 +168,16 @@ export async function approvedGbpChange(input: {
   readonly payload: unknown; readonly updateMask: readonly string[]; readonly resourceType: ChangeResource
 }) {
   const { session, linked, changeSetId, payload, updateMask, resourceType } = input
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  // Every reviewed change set dispatches through here, so the operator pause
+  // table (lib/server/pause-controls.ts) holds them off as well as the env,
+  // under the surface that resource writes to: pausing placeActions must stop
+  // a reviewed Place Action link, not only the booking capability.
+  const surface = resourceType === "place_action" ? PLACE_ACTION_DISPATCH : LISTING_DISPATCH
+  await requireGbpDispatch(surface.scope, surface.paused)
   return withTenant(session.organisationId, async (sql) => {
     const row = await checkedRow(sql, session, linked, changeSetId, resourceType)
     if (!row.approved_by) throw new ApiError(409, "approval_required", "Review and approve the exact change before publishing.")
-    await requireCurrentManager(sql, row.approved_by)
+    await requireCurrentManager(sql, session.organisationId, row.approved_by, { securityVersion: row.approved_security_version })
     if (row.payload_hash !== lodgingChangeHash(payload, updateMask)) throw new ApiError(409, "approval_stale", "The payload or selected fields changed after review.")
     return row
   })

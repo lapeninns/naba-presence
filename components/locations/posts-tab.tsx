@@ -1,11 +1,13 @@
 "use client"
 
+import { useQuery } from "@tanstack/react-query"
 import { FilterIcon, Megaphone } from "lucide-react"
-import { useState } from "react"
+import { useMemo, useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { LocationTab } from "@/components/locations/location-tab"
 import { PostCard } from "@/components/locations/posts/post-card"
+import { LegacyPostSchedules } from "@/components/locations/posts/legacy-post-schedules"
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
 import { PostSchedules } from "@/components/locations/posts/post-schedules"
 import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
@@ -15,8 +17,18 @@ import { Button } from "@/components/ui/button"
 import { ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
+import { LoadMore } from "@/components/ui/load-more"
 import type { Post } from "@/lib/api/location-posts"
-import { composeDisabledReason } from "@/lib/locations/gating"
+import { fetchPostSchedules } from "@/lib/api/publication-schedules"
+import type { PublicationSchedule } from "@/lib/contracts/publication-schedules"
+import { describeScheduleRule } from "@/lib/domain/publication-schedule"
+import type { PostCounts } from "@/lib/contracts/location-posts"
+import { localPostOutcome } from "@/lib/domain/post-outcome"
+import { describeOutcome } from "@/lib/editors/outcome"
+import {
+  composeDisabledReason,
+  contentEditDisabledReason,
+} from "@/lib/locations/gating"
 import {
   formatPostTimestamp,
   matchesPostFilter,
@@ -26,7 +38,6 @@ import {
   postContentTimestamp,
   postEventTitle,
   postImageUrl,
-  postNeedsAttention,
   postSchedule,
   postStatus,
   type PostFilter,
@@ -35,6 +46,13 @@ import {
   DEFAULT_TIMEZONE,
   postRecurrence,
 } from "@/lib/locations/post-recurrence"
+import {
+  liveOnceSchedule,
+  scheduleBadge,
+} from "@/lib/locations/schedule-display"
+import { queryKeys } from "@/lib/queries/keys"
+import { requestOptions } from "@/lib/queries/request-options"
+import type { ListPaging } from "@/lib/queries/paged-list"
 import { usePosts } from "@/lib/queries/use-location-posts"
 
 function headline(post: Post): string {
@@ -84,9 +102,11 @@ function lifecycle(post: Post): LifecycleStage[] {
     },
     {
       id: "live",
-      label: "Live on Google",
+      label: describeOutcome("confirmed_applied").label,
+      // Done only on the outcome that may say live: Google reports the post
+      // LIVE (lib/domain/post-outcome.ts).
       state:
-        status === "published" && post.googleState === "LIVE" ? "done" : "todo",
+        localPostOutcome(post) === "confirmed_applied" ? "done" : "todo",
     },
   ]
 }
@@ -110,18 +130,52 @@ function problem(post: Post): React.ReactNode {
   return null
 }
 
+/**
+ * Whether a one-time schedule could publish this post: a draft (or one
+ * waiting for approval, or whose publish failed) Google does not hold. The
+ * server's rule is publishableSource (lib/server/publication-schedules.ts).
+ */
+function schedulable(post: Post) {
+  return (
+    post.googlePostName === null &&
+    ["draft", "awaiting_approval", "failed"].includes(post.status)
+  )
+}
+
+/** "Scheduled publication awaiting approval: 2026-10-20 at 09:00 (Europe/London, UTC+01:00)". */
+function scheduleSummary(schedule: PublicationSchedule) {
+  return `Scheduled publication ${scheduleBadge(schedule).label.toLowerCase()}: ${describeScheduleRule(
+    schedule.rule,
+    schedule.timezone,
+    schedule.offsetMinutes
+  ).replace(/^Once on /, "")}`
+}
+
 export function PostsTab({ locationId }: { locationId: string }) {
+  // The status view is a server filter (each view pages on its own cursor),
+  // so it lives above the shell and is part of the resource query.
+  const [filter, setFilter] = useState<PostFilter>("all")
+  // The view is part of the query key, so the resource hook closes over it.
+  // It always calls the same hook, which is all the shell requires.
+  function usePostsView(id: string) {
+    return usePosts(id, filter)
+  }
   return (
     <LocationTab
       locationId={locationId}
       loadingLabel="posts"
-      useResource={usePosts}
+      useResource={usePostsView}
       resource="posts"
     >
       {({ data: state, caps }) => (
         <PostsList
           locationId={locationId}
           posts={state.posts}
+          counts={state.counts}
+          paging={state.paging}
+          filter={filter}
+          loadedFilter={state.filter}
+          onFilterChange={setFilter}
           writesEnabled={state.writesEnabled}
           timezone={state.timezone ?? DEFAULT_TIMEZONE}
           reconciliationError={state.reconciliationError}
@@ -135,25 +189,54 @@ export function PostsTab({ locationId }: { locationId: string }) {
 function PostsList({
   locationId,
   posts,
+  counts,
+  paging,
+  filter,
+  loadedFilter,
+  onFilterChange: setFilter,
   writesEnabled,
   timezone,
   reconciliationError,
   caps,
 }: {
   locationId: string
+  /** The loaded pages of the `loadedFilter` view. */
   posts: Post[]
+  /** Every view's size and the live count, over all the location's posts. */
+  counts: PostCounts
+  paging: ListPaging
+  filter: PostFilter
+  /** The view `posts` belong to; it lags `filter` while a switch loads. */
+  loadedFilter: PostFilter
+  onFilterChange: (filter: PostFilter) => void
   writesEnabled: boolean
   /** The listing's IANA timezone, for when a repeat ends. */
   timezone: string
   reconciliationError: string | null
   caps: Parameters<typeof PostsActionBar>[0]["caps"]
 }) {
-  const [filter, setFilter] = useState<PostFilter>("all")
+  const scheduling = caps?.postScheduling === true
+  // The schedules list below reads the same query; here it only says which
+  // posts already have a one-time publication on the way.
+  const schedules = useQuery({
+    queryKey: queryKeys.postSchedules(locationId),
+    queryFn: (context) =>
+      fetchPostSchedules(locationId, requestOptions(context)),
+    enabled: scheduling,
+  })
+  const scheduledByPost = useMemo(() => {
+    const map = new Map<string, PublicationSchedule>()
+    for (const schedule of schedules.data ?? [])
+      if (schedule.sourcePostId && liveOnceSchedule(schedule))
+        map.set(schedule.sourcePostId, schedule)
+    return map
+  }, [schedules.data])
   const composeReason = composeDisabledReason(writesEnabled)
-  const live = posts.filter(
-    (post) => post.status === "published" && post.googleState === "LIVE"
-  ).length
-  const attention = posts.filter(postNeedsAttention).length
+  const live = counts.live
+  const attention = counts.attention
+  const switching = loadedFilter !== filter
+  // The server already filtered and ordered the view; the filter here only
+  // hides the previous view's rows while a switch loads.
   const shown = posts.filter((post) => matchesPostFilter(post, filter)).sort((a, b) => {
     const aTime = postContentTimestamp(a)
     const bTime = postContentTimestamp(b)
@@ -165,7 +248,7 @@ function PostsList({
       ? { label: `${attention} need attention`, tone: "attention" as const }
       : live > 0
         ? { label: `${live} live on Google`, tone: "healthy" as const }
-        : posts.length > 0
+        : counts.all > 0
           ? { label: "Nothing live", tone: "neutral" as const }
           : undefined
 
@@ -186,7 +269,7 @@ function PostsList({
       actions={
         <PostComposerSheet
           locationId={locationId}
-          disabledReason={composeReason}
+          disabledReason={composeReason ?? contentEditDisabledReason(caps)}
           timezone={timezone}
         />
       }
@@ -201,7 +284,7 @@ function PostsList({
         </Alert>
       ) : null}
 
-      {posts.length === 0 ? (
+      {counts.all === 0 ? (
         <div className="rounded-lg border border-line bg-surface">
           <Empty
             icon={<Megaphone aria-hidden />}
@@ -214,9 +297,7 @@ function PostsList({
         <div className="flex flex-col gap-3">
           <ChipRow role="group" aria-label="Filter posts by status">
             {POST_FILTERS.map((option) => {
-              const count = posts.filter((post) =>
-                matchesPostFilter(post, option.value)
-              ).length
+              const count = counts[option.value]
               return (
                 <ToggleChip
                   key={option.value}
@@ -235,7 +316,7 @@ function PostsList({
             })}
           </ChipRow>
 
-          {shown.length === 0 ? (
+          {shown.length === 0 && !switching ? (
             <div className="rounded-lg border border-line bg-surface">
               <Empty
                 icon={<FilterIcon aria-hidden />}
@@ -254,11 +335,15 @@ function PostsList({
               />
             </div>
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-3" aria-busy={switching || undefined}>
               {shown.map((post) => {
                 const status = postStatus(post)
                 const changedAt = postContentTimestamp(post)
+                const scheduled = scheduling
+                  ? scheduledByPost.get(post.id)
+                  : undefined
                 const meta = [
+                  scheduled ? scheduleSummary(scheduled) : "",
                   postSchedule(post),
                   postRecurrence(post.event, timezone),
                   postActionLabel(post)
@@ -294,9 +379,30 @@ function PostsList({
                             caps={caps}
                             writesEnabled={writesEnabled}
                             timezone={timezone}
+                            scheduling={
+                              scheduling
+                                ? {
+                                    scheduledFor: scheduled
+                                      ? describeScheduleRule(
+                                          scheduled.rule,
+                                          scheduled.timezone,
+                                          scheduled.offsetMinutes
+                                        )
+                                      : null,
+                                  }
+                                : undefined
+                            }
                           />
-                          {caps?.canEditCanonical ? (
-                            <SchedulePostSheet locationId={locationId} post={post} timezone={timezone} />
+                          {caps?.canEditCanonical &&
+                          scheduling &&
+                          schedulable(post) &&
+                          !scheduled ? (
+                            <SchedulePostSheet
+                              locationId={locationId}
+                              post={post}
+                              timezone={timezone}
+                              recurring={caps.postSchedulingRecurring === true}
+                            />
                           ) : null}
                         </div>
                       }
@@ -306,9 +412,25 @@ function PostsList({
               })}
             </ul>
           )}
+          {switching ? null : (
+            <LoadMore
+              shown={posts.length}
+              total={counts[filter]}
+              noun={["post", "posts"]}
+              paging={paging}
+            />
+          )}
         </div>
       )}
-      <PostSchedules locationId={locationId} timezone={timezone} />
+      {scheduling ? (
+        <LegacyPostSchedules locationId={locationId} timezone={timezone} />
+      ) : null}
+      <PostSchedules
+        locationId={locationId}
+        timezone={timezone}
+        enabled={scheduling}
+        recurring={caps?.postSchedulingRecurring === true}
+      />
     </EditorFrame>
   )
 }

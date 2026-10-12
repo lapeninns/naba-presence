@@ -1,16 +1,30 @@
+import type { TransactionSql } from "postgres"
+
 import {
+  type BulkApprovalItem,
   bulkReviewActionSchema,
   type BulkReviewResult,
 } from "@/lib/contracts/reviews"
 import { writeAudit } from "@/lib/server/audit"
-import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
-import { requireLocationAccess } from "@/lib/server/permissions"
+import { recheckAuthorisation } from "@/lib/server/authz/actor"
 import {
+  bulkReviewEngineEnabled,
+  startBulkReviewApprovals,
+  startBulkTemplateReplies,
+} from "@/lib/server/bulk-reviews"
+import { ApiError } from "@/lib/server/http"
+import { requireRecentMfa } from "@/lib/server/mfa"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
+import { requireLocationAction } from "@/lib/server/permissions"
+import { REPLY_PUBLISHING_PAUSED } from "@/lib/server/publishing"
+import {
+  type ApprovalDecision,
   completeApproval,
   recordApprovalDecision,
 } from "@/lib/server/review-approval"
-import { route } from "@/lib/server/route"
+import { rowFromApproval, rowFromError } from "@/lib/server/review-bulk-outcome"
+import { route, type TenantRunner } from "@/lib/server/route"
+import type { Session } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 export const maxDuration = 120
@@ -28,34 +42,79 @@ type Row = BulkReviewResult["results"][number]
  *
  * Approval reuses `lib/server/review-approval.ts`, the same module the
  * single-review route calls, so bulk cannot become a way around the
- * two-person rule or the publish-permission check.
+ * two-person rule or the publish-permission check. Each approval names the
+ * draft and review version the operator was shown, and a row whose draft or
+ * review has moved is refused rather than approved on their behalf. Outcomes
+ * are truthful about the two commits an approval spans (see approveRow), and
+ * an unexpected fault on one row becomes that row's outcome, never the
+ * batch's.
+ *
+ * Every action here changes the review, so viewers are refused outright;
+ * each row then needs `triage` or `assign` at its own location
+ * (requireLocationAction), and an assignee must be a member of this
+ * organisation who could edit that review themselves.
+ *
+ * With the organisation's `bulk_actions` feature on, approve and template
+ * replies run on the bulk engine instead (lib/server/bulk-reviews.ts): the
+ * rows are checked (and approvals recorded) here, the publishes are sent by
+ * the job runner, and the answer names the batch to follow
+ * (`operationId`, rows `queued`). Without it, approve stays this per-row
+ * loop and template replies are not offered here (404 feature_disabled;
+ * the inbox runs them itself). Assign and "no reply needed" are always
+ * synchronous.
  */
 export const POST = route({
+  roles: ["owner", "admin", "member"],
   body: bulkReviewActionSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
-    if (body.action === "approve" && !getServerEnv().PUBLISH_ENABLED) {
-      throw new ApiError(503, "publishing_paused", "Publishing is temporarily paused.")
+    if (body.action === "approve" || body.action === "template_reply") {
+      // Approving publishes, and so does a template-reply batch (its starter
+      // decides it; the approval records this session's assurance, 0106);
+      // triage and assignment stay allowed at aal1.
+      requireRecentMfa(session)
+      await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
+    }
+
+    const engine = await tenant((sql) =>
+      bulkReviewEngineEnabled(sql, session.organisationId)
+    )
+    if (body.action === "template_reply") {
+      if (!engine)
+        throw new ApiError(
+          404,
+          "feature_disabled",
+          "Bulk changes are not available for this workspace."
+        )
+      await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
+      return startBulkTemplateReplies(session, body, {
+        requestId,
+        clientRequestId,
+      }) satisfies Promise<BulkReviewResult>
+    }
+    if (body.action === "approve" && engine) {
+      return startBulkReviewApprovals(session, body.approvals, {
+        requestId,
+        clientRequestId,
+      }) satisfies Promise<BulkReviewResult>
     }
 
     const results: Row[] = []
 
+    if (body.action === "approve") {
+      for (const item of body.approvals) {
+        results.push(
+          await approveRow(session, item, {
+            requestId,
+            clientRequestId,
+            tenant,
+          })
+        )
+      }
+      return { results } satisfies BulkReviewResult
+    }
+
     for (const reviewId of body.reviewIds) {
       try {
-        if (body.action === "approve") {
-          const decision = await tenant((sql) =>
-            recordApprovalDecision(
-              sql,
-              session,
-              reviewId,
-              { decision: "approve" },
-              { requestId, clientRequestId }
-            )
-          )
-          await completeApproval(session, reviewId, decision, requestId)
-          results.push({ reviewId, status: "ok" })
-          continue
-        }
-
         await tenant(async (sql) => {
           const [review] = await sql<{ locationId: string }[]>`
             select location_id::text as "locationId" from review where id = ${reviewId}
@@ -63,12 +122,25 @@ export const POST = route({
           if (!review) {
             throw new ApiError(404, "review_not_found", "Review not found.")
           }
-          await requireLocationAccess(sql, session, review.locationId)
+          await requireLocationAction(
+            sql,
+            session,
+            review.locationId,
+            body.action === "assign" ? "assign" : "triage"
+          )
 
           if (body.action === "assign") {
+            if (body.assigneeId) {
+              await requireAssigneeEligible(
+                sql,
+                session.organisationId,
+                body.assigneeId,
+                review.locationId
+              )
+            }
             await sql`
               update review
-                 set assigned_to = ${body.assigneeId ?? null},
+                 set assigned_to = ${body.assigneeId},
                      assigned_at = ${body.assigneeId ? sql`now()` : null}
                where id = ${reviewId}
             `
@@ -86,29 +158,113 @@ export const POST = route({
           await writeAudit(sql, {
             organisationId: session.organisationId,
             actorUserId: session.userId,
-            action: body.action === "assign" ? "review.assigned" : "review.triaged",
+            action:
+              body.action === "assign" ? "review.assigned" : "review.triaged",
             subjectType: "review",
             subjectId: reviewId,
             requestId,
-            metadata: { assigneeId: body.assigneeId ?? null, clientRequestId },
+            metadata: {
+              assigneeId: body.action === "assign" ? body.assigneeId : null,
+              clientRequestId,
+            },
           })
         })
         results.push({ reviewId, status: "ok" })
       } catch (error) {
-        if (error instanceof ApiError) {
-          // 4xx means this row was not eligible; the operator should see why
-          // and move on. Anything else is a real fault and stops the batch.
-          if (error.status >= 400 && error.status < 500) {
-            results.push({ reviewId, status: "skipped", code: error.code })
-            continue
-          }
-          results.push({ reviewId, status: "failed", code: error.code })
-          continue
-        }
-        throw error
+        // The row's transaction rolled back, so nothing changed for it.
+        results.push(
+          rowFromError(reviewId, error, "before_commit", { requestId, session })
+        )
       }
     }
 
     return { results } satisfies BulkReviewResult
   },
 })
+
+/**
+ * An assignee must be able to act on what they are given: a member of this
+ * organisation (not merely an app_user, which is all the foreign key checks)
+ * who can see the review's location and is not a viewer. Anyone else would
+ * hold a review they cannot open or answer.
+ */
+async function requireAssigneeEligible(
+  sql: TransactionSql,
+  organisationId: string,
+  assigneeId: string,
+  locationId: string
+) {
+  const eligible = await recheckAuthorisation(sql, {
+    organisationId,
+    actorUserId: assigneeId,
+    locationId,
+    action: "edit",
+  })
+  if (!eligible.ok) {
+    throw new ApiError(
+      422,
+      "assignee_not_eligible",
+      "That person cannot work on this review."
+    )
+  }
+}
+
+type RowContext = {
+  requestId: string
+  clientRequestId?: string | null
+  tenant: TenantRunner
+}
+
+/**
+ * Approve one row and say truthfully what happened to it.
+ *
+ * Two commits, so two kinds of failure. Anything thrown while recording the
+ * decision rolled back with it: the row is skipped (not eligible, or the
+ * draft / review moved since the operator saw it) or failed. Once the
+ * decision has committed the approval is real, so a publish that then fails
+ * is `approved_not_published` (with `publish_retry_scheduled` when the
+ * runner will resend it), as is a reply Google answered with REJECTED; one
+ * whose outcome Google left unknown is `uncertain`. Neither is "skipped":
+ * something did change.
+ */
+async function approveRow(
+  session: Session,
+  item: BulkApprovalItem,
+  ctx: RowContext
+): Promise<Row> {
+  let decision: ApprovalDecision
+  try {
+    decision = await ctx.tenant((sql) =>
+      recordApprovalDecision(
+        sql,
+        session,
+        item.reviewId,
+        {
+          decision: "approve",
+          draftId: item.draftId,
+          expectedReviewUpdateTime: item.reviewUpdateTime,
+        },
+        { requestId: ctx.requestId, clientRequestId: ctx.clientRequestId }
+      )
+    )
+  } catch (error) {
+    return rowFromError(item.reviewId, error, "before_commit", {
+      requestId: ctx.requestId,
+      session,
+    })
+  }
+  try {
+    const result = await completeApproval(
+      session,
+      item.reviewId,
+      decision,
+      ctx.requestId
+    )
+    return rowFromApproval(item.reviewId, result)
+  } catch (error) {
+    return rowFromError(item.reviewId, error, "after_approval", {
+      requestId: ctx.requestId,
+      session,
+    })
+  }
+}

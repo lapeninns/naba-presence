@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import {
   localPostInputSchema,
+  postsListQuerySchema,
   type PostCreateResponse,
 } from "@/lib/contracts/location-posts"
 import { createLocalPostDraft, listLocalPosts } from "@/lib/server/posts"
@@ -12,8 +13,9 @@ const paramsSchema = z.object({ id: z.string() })
 
 export const GET = route({
   params: paramsSchema,
-  handler: ({ session, params }) =>
-    listLocalPosts(session.organisationId, session, params.id),
+  query: postsListQuerySchema,
+  handler: ({ session, params, query }) =>
+    listLocalPosts(session.organisationId, session, params.id, query),
 })
 
 export const POST = route({

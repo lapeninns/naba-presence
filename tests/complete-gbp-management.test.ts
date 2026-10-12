@@ -87,3 +87,35 @@ describe("complete GBP management persistence", () => {
     expect(migration).toContain("add column notification_types text[]")
   })
 })
+
+describe("gbp_management_mutation.started_at (0088)", () => {
+  const migration = readFileSync(
+    new URL(
+      "../supabase/migrations/0088_gbp_management_started_at.sql",
+      import.meta.url
+    ),
+    "utf8"
+  )
+  const retention = readFileSync(
+    new URL("../lib/server/retention/purge.ts", import.meta.url),
+    "utf8"
+  )
+
+  it("adds a defaulted, non-null started_at and records itself", () => {
+    expect(migration).toMatch(
+      /alter table gbp_management_mutation\s+add column started_at timestamptz not null default now\(\)/
+    )
+    expect(migration).toContain("'0088_gbp_management_started_at'")
+    expect(migration).not.toMatch(/\bupdate\s+gbp_management_mutation\b/)
+  })
+
+  it("ages stranded management attempts off started_at", () => {
+    expect(retention).toMatch(
+      /strandedStep\("strandedManagement", "gbp_management_mutation", \{\s+inFlight: \["started", "validated"\]/
+    )
+    // Every stranded step ages its rows off started_at.
+    expect(retention).toMatch(
+      /function strandedStep[\s\S]*?status in \$\{sql\(inFlight as string\[\]\)\}\s+and started_at <= now\(\) - interval '24 hours'/
+    )
+  })
+})

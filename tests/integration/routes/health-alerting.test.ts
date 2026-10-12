@@ -12,6 +12,8 @@ import {
 } from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
+// What `pnpm release:promote` stamps into a production deployment.
+const RELEASE_SHA = "0123456789abcdef0123456789abcdef01234567"
 const describeDatabase = run ? describe : describe.skip
 
 describeDatabase("operations health alerting", () => {
@@ -55,7 +57,7 @@ describeDatabase("operations health alerting", () => {
         ${owner.userId}
       )
     `
-    server = await startAppServer()
+    server = await startAppServer({ NABA_RELEASE_SHA: RELEASE_SHA })
 
     const heartbeatResponse = await fetch(`${server.baseUrl}/api/jobs/run`, {
       method: "POST",
@@ -274,6 +276,9 @@ describeDatabase("operations health alerting", () => {
       schedulerHeartbeatStale: false,
     })
     expect(health.oldestFailedEventAgeSeconds).toBeGreaterThanOrEqual(1_200)
+    // Release and schema fields are operator-only (platform scope).
+    expect(health).not.toHaveProperty("release")
+    expect(health).not.toHaveProperty("schema")
   })
 
   it("attributes the due backlog to the claimer that owes it", async () => {
@@ -340,6 +345,7 @@ describeDatabase("operations health alerting", () => {
       "presence-resources",
       "sweep",
       "health",
+      "billing-reconcile",
     ])
     // beforeAll ran one jobs tick, and its advisory lease stamped the row.
     const jobs = health.schedulerTicks.find(
@@ -349,7 +355,23 @@ describeDatabase("operations health alerting", () => {
       lastCompletedAt: expect.any(String),
       stale: false,
       staleAfterSeconds: 300,
+      // The run ledger (0089): the same run started under the lease, and
+      // the seeded row gives every tick a registration to measure from.
+      neverCompleted: false,
+      lastStartedAt: expect.any(String),
+      registeredAt: expect.any(String),
+      consecutiveSkips: expect.any(Number),
+      lockWedged: false,
+      cycleStaleAfterSeconds: null,
     })
+    const retention = health.schedulerTicks.find(
+      (tick: { name: string }) => tick.name === "retention"
+    )
+    expect(retention).toMatchObject({
+      cycleStaleAfterSeconds: expect.any(Number),
+    })
+    expect(retention).toHaveProperty("lastSkippedAt")
+    expect(retention).toHaveProperty("lastCycleCompletedAt")
   })
 
   it("supports cron-authenticated platform scope without a browser session", async () => {
@@ -372,7 +394,44 @@ describeDatabase("operations health alerting", () => {
     expect(health.failedWebhookEvents).toBeGreaterThanOrEqual(1)
     expect(health.deadWebhookEvents).toBeGreaterThanOrEqual(1)
     expect(health.ambiguousPublishAttempts).toBeGreaterThanOrEqual(1)
+    // The default budget covers a test-sized fleet completely.
+    expect(health.partial).toBe(false)
+    expect(health.organisationsCovered).toBe(health.organisationCount)
+    // The deployed commit, for the smoke check against the release receipt,
+    // and the schema check against this build's required migrations (the
+    // harness database is fully migrated).
+    expect(health.release).toEqual({
+      sha: RELEASE_SHA,
+      source: "naba_release_sha",
+    })
+    expect(health.schema).toMatchObject({ compatible: true, missing: [] })
+    expect(health.schema.requiredCount).toBeGreaterThan(0)
   })
+
+  it("answers partial within its budget instead of walking every tenant", async () => {
+    // A second organisation guarantees there is a tenant left to skip.
+    const extra = await createTestTenant(admin)
+    const budgetServer = await startAppServer({
+      OPERATIONS_HEALTH_BUDGET_MS: "1",
+    })
+    try {
+      const response = await fetch(
+        `${budgetServer.baseUrl}/api/operations/health?scope=platform`,
+        { headers: { authorization: "Bearer route-harness-cron-secret" } }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const health = await response.json()
+      expect(health.organisationCount).toBeGreaterThanOrEqual(2)
+      // At least one tenant is always read, so the answer is never an empty
+      // "complete" one, and never more than the budget allowed.
+      expect(health.partial).toBe(true)
+      expect(health.organisationsCovered).toBeGreaterThanOrEqual(1)
+      expect(health.organisationsCovered).toBeLessThan(health.organisationCount)
+    } finally {
+      await budgetServer.stop()
+      await destroyTenants(admin, [extra.organisationId])
+    }
+  }, 60_000)
 
   it("rejects an invalid platform monitor token", async () => {
     const response = await fetch(

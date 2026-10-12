@@ -18,10 +18,15 @@ const REASON_COPY: Record<string, string> = {
   location_ineligible: "Google does not support this action for this location.",
   provider_capability_retired: "Google has retired this capability. Historical records are read-only.",
   eligibility_unknown: "Google eligibility has not been confirmed. Refresh the listing to check.",
+  billing_read_only: "This workspace's subscription is read-only, so changes are unavailable.",
   managed_in_google: "Manage this information directly in Google, then refresh this listing.",
   provider_read_only: "Google provides this information as read-only.",
   immutable_after_creation: "This value can only be set when the Google listing is created.",
 }
+
+// Central billing enforcement holds the organisation read-only
+// (lib/server/entitlement-policy.ts); an absent canWrite is "not known".
+const BILLING_READ_ONLY_REASON = REASON_COPY.billing_read_only
 
 export function reasonCodeMessage(reasonCode: string | undefined): string | null {
   if (!reasonCode) return null
@@ -33,7 +38,34 @@ export function reasonCodeMessage(reasonCode: string | undefined): string | null
 // control stays disabled by the caller's own pending state, not a reason).
 export function editDisabledReason(caps: LocationCapabilities | undefined): string | null {
   if (!caps) return null
+  if (caps.canWrite === false) return BILLING_READ_ONLY_REASON
   return caps.canEditCanonical ? null : "Only owners and admins can edit this location."
+}
+
+// Content edits (post drafts): the per-location `canEdit` the server's
+// requireLocationAction("edit") enforces. Separate from editDisabledReason,
+// which is the owner/admin canonical gate. An absent flag is "not known" ->
+// null; the route stays authoritative.
+export function contentEditDisabledReason(
+  caps: LocationCapabilities | undefined
+): string | null {
+  if (caps?.canEdit !== false) return null
+  if (caps.canWrite === false) return BILLING_READ_ONLY_REASON
+  return "Your role can view this location but not change it."
+}
+
+// Approving or rejecting someone's request needs publication authority
+// (requireLocationAction "decide_approval"). Falls back to canPublish when
+// the flag is absent, which is the same rule for every role.
+export function decideApprovalDisabledReason(
+  caps: LocationCapabilities | undefined
+): string | null {
+  if (!caps) return null
+  if (caps.canWrite === false) return BILLING_READ_ONLY_REASON
+  const allowed = caps.canDecideApproval ?? caps.canPublish
+  return allowed
+    ? null
+    : "Only someone who can publish this location can approve or reject requests."
 }
 
 export function publishDisabledReason(
@@ -41,6 +73,7 @@ export function publishDisabledReason(
   writesEnabled: boolean
 ): string | null {
   if (!caps) return null
+  if (caps.canWrite === false) return BILLING_READ_ONLY_REASON
   if (!caps.canPublish) return "You do not have permission to publish this location to Google."
   if (!writesEnabled) return "Publishing to Google is currently unavailable."
   return null

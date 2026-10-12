@@ -24,21 +24,30 @@ describeDatabase("email and password authentication", () => {
   let admin: ReturnType<typeof postgres>
   let auth: Awaited<ReturnType<typeof startAuthProviderStub>>
   let server: Awaited<ReturnType<typeof startAppServer>>
+  // The same app with REGISTRATION_WORKSPACE_CHOICE_ENABLED left at its
+  // default (off).
+  let choiceOff: Awaited<ReturnType<typeof startAppServer>>
   const organisations: string[] = []
   const emails: string[] = []
 
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
     auth = await startAuthProviderStub()
-    server = await startAppServer({
+    const passwordAuth = {
       PASSWORD_AUTH_ENABLED: "true",
       SUPABASE_URL: auth.baseUrl,
       SUPABASE_PUBLISHABLE_KEY: "stub-publishable-key",
+    }
+    server = await startAppServer({
+      ...passwordAuth,
+      REGISTRATION_WORKSPACE_CHOICE_ENABLED: "true",
     })
+    choiceOff = await startAppServer(passwordAuth)
   })
 
   afterAll(async () => {
     await server.stop()
+    await choiceOff.stop()
     await auth.stop()
     await destroyTenants(admin, organisations)
     if (emails.length > 0) {
@@ -193,6 +202,126 @@ describeDatabase("email and password authentication", () => {
       session: { organisationId: string }
     }
     organisations.push(session.session.organisationId)
+  })
+
+  async function registerAndConfirm(
+    email: string,
+    extra: Record<string, unknown>,
+    servers: { register?: string; confirm?: string } = {}
+  ) {
+    const registerUrl = servers.register ?? server.baseUrl
+    const confirmUrl = servers.confirm ?? server.baseUrl
+    const registration = await fetch(
+      `${registerUrl}/api/auth/password/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Mode owner",
+          email,
+          password: "Correct horse!42",
+          ...extra,
+        }),
+      }
+    )
+    expect(registration.status).toBe(202)
+    const tokenHash = auth.confirmationToken(email)
+    const confirmation = await fetch(
+      `${confirmUrl}/auth/confirm?token_hash=${encodeURIComponent(tokenHash!)}&type=email`,
+      { redirect: "manual" }
+    )
+    const cookie = sessionCookie(confirmation)
+    const session = (await (
+      await fetch(`${confirmUrl}/api/session`, { headers: { cookie } })
+    ).json()) as {
+      session: { organisationId: string; workspaceMode: string }
+    }
+    organisations.push(session.session.organisationId)
+    const [shape] = await admin<
+      { mode: string; homeClients: number; clients: number }[]
+    >`
+      select
+        o.workspace_mode as mode,
+        (select count(*)::int from client c
+          where c.organisation_id = o.id and c.is_home) as "homeClients",
+        (select count(*)::int from client c
+          where c.organisation_id = o.id) as clients
+      from organisation o
+      where o.id = ${session.session.organisationId}
+    `
+    return { session: session.session, shape }
+  }
+
+  it("provisions a business with its home client when no mode is chosen", async () => {
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    const { session, shape } = await registerAndConfirm(email, {})
+    expect(session.workspaceMode).toBe("business")
+    expect(shape).toEqual({ mode: "business", homeClients: 1, clients: 1 })
+  })
+
+  it("provisions an agency with no home client when the owner chose one, across email confirmation", async () => {
+    const email = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(email)
+    const { session, shape } = await registerAndConfirm(email, {
+      workspaceMode: "agency",
+    })
+    expect(auth.users.get(email)?.metadata).toMatchObject({
+      workspace_mode: "agency",
+    })
+    expect(session.workspaceMode).toBe("agency")
+    expect(shape).toEqual({ mode: "agency", homeClients: 0, clients: 0 })
+  })
+
+  it("makes every new owner a business while the registration choice is off", async () => {
+    const asked = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(asked)
+    const plain = await registerAndConfirm(
+      asked,
+      { workspaceMode: "agency" },
+      { register: choiceOff.baseUrl, confirm: choiceOff.baseUrl }
+    )
+    expect(auth.users.get(asked)?.metadata).not.toHaveProperty(
+      "workspace_mode"
+    )
+    expect(plain.session.workspaceMode).toBe("business")
+    expect(plain.shape).toEqual({ mode: "business", homeClients: 1, clients: 1 })
+
+    // Provider metadata is user-writable, so an agency mode stored there
+    // (here by a server with the choice on) is ignored once it is off.
+    const stored = `auth-route-${randomUUID()}@nabapresence.test`
+    emails.push(stored)
+    const tampered = await registerAndConfirm(
+      stored,
+      { workspaceMode: "agency" },
+      { register: server.baseUrl, confirm: choiceOff.baseUrl }
+    )
+    expect(auth.users.get(stored)?.metadata).toMatchObject({
+      workspace_mode: "agency",
+    })
+    expect(tampered.session.workspaceMode).toBe("business")
+    expect(tampered.shape).toEqual({
+      mode: "business",
+      homeClients: 1,
+      clients: 1,
+    })
+  })
+
+  it("refuses an unknown workspace mode at registration", async () => {
+    const response = await fetch(
+      `${server.baseUrl}/api/auth/password/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          displayName: "Mode owner",
+          email: `auth-route-${randomUUID()}@nabapresence.test`,
+          password: "Correct horse!42",
+          workspaceMode: "franchise",
+        }),
+      }
+    )
+    expect(response.status).toBe(400)
   })
 
   it("uses a uniform reset request and completes recovery", async () => {

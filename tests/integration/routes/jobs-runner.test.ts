@@ -224,7 +224,13 @@ describeDatabase("durable background jobs", () => {
         operation,
         intended_body,
         started_at,
-        next_attempt_at
+        next_attempt_at,
+        authorised_by,
+        authorised_aal,
+        authorised_security_version,
+        authorised_connection_id,
+        authorised_approval_required,
+        authorised_two_person_approval
       )
       values (
         ${subject.owner.organisationId},
@@ -240,7 +246,20 @@ describeDatabase("durable background jobs", () => {
             ? new Date()
             : new Date(Date.now() - 15 * 60_000)
         },
-        ${status === "started" ? null : new Date(Date.now() - 1_000)}
+        ${status === "started" ? null : new Date(Date.now() - 1_000)},
+        -- Who asked (0106): the retry rechecks it before replaying.
+        ${subject.owner.userId},
+        'aal1',
+        1,
+        (
+          select e.google_connection_id
+          from review r
+          join external_location e on e.id = r.external_location_id
+          where r.id = ${subject.reviewId}
+        ),
+        -- The approval policy it was queued under (0106).
+        (select approval_required from organisation where id = ${subject.owner.organisationId}),
+        (select require_two_person_approval from organisation where id = ${subject.owner.organisationId})
       )
       returning id::text as id
     `
@@ -830,5 +849,137 @@ describeDatabase("durable background jobs", () => {
       // PUBLISH_ENABLED is the narrow switch: ingestion keeps running.
       expect((await webhookState(eventId)).status).toBe("processed")
     }, 30_000)
+  })
+
+  describe("with publish paused in the operator table", () => {
+    const pause = (paused: boolean) =>
+      admin`
+        select * from set_ops_pause(
+          'publish', ${paused}, 'Runner pause test', 'jobs-runner.test'
+        )
+      `
+    // Past the app's pause cache (PAUSE_CACHE_TTL_MS, 5s).
+    const propagate = () => new Promise((resolve) => setTimeout(resolve, 5_300))
+
+    afterAll(async () => {
+      await pause(false)
+      await propagate()
+    }, 20_000)
+
+    it("claims no retry, keeps its back-off, and still drains sync work", async () => {
+      const subject = await fixture()
+      healthyReviews()
+      stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+        status: 200,
+        json: { comment: "x", updateTime: "2026-08-20T10:00:00.000Z" },
+      }))
+      const attemptId = await seedPublishAttempt(
+        subject,
+        "retryable",
+        "A retry the operator pause must hold."
+      )
+      const eventId = await seedWebhook(subject, 0)
+      const before = await attemptState(attemptId)
+      await pause(true)
+      await propagate()
+
+      // No redeploy and no env change: the same server stops claiming.
+      await runTick()
+
+      const after = await attemptState(attemptId)
+      expect(after.status).toBe("retryable")
+      expect(after.nextAttemptAt).toEqual(before.nextAttemptAt)
+      expect(after.leaseExpiresAt).toBeNull()
+      expect(stub.calls.filter((call) => call.method === "PUT")).toEqual([])
+      expect((await webhookState(eventId)).status).toBe("processed")
+
+      // Resumed, the held retry drains by itself.
+      await pause(false)
+      await propagate()
+      await runTick()
+      expect((await attemptState(attemptId)).status).toBe("succeeded")
+    }, 60_000)
+  })
+
+  // Central billing enforcement (plan P07-S3): a read-only organisation's
+  // new dispatch is held, its read-backs still run.
+  describe("with billing enforcement on", () => {
+    let enforced: Awaited<ReturnType<typeof startAppServer>>
+
+    beforeAll(async () => {
+      enforced = await startAppServer({
+        GOOGLE_API_PROXY_BASE: stub.baseUrl,
+        GOOGLE_TIMEOUT_MS: "2500",
+        GOOGLE_MUTATION_TIMEOUT_MS: "2500",
+        BILLING_ENFORCEMENT_ENABLED: "true",
+      })
+    }, 60_000)
+
+    afterAll(async () => {
+      await enforced.stop()
+    })
+
+    async function readOnly(subject: Fixture) {
+      await admin`
+        update organisation_billing
+        set state = 'read_only', enforcement_enabled = true
+        where organisation_id = ${subject.owner.organisationId}
+      `
+    }
+
+    it("holds a read-only organisation's retry and still reads back its uncertain write", async () => {
+      const held = await fixture()
+      const recovering = await fixture()
+      await readOnly(held)
+      await readOnly(recovering)
+      const body = "A reply already visible at Google."
+      stub.reset()
+      stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+        status: 200,
+        json: { comment: "x", updateTime: "2026-08-20T10:00:00.000Z" },
+      }))
+      stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+        status: 200,
+        json: {
+          reviewId: "stub",
+          reviewReply: { comment: body, updateTime: "2026-08-20T10:00:00.000Z" },
+        },
+      }))
+      const retryId = await seedPublishAttempt(
+        held,
+        "retryable",
+        "A retry billing must hold."
+      )
+      const recoverId = await seedPublishAttempt(recovering, "started", body)
+
+      await runTick(enforced.baseUrl)
+      await runTick(enforced.baseUrl)
+
+      const after = await attemptState(retryId)
+      expect(after).toMatchObject({
+        status: "retryable",
+        providerErrorCode: "billing_read_only",
+        leaseExpiresAt: null,
+      })
+      expect(after.gapMs).toBeGreaterThan(50 * 60_000)
+      expect(stub.calls.filter((call) => call.method === "PUT")).toEqual([])
+      const audits = await admin<{ n: number }[]>`
+        select count(*)::int as n from audit_log
+        where organisation_id = ${held.owner.organisationId}
+          and action = 'publish.retry_held_billing'
+          and subject_id = ${retryId}
+      `
+      expect(audits[0].n).toBe(1)
+      expect((await attemptState(recoverId)).status).toBe("succeeded")
+
+      // Restored billing: the held retry goes out once it is due again.
+      await admin`
+        update organisation_billing set state = 'pilot'
+        where organisation_id = ${held.owner.organisationId}
+      `
+      await makeAttemptDue(retryId, 0)
+      await runTick(enforced.baseUrl)
+      expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
+    }, 60_000)
   })
 })

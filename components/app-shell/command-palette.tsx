@@ -13,7 +13,6 @@ import {
   UserPlus,
   Users,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 import * as React from "react"
 
 import {
@@ -28,6 +27,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { StatusPill } from "@/components/ui/status-pill"
 import { healthTone } from "@/lib/clients/health"
 import { withClientScope } from "@/lib/clients/scope"
+import { useGuardedRouter } from "@/lib/editors/use-leave-guard"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
 import { useClients } from "@/lib/queries/use-clients"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -117,7 +117,9 @@ function CommandPalette({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const router = useRouter()
+  // Leaving an editor with unsaved edits from the palette asks first, the
+  // way a sidebar link does.
+  const router = useGuardedRouter()
   const clients = useClients()
   const role = useSessionRole()
   const locations = useLocationDirectory(role)

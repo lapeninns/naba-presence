@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef } from "react"
 
 import {
+  draftsAbandoned,
   registerDraftSource,
   stashDraft,
   takeStashedDraft,
 } from "@/lib/api/draft-stash"
+import { draftKeyOwner } from "@/lib/editors/draft-key"
 
 // The one shared dirty guard (spec §6). Used by the reply composer now and the
 // hours/menu/post editors later. Responsibilities:
@@ -37,6 +39,7 @@ export function useDirtyGuard({
   snapshot,
   askConfirm,
   confirmMessage = DEFAULT_CONFIRM_MESSAGE,
+  stash = true,
 }: {
   key: string
   isDirty: boolean
@@ -44,6 +47,12 @@ export function useDirtyGuard({
   askConfirm?: () => Promise<boolean>
   /** The `window.confirm` fallback's sentence, when no `askConfirm` is given. */
   confirmMessage?: string
+  /**
+   * Stash the edits on unmount and on a forced sign-out (responsibilities 1
+   * and 5). Pass false for an editor that has no way to offer a stash back:
+   * a stash nothing reads only lingers in sessionStorage.
+   */
+  stash?: boolean
 }): {
   confirmDiscard: () => Promise<boolean>
   restore: () => string | null
@@ -56,8 +65,18 @@ export function useDirtyGuard({
   // consumer of `latest.current` below only runs from an event/effect, by
   // which point this effect has already committed the newest values.
   const latest = useRef({ isDirty, snapshot, askConfirm, confirmMessage })
+  // Edits made under one signed-in identity whose key now names another
+  // (another account signed in from a second tab and the session refetched
+  // without a reload). They are never stashed or handed to the 401 stash
+  // under the new identity, where its owner would be offered someone else's
+  // text as their own. They stop being foreign once the content is clean
+  // again (the editor reseeded or the operator discarded them).
+  const foreign = useRef(false)
+  // The signed-in identity the current content was written under.
+  const owner = useRef<string | null>(null)
   useEffect(() => {
     latest.current = { isDirty, snapshot, askConfirm, confirmMessage }
+    if (!isDirty) foreign.current = false
   })
 
   // Set once `confirmDiscard` resolves true, so the unmount that follows a
@@ -67,16 +86,24 @@ export function useDirtyGuard({
 
   useEffect(() => {
     discarded.current = false
+    const next = draftKeyOwner(key)
+    if (latest.current.isDirty && owner.current !== null && next !== owner.current) {
+      foreign.current = true
+    }
+    if (next !== null) owner.current = next
+    if (!stash) return
     const unregister = registerDraftSource(key, () =>
-      latest.current.isDirty ? latest.current.snapshot() : null
+      latest.current.isDirty && !foreign.current
+        ? latest.current.snapshot()
+        : null
     )
     return () => {
       unregister()
-      if (latest.current.isDirty && !discarded.current) {
+      if (latest.current.isDirty && !discarded.current && !foreign.current) {
         stashDraft(key, latest.current.snapshot())
       }
     }
-  }, [key])
+  }, [key, stash])
 
   useEffect(() => {
     if (!isDirty) return
@@ -84,6 +111,9 @@ export function useDirtyGuard({
       // Already agreed to lose these edits (the leave prompt): a full-page
       // navigation that follows must not ask a second time.
       if (discarded.current) return
+      // The session these edits belonged to has ended (sign-out): leaving
+      // is the only way forward, so don't offer "Stay".
+      if (draftsAbandoned()) return
       event.preventDefault()
       event.returnValue = ""
     }

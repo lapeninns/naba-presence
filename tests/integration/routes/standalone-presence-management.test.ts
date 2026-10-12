@@ -461,6 +461,67 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     expect(lostResponseWrites).toBe(1)
   }, 30_000)
 
+  it("under two-person approval sends business information only through a change set a second person approved", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const reviewer = await createTestTenant(admin)
+    organisations.push(reviewer.organisationId)
+    await admin`insert into member (organisation_id, user_id, role) values (${owner.organisationId}, ${reviewer.userId}, 'admin')`
+    await admin`update app_session set organisation_id = ${owner.organisationId} where user_id = ${reviewer.userId}`
+    await admin`update organisation set require_two_person_approval = true where id = ${owner.organisationId}`
+    const connection = await seedGoogleConnection(admin, { organisationId: owner.organisationId })
+    const linked = await seedLinkedReview(admin, { organisationId: owner.organisationId, connectionId: connection.connectionId, googleAccountName: connection.googleAccountName })
+    google.reset()
+    const primaryPhone = "+44 1223 000000"
+    const location: Record<string, unknown> = { name: linked.googleLocationName, phoneNumbers: { primaryPhone } }
+    google.respond({ method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` }, () => ({ status: 200, json: location }))
+    google.respond({ method: "GET", pathIncludes: "/attributes" }, () => ({ status: 200, json: { attributes: [], attributeMetadata: [] } }))
+    let mutations = 0
+    google.respond({ method: "PATCH", pathIncludes: `/v1/${linked.googleLocationName}` }, (call) => {
+      const params = new URL(call.path, google.baseUrl).searchParams
+      if (params.get("validateOnly") !== "true") {
+        mutations += 1
+        location.phoneNumbers = (call.body as { phoneNumbers: unknown }).phoneNumbers
+      }
+      return { status: 200, json: location }
+    })
+    const url = `${server.baseUrl}/api/locations/${linked.locationId}/business-information`
+    const loaded = await fetch(url, { headers: { cookie: owner.cookie } })
+    const state = businessInformationResponseSchema.parse(await loaded.json()).businessInformation
+    const body = { expectedGoogleHash: state.locationHash, updateMask: ["phoneNumbers"], payload: { phoneNumbers: { primaryPhone, additionalPhones: ["+44 1223 000009"] } } }
+    // No change set: refused before Google is read, so nothing unreviewed
+    // reaches the provider (the old non-service path executed directly).
+    const callsBefore = google.calls.length
+    const direct = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "direct-phones"), body: JSON.stringify({ ...body, operation: "update_location", confirmation: "publish_business_information_to_google" }) })
+    expect(direct.status, await direct.clone().text()).toBe(409)
+    expect(await direct.json()).toMatchObject({ error: "approval_required" })
+    expect(google.calls).toHaveLength(callsBefore)
+    // Google's suggested update is a business-information write with no
+    // review step, so it is refused while two-person approval is on.
+    const suggested = await fetch(`${server.baseUrl}/api/locations/${linked.locationId}/administration`, { method: "PATCH", headers: jsonHeaders(owner.cookie, "accept-suggested"), body: JSON.stringify({ operation: "accept_google_update", confirmation: "accept_google_suggested_update", payload: {} }) })
+    expect(suggested.status, await suggested.clone().text()).toBe(409)
+    expect(await suggested.json()).toMatchObject({ error: "business_info_review_required" })
+    expect(google.calls).toHaveLength(callsBefore)
+    const preview = await fetch(url, { method: "PUT", headers: jsonHeaders(owner.cookie, "review-two-person-phones"), body: JSON.stringify(body) })
+    expect(preview.status, await preview.clone().text()).toBe(200)
+    const change = gbpChangeSetResponseSchema.parse(await preview.json()).changeSet
+    expect(change).toMatchObject({ requiresSecondApprover: true, canApprove: false })
+    const approval = { changeSetId: change.id, expectedPayloadHash: change.payloadHash }
+    const self = await fetch(url, { method: "POST", headers: jsonHeaders(owner.cookie, "self-phones"), body: JSON.stringify(approval) })
+    expect(self.status).toBe(409)
+    expect(await self.json()).toMatchObject({ error: "second_approver_required" })
+    const unapproved = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "unapproved-phones"), body: JSON.stringify({ ...body, operation: "update_location", confirmation: "publish_business_information_to_google", changeSetId: change.id }) })
+    expect(unapproved.status).toBe(409)
+    expect(await unapproved.json()).toMatchObject({ error: "approval_required" })
+    expect(mutations).toBe(0)
+    const approved = await fetch(url, { method: "POST", headers: jsonHeaders(reviewer.cookie, "second-phones"), body: JSON.stringify(approval) })
+    expect(approved.status, await approved.clone().text()).toBe(200)
+    const published = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "publish-two-person-phones"), body: JSON.stringify({ ...body, operation: "update_location", confirmation: "publish_business_information_to_google", changeSetId: change.id }) })
+    expect(published.status, await published.clone().text()).toBe(200)
+    expect(mutations).toBe(1)
+    expect(location.phoneNumbers).toEqual(body.payload.phoneNumbers)
+  })
+
   it("requires a second services approver and rejects a revoked approver before publishing", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
@@ -500,6 +561,13 @@ describeDatabase("standalone NabaPresence canonical management", () => {
     expect(await self.json()).toMatchObject({ error: "second_approver_required" })
     const approved = await fetch(url, { method: "POST", headers: jsonHeaders(reviewer.cookie, "second-services"), body: JSON.stringify(approval) })
     expect(approved.status).toBe(200)
+    // Operator MFA recovery since the approval (0106) voids it at execute.
+    await admin`update app_user set security_version = security_version + 1 where id = ${reviewer.userId}`
+    const writesBeforeRecovered = google.calls.filter((call) => call.method === "PATCH").length
+    const recovered = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "recovered-services"), body: JSON.stringify({ ...body, changeSetId: change.id, operation: "update_location", confirmation: "publish_business_information_to_google" }) })
+    expect(recovered.status).toBe(409)
+    expect(await recovered.json()).toMatchObject({ error: "approval_actor_access_changed" })
+    expect(google.calls.filter((call) => call.method === "PATCH")).toHaveLength(writesBeforeRecovered)
     await admin`delete from member where organisation_id = ${owner.organisationId} and user_id = ${reviewer.userId}`
     const revoked = await fetch(url, { method: "PATCH", headers: jsonHeaders(owner.cookie, "revoked-services"), body: JSON.stringify({ ...body, changeSetId: change.id, operation: "update_location", confirmation: "publish_business_information_to_google" }) })
     expect(revoked.status).toBe(409)
@@ -1195,6 +1263,85 @@ describeDatabase("standalone NabaPresence canonical management", () => {
       { resourceType: "profile", revision: "3" },
     ])
   }, 30_000)
+  // Profile used to settle an ambiguous PATCH as `ambiguous` without looking;
+  // it now reads the location back like hours does.
+  it("settles an ambiguous profile publish succeeded when the readback matches", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    let providerLocation: Record<string, unknown> = {
+      name: linked.googleLocationName,
+      title: "Rose and Crown",
+      websiteUri: "https://rose.example",
+    }
+    google.respond(
+      { method: "GET", pathIncludes: `/v1/${linked.googleLocationName}` },
+      () => ({ status: 200, json: providerLocation })
+    )
+    google.respond(
+      { method: "PATCH", pathIncludes: `/v1/${linked.googleLocationName}` },
+      (call) => {
+        const url = new URL(call.path, google.baseUrl)
+        if (url.searchParams.get("validateOnly") === "true") {
+          return { status: 200, json: providerLocation }
+        }
+        // The write lands; the answer is lost.
+        providerLocation = {
+          ...providerLocation,
+          ...(call.body as Record<string, unknown>),
+        }
+        return { status: 504, json: {} }
+      }
+    )
+    const root = `${server.baseUrl}/api/locations/${linked.locationId}`
+    const initial = await getJson(`${root}/profile`, owner.cookie, "profile")
+    const save = await fetch(`${root}/profile`, {
+      method: "PUT",
+      headers: jsonHeaders(owner.cookie, "save-ambiguous-profile"),
+      body: JSON.stringify({
+        expectedCanonicalRevision: initial.canonicalResource.revision,
+        values: { name: "The Rose and Crown" },
+      }),
+    })
+    expect(save.status, await save.clone().text()).toBe(200)
+    const reviewed = await getJson(`${root}/profile`, owner.cookie, "profile")
+    const published = await fetch(`${root}/profile`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "publish-ambiguous-profile"),
+      body: JSON.stringify({
+        direction: "to_google",
+        confirmation: "publish_nabapresence_profile_to_google",
+        selectedFields: ["name"],
+        expectedCanonicalRevision: reviewed.canonicalResource.revision,
+        expectedCanonicalHash: reviewed.canonicalHash,
+        expectedGoogleHash: reviewed.googleHash,
+        confirmOverwriteGoogleChanges: false,
+        confirmOverwriteCanonicalChanges: false,
+      }),
+    })
+    expect(published.status, await published.clone().text()).toBe(200)
+    const attempts = await admin<{ status: string }[]>`
+      select status from profile_sync_attempt
+      where organisation_id = ${owner.organisationId}
+    `
+    expect(attempts.map((row) => row.status)).toEqual(["succeeded"])
+    expect(
+      google.calls.filter(
+        (call) =>
+          call.method === "PATCH" &&
+          call.path.includes(linked.googleLocationName) &&
+          !call.path.includes("validateOnly=true")
+      )
+    ).toHaveLength(1)
+  })
+
   it("persists never-published checks and Google drift, retains edits and success time after failure", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
@@ -1380,6 +1527,68 @@ describeDatabase("standalone NabaPresence canonical management", () => {
         (await getJson(`${root}/summary`, owner.cookie, "summary")).hours
       ).toMatchObject({ status: "google_dirty", checkStatus: "checked" })
     }
+  }, 30_000)
+
+  // Attributes and lodging read the resource back after the PATCH and compare
+  // the masked fields (lib/domain/readback/*): a Google that answers 200 but
+  // holds something else settles the attempt failed, an unreadable readback
+  // ambiguous -- never succeeded.
+  // Attribute and lodging writes run only through reviewed change sets
+  // (lib/server/gbp-change-sets.ts), whose divergent and unreadable readbacks
+  // are pinned by standalone-attributes.test.ts and "records independent
+  // lodging evidence" above. A direct write naming no change set is refused
+  // before Google is read or an attempt is recorded.
+  it("refuses unreviewed attribute and lodging writes before any provider call", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    google.reset()
+    const root = `${server.baseUrl}/api/locations/${linked.locationId}`
+
+    const attributeWrite = await fetch(`${root}/business-information`, {
+      method: "PATCH",
+      headers: jsonHeaders(owner.cookie, "attributes-unreviewed"),
+      body: JSON.stringify({
+        operation: "update_attributes",
+        confirmation: "publish_business_attributes_to_google",
+        expectedGoogleHash: "a".repeat(64),
+        attributeMask: ["attributes/has_wheelchair_accessible_entrance"],
+        attributes: [
+          { name: "attributes/has_wheelchair_accessible_entrance", values: [false] },
+        ],
+      }),
+    })
+    expect(attributeWrite.status, await attributeWrite.clone().text()).toBe(409)
+    expect((await attributeWrite.json()).error).toBe("approval_required")
+
+    const lodgingWrite = await fetch(`${root}/industry`, {
+      method: "PATCH",
+      headers: jsonHeaders(owner.cookie, "lodging-unreviewed"),
+      body: JSON.stringify({
+        operation: "update_lodging",
+        confirmation: "publish_industry_data_to_google",
+        expectedGoogleHash: "a".repeat(64),
+        updateMask: ["pets"],
+        payload: { pets: { petsAllowed: true } },
+      }),
+    })
+    expect(lodgingWrite.status, await lodgingWrite.clone().text()).toBe(409)
+    expect((await lodgingWrite.json()).error).toBe("approval_required")
+
+    expect(google.calls.filter((call) => call.method !== "GET")).toEqual([])
+    expect(
+      await admin`
+        select 1 from gbp_management_mutation
+        where organisation_id = ${owner.organisationId}
+      `
+    ).toHaveLength(0)
   }, 30_000)
 })
 

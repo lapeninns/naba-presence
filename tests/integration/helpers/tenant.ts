@@ -49,6 +49,13 @@ export async function createTestTenant(
       ${options.workspaceMode ?? "agency"}
     )
   `
+  // Provisioning gives every organisation an explicit pilot billing record
+  // (lib/server/billing/state.ts seedPilotBilling); harness tenants match.
+  await admin`
+    insert into organisation_billing (organisation_id, state)
+    values (${organisationId}, 'pilot')
+    on conflict (organisation_id) do nothing
+  `
   if (options.workspaceMode === "business") {
     await admin`
       insert into client (organisation_id, name, slug, is_home)
@@ -401,13 +408,16 @@ export async function seedMemberUser(
     insert into app_user (id, email, display_name, default_organisation_id)
     values (${userId}, ${email}, 'Harness member', ${input.organisationId})
   `
+  // The scope is written with the rows it describes (supabase 0082), as
+  // the application's writers do.
   await admin`
-    insert into member (organisation_id, user_id, role, can_publish)
+    insert into member (organisation_id, user_id, role, can_publish, location_scope)
     values (
       ${input.organisationId},
       ${userId},
       ${input.role ?? "member"},
-      ${input.canPublish ?? false}
+      ${input.canPublish ?? false},
+      ${input.assignLocationId ? "assigned" : "all"}
     )
   `
   if (input.assignLocationId) {

@@ -91,7 +91,8 @@ describe("apiFetch", () => {
       "half-written reply"
     )
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox?queue=needs_reply")
     )
   })
 
@@ -121,7 +122,8 @@ describe("apiFetch", () => {
       "half-written reply"
     )
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox?queue=needs_reply")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox?queue=needs_reply")
     )
   })
 })
@@ -166,7 +168,8 @@ describe("apiFetch 401 rule", () => {
       apiFetch("/api/probe", { background: false })
     ).rejects.toBeInstanceOf(ApiClientError)
     expect(assign).toHaveBeenCalledWith(
-      "/sign-in?next=" + encodeURIComponent("/inbox")
+      `${window.location.origin}/sign-in?next=` +
+        encodeURIComponent("/inbox")
     )
   })
 
@@ -196,8 +199,42 @@ describe("apiFetch request construction", () => {
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe("/api/x")
     expect(init?.method).toBe("POST")
-    expect(init?.headers).toEqual({ "content-type": "application/json" })
+    expect(init?.headers).toEqual({
+      "content-type": "application/json",
+      "Idempotency-Key": expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      ),
+    })
     expect(init?.body).toBe(JSON.stringify({ a: 1 }))
+  })
+
+  it("mints a fresh intent per mutation and resends a given one unchanged", async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () => jsonResponse(200, { ok: true })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const intentId = "9b2f6a3e-4c1d-4e8f-9a7b-2c3d4e5f6a7b"
+    await apiFetch("/api/x", { method: "DELETE" })
+    await apiFetch("/api/x", { method: "DELETE" })
+    await apiFetch("/api/x", { method: "PUT", body: {}, intentId })
+    const keys = fetchMock.mock.calls.map(
+      ([, init]) => (init?.headers as Record<string, string>)["Idempotency-Key"]
+    )
+    expect(keys[0]).not.toBe(keys[1])
+    expect(keys[2]).toBe(intentId)
+  })
+
+  it("carries the intent on a failed mutation's error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse(502, { error: "google_mutation_ambiguous", message: "x" })
+      )
+    )
+    const intentId = "9b2f6a3e-4c1d-4e8f-9a7b-2c3d4e5f6a7b"
+    await expect(
+      apiFetch("/api/x", { method: "POST", body: {}, intentId })
+    ).rejects.toMatchObject({ code: "google_mutation_ambiguous", intentId })
   })
 
   it("sends no headers or body for a bodyless GET", async () => {

@@ -44,6 +44,15 @@ export const sessionSchema = z.object({
    */
   supportActor: z.string().nullable().optional(),
   impersonationReason: z.string().nullable().optional(),
+  /**
+   * Opaque; changes whenever the person's security version or the
+   * membership's role, publish right, location scope or grants change
+   * (lib/server/session.ts `scopeFingerprintColumn`).
+   * The client resets its query cache when it moves
+   * (lib/queries/scope-reset.ts). Optional so a session cached before it
+   * existed still parses.
+   */
+  scopeFingerprint: z.string().optional(),
 })
 export type SessionUser = z.infer<typeof sessionSchema>
 
@@ -82,7 +91,52 @@ export const organisationRenameSchema = z.object({
 })
 export type OrganisationRenameInput = z.input<typeof organisationRenameSchema>
 
-/** PATCH `/api/organisations` response. */
+/**
+ * PATCH `/api/organisations` body: switch the session's organisation between
+ * business and agency mode (owner only). Agency to business is refused while
+ * more than one client is active.
+ */
+export const organisationModeSchema = z.object({
+  workspaceMode: workspaceModeSchema,
+  /**
+   * Agency to business: go ahead although refiling puts locations under a
+   * client with live report share links (otherwise a 409
+   * `workspace_mode_report_shares` with the counts).
+   */
+  confirmReportShares: z.boolean().optional(),
+})
+export type OrganisationModeInput = z.input<typeof organisationModeSchema>
+
+/**
+ * Everything PATCH `/api/organisations` accepts: a rename or a mode change,
+ * one per request. Strict, so a body carrying both is refused rather than
+ * half applied.
+ */
+export const organisationUpdateSchema = z.union([
+  organisationRenameSchema.strict(),
+  organisationModeSchema.strict(),
+])
+export type OrganisationUpdateInput = z.input<typeof organisationUpdateSchema>
+
+/** PATCH `/api/organisations` response to a mode change. */
+export const organisationModeChangedResponseSchema = z.object({
+  organisation: z.object({
+    organisationId: z.string(),
+    workspaceMode: workspaceModeSchema,
+  }),
+  /** False when the organisation was already in the requested mode. */
+  changed: z.boolean(),
+  /**
+   * Locations filed under the home client by an agency-to-business change
+   * (unassigned ones and any left under an archived client).
+   */
+  refiledLocations: z.number().int().nonnegative(),
+})
+export type OrganisationModeChangedResponse = z.infer<
+  typeof organisationModeChangedResponseSchema
+>
+
+/** PATCH `/api/organisations` response to a rename. */
 export const organisationRenamedResponseSchema = z.object({
   organisation: z.object({ organisationId: z.string(), name: z.string() }),
 })

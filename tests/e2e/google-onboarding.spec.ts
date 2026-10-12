@@ -466,7 +466,12 @@ for (const width of [375, 768, 1280]) {
       await trigger.focus()
       await trigger.press("ArrowDown")
       await expect(trigger).toHaveAttribute("aria-expanded", "true")
+      // Typeahead before the popup is ready, or Enter before the highlight
+      // has moved, selects nothing; wait for each step to land.
+      const option = page.getByRole("option", { name: "Delivery", exact: true })
+      await expect(option).toBeVisible()
       await page.keyboard.press("d")
+      await expect(option).toHaveAttribute("data-highlighted", "")
       await page.keyboard.press("Enter")
       await expect(trigger).toContainText("Delivery")
     } else await chooseOnboardingOption(page, hours.getByRole("combobox", { name: "Additional hours type" }), "Delivery")
@@ -565,7 +570,12 @@ for (const width of [375, 768, 1280]) {
       await trigger.focus()
       await trigger.press("ArrowDown")
       await expect(trigger).toHaveAttribute("aria-expanded", "true")
+      // Typeahead before the popup is ready, or Enter before the highlight
+      // has moved, selects nothing; wait for each step to land.
+      const option = page.getByRole("option", { name: "Monday", exact: true })
+      await expect(option).toBeVisible()
       await page.keyboard.press("m")
+      await expect(option).toHaveAttribute("data-highlighted", "")
       await page.keyboard.press("Enter")
       await expect(trigger).toContainText("Monday")
     } else await chooseOnboardingOption(page, regular.getByRole("combobox", { name: "Regular opening day" }), "Monday")
@@ -768,6 +778,10 @@ for (const width of [375, 768, 1280]) {
     await expect(card.getByRole("alert")).toContainText("temporarily unavailable")
     await card.getByRole("button", { name: "Search for matches", exact: true }).click()
     const review = card.getByRole("region", { name: "Create a separate listing" })
+    // Let the search land first, so the unfinished entry is typed into the
+    // editor the saved result renders (typed mid-search, it was sometimes
+    // lost and the review stayed on screen).
+    await expect(review).toBeVisible()
     await parentId.fill("Unfinished")
     await expect(review).toHaveCount(0)
     await expect(save).toBeDisabled()

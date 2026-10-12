@@ -10,6 +10,7 @@ import {
   type AdministrationOperation,
   type AdministrationState,
 } from "@/lib/contracts/location-administration"
+import { currentApprovalPolicy } from "@/lib/server/authz/approval-policy"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -30,6 +31,7 @@ import {
   startGbpMutation,
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
 const COMPLETE_LOCATION_MASK = [
@@ -278,8 +280,26 @@ export async function mutateLocationAdministration(input: {
       "publish_not_allowed",
       "You cannot manage this Google location."
     )
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites"))
-    throw new ApiError(503, "google_writes_paused", "Google writes are paused.")
+  // Accepting Google's suggested update writes business information. Under
+  // two-person approval every business-information update needs a reviewed
+  // change set approved by a second person, so this one-step path is
+  // refused there: the owner reviews the same fields in Business
+  // information instead (lib/server/business-information.ts).
+  if (input.operation === "accept_google_update") {
+    const policy = await withTenant(input.session.organisationId, (sql) =>
+      currentApprovalPolicy(sql, input.session.organisationId)
+    )
+    if (policy.requireTwoPersonApproval)
+      throw new ApiError(
+        409,
+        "business_info_review_required",
+        "Two-person approval is on. Review Google's suggested changes in Business information so a second person can approve them."
+      )
+  }
+  await requireGbpDispatch("profileWrites", {
+    code: "google_writes_paused",
+    message: "Google writes are paused.",
+  })
   // Validated before a token is fetched or a mutation row is recorded.
   const resourceName = isAdministrationNamedOperation(input.operation)
     ? scopedAdministrationResourceName(input.operation, input.payload.name, {

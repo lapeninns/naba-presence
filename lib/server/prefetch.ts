@@ -24,12 +24,16 @@ import { reviewCountsSchema, type ReviewCounts } from "@/lib/contracts/reviews"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
+  NO_SETTINGS_FEATURES,
   locationCapabilities,
+  readSettingsFeatures,
   settingsCapabilities,
+  settingsFeaturesApply,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
+import { loadPauseSnapshot } from "@/lib/server/pause-controls"
 import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
 import type { Session } from "@/lib/server/session"
 
@@ -137,9 +141,11 @@ export async function readLocationCapabilities(
   session: Session,
   locationId: string
 ): Promise<LocationCapabilities> {
+  // Read before the transaction, never inside it (lib/server/db.ts).
+  const pauses = await loadPauseSnapshot()
   const payload = {
     capabilities: await withTenant(session.organisationId, (sql) =>
-      locationCapabilities(sql, session, locationId)
+      locationCapabilities(sql, session, locationId, pauses)
     ),
   } satisfies LocationCapabilitiesResponse
   return throughWire(locationCapabilitiesResponseSchema, payload).capabilities
@@ -156,12 +162,21 @@ export async function readListingSummary(
   return summary ? throughWire(listingSummarySchema, summary) : null
 }
 
-/** What `useSettingsCapabilities()` fetches. Pure role projection. */
-export function readSettingsCapabilities(
+/**
+ * What `useSettingsCapabilities()` fetches: a role projection plus the
+ * organisation's settings feature switches, read in one tenant transaction
+ * for an owner or admin and skipped for anyone else.
+ */
+export async function readSettingsCapabilities(
   session: Session
-): SettingsCapabilities {
+): Promise<SettingsCapabilities> {
+  const features = settingsFeaturesApply(session)
+    ? await withTenant(session.organisationId, (sql) =>
+        readSettingsFeatures(sql, session)
+      )
+    : NO_SETTINGS_FEATURES
   const payload = {
-    capabilities: settingsCapabilities(session),
+    capabilities: settingsCapabilities(session, features),
   } satisfies SettingsCapabilitiesResponse
   return throughWire(settingsCapabilitiesResponseSchema, payload).capabilities
 }
@@ -233,7 +248,7 @@ export function settingsPrefetch(): (session: Session) => PrefetchEntry[] {
   return (session) => [
     {
       queryKey: queryKeys.settingsCapabilities,
-      load: async () => readSettingsCapabilities(session),
+      load: () => readSettingsCapabilities(session),
     },
   ]
 }

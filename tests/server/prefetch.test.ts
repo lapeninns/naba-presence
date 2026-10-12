@@ -129,10 +129,34 @@ describe("review counts hydration", () => {
 })
 
 describe("readSettingsCapabilities", () => {
-  it("parses with settingsCapabilitiesSchema", () => {
-    const caps = readSettingsCapabilities(session)
+  async function withFeature(enabled: boolean) {
+    const { withTenant } = await import("@/lib/server/db")
+    vi.mocked(withTenant).mockImplementationOnce(async (_org, fn) =>
+      fn((async () => (enabled ? [{ enabled: true }] : [])) as never)
+    )
+  }
+
+  it("parses with settingsCapabilitiesSchema", async () => {
+    await withFeature(false)
+    const caps = await readSettingsCapabilities(session)
     expect(settingsCapabilitiesSchema.safeParse(caps).success).toBe(true)
     expect(caps.canEditSettings).toBe(true)
+    expect(caps.privacy).toBe("none")
+  })
+
+  it("never reads the features for a member, whose answer is fixed", async () => {
+    const { withTenant } = await import("@/lib/server/db")
+    vi.mocked(withTenant).mockClear()
+    const caps = await readSettingsCapabilities({ ...session, role: "member" })
+    expect(withTenant).not.toHaveBeenCalled()
+    expect(caps.privacy).toBe("none")
+    expect(caps.canEditSettings).toBe(false)
+  })
+
+  it("opens the Data and privacy area to an owner once the feature is on", async () => {
+    await withFeature(true)
+    const caps = await readSettingsCapabilities(session)
+    expect(caps.privacy).toBe("manage")
   })
 })
 

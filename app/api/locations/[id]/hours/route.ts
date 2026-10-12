@@ -7,11 +7,9 @@ import {
   type PublishHoursResponse,
   type SaveHoursResponse,
 } from "@/lib/contracts/location-hours"
-import {
-  getHoursState,
-  publishCanonicalHours,
-  saveCanonicalHours,
-} from "@/lib/server/hours"
+import { getHoursState, saveCanonicalHours } from "@/lib/server/hours"
+import { submitListingChange } from "@/lib/server/listing-change-registry"
+import { invalidatePendingListingChanges } from "@/lib/server/listing-changes"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -24,35 +22,44 @@ const paramsSchema = z.object({ id: z.uuid() })
 export const GET = route({
   params: paramsSchema,
   handler: async ({ session, params }) =>
-    ({ hours: await getHoursState(session, params.id) }) satisfies HoursResponse,
+    ({
+      hours: await getHoursState(session, params.id),
+    }) satisfies HoursResponse,
 })
 
 export const PUT = route({
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: saveHoursBodySchema,
-  handler: async ({ session, params, body, requestId }) =>
-    (await saveCanonicalHours({
+  handler: async ({ session, params, body, requestId }) => {
+    const saved = (await saveCanonicalHours({
       session,
       locationId: params.id,
       expectedCanonicalRevision: body.expectedCanonicalRevision,
       hours: body.hours,
       requestId,
-    })) satisfies SaveHoursResponse,
+    })) satisfies SaveHoursResponse
+    // A publish waiting for approval was for the hours before this save.
+    await invalidatePendingListingChanges({
+      organisationId: session.organisationId,
+      locationId: params.id,
+      kinds: ["hours_publish"],
+    })
+    return saved
+  },
 })
 
 export const POST = route({
+  mfa: "step_up",
   params: paramsSchema,
   body: publishHoursBodySchema,
+  // Parks for a second publisher in two-person mode
+  // (lib/server/listing-change-registry.ts); sent as before otherwise.
   handler: async ({ session, params, body, requestId }) =>
-    (await publishCanonicalHours({
+    (await submitListingChange("hours_publish", {
       session,
       locationId: params.id,
-      expectedCanonicalRevision: body.expectedCanonicalRevision,
-      expectedCanonicalHash: body.expectedCanonicalHash,
-      expectedGoogleHash: body.expectedGoogleHash,
-      approvedUpdateMask: body.approvedUpdateMask,
-      confirmOverwriteGoogleChanges: body.confirmOverwriteGoogleChanges,
+      body,
       requestId,
-    })) satisfies PublishHoursResponse,
+    })) satisfies PublishHoursResponse | Response,
 })

@@ -13,7 +13,9 @@ import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { hashFoodMenus } from "@/lib/domain/food-menus"
 import {
   hashHours,
+  hoursPartHashes,
   classifyHoursDrift,
+  classifyHoursPartDrift,
   type NormalizedHours,
 } from "@/lib/domain/hours"
 import {
@@ -127,11 +129,23 @@ export function hoursArea(
       ...(observation?.errorCode ? { checkStatus: "failed" as const } : {}),
     }
   }
+  // Per-part drift when both the observed Google parts and a part baseline
+  // exist, so the parts a selective publish left unpublished on purpose stay
+  // local changes here exactly as they do in the hours editor.
+  const parts =
+    observation.observedGoogleParts && observation.comparisonParts
+      ? classifyHoursPartDrift({
+          canonicalParts: hoursPartHashes(row.payload as NormalizedHours),
+          googleParts: observation.observedGoogleParts,
+          baseline: observation.comparisonParts,
+        })
+      : null
   const status = classifyHoursDrift({
     canonicalHash,
     googleHash: observation.googleHash,
     baselineCanonicalHash: observation.comparisonCanonicalHash,
     baselineGoogleHash: observation.comparisonGoogleHash,
+    parts,
   })
   return {
     status,
@@ -254,7 +268,11 @@ function toLastPublish(row: AttemptRow | undefined): LastPublish | null {
     row.status === "failed" ||
     row.status === "ambiguous"
       ? row.status
-      : "in_progress"
+      : // A media create no live item accounts for (0093): as unknown as
+        // an ambiguous write, and waiting on a person rather than in flight.
+        row.status === "needs_resolution"
+        ? "ambiguous"
+        : "in_progress"
   return { at: new Date(row.at).toISOString(), status, area: row.area }
 }
 
@@ -417,7 +435,8 @@ export async function readListingSummaries(
         comparison_canonical_hash as "comparisonCanonicalHash", comparison_google_hash as "comparisonGoogleHash",
         observed_at as "observedAt", observation_attempted_at as "attemptedAt",
         case when status = 'failed' and last_error_code is distinct from 'proposal_raise_failed' and coalesce(reconciliation_started_at, last_attempt_at) > coalesce(observation_attempted_at, '-infinity'::timestamptz)
-          then coalesce(last_error_code, 'hours_check_failed') else observation_error_code end as "errorCode", comparison_blocked as blocked
+          then coalesce(last_error_code, 'hours_check_failed') else observation_error_code end as "errorCode", comparison_blocked as blocked,
+        observed_google_part_hashes as "observedGoogleParts", comparison_part_hashes as "comparisonParts"
       from presence_resource_reconcile_state where location_id = any(${idList}::uuid[]) and resource = 'hours'
     `,
     sql<

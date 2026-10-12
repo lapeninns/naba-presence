@@ -49,10 +49,12 @@ const NAV_ITEMS = [
  * client behind the scenes, so the Clients destination does not exist for
  * it; agency mode shows the full list.
  */
-export function navItemsFor(mode: WorkspaceMode) {
-  return mode === "business"
-    ? NAV_ITEMS.filter((item) => item.href !== "/clients")
-    : NAV_ITEMS
+export function navItemsFor(mode: WorkspaceMode, hideCalendar = false) {
+  return NAV_ITEMS.filter(
+    (item) =>
+      !(mode === "business" && item.href === "/clients") &&
+      !(hideCalendar && item.href === "/calendar")
+  )
 }
 
 /**
@@ -304,6 +306,7 @@ function Nav({
   role,
   scopeClientId = null,
   mode = "agency",
+  hideCalendar = false,
 }: {
   onNavigate?: () => void
   clients?: NavClient[]
@@ -326,6 +329,11 @@ function Nav({
   role?: string | null
   /** `business` leaves out Clients, the pinned clients and `?clientId=`. */
   mode?: WorkspaceMode
+  /**
+   * The organisation's `post_scheduling` feature is off, so Calendar (the
+   * scheduled publications) has nothing to show and is left out (P08-R5).
+   */
+  hideCalendar?: boolean
 }) {
   const pathname = usePathname()
   const business = mode === "business"
@@ -344,7 +352,7 @@ function Nav({
   return (
     <nav aria-label="Primary" className="flex flex-col">
       <ul className="flex flex-col gap-0.5">
-        {navItemsFor(mode).map((item) => {
+        {navItemsFor(mode, hideCalendar).map((item) => {
           const active =
             item.href === "/clients"
               ? isClientsActive(pathname)

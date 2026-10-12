@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   useTransition,
@@ -16,8 +17,10 @@ import { PasswordField } from "@/components/auth/password-field"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { ResendConfirmationButton } from "@/components/auth/resend-confirmation-button"
 import { Button } from "@/components/ui/button"
+import { ChoiceCard } from "@/components/ui/choice-card"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { RadioGroup } from "@/components/ui/radio-group"
 import * as authApi from "@/lib/api/auth"
 import {
   authErrorMessage,
@@ -25,6 +28,7 @@ import {
   type AuthMessage,
 } from "@/lib/api/auth-errors"
 import { stashResetEmail } from "@/lib/api/reset-email"
+import type { WorkspaceMode } from "@/lib/contracts/session"
 import { loginSchema, registerSchema } from "@/lib/domain/auth"
 import { cn } from "@/lib/utils"
 
@@ -64,7 +68,7 @@ function friendlyFieldErrors(
   }
   if (next.email) {
     next.email = values.email.trim()
-      ? "Enter an email address like name@agency.co.uk."
+      ? "Enter an email address like name@example.co.uk."
       : "Enter your email address."
   }
   if (next.password && !values.password) next.password = "Enter your password."
@@ -95,6 +99,7 @@ function SignInForm({
   nextPath,
   statusMessage,
   registrationAllowed = true,
+  workspaceChoice = false,
 }: {
   initialMode?: SignInMode
   mode?: SignInMode
@@ -104,6 +109,12 @@ function SignInForm({
   nextPath?: string | null
   statusMessage?: AuthMessage
   registrationAllowed?: boolean
+  /**
+   * Offer a new owner the business or agency choice
+   * (REGISTRATION_WORKSPACE_CHOICE_ENABLED, off by default). Off: no choice
+   * is shown or sent, and the account is a business.
+   */
+  workspaceChoice?: boolean
 }) {
   const [uncontrolledMode, setUncontrolledMode] = useState<SignInMode>(
     initialMode ?? "sign-in"
@@ -113,6 +124,12 @@ function SignInForm({
   const [email, setEmail] = useState(invitedEmail ?? "")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  // Only a new owner chooses, and only while the choice is switched on; an
+  // invited person joins the inviting organisation as it is, so the choice
+  // is never shown with a token.
+  const offersWorkspaceChoice = workspaceChoice && !inviteToken
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("business")
+  const workspaceLabelId = useId()
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [message, setMessage] = useState<AuthMessage | null>(
     statusMessage ?? null
@@ -157,8 +174,14 @@ function SignInForm({
       setFieldErrors({})
       startTransition(async () => {
         try {
-          await authApi.signIn(parsed.data)
-          window.location.assign(nextPath ?? "/inbox")
+          const result = await authApi.signIn(parsed.data)
+          // Two-step verification: the code screen finishes the sign-in and
+          // then goes where this one would have.
+          window.location.assign(
+            result.mfaRequired
+              ? `/sign-in/verify${nextPath ? `?next=${encodeURIComponent(nextPath)}` : ""}`
+              : (nextPath ?? "/inbox")
+          )
           // Deliberately never resolve: the page is navigating away, and
           // letting the transition "finish" here would flip the submit
           // button back to enabled during that window - reopening the
@@ -180,6 +203,7 @@ function SignInForm({
       email,
       password,
       inviteToken,
+      ...(offersWorkspaceChoice ? { workspaceMode } : {}),
     })
     if (!parsed.success) {
       const errors = friendlyFieldErrors(
@@ -307,6 +331,35 @@ function SignInForm({
               {label}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {mode === "create-account" && offersWorkspaceChoice ? (
+        <div className="flex flex-col gap-2">
+          <span
+            id={workspaceLabelId}
+            className="text-ui font-semibold text-ink"
+          >
+            What are you setting up?
+          </span>
+          <RadioGroup
+            value={workspaceMode}
+            onValueChange={(next) => setWorkspaceMode(next as WorkspaceMode)}
+            aria-labelledby={workspaceLabelId}
+            disabled={pending}
+            className="grid grid-cols-1 gap-2"
+          >
+            <ChoiceCard
+              value="business"
+              title="My business"
+              description="A pub, restaurant or group, with one or more locations of its own."
+            />
+            <ChoiceCard
+              value="agency"
+              title="An agency"
+              description="You look after Google profiles for several client businesses."
+            />
+          </RadioGroup>
         </div>
       ) : null}
 

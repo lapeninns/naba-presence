@@ -3,6 +3,12 @@ import "server-only"
 import { getDatabase } from "@/lib/server/db"
 import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { log } from "@/lib/server/logger"
+import {
+  collectSchemaViolations,
+  readAppliedMigrations,
+} from "@/lib/server/schema-compat"
+import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
+import { telemetryDisabledReason } from "@/lib/server/telemetry-status"
 
 export type DbIdentity = {
   rolSuper: boolean
@@ -90,6 +96,45 @@ export function collectSafetyViolations(
   return violations
 }
 
+/**
+ * Configuration that leaves operators blind without making the deployment
+ * unsafe: no way to email an alert, nobody to email it to, or no metrics
+ * leaving the process. Logged at startup and reported by the readiness
+ * endpoint as `degraded`; never enforced, because refusing to boot over
+ * missing alerting would take the product down to report that alerting is
+ * missing.
+ */
+export function collectOperationalWarnings(
+  env: Pick<
+    ServerEnv,
+    "EMAIL_PROVIDER" | "EMAIL_API_KEY" | "EMAIL_FROM" | "OPS_ALERT_EMAILS"
+  >,
+  processEnv: Record<string, string | undefined> = process.env
+): string[] {
+  const warnings: string[] = []
+  if (env.EMAIL_PROVIDER === "none") {
+    warnings.push(
+      "EMAIL_PROVIDER is none: no alert email is sent, to tenants or operators."
+    )
+  } else if (!env.EMAIL_API_KEY || !env.EMAIL_FROM) {
+    warnings.push(
+      `EMAIL_PROVIDER is ${env.EMAIL_PROVIDER} without EMAIL_API_KEY and EMAIL_FROM: every alert email is suppressed.`
+    )
+  }
+  if (env.OPS_ALERT_EMAILS.length === 0) {
+    warnings.push(
+      "OPS_ALERT_EMAILS is empty: platform incidents are recorded but nobody is emailed."
+    )
+  }
+  const telemetry = telemetryDisabledReason(processEnv)
+  if (telemetry) {
+    warnings.push(
+      `Metric export is off (${telemetry}): set OTEL_EXPORTER_OTLP_ENDPOINT to the environment's collector.`
+    )
+  }
+  return warnings
+}
+
 /** Supabase's pooler serves transaction mode on 6543 and session mode on 5432. */
 export function isTransactionPoolerUrl(url: string): boolean {
   try {
@@ -117,17 +162,52 @@ export async function readDbIdentity(): Promise<DbIdentity> {
   return row
 }
 
+// A ledger the runtime role cannot read (for example a missing SELECT grant)
+// is reported as a violation, so it follows the same enforce-or-warn path and
+// the other checks still run.
+async function readSchemaViolations(
+  required: readonly string[]
+): Promise<string[]> {
+  try {
+    return collectSchemaViolations(await readAppliedMigrations(), required)
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : error instanceof Error
+          ? error.message
+          : String(error)
+    return [`Could not read schema_migration (${code}).`]
+  }
+}
+
 export async function assertProductionSafety(
-  options: { enforce?: boolean } = {}
+  options: { enforce?: boolean; requiredMigrations?: readonly string[] } = {}
 ): Promise<void> {
   const enforce =
     options.enforce ??
     (process.env.NODE_ENV === "production" ||
       process.env.ENFORCE_DB_SAFETY === "true")
-  const violations = collectSafetyViolations(
-    getServerEnv(),
-    await readDbIdentity()
-  )
+  const required = options.requiredMigrations ?? REQUIRED_MIGRATIONS
+  const schemaViolations = await readSchemaViolations(required)
+  if (schemaViolations.length === 0) {
+    log.info("startup.schema_ok", { enforce, required: required.length })
+  } else {
+    log.warn("startup.schema_incompatible", {
+      enforce,
+      violations: schemaViolations,
+    })
+  }
+  const operationalWarnings = collectOperationalWarnings(getServerEnv())
+  if (operationalWarnings.length > 0) {
+    log.warn("startup.operational_warnings", {
+      warnings: operationalWarnings,
+    })
+  }
+  const violations = [
+    ...collectSafetyViolations(getServerEnv(), await readDbIdentity()),
+    ...schemaViolations,
+  ]
   if (violations.length === 0) {
     log.info("startup.safety_ok", { enforce })
     return

@@ -1,11 +1,13 @@
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
+
 export const googleAttributeNameSchema = z.string().regex(/^attributes\/[^\s/,]+$/, "Use a Google attribute resource name.")
 const enumAnswers = z.array(z.string().min(1)).refine((values) => new Set(values).size === values.length, "Attribute answers must be unique.")
 export const googleAttributeWriteSchema = z.object({
   name: googleAttributeNameSchema,
   values: z.array(z.union([z.boolean(), z.string(), z.number()])).length(1).optional(),
-  uriValues: z.array(z.object({ uri: z.url(), uriType: z.string().optional() }).strict()).min(1).optional(),
+  uriValues: z.array(z.object({ uri: httpUrl(), uriType: z.string().optional() }).strict()).min(1).optional(),
   repeatedEnumValue: z.object({ setValues: enumAnswers.optional(), unsetValues: enumAnswers.optional() }).strict().superRefine((value, context) => {
     const selected = value.setValues ?? []
     const unselected = value.unsetValues ?? []

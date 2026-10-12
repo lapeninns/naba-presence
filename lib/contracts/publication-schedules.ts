@@ -6,7 +6,9 @@ import { z } from "zod"
 
 import {
   eventOffsetsSchema,
+  offsetMinutesSchema,
   scheduleRuleSchema,
+  SLOT_PROBLEMS,
   timezoneSchema,
 } from "@/lib/domain/publication-schedule"
 
@@ -15,6 +17,10 @@ export const SCHEDULE_STATUSES = [
   "active",
   "paused",
   "blocked",
+  // Quarantined for an owner's review (migration 0116): a repeating schedule
+  // from before one-time became the default. Never runs; a revision or a
+  // cancel is the way out.
+  "needs_review",
   "cancelled",
   "completed",
 ] as const
@@ -34,6 +40,11 @@ export const scheduleDraftSchema = z.strictObject({
   rule: scheduleRuleSchema,
   timezone: timezoneSchema.optional(),
   eventOffsets: eventOffsetsSchema.nullable().default(null),
+  /**
+   * The UTC offset of a one-time slot, required when its local time happens
+   * twice (autumn back) and otherwise optional; it must match the time.
+   */
+  offsetMinutes: offsetMinutesSchema.nullable().default(null),
 })
 export type ScheduleDraft = z.infer<typeof scheduleDraftSchema>
 
@@ -48,6 +59,7 @@ export const scheduleRevisionSchema = z.strictObject({
   rule: scheduleRuleSchema,
   timezone: timezoneSchema,
   eventOffsets: eventOffsetsSchema.nullable().default(null),
+  offsetMinutes: offsetMinutesSchema.nullable().default(null),
   /** Re-read the source draft's current content into the template. */
   refreshContent: z.boolean().default(false),
 })
@@ -58,6 +70,8 @@ export const occurrenceSchema = z.object({
   locationId: z.uuid(),
   locationName: z.string(),
   intendedAt: z.iso.datetime(),
+  /** Not started by then, the occurrence is missed (intended + 5 minutes). */
+  deadlineAt: z.iso.datetime(),
   localDate: z.string(),
   localTime: z.string(),
   timezone: z.string(),
@@ -80,9 +94,18 @@ export const scheduleSchema = z.object({
   payloadHash: z.string(),
   rule: scheduleRuleSchema,
   timezone: z.string(),
+  /** The one-time slot's UTC offset; null for repeating or pre-0117 rows. */
+  offsetMinutes: z.number().int().nullable(),
   eventOffsets: eventOffsetsSchema.nullable(),
   template: z.object({ topicType: z.string(), summary: z.string() }).loose(),
   sourcePostId: z.uuid().nullable(),
+  /**
+   * The source draft's content revision the template was frozen from
+   * (P08-R4). An edit to the draft re-freezes the schedule and asks for
+   * approval again; a one-time schedule publishes the draft at exactly this
+   * revision. Null for a row from before 0120 that could not be bound.
+   */
+  sourceContentRevision: z.number().int().nullable(),
   requestedBy: z.uuid(),
   approvedBy: z.uuid().nullable(),
   approvedAt: z.iso.datetime().nullable(),
@@ -101,6 +124,8 @@ export const scheduleSchema = z.object({
     ),
     skippedDates: z.array(z.string()),
     adjusted: z.number().int(),
+    /** Why a one-time slot cannot run as stored: it needs a new time. */
+    problem: z.enum(SLOT_PROBLEMS).nullable(),
   }),
   counts: z.record(z.string(), z.number()),
 })
@@ -126,4 +151,36 @@ export const occurrencesQuerySchema = z
   )
 export const occurrencesResponseSchema = z.object({
   occurrences: z.array(occurrenceSchema),
+})
+
+/**
+ * A pre-WP7 per-post time copied for review by migration 0116
+ * (`gbp_local_post_legacy_schedule`): `/api/locations/[id]/legacy-post-schedules`.
+ * Nothing ever published from it. An owner or administrator either schedules
+ * the post properly (which closes the review) or dismisses it.
+ */
+export const legacyScheduleSchema = z.object({
+  id: z.uuid(),
+  postId: z.uuid(),
+  summary: z.string(),
+  topicType: z.string(),
+  /** The old intended instant, if one was set. */
+  scheduledPublishTime: z.iso.datetime().nullable(),
+  /** The old value also asked for a repeat, which is never honoured. */
+  repeats: z.boolean(),
+  /**
+   * Whether the post is still a draft a one-time schedule can publish and
+   * has no live one-time schedule already.
+   */
+  schedulable: z.boolean(),
+  /** The post already has a live one-time schedule; dismiss the old time. */
+  alreadyScheduled: z.boolean(),
+  createdAt: z.iso.datetime(),
+})
+export type LegacySchedule = z.infer<typeof legacyScheduleSchema>
+export const legacySchedulesResponseSchema = z.object({
+  legacySchedules: z.array(legacyScheduleSchema),
+})
+export const legacyScheduleActionSchema = z.strictObject({
+  action: z.literal("dismiss"),
 })

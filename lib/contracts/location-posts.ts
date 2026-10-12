@@ -9,6 +9,9 @@
  */
 import { z } from "zod"
 
+import { decodeCursor, encodeCursor } from "@/lib/contracts/cursor"
+import { httpUrl } from "@/lib/contracts/http-url"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 // ---------------------------------------------------------------------------
 // Vocabulary
 // ---------------------------------------------------------------------------
@@ -64,7 +67,7 @@ export type DayOfWeekOccurrence = (typeof DAY_OF_WEEK_OCCURRENCES)[number]
 const callToActionSchema = z
   .object({
     actionType: z.enum(LOCAL_POST_ACTION_TYPES),
-    url: z.url().optional(),
+    url: httpUrl().optional(),
   })
   .optional()
 
@@ -113,12 +116,12 @@ export const localPostInputSchema = z
     offer: z
       .object({
         couponCode: z.string().trim().max(100).optional(),
-        redeemOnlineUrl: z.url().optional(),
+        redeemOnlineUrl: httpUrl().optional(),
         termsConditions: z.string().trim().max(5000).optional(),
       })
       .optional(),
     media: z
-      .array(z.object({ sourceUrl: z.url() }))
+      .array(z.object({ sourceUrl: httpUrl() }))
       .max(10)
       .default([]),
   })
@@ -177,9 +180,19 @@ export type LocalPostInput = z.infer<typeof localPostInputSchema>
 /** The body as sent (defaults still optional). */
 export type LocalPostInputValues = z.input<typeof localPostInputSchema>
 
-/** POST `/posts/[postId]/approval` body. */
+/**
+ * POST `/posts/[postId]/approval` body.
+ *
+ * `expectedRevision` is the `contentRevision` of the post the approver read.
+ * The server requires it to approve (400 `expected_revision_required`) and
+ * answers 409 `approval_post_changed` when the post has moved on, so an
+ * approval always names the exact content it covers. It is optional in the
+ * schema only so that a viewer or non-publisher is refused for who they are
+ * (403) before what they sent is looked at.
+ */
 export const postApprovalDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),
+  expectedRevision: z.number().int().positive().optional(),
 })
 export type PostApprovalDecision = z.infer<typeof postApprovalDecisionSchema>
 
@@ -208,6 +221,11 @@ export const postRowSchema = z.object({
   offer: z.unknown(),
   media: z.unknown(),
   status: z.enum(LOCAL_POST_STATUSES),
+  /**
+   * Bumped whenever content sent to Google changes; an approval names the
+   * revision it covers. Optional so an older server still parses.
+   */
+  contentRevision: z.number().int().positive().optional(),
   googlePostName: z.string().nullable(),
   googleState: z.string().nullable(),
   googleSearchUrl: z.string().nullable(),
@@ -220,9 +238,84 @@ export const postRowSchema = z.object({
 })
 export type PostRow = z.infer<typeof postRowSchema>
 
-/** GET `/posts`. */
+/**
+ * The list's status views. `published` holds posts on their way to Google as
+ * well; `attention` is anything Google refused or never confirmed.
+ */
+export const POST_LIST_FILTERS = [
+  "all",
+  "draft",
+  "awaiting",
+  "published",
+  "attention",
+] as const
+export type PostListFilter = (typeof POST_LIST_FILTERS)[number]
+
+export const DEFAULT_POSTS_PAGE_SIZE = 20
+export const MAX_POSTS_PAGE_SIZE = 50
+
+/**
+ * GET `/posts` query. `post` reads one post only (the ambiguous-post check);
+ * otherwise the list pages by keyset `cursor` within one `filter`.
+ */
+export const postsListQuerySchema = z.object({
+  filter: z.enum(POST_LIST_FILTERS).optional(),
+  pageSize: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_POSTS_PAGE_SIZE)
+    .optional(),
+  cursor: z.string().max(1024).optional(),
+  post: z.uuid().optional(),
+})
+export type PostsListQuery = z.infer<typeof postsListQuerySchema>
+
+/**
+ * The position after a page's last post: the list's sort time (newest first,
+ * posts without one last) and the id that breaks ties. Bound to its location
+ * and filter; the server refuses it anywhere else (400 `invalid_cursor`).
+ */
+export const postsCursorSchema = z
+  .object({
+    version: z.literal(1),
+    locationId: z.uuid(),
+    filter: z.enum(POST_LIST_FILTERS),
+    at: z.iso.datetime().nullable(),
+    id: z.uuid(),
+  })
+  .strict()
+export type PostsCursor = z.infer<typeof postsCursorSchema>
+
+export function encodePostsCursor(cursor: PostsCursor): string {
+  return encodeCursor(cursor)
+}
+
+export function decodePostsCursor(
+  value: string | null | undefined
+): PostsCursor | null {
+  return decodeCursor(value, postsCursorSchema)
+}
+
+/** How many of the location's posts each view holds, and how many are live. */
+export const postCountsSchema = z.object({
+  all: z.number().int().nonnegative(),
+  draft: z.number().int().nonnegative(),
+  awaiting: z.number().int().nonnegative(),
+  published: z.number().int().nonnegative(),
+  attention: z.number().int().nonnegative(),
+  live: z.number().int().nonnegative(),
+})
+export type PostCounts = z.infer<typeof postCountsSchema>
+
+/** GET `/posts`: one page of one view. */
 export const postsListResponseSchema = z.object({
   posts: z.array(postRowSchema),
+  /** Counts over every post of the location, not just this page. */
+  counts: postCountsSchema,
+  filter: z.enum(POST_LIST_FILTERS),
+  /** Where the next page starts; `null` on the last page. */
+  nextCursor: z.string().nullable(),
   /**
    * The listing's IANA timezone: a repeat's last day ends at midnight
    * there, not in UTC. Optional so an older server still parses.
@@ -254,6 +347,7 @@ export const postPublishOutcomeSchema = z.union([
     status: z.enum(["published", "rejected"]),
     postId: z.string(),
     googlePostName: z.string().nullable(),
+    ...operationSummaryField,
   }),
 ])
 export type PostPublishOutcome = z.infer<typeof postPublishOutcomeSchema>

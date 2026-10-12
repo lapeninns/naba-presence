@@ -21,6 +21,7 @@ export const runtime = "nodejs"
  * second round trip.
  */
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: clientIdParamsSchema,
   body: clientAttachConnectionSchema,

@@ -6,7 +6,48 @@
  */
 import { z } from "zod"
 
-export const BULK_MAX_TARGETS = 100
+import { httpUrl } from "@/lib/contracts/http-url"
+import {
+  bulkBusinessInfoInputSchema,
+  bulkCategoriesInputSchema,
+} from "@/lib/domain/bulk-business-info"
+import {
+  bulkLodgingInputSchema,
+  lodgingGroups,
+} from "@/lib/domain/bulk-lodging"
+import {
+  bulkFoodMenusInputSchema,
+  bulkPostDraftInputSchema,
+} from "@/lib/domain/bulk-menus"
+import {
+  BULK_MAX_NEW_PHOTOS_PER_LOCATION,
+  bulkPhotoInputSchema,
+} from "@/lib/domain/bulk-photos"
+import {
+  bulkReviewApprovalInputSchema,
+  bulkReviewTemplateInputSchema,
+  isBulkReviewOperation,
+} from "@/lib/domain/bulk-reviews"
+import type {
+  HoursSelection,
+  NormalizedHours,
+} from "@/lib/domain/hours-vocabulary"
+
+/** Plan P09: one batch covers at most 50 explicitly selected listings. */
+export const BULK_MAX_TARGETS = 50
+/** A preview can be approved for 15 minutes after it was read from Google. */
+export const BULK_PREVIEW_TTL_MS = 15 * 60_000
+/** An approved batch may dispatch for 24 hours after approval, child by child. */
+export const BULK_DISPATCH_TTL_MS = 24 * 60 * 60_000
+/** At most this many bulk children run at once per organisation (enforced in SQL). */
+export const BULK_MAX_RUNNING_PER_ORGANISATION = 2
+/**
+ * Plan P09: a batch holds at most 500 items in total, one per (listing,
+ * change) pair, so the listing count times the change count. The change
+ * list itself is capped too, so one listing cannot carry an unbounded chain.
+ */
+export const BULK_MAX_ITEMS = 500
+export const BULK_MAX_CHANGES = 50
 const time = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time such as 09:30.")
@@ -31,14 +72,18 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
             periods: z.array(period).max(3),
           })
         )
-        .length(7),
+        .min(1)
+        .max(7),
     })
     .superRefine((value, context) => {
-      if (new Set(value.days.map((entry) => entry.dayOfWeek)).size !== 7)
+      if (
+        new Set(value.days.map((entry) => entry.dayOfWeek)).size !==
+        value.days.length
+      )
         context.addIssue({
           code: "custom",
           path: ["days"],
-          message: "Give each day exactly once.",
+          message: "Give each day at most once.",
         })
       value.days.forEach((entry, index) => {
         if (entry.isClosed !== (entry.periods.length === 0))
@@ -102,21 +147,306 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
         value.changes.length,
       "Change each attribute once."
     ),
-  z.strictObject({
-    operation: z.literal("place_action"),
-    action: z.enum(["upsert", "delete"]),
-    placeActionType: z.string().min(1).max(60),
-    uri: z
-      .url()
-      .refine(
-        (value) => /^https?:/.test(value),
-        "Links must use http or https."
-      ),
-    isPreferred: z.boolean().default(false),
-  }),
+  /**
+   * Action links are matched by type, never by URI: an upsert updates the
+   * listing's one editable link of that type (by its Google link name) or
+   * creates one, and a delete removes it. A listing with several editable
+   * links of the type is skipped rather than guessed at.
+   */
+  z
+    .strictObject({
+      operation: z.literal("place_action"),
+      action: z.enum(["upsert", "delete"]),
+      placeActionType: z.string().min(1).max(60),
+      uri: httpUrl("Links must use http or https.").optional(),
+      isPreferred: z.boolean().default(false),
+    })
+    .refine((value) => value.action === "delete" || value.uri !== undefined, {
+      path: ["uri"],
+      message: "Give the link to add or update.",
+    }),
+  /**
+   * Business information (P09-R5): a field-mask patch of the offered fields,
+   * each set or explicitly cleared (lib/domain/bulk-business-info.ts).
+   */
+  bulkBusinessInfoInputSchema,
+  /** Categories by stable ID: a new primary, additional ones added or removed. */
+  bulkCategoriesInputSchema,
+  /** Lodging (the industry family): typed paths from the lodging allowlist. */
+  bulkLodgingInputSchema,
+  /**
+   * Food Menus (P09-R6): a full replacement, or node changes by stable node
+   * ID, never by label (lib/domain/bulk-menus.ts).
+   */
+  bulkFoodMenusInputSchema,
+  /** Posts: one independent local draft per listing, published separately. */
+  bulkPostDraftInputSchema,
+  /**
+   * Photos (P09-R7): one owned asset added to each listing as a new photo
+   * (lib/domain/bulk-photos.ts).
+   */
+  bulkPhotoInputSchema,
+  /**
+   * Reviews (P09-R8): one child per review, started from the inbox
+   * (lib/server/bulk-reviews.ts), never part of a listing change list.
+   */
+  bulkReviewApprovalInputSchema,
+  bulkReviewTemplateInputSchema,
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
+
+/**
+ * The parts of a listing one change touches, as stable keys: weekdays,
+ * special dates, a service hours type, attribute IDs, an action-link type.
+ * Two changes of one batch never share a part: a listing's children are
+ * previewed against one Google read per resource (shared across that
+ * listing's changes, `planReads`) and each pins only its own parts, so
+ * changes with disjoint parts commute and none conflicts with an earlier
+ * one's write.
+ */
+export function bulkChangeParts(input: BulkOperationInput): string[] {
+  switch (input.operation) {
+    case "regular_hours":
+      return input.days.map((entry) => `regular_hours:${entry.dayOfWeek}`)
+    case "special_hours":
+      return input.dates.map((entry) => `special_hours:${entry.date}`)
+    case "more_hours":
+      return [`more_hours:${input.hoursTypeId}`]
+    case "attributes":
+      return input.changes.map((change) => `attributes:${change.name}`)
+    case "place_action":
+      return [`place_action:${input.placeActionType}`]
+    case "business_info":
+      return input.changes.map((change) => `business_info:${change.field}`)
+    case "categories":
+      return ["categories"]
+    case "lodging":
+      return lodgingGroups(input).map((group) => `lodging:${group}`)
+    // One menu change per batch: a listing's menus are one resource, and a
+    // merge's node IDs are read from the menus as Google holds them.
+    case "food_menus":
+      return ["food_menus"]
+    // Each post draft is a new, independent post: drafts never overlap.
+    case "post_draft":
+      return []
+    // Each asset once per batch: a listing gets a photo at most once.
+    case "photos":
+      return [`photos:${input.assetId}`]
+    case "review_approval":
+    case "review_template_reply":
+      return [`review:${input.reviewId}`]
+  }
+}
+
+/** The ordered change list of one batch. */
+export const bulkChangeListSchema = z
+  .array(bulkOperationInputSchema)
+  .min(1)
+  .max(BULK_MAX_CHANGES)
+  .superRefine((items, context) => {
+    // Review work is started from the inbox, one child per review, not as
+    // a change applied to every selected listing.
+    items.forEach((item, index) => {
+      if (isBulkReviewOperation(item.operation))
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message:
+            "Review replies are sent from the inbox, not as a listing change.",
+        })
+    })
+    const owner = new Map<string, number>()
+    items.forEach((item, index) => {
+      for (const part of bulkChangeParts(item)) {
+        const earlier = owner.get(part)
+        if (earlier !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: [index],
+            message: `Change ${index + 1} overlaps change ${earlier + 1}; give each day, date, type, attribute or link type once, and change the menus once.`,
+          })
+          return
+        }
+        owner.set(part, index)
+      }
+    })
+    // Plan P09: at most 10 new photos per listing. Every change applies to
+    // every selected listing, so that is 10 photo changes per batch.
+    const photos = items.filter((item) => item.operation === "photos").length
+    if (photos > BULK_MAX_NEW_PHOTOS_PER_LOCATION)
+      context.addIssue({
+        code: "custom",
+        path: [],
+        message: `A batch adds at most ${BULK_MAX_NEW_PHOTOS_PER_LOCATION} new photos to each listing.`,
+      })
+    // Category changes precede the work that depends on them: a service
+    // hours type or an attribute may only be offered under the new
+    // categories, so a categories change listed after one would be checked
+    // against the wrong categories.
+    const categories = items.findIndex(
+      (item) => item.operation === "categories"
+    )
+    items.forEach((item, index) => {
+      if (
+        categories > index &&
+        BULK_PREREQUISITES[item.operation]?.includes("categories")
+      )
+        context.addIssue({
+          code: "custom",
+          path: [index],
+          message: `Change ${index + 1} depends on the listing's categories; list the category change first.`,
+        })
+    })
+  })
+
+/** One child's change key within its batch: its position and family. */
+export const bulkItemKey = (item: BulkOperationInput, seq: number) =>
+  `${seq}:${item.operation}`
+
+/** The batch-level family: the shared one, or `mixed`. */
+export function bulkBatchOperation(
+  items: readonly BulkOperationInput[]
+): BulkOperation | "mixed" {
+  const families = new Set(items.map((item) => item.operation))
+  return families.size === 1 ? items[0].operation : "mixed"
+}
+
+/**
+ * Hard prerequisites: a change of the key's family needs an earlier change
+ * of one of the listed families at the same listing to have applied first,
+ * and is not sent when it did not. Plan P09: category changes precede the
+ * work that depends on them (service hours types and attributes are offered
+ * per category), so a more-hours or attribute change at a listing waits for
+ * the batch's category change there, and is not sent when that one did not
+ * apply. The change list must name the category change first
+ * (`bulkChangeListSchema`).
+ */
+export type BulkPrerequisites = Partial<
+  Record<BulkOperation, readonly string[]>
+>
+export const BULK_PREREQUISITES: BulkPrerequisites = {
+  more_hours: ["categories"],
+  attributes: ["categories"],
+}
+
+export type BulkChildOrder = {
+  /** Earlier eligible changes at the listing: this one waits until they settle. */
+  dependsOn: number[]
+  /** Of those, the ones that must have applied (hard prerequisites). */
+  requiresApplied: number[]
+  /** A hard prerequisite at this listing was skipped, so this change is too. */
+  blocked: boolean
+}
+
+/**
+ * The run order of one listing's changes, by position in the batch's list:
+ * every change waits for each earlier eligible change at the same listing
+ * to settle, so a listing's changes reach Google in the order given. A
+ * change also requires its hard prerequisites (`BULK_PREREQUISITES`) to
+ * apply. A prerequisite skipped at preview for any reason but
+ * `already_applied` blocks it; one already applied is not waited on.
+ * Blocking is worked out in list order, so a change blocked by its own
+ * prerequisite counts as skipped for the changes after it: in a chain
+ * A -> B -> C where A is skipped, B and C are both blocked.
+ */
+export function bulkListingOrder(
+  changes: readonly {
+    operation: string
+    eligible: boolean
+    skipReason?: string | null
+  }[],
+  prerequisites: BulkPrerequisites = BULK_PREREQUISITES
+): BulkChildOrder[] {
+  const settled: {
+    operation: string
+    eligible: boolean
+    skipReason: string | null
+  }[] = []
+  return changes.map((change) => {
+    const needs = new Set(
+      prerequisites[change.operation as BulkOperation] ?? []
+    )
+    const earlier = settled.map((entry, seq) => ({ ...entry, seq }))
+    const hard = earlier.filter((entry) => needs.has(entry.operation))
+    const blocked =
+      change.eligible &&
+      hard.some(
+        (entry) => !entry.eligible && entry.skipReason !== "already_applied"
+      )
+    settled.push({
+      operation: change.operation,
+      eligible: change.eligible && !blocked,
+      skipReason: change.eligible
+        ? blocked
+          ? "dependency_not_applied"
+          : null
+        : (change.skipReason ?? null),
+    })
+    return {
+      dependsOn: earlier.filter((entry) => entry.eligible).map((e) => e.seq),
+      requiresApplied: hard
+        .filter((entry) => entry.eligible)
+        .map((entry) => entry.seq),
+      blocked,
+    }
+  })
+}
+
+/**
+ * The provider resource one bulk child writes. Two running children never
+ * share a (location, resource key), across batches, and the runner takes the
+ * per-location advisory lock of the same name the single-listing editors take
+ * (`<org>:<location>:attributes` in lib/server/business-information.ts), so
+ * bulk and editor writes to one resource are serialised. The three hours
+ * families share one key: they patch fields of the same location resource.
+ * The hours editor (lib/server/hours.ts `publishCanonicalHours`) takes the
+ * same `hours` key, and bulk hours are published through that path.
+ */
+export type BulkResourceKey =
+  | "hours"
+  | "attributes"
+  | "place_actions"
+  | "business_info"
+  | "lodging"
+  | "food_menus"
+  | "posts"
+  | "media"
+  | "reviews"
+export function bulkResourceKey(operation: BulkOperation): BulkResourceKey {
+  switch (operation) {
+    case "attributes":
+      return "attributes"
+    case "place_action":
+      return "place_actions"
+    // Business information and categories patch the same location resource
+    // under the business-information editor's key
+    // (lib/server/business-information.ts `updateBusinessInformation`).
+    case "business_info":
+    case "categories":
+      return "business_info"
+    // The lodging editor's key (lib/server/industry-management.ts).
+    case "lodging":
+      return "lodging"
+    // The menu publisher's key (lib/server/food-menus.ts `publishFoodMenus`).
+    case "food_menus":
+      return "food_menus"
+    // Drafts touch no Google resource; the key only spaces them out.
+    case "post_draft":
+      return "posts"
+    // New photos: one at a time per listing, apart from the media editor's
+    // own uploads, which have their own per-content guard (lib/server/media.ts).
+    case "photos":
+      return "media"
+    // Replies at one listing go out one at a time; each review's own
+    // publish pipeline guards the reply itself.
+    case "review_approval":
+    case "review_template_reply":
+      return "reviews"
+    default:
+      return "hours"
+  }
+}
 
 const DAYS = [
   "SUNDAY",
@@ -131,16 +461,6 @@ const toTime = (value: string) => {
   const [hours, minutes] = value.split(":").map(Number)
   return { hours, minutes }
 }
-const toDate = (value: string) => {
-  const [year, month, day] = value.split("-").map(Number)
-  return { year, month, day }
-}
-type GoogleDate = { year?: number; month?: number; day?: number }
-const dateKey = (value: GoogleDate | undefined) =>
-  value?.year && value.month && value.day
-    ? `${value.year}-${String(value.month).padStart(2, "0")}-${String(value.day).padStart(2, "0")}`
-    : null
-
 /** A period that closes at or before it opens runs past midnight and closes on the next day. */
 export function googlePeriod(
   dayOfWeek: number,
@@ -156,115 +476,129 @@ export function googlePeriod(
   }
 }
 
-type Location = {
-  regularHours?: { periods?: unknown[] }
-  specialHours?: {
-    specialHourPeriods?: Array<
-      Record<string, unknown> & { startDate?: GoogleDate }
-    >
-  }
-  moreHours?: Array<Record<string, unknown> & { hoursTypeId?: string }>
-  categories?: {
-    primaryCategory?: { moreHoursTypes?: Array<{ hoursTypeId?: string }> }
-    additionalCategories?: Array<{
-      moreHoursTypes?: Array<{ hoursTypeId?: string }>
-    }>
-  }
-}
-export type HoursMerge =
-  | {
-      updateMask: "regularHours" | "specialHours" | "moreHours"
-      current: unknown
-      proposed: unknown
-    }
-  | { skip: string }
+type HoursInput = Extract<
+  BulkOperationInput,
+  { operation: "regular_hours" | "special_hours" | "more_hours" }
+>
 
-/** The one hours field a bulk operation changes, merged into this listing's current value. */
-export function mergeHours(
-  input: Extract<
-    BulkOperationInput,
-    { operation: "regular_hours" | "special_hours" | "more_hours" }
-  >,
-  location: Location
-): HoursMerge {
-  if (input.operation === "regular_hours") {
+/** The Google hours field each hours family writes. */
+export function bulkHoursField(
+  operation: HoursInput["operation"]
+): "regularHours" | "specialHours" | "moreHours" {
+  if (operation === "regular_hours") return "regularHours"
+  if (operation === "special_hours") return "specialHours"
+  return "moreHours"
+}
+
+/**
+ * The parts of the schedule an hours family changes, in the selective-hours
+ * vocabulary (lib/domain/hours-vocabulary.ts): the chosen weekdays (all
+ * seven is a whole-week replacement), the named special dates, or the one
+ * service type. Everything else on the listing is re-read and written back
+ * as Google holds it.
+ */
+export function bulkHoursSelection(input: HoursInput): HoursSelection {
+  if (input.operation === "regular_hours")
     return {
-      updateMask: "regularHours",
-      current: location.regularHours ?? {},
-      proposed: {
-        periods: input.days.flatMap((entry) =>
-          entry.periods.map((p) =>
-            googlePeriod(entry.dayOfWeek, p.opensAt, p.closesAt)
-          )
-        ),
-      },
+      regularDays: input.days
+        .map((entry) => entry.dayOfWeek)
+        .sort((a, b) => a - b),
     }
+  if (input.operation === "special_hours")
+    return { specialDates: input.dates.map((entry) => entry.date).sort() }
+  return { moreHoursTypes: [input.hoursTypeId] }
+}
+
+const nextDay = (dayOfWeek: number, opensAt: string, closesAt: string) =>
+  closesAt <= opensAt ? (dayOfWeek + 1) % 7 : dayOfWeek
+
+/**
+ * `hours` with the selected parts set to the change: the chosen weekdays
+ * replaced, the named dates upserted (or removed, for `clear`), the service
+ * type replaced (or removed, when it has no periods). Every boundary is
+ * explicit (a period's closing day, a date's end date), so the result never
+ * needs the hours editor's legacy-boundary reconciliation. Other parts are
+ * copied unchanged.
+ */
+export function applyBulkHours(
+  input: HoursInput,
+  hours: NormalizedHours
+): NormalizedHours {
+  const next = structuredClone(hours)
+  if (input.operation === "regular_hours") {
+    const days = new Map(input.days.map((entry) => [entry.dayOfWeek, entry]))
+    next.regular = next.regular.map((day) => {
+      const change = days.get(day.dayOfWeek)
+      if (!change) return day
+      return {
+        dayOfWeek: day.dayOfWeek,
+        isClosed: change.isClosed,
+        periods: change.periods
+          .map((period) => ({
+            opensAt: period.opensAt,
+            closesAt: period.closesAt,
+            closeDayOfWeek: nextDay(
+              day.dayOfWeek,
+              period.opensAt,
+              period.closesAt
+            ),
+          }))
+          .sort((a, b) => a.opensAt.localeCompare(b.opensAt)),
+      }
+    })
+    return next
   }
   if (input.operation === "special_hours") {
     const named = new Set(input.dates.map((entry) => entry.date))
-    const kept = (location.specialHours?.specialHourPeriods ?? []).filter(
-      (period) => !named.has(dateKey(period.startDate) ?? "")
-    )
-    const added = input.dates.flatMap((entry) =>
-      entry.action === "clear"
-        ? []
-        : entry.action === "closed"
-          ? [
-              {
-                startDate: toDate(entry.date),
-                endDate: toDate(entry.date),
-                closed: true,
-              },
-            ]
+    next.special = [
+      ...next.special.filter((entry) => !named.has(entry.effectiveDate)),
+      ...input.dates.flatMap((entry) =>
+        entry.action === "clear"
+          ? []
           : [
-              {
-                startDate: toDate(entry.date),
-                endDate: toDate(entry.date),
-                openTime: toTime(entry.opensAt),
-                closeTime: toTime(entry.closesAt),
-                closed: false,
-              },
+              entry.action === "closed"
+                ? {
+                    effectiveDate: entry.date,
+                    endDate: entry.date,
+                    isClosed: true,
+                    opensAt: null,
+                    closesAt: null,
+                  }
+                : {
+                    effectiveDate: entry.date,
+                    endDate: entry.date,
+                    isClosed: false,
+                    opensAt: entry.opensAt,
+                    closesAt: entry.closesAt,
+                  },
             ]
-    )
-    const all = [...kept, ...added].sort((a, b) =>
-      (dateKey(a.startDate as GoogleDate) ?? "").localeCompare(
-        dateKey(b.startDate as GoogleDate) ?? ""
-      )
-    )
-    return {
-      updateMask: "specialHours",
-      current: location.specialHours ?? {},
-      proposed: { specialHourPeriods: all },
-    }
+      ),
+    ].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    return next
   }
-  const supported = [
-    location.categories?.primaryCategory,
-    ...(location.categories?.additionalCategories ?? []),
-  ]
-    .flatMap((category) => category?.moreHoursTypes ?? [])
-    .some((type) => type.hoursTypeId === input.hoursTypeId)
-  const present = (location.moreHours ?? []).some(
-    (entry) => entry.hoursTypeId === input.hoursTypeId
-  )
-  if (!supported && !present) return { skip: "hours_type_not_supported" }
-  const others = (location.moreHours ?? []).filter(
-    (entry) => entry.hoursTypeId !== input.hoursTypeId
-  )
-  const replacement = input.periods.length
-    ? [
-        {
-          hoursTypeId: input.hoursTypeId,
-          periods: input.periods.map((p) =>
-            googlePeriod(p.dayOfWeek, p.opensAt, p.closesAt)
-          ),
-        },
-      ]
-    : []
-  return {
-    updateMask: "moreHours",
-    current: location.moreHours ?? [],
-    proposed: [...others, ...replacement],
-  }
+  next.moreHours = [
+    ...next.moreHours.filter(
+      (entry) => entry.hoursTypeId !== input.hoursTypeId
+    ),
+    ...(input.periods.length
+      ? [
+          {
+            hoursTypeId: input.hoursTypeId,
+            periods: input.periods.map((period) => ({
+              dayOfWeek: period.dayOfWeek,
+              opensAt: period.opensAt,
+              closesAt: period.closesAt,
+              closeDayOfWeek: nextDay(
+                period.dayOfWeek,
+                period.opensAt,
+                period.closesAt
+              ),
+            })),
+          },
+        ]
+      : []),
+  ].sort((a, b) => a.hoursTypeId.localeCompare(b.hoursTypeId))
+  return next
 }
 
 export type AttributeValue = {
@@ -291,7 +625,10 @@ export function mergeAttributes(
     current: current
       .filter((attribute) => names.has(attribute.name))
       .sort((a, b) => a.name.localeCompare(b.name)),
+    // An attribute given no values is cleared: Google clears a masked name
+    // the request leaves out. `[false]` is an answer, never a clear.
     proposed: input.changes
+      .filter((change) => change.values.length > 0)
       .map((change) => ({ name: change.name, values: change.values }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   } as const

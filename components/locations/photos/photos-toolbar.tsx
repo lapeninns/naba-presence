@@ -63,7 +63,7 @@ export function PhotosToolbar({
               type="button"
               aria-pressed={pressed}
               onClick={() =>
-                onStateChange({ ownership: option.value, page: 1 })
+                onStateChange({ ownership: option.value })
               }
               className={cn(
                 segmentedItemClassName,
@@ -84,7 +84,7 @@ export function PhotosToolbar({
         <Select
           value={state.category}
           onValueChange={(next) =>
-            onStateChange({ category: next as CategoryFilter, page: 1 })
+            onStateChange({ category: next as CategoryFilter })
           }
         >
           <SelectTrigger

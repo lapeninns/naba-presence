@@ -19,6 +19,14 @@ const eslintConfig = defineConfig([
     "ds-bundle/**",
     // Local Git worktrees contain independent source and generated output.
     ".worktrees/**",
+    // Gitignored local evidence: QA trees hold copied source snapshots, and
+    // test and coverage reports are generated output.
+    ".omo/**",
+    ".superpowers/**",
+    "test-results/**",
+    "playwright-report/**",
+    "coverage/**",
+    ".pnpm-store/**",
   ]),
 ])
 

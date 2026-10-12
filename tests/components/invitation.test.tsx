@@ -124,7 +124,9 @@ describe("InvitationView", () => {
     await waitFor(() => expect(signOutSpy).toHaveBeenCalled())
     // Back to the invite in sign-in mode: the invited address is someone
     // else's, and usually one that already has an account.
-    expect(assign).toHaveBeenCalledWith("/invite/tok?mode=sign-in")
+    expect(assign).toHaveBeenCalledWith(
+      `${window.location.origin}/invite/tok?mode=sign-in`
+    )
   })
 
   it("opens the form in sign-in mode when asked to", async () => {
@@ -166,7 +168,7 @@ describe("InvitationView", () => {
     )
     await waitFor(() => expect(acceptSpy).toHaveBeenCalledWith("tok"))
     expect(signOutSpy).not.toHaveBeenCalled()
-    expect(assign).toHaveBeenCalledWith("/inbox")
+    expect(assign).toHaveBeenCalledWith(`${window.location.origin}/inbox`)
   })
 
   it("shows an accept failure inline instead of navigating", async () => {

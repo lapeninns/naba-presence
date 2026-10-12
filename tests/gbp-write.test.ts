@@ -1,6 +1,14 @@
 import { PGlite } from "@electric-sql/pglite"
 import type { TransactionSql } from "postgres"
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { googleCreateRequestId } from "@/lib/server/gbp-management"
 import {
@@ -17,9 +25,18 @@ import {
   type GbpWriteInput,
   type TenantTransaction,
 } from "@/lib/server/gbp-write"
-import { GoogleMutationAmbiguousError } from "@/lib/server/google/transport"
+import {
+  GoogleMutationAmbiguousError,
+  googleRequest,
+} from "@/lib/server/google/transport"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
+
+import { pgliteSql } from "./helpers/pglite-tx"
+
+// The dispatch pause gate reads the operator pause table; these tests run
+// without one, so dispatch is open unless a test says otherwise.
+const dispatchOpen = async () => {}
 
 // The write pipeline is exercised against a real Postgres (pglite) with the
 // shape of an hours-style attempt table (validating/publishing vocabulary),
@@ -35,104 +52,6 @@ const UNLINKED = "00000000-0000-4000-8000-000000000004"
 const EXTERNAL = "00000000-0000-4000-8000-000000000005"
 const CONNECTION = "00000000-0000-4000-8000-000000000006"
 const ACCOUNT = "00000000-0000-4000-8000-000000000007"
-
-// --- postgres.js rendering over pglite ---------------------------------------
-
-type QueryLike = { strings: readonly string[]; args: unknown[] }
-type Helper =
-  | { kind: "identifier"; name: string }
-  | { kind: "list"; values: unknown[] }
-  | { kind: "row"; row: Record<string, unknown> }
-type JsonParam = { kind: "json"; value: unknown }
-type Runner = {
-  query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }>
-}
-
-const isTemplate = (value: unknown): value is TemplateStringsArray =>
-  Array.isArray(value) && "raw" in value
-const isQuery = (value: unknown): value is QueryLike =>
-  typeof value === "object" &&
-  value !== null &&
-  Array.isArray((value as QueryLike).strings) &&
-  Array.isArray((value as QueryLike).args)
-const isHelper = (value: unknown): value is Helper =>
-  typeof value === "object" &&
-  value !== null &&
-  "kind" in value &&
-  ["identifier", "list", "row"].includes(String((value as Helper).kind))
-const isJson = (value: unknown): value is JsonParam =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as JsonParam).kind === "json"
-const quote = (name: string) => `"${name.replace(/"/g, '""')}"`
-
-function pushParam(params: unknown[], value: unknown): string {
-  if (isJson(value)) {
-    params.push(JSON.stringify(value.value))
-    return `$${params.length}::jsonb`
-  }
-  params.push(value)
-  return `$${params.length}`
-}
-
-function render(
-  query: QueryLike,
-  params: unknown[] = []
-): { text: string; params: unknown[] } {
-  let text = query.strings[0]
-  for (let i = 1; i < query.strings.length; i += 1) {
-    const arg = query.args[i - 1]
-    if (isQuery(arg)) {
-      text += render(arg, params).text
-    } else if (isHelper(arg)) {
-      if (arg.kind === "identifier") text += quote(arg.name)
-      else if (arg.kind === "list") {
-        text += `(${arg.values.map((value) => pushParam(params, value)).join(",")})`
-      } else {
-        const entries = Object.entries(arg.row)
-        text += /\bset\s*$/i.test(text)
-          ? entries
-              .map(
-                ([column, value]) =>
-                  `${quote(column)} = ${pushParam(params, value)}`
-              )
-              .join(", ")
-          : `(${entries.map(([column]) => quote(column)).join(",")}) values (${entries.map(([, value]) => pushParam(params, value)).join(",")})`
-      }
-    } else {
-      text += pushParam(params, arg)
-    }
-    text += query.strings[i]
-  }
-  return { text: text.replace(/\s+/g, " ").trim(), params }
-}
-
-function pgliteSql(runner: Runner): TransactionSql {
-  const fn = (first: unknown, ...rest: unknown[]) => {
-    if (isTemplate(first)) {
-      const query: QueryLike & { then: unknown } = {
-        strings: first,
-        args: rest,
-        then<T>(
-          onFulfilled: (rows: unknown[]) => T,
-          onRejected?: (error: unknown) => T
-        ) {
-          const { text, params } = render(query)
-          return runner
-            .query(text, params)
-            .then((result) => result.rows)
-            .then(onFulfilled, onRejected)
-        },
-      }
-      return query
-    }
-    if (typeof first === "string") return { kind: "identifier", name: first }
-    if (Array.isArray(first)) return { kind: "list", values: first }
-    return { kind: "row", row: first as Record<string, unknown> }
-  }
-  fn.json = (value: unknown): JsonParam => ({ kind: "json", value })
-  return fn as unknown as TransactionSql
-}
 
 // --- fixtures ------------------------------------------------------------------
 
@@ -188,6 +107,7 @@ const SCHEMA = `
   create table location_link (location_id uuid not null, external_location_id uuid not null, is_active boolean not null);
   create table google_account (id uuid primary key, google_connection_id uuid not null, google_account_name text not null);
   create table location_member (user_id uuid not null, location_id uuid not null, can_publish boolean not null);
+  create table member (organisation_id uuid not null, user_id uuid not null, location_scope text not null default 'all', primary key (organisation_id, user_id));
 `
 
 const hoursStyle = attemptStore({
@@ -245,7 +165,10 @@ describe("gbp-write", () => {
     `)
     withTenant = (organisationId, callback) =>
       db.transaction(async (tx) => {
-        await tx.query("select $1::text as organisation", [organisationId])
+        await tx.query(
+          "select set_config('app.organisation_id', $1, true) as organisation",
+          [organisationId]
+        )
         return callback(pgliteSql(tx))
       })
   })
@@ -278,6 +201,7 @@ describe("gbp-write", () => {
     organisationId: ORG,
     actorUserId: USER,
     requestId: "req-1",
+    surface: "profileWrites",
     store: hoursStyle,
     key: idempotencyKey([ORG, EXTERNAL, "hours_publish", "3"]),
     intent: {
@@ -308,7 +232,7 @@ describe("gbp-write", () => {
   })
 
   const run = (overrides: Partial<Input> = {}) =>
-    runGbpWrite(base(overrides), { withTenant })
+    runGbpWrite(base(overrides), { withTenant, requireDispatch: dispatchOpen })
 
   it("exports the status vocabulary once", () => {
     expect([...GBP_ATTEMPT_STATUSES]).toEqual([
@@ -319,6 +243,34 @@ describe("gbp-write", () => {
       "failed",
       "ambiguous",
     ])
+  })
+
+  it("refuses a paused surface at dispatch with nothing written", async () => {
+    const gates: string[] = []
+    const paused = new ApiError(409, "hours_publishing_disabled", "paused")
+    await expect(
+      runGbpWrite(
+        base({
+          paused: {
+            status: 409,
+            code: "hours_publishing_disabled",
+            message: "x",
+          },
+        }),
+        {
+          withTenant,
+          requireDispatch: async (surface, gate) => {
+            gates.push(`${surface}:${gate?.code}`)
+            throw paused
+          },
+        }
+      )
+    ).rejects.toBe(paused)
+    // The module's own gate reached the dispatch check, and no phase ran.
+    expect(gates).toEqual(["profileWrites:hours_publishing_disabled"])
+    expect(calls).toEqual([])
+    expect(await rows("write_attempt")).toEqual([])
+    expect(await audits()).toEqual([])
   })
 
   it("success path: validate, publish, readback, settle succeeded, onSuccess, audit", async () => {
@@ -354,6 +306,29 @@ describe("gbp-write", () => {
     expect(audit.actor_user_id).toBe(USER)
   })
 
+  it("answers each write with its outcome: confirmed by readback, or what the readback's own state says", async () => {
+    const confirmed = await run()
+    expect(confirmed.outcome).toBe("confirmed_applied")
+
+    const reviewing = await run({
+      key: idempotencyKey([ORG, EXTERNAL, "hours_publish", "reviewing"]),
+      readback: {
+        read: async () => ({ hash: "expected" }),
+        verify: ({ readback }) => readback.hash === "expected",
+        hash: (readback) => readback.hash,
+        outcome: () => "awaiting_confirmation",
+      },
+    })
+    expect(reviewing.outcome).toBe("awaiting_confirmation")
+
+    const unverified = await run({
+      key: idempotencyKey([ORG, EXTERNAL, "hours_publish", "unverified"]),
+      onAmbiguous: "fail",
+      readback: undefined,
+    })
+    expect(unverified.outcome).toBe("awaiting_confirmation")
+  })
+
   it("an exact repeat of a successful attempt is idempotent and calls no provider", async () => {
     const first = await run()
     calls = []
@@ -363,6 +338,7 @@ describe("gbp-write", () => {
       attemptId: first.attemptId,
       status: "succeeded",
       rawStatus: "succeeded",
+      outcome: "confirmed_applied",
     })
     expect(calls).toEqual([])
     expect(await rows("write_attempt")).toHaveLength(1)
@@ -414,6 +390,7 @@ describe("gbp-write", () => {
       attemptId: stranded.id,
       status: "succeeded",
       rawStatus: "succeeded",
+      outcome: "confirmed_applied",
     })
     const all = await rows("write_attempt")
     expect(all).toHaveLength(1)
@@ -462,6 +439,134 @@ describe("gbp-write", () => {
     const [row] = await rows("write_attempt")
     expect(row.status).toBe("ambiguous")
     expect(row.provider_error_code).toBe("google_unavailable")
+  })
+
+  // --- settled ambiguous attempts --------------------------------------------
+  // An `ambiguous` row may have landed, so the next request for its key reads
+  // Google back before anything re-arms it -- with no grace window, because
+  // the row is settled, not in flight.
+
+  it("an ambiguous attempt whose write landed settles succeeded with no second mutate", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    const result = await run({
+      onSuccess: async (_sql, ctx) => {
+        calls.push(`onSuccess:${ctx.readbackHash}`)
+      },
+    })
+    expect(calls).toEqual(["read", "onSuccess:expected"])
+    expect(result).toEqual({
+      idempotent: true,
+      attemptId: uncertain.id,
+      status: "succeeded",
+      rawStatus: "succeeded",
+      outcome: "confirmed_applied",
+    })
+    const all = await rows("write_attempt")
+    expect(all).toHaveLength(1)
+    expect(all[0].status).toBe("succeeded")
+    expect(all[0].provider_response_hash).toBe("expected")
+    expect(await audits()).toHaveLength(1)
+  })
+
+  it("an ambiguous attempt that did not land re-arms and publishes", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    let reads = 0
+    const result = await run({
+      readback: {
+        read: async () => {
+          reads += 1
+          calls.push("read")
+          return { hash: reads === 1 ? "other" : "expected" }
+        },
+        verify: ({ readback }) => readback.hash === "expected",
+        hash: (readback) => readback.hash,
+      },
+    })
+    expect(calls).toEqual(["read", "validate", "mutate", "read"])
+    expect(result.idempotent).toBe(false)
+    expect(result.attemptId).toBe(uncertain.id)
+    const all = await rows("write_attempt")
+    expect(all).toHaveLength(1)
+    expect(all[0].status).toBe("succeeded")
+    expect(all[0].provider_error_code).toBeNull()
+  })
+
+  it("an ambiguous attempt on a surface with no readback is a 409 mutation_uncertain", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    await expect(
+      run({ onAmbiguous: "fail", readback: undefined })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "mutation_uncertain",
+      details: { attemptId: uncertain.id },
+    })
+    expect(calls).toEqual([])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+  })
+
+  it("an ambiguous attempt the provider cannot be read for stays ambiguous and is not re-sent", async () => {
+    await strand(0, "ambiguous")
+    await expect(
+      run({
+        readback: {
+          read: async () => {
+            throw new ApiError(503, "google_unavailable", "down")
+          },
+          verify: () => true,
+        },
+      })
+    ).rejects.toMatchObject({ code: "google_unavailable" })
+    expect(calls).toEqual([])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+    expect(row.provider_error_code).toBe("google_unavailable")
+  })
+
+  it("a reconcile that loses its row to a concurrent re-arm settles nothing and sends nothing", async () => {
+    const uncertain = await strand(0, "ambiguous")
+    await expect(
+      run({
+        readback: {
+          read: async () => {
+            // Another request read the same row, proved it had not landed and
+            // re-armed it while this one was still reading Google.
+            await db.query(
+              "update write_attempt set status = 'publishing' where id = $1",
+              [uncertain.id]
+            )
+            calls.push("read")
+            return { hash: "other" }
+          },
+          verify: ({ readback }) => readback.hash === "expected",
+        },
+      })
+    ).rejects.toMatchObject({ status: 409, code: "hours_publish_in_progress" })
+    expect(calls).toEqual(["read"])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("publishing")
+    expect(row.provider_error_code).toBeNull()
+  })
+
+  it("re-arms a settled row only while it still holds the status find read", async () => {
+    const failed = await strand(0, "failed")
+    const started = await withTenant(ORG, (sql) =>
+      hoursStyle.start(sql, {
+        organisationId: ORG,
+        actorUserId: USER,
+        requestId: "req-2",
+        key: base().key,
+        intent: {},
+        existing: {
+          id: String(failed.id),
+          status: "ambiguous",
+          rawStatus: "ambiguous",
+        },
+      })
+    )
+    expect(started).toBeNull()
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("failed")
   })
 
   it("an attempt still inside the grace window keeps the module's 409", async () => {
@@ -552,6 +657,45 @@ describe("gbp-write", () => {
       })
     ).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
     expect(calls).toEqual(["validate"])
+    const [row] = await rows("write_attempt")
+    expect(row.status).toBe("ambiguous")
+    expect(row.provider_error_code).toBe("google_mutation_ambiguous")
+  })
+
+  it("a malformed 2xx answer from the real transport settles ambiguous, not failed", async () => {
+    // Given: Google accepts the write but its answer is cut off mid-JSON.
+    vi.stubEnv("DATABASE_URL", "postgresql://runtime@example.test/naba")
+    vi.stubEnv("NEXTAUTH_SECRET", "n".repeat(32))
+    vi.stubEnv("TOKEN_ENCRYPTION_KEY", "t".repeat(32))
+    vi.stubEnv("CRON_SECRET", "c".repeat(16))
+    vi.stubEnv("GOOGLE_RATE_BUDGET_ENABLED", "false")
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response('{"name":"locations/1/localPo', {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    )
+    try {
+      // When: the pipeline dispatches the write through googleRequest.
+      await expect(
+        run({
+          onAmbiguous: "fail",
+          mutate: () =>
+            googleRequest<{ name: string }>(
+              "https://mybusiness.googleapis.com/v4/accounts/1/locations/1/localPosts",
+              "access-token",
+              { method: "POST", body: "{}" },
+              { mode: "mutation", timeoutMs: 1000 }
+            ),
+        })
+      ).rejects.toBeInstanceOf(GoogleMutationAmbiguousError)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    } finally {
+      fetchSpy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+
+    // Then: the attempt is uncertain, so it is never reported as failed.
     const [row] = await rows("write_attempt")
     expect(row.status).toBe("ambiguous")
     expect(row.provider_error_code).toBe("google_mutation_ambiguous")
@@ -673,6 +817,7 @@ describe("gbp-write", () => {
         organisationId: ORG,
         actorUserId: USER,
         requestId: "req-typed",
+        surface: "profileWrites",
         store: hoursStyle,
         key: idempotencyKey([ORG, EXTERNAL, "typed"]),
         intent: {
@@ -685,7 +830,7 @@ describe("gbp-write", () => {
         mutate: async () => ({ name: "locations/1" }),
         onAmbiguous: "fail",
       },
-      { withTenant }
+      { withTenant, requireDispatch: dispatchOpen }
     )
     expect(result.idempotent).toBe(false)
     const [row] = await rows("write_attempt")
@@ -774,6 +919,7 @@ describe("gbp-write", () => {
       attemptId: failed.id,
       status: "failed",
       rawStatus: "failed",
+      outcome: "failed",
     })
     expect(calls).toEqual([])
 
@@ -826,7 +972,7 @@ describe("gbp-write", () => {
         validate: undefined,
         audit: undefined,
       },
-      { withTenant }
+      { withTenant, requireDispatch: dispatchOpen }
     )
     expect(result.attemptId).toBe("custom-1")
     expect(seen).toEqual([
@@ -1009,6 +1155,9 @@ describe("loadLinkedLocation", () => {
                                   ('${UNLINKED}', '${ORG}', 'Unlinked', 'Europe/London');
       insert into external_location values ('${EXTERNAL}', '${CONNECTION}', 'accounts/1', 'locations/1');
       insert into location_link values ('${LOCATION}', '${EXTERNAL}', true);
+      insert into member values ('${ORG}', '${USER}', 'all'),
+                                ('${ORG}', '00000000-0000-4000-8000-0000000000aa', 'all');
+      select set_config('app.organisation_id', '${ORG}', false);
     `)
   })
 
@@ -1128,11 +1277,16 @@ describe("loadLinkedLocation", () => {
   })
 
   it("a hidden-but-existing location surfaces as the same notFound, never review_not_found", async () => {
-    // The member is assigned to UNLINKED only, so LOCATION exists but is hidden.
+    // The member is assigned to UNLINKED only, so LOCATION exists but is
+    // hidden. (Holding a row names the scope 'assigned', as 0083 does.)
     await db.query("insert into location_member values ($1, $2, true)", [
       USER,
       UNLINKED,
     ])
+    await db.query(
+      "update member set location_scope = 'assigned' where user_id = $1",
+      [USER]
+    )
     try {
       const member = { ...session, role: "member" as const }
       await expect(
@@ -1167,6 +1321,7 @@ describe("loadLinkedLocation", () => {
       ).resolves.toMatchObject({ locationId: LOCATION })
     } finally {
       await db.query("delete from location_member")
+      await db.query("update member set location_scope = 'all'")
     }
   })
 

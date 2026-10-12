@@ -229,13 +229,31 @@ export function normalizeGoogleHours(
   return { regular, special, moreHours }
 }
 
+/**
+ * Whole-schedule drift. With per-part drift (`classifyHoursPartDrift`) the
+ * whole status aggregates the parts: a conflicting part, or a Google change
+ * alongside a local one, is a conflict; any Google change alone is
+ * `google_dirty`; otherwise the difference is local. Without it, the whole
+ * hashes are compared with the whole baseline.
+ */
 export function classifyHoursDrift(input: {
   canonicalHash: string
   googleHash: string
   baselineCanonicalHash: string | null
   baselineGoogleHash: string | null
+  parts?: Record<string, HoursDriftStatus> | null
 }): HoursDriftStatus {
   if (input.canonicalHash === input.googleHash) return "in_sync"
+  if (input.parts) {
+    const statuses = new Set(Object.values(input.parts))
+    if (
+      statuses.has("conflict") ||
+      (statuses.has("google_dirty") && statuses.has("core_dirty"))
+    )
+      return "conflict"
+    if (statuses.has("google_dirty")) return "google_dirty"
+    return "core_dirty"
+  }
   if (!input.baselineCanonicalHash || !input.baselineGoogleHash) {
     return "core_dirty"
   }
@@ -480,4 +498,294 @@ export function hasLegacyHoursBoundaries(hours: NormalizedHours): boolean {
     ) ||
     hours.special.some((period) => period.endDate === undefined)
   )
+}
+
+// ---------------------------------------------------------------------------
+// Parts and selective publication
+//
+// A schedule is compared and published in parts: one per weekday of regular
+// hours, one per special-hours start date, and one per more-hours service
+// type. A selection names the parts an operator approved; everything else on
+// Google is re-read and written back exactly as Google holds it.
+// ---------------------------------------------------------------------------
+
+/** Sorted-key JSON, so a part's signature does not depend on property order. */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`
+  }
+  return JSON.stringify(value)
+}
+
+/**
+ * The parts a publish may select. `regularDays` are `dayOfWeek` values
+ * (0 = Sunday); all seven is a whole-week replacement. `specialDates` are
+ * start dates: a date the saved schedule has is upserted, a date it no longer
+ * has is removed from Google. `moreHoursTypes` work the same way per service.
+ */
+export type HoursSelection = {
+  regularDays?: number[]
+  specialDates?: string[]
+  moreHoursTypes?: string[]
+}
+
+export const hoursPartKey = {
+  regular: (dayOfWeek: number) => `regular:${dayOfWeek}`,
+  special: (effectiveDate: string) => `special:${effectiveDate}`,
+  more: (hoursTypeId: string) => `more:${hoursTypeId}`,
+}
+
+const PART_FIELD = {
+  regular: "regularHours",
+  special: "specialHours",
+  more: "moreHours",
+} as const satisfies Record<string, GoogleHoursUpdateMask>
+
+function splitPartKey(key: string): [keyof typeof PART_FIELD, string] | null {
+  const index = key.indexOf(":")
+  const kind = key.slice(0, index)
+  if (index < 1 || !(kind in PART_FIELD)) return null
+  return [kind as keyof typeof PART_FIELD, key.slice(index + 1)]
+}
+
+/** The Google field a part key belongs to. */
+export function hoursPartField(key: string): GoogleHoursUpdateMask | null {
+  const parts = splitPartKey(key)
+  return parts ? PART_FIELD[parts[0]] : null
+}
+
+/**
+ * One signature per present part, over the same semantic form the whole
+ * hash uses. Absent parts (a date or service the schedule does not have) are
+ * not listed.
+ */
+export function hoursPartSignatures(
+  value: NormalizedHours
+): Record<string, string> {
+  const semantic = semanticHours(value)
+  const signatures: Record<string, string> = {}
+  for (const day of semantic.regular) {
+    signatures[hoursPartKey.regular(day.dayOfWeek)] = canonicalJson({
+      isClosed: day.isClosed,
+      periods: day.periods,
+    })
+  }
+  const dates = new Map<string, NormalizedHours["special"]>()
+  for (const entry of semantic.special) {
+    dates.set(entry.effectiveDate, [
+      ...(dates.get(entry.effectiveDate) ?? []),
+      entry,
+    ])
+  }
+  for (const [date, entries] of dates) {
+    signatures[hoursPartKey.special(date)] = canonicalJson(entries)
+  }
+  for (const entry of semantic.moreHours) {
+    signatures[hoursPartKey.more(entry.hoursTypeId)] = canonicalJson(
+      entry.periods
+    )
+  }
+  return signatures
+}
+
+/** Parts whose content differs between two schedules, in key order. */
+export function changedHoursPartKeys(
+  left: NormalizedHours,
+  right: NormalizedHours
+): string[] {
+  const a = hoursPartSignatures(left)
+  const b = hoursPartSignatures(right)
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter((key) => a[key] !== b[key])
+    .sort()
+}
+
+export function hoursSelectionKeys(selection: HoursSelection): string[] {
+  return [
+    ...(selection.regularDays ?? []).map(hoursPartKey.regular),
+    ...(selection.specialDates ?? []).map(hoursPartKey.special),
+    ...(selection.moreHoursTypes ?? []).map(hoursPartKey.more),
+  ].sort()
+}
+
+export function hoursSelectionFromKeys(
+  keys: Iterable<string>
+): HoursSelection {
+  const selection: Required<HoursSelection> = {
+    regularDays: [],
+    specialDates: [],
+    moreHoursTypes: [],
+  }
+  for (const key of new Set(keys)) {
+    const parts = splitPartKey(key)
+    if (!parts) continue
+    const [kind, id] = parts
+    if (kind === "regular") selection.regularDays.push(Number(id))
+    if (kind === "special") selection.specialDates.push(id)
+    if (kind === "more") selection.moreHoursTypes.push(id)
+  }
+  return {
+    ...(selection.regularDays.length
+      ? { regularDays: selection.regularDays.sort((a, b) => a - b) }
+      : {}),
+    ...(selection.specialDates.length
+      ? { specialDates: selection.specialDates.sort() }
+      : {}),
+    ...(selection.moreHoursTypes.length
+      ? { moreHoursTypes: selection.moreHoursTypes.sort() }
+      : {}),
+  }
+}
+
+/** The update mask a selection writes, in the surface's mask order. */
+export function hoursSelectionMask(
+  selection: HoursSelection
+): GoogleHoursUpdateMask[] {
+  const fields = new Set(
+    hoursSelectionKeys(selection).map((key) => hoursPartField(key))
+  )
+  return HOURS_UPDATE_MASKS.filter((field) => fields.has(field))
+}
+
+/**
+ * The schedule Google should hold after a selective publish: the live
+ * Google schedule with each selected part replaced by the saved one (or
+ * removed, when the saved schedule no longer has that date or service).
+ */
+export function mergeSelectedHours(input: {
+  canonical: NormalizedHours
+  google: NormalizedHours
+  selection: HoursSelection
+}): NormalizedHours {
+  const days = new Set(input.selection.regularDays ?? [])
+  const dates = new Set(input.selection.specialDates ?? [])
+  const types = new Set(input.selection.moreHoursTypes ?? [])
+  return {
+    regular: input.google.regular.map((day) => {
+      if (!days.has(day.dayOfWeek)) return structuredClone(day)
+      const saved = input.canonical.regular.find(
+        (entry) => entry.dayOfWeek === day.dayOfWeek
+      )
+      return structuredClone(saved ?? day)
+    }),
+    special: [
+      ...input.google.special.filter(
+        (entry) => !dates.has(entry.effectiveDate)
+      ),
+      ...input.canonical.special.filter((entry) =>
+        dates.has(entry.effectiveDate)
+      ),
+    ]
+      .map((entry) => structuredClone(entry))
+      .sort((left, right) =>
+        left.effectiveDate.localeCompare(right.effectiveDate)
+      ),
+    moreHours: [
+      ...input.google.moreHours.filter(
+        (entry) => !types.has(entry.hoursTypeId)
+      ),
+      ...input.canonical.moreHours.filter((entry) =>
+        types.has(entry.hoursTypeId)
+      ),
+    ]
+      .map((entry) => structuredClone(entry))
+      .sort((left, right) => left.hoursTypeId.localeCompare(right.hoursTypeId)),
+  }
+}
+
+/** Every selected part of the readback equals the intended schedule. */
+export function selectedHoursMatch(input: {
+  readback: NormalizedHours
+  intended: NormalizedHours
+  selection: HoursSelection
+}): boolean {
+  const readback = hoursPartSignatures(input.readback)
+  const intended = hoursPartSignatures(input.intended)
+  return hoursSelectionKeys(input.selection).every(
+    (key) => readback[key] === intended[key]
+  )
+}
+
+/** No part outside the selection differs from what Google held before. */
+export function unselectedHoursUnchanged(input: {
+  readback: NormalizedHours
+  before: NormalizedHours
+  selection: HoursSelection
+}): boolean {
+  const selected = new Set(hoursSelectionKeys(input.selection))
+  const readback = hoursPartSignatures(input.readback)
+  const before = hoursPartSignatures(input.before)
+  return [...new Set([...Object.keys(readback), ...Object.keys(before)])]
+    .filter((key) => !selected.has(key))
+    .every((key) => readback[key] === before[key])
+}
+
+/**
+ * The comparison baseline per part: the canonical and Google part hashes
+ * (null = absent) as of the last match or publish. `complete` means every
+ * part was captured, so a key missing here was absent on both sides; an
+ * incomplete baseline knows only the keys it lists. A side recorded as
+ * `HOURS_PART_UNKNOWN` never equals a live hash, so it always reads as
+ * changed since the baseline.
+ */
+/**
+ * Baseline side whose history is unknown: a selective publish that starts
+ * the part baseline cannot tell, for a differing part it did not write,
+ * which side changed. It records the whole-schedule verdict instead (see
+ * `nextComparisonParts`), using this marker for the side that changed.
+ */
+export const HOURS_PART_UNKNOWN = "unknown"
+
+export type HoursComparisonParts = {
+  complete: boolean
+  parts: Record<string, [string | null, string | null]>
+}
+
+/**
+ * Per-part drift for the parts that differ (in-sync parts are omitted), or
+ * null when no part baseline exists and only the whole-schedule
+ * classification applies. A part publish leaves the unselected parts
+ * different on purpose; they classify against their own baseline, so they
+ * stay `core_dirty` rather than turning into a Google change or conflict.
+ * A differing part an incomplete baseline does not list has no history, so
+ * it is a conflict: overwriting it needs confirmation, never silently local.
+ */
+export function classifyHoursPartDrift(input: {
+  canonicalParts: Record<string, string>
+  googleParts: Record<string, string>
+  baseline: HoursComparisonParts | null
+}): Record<string, HoursDriftStatus> | null {
+  if (!input.baseline) return null
+  const result: Record<string, HoursDriftStatus> = {}
+  const keys = new Set([
+    ...Object.keys(input.canonicalParts),
+    ...Object.keys(input.googleParts),
+  ])
+  for (const key of [...keys].sort()) {
+    const canonical = input.canonicalParts[key] ?? null
+    const google = input.googleParts[key] ?? null
+    if (canonical === google) continue
+    const base =
+      input.baseline.parts[key] ??
+      (input.baseline.complete ? ([null, null] as const) : undefined)
+    if (!base) {
+      result[key] = "conflict"
+      continue
+    }
+    const coreChanged = canonical !== base[0]
+    const googleChanged = google !== base[1]
+    result[key] =
+      coreChanged && googleChanged
+        ? "conflict"
+        : googleChanged
+          ? "google_dirty"
+          : "core_dirty"
+  }
+  return result
 }

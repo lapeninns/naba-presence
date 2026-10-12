@@ -18,6 +18,7 @@ export const NOTIFICATION_EVENT_KINDS = [
   "low_rating_review",
   "publication_failed",
   "publication_unresolved",
+  "mutation_unconfirmed",
   "schedule_missed",
   "schedule_blocked",
   "bulk_completed_with_failures",
@@ -61,6 +62,9 @@ const MANAGER_IMMEDIATE: readonly NotificationEventKind[] = [
   "listing_stale",
   "low_rating_review",
   "publication_failed",
+  // Listing-write recovery gave up (lib/server/mutation-recovery.ts): the
+  // owners and admins it always reached are still emailed at once.
+  "mutation_unconfirmed",
   "schedule_missed",
   "ai_credits_low",
   "ai_credits_exhausted",
@@ -100,6 +104,11 @@ export const NOTIFICATION_EVENT_LABELS: Record<
     label: "Publishing outcome unresolved",
     description:
       "A change was sent but its Google result is not yet confirmed.",
+  },
+  mutation_unconfirmed: {
+    label: "Change not confirmed on Google",
+    description:
+      "A sent listing change could not be confirmed by reading Google back.",
   },
   schedule_missed: {
     label: "Scheduled post missed",

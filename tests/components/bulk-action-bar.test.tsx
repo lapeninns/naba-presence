@@ -61,7 +61,22 @@ function stub() {
   vi.spyOn(membersHook, "useMembers").mockReturnValue({
     data: {
       members: [
-        { userId: "u1", displayName: "Priya", email: "p@example.test" },
+        { userId: "u1", displayName: "Priya", email: "p@example.test", role: "member", locations: [] },
+        { userId: "u2", displayName: "Vic", email: "v@example.test", role: "viewer", locations: [] },
+        {
+          userId: "u3",
+          displayName: "Sol",
+          email: "s@example.test",
+          role: "member",
+          locations: [{ locationId: "l2", canPublish: true }],
+        },
+        {
+          userId: "u4",
+          displayName: "Lin",
+          email: "l@example.test",
+          role: "member",
+          locations: [{ locationId: "l1", canPublish: false }],
+        },
       ],
     },
   } as unknown as ReturnType<typeof membersHook.useMembers>)
@@ -119,7 +134,7 @@ describe("BulkActionBar", () => {
       screen.getByRole("button", { name: "Approve 1 of 3" })
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/2 of these are not awaiting your approval/)
+      screen.getByText(/2 of these are not ready for your approval/)
     ).toBeInTheDocument()
   })
 
@@ -130,10 +145,24 @@ describe("BulkActionBar", () => {
     await user.click(
       screen.getByRole("button", { name: "Approve and publish 1" })
     )
+    // Bound to what the list showed: the draft and the review's version.
     expect(mutateAsync).toHaveBeenCalledWith({
       action: "approve",
-      reviewIds: ["a"],
+      approvals: [
+        {
+          reviewId: "a",
+          draftId: "d1",
+          reviewUpdateTime: "2026-09-01T10:00:00.000Z",
+        },
+      ],
     })
+  })
+
+  it("does not offer to approve a row with no draft to read", async () => {
+    renderBar([row("a"), row("b", { draftId: null })], ["a", "b"])
+    expect(
+      await screen.findByRole("button", { name: "Approve 1 of 2" })
+    ).toBeInTheDocument()
   })
 
   it("assigns to a named colleague", async () => {
@@ -146,6 +175,18 @@ describe("BulkActionBar", () => {
       reviewIds: ["a"],
       assigneeId: "u1",
     })
+  })
+
+  it("offers only assignees the server would accept for the chosen rows", async () => {
+    const user = userEvent.setup()
+    renderBar([row("a")], ["a"])
+    await user.click(await screen.findByRole("button", { name: /Assign/ }))
+    expect(await screen.findByRole("menuitem", { name: "Priya" })).toBeInTheDocument()
+    expect(screen.getByRole("menuitem", { name: "Lin" })).toBeInTheDocument()
+    // A viewer, and a member scoped to another location, would be skipped
+    // as assignee_not_eligible on every row.
+    expect(screen.queryByRole("menuitem", { name: "Vic" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("menuitem", { name: "Sol" })).not.toBeInTheDocument()
   })
 
   // Approving publishes, so a batch of it is confirmed like any publish.
@@ -192,6 +233,34 @@ describe("BulkActionBar", () => {
     expect(await screen.findByText("Skipped")).toBeInTheDocument()
     // Named by who wrote it and where, not by an id.
     expect(screen.getByText("Sam · Girton")).toBeInTheDocument()
+  })
+
+  // An approval that was recorded is not "skipped": the decision stands even
+  // when Google did not take the reply, or may have.
+  it("names approved-but-unpublished and uncertain rows for what they are", async () => {
+    mutateAsync.mockResolvedValueOnce({
+      results: [
+        { reviewId: "a", status: "approved_not_published", code: "review_changed" },
+        { reviewId: "b", status: "uncertain", code: "google_mutation_ambiguous" },
+      ],
+    })
+    const user = userEvent.setup()
+    renderBar(
+      [row("a"), row("b", { reviewer: { displayName: "Ana", isAnonymous: false, profilePhotoUrl: null } })],
+      ["a", "b"]
+    )
+    await user.click(await screen.findByRole("button", { name: /^Approve/ }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 2" })
+    )
+    expect(await screen.findByText("Approved, not published")).toBeInTheDocument()
+    expect(screen.getByText("Check on Google")).toBeInTheDocument()
+    expect(screen.queryByText("Skipped")).not.toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "1 approved but not published, 1 may have reached Google"
+      )
+    ).toBeInTheDocument()
   })
 
   it("offers the rating template only when the selection has rating-only reviews", async () => {

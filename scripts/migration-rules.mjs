@@ -23,6 +23,70 @@ export const KNOWN_VERSION_GAPS = ["0021"]
 export const versionNumber = (file) => Number(file.slice(0, 4))
 
 /**
+ * The version a migration file records in `schema_migration`: its basename
+ * without `.sql`.
+ * @param {string} file
+ */
+export const migrationVersion = (file) => file.replace(/\.sql$/, "")
+
+/**
+ * Sorted versions of the `.sql` files in a directory listing. Shared by
+ * db:status and the required-migrations manifest test, so both agree with
+ * db:migrate on what a version is.
+ * @param {string[]} files
+ */
+export function listMigrationVersions(files) {
+  return files
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .map(migrationVersion)
+}
+
+/**
+ * The database db:migrate and db:status act on. The admin URL wins over the
+ * runtime URL, so `DIRECT_DATABASE_URL=... pnpm db:status` checks the same
+ * database `DIRECT_DATABASE_URL=... pnpm db:migrate` changed, even when a
+ * local .env supplies DATABASE_URL.
+ * @param {Record<string, string | undefined>} env
+ * @returns {string | undefined}
+ */
+export const migrationDatabaseUrl = (env) =>
+  env.DIRECT_DATABASE_URL ?? env.DATABASE_URL
+
+/**
+ * `host:port/database` of a connection URL, without credentials or query, so
+ * an operator can see which database a script checked.
+ * @param {string} url
+ */
+export function describeDatabaseTarget(url) {
+  try {
+    const parsed = new URL(url)
+    const port = parsed.port || "5432"
+    return `${parsed.hostname}:${port}${parsed.pathname}`
+  } catch {
+    return "(unparseable database URL)"
+  }
+}
+
+/**
+ * Compare applied versions with the repository's.
+ * - pending: in the repository, not applied (sorted as in the repository).
+ * - unknown: applied, not in the repository (sorted); the database may be
+ *   ahead of the code.
+ * @param {Iterable<string>} applied
+ * @param {string[]} repositoryVersions
+ * @returns {{ pending: string[], unknown: string[] }}
+ */
+export function compareMigrations(applied, repositoryVersions) {
+  const appliedSet = new Set(applied)
+  const known = new Set(repositoryVersions)
+  return {
+    pending: repositoryVersions.filter((version) => !appliedSet.has(version)),
+    unknown: [...appliedSet].filter((version) => !known.has(version)).sort(),
+  }
+}
+
+/**
  * Highest sequence number among non-legacy files.
  * @param {string[]} files
  */

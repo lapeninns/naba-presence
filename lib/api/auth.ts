@@ -1,6 +1,8 @@
-import { apiFetch, type RequestOptions } from "./client"
+import { ApiClientError, apiFetch, type RequestOptions } from "./client"
 import {
+  loginResponseSchema,
   registerResponseSchema,
+  resetCompleteResponseSchema,
   type RegisterInput,
   type ResendConfirmationInput,
   type ResetPasswordInput,
@@ -12,8 +14,19 @@ import {
   invitationLookupSchema,
 } from "@/lib/contracts/invitations"
 
-export async function signIn(input: SignInInput): Promise<void> {
-  await apiFetch("/api/auth/password/login", { method: "POST", body: input })
+/**
+ * `mfaRequired`: the password was right but no session exists yet; the
+ * caller sends the person to `/sign-in/verify` for their code.
+ */
+export async function signIn(
+  input: SignInInput
+): Promise<{ mfaRequired: boolean }> {
+  const result = await apiFetch("/api/auth/password/login", {
+    method: "POST",
+    body: input,
+    schema: loginResponseSchema,
+  })
+  return { mfaRequired: result.mfaRequired === true }
 }
 
 export async function register(
@@ -39,11 +52,13 @@ export async function requestPasswordReset(email: string): Promise<void> {
 
 export async function completePasswordReset(
   input: ResetPasswordInput
-): Promise<void> {
-  await apiFetch("/api/auth/password/reset/complete", {
+): Promise<{ mfaRequired: boolean }> {
+  const result = await apiFetch("/api/auth/password/reset/complete", {
     method: "POST",
     body: input,
+    schema: resetCompleteResponseSchema,
   })
+  return { mfaRequired: result.mfaRequired === true }
 }
 
 export async function resendConfirmation(
@@ -56,6 +71,12 @@ export async function resendConfirmation(
   })
 }
 
+/**
+ * Resolves only when the server confirmed the sign-out. A 503
+ * `sign_out_everywhere_failed` (see {@link signedOutHereOnly}) means this
+ * browser is signed out but other sessions may not be; anything else thrown
+ * means this browser may still be signed in.
+ */
 export async function signOut(
   options: { everywhere?: boolean } = {}
 ): Promise<void> {
@@ -64,6 +85,18 @@ export async function signOut(
     {
       method: "DELETE",
     }
+  )
+}
+
+/**
+ * True when "sign out everywhere" ended this browser's session but could not
+ * end the others: the caller must treat this browser as signed out without
+ * claiming every device is.
+ */
+export function signedOutHereOnly(error: unknown): boolean {
+  return (
+    error instanceof ApiClientError &&
+    error.code === "sign_out_everywhere_failed"
   )
 }
 

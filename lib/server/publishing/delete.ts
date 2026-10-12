@@ -18,12 +18,14 @@ import { writeAudit } from "@/lib/server/audit"
 import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
   canPublishLocation,
   requireLocationAccess,
 } from "@/lib/server/permissions"
 
 import {
+  attemptAuthorisation,
   classifyProviderFailure,
   findAttemptByKey,
   insertAttempt,
@@ -39,6 +41,7 @@ import {
   replyTarget,
   type ReplyTarget,
 } from "./provider"
+import { REPLY_PUBLISHING_PAUSED } from "./publish"
 import { recoverForRequest } from "./recover"
 import { applyDeletedReply, setReviewWorkflow } from "./settle"
 import type {
@@ -225,8 +228,12 @@ async function startDeleteIntent(
   record: DeleteRecord,
   key: { idempotencyKey: string; existing: ExistingAttempt | null }
 ): Promise<DeleteIntent | null> {
+  const authorisation = attemptAuthorisation(
+    input.session,
+    record.connection_id
+  )
   const attempt = key.existing
-    ? await rearmAttempt(sql, { attemptId: key.existing.id })
+    ? await rearmAttempt(sql, { attemptId: key.existing.id, authorisation })
     : await insertAttempt(sql, {
         organisationId: input.organisationId,
         reviewReplyId: record.review_reply_id,
@@ -236,6 +243,7 @@ async function startDeleteIntent(
         operation: "delete",
         intendedBody: null,
         publishGeneration: record.publish_generation,
+        authorisation,
       })
   if (!attempt) return null
   await supersedeQueuedSiblings(sql, {
@@ -396,6 +404,7 @@ async function settleDeleteFailure(
 export async function executeReplyDelete(
   input: ReplyDeleteInput
 ): Promise<ReplyDeleteOutcome> {
+  await requireScopesEnabled("publish", REPLY_PUBLISHING_PAUSED)
   const phaseOne = await prepareDelete(input)
   if (phaseOne.kind === "outcome") return phaseOne.outcome
   if (phaseOne.kind === "needs_recovery") {

@@ -12,6 +12,7 @@ import {
 } from "@/lib/contracts/location-capabilities"
 import type { ReviewCapabilities } from "@/lib/contracts/reviews"
 import { resourceActionCapabilities } from "@/lib/domain/google-resource-catalogue"
+import { sessionCanWrite } from "@/lib/server/entitlement-policy"
 import {
   type GbpFlags,
   gbpIngestionEnabled,
@@ -19,18 +20,38 @@ import {
   getServerEnv,
 } from "@/lib/server/env"
 import {
+  NO_PAUSES,
+  dbPaused,
+  effectiveEnabled,
+  gbpIngestionScopes,
+  gbpWriteScopes,
+  type PauseScope,
+  type PauseSnapshot,
+} from "@/lib/server/pause-controls"
+import {
   NO_GRANT,
+  actionAllowed,
   grantsFor,
   isManagerialRole,
+  type LocationGrant,
 } from "@/lib/server/permissions"
+import {
+  hasPendingListingChanges,
+  listingApprovalRequired,
+} from "@/lib/server/listing-changes"
+import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import type { Session } from "@/lib/server/session"
+import { privacyAccessFromRole } from "@/lib/settings/gating"
 
 // One capability object per review (shape: ReviewCapabilities in
 // lib/contracts/reviews.ts). The location rule itself lives ONLY in
 // lib/server/permissions.ts (grantsFor); this module just projects it:
-//   canPublish         === grant.canPublish (canPublishLocation)
-//   canEdit            === grant.canEdit    (visible && role !== 'viewer')
-//   canRequestApproval === canEdit && !canPublish && organisation.approval_required
+//   canPublish         === actionAllowed(role, grant, "publish")
+//   canEdit            === actionAllowed(role, grant, "edit")
+//   canRequestApproval === actionAllowed(role, grant, "request_approval")
+//                        && !canPublish && organisation.approval_required
+//   The same actionAllowed the server's requireLocationAction enforces, so a
+//   button the UI shows is one the route accepts.
 //     (D2: a non-publisher may submit a reply for approval only when the org
 //     requires it. Never true for a publisher — see executePublish's
 //     `!canPublish && approval_required` routing, lib/server/publishing.ts.)
@@ -50,10 +71,19 @@ export async function reviewCapabilitiesForLocations(
   `
   const approvalRequired = org?.approvalRequired ?? false
 
+  // A read-only subscription under central enforcement allows no changes
+  // (lib/server/entitlement-policy.ts), so no control is offered.
+  const writable = sessionCanWrite(session)
   const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const { canEdit, canPublish } = grants.get(id) ?? NO_GRANT
-    const canRequestApproval = canEdit && !canPublish && approvalRequired
+    const grant = grants.get(id) ?? NO_GRANT
+    const canPublish = writable && actionAllowed(session.role, grant, "publish")
+    const canEdit = writable && actionAllowed(session.role, grant, "edit")
+    const canRequestApproval =
+      writable &&
+      actionAllowed(session.role, grant, "request_approval") &&
+      !canPublish &&
+      approvalRequired
     result.set(id, { canPublish, canEdit, canRequestApproval })
   }
   return result
@@ -77,6 +107,7 @@ export async function reviewCapabilities(
 // Per-location capabilities for the Locations workspace (spec §3):
 //   canEditCanonical === role in {owner, admin}  (the canonical-PUT route gate)
 //   canPublish        === canPublishLocation(sql, session, locationId)
+//   canEdit / canRequestApproval / canDecideApproval === locationActionCapabilities
 //   resources         === per-surface availability for UI gating (Slice 0 manifest)
 // The wire shape and the resource-key vocabulary live in
 // lib/contracts/location-capabilities.ts; re-exported here for existing
@@ -92,23 +123,59 @@ export type {
 // Per-resource write availability, mirroring the per-surface kill switch each
 // lib/server module checks at its provider-mutation/ingestion boundary
 // (profile/hours/businessInformation/industry/administration are all Google
-// Business Information writes). A paused surface stays visible read-only.
+// Business Information writes), and the operator pause table runGbpWrite
+// checks at dispatch (lib/server/pause-controls.ts). A paused surface stays
+// visible read-only. An unreadable pause table is not shown as a pause: this
+// is a display, and the dispatch gate still refuses (it fails closed).
 export function resourceWritesEnabled(
-  env: GbpFlags
+  env: GbpFlags,
+  pauses: PauseSnapshot = NO_PAUSES
 ): Record<LocationResourceKey, boolean> {
-  const profileWrites = gbpWritesEnabled(env, "profileWrites")
+  const notPaused = (scopes: readonly PauseScope[]) =>
+    scopes.every((scope) =>
+      effectiveEnabled(true, dbPaused(pauses, scope), "open")
+    )
+  const writes = (surface: Parameters<typeof gbpWriteScopes>[0]) =>
+    gbpWritesEnabled(env, surface) && notPaused(gbpWriteScopes(surface))
+  const profileWrites = writes("profileWrites")
   return {
     profile: profileWrites,
     hours: profileWrites,
     businessInformation: profileWrites,
     industry: profileWrites,
     administration: profileWrites,
-    photos: gbpWritesEnabled(env, "media"),
-    posts: gbpWritesEnabled(env, "posts"),
-    menu: gbpWritesEnabled(env, "foodMenus"),
-    booking: gbpWritesEnabled(env, "placeActions"),
+    photos: writes("media"),
+    posts: writes("posts"),
+    menu: writes("foodMenus"),
+    booking: writes("placeActions"),
     performance:
-      env.PUBLISH_ENABLED && gbpIngestionEnabled(env, "performance"),
+      env.PUBLISH_ENABLED &&
+      gbpIngestionEnabled(env, "performance") &&
+      notPaused(["publish", ...gbpIngestionScopes("performance")]),
+  }
+}
+
+/**
+ * The per-location action flags, projected from the same actionAllowed the
+ * post routes enforce through requireLocationAction:
+ *   canEdit            -> "edit"  (compose, edit and delete drafts)
+ *   canRequestApproval -> "request_approval", for a non-publisher only (a
+ *                         publisher's publish goes straight to Google)
+ *   canDecideApproval  -> "decide_approval" (approve or reject a request)
+ */
+export function locationActionCapabilities(
+  role: Session["role"],
+  grant: LocationGrant
+): Pick<
+  LocationCapabilities,
+  "canEdit" | "canRequestApproval" | "canDecideApproval"
+> {
+  return {
+    canEdit: actionAllowed(role, grant, "edit"),
+    canRequestApproval:
+      actionAllowed(role, grant, "request_approval") &&
+      !actionAllowed(role, grant, "publish"),
+    canDecideApproval: actionAllowed(role, grant, "decide_approval"),
   }
 }
 
@@ -121,6 +188,8 @@ function buildResources(input: {
   canPublish: boolean
   linked: boolean
   publishesEnabled: Record<LocationResourceKey, boolean>
+  /** Billing holds the organisation read-only: every write surface reads. */
+  billingReadOnly?: boolean
 }): Record<LocationResourceKey, ResourceCapability> {
   const { canEditCanonical, canPublish, linked, publishesEnabled } = input
   const resources = {} as Record<LocationResourceKey, ResourceCapability>
@@ -135,7 +204,9 @@ function buildResources(input: {
     }
 
     const consoleOnly =
-      key === "industry" || key === "administration" || key === "businessInformation"
+      key === "industry" ||
+      key === "administration" ||
+      key === "businessInformation"
     if (consoleOnly && !canEditCanonical) {
       resources[key] = {
         state: "unavailable",
@@ -144,9 +215,15 @@ function buildResources(input: {
       continue
     }
 
+    if (input.billingReadOnly && key !== "performance") {
+      resources[key] = { state: "readOnly", reasonCode: "billing_read_only" }
+      continue
+    }
+
     if (!publishesEnabled[key]) {
       resources[key] = {
-        state: canEditCanonical || key === "performance" ? "readOnly" : "blocked",
+        state:
+          canEditCanonical || key === "performance" ? "readOnly" : "blocked",
         reasonCode: "publishing_paused",
       }
       continue
@@ -166,23 +243,28 @@ function buildResources(input: {
   return resources
 }
 
+// `pauses` is the pause snapshot the caller loaded before its transaction
+// opened: read inside it, an expired cache would wait for a second pooled
+// connection while the transaction holds one (lib/server/db.ts).
 export async function locationCapabilitiesForIds(
   sql: TransactionSql,
   session: Session,
-  locationIds: string[]
+  locationIds: string[],
+  pauses: PauseSnapshot
 ): Promise<Map<string, LocationCapabilities>> {
   const unique = [...new Set(locationIds)]
   const result = new Map<string, LocationCapabilities>()
   if (unique.length === 0) return result
 
   const env = getServerEnv()
-  const publishesEnabled = resourceWritesEnabled(env)
+  const publishesEnabled = resourceWritesEnabled(env, pauses)
+  const writable = sessionCanWrite(session)
   const actionWritesEnabled = {
-    profileWrites: publishesEnabled.profile,
-    media: publishesEnabled.photos,
-    posts: publishesEnabled.posts,
-    foodMenus: publishesEnabled.menu,
-    placeActions: publishesEnabled.booking,
+    profileWrites: writable && publishesEnabled.profile,
+    media: writable && publishesEnabled.photos,
+    posts: writable && publishesEnabled.posts,
+    foodMenus: writable && publishesEnabled.menu,
+    placeActions: writable && publishesEnabled.booking,
     performance: publishesEnabled.performance,
   }
 
@@ -203,10 +285,20 @@ export async function locationCapabilitiesForIds(
 
   const grants = await grantsFor(sql, session, unique)
   for (const id of unique) {
-    const { canPublish, visible } = grants.get(id) ?? NO_GRANT
+    const grant = grants.get(id) ?? NO_GRANT
+    const { canPublish, visible } = grant
+    const actions = locationActionCapabilities(session.role, grant)
     result.set(id, {
+      // Role-based even while read-only: it also gates whether the
+      // owner/admin tabs load at all (lib/locations/gating.ts
+      // gateSatisfied), and read-only access still shows them. Their editors
+      // read canWrite (editDisabledReason).
       canEditCanonical,
-      canPublish,
+      canPublish: writable && canPublish,
+      canEdit: writable && actions.canEdit,
+      canRequestApproval: writable && actions.canRequestApproval,
+      canDecideApproval: writable && actions.canDecideApproval,
+      canWrite: writable,
       resourceActions: resourceActionCapabilities({
         connected: connectedIds.has(id), canRead: visible, canPublish,
         managerial: canEditCanonical, writesEnabled: actionWritesEnabled,
@@ -216,6 +308,7 @@ export async function locationCapabilitiesForIds(
         canPublish,
         linked: linkedIds.has(id),
         publishesEnabled,
+        billingReadOnly: !writable,
       }),
     })
   }
@@ -225,31 +318,97 @@ export async function locationCapabilitiesForIds(
 export async function locationCapabilities(
   sql: TransactionSql,
   session: Session,
-  locationId: string
+  locationId: string,
+  pauses: PauseSnapshot
 ): Promise<LocationCapabilities> {
-  const map = await locationCapabilitiesForIds(sql, session, [locationId])
-  return (
-    map.get(locationId) ?? {
+  const map = await locationCapabilitiesForIds(
+    sql,
+    session,
+    [locationId],
+    pauses
+  )
+  // Whether this location's listing writes park for a second publisher --
+  // or requests parked before the policy or feature went off still wait
+  // here -- so the editors only ask for pending change requests where there
+  // can be any, and never lose sight of one that is still pending.
+  const listingChangeApprovals =
+    (await listingApprovalRequired(sql, session.organisationId)) ||
+    (await hasPendingListingChanges(sql, session.organisationId, locationId))
+  const postScheduling = await isOrgFeatureEnabled(
+    sql,
+    session.organisationId,
+    "post_scheduling"
+  )
+  const postSchedulingRecurring =
+    postScheduling &&
+    (await isOrgFeatureEnabled(
+      sql,
+      session.organisationId,
+      "post_scheduling_recurring"
+    ))
+  const flags = {
+    listingChangeApprovals,
+    postScheduling,
+    postSchedulingRecurring,
+  }
+  const found = map.get(locationId)
+  if (found) return { ...found, ...flags }
+  return {
+    canEditCanonical: false,
+    canPublish: false,
+    ...locationActionCapabilities(session.role, NO_GRANT),
+    resources: buildResources({
       canEditCanonical: false,
       canPublish: false,
-      resources: buildResources({
-        canEditCanonical: false,
-        canPublish: false,
-        linked: false,
-        publishesEnabled: NO_RESOURCE_WRITES,
-      }),
-    }
-  )
+      linked: false,
+      publishesEnabled: NO_RESOURCE_WRITES,
+    }),
+    ...flags,
+  }
 }
 
 // Org/settings capabilities for the Settings workspace (spec §3):
 //   canManageTeam/canManageConnections/canEditSettings === role in {owner, admin}
-// Pure role predicates that mirror the route guards; no SQL.
-export function settingsCapabilities(session: Session): SettingsCapabilities {
+//   privacy === privacyAccessFromRole(role, privacy_settings feature)
+//   canWrite === billing allows changes; canEditSettings needs it too
+// Pure role predicates that mirror the route guards; the one product switch
+// is read by the caller (readSettingsFeatures) and passed in.
+export function settingsCapabilities(
+  session: Session,
+  features: { privacySettings: boolean }
+): SettingsCapabilities {
   const managerial = isManagerialRole(session.role)
+  const canWrite = sessionCanWrite(session)
   return {
     canManageTeam: managerial,
     canManageConnections: managerial,
-    canEditSettings: managerial,
+    canEditSettings: managerial && canWrite,
+    canWrite,
+    privacy: privacyAccessFromRole(session.role, features.privacySettings),
+  }
+}
+
+/**
+ * Whether any settings feature switch can change `session`'s capabilities.
+ * Every switch gates an owner/admin area, so for anyone else the answer is
+ * fixed and callers skip the query (and its transaction) entirely.
+ */
+export function settingsFeaturesApply(session: Session): boolean {
+  return isManagerialRole(session.role)
+}
+
+export const NO_SETTINGS_FEATURES = { privacySettings: false } as const
+
+/** The organisation feature switches the settings capabilities read. */
+export async function readSettingsFeatures(
+  sql: TransactionSql,
+  session: Session
+): Promise<{ privacySettings: boolean }> {
+  return {
+    privacySettings: await isOrgFeatureEnabled(
+      sql,
+      session.organisationId,
+      "privacy_settings"
+    ),
   }
 }

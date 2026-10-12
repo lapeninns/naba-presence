@@ -313,6 +313,50 @@ describeDatabase("WP8 operational notifications", { timeout: 45_000 }, () => {
     expect(removed.last_error_code).toBe("recipient_not_member")
   })
 
+  it("does not email an assigned member whose last location row is gone", async () => {
+    const t = await tenant(),
+      m = await member(t.owner.organisationId, t.first.locationId),
+      everyone = await member(t.owner.organisationId)
+    for (const cookie of [m.cookie, everyone.cookie]) {
+      const optIn = await api(cookie, "/api/notifications/preferences", {
+        method: "PUT",
+        body: JSON.stringify({
+          changes: [
+            { kind: "publication_failed", channel: "email", mode: "immediate" },
+          ],
+        }),
+      })
+      expect(optIn.status, await optIn.clone().text()).toBe(200)
+    }
+    // "No clients": scope stays 'assigned' with zero location_member rows.
+    await admin`delete from location_member where user_id = ${m.userId}`
+    const [scope] =
+      await admin`select location_scope from member where user_id = ${m.userId}`
+    expect(scope.location_scope).toBe("assigned")
+    const incident = await eventIncident(
+      t.owner.organisationId,
+      "publication_failed",
+      t.second.locationId
+    )
+    await queueFor(t.owner.organisationId, incident, [
+      m.userId,
+      everyone.userId,
+    ])
+    await tick()
+    expect(emailsTo(m.email)).toHaveLength(0)
+    expect(emailsTo(everyone.email)).toHaveLength(1)
+    const [suppressed] =
+      await admin`select status, last_error_code from notification_delivery where incident_id = ${incident} and recipient_user_id = ${m.userId}`
+    expect(suppressed).toMatchObject({
+      status: "suppressed",
+      last_error_code: "recipient_access_revoked",
+    })
+    const list = notificationListResponseSchema.parse(
+      await (await api(m.cookie, "/api/notifications")).json()
+    )
+    expect(list.items).toEqual([])
+  })
+
   it("retries with the same idempotency key and records provider delivery evidence", async () => {
     const t = await tenant()
     const incident = await eventIncident(

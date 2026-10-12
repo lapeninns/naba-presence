@@ -5,6 +5,7 @@ import { renderWithProviders } from "../helpers/render"
 import { OperationsView } from "@/components/settings/operations-view"
 import {
   operationsHealthSchema,
+  schedulerTickSchema,
   type SchedulerTick,
 } from "@/lib/contracts/operations"
 import {
@@ -33,12 +34,14 @@ const tick = (
   minutes: number | null,
   staleAfterSeconds: number,
   stale = false
-): SchedulerTick => ({
-  name,
-  lastCompletedAt: minutes === null ? null : minutesAgo(minutes),
-  staleAfterSeconds,
-  stale,
-})
+): SchedulerTick =>
+  // The run ledger fields (0089) take their defaults.
+  schedulerTickSchema.parse({
+    name,
+    lastCompletedAt: minutes === null ? null : minutesAgo(minutes),
+    staleAfterSeconds,
+    stale,
+  })
 
 function health(schedulerTicks: SchedulerTick[]) {
   return operationsHealthSchema.parse({
@@ -205,8 +208,11 @@ describe("job labels", () => {
     expect(humaniseJobKey("presence-resources")).toBe("Presence resources")
     expect(humaniseJobKey("")).toBe("Unnamed job")
     expect(scheduledJobInfo("new_tick").intervalSeconds).toBeNull()
-    expect(describeSchedule(SCHEDULED_JOBS.retention, 172_800)).toBe(
+    expect(describeSchedule(SCHEDULED_JOBS.keywords, 172_800)).toBe(
       "Expected daily · stale after 2 days without a run"
+    )
+    expect(describeSchedule(SCHEDULED_JOBS.retention, 900)).toBe(
+      "Expected every 5 minutes · stale after 15 minutes without a run"
     )
   })
 
@@ -235,6 +241,7 @@ describe("job intervals match the deployed cron schedule", () => {
     "/api/sync/keywords": "keywords",
     "/api/cron/retention": "retention",
     "/api/cron/health": "health",
+    "/api/billing/reconcile": "billing-reconcile",
   }
 
   // Covers the shapes vercel.json uses: "*", "*/n", "a,b,c" (evenly spaced)

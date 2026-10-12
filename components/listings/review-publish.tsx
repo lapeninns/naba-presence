@@ -49,8 +49,11 @@ import {
   type ProfileFieldKey,
 } from "@/lib/api/location-profile"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
+import { describeOutcome } from "@/lib/editors/outcome"
 import {
   NOTHING_TO_SEND,
+  publishOutcome,
+  stepOutcome,
   usePublishFlow,
   type PublishStep,
   type PublishStepResult,
@@ -58,6 +61,10 @@ import {
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { listingHref } from "@/lib/listings/areas"
+import {
+  hoursSelectionRequest,
+  markHoursConflicts,
+} from "@/lib/editors/hours-presentation"
 import { hoursChangeRows } from "@/lib/locations/hours-diff"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { queryKeys } from "@/lib/queries/keys"
@@ -146,12 +153,14 @@ function useProfileReview(locationId: string, enabled: boolean) {
         ? [
             {
               key: "profile",
+              // The endpoint reads Google back and compares before success.
+              verified: true,
               label: `Business profile · ${rows
                 .map((row) => row.field.toLowerCase())
                 .join(", ")}`,
-              run: async () => {
+              run: async (intent) => {
                 const selected = fields.map((field) => field.key)
-                await runProfileOperation(locationId, {
+                const body = {
                   direction: "to_google",
                   confirmation: "publish_nabapresence_profile_to_google",
                   selectedFields: selected,
@@ -159,6 +168,9 @@ function useProfileReview(locationId: string, enabled: boolean) {
                   expectedCanonicalHash: profile.canonicalHash,
                   expectedGoogleHash: profile.googleHash,
                   confirmOverwriteGoogleChanges: needsAck,
+                } as const
+                return runProfileOperation(locationId, body, {
+                  intentId: intent.idFor(body),
                 })
               },
             },
@@ -174,20 +186,29 @@ function useHoursReview(locationId: string, enabled: boolean) {
   const review = useMemo<AreaReview | null>(() => {
     if (!enabled || !query.data) return null
     const hours = query.data
-    const needsAck =
-      hours.status === "google_dirty" || hours.status === "conflict"
-    // The row-level conflict flag compares Google with a baseline this state
-    // does not carry (draft and canonical are the same saved copy here), so
-    // it would mark every row. The area's own drift status decides instead.
-    const rows = hoursChangeRows({
-      draft: hours.canonical,
-      google: hours.google,
-      canonical: hours.canonical,
-      supportedHoursTypes: hours.supportedHoursTypes,
-    }).map((row) => ({
-      ...row,
-      state: needsAck ? ("conflict" as const) : ("changed" as const),
-    }))
+    // A row overwrites a Google change when its part (day, date, service)
+    // changed on Google since its baseline; with no per-part baseline the
+    // area's own drift status decides for every row.
+    const changes = markHoursConflicts(
+      hoursChangeRows({
+        draft: hours.canonical,
+        google: hours.google,
+        canonical: hours.canonical,
+        supportedHoursTypes: hours.supportedHoursTypes,
+      }),
+      hours
+    )
+    const rows: ChangeRow[] = changes
+    const needsAck = rows.some((row) => row.state === "conflict")
+    // Publish exactly the parts shown, pinned to the Google parts read for
+    // this page; every other day, date and service stays as Google has it.
+    const partial =
+      changes.length > 0
+        ? hoursSelectionRequest(
+            hours,
+            changes.map((row) => row.part)
+          )
+        : null
     const blockedReason = hours.reconciliationRequired
       ? "Open the hours editor to review and save the missing closing boundaries before publishing."
       : hours.publicationBlocked
@@ -204,16 +225,23 @@ function useHoursReview(locationId: string, enabled: boolean) {
           ? [
               {
                 key: "hours",
+                // The endpoint reads Google back and compares before success.
+                verified: true,
                 label: "Opening hours",
-                run: async () => {
-                  const result = await publishHours(locationId, {
+                run: async (intent) => {
+                  const body = {
                     expectedCanonicalRevision: hours.canonicalResource.revision,
                     expectedCanonicalHash: hours.canonicalHash,
                     expectedGoogleHash: hours.googleHash,
                     approvedUpdateMask: hours.updateMask,
                     confirmOverwriteGoogleChanges: needsAck,
+                    ...partial,
+                  }
+                  const result = await publishHours(locationId, body, {
+                    intentId: intent.idFor(body),
                   })
-                  if (result.status === "in_sync") return NOTHING_TO_SEND
+                  if (result.status !== "published") return NOTHING_TO_SEND
+                  return result
                 },
               },
             ]
@@ -244,14 +272,20 @@ function useMenuReview(locationId: string, enabled: boolean) {
           : [
               {
                 key: "menu",
+                // The endpoint reads Google back and compares before success.
+                verified: true,
                 label: "Food menu · replaces the menu on Google",
-                run: async () => {
-                  const result = await publishFoodMenus(locationId, {
+                run: async (intent) => {
+                  const body = {
                     expectedCanonicalRevision: state.canonicalResource.revision,
                     expectedCanonicalHash: state.canonicalHash,
                     expectedGoogleHash: state.googleHash,
+                  }
+                  const result = await publishFoodMenus(locationId, body, {
+                    intentId: intent.idFor(body),
                   })
                   if (result.status === "in_sync") return NOTHING_TO_SEND
+                  return result
                 },
               },
             ],
@@ -448,21 +482,27 @@ function toStepRows(
         detail:
           "It already matched Google when this step ran, so nothing was sent.",
       }
-    if (step.status === "done")
+    if (step.status === "done") {
+      // The server's answer for the step (stepOutcome): only a write Google
+      // was read back holding may say live; anything less says what it is.
+      const outcome = stepOutcome(step) ?? "sent"
       return {
         id: step.key,
         label: step.label,
-        // Done means the server's publish read Google back and it matched.
-        state: "live",
-        stateLabel: "Accepted by Google",
+        state: outcome,
         detail:
-          "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search.",
+          outcome === "confirmed_applied"
+            ? "Google accepted it and read it back as sent. It can take a few minutes to show on Maps and Search."
+            : describeOutcome(outcome).description,
       }
+    }
     if (step.status === "failed")
       return {
         id: step.key,
         label: step.label,
-        state: "failed",
+        // "Not confirmed" rather than "Failed" when the change may have
+        // landed: retrying then resends the same intent.
+        state: stepOutcome(step) ?? "failed",
         errorCode: step.code,
         detail: `${step.message ?? "Google didn’t accept this change."} This step did not finish with a confirmed result. Check Google before retrying; the saved copy is kept.`,
         action: onRetry ? (
@@ -588,7 +628,7 @@ function ReviewPublish({
       queryKeys.locationMenu(locationId),
       queryKeys.locationActivity(locationId),
     ],
-    successToast: "Published to Google",
+    successToast: (outcome) => ({ outcome }),
   })
   const done =
     flow.results.length > 0 &&
@@ -709,14 +749,16 @@ function ReviewPublish({
                     nothingSent
                       ? "Nothing needed sending"
                       : done
-                        ? "Published to Google"
+                        ? describeOutcome(publishOutcome(flow.results)).title
                         : "Nothing to publish"
                   }
                   description={
                     nothingSent
                       ? "Every area already matched Google when it was checked, so nothing was sent."
                       : done
-                        ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+                        ? publishOutcome(flow.results) === "confirmed_applied"
+                          ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+                          : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
                         : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
                   }
                   action={

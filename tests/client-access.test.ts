@@ -43,16 +43,24 @@ function grant(
 }
 
 describe("summariseClientAccess", () => {
-  it("is all clients when the member holds no rows", () => {
-    const summary = summariseClientAccess([], totals)
+  it("is all clients when the scope says all, never inferred from rows", () => {
+    const summary = summariseClientAccess([], totals, "all")
     expect(summary.allClients).toBe(true)
+    expect(summary.noAccess).toBe(false)
     expect(summary.clients.every((client) => client.granted === 0)).toBe(true)
+  })
+
+  it("is no access, not all clients, for an assigned member with no rows", () => {
+    const summary = summariseClientAccess([], totals, "assigned")
+    expect(summary.allClients).toBe(false)
+    expect(summary.noAccess).toBe(true)
   })
 
   it("groups rows by client, unfiled listings under the unfiled group", () => {
     const summary = summariseClientAccess(
       [grant("l1", CROWN, true), grant("l2", CROWN), grant("u1", null, true)],
-      totals
+      totals,
+      "assigned"
     )
     expect(summary.allClients).toBe(false)
     expect(summary.clients).toEqual([
@@ -94,7 +102,7 @@ describe("summariseClientAccess", () => {
 
 describe("describeMemberAccess", () => {
   const summarise = (grants: AccessGrant[]) =>
-    summariseClientAccess(grants, totals)
+    summariseClientAccess(grants, totals, "assigned")
 
   it("says All clients for owners and admins whatever rows they hold", () => {
     expect(
@@ -105,10 +113,19 @@ describe("describeMemberAccess", () => {
     })
   })
 
-  it("says All clients, including later ones, for a member with no rows", () => {
-    expect(describeMemberAccess("member", summarise([]))).toEqual({
+  it("says All clients, including later ones, for a member on scope all", () => {
+    expect(
+      describeMemberAccess("member", summariseClientAccess([], totals, "all"))
+    ).toEqual({
       label: "All clients",
       detail: "Including clients added later",
+    })
+  })
+
+  it("says No clients for an assigned member with no rows", () => {
+    expect(describeMemberAccess("member", summarise([]))).toEqual({
+      label: "No clients",
+      detail: "Sees nothing until given access",
     })
   })
 
@@ -144,15 +161,34 @@ describe("describeMemberAccess", () => {
 })
 
 describe("accessSummary (Team row)", () => {
-  it("no longer calls an unscoped member 'No listings assigned yet'", () => {
-    expect(accessSummary({ role: "member", locations: [] }, totals)).toEqual({
+  it("says All clients for a member on scope all", () => {
+    expect(
+      accessSummary(
+        { role: "member", locationScope: "all", locations: [] },
+        totals
+      )
+    ).toEqual({
       label: "All clients",
       detail: "Including clients added later",
     })
-    expect(accessSummary({ role: "member", locations: [] })).toEqual({
+    expect(
+      accessSummary({ role: "member", locationScope: "all", locations: [] })
+    ).toEqual({
       label: "All clients",
       detail: "Including clients added later",
     })
+  })
+
+  it("says No clients for an assigned member with no rows, never All clients", () => {
+    expect(
+      accessSummary(
+        { role: "member", locationScope: "assigned", locations: [] },
+        totals
+      )
+    ).toEqual({ label: "No clients", detail: "Sees nothing until given access" })
+    expect(
+      accessSummary({ role: "viewer", locationScope: "assigned", locations: [] })
+    ).toEqual({ label: "No clients", detail: "Sees nothing until given access" })
   })
 
   it("reads the client of each row from the members response", () => {
@@ -160,6 +196,7 @@ describe("accessSummary (Team row)", () => {
       accessSummary(
         {
           role: "member",
+          locationScope: "assigned",
           locations: [
             { locationId: "l6", canPublish: false, clientId: BELL },
             { locationId: "l7", canPublish: false, clientId: BELL },
@@ -171,44 +208,45 @@ describe("accessSummary (Team row)", () => {
   })
 })
 
-describe("planClientAccess — the zero-rows guard", () => {
+describe("planClientAccess — zero rows is no access", () => {
   const base = { catalogue, current: [] as AccessGrant[] }
 
-  it("refuses an empty client list instead of widening to every client", () => {
+  it("saves an empty client list as assigned with no rows, not every client", () => {
     const plan = planClientAccess({
       ...base,
       role: "member",
+      current: [grant("l1", CROWN)],
       request: { clients: [] },
     })
-    expect(plan).toMatchObject({
-      ok: false,
-      status: 409,
-      code: "would_widen_to_all_clients",
-    })
+    expect(plan).toEqual({ ok: true, allClients: false, rows: [] })
   })
 
-  it("refuses clients that hold no listings for the same reason", () => {
+  it("saves clients that hold no listings the same way", () => {
     const plan = planClientAccess({
       ...base,
       role: "viewer",
       request: { clients: [{ clientId: EMPTY }] },
     })
-    expect(plan).toMatchObject({
-      ok: false,
-      code: "would_widen_to_all_clients",
-    })
+    expect(plan).toEqual({ ok: true, allClients: false, rows: [] })
   })
 
-  it("refuses 'unchanged' for a client the member holds nothing of, if that is all", () => {
+  it("saves 'unchanged' for a client the member holds nothing of as no rows", () => {
     const plan = planClientAccess({
       ...base,
       role: "member",
       request: { clients: [{ clientId: BELL, listings: "unchanged" }] },
     })
-    expect(plan).toMatchObject({
-      ok: false,
-      code: "would_widen_to_all_clients",
+    expect(plan).toEqual({ ok: true, allClients: false, rows: [] })
+  })
+
+  it("saves an empty location list as no rows in a business workspace", () => {
+    const plan = planClientAccess({
+      ...base,
+      role: "member",
+      workspaceMode: "business",
+      request: { locations: [] },
     })
+    expect(plan).toEqual({ ok: true, allClients: false, rows: [] })
   })
 
   it("accepts All clients only when asked for by name", () => {
@@ -371,9 +409,11 @@ describe("clientAccessUpdateSchema", () => {
 describe("describeAccessChange", () => {
   const scoped = summariseClientAccess(
     [grant("l6", BELL), grant("l7", BELL)],
-    totals
+    totals,
+    "assigned"
   )
-  const everything = summariseClientAccess([], totals)
+  const everything = summariseClientAccess([], totals, "all")
+  const nothing = summariseClientAccess([], totals, "assigned")
 
   it("warns when moving someone from some clients to all", () => {
     const change = describeAccessChange({
@@ -403,7 +443,7 @@ describe("describeAccessChange", () => {
     expect(change.warning?.title).toBe("This narrows Ben’s access")
   })
 
-  it("explains why nothing ticked can't be saved", () => {
+  it("says nothing ticked means no access, and warns that it removes access", () => {
     const change = describeAccessChange({
       name: "Ben",
       before: scoped,
@@ -411,7 +451,20 @@ describe("describeAccessChange", () => {
       selected: [{ name: "New Client", listings: 0 }],
       totalClients: 3,
     })
-    expect(change.consequence).toMatch(/would see every client/)
+    expect(change.consequence).toBe(
+      "Ben will see no clients or listings until you give them access."
+    )
+    expect(change.warning?.title).toBe("This removes Ben’s access")
+  })
+
+  it("does not warn again when Ben already has no access", () => {
+    const change = describeAccessChange({
+      name: "Ben",
+      before: nothing,
+      allClients: false,
+      selected: [],
+      totalClients: 3,
+    })
     expect(change.warning).toBeNull()
   })
 })

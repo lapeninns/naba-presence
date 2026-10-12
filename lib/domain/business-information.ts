@@ -4,6 +4,8 @@ import { googleServiceItemsSchema } from "./google-services"
 import { googleRelationshipSchema } from "./google-relationships"
 import { googleAdvertisingSchema } from "./google-advertising"
 
+import { httpUrl } from "@/lib/contracts/http-url"
+
 const nonEmpty = z.string().trim().min(1)
 const categorySchema = z.object({ name: nonEmpty })
 const addressLanguageSchema = z.string().trim().max(35).refine((value) => {
@@ -95,7 +97,7 @@ export const businessInformationPayloadSchema = z
         additionalPhones: z.array(z.string().trim().min(1).max(50)).max(2).optional(),
       })
       .optional(),
-    websiteUri: z.url().max(2048).or(z.literal("")).optional(),
+    websiteUri: httpUrl().or(z.literal("")).optional(),
     storefrontAddress: z.union([z.object({
         regionCode: z.string().trim().length(2),
         languageCode: addressLanguageSchema.optional(),
@@ -135,7 +137,7 @@ export const googleAttributeSchema = z
     name: nonEmpty,
     values: z.array(z.unknown()).optional(),
     uriValues: z
-      .array(z.object({ uri: z.url(), uriType: z.string().optional() }))
+      .array(z.object({ uri: httpUrl(), uriType: z.string().optional() }))
       .optional(),
     repeatedEnumValue: z
       .object({

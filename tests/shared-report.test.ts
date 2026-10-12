@@ -99,7 +99,8 @@ beforeAll(async () => {
     );
     create table sync_checkpoint (
       external_location_id uuid not null, sync_type text not null,
-      status text not null, last_error_code text, last_succeeded_at timestamptz
+      status text not null, last_error_code text, last_succeeded_at timestamptz,
+      last_metric_date date
     );
 
     insert into organisation (id, name) values ('${ORG}', 'Harbour Agency');
@@ -172,6 +173,15 @@ describe("loadSharedClientReport", () => {
     ).toBe(2)
     expect(report!.google?.totals.CALL_CLICKS).toBe(3)
     expect(report!.google?.totals.WEBSITE_CLICKS).toBe(5)
+    // Covered by its stored rows; named, not by id.
+    expect(report!.google?.completeness).toEqual({
+      state: "complete",
+      expected: 1,
+      covered: 1,
+      completeThrough: "2026-09-10",
+      missing: [],
+      refreshFailed: [],
+    })
   })
 
   it("serialises nothing of another client, reviewers, text, notes or ids", async () => {

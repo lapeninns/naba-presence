@@ -37,7 +37,8 @@ export {
   getGoogleMediaItem,
   googleMediaItems,
   patchGoogleMediaItem,
-  uploadGoogleMediaBytes,
+  sendGoogleMediaBytes,
+  startGoogleMediaUpload,
 } from "@/lib/server/google/media"
 export {
   getGoogleNotificationSetting,

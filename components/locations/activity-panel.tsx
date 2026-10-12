@@ -1,14 +1,12 @@
 "use client"
 
-import { useState } from "react"
-
 import { LocationTab } from "@/components/locations/location-tab"
 import { Button } from "@/components/ui/button"
+import { LoadMore } from "@/components/ui/load-more"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Timeline, type TimelineTone } from "@/components/ui/timeline"
-import type { LocationActivityState } from "@/lib/contracts/location-activity"
 import { formatNumber } from "@/lib/format"
-import { useLocationActivity } from "@/lib/queries/use-location-activity"
+import { useLocationActivityPages } from "@/lib/queries/use-location-activity"
 import { confirmIndustry } from "@/lib/api/location-industry"
 import { confirmBusinessInformation } from "@/lib/api/location-business-information"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
@@ -33,22 +31,18 @@ function statusPillTone(status: string): "ok" | "bad" | "outline" {
   return "outline"
 }
 
-export function LocationActivityPanel({ locationId }: { locationId: string }) {
-  const [page, setPage] = useState(1)
-  const [cursors, setCursors] = useState<Record<number, string>>({})
-  // The page is part of the query key, so the resource hook closes over it.
-  // It always calls the same hook, which is all the shell requires.
-  function useActivityPage(id: string) {
-    return useLocationActivity(id, { page, pageSize: PAGE_SIZE, cursor: cursors[page] })
-  }
+// The shell's resource hook: module-level, so its identity never changes.
+function useActivityPages(locationId: string) {
+  return useLocationActivityPages(locationId, PAGE_SIZE)
+}
 
+type ActivityPages = NonNullable<ReturnType<typeof useActivityPages>["data"]>
+
+export function LocationActivityPanel({ locationId }: { locationId: string }) {
   return (
-    <LocationTab locationId={locationId} useResource={useActivityPage}>
+    <LocationTab locationId={locationId} useResource={useActivityPages}>
       {({ data: activity }) => (
-        <ActivityList locationId={locationId} activity={activity} page={page} onPageChange={(next) => {
-          if (next > page && activity.nextCursor) setCursors((current) => ({ ...current, [next]: activity.nextCursor ?? "" }))
-          setPage(next)
-        }} />
+        <ActivityList locationId={locationId} activity={activity} />
       )}
     </LocationTab>
   )
@@ -61,16 +55,10 @@ export function LocationActivityPanel({ locationId }: { locationId: string }) {
 function ActivityList({
   locationId,
   activity,
-  page,
-  onPageChange,
 }: {
   locationId: string
-  activity: LocationActivityState
-  page: number
-  onPageChange: (next: number) => void
+  activity: ActivityPages
 }) {
-  const pageCount = Math.max(1, Math.ceil(activity.total / activity.pageSize))
-
   return (
     <section className="flex flex-col gap-3">
       {/* The drawer's own SheetTitle is the heading here; a second one would
@@ -121,32 +109,12 @@ function ActivityList({
               }),
             }))}
           />
-          {pageCount > 1 ? (
-            <nav
-              aria-label="Activity pages"
-              className="flex items-center justify-between gap-2"
-            >
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => onPageChange(Math.max(1, page - 1))}
-              >
-                Previous
-              </Button>
-              <span className="text-caption text-ink-muted tabular-nums">
-                Page {page} of {pageCount}
-              </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={activity.nextCursor === undefined ? page >= pageCount : activity.nextCursor === null}
-                onClick={() => onPageChange(page + 1)}
-              >
-                Next
-              </Button>
-            </nav>
-          ) : null}
+          <LoadMore
+            shown={activity.items.length}
+            total={activity.total}
+            noun={["change", "changes"]}
+            paging={activity.paging}
+          />
         </>
       )}
     </section>
@@ -156,7 +124,7 @@ function ActivityList({
 function ConfirmManagementButton({ locationId, mutationId, resourceType }: { locationId: string; mutationId: string; resourceType: "lodging" | "business_info" | "attributes" }) {
   const confirmation = useResourceMutation({
     mutationFn: () => resourceType === "lodging" ? confirmIndustry(locationId, mutationId) : confirmBusinessInformation(locationId, mutationId),
-    invalidate: [queryKeys.locationActivity(locationId).slice(0, -1), resourceType === "lodging" ? queryKeys.locationIndustry(locationId) : queryKeys.locationBusinessInformation(locationId)],
+    invalidate: [queryKeys.locationActivity(locationId), resourceType === "lodging" ? queryKeys.locationIndustry(locationId) : queryKeys.locationBusinessInformation(locationId)],
     successToast: (result) => result.confirmationState === "confirmed" ? `${resourceType === "lodging" ? "Lodging" : "Profile"} change confirmed by Google` : null,
   })
   return <span className="inline-flex items-center gap-2">

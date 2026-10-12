@@ -78,6 +78,33 @@ const secretList = (minimumLength: number) =>
       return entries
     })
 
+/** A comma-separated list of http(s) origins, normalised to `URL.origin`. */
+const originList = z
+  .unknown()
+  .optional()
+  .transform((value, context) => {
+    const entries =
+      typeof value === "string"
+        ? value
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        : []
+    const origins: string[] = []
+    for (const entry of entries) {
+      const url = URL.parse(entry)
+      if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) {
+        context.addIssue({
+          code: "custom",
+          message: `Invalid origin: ${entry}`,
+        })
+        continue
+      }
+      origins.push(url.origin)
+    }
+    return origins
+  })
+
 const emailList = z
   .unknown()
   .optional()
@@ -106,6 +133,10 @@ export const serverEnvSchema = z.object({
   DATABASE_SESSION_URL: optionalText,
   DIRECT_DATABASE_URL: optionalText,
   NEXTAUTH_URL: optionalUrl,
+  // Extra browser origins the same-origin guard (lib/server/route.ts)
+  // accepts besides the request's own origin and NEXTAUTH_URL's: a
+  // comma-separated list such as a proxy's public origin. Unset adds none.
+  APP_ALLOWED_ORIGINS: originList,
   NEXTAUTH_SECRET: z.string().min(32),
   TOKEN_ENCRYPTION_KEY: z.string().min(32),
   // Rotation (lib/server/crypto.ts): the first entry encrypts, every entry
@@ -116,13 +147,85 @@ export const serverEnvSchema = z.object({
   OAUTH_STATE_ACCEPT_LEGACY: featureFlag(true),
   CRON_SECRET: z.string().min(16),
   SUPPORT_IMPERSONATION_SECRET: optionalSecret(32),
+  // Support impersonation is off unless explicitly enabled: off refuses
+  // issuance (404) and stops any outstanding support session from resolving,
+  // deleting the row it presents (lib/server/session.ts). The secret alone
+  // no longer turns it on.
+  SUPPORT_IMPERSONATION_ENABLED: featureFlag(false),
+  // Central billing enforcement (plan P07-S3): read-only organisations get
+  // 402 billing_read_only on new work, the job runner holds their new
+  // provider dispatch, and the location limit binds new links. Off by
+  // default and a hard override for the app: off, nothing the app does is
+  // enforced whatever an organisation's own
+  // organisation_billing.enforcement_enabled says. On, only organisations
+  // with that flag (or with no billing row at all) are enforced
+  // (lib/server/entitlement-policy.ts). The location-limit trigger sees this
+  // flag only through withTenant (app.billing_enforcement, lib/server/db.ts);
+  // a link written outside withTenant (operator SQL, scripts) follows the
+  // organisation's own flag alone (docs/runbook.md).
+  BILLING_ENFORCEMENT_ENABLED: featureFlag(false),
+  // Stripe billing (plan P07-S4). Off by default. Off, the webhook receiver
+  // answers 503 (Stripe keeps retrying), no event is processed and the
+  // hourly reconciliation does nothing. On, the values below must also be
+  // set and agree, or billing stays unavailable (lib/server/billing/stripe.ts
+  // billingConfig). The operator `billing` pause scope
+  // (lib/server/pause-controls.ts) holds processing off without a redeploy.
+  BILLING_ENABLED: featureFlag(false),
+  // The Stripe environment this deployment bills in. The secret key's mode
+  // (sk_test_/rk_test_ or sk_live_/rk_live_) must match it, and webhook
+  // events from the other mode are refused.
+  BILLING_ENVIRONMENT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["test", "live"]).default("test")
+  ),
+  STRIPE_SECRET_KEY: optionalText,
+  // Signing secret (whsec_…) of the /api/webhooks/stripe endpoint.
+  STRIPE_WEBHOOK_SECRET: optionalText,
+  // Checkout (plan P07-S5). Live checkout fails closed until the approved
+  // terms of service are published here (Checkout then requires the
+  // customer to accept them) and Stripe Tax is configured and switched on
+  // with BILLING_AUTOMATIC_TAX (lib/server/billing/checkout.ts
+  // checkoutReadiness). The test environment may run without either; its
+  // plans are always marked as test offers.
+  BILLING_TERMS_URL: optionalUrl,
+  BILLING_AUTOMATIC_TAX: featureFlag(false),
+  // Optional Customer Portal configuration (bpc_…). The configuration must
+  // not allow plan switching: plan changes are app-controlled.
+  STRIPE_PORTAL_CONFIGURATION_ID: optionalText,
   SUPABASE_URL: optionalUrl,
   SUPABASE_PUBLISHABLE_KEY: optionalText,
+  // Private photo assets for bulk changes (lib/server/storage). Off unless
+  // MEDIA_ASSET_STORAGE=supabase and the server-only secret key and the
+  // private bucket are both set: without them every asset route answers 503
+  // asset_storage_unavailable and no bulk photo is sent. The secret key never
+  // reaches the browser; uploads go to signed, single-object URLs.
+  MEDIA_ASSET_STORAGE: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["disabled", "supabase"]).default("disabled")
+  ),
+  SUPABASE_SECRET_KEY: optionalText,
+  MEDIA_ASSETS_BUCKET: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9_.-]{2,62}$/)
+      .optional()
+  ),
   AUTH_PROVIDER_TIMEOUT_MS: timeoutWithDefault(10_000),
+  // Two-step verification (TOTP through Supabase Auth, lib/server/mfa.ts).
+  // Off by default: sign-in ignores enrolled factors and the MFA routes
+  // answer 404. Turn on only once TOTP is enabled in the Supabase project.
+  MFA_ENABLED: featureFlag(false),
   REGISTRATION_MODE: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z.enum(["open", "invite_only"]).default("open")
   ),
+  // Lets a new owner choose a business or an agency workspace at
+  // registration (plan P06-5). Off: the choice is hidden, the register route
+  // ignores it and provider metadata cannot pick agency, so every new
+  // organisation is a business. Product approval of agency self-sign-up is
+  // outstanding (ledger D-13).
+  REGISTRATION_WORKSPACE_CHOICE_ENABLED: featureFlag(false),
   OPENAI_API_KEY: optionalText,
   OPENAI_ORG_ID: optionalText,
   OPENAI_MODEL_DRAFT: z.preprocess(
@@ -153,6 +256,23 @@ export const serverEnvSchema = z.object({
   // per minute per API and 10 edits per minute per profile; the defaults
   // leave headroom under both.
   GOOGLE_RATE_BUDGET_ENABLED: featureFlag(true),
+  // Application abuse limits (lib/server/abuse-limits.ts): fixed windows per
+  // hashed client IP, email, user or token, counted in Postgres so every
+  // instance shares them. Off stops counting entirely; for a suspected
+  // limiter fault, not an attack.
+  ABUSE_LIMITS_ENABLED: featureFlag(true),
+  // The request header carrying the client IP, trusted only because the
+  // platform in front of the app overwrites it. Unset means
+  // x-vercel-forwarded-for on Vercel and no IP limits anywhere else (a
+  // self-hosted build behind its own proxy names that proxy's header).
+  CLIENT_IP_HEADER: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[A-Za-z0-9-]{1,64}$/)
+      .transform((value) => value.toLowerCase())
+      .optional()
+  ),
   GOOGLE_API_REQUESTS_PER_MINUTE: z.coerce
     .number()
     .int()
@@ -175,11 +295,23 @@ export const serverEnvSchema = z.object({
   JOBS_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
   JOBS_PER_ORGANISATION: z.coerce.number().int().min(1).max(100).default(3),
   DRAFTS_ENABLED: featureFlag(true),
-  // Monthly AI-written drafts per organisation (one credit per draft); an
-  // organisation.ai_monthly_draft_credits override wins. The token backstop is
-  // a runaway-loop guard across draft and verify calls, not a product limit.
+  // AI-written drafts per pilot month (one credit per draft); an
+  // organisation.ai_monthly_draft_credits override wins. Trial and paid
+  // periods take their allowance from billing (ai_credit_period), never from
+  // here. The token backstop is a runaway-loop guard across draft and verify
+  // calls within a credit period, not a product limit.
   AI_MONTHLY_DRAFT_CREDITS: z.coerce.number().int().min(0).default(100),
   AI_MONTHLY_TOKEN_BACKSTOP: z.coerce.number().int().min(0).default(20_000_000),
+  // The output cap sent as `max_output_tokens` with every OpenAI call
+  // (lib/server/ai.ts), and the per-call share of the backstop a reservation
+  // holds until its real token counts arrive (lib/server/ai-credits.ts
+  // callTokenBudget).
+  AI_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(256)
+    .max(32_768)
+    .default(4096),
   PUBLISH_ENABLED: featureFlag(true),
   SYNC_ENABLED: featureFlag(true),
   WEBHOOKS_ENABLED: featureFlag(true),
@@ -241,6 +373,18 @@ export const serverEnvSchema = z.object({
   SESSION_ABSOLUTE_DAYS: z.coerce.number().int().min(1).max(365).default(90),
   // Google Cross-Account Protection receiver (/api/webhooks/google/risc).
   RISC_ENABLED: featureFlag(true),
+  // The commit this deployment was built from, stamped into the build and
+  // runtime environment by `pnpm release:promote` (scripts/release/promote.mjs).
+  // Reported by the platform health scope (lib/server/release.ts). A value
+  // that is not a full lowercase SHA fails validation rather than report a
+  // release nobody can match to a commit.
+  NABA_RELEASE_SHA: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .optional()
+  ),
 })
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>
@@ -254,6 +398,21 @@ export function getServerEnv(): ServerEnv {
     cachedEnv = serverEnvSchema.parse(process.env)
   }
   return cachedEnv
+}
+
+/**
+ * The configured application origins: NEXTAUTH_URL's origin (APP_ORIGIN)
+ * followed by APP_ALLOWED_ORIGINS. The same-origin guard also accepts the
+ * request's own origin, but self-hosted Next builds `request.url` from the
+ * bound hostname and port rather than the Host header, so do not rely on it:
+ * the E2E harness on :3100 passes because it sets NEXTAUTH_URL, and preview
+ * deployments are unverified (SEC-04).
+ */
+export function appOrigins(
+  env: Pick<ServerEnv, "NEXTAUTH_URL" | "APP_ALLOWED_ORIGINS">
+): string[] {
+  const origins = env.NEXTAUTH_URL ? [new URL(env.NEXTAUTH_URL).origin] : []
+  return [...origins, ...(env.APP_ALLOWED_ORIGINS ?? [])]
 }
 
 // Per-surface Google Business Profile kill switches (docs/architecture.md,

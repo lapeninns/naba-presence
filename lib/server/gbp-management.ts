@@ -76,6 +76,9 @@ export const gbpManagementAttemptStore: AttemptStore = attemptStore({
     errorCode: "last_error_code",
     response: "google_response",
     validatedAt: "validated_at",
+    // 0088: dates an in-flight row, so recovery can tell an interrupted
+    // write from one still running.
+    startedAt: "started_at",
   },
 })
 

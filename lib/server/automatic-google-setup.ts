@@ -23,6 +23,11 @@ export type AutomaticGoogleSetup =
       readonly locationCount: number
     }
   | { readonly kind: "manual_error" }
+  /**
+   * The connection was made, but linking its location would pass the
+   * plan's location limit (0110 trigger), so nothing was linked.
+   */
+  | { readonly kind: "location_limit_reached"; readonly limit: number | null }
 
 type AutomaticGoogleSetupInput = {
   readonly organisationId: string

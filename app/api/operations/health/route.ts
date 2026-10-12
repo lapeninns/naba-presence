@@ -1,10 +1,20 @@
 import { NextResponse } from "next/server"
 import type { TransactionSql } from "postgres"
 
-import type { OperationsHealth } from "@/lib/contracts/operations"
+import type {
+  OperationsHealth,
+  PlatformHealthCoverage,
+  PlatformRelease,
+} from "@/lib/contracts/operations"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { retryableDelivery } from "@/lib/server/notifications/retry"
 import { schedulerLiveness } from "@/lib/server/ops-liveness"
+import { releaseInfo } from "@/lib/server/release"
+import {
+  missingMigrations,
+  readAppliedMigrations,
+} from "@/lib/server/schema-compat"
+import { REQUIRED_MIGRATIONS } from "@/lib/server/schema-manifest"
 import { requireCronToken, route } from "@/lib/server/route"
 import { requireRole, requireSession } from "@/lib/server/session"
 
@@ -304,15 +314,56 @@ async function googleQuotaPressure() {
   }))
 }
 
+// The tenant walk is serial and its cost grows with the fleet; the budget is
+// what keeps a monitor's poll from running into the function timeout and
+// returning nothing at all. Read per call, like the sync routes' budgets.
+function budgetMs() {
+  const configured = Number(process.env.OPERATIONS_HEALTH_BUDGET_MS ?? 20_000)
+  return Number.isFinite(configured) && configured >= 0 ? configured : 20_000
+}
+
+/**
+ * The deployed commit and whether the database still satisfies this build's
+ * required migrations. Startup already refuses an incompatible schema; this
+ * reports it while serving, so a restore or a failed migration after boot is
+ * visible to the monitor. One indexed read of `schema_migration`, outside the
+ * tenant walk's budget.
+ */
+async function platformRelease(): Promise<PlatformRelease> {
+  let schema: PlatformRelease["schema"]
+  try {
+    const missing = missingMigrations(await readAppliedMigrations())
+    schema = {
+      compatible: missing.length === 0,
+      requiredCount: REQUIRED_MIGRATIONS.length,
+      missing,
+    }
+  } catch {
+    schema = {
+      compatible: null,
+      requiredCount: REQUIRED_MIGRATIONS.length,
+      missing: [],
+    }
+  }
+  return { release: releaseInfo(), schema }
+}
+
 async function platformHealth() {
   // Cross-tenant enumeration: the platform monitor walks every organisation
   // that has a job route, so this one read deliberately runs outside
   // withTenant; each organisation's counters are then read inside its tenant.
-  const organisations = await getDatabase()<{ id: string }[]>`
+  const ordered = await getDatabase()<{ id: string }[]>`
     select organisation_id::text as id
     from organisation_job_route
     order by organisation_id
   `
+  // Start at a random organisation, as the health tick does: a budget that
+  // always ran out at the same point would never report the fleet's tail.
+  // A complete walk is order-independent, so this changes nothing unless
+  // the response is partial.
+  const start = ordered.length ? Math.floor(Math.random() * ordered.length) : 0
+  const organisations = [...ordered.slice(start), ...ordered.slice(0, start)]
+  const deadline = Date.now() + budgetMs()
   const totals: AlertingFields = {
     failedWebhookEvents: 0,
     deadWebhookEvents: 0,
@@ -362,7 +413,12 @@ async function platformHealth() {
     "sweepStalenessSeconds",
     "pendingPurgeAgeSeconds",
   ] as const
+  let organisationsCovered = 0
   for (const organisation of organisations) {
+    // At least one organisation per call, or a budget shorter than one
+    // tenant's read reports nothing and calls it complete.
+    if (organisationsCovered > 0 && Date.now() >= deadline) break
+    organisationsCovered += 1
     const fields = await withTenant(organisation.id, tenantAlerting)
     for (const key of SUMMED) totals[key] += fields[key]
     for (const key of MAXIMISED) {
@@ -372,13 +428,21 @@ async function platformHealth() {
       }
     }
   }
+  // Totals cover only `organisationsCovered` tenants when partial: counters
+  // are lower bounds and the worst-tenant ages may be understated.
+  const coverage: PlatformHealthCoverage = {
+    partial: organisationsCovered < organisations.length,
+    organisationsCovered,
+  }
   return {
     scope: "platform",
     generatedAt: new Date().toISOString(),
     organisationCount: organisations.length,
+    ...coverage,
     ...totals,
     ...(await schedulerLiveness()),
     googleQuota: await googleQuotaPressure(),
+    ...(await platformRelease()),
   }
 }
 

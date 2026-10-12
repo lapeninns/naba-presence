@@ -318,4 +318,211 @@ describeDatabase("organisation invitations", () => {
     `
     expect(user.count).toBe(0)
   })
+
+  // ---------------------------------------------------------------------------
+  // Location scope (supabase 0082): a business workspace can invite a member
+  // or viewer for named listings, and the scope travels with the invitation
+  // onto the membership, in the acceptance transaction.
+  // ---------------------------------------------------------------------------
+
+  async function seedLocation(organisationId: string, name: string) {
+    const id = randomUUID()
+    await admin`
+      insert into location (id, organisation_id, name)
+      values (${id}, ${organisationId}, ${name})
+    `
+    return id
+  }
+
+  async function inviteForLocations(
+    owner: Awaited<ReturnType<typeof createTestTenant>>,
+    body: Record<string, unknown>
+  ) {
+    const email = `harness-scoped-${randomUUID()}@nabapresence.test`
+    const response = await fetch(`${server.baseUrl}/api/invitations`, {
+      method: "POST",
+      headers: { cookie: owner.cookie, "content-type": "application/json" },
+      body: JSON.stringify({ email, role: "member", ...body }),
+    })
+    return {
+      response,
+      body: (await response.json()) as {
+        invitation?: Record<string, unknown>
+        error?: string
+      },
+      email,
+    }
+  }
+
+  async function scopeRow(email: string) {
+    const [row] = await admin<
+      { locationIds: string[] | null; locationScope: string }[]
+    >`
+      select
+        location_ids::text[] as "locationIds",
+        location_scope as "locationScope"
+      from invitation
+      where email = ${email}
+    `
+    return row
+  }
+
+  it("accepts a client-scoped invitation written without a scope, as the deployed code writes it", async () => {
+    // 0082 runs before the release that writes location_scope is deployed;
+    // the older POST sets client_ids and leaves the scope to the default.
+    const owner = await fixture()
+    const email = `old-writer-${randomUUID()}@example.test`
+    await admin`
+      insert into invitation (
+        organisation_id, email, role, token_hash, token_ciphertext,
+        expires_at, client_ids
+      ) values (
+        ${owner.organisationId}, ${email}, 'viewer',
+        ${randomUUID()}, ${Buffer.from("x")},
+        now() + interval '7 days', ${admin.array([randomUUID()])}::uuid[]
+      )
+    `
+    await expect(scopeRow(email)).resolves.toEqual({
+      locationIds: null,
+      locationScope: "assigned",
+    })
+  })
+
+  it("stores an unscoped invitation as scope all and copies it on acceptance", async () => {
+    const owner = await fixture()
+    const { response, body, email } = await createInvitation(owner)
+    expect(response.status, JSON.stringify(body)).toBe(201)
+    expect(body.invitation).toMatchObject({ locationScope: "all" })
+    await expect(scopeRow(email)).resolves.toEqual({
+      locationIds: null,
+      locationScope: "all",
+    })
+    const { provisionAuthenticatedMember } =
+      await import("@/lib/server/provisioning")
+    const accepted = await provisionAuthenticatedMember(
+      acceptorIdentity(email),
+      await invitationByEmail(email),
+      randomUUID()
+    )
+    const [member] = await admin<{ locationScope: string }[]>`
+      select location_scope as "locationScope" from member
+      where organisation_id = ${owner.organisationId}
+        and user_id = ${accepted.userId}
+    `
+    expect(member.locationScope).toBe("all")
+  })
+
+  it("scopes a business invitation to named locations, atomically on acceptance", async () => {
+    const owner = await createTestTenant(admin, { workspaceMode: "business" })
+    organisations.push(owner.organisationId)
+    const flagship = await seedLocation(owner.organisationId, "Flagship")
+    const annexe = await seedLocation(owner.organisationId, "Annexe")
+
+    const { response, body, email } = await inviteForLocations(owner, {
+      canPublish: true,
+      locationIds: [flagship, flagship.toUpperCase()],
+    })
+    expect(response.status, JSON.stringify(body)).toBe(201)
+    expect(body.invitation).toMatchObject({
+      locationScope: "assigned",
+      locations: [{ id: flagship, name: "Flagship" }],
+      clients: null,
+    })
+    await expect(scopeRow(email)).resolves.toEqual({
+      locationIds: [flagship],
+      locationScope: "assigned",
+    })
+
+    const { provisionAuthenticatedMember } =
+      await import("@/lib/server/provisioning")
+    const accepted = await provisionAuthenticatedMember(
+      acceptorIdentity(email),
+      await invitationByEmail(email),
+      randomUUID()
+    )
+    const [member] = await admin<{ locationScope: string }[]>`
+      select location_scope as "locationScope" from member
+      where organisation_id = ${owner.organisationId}
+        and user_id = ${accepted.userId}
+    `
+    expect(member.locationScope).toBe("assigned")
+    const grants = await admin<{ locationId: string; canPublish: boolean }[]>`
+      select location_id::text as "locationId", can_publish as "canPublish"
+      from location_member
+      where organisation_id = ${owner.organisationId}
+        and user_id = ${accepted.userId}
+    `
+    expect(grants).toEqual([{ locationId: flagship, canPublish: true }])
+    expect(grants.some((grant) => grant.locationId === annexe)).toBe(false)
+  })
+
+  it("refuses a location scope on an owner or admin, in an agency workspace, or for another organisation's listing", async () => {
+    const business = await createTestTenant(admin, {
+      workspaceMode: "business",
+    })
+    organisations.push(business.organisationId)
+    const flagship = await seedLocation(business.organisationId, "Flagship")
+
+    const adminInvite = await inviteForLocations(business, {
+      role: "admin",
+      locationIds: [flagship],
+    })
+    expect(adminInvite.response.status).toBe(409)
+    expect(adminInvite.body.error).toBe("role_sees_all_clients")
+
+    const agency = await fixture()
+    const agencyListing = await seedLocation(agency.organisationId, "Agency")
+    const agencyInvite = await inviteForLocations(agency, {
+      locationIds: [agencyListing],
+    })
+    expect(agencyInvite.response.status).toBe(409)
+    expect(agencyInvite.body.error).toBe("wrong_workspace_mode")
+
+    const foreign = await inviteForLocations(business, {
+      locationIds: [agencyListing],
+    })
+    expect(foreign.response.status).toBe(404)
+    expect(foreign.body.error).toBe("location_not_found")
+
+    const both = await inviteForLocations(business, {
+      locationIds: [flagship],
+      clientIds: [randomUUID()],
+    })
+    expect(both.response.status).toBe(400)
+  })
+
+  it("refuses an assigned invitation whose locations have all gone, creating no membership", async () => {
+    const owner = await createTestTenant(admin, { workspaceMode: "business" })
+    organisations.push(owner.organisationId)
+    const flagship = await seedLocation(owner.organisationId, "Flagship")
+    const { response, body, email } = await inviteForLocations(owner, {
+      role: "viewer",
+      locationIds: [flagship],
+    })
+    expect(response.status, JSON.stringify(body)).toBe(201)
+    await admin`delete from location where id = ${flagship}`
+
+    const { provisionAuthenticatedMember } =
+      await import("@/lib/server/provisioning")
+    const invitation = await invitationByEmail(email)
+    await expect(
+      provisionAuthenticatedMember(
+        acceptorIdentity(email),
+        invitation,
+        randomUUID()
+      )
+    ).rejects.toMatchObject({ status: 409, code: "invitation_scope_empty" })
+    const [members] = await admin<{ count: number }[]>`
+      select count(*)::int as count
+      from member m
+      join app_user u on u.id = m.user_id
+      where m.organisation_id = ${owner.organisationId}
+        and lower(u.email) = ${email}
+    `
+    expect(members.count).toBe(0)
+    const [still] = await admin<{ acceptedAt: Date | null }[]>`
+      select accepted_at as "acceptedAt" from invitation where id = ${invitation.id}
+    `
+    expect(still.acceptedAt).toBeNull()
+  })
 })

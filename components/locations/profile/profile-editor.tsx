@@ -241,7 +241,7 @@ function ProfileEditor({
   const valuesDraft = useEditorDraft({
     initial: initialValues,
     revision,
-    key: `location-profile-${locationId}`,
+    scope: { resource: "location-profile", resourceId: locationId, schemaVersion: 1 },
   })
   const {
     draft: values,
@@ -259,7 +259,7 @@ function ProfileEditor({
   const listingDraft = useEditorDraft({
     initial: initialListing,
     revision: business?.locationHash ?? null,
-    key: `location-listing-${locationId}`,
+    scope: { resource: "location-listing", resourceId: locationId, schemaVersion: 1 },
     parseStashed: parseListingDraft,
   })
   const {
@@ -280,7 +280,7 @@ function ProfileEditor({
   const attributesDraft = useEditorDraft<Record<string, GoogleAttribute>>({
     initial: initialAttributes,
     revision: business?.attributesHash ?? null,
-    key: `location-attributes-${locationId}`,
+    scope: { resource: "location-attributes", resourceId: locationId, schemaVersion: 1 },
   })
   const {
     draft: attributes,
@@ -413,7 +413,9 @@ function ProfileEditor({
     list.push({
       key: "profile",
       label: "Publish name, description, phone and website",
-      run: async () => {
+      // Reads Google back and compares the selected fields before success.
+      verified: true,
+      run: async (intent) => {
         const fresh = saved.current ?? profile
         const fields = fresh.fields
           .filter(
@@ -423,7 +425,7 @@ function ProfileEditor({
           .map((field) => field.key)
         // Nothing drifted: the NabaPresence copy already matches Google.
         if (fields.length === 0) return NOTHING_TO_SEND
-        await runProfileOperation(locationId, {
+        const body = {
           direction: "to_google",
           confirmation: "publish_nabapresence_profile_to_google",
           selectedFields: fields,
@@ -431,6 +433,9 @@ function ProfileEditor({
           expectedCanonicalHash: fresh.canonicalHash,
           expectedGoogleHash: fresh.googleHash,
           confirmOverwriteGoogleChanges: needsAck,
+        } as const
+        return runProfileOperation(locationId, body, {
+          intentId: intent.idFor(body),
         })
       },
     })
@@ -438,14 +443,18 @@ function ProfileEditor({
       list.unshift({
         key: "listing",
         label: "Publish Google profile fields",
-        run: async () => {
+        // Business information compares the readback field by field.
+        verified: true,
+        run: async (intent) => {
           const approved = listingReview.approvedBy ? listingReview : await approveBusinessInformation(locationId, listingReview.id, listingReview.payloadHash)
           const change = businessInformationLocationUpdateSchema.parse({
             operation: "update_location", confirmation: "publish_business_information_to_google",
             updateMask: approved.updateMask, payload: approved.payload,
             expectedGoogleHash: approved.baselineHash, changeSetId: approved.id,
           })
-          const result = await publishBusinessInformation(locationId, change)
+          const result = await publishBusinessInformation(locationId, change, {
+            intentId: intent.idFor(change),
+          })
           expectListingSave()
           return result
         },
@@ -455,14 +464,19 @@ function ProfileEditor({
       list.push({
         key: "attributes",
         label: "Publish attributes",
-        run: async () => {
+        // The attribute readback is compared against the approved mask, and
+        // the flow refuses any result that is not confirmed.
+        verified: true,
+        run: async (intent) => {
           const approved = attributeReview.approvedBy ? attributeReview : await approveBusinessAttributes(locationId, attributeReview.id, attributeReview.payloadHash)
           const change = businessInformationAttributeUpdateSchema.parse({
             operation: "update_attributes", confirmation: "publish_business_attributes_to_google",
             attributeMask: approved.updateMask, attributes: approved.payload.attributes,
             expectedGoogleHash: approved.baselineHash, changeSetId: approved.id,
           })
-          const result = await publishBusinessAttributes(locationId, change)
+          const result = await publishBusinessAttributes(locationId, change, {
+            intentId: intent.idFor(change),
+          })
           expectAttributesSave()
           return result
         },
@@ -489,7 +503,13 @@ function ProfileEditor({
       queryKeys.locationProfile(locationId),
       queryKeys.locationBusinessInformation(locationId),
     ],
-    successToast: "Business profile published to Google",
+    successToast: (outcome) => ({
+      outcome,
+      title:
+        outcome === "confirmed_applied"
+          ? "Business profile live on Google"
+          : "Business profile sent to Google",
+    }),
     onSuccess: () => setReviewOpen(false),
   })
 
@@ -510,9 +530,14 @@ function ProfileEditor({
     },
     invalidate: [queryKeys.locationProfile(locationId)],
     onSuccess: () => expectValuesSave(),
-    successToast: listingDirty || attributesDirty
-      ? "Name, description, phone and website saved here. Other profile edits still need review and publication."
-      : "Name, description, phone and website saved here. Not on Google until you publish.",
+    successToast: {
+      outcome: "saved_locally",
+      title: "Name, description, phone and website saved here",
+      description:
+        listingDirty || attributesDirty
+          ? "Other profile edits still need review and publication."
+          : "Not on Google until you publish.",
+    },
     onError: (cause) => {
       const fields = serverFieldErrors(cause)
       if (Object.keys(fields).length > 0) setErrors(fields)

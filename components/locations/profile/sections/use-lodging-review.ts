@@ -32,7 +32,7 @@ export function useLodgingReview(locationId: string, onLock?: (locked: boolean) 
     finally {
       claim.current = false; setBusy(false); onLock?.(unsafe.current)
       setSelectionRevision((value) => value + 1)
-      void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId).slice(0, -1) })
+      void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
       void client.invalidateQueries({ queryKey: [...queryKeys.locationIndustry(locationId), "workflows"] })
     }
   }

@@ -61,8 +61,10 @@ describeDatabase("unified location activity", () => {
     expect(new Set(items.map((item) => item.id)).size).toBe(8)
     expect(items.map((item) => item.source).sort()).toEqual(["hours", "links", "management", "media", "menus", "posts", "profile", "reviews"])
     expect(third.nextCursor).toBeNull()
+    // Offset paging is retired: a `page` from an older client reads the first
+    // page rather than an offset that shifts under inserts.
     const oldPage = await read(f.cookie, f.locationId, "?pageSize=3&page=2")
-    expect(oldPage.items.map((item) => item.id)).toEqual(second.items.map((item) => item.id))
+    expect(oldPage.items.map((item) => item.id)).toEqual(first.items.map((item) => item.id))
   })
 
   it("keeps cursor pages stable across inserts and rejects cross-location or malformed cursors", async () => {

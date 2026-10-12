@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Copy, Mail, RefreshCw, UserPlus } from "lucide-react"
+import { Copy, Mail, RefreshCw, Send, UserPlus } from "lucide-react"
 import { useId, useRef, useState } from "react"
 
 import { RoleCards } from "@/components/settings/member-dialogs"
@@ -52,11 +52,15 @@ import {
 import { useToastManager } from "@/components/ui/toast"
 import { queryKeys } from "@/lib/queries/keys"
 import { useClients } from "@/lib/queries/use-clients"
-import { useInvitations } from "@/lib/queries/use-invitations"
+import {
+  useInvitations,
+  useResendInvitation,
+} from "@/lib/queries/use-invitations"
 import {
   createInvitation,
   revokeInvitation,
   type Invitation,
+  type InvitationDelivery,
 } from "@/lib/api/invitations"
 import { ApiClientError } from "@/lib/api/client"
 import { describeActionError } from "@/lib/errors/action-errors"
@@ -65,6 +69,10 @@ import {
   roleLabel,
   type MemberRole,
 } from "@/lib/settings/forms/invitation"
+import {
+  canResendInvitation,
+  describeInvitationDelivery,
+} from "@/lib/settings/invitation-delivery"
 import { formatDay } from "@/lib/settings/roles"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -107,11 +115,44 @@ function publishHint(role: MemberRole): string {
 }
 
 /**
+ * Whether this organisation's invitations are emailed by the app (the
+ * `invitation_email` feature, read from the invitations list). Off, an
+ * invitation is a link the inviter copies and sends.
+ */
+function useEmailDelivery(): boolean {
+  return useInvitations().data?.emailDelivery === true
+}
+
+/**
+ * The state of an invitation email, as a pill and the sentence under it.
+ * `id` lets the row's Resend button point at it.
+ */
+function DeliveryState({
+  delivery,
+  id,
+}: {
+  delivery: InvitationDelivery | null | undefined
+  id?: string
+}) {
+  const view = describeInvitationDelivery(delivery, formatDay)
+  return (
+    <span className="flex flex-col items-start gap-1" data-slot="invite-delivery">
+      <StatusPill tone={view.tone} dashed={view.dashed}>
+        {view.label}
+      </StatusPill>
+      <span id={id} className="text-caption text-ink-muted">
+        {view.detail}
+      </span>
+    </span>
+  )
+}
+
+/**
  * Invite someone: an email, a role chosen from the role cards, and whether
- * they may publish. Creating an invitation makes a link for you to share —
- * NabaPresence does not email it — and nothing changes until they accept.
- * Values survive a refused submit; a server refusal about the address is
- * shown on the address.
+ * they may publish. Creating an invitation makes a link to share and, when
+ * the organisation emails its invitations, sends it to them as well; nothing
+ * changes until they accept. Values survive a refused submit; a server
+ * refusal about the address is shown on the address.
  *
  * `layout="card"` draws the form as a white card with its own submit
  * (setup); `layout="dialog"` lays it out as a dialog body and footer.
@@ -123,19 +164,55 @@ function publishHint(role: MemberRole): string {
 function CreatedInvite({
   created,
 }: {
-  created: { email: string; role: MemberRole; url: string; access: string }
+  created: {
+    email: string
+    role: MemberRole
+    url: string
+    access: string
+    /** Set when the organisation emails its invitations. */
+    delivery?: InvitationDelivery | null
+  }
 }) {
   const toast = useToastManager()
   const inputRef = useRef<HTMLInputElement>(null)
+  const who = `${created.email} · ${roleLabel(created.role)} · ${created.access}.`
+  const emailed = created.delivery !== undefined
+  const status = created.delivery?.status
   return (
     <div className="flex flex-col gap-3" data-testid="invite-created">
-      <Alert variant="success">
-        <AlertTitle>Invitation ready</AlertTitle>
-        <AlertDescription className="[overflow-wrap:anywhere]">
-          {created.email} · {roleLabel(created.role)} · {created.access}. Send
-          them this link. It works once and expires after 7 days.
-        </AlertDescription>
-      </Alert>
+      {!emailed ? (
+        <Alert variant="success">
+          <AlertTitle>Invitation ready</AlertTitle>
+          <AlertDescription className="[overflow-wrap:anywhere]">
+            {who} Send them this link. It works once and expires after 7 days.
+          </AlertDescription>
+        </Alert>
+      ) : status === "sent" ? (
+        <Alert variant="success">
+          <AlertTitle>Invitation emailed</AlertTitle>
+          <AlertDescription className="[overflow-wrap:anywhere]">
+            {who} We emailed them the link. It works once and expires after 7
+            days; you can also copy it below.
+          </AlertDescription>
+        </Alert>
+      ) : status === "pending" ? (
+        <Alert variant="info">
+          <AlertTitle>Invitation created, email on its way</AlertTitle>
+          <AlertDescription className="[overflow-wrap:anywhere]">
+            {who} The email is queued and Team shows when it goes out. The
+            link below works meanwhile and expires after 7 days.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <Alert variant="warning">
+          <AlertTitle>Invitation created, but the email wasn’t sent</AlertTitle>
+          <AlertDescription className="[overflow-wrap:anywhere]">
+            {who}{" "}
+            {describeInvitationDelivery(created.delivery, formatDay).detail}{" "}
+            The link works once and expires after 7 days.
+          </AlertDescription>
+        </Alert>
+      )}
       <Field>
         <FieldLabel>Invite link</FieldLabel>
         <div className="flex min-w-0 gap-2">
@@ -324,6 +401,7 @@ function InviteForm({
 }) {
   const client = useQueryClient()
   const business = useWorkspaceMode() === "business"
+  const emailDelivery = useEmailDelivery()
   const ids = useId()
   const emailRef = useRef<HTMLInputElement>(null)
   const [email, setEmail] = useState("")
@@ -341,6 +419,7 @@ function InviteForm({
     role: MemberRole
     url: string
     access: string
+    delivery?: InvitationDelivery | null
   } | null>(null)
   // Owners and admins see every client whatever the invitation says. A
   // business invites for every location and narrows access afterwards, from
@@ -370,6 +449,10 @@ function InviteForm({
           result.invitation.clients?.map((client) => client.name),
           business
         ),
+        // Present only when the server queued an email for it.
+        ...(result.invitation.delivery !== undefined
+          ? { delivery: result.invitation.delivery }
+          : {}),
       })
       await client.invalidateQueries({ queryKey: queryKeys.invitations })
     },
@@ -496,8 +579,12 @@ function InviteForm({
   )
 
   const submit = (
-    <Button type="submit" pending={create.isPending} pendingLabel="Creating…">
-      Create invite link
+    <Button
+      type="submit"
+      pending={create.isPending}
+      pendingLabel={emailDelivery ? "Sending…" : "Creating…"}
+    >
+      {emailDelivery ? "Send invitation" : "Create invite link"}
     </Button>
   )
 
@@ -572,14 +659,16 @@ export function InviteDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const emailDelivery = useEmailDelivery()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Invite a teammate</DialogTitle>
           <DialogDescription>
-            You get a link to send them; NabaPresence doesn’t email it. Nothing
-            changes until they accept, and the link expires after 7 days.
+            {emailDelivery
+              ? "We email them a link to join, and you get a copy of it too. Nothing changes until they accept, and the link expires after 7 days."
+              : "You get a link to send them; NabaPresence doesn’t email it. Nothing changes until they accept, and the link expires after 7 days."}
           </DialogDescription>
         </DialogHeader>
         {/* Stays open on success to show the link; Done closes it. */}
@@ -592,14 +681,40 @@ export function InviteDialog({
 /**
  * The invitations nobody has accepted yet (reference `invites-table`):
  * address and when it was created, role, publishing, whether the link still
- * works, and Copy link / Revoke. Labelled rows under 720px.
+ * works, and Copy link / Revoke. When the organisation emails its
+ * invitations, each row also says where its email stands and offers Resend
+ * (not while a send is queued, nor once the link has expired). Copy link
+ * stays the fallback whatever the email did. Labelled rows under 720px.
  */
 export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
   const business = useWorkspaceMode() === "business"
+  const emailDelivery = query.data?.emailDelivery === true
   const client = useQueryClient()
   const toast = useToastManager()
   const [revokeTarget, setRevokeTarget] = useState<Invitation | null>(null)
+  const resend = useResendInvitation()
+  const resendInvitation = (invitation: Invitation) =>
+    resend.mutate(invitation.id, {
+      onSuccess: ({ delivery }) => {
+        const view = describeInvitationDelivery(delivery, formatDay)
+        toast.add({
+          title:
+            delivery.status === "sent"
+              ? `Invitation emailed to ${invitation.email}`
+              : delivery.status === "pending"
+                ? `Invitation email to ${invitation.email} is queued`
+                : `The email to ${invitation.email} wasn’t sent`,
+          description: view.detail,
+          type:
+            delivery.status === "sent" || delivery.status === "pending"
+              ? "success"
+              : "error",
+        })
+      },
+      onError: (error) =>
+        toast.add({ title: describeActionError(error), type: "error" }),
+    })
 
   const revoke = useMutation({
     mutationFn: (id: string) => revokeInvitation(id),
@@ -669,6 +784,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
             <TableHead>Role</TableHead>
             <TableHead>Publishing</TableHead>
             <TableHead>Status</TableHead>
+            {emailDelivery ? <TableHead>Email</TableHead> : null}
             <TableHead>
               <span className="sr-only">Actions</span>
             </TableHead>
@@ -735,8 +851,40 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                     </span>
                   </span>
                 </TableCell>
+                {emailDelivery ? (
+                  <TableCell label="Email">
+                    <DeliveryState
+                      delivery={invitation.delivery}
+                      id={`invite-delivery-${invitation.id}`}
+                    />
+                  </TableCell>
+                ) : null}
                 <TableCell data-actions="" className="text-right">
                   <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
+                    {emailDelivery ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        aria-label={`Resend invitation email to ${invitation.email}`}
+                        aria-describedby={`invite-delivery-${invitation.id}`}
+                        pending={
+                          resend.isPending &&
+                          resend.variables === invitation.id
+                        }
+                        pendingLabel="Sending…"
+                        disabledReason={
+                          expired
+                            ? "This link has expired. Revoke it and invite them again."
+                            : !canResendInvitation(invitation.delivery)
+                              ? "An email for this invitation is still being sent."
+                              : undefined
+                        }
+                        onClick={() => resendInvitation(invitation)}
+                      >
+                        <Send aria-hidden />
+                        Resend
+                      </Button>
+                    ) : null}
                     {invitation.inviteUrl ? (
                       <Button
                         variant="secondary"

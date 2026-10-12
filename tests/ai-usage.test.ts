@@ -2,17 +2,32 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { PGlite } from "@electric-sql/pglite"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 vi.mock("server-only", () => ({}))
 
-import { extractUsage } from "@/lib/server/ai"
-import { recordAiUsage, recordAiUsageDetached } from "@/lib/server/ai-usage"
+const env = {
+  AI_MONTHLY_DRAFT_CREDITS: 5,
+  AI_MONTHLY_TOKEN_BACKSTOP: 1_000_000,
+  AI_MAX_OUTPUT_TOKENS: 100,
+}
+vi.mock("@/lib/server/env", () => ({ getServerEnv: () => env }))
 
-const migration = readFileSync(
-  join(process.cwd(), "supabase/migrations/0059_ai_credits.sql"),
-  "utf8"
-)
+import { extractUsage } from "@/lib/server/ai"
+import { callTokenBudget, getAiCredits } from "@/lib/server/ai-credits"
+import { finishVerifyUsage, reserveVerifyUsage } from "@/lib/server/ai-usage"
+
+const read = (name: string) =>
+  readFileSync(join(process.cwd(), "supabase/migrations", name), "utf8")
+const migration = read("0059_ai_credits.sql")
 const ORG = "00000000-0000-4000-8000-00000000000a"
 
 describe("extractUsage", () => {
@@ -21,7 +36,7 @@ describe("extractUsage", () => {
       extractUsage({ usage: { input_tokens: 120, output_tokens: 33 } })
     ).toEqual({ inputTokens: 120, outputTokens: 33 })
   })
-  it("reads Workers AI chat completions token counts", () => {
+  it("reads chat-completions-shaped token counts", () => {
     expect(
       extractUsage({ usage: { prompt_tokens: 120, completion_tokens: 33 } })
     ).toEqual({ inputTokens: 120, outputTokens: 33 })
@@ -34,8 +49,27 @@ describe("extractUsage", () => {
   })
 })
 
-describe("0059 ai_usage", () => {
+describe("verification usage", () => {
   let db: PGlite
+  // Adapt the postgres.js tagged template to PGlite (rows array result).
+  const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let text = strings[0]
+    values.forEach((_v, i) => {
+      text += "$" + (i + 1) + strings[i + 1]
+    })
+    return (await db.query(text, values)).rows
+  }) as never
+  const tenant = (async (fn: (s: never) => unknown) => fn(sql)) as never
+  const reserve = (requestKey = `req-${crypto.randomUUID()}:verification`) =>
+    reserveVerifyUsage(sql, {
+      organisationId: ORG,
+      model: "m",
+      reviewId: null,
+      draftId: null,
+      requestKey,
+      userId: null,
+    })
+
   beforeAll(async () => {
     db = new PGlite()
     await db.exec(
@@ -43,14 +77,27 @@ describe("0059 ai_usage", () => {
         "create table schema_migration (version text primary key);" +
         "create table organisation (id uuid primary key);" +
         "create table app_user (id uuid primary key);" +
+        "create table location_link (id uuid primary key default gen_random_uuid(), organisation_id uuid not null, location_id uuid not null, external_location_id uuid not null, is_active boolean not null default true);" +
         "insert into organisation (id) values ('" +
         ORG +
         "');"
     )
     await db.exec(migration)
+    await db.exec(read("0107_billing_foundation.sql"))
+    await db.exec(read("0108_billing_period_checks.sql"))
+    await db.exec(read("0110_entitlement_enforcement.sql"))
+    await db.exec(read("0115_ai_credit_adjustments.sql"))
   })
   afterAll(async () => {
     await db.close()
+  })
+  beforeEach(async () => {
+    await db.exec("delete from ai_usage; delete from ai_credit_period;")
+    await db.exec(`
+      delete from organisation_billing;
+      insert into organisation_billing (organisation_id, state) values ('${ORG}', 'pilot');
+    `)
+    env.AI_MONTHLY_TOKEN_BACKSTOP = 1_000_000
   })
 
   it("forces tenant isolation and adds the override column", () => {
@@ -58,81 +105,74 @@ describe("0059 ai_usage", () => {
     expect(migration).toContain("ai_monthly_draft_credits integer")
   })
 
-  it("records a settled row for the UTC month", async () => {
-    // Adapt the postgres.js tagged template to PGlite.
-    const sql = (async (
-      strings: TemplateStringsArray,
-      ...values: unknown[]
-    ) => {
-      let text = strings[0]
-      values.forEach((_v, i) => {
-        text += "$" + (i + 1) + strings[i + 1]
-      })
-      return db.query(text, values)
-    }) as never
-    await recordAiUsage(sql, {
-      organisationId: ORG,
-      kind: "draft",
-      credits: 1,
-      model: "m",
+  it("links a verify row to the current period and settles it at no credit", async () => {
+    const reservation = await reserve()
+    if ("refused" in reservation) throw new Error("expected a reservation")
+    const { periodId } = await getAiCredits(sql, ORG)
+    expect(reservation.periodId).toBe(periodId)
+    await finishVerifyUsage(tenant, {
+      id: reservation.id,
       usage: { inputTokens: 10, outputTokens: 5 },
+      model: "m2",
     })
-    const { rows } = await db.query(`select status, credits, input_tokens,
-        settled_at is not null as settled,
-        period_start = date_trunc('month', now() at time zone 'utc')::date as period_ok
+    const { rows } = await db.query(`select kind, status, credits, input_tokens,
+        model, credit_period_id::text as period, settled_at is not null as settled,
+        period_start = date_trunc('month', now() at time zone 'utc')::date as month_ok
         from ai_usage`)
     expect(rows).toEqual([
       {
+        kind: "verify",
         status: "settled",
-        credits: 1,
+        credits: 0,
         input_tokens: 10,
+        model: "m2",
+        period: periodId,
         settled: true,
-        period_ok: true,
+        month_ok: true,
       },
     ])
+    expect((await getAiCredits(sql, ORG)).used).toBe(0)
   })
 
-  it("ignores a repeated request_id for the same kind", async () => {
-    const sql = (async (
-      strings: TemplateStringsArray,
-      ...values: unknown[]
-    ) => {
-      let text = strings[0]
-      values.forEach((_v, i) => {
-        text += "$" + (i + 1) + strings[i + 1]
-      })
-      return db.query(text, values)
-    }) as never
-    const input = {
-      organisationId: ORG,
-      kind: "verify" as const,
-      credits: 0,
-      model: "m",
-      usage: { inputTokens: 1, outputTokens: 1 },
-      requestId: "req-1",
-    }
-    await recordAiUsage(sql, input)
-    await recordAiUsage(sql, input)
-    const { rows } = await db.query(
-      "select count(*)::int as n from ai_usage where request_id = 'req-1'"
-    )
+  it("releases a reservation the provider returned no usage for", async () => {
+    const reservation = await reserve()
+    if ("refused" in reservation) throw new Error("expected a reservation")
+    await finishVerifyUsage(tenant, { id: reservation.id })
+    const { rows } = await db.query("select status, credits from ai_usage")
+    expect(rows).toEqual([{ status: "released", credits: 0 }])
+  })
+
+  it("reserves nothing for a repeated request key, and says so", async () => {
+    expect(await reserve("same")).toHaveProperty("id")
+    // A reused key is told apart from the backstop: the caller fails closed.
+    expect(await reserve("same")).toEqual({ refused: "duplicate" })
+    const { rows } = await db.query("select count(*)::int as n from ai_usage")
     expect(rows).toEqual([{ n: 1 }])
   })
 
+  it("refuses a call that could pass the backstop", async () => {
+    env.AI_MONTHLY_TOKEN_BACKSTOP = callTokenBudget()
+    expect(await reserve()).not.toHaveProperty("refused")
+    // The first call's budget is still held, so a second would pass it.
+    expect(await reserve()).toEqual({ refused: "backstop" })
+  })
+
+  it("records against no period when the organisation has none", async () => {
+    await db.exec("delete from organisation_billing")
+    const reservation = await reserve()
+    expect(reservation).toEqual({ id: expect.any(String), periodId: null })
+  })
+
   it("never throws when the ledger write fails", async () => {
-    const tenant = (async () => {
+    const failing = (async () => {
       throw new Error("relation ai_usage does not exist")
     }) as never
     await expect(
-      recordAiUsageDetached(tenant, [
-        {
-          organisationId: ORG,
-          kind: "draft",
-          credits: 1,
-          model: "m",
-          usage: { inputTokens: null, outputTokens: null },
-        },
-      ])
+      finishVerifyUsage(failing, {
+        id: crypto.randomUUID(),
+        usage: { inputTokens: 1, outputTokens: 1 },
+        model: "m",
+      })
     ).resolves.toBeUndefined()
   })
 

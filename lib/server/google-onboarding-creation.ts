@@ -8,15 +8,18 @@ import { onboardingPayloadMatches } from "@/lib/domain/google-onboarding-confirm
 import { writeAudit } from "./audit"
 import { auditExtendedGrants, extendClientHolders } from "./client-access"
 import { getDatabase, jsonColumn, withTenant } from "./db"
-import { gbpWritesEnabled, getServerEnv } from "./env"
 import { stableGoogleHash } from "./gbp-management"
 import { connectionAccessToken, createGoogleLocation, getGoogleLocation, GoogleMutationAmbiguousError } from "./google"
 import { searchOnboardingMatches } from "./google-onboarding"
 import { checkedOnboardingDraft, requireNoOnboardingMatchLink } from "./google-onboarding-drafts"
 import { checkedOnboardingReview } from "./google-onboarding-reviews"
 import { requireOnboardingServiceSupport } from "./google-onboarding-services"
-import { ApiError } from "./http"
+import { assertNewLocationSeat } from "./entitlement-policy"
+import { ApiError, locationLimitError } from "./http"
+import { gbpWriteScopes, loadPauseSnapshot, requireScopesEnabled, type PausedError } from "./pause-controls"
 import type { Session } from "./session"
+
+const ONBOARDING_PAUSED: PausedError = { code: "google_writes_paused", message: "Google listing writes are paused." }
 
 type CreationRow = {
   id: string; draft_id: string; review_id: string; review_hash: string;
@@ -86,11 +89,14 @@ export async function submitOnboardingCreation(session: Session, accountId: stri
   })
   if (initial.existing) return project(initial.existing)
   const review = initial.review!
-  if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google listing writes are paused.")
+  await requireScopesEnabled(gbpWriteScopes("profileWrites"), ONBOARDING_PAUSED)
   const matches = await searchOnboardingMatches(session, accountId, { connectionId: review.frozen.connectionId, clientId: review.frozen.clientId ?? undefined, pageSize: 10, search: { kind: "location", location: businessInformationPayloadSchema.strip().parse(review.frozen.payload) } })
   if (stableGoogleHash(matches.matches) !== stableGoogleHash(review.frozen.matchResult.matches)) throw new ApiError(409, "onboarding_matches_changed", "Google's matches changed after approval. Search and review again.")
   const token = await connectionAccessToken(getDatabase(), session.organisationId, review.frozen.connectionId)
   await requireOnboardingServiceSupport(token, review.frozen.payload, review.frozen.connectionId)
+  // Read before the claim transaction: a pooled read inside it could wait on
+  // the connection the transaction itself holds (lib/server/db.ts).
+  const pauses = await loadPauseSnapshot()
   const claimed = await withTenant(session.organisationId, async (sql) => {
     await checkedOnboardingDraft(sql, session, accountId, draftId)
     await requireNoOnboardingMatchLink(sql, draftId)
@@ -101,7 +107,10 @@ export async function submitOnboardingCreation(session: Session, accountId: stri
       return { row: existing, execute: false }
     }
     if (!current.approved_by || current.review_hash !== expectedReviewHash) throw new ApiError(409, "approval_stale", "The creation approval changed. Review again.")
-    if (!gbpWritesEnabled(getServerEnv(), "profileWrites")) throw new ApiError(503, "google_writes_paused", "Google listing writes are paused.")
+    await requireScopesEnabled(gbpWriteScopes("profileWrites"), ONBOARDING_PAUSED, { snapshot: pauses })
+    // Creating the Google location cannot be undone, so check the plan's
+    // location limit before it, not only when linking (0110 trigger).
+    await assertNewLocationSeat(sql, session.organisationId)
     await sql`insert into google_onboarding_creation (organisation_id, draft_id, review_id, review_hash, actor_user_id) values (${session.organisationId}, ${draftId}, ${reviewId}, ${expectedReviewHash}, ${session.userId})`
     await writeAudit(sql, { organisationId: session.organisationId, actorUserId: session.userId, action: "google.onboarding.creation_started", subjectType: "google_onboarding_draft", subjectId: draftId, requestId, metadata: { reviewId, providerRequestId: current.frozen.providerRequestId } })
     return { row: (await load(sql, draftId))!, execute: true }
@@ -160,9 +169,11 @@ export async function linkOnboardingCreation(session: Session, accountId: string
       return project((await load(sql, draftId))!)
     })
   } catch (error) {
+    // The location limit trigger (0110) records as location_limit_reached,
+    // so the UI can explain it; linking can be retried once a seat frees.
     return withTenant(session.organisationId, async (sql) => {
       await checkedOnboardingDraft(sql, session, accountId, draftId)
-      await sql`update google_onboarding_creation set link_state = 'failed', error_code = ${error instanceof ApiError ? error.code : "onboarding_local_link_failed"}, updated_at = now() where draft_id = ${draftId} and link_state <> 'linked'`
+      await sql`update google_onboarding_creation set link_state = 'failed', error_code = ${(locationLimitError(error) ?? (error instanceof ApiError ? error : null))?.code ?? "onboarding_local_link_failed"}, updated_at = now() where draft_id = ${draftId} and link_state <> 'linked'`
       return project((await load(sql, draftId))!)
     })
   }

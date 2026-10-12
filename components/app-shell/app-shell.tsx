@@ -7,6 +7,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
+import { MfaStepUpPrompt } from "@/components/auth/mfa-step-up-prompt"
 import { BrandMark } from "@/components/app-shell/brand-mark"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchReviewCounts } from "@/lib/api/review-counts"
@@ -20,6 +21,7 @@ import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 import { AccountMenu } from "./account-menu"
+import { BillingBanner } from "./billing-banner"
 import { ClientScopeRoot, useRememberedClient } from "./client-context"
 import { ImpersonationBanner } from "./impersonation-banner"
 import { Nav } from "./nav"
@@ -112,12 +114,14 @@ function SidebarNav({
   rail,
   role,
   mode,
+  hideCalendar,
 }: {
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail: boolean
   role: string | null
   mode: WorkspaceMode
+  hideCalendar: boolean
 }) {
   const clients = useClients()
   const needsReply = useNeedsReplyCount()
@@ -126,6 +130,7 @@ function SidebarNav({
     <Nav
       role={role}
       mode={mode}
+      hideCalendar={hideCalendar}
       scopeClientId={mode === "business" ? null : remembered}
       onNavigate={onNavigate}
       layout={layout}
@@ -156,6 +161,7 @@ function SidebarBody({
   organisationName,
   role,
   mode,
+  hideCalendar,
   onNavigate,
   layout,
   rail = false,
@@ -166,6 +172,7 @@ function SidebarBody({
   organisationName: string | null
   role: string | null
   mode: WorkspaceMode
+  hideCalendar: boolean
   onNavigate?: () => void
   layout: "full" | "responsive"
   rail?: boolean
@@ -214,6 +221,7 @@ function SidebarBody({
             rail={rail}
             role={role}
             mode={mode}
+            hideCalendar={hideCalendar}
           />
         ) : null}
       </div>
@@ -296,9 +304,15 @@ function NavigationSheet({
 function AppShell({
   session,
   rememberedClientId = null,
+  hideCalendar = false,
   children,
 }: {
   session: ShellSession | null
+  /**
+   * The organisation's `post_scheduling` feature is off (the layout reads
+   * it), so the Calendar destination is left out of the navigation.
+   */
+  hideCalendar?: boolean
   /**
    * The client-scope cookie as the layout read it (lib/clients/scope.ts),
    * so the sidebar's links and the switcher render the same on the server
@@ -369,6 +383,7 @@ function AppShell({
               organisationName={organisationName}
               role={role}
               mode={mode}
+              hideCalendar={hideCalendar}
               layout="responsive"
               rail={rail}
             />
@@ -386,6 +401,7 @@ function AppShell({
                 organisationName={organisationName}
                 role={role}
                 mode={mode}
+                hideCalendar={hideCalendar}
                 layout="full"
                 onNavigate={() => setMobileNavOpen(false)}
                 closeButton={closeButton}
@@ -411,8 +427,10 @@ function AppShell({
                 organisationName={session.organisationName}
               />
             ) : null}
+            {sessionReady ? <BillingBanner /> : null}
             {sessionReady ? <ReconnectBanner /> : null}
             {sessionReady ? <ShellOAuthReturn /> : null}
+            {sessionReady ? <MfaStepUpPrompt /> : null}
 
             <div className="flex min-h-0 flex-1 flex-col">
               {sessionReady ? children : null}

@@ -169,10 +169,31 @@ async function reconcileResource(
     }
     return bundle.state
   }
-  if (resource === "posts")
-    return listLocalPosts(session.organisationId, session, locationId)
+  if (resource === "posts") {
+    // listLocalPosts swallows a failed Google read so the posts page can
+    // still render its cached rows; the sweep must not. Cached rows served
+    // after a provider error are not an observation, so the attempt records
+    // as failed and last_succeeded_at keeps the last real read.
+    const listed = await listLocalPosts(
+      session.organisationId,
+      session,
+      locationId
+    )
+    if (listed.reconciliationError) {
+      throw new ApiError(
+        502,
+        listed.reconciliationError,
+        "Google posts could not be refreshed."
+      )
+    }
+    return listed
+  }
   if (resource === "media")
-    return loadMedia(session.organisationId, session, locationId)
+    // Forced past the five-minute cache: without it a sweep landing inside
+    // the TTL read nothing from Google and still stamped last_succeeded_at.
+    return loadMedia(session.organisationId, session, locationId, {
+      refresh: true,
+    })
   if (resource === "foodMenus") {
     const live = await readLiveFoodMenus(session, locationId)
     if (getServerEnv().IMPORT_REVIEW_ENABLED) {

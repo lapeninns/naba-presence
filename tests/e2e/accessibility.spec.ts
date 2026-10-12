@@ -677,8 +677,12 @@ for (const theme of themes) {
               used: 3,
               allowance: 100,
               remaining: 97,
-              periodStart: "2026-07-01",
-              resetsAt: "2026-08-01T00:00:00.000Z",
+              periodId: "00000000-0000-4000-8000-0000000000e1",
+              periodKind: "pilot_month",
+              periodStart: "2026-07-01T00:00:00.000Z",
+              periodEnd: "2026-08-01T00:00:00.000Z",
+              canUseAi: true,
+              accessReason: "pilot",
             },
           })
         })
@@ -1441,6 +1445,10 @@ for (const theme of themes) {
                   displayName: "Alex Morgan",
                   role: "owner",
                   canPublish: true,
+                  // memberSchema requires the explicit membership scope;
+                  // without it the whole list fails to parse and Team shows
+                  // its "couldn't load your team" alert instead of rows.
+                  locationScope: "all",
                   createdAt: "2026-07-01T09:00:00.000Z",
                   locations: [],
                 },
@@ -1460,7 +1468,11 @@ for (const theme of themes) {
                   email: "invitee@example.com",
                   role: "member",
                   canPublish: false,
-                  expiresAt: "2026-08-05T09:00:00.000Z",
+                  // Always a week ahead: a fixed date expires and turns the
+                  // row into the expired state this check does not cover.
+                  expiresAt: new Date(
+                    Date.now() + 7 * 24 * 60 * 60 * 1000
+                  ).toISOString(),
                   acceptedAt: null,
                   createdAt: "2026-07-29T09:00:00.000Z",
                   inviteUrl:

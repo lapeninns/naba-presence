@@ -1,6 +1,8 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { presenceResponseSchema } from "@/lib/contracts/analytics"
+
 import { startAppServer } from "../helpers/app-server"
 import { startGoogleStub, type GoogleStub } from "../helpers/google-stub"
 import {
@@ -226,6 +228,84 @@ describeDatabase("Google Performance analytics", () => {
     expect(failureAudit.count).toBe(1)
   }, 30_000)
 
+  it("reports a failed location as partial at its older watermark, never as zero", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const seed = {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    }
+    const fresh = await seedLinkedLocation(admin, seed)
+    const failing = await seedLinkedLocation(admin, seed)
+    // The failing location was complete through ten days ago; its next
+    // refresh is refused, and that watermark must survive the failure.
+    const olderDate = new Date(Date.now() - 10 * DAY_MS)
+      .toISOString()
+      .slice(0, 10)
+    await admin`
+      insert into sync_checkpoint (
+        organisation_id, external_location_id, sync_type, status,
+        next_attempt_at, last_metric_date, last_succeeded_at
+      )
+      values (
+        ${owner.organisationId}, ${failing.externalLocationId}, 'performance',
+        'succeeded', now(), ${olderDate}::date, now() - interval '10 days'
+      )
+    `
+    google.reset()
+    google.respond(
+      { method: "GET", pathIncludes: ":fetchMultiDailyMetricsTimeSeries" },
+      (call) =>
+        call.path.includes(failing.googleLocationName)
+          ? {
+              status: 403,
+              json: {
+                error: {
+                  status: "PERMISSION_DENIED",
+                  message: "The caller does not have permission.",
+                },
+              },
+            }
+          : {
+              status: 200,
+              json: { multiDailyMetricTimeSeries: [series("CALL_CLICKS", 4)] },
+            }
+    )
+    const sync = await fetch(`${server.baseUrl}/api/sync/performance`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie),
+      body: JSON.stringify({}),
+    })
+    expect(sync.status, await sync.clone().text()).toBe(200)
+
+    const response = await fetch(
+      `${server.baseUrl}/api/analytics/presence?range=28d`,
+      { headers: { cookie: owner.cookie } }
+    )
+    expect(response.status, await response.clone().text()).toBe(200)
+    const report = presenceResponseSchema.parse(await response.json())
+    expect(report.state).toBe("ready")
+    expect(report.totals.CALL_CLICKS).toBe(4)
+    expect(report.totals.WEBSITE_CLICKS).toBeNull()
+    // freshThrough stays the newest date; completeThrough is the oldest.
+    expect(report.freshThrough! > olderDate).toBe(true)
+    expect(report.completeness).toMatchObject({
+      state: "partial",
+      expected: 2,
+      covered: 2,
+      completeThrough: olderDate,
+      missing: [],
+      refreshFailed: [{ id: failing.locationId }],
+    })
+    expect(
+      report.completeness!.refreshFailed.map((location) => location.id)
+    ).not.toContain(fresh.locationId)
+  }, 30_000)
+
   it("re-requests every day back to a stale watermark", async () => {
     const owner = await createTestTenant(admin)
     organisations.push(owner.organisationId)
@@ -329,6 +409,75 @@ describeDatabase("Google Performance analytics", () => {
       // The cursor used to be returned only on a full page, so a fleet larger
       // than maxOrganisations never got past its first page.
       expect(body.nextCursor).not.toBeNull()
+    } finally {
+      await budgetServer.stop()
+    }
+  }, 60_000)
+
+  it("stops an owner's refresh at the budget inside the organisation", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const seed = {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    }
+    const locations = [
+      await seedLinkedLocation(admin, seed),
+      await seedLinkedLocation(admin, seed),
+    ]
+    google.respond(
+      { method: "GET", pathIncludes: ":fetchMultiDailyMetricsTimeSeries" },
+      () => ({
+        status: 200,
+        json: { multiDailyMetricTimeSeries: [series("CALL_CLICKS", 3)] },
+      })
+    )
+    // A 1ms budget is already spent by the first claim: the walk must take
+    // that one location and stop, rather than draining every due location
+    // past the deadline while it holds the fleet lease.
+    const budgetServer = await startAppServer({
+      GOOGLE_API_PROXY_BASE: google.baseUrl,
+      GBP_PERFORMANCE_ENABLED: "true",
+      PERFORMANCE_BUDGET_MS: "1",
+    })
+    try {
+      const response = await fetch(
+        `${budgetServer.baseUrl}/api/sync/performance`,
+        {
+          method: "POST",
+          headers: jsonHeaders(owner.cookie),
+          body: JSON.stringify({ maxLocations: 25 }),
+        }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const body = (await response.json()) as {
+        organisations: Array<{ outcomes: unknown[] }>
+        truncated: boolean
+        nextCursor: string | null
+      }
+      expect(body.truncated).toBe(true)
+      expect(body.organisations).toHaveLength(1)
+      expect(body.organisations[0].outcomes).toHaveLength(1)
+      // A session refresh never hands out a fleet cursor.
+      expect(body.nextCursor).toBeNull()
+
+      // The location it did not reach is still due, not leased.
+      const checkpoints = await admin<{ status: string }[]>`
+        select status from sync_checkpoint
+        where organisation_id = ${owner.organisationId}
+          and sync_type = 'performance'
+          and external_location_id in ${admin(
+            locations.map((location) => location.externalLocationId)
+          )}
+        order by status`
+      expect(checkpoints.map((row) => row.status).sort()).toEqual([
+        "pending",
+        "succeeded",
+      ])
     } finally {
       await budgetServer.stop()
     }

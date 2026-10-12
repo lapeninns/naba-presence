@@ -7,6 +7,10 @@ import { useState } from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
+import {
+  PartialCoverageAlert,
+  RefreshFailedNote,
+} from "@/components/reporting/partial-coverage-alert"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
@@ -166,22 +170,40 @@ export function KeywordsTab({
     // server saying Google has not reported anything for this window yet
     // (app/api/analytics/presence/route.ts), so a skeleton here would spin
     // until the operator gave up and reloaded.
-    return frame(<ReportingPanel framed variant="collecting" />)
+    return frame(
+      <>
+        {/* No keywords yet: still name each location and why. */}
+        <PartialCoverageAlert completeness={data.completeness} />
+        <ReportingPanel framed variant="collecting" />
+      </>
+    )
   if (data.state === "unavailable")
     return frame(
-      <UnavailableAlert
-        codes={
-          data.unavailableReasons.length
-            ? data.unavailableReasons
-            : ["keyword_sync_failed"]
-        }
-        title="Some keywords could not be refreshed"
-      />
+      <>
+        <UnavailableAlert
+          codes={
+            data.unavailableReasons.length
+              ? data.unavailableReasons
+              : ["keyword_sync_failed"]
+          }
+          title="Some keywords could not be refreshed"
+        >
+          <RefreshFailedNote completeness={data.completeness} />
+        </UnavailableAlert>
+        <PartialCoverageAlert
+          completeness={data.completeness}
+          refreshFailedShownElsewhere
+        />
+      </>
     )
+  // One failure, one warning: the failed locations go into the alert that
+  // already says why, when it shows.
+  const failureExplained = data.unavailableReasons.length > 0
   if (data.keywords.length === 0)
     return frame(
       <>
         {note}
+        <PartialCoverageAlert completeness={data.completeness} />
         <ReportingPanel
           framed
           variant="empty"
@@ -206,6 +228,12 @@ export function KeywordsTab({
       <UnavailableAlert
         codes={data.unavailableReasons}
         title="Some keywords could not be refreshed"
+      >
+        <RefreshFailedNote completeness={data.completeness} />
+      </UnavailableAlert>
+      <PartialCoverageAlert
+        completeness={data.completeness}
+        refreshFailedShownElsewhere={failureExplained}
       />
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Input

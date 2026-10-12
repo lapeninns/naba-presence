@@ -18,6 +18,17 @@ export { MEMBER_ROLES }
 export type { MemberRole }
 export const memberRoleSchema = z.enum(MEMBER_ROLES)
 
+/**
+ * Which locations a membership covers (supabase 0082): `all` is every
+ * location of the organisation, `assigned` is exactly its location_member
+ * rows, and none when there are none. Owners and admins are always `all`.
+ * Stored beside the rows and written with them; lib/server/permissions.ts
+ * decides visibility from it (no rows never means every location).
+ */
+export const LOCATION_SCOPES = ["all", "assigned"] as const
+export const locationScopeSchema = z.enum(LOCATION_SCOPES)
+export type LocationScope = z.infer<typeof locationScopeSchema>
+
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
@@ -44,6 +55,8 @@ export const memberSchema = z.object({
   displayName: z.string(),
   role: memberRoleSchema,
   canPublish: z.boolean(),
+  /** Which locations the membership covers; never inferred from `locations`. */
+  locationScope: locationScopeSchema,
   createdAt: z.string(),
   locations: z.array(
     z.object({
@@ -83,6 +96,7 @@ export const memberUpdatedResponseSchema = z.object({
     userId: z.string(),
     role: memberRoleSchema,
     canPublish: z.boolean(),
+    locationScope: locationScopeSchema.optional(),
     createdAt: z.string(),
   }),
 })

@@ -4,6 +4,10 @@ import { Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
+import {
+  PartialCoverageAlert,
+  RefreshFailedNote,
+} from "@/components/reporting/partial-coverage-alert"
 import { PresenceProvenance } from "@/components/reporting/presence-provenance"
 import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
@@ -139,7 +143,13 @@ export function GooglePerformanceTab({
     // server saying Google has not reported anything for this window yet
     // (app/api/analytics/presence/route.ts), so a skeleton here would spin
     // until the operator gave up and reloaded.
-    return frame(<ReportingPanel framed variant="collecting" />)
+    return frame(
+      <>
+        {/* No figures yet: still name each location and why. */}
+        <PartialCoverageAlert completeness={data.completeness} />
+        <ReportingPanel framed variant="collecting" />
+      </>
+    )
   if (data.state === "unavailable")
     return frame(
       <>
@@ -150,6 +160,12 @@ export function GooglePerformanceTab({
               : ["performance_sync_failed"]
           }
           title="Some figures could not be refreshed"
+        >
+          <RefreshFailedNote completeness={data.completeness} />
+        </UnavailableAlert>
+        <PartialCoverageAlert
+          completeness={data.completeness}
+          refreshFailedShownElsewhere
         />
         <ReportingPanel
           framed
@@ -162,23 +178,29 @@ export function GooglePerformanceTab({
     )
   if (data.state === "empty")
     return frame(
-      <ReportingPanel
-        framed
-        variant="empty"
-        title="No activity yet"
-        description={`Google has not reported any visibility data for ${period}.`}
-        action={
-          // A short window on a quiet listing is often empty; a longer one
-          // usually is not, and is one press away.
-          rangeId === "28d" || rangeId === "90d" ? (
-            <Button variant="secondary" onClick={() => setRangeId("12m")}>
-              Show the last 12 months
-            </Button>
-          ) : undefined
-        }
-      />
+      <>
+        <PartialCoverageAlert completeness={data.completeness} />
+        <ReportingPanel
+          framed
+          variant="empty"
+          title="No activity yet"
+          description={`Google has not reported any visibility data for ${period}.`}
+          action={
+            // A short window on a quiet listing is often empty; a longer one
+            // usually is not, and is one press away.
+            rangeId === "28d" || rangeId === "90d" ? (
+              <Button variant="secondary" onClick={() => setRangeId("12m")}>
+                Show the last 12 months
+              </Button>
+            ) : undefined
+          }
+        />
+      </>
     )
 
+  // One failure, one warning: the failed locations go into the alert that
+  // already says why, when it shows.
+  const failureExplained = data.unavailableReasons.length > 0
   return frame(
     <>
       {/* Partial data: the report is ready, but some locations' latest
@@ -186,6 +208,13 @@ export function GooglePerformanceTab({
       <UnavailableAlert
         codes={data.unavailableReasons}
         title="Some figures could not be refreshed"
+      >
+        <RefreshFailedNote completeness={data.completeness} />
+      </UnavailableAlert>
+      {/* Expected vs covered: missing locations are named, never zero. */}
+      <PartialCoverageAlert
+        completeness={data.completeness}
+        refreshFailedShownElsewhere={failureExplained}
       />
       <PresenceFigures data={data} />
     </>

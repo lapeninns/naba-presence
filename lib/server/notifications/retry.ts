@@ -7,15 +7,21 @@ import { withTenant } from "@/lib/server/db"
 import type { Session } from "@/lib/server/session"
 
 /**
- * Deliveries an operator may send again. A refused send (failed) is safe to
- * repeat. An unknown one may already have reached the provider, so it is
- * retried only while the provider still honours its idempotency key (24
- * hours; 23 here for margin); after that it stays unknown rather than risk a
- * duplicate. Suppressed and accepted deliveries are never retried.
+ * Deliveries an operator may send again. A refused send with no earlier
+ * uncertain attempt (failed, not may_have_sent, 0096) is safe to repeat at
+ * any age. One that
+ * may already have reached the provider (delivery_state unknown; status
+ * uncertain, or failed on rows older than 0095) is retried only while
+ * the provider still honours its idempotency key (24 hours; 23 here for
+ * margin); after that it stays unknown rather than risk a duplicate. The
+ * driver checks the window again when the requeued row is claimed
+ * (./delivery.ts), since that can be much later. Suppressed and accepted
+ * deliveries are never retried.
  */
 export function retryableDelivery(sql: TransactionSql) {
-  return sql`(status = 'failed' and (delivery_state = 'failed'
-    or (delivery_state = 'unknown' and created_at > now() - interval '23 hours')))`
+  return sql`((status = 'failed' and delivery_state = 'failed' and not may_have_sent)
+    or (status in ('failed', 'uncertain') and delivery_state = 'unknown'
+      and created_at > now() - interval '23 hours'))`
 }
 
 /** Requeues retryable deliveries; the send still rechecks membership, access and preference. */

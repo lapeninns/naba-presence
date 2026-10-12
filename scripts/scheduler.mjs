@@ -30,7 +30,7 @@ function featureFlag(name, fallback) {
 const reconcileIntervalMs =
   interval("RECONCILE_INTERVAL_SECONDS", 900, 60) * 1000
 const retentionIntervalMs =
-  interval("RETENTION_INTERVAL_SECONDS", 86400, 3600) * 1000
+  interval("RETENTION_INTERVAL_SECONDS", 300, 60) * 1000
 const jobsIntervalMs = interval("JOBS_INTERVAL_SECONDS", 60, 10) * 1000
 const performanceIntervalMs =
   interval("PERFORMANCE_INTERVAL_SECONDS", 21600, 3600) * 1000
@@ -39,6 +39,9 @@ const keywordIntervalMs =
 const presenceResourceIntervalMs =
   interval("PRESENCE_RESOURCE_RECONCILE_INTERVAL_SECONDS", 900, 300) * 1000
 const sweepIntervalMs = interval("SWEEP_INTERVAL_SECONDS", 86400, 3600) * 1000
+// Matches vercel.json's hourly /api/billing/reconcile.
+const billingReconcileIntervalMs =
+  interval("BILLING_RECONCILE_INTERVAL_SECONDS", 3600, 600) * 1000
 // Matches vercel.json's */15 schedule for /api/cron/health.
 const healthIntervalMs = interval("HEALTH_INTERVAL_SECONDS", 900, 300) * 1000
 // The two flags the scheduler reads. The GBP surfaces return a benign no-op
@@ -70,6 +73,24 @@ async function post(path, body) {
       "x-request-id": crypto.randomUUID(),
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(55_000),
+  })
+  const result = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new Error(
+      `${path} returned ${response.status}: ${result?.error ?? "request_failed"}`
+    )
+  }
+  return result
+}
+
+/** A cron GET tick (the routes that only have a Vercel Cron entry point). */
+async function get(path) {
+  const response = await fetch(new URL(path, baseUrl), {
+    headers: {
+      authorization: `Bearer ${cronSecret}`,
+      "x-request-id": crypto.randomUUID(),
+    },
     signal: AbortSignal.timeout(55_000),
   })
   const result = await response.json().catch(() => null)
@@ -215,30 +236,29 @@ async function runReconciliation() {
   completion("reconciliation", walk, startedAt, { organisations, failures })
 }
 
+/**
+ * One retention dispatcher fire (lib/server/retention/cycle.ts). The cycle
+ * and its cursor live in the database, so a fire is one request: it resumes
+ * the running cycle or opens the day's at or after 03:00 UTC, and the next
+ * fire carries on where its time budget stopped it.
+ */
 async function runRetention() {
   const startedAt = performance.now()
-  let organisations = 0
-  let failures = 0
-  const walk = await paginate(
-    "retention",
-    (cursor) => {
-      const query = new URLSearchParams({ batch_size: "100" })
-      if (cursor) query.set("cursor", cursor)
-      return post(`/api/cron/retention?${query}`, {})
-    },
-    (page) => {
-      organisations += page.organisations?.length ?? 0
-      failures += page.failures?.length ?? 0
-    }
-  )
-  if (walk.skipped) {
-    return noteSkip("retention", { cursor: walk.resumedFrom ?? null })
-  }
-  // The route isolates a failing tenant and reports it rather than aborting
-  // the page, so without this the only trace of a starving organisation is a
-  // counter that is quietly short.
+  const result = await post("/api/cron/retention", {})
+  if (result?.skipped === true) return noteSkip("retention")
+  noteRun("retention")
+  const failures = result?.failures?.length ?? 0
+  // The route isolates a failing tenant and records it on the cycle rather
+  // than aborting the fire, so log it here too.
   if (failures) log("warn", "retention.partial", { failures })
-  completion("retention", walk, startedAt, { organisations, failures })
+  log("info", "retention.completed", {
+    cycleDate: result?.cycle?.cycleDate ?? null,
+    cycleStatus: result?.cycle?.status ?? null,
+    cycleCompleted: result?.completed === true,
+    organisations: result?.organisations?.length ?? 0,
+    failures,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
 }
 
 /**
@@ -260,6 +280,25 @@ async function runHealth() {
     sent: result?.sent ?? 0,
     failed: result?.failed ?? 0,
     errors: result?.errors ?? 0,
+    durationMs: Math.round(performance.now() - startedAt),
+  })
+}
+
+/**
+ * The hourly Stripe reconciliation (P07-S4): one page per tick, resumed by
+ * the route from cron_cursor, as on Vercel. It completes doing nothing while
+ * billing is disabled.
+ */
+async function runBillingReconcile() {
+  const startedAt = performance.now()
+  const result = await get("/api/billing/reconcile?maxOrganisations=100")
+  if (result?.skipped === true) return noteSkip("billing_reconcile")
+  noteRun("billing_reconcile")
+  log("info", "billing_reconcile.completed", {
+    enabled: result?.enabled ?? null,
+    processed: result?.processed ?? 0,
+    failures: result?.failures?.length ?? 0,
+    nextCursor: result?.nextCursor ?? null,
     durationMs: Math.round(performance.now() - startedAt),
   })
 }
@@ -476,14 +515,9 @@ const stopReconciliation = recurring(
   reconcileIntervalMs,
   5_000
 )
+// Five-minute dispatcher: the next fire is the retry.
 const stopRetention = retentionEnabled
-  ? recurring(
-      "retention",
-      runRetention,
-      retentionIntervalMs,
-      30_000,
-      DAILY_RETRIES
-    )
+  ? recurring("retention", runRetention, retentionIntervalMs, 30_000)
   : () => {}
 const stopJobs = recurring("jobs", runJobs, jobsIntervalMs, 10_000)
 const stopHealth = notificationsEnabled
@@ -517,6 +551,13 @@ const stopSweep = recurring(
   DAILY_RETRIES
 )
 
+const stopBillingReconcile = recurring(
+  "billing_reconcile",
+  runBillingReconcile,
+  billingReconcileIntervalMs,
+  55_000
+)
+
 function shutdown(signal) {
   stopReconciliation()
   stopRetention()
@@ -526,6 +567,7 @@ function shutdown(signal) {
   stopKeywords()
   stopPresenceResources()
   stopSweep()
+  stopBillingReconcile()
   log("info", "scheduler.stopped", { signal })
   process.exit(0)
 }
@@ -543,4 +585,5 @@ log("info", "scheduler.started", {
   keywordIntervalSeconds: keywordIntervalMs / 1000,
   presenceResourceIntervalSeconds: presenceResourceIntervalMs / 1000,
   sweepIntervalSeconds: sweepIntervalMs / 1000,
+  billingReconcileIntervalSeconds: billingReconcileIntervalMs / 1000,
 })

@@ -2,6 +2,15 @@ import { expect, test, type Page } from "@playwright/test"
 import { locationFieldCapabilities } from "@/lib/domain/google-capabilities"
 import AxeBuilder from "@axe-core/playwright"
 import { draftFromLocation } from "@/lib/locations/business-information-draft"
+import { draftKey } from "@/lib/editors/draft-key"
+
+// The sessionStorage key an editor's stash lives under: drafts are keyed by
+// the signed-in person and organisation (lib/editors/draft-key.ts), here the
+// /api/session stub below, so a stash seeded under any other key is purged
+// rather than offered back.
+function stashKey(resource: string) {
+  return `naba:draft:${draftKey({ userId: "user-management", organisationId: "org-management", resource, resourceId: "location-management", schemaVersion: 1 })}`
+}
 
 // These three tests mock the app's OWN API routes via page.route (a single
 // owner session, no DB/Google stub) — they render the M8 field editors
@@ -51,6 +60,16 @@ async function mockShell(page: Page) {
   // `authentication_required` and lib/api/client.ts hard-navigates the whole
   // page to /sign-in mid-assertion.
   await page.route(/\/api\/locations\/location-management\/activity(?:\?.*)?$/, (route) => route.fulfill({ json: { activity: { items: [], total: 0, page: 1, pageSize: 10 } } }))
+  // A publish Google did not confirm leaves its outcome open, and the review
+  // then follows the change's receipt (GET /api/mutations/{id},
+  // components/locations/operation-outcome.tsx). Unstubbed, that read 401s
+  // and lib/api/client.ts hard-navigates to /sign-in a moment after the
+  // outcome renders, racing the assertions on it. Answer with a receipt that
+  // is still open, which is what the stubbed write implies.
+  await page.route(/\/api\/mutations\/[^/?]+(?:\?.*)?$/, (route) => {
+    const id = decodeURIComponent(new URL(route.request().url()).pathname.split("/").pop() ?? "")
+    return route.fulfill({ json: { operation: { id, intentId: id, surface: "listing", action: "business_information", locationId: "location-management", targetType: null, targetRef: null, outcome: "uncertain", errorCode: null, attemptId: null, createdAt: "2026-09-29T15:01:00.000Z", updatedAt: "2026-09-29T15:01:00.000Z" } } })
+  })
   // The business profile editor reads BOTH halves of the listing and, for an
   // owner, the industry sections too. Every one of these must answer, for the
   // same reason as the activity route above: an unstubbed route 401s and
@@ -292,7 +311,7 @@ test("Chain affiliation restores an exact selection without a fresh search", asy
   await mockShell(page)
   const baseline = { relationshipData: { parentChain: "chains/123" } }
   const draft = { ...draftFromLocation(baseline), relationshipData: { parentChain: "chains/456" } }
-  await page.addInitScript((value) => sessionStorage.setItem("naba:draft:location-listing-location-management", JSON.stringify(value)), draft)
+  await page.addInitScript(({ key, value }) => sessionStorage.setItem(key, JSON.stringify(value)), { key: stashKey("location-listing"), value: draft })
   await mockServiceAreaRead(page, baseline)
   await page.goto("/listings/location-management/profile")
   await page.getByRole("button", { name: "Restore unsaved edits", exact: true }).click()
@@ -410,7 +429,7 @@ test("Related businesses restore exact IDs and relationship types", async ({ pag
     parentLocation: { placeId: "ChIJ_restored_parent", relationType: "INDEPENDENT_ESTABLISHMENT_IN" },
     childrenLocations: [{ placeId: "ChIJ_restored_child", relationType: "DEPARTMENT_OF" }],
   } }
-  await page.addInitScript((value) => sessionStorage.setItem("naba:draft:location-listing-location-management", JSON.stringify(value)), draft)
+  await page.addInitScript(({ key, value }) => sessionStorage.setItem(key, JSON.stringify(value)), { key: stashKey("location-listing"), value: draft })
   await mockServiceAreaRead(page, {})
   await page.goto("/listings/location-management/profile")
   await page.getByRole("button", { name: "Restore unsaved edits", exact: true }).click()
@@ -468,7 +487,7 @@ test("Service areas restore exact identifiers and storefront-removal intent", as
   await mockShell(page)
   const baseline = { storefrontAddress: { regionCode: "GB", addressLines: ["10 High Street"] } }
   const draft = { ...draftFromLocation(baseline), serviceArea: { businessType: "CUSTOMER_LOCATION_ONLY", regionCode: "GB", places: { placeInfos: [{ placeName: "Ely", placeId: "ChIJ_restored" }] } }, clearStorefrontAddress: true }
-  await page.addInitScript((value) => sessionStorage.setItem("naba:draft:location-listing-location-management", JSON.stringify(value)), draft)
+  await page.addInitScript(({ key, value }) => sessionStorage.setItem(key, JSON.stringify(value)), { key: stashKey("location-listing"), value: draft })
   await mockServiceAreaRead(page, baseline)
   await page.goto("/listings/location-management/profile")
   await page.getByRole("button", { name: "Restore unsaved edits", exact: true }).click()
@@ -658,9 +677,9 @@ for (const width of [375, 768, 1280]) test(`Services review preserves siblings a
   let hash = "a".repeat(64)
   let saved: Record<string, unknown> | null = null
   let published = 0
-  if (width === 375) await page.addInitScript((draft) => {
-    sessionStorage.setItem("naba:draft:services:location-management", JSON.stringify(draft))
-  }, [{ item: { structuredServiceItem: { serviceTypeId: "repair", description: "Recovered repairs" }, price: { currencyCode: "GBP", units: "35" } }, priceEdit: { mode: "keep" } }, { item: sibling, priceEdit: { mode: "keep" } }])
+  if (width === 375) await page.addInitScript(({ key, draft }) => {
+    sessionStorage.setItem(key, JSON.stringify(draft))
+  }, { key: stashKey("location-services"), draft: [{ item: { structuredServiceItem: { serviceTypeId: "repair", description: "Recovered repairs" }, price: { currencyCode: "GBP", units: "35" } }, priceEdit: { mode: "keep" } }, { item: sibling, priceEdit: { mode: "keep" } }] })
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, async (route) => {
     const request = route.request()
     const type = new URL(request.url()).searchParams.get("type")
@@ -906,6 +925,35 @@ test("Business profile editor renders live Google data with humanised fields", a
   await expect(page.getByText(/Services: Google eligibility has not been confirmed/)).toBeVisible()
 })
 
+test("The browser's back button asks before throwing away unsaved profile edits", async ({ page }) => {
+  await mockShell(page)
+  await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => {
+    if (new URL(route.request().url()).searchParams.get("type") === "reviews") return route.fulfill({ json: { changeSets: [] } })
+    return route.fulfill({ json: { businessInformation: { capabilityDetails: locationFieldCapabilities({ location: {}, canPublish: true, writesEnabled: true, observedAt: "2026-09-29T12:00:00.000Z" }), location: { title: "Camden Hotel", categories: { primaryCategory: { name: "categories/gcid:hotel" } } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } })
+  })
+  // A page before the editor, so "back" has somewhere to go.
+  await page.goto("about:blank")
+  await page.goto("/listings/location-management/profile")
+  const name = page.getByRole("textbox", { name: "Business name" })
+  await expect(name).toHaveValue("Camden Hotel")
+  await name.fill("Camden Hotel & Bar")
+
+  // Back lands on the sentinel's entry beneath: still this page, asking.
+  await page.evaluate(() => window.history.back())
+  const prompt = page.getByRole("alertdialog", { name: "Leave without saving?" })
+  await expect(prompt).toBeVisible()
+  expect(new URL(page.url()).pathname).toBe("/listings/location-management/profile")
+  await prompt.getByRole("button", { name: "Keep editing" }).click()
+  await expect(prompt).toBeHidden()
+  await expect(name).toHaveValue("Camden Hotel & Bar")
+
+  // Staying re-arms the guard: back asks again, and leaving goes back.
+  await page.evaluate(() => window.history.back())
+  await expect(prompt).toBeVisible()
+  await prompt.getByRole("button", { name: "Leave and discard" }).click()
+  await expect.poll(() => page.url()).toBe("about:blank")
+})
+
 for (const width of [375, 1280]) test(`Attribute metadata controls and enum clear at ${width}px`, async ({ page }, testInfo) => {
   await page.setViewportSize({ width, height: 900 })
   await mockShell(page)
@@ -1051,7 +1099,7 @@ test("Multiple URL attributes remove one value and review all remaining URLs", a
 test("Industry sections omit retired controls and never leak a failing legacy section", async ({ page }) => {
   await mockShell(page)
   const available = (data: Record<string, unknown>) => ({ data, error: null })
-  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, canManage: true, writesEnabled: true } } }))
+  await page.route(/\/api\/locations\/location-management\/industry(?:\?.*)?$/, (route) => route.fulfill({ json: { industry: { lodging: available({ policies: { checkinTime: "15:00" } }), lodgingUpdated: available({ diffMask: "policies" }), healthcareServices: { data: null, error: "Google request failed." }, lodgingHash: "c".repeat(64), canManage: true, writesEnabled: true } } }))
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: { title: "Camden Hotel", metadata: { canOperateLodgingData: true } }, attributes: { name: "locations/camden/attributes", attributes: [] }, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   await page.goto("/listings/location-management/profile")
   await expect(page.getByRole("heading", { name: "Lodging", exact: true })).toBeVisible()
@@ -1143,7 +1191,7 @@ for (const resourceType of ["lodging", "business_info", "attributes"] as const) 
   await page.screenshot({ path: testInfo.outputPath(`${resourceType}-confirmation.png`) })
 })
 
-test("Activity navigates write families with cursors and preserves older page responses", async ({ page }, testInfo) => {
+test("Activity loads older write families by cursor and keeps the newer ones on screen", async ({ page }, testInfo) => {
   await mockShell(page)
   await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => route.fulfill({ json: { businessInformation: { location: {}, attributes: {}, attributeMetadata: [], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } }))
   let cursorRequests = 0
@@ -1151,20 +1199,22 @@ test("Activity navigates write families with cursors and preserves older page re
     const cursor = new URL(route.request().url()).searchParams.get("cursor")
     if (cursor) { expect(cursor).toBe("saved-cursor"); cursorRequests += 1 }
     const families = cursor ? ["posts", "reviews"] : ["hours", "profile", "media", "food_menus", "place_actions"]
-    return route.fulfill({ json: { activity: { canManage: true, items: families.map((resourceType) => ({ id: `${resourceType}:test`, sourceId: "test", resourceType, operation: "publish", status: "succeeded", targetResourceName: null, lastErrorCode: null, updateMask: [], createdAt: "2026-09-29T12:00:00Z", finishedAt: null, actorUserId: null, actorDisplayName: null, confirmationState: "unrecorded" })), total: 12, page: cursor ? 2 : 1, pageSize: 10, nextCursor: cursor ? null : "saved-cursor" } } })
+    return route.fulfill({ json: { activity: { canManage: true, items: families.map((resourceType) => ({ id: `${resourceType}:test`, sourceId: "test", resourceType, operation: "publish", status: "succeeded", targetResourceName: null, lastErrorCode: null, updateMask: [], createdAt: "2026-09-29T12:00:00Z", finishedAt: null, actorUserId: null, actorDisplayName: null, confirmationState: "unrecorded" })), total: 7, pageSize: 10, nextCursor: cursor ? null : "saved-cursor" } } })
   })
   await page.goto("/listings/location-management/profile")
   await page.getByRole("button", { name: "Activity", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Recent activity" })
   await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
-  await dialog.getByRole("button", { name: "Next" }).click()
+  await expect(dialog.getByRole("status").filter({ hasText: "Showing 5 of 7 changes" })).toBeVisible()
+  await dialog.getByRole("button", { name: "Load more changes" }).click()
   await expect(dialog.getByText("Publish · Reviews", { exact: true })).toBeVisible()
+  // The newer page stays: Load more appends rather than replacing.
+  await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
   await expect(dialog.getByText(/Google confirmation:/)).toHaveCount(0)
-  await expect(dialog.getByRole("button", { name: "Next" })).toBeDisabled()
+  await expect(dialog.getByRole("button", { name: "Load more changes" })).toHaveCount(0)
+  await expect(dialog.getByRole("status").filter({ hasText: "Showing all 7 changes" })).toBeVisible()
   expect(cursorRequests).toBe(1)
   await page.screenshot({ path: testInfo.outputPath("unified-activity.png"), fullPage: true })
-  await dialog.getByRole("button", { name: "Previous" }).click()
-  await expect(dialog.getByText("Publish · Hours", { exact: true })).toBeVisible()
 })
 
 test("Access tab humanises admin roles and gates delete behind a separate review", async ({ page }) => {

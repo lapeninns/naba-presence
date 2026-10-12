@@ -5,8 +5,8 @@
  * POST/DELETE bodies with the request schemas and shapes replies with the
  * response ones.
  *
- * The route is now the only consumer: its browser-side wrapper went with the
- * compliance console.
+ * The browser-side wrappers live in `lib/api/privacy.ts` (Data and privacy
+ * settings area, plan P04-7).
  */
 import { z } from "zod"
 

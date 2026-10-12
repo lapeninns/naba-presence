@@ -98,7 +98,7 @@ function ServiceEditor({
   const draft = useEditorDraft({
     initial: serviceDraftRows(initial),
     revision: business.locationHash,
-    key: `services:${locationId}`,
+    scope: { resource: "location-services", resourceId: locationId, schemaVersion: 1 },
     parseStashed: parseServiceDraft,
   })
   const metadata = useQuery({

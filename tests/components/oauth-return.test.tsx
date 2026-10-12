@@ -73,4 +73,16 @@ describe("connectedMessage", () => {
       connectedMessage({ reconnected: false, mismatch: true, catchUp: 0 }).title
     ).toBe("Connected a different Google account")
   })
+
+  it("says when the plan's location limit stopped the automatic link", async () => {
+    const { connectedMessage } = await import("@/components/settings/oauth-return")
+    const message = connectedMessage({
+      reconnected: false,
+      mismatch: false,
+      catchUp: 0,
+      locationLimit: true,
+    })
+    expect(message.title).toBe("Connected, but no location was linked")
+    expect(message.description).toMatch(/location limit/)
+  })
 })

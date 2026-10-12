@@ -33,9 +33,17 @@ import "server-only"
  * The kill switches are enforced at the claim, not inside the work: a claimed
  * row is already 'running' with a lease, so a runner that claims and then
  * skips re-arms the row every tick and reports a backlog that is only its own
- * churn. `claimableKinds` turns the flags into the `p_kinds` filter, and a
- * paused kind keeps its status and its `next_attempt_at` until the flag comes
- * back (docs/runbook.md, "Kill switches").
+ * churn. `claimableKinds` turns the flags -- the env hard overrides and the
+ * operator pause table (lib/server/pause-controls.ts) -- into the `p_kinds`
+ * filter, and a paused kind keeps its status and its `next_attempt_at` until
+ * the switch comes back (docs/runbook.md, "Kill switches").
+ *
+ * Billing enforcement (lib/server/entitlement-policy.ts) is per item, not
+ * per claim, because it depends on the organisation: a `retry` (a new
+ * dispatch to Google) for a read-only organisation is held for an hour
+ * (`holdRetryForBilling`), and so are the bulk listing and scheduled post
+ * dispatches in their runners. Read-backs and the syncs, which only read,
+ * keep running: read-only access still shows current data.
  *
  * Concurrency is bounded by `JOBS_CONCURRENCY` and, independently, by the
  * database pool and the process-local Google pacer
@@ -52,15 +60,30 @@ import type { TransactionSql } from "postgres"
 
 import { retryDelayMs } from "@/lib/domain/retry"
 import { releaseStaleReservations } from "@/lib/server/ai-credits"
+import {
+  processBillingEvents,
+  type BillingTickSummary,
+} from "@/lib/server/billing/process-events"
 import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
-import {
-  gbpIngestionEnabled,
-  getServerEnv,
-  type ServerEnv,
-} from "@/lib/server/env"
+import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
+import { getServerEnv, type ServerEnv } from "@/lib/server/env"
 import { syncDueKeywords } from "@/lib/server/keywords"
 import { log } from "@/lib/server/logger"
+import {
+  MUTATION_RECOVER_SCOPES,
+  recoverMutationOperation,
+  settleMutationRecoveryFailure,
+} from "@/lib/server/mutation-recovery"
+import { recoveryDeps } from "@/lib/server/mutation-recovery-registry"
+import {
+  gbpIngestionScopes,
+  loadPauseSnapshot,
+  pausedScopes,
+  scopesEnabled,
+  type PauseScope,
+  type PauseSnapshot,
+} from "@/lib/server/pause-controls"
 import {
   recoverAttempt,
   retryPublishAttempt,
@@ -69,13 +92,27 @@ import {
 import { syncDuePerformance } from "@/lib/server/performance"
 import { syncLinkedLocation } from "@/lib/server/reviews"
 import { settleWebhookEvent } from "@/lib/server/webhooks"
-import { runDueSchedules, type ScheduleTickSummary } from "@/lib/server/publication-schedule-runner"
+import {
+  runDueSchedules,
+  sweepScheduledOccurrences,
+  type ScheduleSweepSummary,
+  type ScheduleTickSummary,
+} from "@/lib/server/publication-schedule-runner"
 import { runDueBulkChildren, type BulkTickSummary } from "@/lib/server/bulk-listing-runner"
+import {
+  runDueInvitationDeliveries,
+  type InvitationDeliveryTickSummary,
+} from "@/lib/server/invitations/delivery"
+import {
+  runDuePrivacyWithdrawals,
+  type PrivacyWithdrawalTickSummary,
+} from "@/lib/server/privacy/withdrawals"
 
 /**
- * What the runner knows how to do. The last three are recurring
- * per-location syncs (0048): their crons only enqueue, and the runner is what
- * reaches every organisation.
+ * What the runner knows how to do. `reconcile`, `performance` and `keywords`
+ * are recurring per-location syncs (0048): their crons only enqueue, and the
+ * runner is what reaches every organisation. `mutation_recover` reads back
+ * uncertain listing writes (0092, lib/server/mutation-recovery.ts).
  */
 const JOB_KINDS = [
   "webhook",
@@ -86,9 +123,14 @@ const JOB_KINDS = [
   "reconcile",
   "performance",
   "keywords",
+  "mutation_recover",
 ] as const
 
-const RECURRING_KINDS = new Set<JobKind>(["reconcile", "performance", "keywords"])
+const RECURRING_KINDS = new Set<JobKind>([
+  "reconcile",
+  "performance",
+  "keywords",
+])
 
 export type JobKind = (typeof JOB_KINDS)[number]
 
@@ -97,7 +139,8 @@ type ClaimedJob = {
   jobId: string
   organisationId: string
   externalLocationId: string | null
-  syncType: "backfill" | "sweep" | "reconcile" | "performance" | "keywords" | null
+  syncType:
+    "backfill" | "sweep" | "reconcile" | "performance" | "keywords" | null
   retryCount: number
 }
 
@@ -108,10 +151,20 @@ export type JobSummary = {
   dead: number
   /** Recurring reconcile, performance and keyword runs. */
   recurring: number
+  /** Uncertain listing writes read back (`mutation_recover`). */
+  recoveries: number
   /** Scheduled post publication, when publishing is on. */
   schedules?: ScheduleTickSummary
+  /** Scheduled occurrences recorded missed or settled from receipts, every tick. */
+  scheduleSweep?: ScheduleSweepSummary
   /** Bulk listing children, when publishing is on. */
   bulk?: BulkTickSummary
+  /** Parked privacy erasures retried in the background (plan P04-5). */
+  privacy?: PrivacyWithdrawalTickSummary
+  /** Invitation email due again or never settled inline (plan P06-6). */
+  invitations?: InvitationDeliveryTickSummary
+  /** Stripe event receipts processed (P07-S4), when billing is on. */
+  billing?: BillingTickSummary
 }
 
 /** What one tick shares with every item it runs. */
@@ -162,26 +215,42 @@ function recoveryDelayMs(attempts: number) {
 }
 
 /**
- * The kinds this process may claim. `PUBLISH_ENABLED` covers the two publish
- * kinds and `SYNC_ENABLED` the three ingestion kinds, exactly as the runbook
- * describes them; `JOBS_ENABLED` off claims nothing at all.
+ * The scopes each kind answers to. The publish kinds stop with `publish`
+ * (`mutation_recover` also with its own `mutation_recover` scope, so an
+ * operator can hold recovery readbacks alone), the ingestion kinds with
+ * their own surface (as their routes do), and every
+ * other kind with `sync`, exactly as the runbook describes them; `jobs`
+ * paused claims nothing at all.
  */
-function claimableKinds(env: ServerEnv): JobKind[] {
-  if (!env.JOBS_ENABLED) return []
-  return JOB_KINDS.filter((kind) => {
-    switch (kind) {
-      case "recover":
-      case "retry":
-        return env.PUBLISH_ENABLED
-      // Ingestion surfaces answer to their own flag, as their routes do.
-      case "performance":
-        return gbpIngestionEnabled(env, "performance")
-      case "keywords":
-        return gbpIngestionEnabled(env, "keywords")
-      default:
-        return env.SYNC_ENABLED
-    }
-  })
+function kindScopes(kind: JobKind): PauseScope[] {
+  switch (kind) {
+    case "recover":
+    case "retry":
+      return ["publish"]
+    case "mutation_recover":
+      return [...MUTATION_RECOVER_SCOPES]
+    case "performance":
+      return gbpIngestionScopes("performance")
+    case "keywords":
+      return gbpIngestionScopes("keywords")
+    default:
+      return ["sync"]
+  }
+}
+
+/**
+ * The kinds this process may claim, under both the env hard overrides and
+ * the operator pause table (lib/server/pause-controls.ts). An unreadable
+ * pause table claims nothing: claiming is the first step of sending.
+ */
+export function claimableKinds(
+  env: ServerEnv,
+  pauses: PauseSnapshot
+): JobKind[] {
+  if (!scopesEnabled(env, pauses, ["jobs"])) return []
+  return JOB_KINDS.filter((kind) =>
+    scopesEnabled(env, pauses, kindScopes(kind))
+  )
 }
 
 /**
@@ -660,6 +729,68 @@ async function settleRecoveryFailure(
 }
 
 /**
+ * How long a publish retry held by billing waits before it looks again. A
+ * read-only organisation can stay read-only for weeks, so the hold must not
+ * re-claim the row every tick.
+ */
+const BILLING_HOLD_MS = 60 * 60_000
+/** The most of a tick Stripe event processing may use. */
+const BILLING_BUDGET_MS = 15_000
+
+/**
+ * Central billing enforcement for a publish retry (plan P07-S3): a retry is
+ * a new dispatch to Google, so while enforcement applies and the
+ * organisation is read-only it is held, not sent. The attempt keeps its
+ * status and retry budget, waits BILLING_HOLD_MS and says why
+ * (`provider_error_code = 'billing_read_only'`); the first hold is audited.
+ * Read-backs (`recover`, `mutation_recover`) are never held: they only find
+ * out what already happened. True when the job was held.
+ */
+async function holdRetryForBilling(
+  job: ClaimedJob,
+  requestId: string
+): Promise<boolean> {
+  return withTenant(job.organisationId, async (sql) => {
+    const blocked = await organisationWriteBlock(sql, job.organisationId)
+    if (!blocked) return false
+    const [attempt] = await sql<{ code: string | null }[]>`
+      select provider_error_code as code
+      from publish_attempt
+      where id = ${job.jobId}
+        and status = 'retryable'
+      for update
+    `
+    if (!attempt) return true
+    await sql`
+      update publish_attempt
+      set
+        provider_error_code = 'billing_read_only',
+        lease_expires_at = null,
+        next_attempt_at = ${new Date(Date.now() + BILLING_HOLD_MS)}
+      where id = ${job.jobId}
+        and status = 'retryable'
+    `
+    if (attempt.code !== "billing_read_only") {
+      await writeAudit(sql, {
+        organisationId: job.organisationId,
+        action: "publish.retry_held_billing",
+        subjectType: "publish_attempt",
+        subjectId: job.jobId,
+        requestId,
+        metadata: { reason: blocked.reason },
+      })
+    }
+    log.warn("jobs.billing_hold", {
+      organisationId: job.organisationId,
+      kind: job.kind,
+      jobId: job.jobId,
+      reason: blocked.reason,
+    })
+    return true
+  })
+}
+
+/**
  * A recurring run that threw before its own settle could. The sync
  * functions settle their failures themselves (with their own back-off and,
  * for performance and keywords, a dead-letter ceiling); this covers what
@@ -672,7 +803,8 @@ async function deferRecurring(job: ClaimedJob, error: unknown) {
       update sync_checkpoint
       set
         next_attempt_at = ${new Date(
-          Date.now() + retryDelayMs(job.retryCount + 1, Math.random, 60_000, 30 * 60_000)
+          Date.now() +
+            retryDelayMs(job.retryCount + 1, Math.random, 60_000, 30 * 60_000)
         )},
         last_error_code = coalesce(last_error_code, 'job_failed'),
         lease_expires_at = null
@@ -805,8 +937,27 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
         return
       }
 
+      case "mutation_recover": {
+        const result = await recoverMutationOperation(
+          {
+            organisationId: job.organisationId,
+            operationId: job.jobId,
+            requestId: tick.requestId,
+          },
+          recoveryDeps()
+        )
+        if (result !== "skipped") tick.summary.recoveries += 1
+        return
+      }
+
       case "recover":
       case "retry": {
+        if (
+          job.kind === "retry" &&
+          (await holdRetryForBilling(job, tick.requestId))
+        ) {
+          return
+        }
         const result =
           job.kind === "recover"
             ? await recoverAttempt({
@@ -826,6 +977,17 @@ async function runJob(job: ClaimedJob, tick: Tick): Promise<void> {
         await deferRecurring(job, error)
       } else if (job.kind === "checkpoint") {
         await rescheduleCheckpoint(job, error)
+      } else if (job.kind === "mutation_recover") {
+        tick.summary.recoveries += 1
+        await settleMutationRecoveryFailure(
+          {
+            organisationId: job.organisationId,
+            operationId: job.jobId,
+            requestId: tick.requestId,
+          },
+          error,
+          recoveryDeps()
+        )
       } else {
         tick.summary.attempts += 1
         if (job.kind === "recover") {
@@ -873,18 +1035,58 @@ export async function runDueJobs(options: {
     attempts: 0,
     dead: 0,
     recurring: 0,
+    recoveries: 0,
   }
 
-  const kinds = claimableKinds(env)
+  const pauses = await loadPauseSnapshot()
+
+  // Before any pause check (P08-R3): a scheduled post whose 5-minute window
+  // closed is recorded missed even while publishing is paused, so a pause
+  // never turns into a late publish once it lifts, and an unresolved one
+  // settles from its receipt. Neither step sends anything to Google.
+  try {
+    summary.scheduleSweep = await sweepScheduledOccurrences()
+  } catch (error) {
+    log.error("post_schedule.sweep_failed", {
+      requestId: options.requestId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+
+  const kinds = claimableKinds(env, pauses)
   if (kinds.length < JOB_KINDS.length) {
     log.warn("jobs.kinds_paused", {
       requestId: options.requestId,
       jobsEnabled: env.JOBS_ENABLED,
       publishEnabled: env.PUBLISH_ENABLED,
       syncEnabled: env.SYNC_ENABLED,
+      // The scopes the operator pause table or an env flag holds off, and
+      // whether the table could be read at all.
+      pausedScopes: pausedScopes(env, pauses),
+      pauseStateUnknown: pauses.readFailed,
       claiming: kinds,
     })
   }
+  // The whole tick, billing included, fits in one budget: the billing
+  // slice's time is not added on top (the route's maxDuration is fixed).
+  const deadline = Date.now() + Math.max(0, options.budgetMs)
+  // Stripe events (P07-S4) first, on a small slice of the budget: they
+  // decide what every organisation may do, and none of the Google flags
+  // holds them. Off unless billing is enabled, configured and not paused
+  // (processBillingEvents); a billing fault never stops the tick.
+  if (scopesEnabled(env, pauses, ["jobs"])) {
+    summary.billing = await processBillingEvents({
+      budgetMs: Math.min(BILLING_BUDGET_MS, Math.max(0, options.budgetMs / 4)),
+      requestId: options.requestId,
+      pauses,
+    }).catch((error: unknown) => {
+      log.error("billing.tick_failed", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return undefined
+    })
+  }
+
   if (kinds.length === 0) return summary
 
   await reclaimExpired()
@@ -896,7 +1098,6 @@ export async function runDueJobs(options: {
     })
   })
 
-  const deadline = Date.now() + Math.max(0, options.budgetMs)
   const tick: Tick = { requestId: options.requestId, summary, deadline }
 
   // The lease must outlive the slowest item in a batch. Google calls are
@@ -922,14 +1123,39 @@ export async function runDueJobs(options: {
 
   // Scheduled post publication shares the tick, its budget and the same
   // lease-and-reap model (claim_due_publication_schedules). Paused with
-  // publishing, like the other kinds that reach Google on a user's behalf.
-  if (env.JOBS_ENABLED && env.PUBLISH_ENABLED) {
-    // Bulk listing children, then scheduled posts, on what is left of the budget.
+  // publishing, like the other kinds that reach Google on a user's behalf,
+  // and each by its own operator scope (`bulk`, `scheduled_post`) as well.
+  // Bulk listing children, then scheduled posts, on what is left of the budget.
+  if (scopesEnabled(env, pauses, ["jobs", "publish", "bulk"])) {
     summary.bulk = await runDueBulkChildren({
       budgetMs: Math.max(0, deadline - Date.now()),
       requestId: options.requestId,
     })
+  }
+  if (scopesEnabled(env, pauses, ["jobs", "publish", "scheduled_post"])) {
     summary.schedules = await runDueSchedules({
+      budgetMs: Math.max(0, deadline - Date.now()),
+      requestId: options.requestId,
+    })
+  }
+
+  // Parked privacy erasures. Held by the runner's own switch only: an
+  // erasure is a legal obligation, so neither an unrelated pause nor a
+  // read-only organisation stops it. A publish pause still holds the reply
+  // delete itself, which defers the round without spending its budget
+  // (lib/server/privacy/fulfil.ts settleWithdrawal).
+  if (scopesEnabled(env, pauses, ["jobs"])) {
+    summary.privacy = await runDuePrivacyWithdrawals({
+      budgetMs: Math.max(0, deadline - Date.now()),
+      requestId: options.requestId,
+    })
+  }
+
+  // Invitation email: retries, and sends whose inline attempt never
+  // settled. Held by the runner's switch and its own operator scope
+  // (`invitation_email`), not by publishing: nothing here reaches Google.
+  if (scopesEnabled(env, pauses, ["jobs", "invitation_email"])) {
+    summary.invitations = await runDueInvitationDeliveries({
       budgetMs: Math.max(0, deadline - Date.now()),
       requestId: options.requestId,
     })

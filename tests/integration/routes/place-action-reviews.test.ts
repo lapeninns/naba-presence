@@ -165,6 +165,25 @@ describeDatabase("reviewed Place Actions", { timeout: 30_000 }, () => {
     expect(expired.status).toBe(409); expect(await expired.json()).toMatchObject({ error: "approval_expired" })
     expect(f.writes()).toHaveLength(0)
   })
+  // The env flag is on here: only the operator pause table (0090) holds the
+  // send. Its 5s cache means waiting past PAUSE_CACHE_TTL_MS each way.
+  it("holds an approved link off while placeActions is paused in the operator table, sending and recording nothing", { timeout: 40_000 }, async () => {
+    const f = await fixture(), review = await f.approved()
+    const setPause = (paused: boolean) => harness.database()`select * from set_ops_pause('placeActions', ${paused}, 'Integration test pause', 'place-action-reviews.test')`
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 5_300))
+    await setPause(true); await settle()
+    try {
+      const response = await f.request(`/${review.changeSet.id}/execute`, "POST", { expectedPayloadHash: review.changeSet.payloadHash })
+      expect(response.status).toBe(503)
+      expect(await response.json()).toMatchObject({ error: "place_actions_paused", details: { pausedScopes: ["placeActions"] } })
+      expect(f.writes()).toHaveLength(0)
+      const rows = await harness.database()`select id from place_action_mutation where change_set_id = ${review.changeSet.id}`
+      expect(rows).toHaveLength(0)
+    } finally {
+      // The table is platform-wide: never leave a pause behind.
+      await setPause(false); await settle()
+    }
+  })
   it("blocks action links after an unresolved lifecycle request for the same Google account", async () => {
     const f = await fixture(), action = await f.approved()
     const lifecycleRoot = `${f.baseUrl}/api/locations/${f.linked.locationId}/administration-lifecycle-reviews`

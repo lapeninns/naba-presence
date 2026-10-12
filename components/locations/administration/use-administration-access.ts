@@ -23,7 +23,7 @@ export function useAdministrationAccessController(locationId: string) {
   function invalidate() {
     void client.invalidateQueries({ queryKey: ["administration-access-workflows", locationId] })
     void client.invalidateQueries({ queryKey: queryKeys.locationAdministration(locationId) })
-    void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId).slice(0, -1) })
+    void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
   }
   async function run<T>(work: () => Promise<T>): Promise<T> {
     if (claim.current) throw new ApiClientError(409, "administration_in_progress", "Wait for the current administration action.")

@@ -27,6 +27,7 @@ const ben: Member = {
   displayName: "Ben Member",
   role: "member",
   canPublish: false,
+  locationScope: "all",
   createdAt: "2026-01-01T00:00:00.000Z",
   locations: [],
 }
@@ -50,6 +51,7 @@ function access(
     userId: ben.userId,
     role: "member",
     allClients: true,
+    noAccess: false,
     clients: [
       row({ clientId: CROWN, name: "Old Crown", total: 5 }),
       row({ clientId: BELL, name: "The Bell", total: 2 }),
@@ -102,11 +104,13 @@ describe("ClientAccessDialog", () => {
     expect(screen.getByRole("button", { name: "Save access" })).toBeDisabled()
 
     await user.click(screen.getByRole("radio", { name: /Only these clients/ }))
-    // Nothing ticked yet: the one state that would silently mean "everything".
+    // Nothing ticked yet: that saves as no access, and says so, never as
+    // "everything".
     expect(screen.getByTestId("access-consequence")).toHaveTextContent(
-      /would see every client/
+      "Ben will see no clients or listings until you give them access."
     )
-    expect(screen.getByRole("button", { name: "Save access" })).toBeDisabled()
+    expect(screen.getByText("This removes Ben’s access")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Save access" })).toBeEnabled()
     // A client with no listings can't be ticked.
     expect(
       screen.getByRole("checkbox", { name: "New Client" })

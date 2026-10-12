@@ -804,9 +804,13 @@ describe("ProfileTab save and review boundaries", () => {
     expect(await within(review).findByRole("button", { name: "Try again" })).toBeInTheDocument()
     const progress = within(review).getByRole("list", { name: "Publish progress" })
     expect(progress).toHaveTextContent("Publish Google profile fields")
-    expect(progress).toHaveTextContent("Sent to Google")
+    // Business information compares its readback before success, so the
+    // finished step says live.
+    expect(progress).toHaveTextContent("Live on Google")
     expect(progress).toHaveTextContent("Publish attributes")
-    expect(progress).toHaveTextContent("Failed")
+    // Google's own 403 refusal is its verdict, so the step says so rather
+    // than a bare "Failed" (lib/errors/action-errors.ts errorOutcome).
+    expect(progress).toHaveTextContent("Rejected by Google")
     expect(review).toHaveTextContent("Earlier steps were sent to Google.")
     expect(review).not.toHaveTextContent("Nothing was changed")
     expect(await within(screen.getByRole("region", { name: "Notifications" })).findByText(/Earlier steps were sent to Google/)).toBeVisible()

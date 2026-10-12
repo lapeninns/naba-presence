@@ -27,6 +27,7 @@ const OAUTH_PARAMS = [
   "reconnected",
   "mismatch",
   "catchup",
+  "limit",
 ]
 
 /** Where a successful connection gets its own confirmation panel. */
@@ -62,6 +63,7 @@ type Outcome =
       reconnected: boolean
       mismatch: boolean
       catchUp: number
+      locationLimit?: boolean
     }
   | { kind: "error"; title: string; message: string }
 
@@ -74,7 +76,16 @@ export function connectedMessage(outcome: {
   reconnected: boolean
   mismatch: boolean
   catchUp: number
+  /** Linking its location would have passed the plan's location limit. */
+  locationLimit?: boolean
 }): { title: string; description: string } {
+  if (outcome.locationLimit) {
+    return {
+      title: "Connected, but no location was linked",
+      description:
+        "This workspace has reached its plan’s location limit. Unlink a location or change plan, then link this one.",
+    }
+  }
   if (outcome.mismatch) {
     return {
       title: "Connected a different Google account",
@@ -133,6 +144,7 @@ export function OAuthReturn({
           reconnected: params.get("reconnected") === "1",
           mismatch: params.get("mismatch") === "1",
           catchUp: Number.parseInt(params.get("catchup") ?? "0", 10) || 0,
+          locationLimit: params.get("limit") === "1",
         }
       : google === "error"
         ? {
@@ -150,9 +162,13 @@ export function OAuthReturn({
     identityRef.current = identity
     // The connections page confirms with its own panel; anywhere else a
     // toast, so the page's own content stays in charge -- except a
-    // different-account result, which needs to stay on screen.
+    // different-account or location-limit result, which needs to stay on
+    // screen.
     const panel =
-      next?.kind === "connected" && !onConnectionsPage && !next.mismatch
+      next?.kind === "connected" &&
+      !onConnectionsPage &&
+      !next.mismatch &&
+      !next.locationLimit
         ? null
         : next
     setOutcome(panel)
@@ -175,11 +191,15 @@ export function OAuthReturn({
   if (outcome.kind === "connected") {
     const message = connectedMessage(outcome)
     return (
-      <Alert variant={outcome.mismatch ? "warning" : "success"}>
+      <Alert
+        variant={
+          outcome.mismatch || outcome.locationLimit ? "warning" : "success"
+        }
+      >
         <AlertTitle>{message.title}</AlertTitle>
         <AlertDescription>
           {message.description}
-          {outcome.reconnected || outcome.mismatch
+          {outcome.reconnected || outcome.mismatch || outcome.locationLimit
             ? ""
             : business
               ? " Link its locations from setup."

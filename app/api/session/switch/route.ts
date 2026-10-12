@@ -7,7 +7,12 @@ import { sha256 } from "@/lib/server/crypto"
 import { withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
-import { setSessionCookie, type Session } from "@/lib/server/session"
+import {
+  scopeFingerprintColumn,
+  assuranceOf,
+  setSessionCookie,
+  type Session,
+} from "@/lib/server/session"
 import { createSession } from "@/lib/server/session-store"
 
 export const runtime = "nodejs"
@@ -32,6 +37,7 @@ export const runtime = "nodejs"
  * organisation instead.
  */
 export const POST = route({
+  entitlement: "exempt",
   body: sessionSwitchSchema,
   handler: async ({
     session: current,
@@ -66,10 +72,14 @@ export const POST = route({
           "You are not a member of that organisation."
         )
       }
+      // Switching is not signing in again: the new session carries the
+      // assurance (aal, factor, when verified, proof expiry) of the one it
+      // replaces, and the person's current security_version.
       const token = await createSession(
         sql,
         current.userId,
-        membership.organisationId
+        membership.organisationId,
+        { assurance: assuranceOf(current) }
       )
       const [session] = await sql<Session[]>`
         select
@@ -81,7 +91,8 @@ export const POST = route({
           u.display_name as "displayName",
           u.email,
           m.role,
-          m.can_publish as "canPublish"
+          m.can_publish as "canPublish",
+          ${scopeFingerprintColumn(sql)} as "scopeFingerprint"
         from app_session s
         join app_user u on u.id = s.user_id
         join organisation o on o.id = s.organisation_id

@@ -7,8 +7,8 @@ import {
   backfillStartSchema,
 } from "@/lib/contracts/sync"
 import { writeAudit } from "@/lib/server/audit"
-import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
+import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
   linkedLocations,
   syncLinkedLocation,
@@ -92,9 +92,13 @@ export const GET = route({
 export const POST = route({
   roles: ["owner", "admin"],
   handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
-    if (!getServerEnv().SYNC_ENABLED) {
-      throw new ApiError(503, "sync_paused", "Review sync is paused.")
-    }
+    // SYNC_ENABLED is the hard override; the operator pause table
+    // (lib/server/pause-controls.ts) pauses the same scope without a
+    // redeploy. The backfill reads Google inline, so it gates here.
+    await requireScopesEnabled("sync", {
+      code: "sync_paused",
+      message: "Review sync is paused.",
+    })
     // The kill switch must win over validation, so the body is parsed here
     // rather than through the wrapper's `body` option.
     const input = backfillStartSchema.parse(
@@ -156,6 +160,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   body: backfillCancelSchema,
   handler: ({ session, body, requestId, clientRequestId, tenant }) =>

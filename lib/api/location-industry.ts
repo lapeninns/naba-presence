@@ -7,7 +7,7 @@ import {
   type IndustryState,
 } from "@/lib/contracts/location-industry"
 
-import { apiFetch, type RequestOptions } from "./client"
+import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 import { gbpChangeSetResponseSchema } from "@/lib/contracts/gbp-change-set"
 import { lodgingAttemptResponseSchema } from "@/lib/contracts/lodging-attempt"
 import { lodgingWorkflowsResponseSchema } from "@/lib/contracts/lodging-workflows"
@@ -49,7 +49,8 @@ export function approveLodging(id: string, changeSetId: string, expectedPayloadH
 
 export function publishIndustry(
   id: string,
-  input: { operation: IndustryOperation; updateMask: string[]; payload: Record<string, unknown>; changeSetId?: string }
+  input: { operation: IndustryOperation; updateMask: string[]; payload: Record<string, unknown>; changeSetId?: string },
+  options: MutationOptions = {}
 ) {
   // The editor builds the mask/payload from freeform Google leaves; the route
   // validates them per operation before anything is sent on.
@@ -58,5 +59,6 @@ export function publishIndustry(
     method: "PATCH",
     body,
     schema: industryMutationResultSchema,
+    intentId: options.intentId,
   })
 }

@@ -46,8 +46,12 @@ export async function executePlaceAction(session: Session, locationId: string, r
       const response = request.operation === "create" ? await createGooglePlaceActionLink(token, { locationName: ready.googleLocationName, payload: request.payload }, options)
         : request.operation === "update" ? await patchGooglePlaceActionLink(token, { name: request.name, payload: request.payload }, options)
         : await deleteGooglePlaceActionLink(token, request.name, options)
-      await withTenant(session.organisationId, (sql) => sql`update place_action_mutation set execution_state = 'accepted',
-        google_response = ${response === null ? null : jsonColumn(sql, response)} where id = ${claim.id}`)
+      // A create answered 2xx without the new link's name may or may not have
+      // created it: record the execution as unknown and let the list readback
+      // alone decide, without storing the answer as Google's word.
+      const nameless = request.operation === "create" && !(response && typeof response.name === "string" && response.name)
+      await withTenant(session.organisationId, (sql) => sql`update place_action_mutation set execution_state = ${nameless ? "unknown" : "accepted"},
+        google_response = ${response === null || nameless ? null : jsonColumn(sql, response)} where id = ${claim.id}`)
     } catch (error) {
       const rejected = error instanceof ApiError && !(error instanceof GoogleMutationAmbiguousError)
       await withTenant(session.organisationId, (sql) => sql`update place_action_mutation

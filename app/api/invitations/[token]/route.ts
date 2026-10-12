@@ -12,13 +12,14 @@ import { resolveInvitation } from "@/lib/server/email-auth"
 import { ApiError } from "@/lib/server/http"
 import { acceptInvitationForSessionUser } from "@/lib/server/provisioning"
 import { route } from "@/lib/server/route"
-import { setSessionCookie } from "@/lib/server/session"
+import { assuranceOf, setSessionCookie } from "@/lib/server/session"
 
 export const runtime = "nodejs"
 
 export const GET = route({
   auth: "public",
   params: invitationLookupParamsSchema,
+  limits: () => ({ scope: "invitation_lookup" }),
   handler: async ({ params }) => {
     // Cross-tenant by design: the invitee has no session yet, so the token
     // is resolved via lookup_invitation() outside withTenant.
@@ -59,12 +60,17 @@ export const GET = route({
  * signed in.
  */
 export const POST = route({
+  entitlement: "exempt",
   params: invitationLookupParamsSchema,
+  limits: ({ session }) => ({ scope: "invitation_accept", user: session.userId }),
   handler: async ({ session, params, requestId }) => {
     const accepted = await acceptInvitationForSessionUser(
       session,
       await resolveInvitation(params.token),
-      requestId
+      requestId,
+      // The same person, already signed in: the new session keeps the
+      // assurance this one has (aal2 stays aal2, aal1 stays aal1).
+      { assurance: assuranceOf(session) }
     )
     await withTenant(session.organisationId, async (sql) => {
       await sql`delete from app_session where id = ${session.sessionId}`
@@ -78,6 +84,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  entitlement: "exempt",
   roles: ["owner", "admin"],
   params: invitationRevokeParamsSchema,
   handler: async ({ session, params, requestId, tenant }) => {

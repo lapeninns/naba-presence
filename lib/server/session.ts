@@ -1,15 +1,26 @@
 import "server-only"
 
 import { cookies } from "next/headers"
+import type { Fragment, TransactionSql } from "postgres"
 import { cache } from "react"
 
+import type { Access } from "@/lib/domain/entitlements"
+import {
+  accessFromView,
+  getOrganisationBilling,
+  seedPilotBilling,
+} from "@/lib/server/billing/state"
 import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
+import { enforcementApplies } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { createSession } from "@/lib/server/session-store"
+import {
+  createSession,
+  type SessionAssurance,
+} from "@/lib/server/session-store"
 
-export { createSession }
+export { createSession, type SessionAssurance }
 
 const SESSION_COOKIE = "naba_session"
 const LOCAL_ORGANISATION_ID = "00000000-0000-4000-8000-000000000001"
@@ -34,6 +45,84 @@ export type Session = {
    */
   supportActor?: string | null
   impersonationReason?: string | null
+  /**
+   * An opaque token that changes whenever what this membership may see or do
+   * changes: role, publish right, explicit location scope, every location
+   * grant, and the person's security_version (0105), which operator MFA
+   * recovery bumps. The client compares it to drop cached data and stashed
+   * drafts from a wider scope (lib/queries/scope-reset.ts). Optional so
+   * existing `Session` fixtures stay valid; `lookupSession` always sets it.
+   */
+  scopeFingerprint?: string
+  /**
+   * Assurance (0105, lib/server/session-store.ts). Optional so existing
+   * `Session` fixtures stay valid; `lookupSession` always selects them, and a
+   * missing value means aal1 with no recent proof.
+   */
+  aal?: "aal1" | "aal2"
+  mfaFactorId?: string | null
+  mfaVerifiedAt?: Date | null
+  mfaProofExpiresAt?: Date | null
+  securityVersion?: number
+  authMethod?: string | null
+  /** Verified TOTP factors the person had when last seen (0 = none). */
+  mfaFactorCount?: number
+  /**
+   * The organisation's billing access when the session was looked up
+   * (lib/domain/entitlements.ts deriveAccess; read-only without a billing
+   * row). Optional so existing `Session` fixtures stay valid;
+   * `lookupSession` always sets it.
+   */
+  access?: Access
+  /**
+   * Whether central billing enforcement applies to this organisation
+   * (BILLING_ENFORCEMENT_ENABLED and its own enforcement flag;
+   * lib/server/entitlement-policy.ts). When true, route() refuses new work
+   * that `access` does not allow. Absent reads as not enforced, so fixtures
+   * without it keep their behaviour.
+   */
+  entitlementEnforced?: boolean
+}
+
+/** The assurance a session minted from `session` carries across. */
+export function assuranceOf(session: Session): SessionAssurance {
+  return {
+    aal: session.aal ?? "aal1",
+    factorId: session.mfaFactorId ?? null,
+    verifiedAt: session.mfaVerifiedAt ?? null,
+    proofExpiresAt: session.mfaProofExpiresAt ?? null,
+    authMethod: session.authMethod ?? null,
+  }
+}
+
+/**
+ * The `scopeFingerprint` select-list expression for a query that joins the
+ * session's membership as `m` and its person as `u`. One definition, so the
+ * session lookup and the organisation switch can never hash different
+ * things. The person's security_version (0105) leads: it is per person, not
+ * per membership, and only operator MFA recovery bumps it, so the membership
+ * rows still carry role and grant changes. The grants are read in a stable
+ * order so the same scope always hashes the same; md5 only keeps the token
+ * short and opaque (it is not a secret, and collisions cost at most a missed
+ * cache reset).
+ */
+export function scopeFingerprintColumn(sql: TransactionSql): Fragment {
+  return sql`md5(concat_ws(
+    '|',
+    u.security_version::text,
+    m.role,
+    m.can_publish::text,
+    m.location_scope,
+    (
+      select string_agg(
+        lm.location_id::text || ':' || lm.can_publish::text,
+        ',' order by lm.location_id
+      )
+      from location_member lm
+      where lm.organisation_id = m.organisation_id
+        and lm.user_id = m.user_id
+    )
+  ))`
 }
 
 async function lookupSession(rawToken: string): Promise<Session | null> {
@@ -42,20 +131,49 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
     await sql`
       select set_config('app.session_token_hash', ${tokenHash}, true)
     `
+    const supportEnabled = getServerEnv().SUPPORT_IMPERSONATION_ENABLED
     const [sessionIdentity] = await sql<
-      { sessionId: string; userId: string; organisationId: string }[]
+      {
+        sessionId: string
+        userId: string
+        organisationId: string
+        isSupport: boolean
+        currentVersion: boolean
+      }[]
     >`
       select
-        id::text as "sessionId",
-        user_id::text as "userId",
-        organisation_id::text as "organisationId"
-      from app_session
-      where token_hash = ${tokenHash}
-        and expires_at > now()
-        and (absolute_expires_at is null or absolute_expires_at > now())
+        s.id::text as "sessionId",
+        s.user_id::text as "userId",
+        s.organisation_id::text as "organisationId",
+        s.support_actor is not null as "isSupport",
+        s.security_version = u.security_version as "currentVersion"
+      from app_session s
+      join app_user u on u.id = s.user_id
+      where s.token_hash = ${tokenHash}
+        and s.expires_at > now()
+        and (s.absolute_expires_at is null or s.absolute_expires_at > now())
       limit 1
     `
     if (!sessionIdentity) return null
+    // Minted before the person's security_version moved on (operator MFA
+    // recovery bumps it, 0105): the session is over everywhere, and its row
+    // goes now rather than waiting for its expiry.
+    if (!sessionIdentity.currentVersion) {
+      await sql`delete from app_session where token_hash = ${tokenHash}`
+      return null
+    }
+    // With support impersonation off (the default), a support session never
+    // resolves, and the row it presented is deleted so it cannot come back
+    // when the flag is turned on again. The policy on app_session lets this
+    // transaction see and delete only the row matching its own token hash.
+    if (sessionIdentity.isSupport && !supportEnabled) {
+      await sql`
+        delete from app_session
+        where token_hash = ${tokenHash}
+          and support_actor is not null
+      `
+      return null
+    }
     await sql`
       select set_config(
         'app.organisation_id',
@@ -75,7 +193,15 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         m.role,
         m.can_publish as "canPublish",
         s.support_actor as "supportActor",
-        s.impersonation_reason as "impersonationReason"
+        s.impersonation_reason as "impersonationReason",
+        s.aal,
+        s.mfa_factor_id as "mfaFactorId",
+        s.mfa_verified_at as "mfaVerifiedAt",
+        s.mfa_proof_expires_at as "mfaProofExpiresAt",
+        s.security_version as "securityVersion",
+        s.auth_method as "authMethod",
+        u.mfa_factor_count as "mfaFactorCount",
+        ${scopeFingerprintColumn(sql)} as "scopeFingerprint"
       from app_session s
       join app_user u on u.id = s.user_id
       join organisation o on o.id = s.organisation_id
@@ -94,14 +220,21 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
         last_seen_at = now(),
         expires_at = case
           when support_actor is null then least(
-            now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '1 day'),
+            -- 24-hour days, as at sign-in (session-store.ts): DST-proof.
+            now() + (${getServerEnv().SESSION_IDLE_DAYS} * interval '24 hours'),
             coalesce(absolute_expires_at, expires_at)
           )
           else expires_at
         end
       where id = ${sessionIdentity.sessionId}
     `
-    return session ?? null
+    if (!session) return null
+    const billing = await getOrganisationBilling(sql, session.organisationId)
+    return {
+      ...session,
+      access: accessFromView(billing, new Date()),
+      entitlementEnforced: enforcementApplies(billing),
+    }
   }) as Promise<Session | null>
 }
 
@@ -225,6 +358,10 @@ export async function ensureDevelopmentSession(): Promise<Session> {
         ${LOCAL_USER_ID}
       )
     `
+    // provision_local_bootstrap (0005) predates billing and creates the
+    // organisation without a billing row, which derives read-only. Give the
+    // local organisation its explicit pilot record, as provisioning does.
+    await seedPilotBilling(sql, LOCAL_ORGANISATION_ID)
     return createSession(sql, LOCAL_USER_ID, LOCAL_ORGANISATION_ID)
   })
 
@@ -253,6 +390,16 @@ export async function revokeAllSessions(): Promise<number> {
   }
   cookieStore.delete(SESSION_COOKIE)
   return revoked
+}
+
+/**
+ * Forgets the session cookie in this browser without touching the database.
+ * For sign-out paths whose database step failed: the browser must still stop
+ * presenting the token, even when its row could not be deleted.
+ */
+export async function dropSessionCookie() {
+  const cookieStore = await cookies()
+  cookieStore.delete(SESSION_COOKIE)
 }
 
 export async function clearSession() {

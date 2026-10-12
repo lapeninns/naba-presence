@@ -256,6 +256,64 @@ export function listingAccessFailureCode(
   return null
 }
 
+/** The safe-mode body read: a read or parse failure is thrown as is. */
+async function readBody(response: Response): Promise<unknown> {
+  const text = await response.text()
+  const contentType = response.headers.get("content-type") ?? ""
+  return text ? (contentType.includes("json") ? JSON.parse(text) : text) : null
+}
+
+/** classifyMutationFailure({ kind: "decode" }) is always "ambiguous". */
+function decodeAmbiguity(detail: string): GoogleMutationAmbiguousError {
+  return new GoogleMutationAmbiguousError(
+    `Google answered the write but ${detail}, so whether it applied is unknown.`
+  )
+}
+
+/**
+ * The mutation-mode body read. The request has been dispatched, so a 2xx
+ * whose body cannot be read or decoded may still have written: that is
+ * uncertain (GoogleMutationAmbiguousError), never a plain failure. A non-2xx
+ * status is the provider's own answer, so an unreadable error body only
+ * loses detail: the status still decides the classification.
+ */
+async function readMutationBody(
+  response: Response,
+  method: string,
+  successBody: "json" | "ignored" = "json"
+): Promise<unknown> {
+  let text: string
+  try {
+    text = await response.text()
+  } catch {
+    if (!response.ok || successBody === "ignored") return null
+    throw decodeAmbiguity("its response could not be read")
+  }
+  const contentType = response.headers.get("content-type") ?? ""
+  if (!response.ok) {
+    if (!text) return null
+    if (!contentType.includes("json")) return text
+    try {
+      return JSON.parse(text) as unknown
+    } catch {
+      return text
+    }
+  }
+  if (successBody === "ignored") return text || null
+  if (!text) {
+    if (method.toUpperCase() === "DELETE") return null
+    throw decodeAmbiguity("its response was empty")
+  }
+  if (!contentType.includes("json")) {
+    throw decodeAmbiguity("its response was not JSON")
+  }
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    throw decodeAmbiguity("its response was malformed")
+  }
+}
+
 export async function googleRequest<T>(
   url: string,
   accessToken: string,
@@ -265,6 +323,13 @@ export async function googleRequest<T>(
     mode?: "safe" | "mutation"
     maxAttempts?: number
     timeoutMs?: number
+    /**
+     * Mutation mode only. "json" (the default) requires a 2xx to carry a
+     * parseable JSON body, except an empty DELETE answer. "ignored" is for a
+     * call whose success body the caller never reads (the media byte upload):
+     * the status alone confirms it.
+     */
+    successBody?: "json" | "ignored"
   } = {}
 ): Promise<T> {
   // Before the budget, the pacer and the span: a retired endpoint must never
@@ -341,13 +406,10 @@ export async function googleRequest<T>(
             continue
           }
           finalStatus = response.status
-          const text = await response.text()
-          const contentType = response.headers.get("content-type") ?? ""
-          const body: unknown = text
-            ? contentType.includes("json")
-              ? JSON.parse(text)
-              : text
-            : null
+          const body: unknown =
+            mode === "mutation"
+              ? await readMutationBody(response, method, options.successBody)
+              : await readBody(response)
           if (response.ok) {
             outcome = "success"
             return body as T

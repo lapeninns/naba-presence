@@ -32,6 +32,44 @@ describe("Next security headers", () => {
   })
 })
 
+describe("photo upload origin", () => {
+  it("stays same-origin unless owned photo storage is switched on", async () => {
+    vi.stubEnv("MEDIA_ASSET_STORAGE", "")
+    vi.stubEnv("SUPABASE_URL", "https://project.supabase.co")
+    await expect(contentSecurityPolicy()).resolves.toContain(
+      "connect-src 'self'"
+    )
+    await expect(contentSecurityPolicy()).resolves.not.toContain("supabase.co")
+  })
+
+  it("lets the browser PUT to the storage origin once storage is on", async () => {
+    vi.stubEnv("MEDIA_ASSET_STORAGE", "supabase")
+    vi.stubEnv("SUPABASE_URL", "https://project.supabase.co/")
+    await expect(contentSecurityPolicy()).resolves.toContain(
+      "connect-src 'self' https://project.supabase.co"
+    )
+  })
+
+  it("refuses a non-https storage origin other than loopback", async () => {
+    const { assetUploadOrigin } = await import("../next.config")
+    expect(
+      assetUploadOrigin({
+        MEDIA_ASSET_STORAGE: "supabase",
+        SUPABASE_URL: "http://storage.example.test",
+      })
+    ).toBeNull()
+    expect(
+      assetUploadOrigin({
+        MEDIA_ASSET_STORAGE: "supabase",
+        SUPABASE_URL: "http://127.0.0.1:54321",
+      })
+    ).toBe("http://127.0.0.1:54321")
+    expect(
+      assetUploadOrigin({ MEDIA_ASSET_STORAGE: "supabase", SUPABASE_URL: "x" })
+    ).toBeNull()
+  })
+})
+
 describe("retired routes", () => {
   async function redirects() {
     const { default: nextConfig } = await import("../next.config")

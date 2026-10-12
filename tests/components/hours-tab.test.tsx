@@ -414,3 +414,116 @@ describe("HoursTab reviewed snapshots", () => {
     expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("08:00")
   })
 })
+
+describe("HoursTab selective publish", () => {
+  function selectiveState(overrides: Partial<HoursState> = {}): HoursState {
+    const google = emptyHours()
+    google.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "10:00", closesAt: "16:00", closeDayOfWeek: 1 }],
+    }
+    const canonical = structuredClone(google)
+    canonical.regular[1].periods[0].opensAt = "09:00"
+    canonical.special = [
+      {
+        effectiveDate: "2026-12-25",
+        endDate: "2026-12-25",
+        isClosed: true,
+        opensAt: null,
+        closesAt: null,
+      },
+    ]
+    return makeHours({
+      canonical,
+      google,
+      updateMask: ["regularHours", "specialHours"],
+      googlePartHashes: { "regular:1": "g".repeat(64) },
+      ...overrides,
+    })
+  }
+  function show(state: HoursState) {
+    useHoursMock.mockReturnValue({
+      data: state,
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    return renderTab()
+  }
+
+  it("publishes only the ticked parts, pinned to their Google part hashes", async () => {
+    const user = userEvent.setup()
+    const publish = vi
+      .spyOn(hoursApi, "publishHours")
+      .mockResolvedValue({ status: "published" })
+    show(selectiveState())
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const sheet = await screen.findByRole("dialog")
+    expect(
+      within(sheet).getByText("Choose what to publish")
+    ).toBeInTheDocument()
+    await user.click(within(sheet).getByRole("checkbox", { name: "Monday" }))
+    expect(within(sheet).getByText(/1 field will change/)).toBeInTheDocument()
+    await user.click(
+      within(sheet).getByRole("button", { name: "Publish to Google" })
+    )
+    await waitFor(() =>
+      expect(publish).toHaveBeenCalledWith(
+        "loc-1",
+        {
+          expectedCanonicalRevision: "2",
+          expectedCanonicalHash: "ch",
+          expectedGoogleHash: "gh",
+          approvedUpdateMask: ["specialHours"],
+          confirmOverwriteGoogleChanges: false,
+          selection: {
+            specialDates: ["2026-12-25"],
+            expectedGoogleParts: { "special:2026-12-25": null },
+          },
+        },
+        { intentId: expect.any(String) }
+      )
+    )
+  })
+
+  it("asks to confirm an overwrite only while a Google-changed part is ticked", async () => {
+    const user = userEvent.setup()
+    const publish = vi
+      .spyOn(hoursApi, "publishHours")
+      .mockResolvedValue({ status: "published" })
+    show(
+      selectiveState({
+        status: "conflict",
+        partStatus: {
+          "regular:1": "google_dirty",
+          "special:2026-12-25": "core_dirty",
+        },
+      })
+    )
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const sheet = await screen.findByRole("dialog")
+    const button = within(sheet).getByRole("button", {
+      name: "Publish to Google",
+    })
+    expect(within(sheet).getByText(/want to replace it/)).toBeInTheDocument()
+    expect(button).toBeDisabled()
+    await user.click(within(sheet).getByRole("checkbox", { name: "Monday" }))
+    expect(within(sheet).queryByText(/want to replace it/)).toBeNull()
+    await user.click(button)
+    await waitFor(() =>
+      expect(publish).toHaveBeenCalledWith(
+        "loc-1",
+        expect.objectContaining({
+          confirmOverwriteGoogleChanges: false,
+          approvedUpdateMask: ["specialHours"],
+        }),
+        { intentId: expect.any(String) }
+      )
+    )
+  })
+})

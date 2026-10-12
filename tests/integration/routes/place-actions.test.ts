@@ -221,6 +221,90 @@ describeDatabase("Google Place Actions", () => {
     `
     expect(Number(audit.count)).toBe(3)
   }, 30_000)
+
+  it("records a create Google answered without the link name as unknown and confirms it from the list", async () => {
+    const owner = await createTestTenant(admin)
+    organisations.push(owner.organisationId)
+    const connection = await seedGoogleConnection(admin, {
+      organisationId: owner.organisationId,
+    })
+    const linked = await seedLinkedReview(admin, {
+      organisationId: owner.organisationId,
+      connectionId: connection.connectionId,
+      googleAccountName: connection.googleAccountName,
+    })
+    const links: Array<Record<string, unknown>> = []
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionTypeMetadata" },
+      () => ({ status: 200, json: { placeActionTypeMetadata: [{ placeActionType: "DINING_RESERVATION", displayName: "Dining reservation" }] } })
+    )
+    google.respond(
+      { method: "GET", pathIncludes: "/placeActionLinks" },
+      () => ({ status: 200, json: { placeActionLinks: links } })
+    )
+    // Google writes the link but answers 2xx without naming it.
+    google.respond(
+      { method: "POST", pathIncludes: "/placeActionLinks" },
+      (call) => {
+        links.push({
+          name: `${linked.googleLocationName}/placeActionLinks/nameless`,
+          providerType: "MERCHANT",
+          isEditable: true,
+          ...(call.body as Record<string, unknown>),
+          createTime: "2026-07-31T10:00:00Z",
+          updateTime: "2026-07-31T10:00:00Z",
+        })
+        return { status: 200, json: {} }
+      }
+    )
+
+    const reviews = `${server.baseUrl}/api/locations/${linked.locationId}/place-action-reviews`
+    const preview = await fetch(reviews, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "preview-nameless"),
+      body: JSON.stringify({
+        operation: "create",
+        payload: {
+          uri: "https://book.example.com/nameless",
+          placeActionType: "DINING_RESERVATION",
+          isPreferred: false,
+        },
+      } satisfies ReviewedPlaceActionRequest),
+    })
+    expect(preview.status, await preview.clone().text()).toBe(200)
+    const review = placeActionReviewResponseSchema.parse(await preview.json()).review
+    const body = JSON.stringify({ expectedPayloadHash: review.changeSet.payloadHash })
+    const approval = await fetch(`${reviews}/${review.changeSet.id}`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "approve-nameless"),
+      body,
+    })
+    expect(approval.status, await approval.clone().text()).toBe(200)
+    const sent = await fetch(`${reviews}/${review.changeSet.id}/execute`, {
+      method: "POST",
+      headers: jsonHeaders(owner.cookie, "send-nameless"),
+      body,
+    })
+    expect(sent.status, await sent.clone().text()).toBe(200)
+    // The answer is not evidence; the list readback confirms the link.
+    expect(await sent.json()).toMatchObject({
+      attempt: { executionState: "unknown", confirmationState: "confirmed" },
+    })
+    const [stored] = await admin<{ google_response: unknown }[]>`
+      select google_response from place_action_mutation
+      where organisation_id = ${owner.organisationId} and change_set_id = ${review.changeSet.id}
+    `
+    expect(stored.google_response).toBeNull()
+    // One create, never a second.
+    expect(
+      google.calls.filter(
+        (call) =>
+          call.method === "POST" &&
+          call.path.includes(linked.googleLocationName.split("/")[1]) &&
+          call.path.includes("/placeActionLinks")
+      )
+    ).toHaveLength(1)
+  }, 30_000)
 })
 
 function jsonHeaders(cookie: string, requestId: string) {

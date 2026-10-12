@@ -36,7 +36,7 @@ export function SavedListingReviews({ locationId, enabled, publishReason }: { lo
         return publishBusinessInformation(locationId, parsed.data)
       },
     }] : [],
-    invalidate: [queryKeys.locationBusinessInformation(locationId), queryKeys.locationProfile(locationId), queryKeys.locationActivity(locationId).slice(0, -1)],
+    invalidate: [queryKeys.locationBusinessInformation(locationId), queryKeys.locationProfile(locationId), queryKeys.locationActivity(locationId)],
     onSuccess: () => setSelected(null),
   })
   if (!enabled) return null

@@ -54,7 +54,8 @@ export class AiOutputError extends ApiError {
 /**
  * Token counts from either usage shape: the Responses API's
  * `input_tokens`/`output_tokens`, or the chat completions
- * `prompt_tokens`/`completion_tokens` that Workers AI returns.
+ * `prompt_tokens`/`completion_tokens` (kept for older recorded payloads and
+ * OpenAI-compatible stubs).
  */
 export function extractUsage(payload: Record<string, unknown>): AiUsage {
   const usage =
@@ -104,7 +105,7 @@ async function openAiStructured<T>(
           input,
           store: false,
           stream: false,
-          max_output_tokens: 4096,
+          max_output_tokens: env.AI_MAX_OUTPUT_TOKENS,
           text: {
             format: {
               type: "json_schema",
@@ -294,6 +295,15 @@ export type SemanticVerificationResult = {
 }
 
 /**
+ * Whether `semanticVerification` would call the provider. Callers reserve
+ * the call's token budget (lib/server/ai-usage.ts) only when it would.
+ */
+export function semanticVerificationEnabled(): boolean {
+  const env = getServerEnv()
+  return Boolean(env.SEMANTIC_VERIFY_ENABLED && env.OPENAI_API_KEY)
+}
+
+/**
  * The semantic half of verification.
  *
  * `ran: false` means the pass was deliberately not attempted: the
@@ -311,7 +321,7 @@ export async function semanticVerification(
   input: SemanticInput
 ): Promise<SemanticVerificationResult> {
   const env = getServerEnv()
-  if (!env.SEMANTIC_VERIFY_ENABLED || !env.OPENAI_API_KEY) {
+  if (!semanticVerificationEnabled()) {
     return { ran: false, reasons: [] }
   }
   const { value: result, usage } = await openAiStructured(

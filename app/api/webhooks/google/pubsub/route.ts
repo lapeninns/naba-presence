@@ -42,6 +42,7 @@ function discarded(reason: string) {
 // caller is authenticated by its OIDC token in `verifyPubSubRequest`.
 export const POST = route({
   auth: "public",
+  origin: "any",
   handler: async ({ request }) => {
     const env = getServerEnv()
     if (!env.WEBHOOKS_ENABLED || !env.SYNC_ENABLED) {

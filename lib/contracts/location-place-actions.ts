@@ -7,7 +7,9 @@
  */
 import { z } from "zod"
 
+import { httpUrl } from "@/lib/contracts/http-url"
 import { GOOGLE_PLACE_ACTION_TYPES } from "@/lib/domain/google-contract"
+import { operationSummaryField } from "@/lib/contracts/mutation-operations"
 
 // ---------------------------------------------------------------------------
 // Requests
@@ -15,11 +17,7 @@ import { GOOGLE_PLACE_ACTION_TYPES } from "@/lib/domain/google-contract"
 
 /** The editable fields of a Place Action link. */
 export const placeActionInputSchema = z.object({
-  uri: z
-    .url()
-    .refine((value) => ["http:", "https:"].includes(new URL(value).protocol), {
-      message: "Place Action links must use http or https.",
-    }),
+  uri: httpUrl("Place Action links must use http or https."),
   placeActionType: z.enum(GOOGLE_PLACE_ACTION_TYPES),
   isPreferred: z.boolean().default(false),
 })
@@ -117,6 +115,7 @@ export const placeActionMutationOutcomeSchema = z.object({
   id: z.string(),
   status: z.string(),
   idempotent: z.boolean(),
+  ...operationSummaryField,
 })
 export type PlaceActionMutationOutcome = z.infer<
   typeof placeActionMutationOutcomeSchema
