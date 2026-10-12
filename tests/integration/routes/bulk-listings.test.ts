@@ -194,6 +194,16 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       error: "bulk_skipped_unacknowledged",
     })
     await t.read(await t.approve(op, true))
+    // The assurance it was approved with (0106): MFA is off here, so aal1.
+    const [assurance] = await admin<
+      { aal: string | null; verifiedAt: Date | null; version: number | null }[]
+    >`
+      select approved_aal as aal,
+        approved_mfa_verified_at as "verifiedAt",
+        approved_security_version as version
+      from bulk_listing_operation where id = ${op.id}
+    `
+    expect(assurance).toEqual({ aal: "aal1", verifiedAt: null, version: 1 })
     const started = await t.api(`/${op.id}/execute`, {})
     expect(started.status).toBe(202)
     await tick()
@@ -282,6 +292,21 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       status: "conflict",
       resultCode: "google_baseline_changed",
     })
+    expect(patches()).toHaveLength(0)
+  })
+
+  it("fails, without writing, listings approved by someone recovered since", async () => {
+    const t = await tenant(1)
+    const op = await t.preview()
+    await t.read(await t.approve(op))
+    expect((await t.api(`/${op.id}/execute`, {})).status).toBe(202)
+    // Operator MFA recovery (recover_user_mfa) bumps the approver's version.
+    await admin`update app_user set security_version = security_version + 1 where id = ${t.owner.userId}`
+    await tick()
+    const [child] = await admin<{ status: string; code: string | null }[]>`
+      select status, result_code as code from bulk_listing_child
+      where operation_id = ${op.id}`
+    expect(child).toEqual({ status: "failed", code: "approval_invalid" })
     expect(patches()).toHaveLength(0)
   })
 

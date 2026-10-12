@@ -73,6 +73,8 @@ function scriptedSql(script: {
   connectionId?: string | null
   /** The active connection's credential_generation (default 1). */
   generation?: number | null
+  /** app_user.security_version (default 1); null for an invisible row. */
+  securityVersion?: number | null
   policy?: {
     approvalRequired: boolean
     requireTwoPersonApproval: boolean
@@ -98,6 +100,11 @@ function scriptedSql(script: {
           ]
         } else if (text.includes("from member")) {
           rows = script.member ? [script.member] : []
+        } else if (text.includes("from app_user")) {
+          rows =
+            script.securityVersion === null
+              ? []
+              : [{ securityVersion: script.securityVersion ?? 1 }]
         } else if (text.includes("from organisation")) {
           rows = script.policy ? [script.policy] : []
         } else if (text.includes("from location_link")) {
@@ -308,15 +315,34 @@ describe("authz/actor -- session-free actor", () => {
     ).resolves.toEqual({ ok: false, reason: "connection_changed" })
   })
 
-  it("fails closed on a security version it cannot verify yet", async () => {
+  it("refuses when the actor's security version moved on", async () => {
+    const owner = { role: "owner" as const, canPublish: false }
+    // Operator MFA recovery bumped the version after the work was queued.
     await expect(
-      recheck(
-        { member: { role: "owner", canPublish: false } },
-        {
-          securityVersion: 3,
-        }
-      )
-    ).resolves.toEqual({ ok: false, reason: "security_version_unverifiable" })
+      recheck({ member: owner, securityVersion: 4 }, { securityVersion: 3 })
+    ).resolves.toEqual({ ok: false, reason: "security_version_changed" })
+    // A user row the tenant cannot see proves nothing.
+    await expect(
+      recheck({ member: owner, securityVersion: null }, { securityVersion: 3 })
+    ).resolves.toEqual({ ok: false, reason: "security_version_changed" })
+    await expect(
+      recheck({ member: owner, securityVersion: 3 }, { securityVersion: 3 })
+    ).resolves.toMatchObject({ ok: true })
+  })
+
+  it("does not read the security version when none was recorded", async () => {
+    const { sql, queries } = scriptedSql({
+      member: { role: "owner", canPublish: false },
+    })
+    await expect(
+      recheckAuthorisation(sql, {
+        organisationId: ORG,
+        actorUserId: USER,
+        locationId: LOCATION,
+        action: "publish",
+      })
+    ).resolves.toMatchObject({ ok: true })
+    expect(queries.some((text) => text.includes("from app_user"))).toBe(false)
   })
 
   it("refuses when the connection's credential generation moved on", async () => {

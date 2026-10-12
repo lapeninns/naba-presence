@@ -11,6 +11,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const POST = route({
+  mfa: "step_up",
   params: z.object({ id: z.string(), postId: z.string() }),
   handler: async ({ session, params, requestId }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {

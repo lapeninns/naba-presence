@@ -5,7 +5,8 @@
 Supabase Auth owns password hashing, password recovery, abuse controls, and
 email verification. NabaPresence exchanges only a verified Supabase user
 identity for an opaque, HTTP-only application session; it never stores a
-password or a Supabase access/refresh token. The server hashes the opaque token
+password or a Supabase refresh token, and keeps a Supabase access token only
+encrypted inside a five-minute two-step verification ticket (below). The server hashes the opaque token
 before lookup, binds the resulting user and organisation to the request, and
 opens every tenant data operation in a transaction that sets
 `app.organisation_id`. PostgreSQL row-level policies then default-deny records
@@ -53,6 +54,85 @@ the same user and default organisation on every device. Google OAuth is a
 separate owner/admin action whose encrypted connection belongs to that
 organisation, so application sign-out or a new device session does not remove
 the Google connection.
+
+### Two-step verification (P02-S8, migration 0105)
+
+Behind `MFA_ENABLED` (default off), a person with a verified Supabase TOTP
+factor does not get a session from a password, a reset or an emailed link
+alone. `lib/server/email-auth.ts` opens a five-minute pending ticket instead
+(`mfa_pending_login`, reached only through SECURITY DEFINER functions; the
+provider's access token for the challenge is kept encrypted for those five
+minutes and never longer), sets it in the httpOnly `naba_mfa_ticket` cookie
+scoped to `/api/auth/mfa`, and answers `mfaRequired`. `POST
+/api/auth/mfa/verify` (abuse scope `mfa_verify`, five attempts per ticket,
+and `mfa_verify_account`/`mfa_verify_account_daily` per provider identity
+across tickets)
+challenges and verifies the code at the provider, requires the provider's
+token to say `aal2`, spends the ticket exactly once and only then provisions,
+accepts an invitation and mints the session. `GET /api/auth/mfa/factors`
+lists the primary and backup factors a ticket may use. `POST
+/api/auth/mfa/enroll` re-checks the password (the app keeps no provider token
+for a session) and, for a backup, a current code; verifying the new factor
+replaces the enrolling session with an aal2 one. Sessions record `aal`,
+`mfa_factor_id`, `mfa_verified_at`, `mfa_proof_expires_at` (verified plus 15
+minutes), `auth_method` and the person's `security_version`
+(`lib/server/session-store.ts`); a workspace switch and accepting an
+invitation while signed in carry the assurance across, and `lookupSession`
+deletes a session whose `security_version` is behind the person's (which only
+ever increases). Sessions from before 0105 are aal1. A password reset by an
+enrolled person sets nothing until the code: the new password waits in the
+ticket (encrypted) and the verify route sets it with the aal2 token, then
+ends the person's other sessions and audits `user.password_reset`. Issuing a
+sign-in ticket ends whatever session the browser already held. `lib/server/mfa.ts` owns the ticket, cookie and assurance
+helpers; `/sign-in/verify` and `/settings/security` are the screens.
+
+### Step-up and authorised dispatch (P02-S9, migration 0106)
+
+With `MFA_ENABLED` on, owners and admins need an aal2 proof from the last 15
+minutes before a sensitive action: a route handler declares
+`route({ mfa: "step_up" })` (`lib/server/route.ts`), which runs
+`requireRecentMfa` (`lib/server/mfa.ts`) after the role gate and answers 403
+`mfa_step_up_required`, or `mfa_enrollment_required` for a manager with no
+authenticator app. The handlers that declare it (team, Google connection and
+onboarding writes, every publish, approve and execute path, settings,
+legal holds and privacy requests) are pinned by
+`tests/mfa-step-up-contract.test.ts`; bulk review approval and editing a
+published post call `requireRecentMfa` for that branch only. Reads,
+enrollment, exports and workspace switching stay at aal1, and members and
+viewers are not held to it. `POST /api/auth/mfa/step-up` takes the password
+and a current code (primary or backup factor; abuse scopes `mfa_verify` and
+the per-account budgets) and replaces the session with an aal2 one.
+`components/auth/mfa-step-up-prompt.tsx`, mounted in the app shell, opens on
+the window event `lib/api/client.ts` raises for those 403s; the action is not
+replayed, the person sends it again.
+
+Approvals record the assurance they were made with
+(`authorisationAssurance`): `approval_decision`, `post_approval_decision`
+and `mutation_approval_decision` gain `authorised_aal`,
+`authorised_mfa_verified_at` and `authorised_security_version`, and
+`gbp_change_set`, `post_publication_schedule` and `bulk_listing_operation`
+the matching `approved_*` columns (a schedule revision clears them). `publish_attempt` records
+who authorised the reply mutation (`authorised_by`, assurance, security
+version, `authorised_connection_id` and the approval policy it passed), and
+`retryPublishAttempt` (`lib/server/publishing/retry.ts`) re-decides it through
+`recheckAuthorisation` before every replay: a removed member, a lost publish
+grant, a changed connection, a bumped security version or (for a publish) a
+changed approval policy settles the attempt `failed` (`authorisation_revoked`,
+reason in the event) with no provider call, and a row with nobody or no policy
+recorded fails closed (`authorisation_unverifiable`); 0106 backfills the
+attempts in flight when it runs. `gbp_local_post_attempt` records the
+assurance beside `actor_user_id` (a scheduled publish records its approval's).
+A security version bump also voids stored reply and post approvals, a
+reviewed change set at execute, and approved schedules and bulk listing
+operations in their runners, wherever a version was recorded. `beginOperation` records the requesting
+session's security version on `mutation_operation` (the actor's current one
+for a worker re-running a recorded intent). It is recorded for audit and
+nothing compares it yet; `mutation_recover` will once it rechecks (P03-S6). Operator recovery is
+`scripts/mfa-recover.mjs` (`pnpm ops:mfa-recover`), outside the app runtime:
+`recover_user_mfa` (owner connection only) bumps `security_version`, deletes
+sessions and tickets, zeroes `mfa_factor_count` and audits
+`user.mfa_recovered` per organisation; the script then deletes the factors at
+the provider with the service-role key (runbook, "MFA recovery").
 
 Arbitrary tenant headers are never accepted. Owner/admin, member, viewer,
 location access, and publish authority checks happen above the database RLS
@@ -195,9 +275,10 @@ bulk assign/triage all refuse it. Work that runs without a session (retries,
 schedules, recovery, bulk batches) re-derives the actor's grant at dispatch
 through `lib/server/authz/actor.ts`: `actorScopeFromMembership` turns the
 member row into a grant scope, and `recheckAuthorisation` re-decides the
-action, refuses a relinked Google connection or a changed approval policy,
-and fails closed on a supplied security version, generation id or entitlement
-until those mechanisms exist (P02-S9, P03-S2/P07-S2, P07-S1 wire them in). A bulk assignee must pass the same
+action, refuses a relinked Google connection, a changed approval policy or
+a security version the person has moved past (P02-S9), and fails closed on a
+supplied generation id or entitlement until those mechanisms exist
+(P03-S2/P07-S2, P07-S1 wire them in). A bulk assignee must pass the same
 recheck for the review's location (`assignee_not_eligible` otherwise).
 Bulk approve (`app/api/reviews/bulk/route.ts`) names, per row, the draft and
 review update time the operator was shown; `recordApprovalDecision` refuses
@@ -278,7 +359,8 @@ upload cannot be frozen (no asset store yet), so it is refused with 409
 pending requests above themselves (`components/locations/listing-change-requests.tsx`,
 only where the location capability `listingChangeApprovals` is true), and the
 API client raises a parked answer as `listing_change_awaiting_approval`, never
-as a failure or a send. Approvals carry no MFA assurance yet (P02-S9).
+as a failure or a send. Each decision records the approver's assurance
+(P02-S9, above).
 
 `tests/route-authorization-contract.test.ts` scans `app/api/**/route.ts` so
 every session mutation declares non-viewer `roles`, calls an action guard in
@@ -362,8 +444,9 @@ Client state is bound to the session's scope. Stashed editor drafts are keyed
 by user, organisation, resource, resource id and draft schema version
 (`lib/editors/draft-key.ts`), so a stash is only offered to whoever wrote it
 and a schema bump ignores old ones. The session projection carries an opaque
-`scopeFingerprint` (role, publish right, `location_scope` and location
-grants, hashed in `lib/server/session.ts`); `lib/queries/scope-reset.ts`
+`scopeFingerprint` (the person's `security_version` (0105), role, publish
+right, `location_scope` and location grants, hashed in
+`lib/server/session.ts`); `lib/queries/scope-reset.ts`
 drops every cached query but the session when the user, organisation, role,
 publish right or fingerprint changes, purges stashes of any other identity,
 and drops one location's or client's cache when a read of it is refused for

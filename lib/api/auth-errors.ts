@@ -88,6 +88,37 @@ const BY_CODE: Record<string, AuthMessage> = {
   invalid_request: {
     title: "Check the highlighted fields.",
   },
+  mfa_code_invalid: {
+    title: "That code did not match.",
+    description:
+      "Check your authenticator app and enter the code it shows now.",
+  },
+  mfa_ticket_invalid: {
+    title: "Your sign-in has expired.",
+    description: "Sign in again to get a new code request.",
+  },
+  mfa_factor_unknown: {
+    title: "Choose one of your authenticator apps.",
+  },
+  mfa_required: {
+    title: "This account uses two-step verification.",
+    description: "Sign in with your email and password to enter your code.",
+  },
+  mfa_code_required: {
+    title: "Enter a code from your current authenticator app.",
+    description: "Adding a backup needs a code from the app you already use.",
+  },
+  mfa_factor_limit: {
+    title: "You already have two authenticator apps.",
+    description: "That is the most an account can have.",
+  },
+  mfa_disabled: {
+    title: "Two-step verification is not available.",
+  },
+  mfa_assurance_unconfirmed: {
+    title: "We could not confirm your code.",
+    description: "This is a problem on our side. Try again shortly.",
+  },
   // The account menu lands here after DELETE /api/session?scope=all signed
   // this browser out but could not end the other sessions.
   sign_out_everywhere_failed: {

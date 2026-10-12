@@ -58,6 +58,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   params: paramsSchema,
   body: publishFoodMenusSchema,
   handler: ({

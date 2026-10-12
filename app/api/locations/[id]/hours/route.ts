@@ -50,6 +50,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   params: paramsSchema,
   body: publishHoursBodySchema,
   // Parks for a second publisher in two-person mode

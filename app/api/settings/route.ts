@@ -36,6 +36,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   body: settingsPatchSchema,
   handler: async ({

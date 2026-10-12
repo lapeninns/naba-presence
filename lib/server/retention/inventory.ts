@@ -962,6 +962,17 @@ export const RETENTION_INVENTORY = [
     approval: { status: "internal" },
   },
   {
+    table: "mfa_pending_login",
+    provenance: "operational",
+    action: "delete",
+    window: "when the five-minute sign-in ticket expires (expires_at)",
+    handledBy:
+      "purgeExpiredMfaTickets (lib/server/retention/purge.ts), once per cycle",
+    deletes: "ungated",
+    hold: "none",
+    approval: { status: "internal" },
+  },
+  {
     table: "retention_cycle",
     provenance: "operational",
     action: "delete",

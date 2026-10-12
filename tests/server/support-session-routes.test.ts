@@ -194,6 +194,7 @@ describe("support session resolution", () => {
             userId: customer.userId,
             organisationId: ORG,
             isSupport: identity.isSupport,
+            currentVersion: true,
           },
         ]
       }

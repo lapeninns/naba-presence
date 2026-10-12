@@ -113,5 +113,7 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0102_workspace_mode_change",
   "0103_location_business_home",
   "0104_invitation_delivery",
+  "0105_mfa_assurance",
+  "0106_authorised_dispatch",
   "20260729000400_remove_local_demo_data",
 ]

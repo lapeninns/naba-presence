@@ -29,9 +29,11 @@ export const runtime = "nodejs"
  * inviter and per organisation, and spent only by a Resend that queues an
  * email). A Resend is a new delivery with its own
  * idempotency key, sent inline like the first; 202 answers with where it
- * stands, which may still be `pending` (paused, or retrying).
+ * stands, which may still be `pending` (paused, or retrying). It re-sends an
+ * access link, so it steps up like creating the invitation (P02-S9).
  */
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: invitationResendParamsSchema,
   handler: async ({ session, params, requestId, clientRequestId, tenant }) => {

@@ -1,6 +1,8 @@
 import { HydrationBoundary } from "@tanstack/react-query"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
+import { SettingsFeaturesProvider } from "@/components/settings/settings-features"
+import { isMfaEnabled } from "@/lib/server/mfa"
 import { prefetch, settingsPrefetch } from "@/lib/server/prefetch"
 import { getSession } from "@/lib/server/session"
 
@@ -23,7 +25,9 @@ export default async function SettingsLayout({
   const state = await prefetch(session, settingsPrefetch())
   return (
     <PageFrame width="standard">
-      <HydrationBoundary state={state}>{children}</HydrationBoundary>
+      <SettingsFeaturesProvider value={{ mfa: isMfaEnabled() }}>
+        <HydrationBoundary state={state}>{children}</HydrationBoundary>
+      </SettingsFeaturesProvider>
     </PageFrame>
   )
 }

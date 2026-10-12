@@ -9,9 +9,9 @@ const params = z.object({ id: z.uuid(), reviewId: z.uuid() })
 export const GET = route({ roles: ["owner", "admin"], params,
   handler: async ({ session, params }) => ({ attempt: await readVerificationAttempt(session, params.id, params.reviewId) }),
 })
-export const POST = route({ roles: ["owner", "admin"], params, body: verificationExecuteSchema,
+export const POST = route({ mfa: "step_up", roles: ["owner", "admin"], params, body: verificationExecuteSchema,
   handler: async ({ session, params, body, requestId }) => ({ attempt: await executeVerificationStart(session, params.id, params.reviewId, body.expectedPayloadHash, requestId) }),
 })
-export const PATCH = route({ roles: ["owner", "admin"], params, body: z.strictObject({}),
+export const PATCH = route({ mfa: "step_up", roles: ["owner", "admin"], params, body: z.strictObject({}),
   handler: async ({ session, params, requestId }) => ({ attempt: await refreshVerificationAttempt(session, params.id, params.reviewId, requestId) }),
 })

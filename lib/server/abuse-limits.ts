@@ -40,12 +40,19 @@ import { log } from "@/lib/server/logger"
  * sign-off (decision D-21).
  */
 
-export type AbuseKeyKind = "ip" | "email" | "user" | "token" | "organisation"
+export type AbuseKeyKind =
+  | "ip"
+  | "email"
+  | "user"
+  | "token"
+  | "organisation"
+  | "account"
 
 type Window = { limit: number; windowSeconds: number }
 
 const MINUTES_15 = 15 * 60
 const HOUR = 60 * 60
+const DAY = 24 * HOUR
 
 export const ABUSE_POLICIES = {
   // Password guessing: per IP leaves room for an office behind one NAT; per
@@ -110,6 +117,38 @@ export const ABUSE_POLICIES = {
     user: { limit: 30, windowSeconds: HOUR },
     organisation: { limit: 100, windowSeconds: HOUR },
   },
+  // TOTP code guessing (P02-S8). Each ticket also caps itself at five
+  // attempts (lib/server/mfa.ts); these bound a person or address opening
+  // ticket after ticket. Per user covers enrollment, which runs in a session.
+  mfa_verify: {
+    code: "auth_rate_limited",
+    ip: { limit: 30, windowSeconds: MINUTES_15 },
+    token: { limit: 10, windowSeconds: MINUTES_15 },
+    user: { limit: 20, windowSeconds: MINUTES_15 },
+  },
+  // The same guessing, per account: keyed by the provider identity a ticket
+  // belongs to ("provider:subject"), so it holds across tickets, IPs and the
+  // sign-in that has no app user yet. Without it someone who already has the
+  // password could open ticket after ticket (each one only a password
+  // sign-in away) from rotating addresses. Counted on every attempt, right
+  // or wrong; a person signs in a handful of times a day. It is also a
+  // lockout lever for whoever holds the password, which is the lesser harm:
+  // the owner resets the password. Two windows, because one scope limits a
+  // key kind in one window.
+  mfa_verify_account: {
+    code: "auth_rate_limited",
+    account: { limit: 15, windowSeconds: MINUTES_15 },
+  },
+  mfa_verify_account_daily: {
+    code: "auth_rate_limited",
+    account: { limit: 100, windowSeconds: DAY },
+  },
+  // Enrollment re-checks the password (and, for a backup, a current code).
+  mfa_enroll: {
+    code: "auth_rate_limited",
+    ip: { limit: 20, windowSeconds: MINUTES_15 },
+    user: { limit: 10, windowSeconds: HOUR },
+  },
   // Viewers of a shared report reload it; probers walk tokens.
   report_share: {
     code: "auth_rate_limited",
@@ -147,6 +186,7 @@ const KEY_KINDS: readonly AbuseKeyKind[] = [
   "user",
   "token",
   "organisation",
+  "account",
 ]
 
 const MESSAGES: Record<string, string> = {

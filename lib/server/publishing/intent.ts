@@ -23,6 +23,7 @@ import {
 
 import { requestApproval, requiresApproval } from "./approval"
 import {
+  attemptAuthorisation,
   findAttemptByKey,
   insertAttempt,
   rearmAttempt,
@@ -109,6 +110,14 @@ export async function loadPublishRecord(
           -- Two people means two people: the draft's author approving it
           -- is the author publishing it, whoever pressed Request.
           and ad.decided_by is distinct from d.created_by
+          -- Operator MFA recovery since the approval (0106) voids it.
+          and (
+            ad.authorised_security_version is null
+            or ad.authorised_security_version = (
+              select u.security_version from app_user u
+              where u.id = ad.decided_by
+            )
+          )
       ) as has_qualifying_approval,
       coalesce(rr.publish_generation, 0) as publish_generation
     from review r
@@ -314,10 +323,15 @@ export async function startPublishIntent(
       published_by = excluded.published_by
     returning id::text as id
   `
+  const authorisation = attemptAuthorisation(
+    input.session,
+    record.connection_id
+  )
   const attempt = key.existing
     ? await rearmAttempt(sql, {
         attemptId: key.existing.id,
         intendedBody: record.body,
+        authorisation,
       })
     : await insertAttempt(sql, {
         organisationId: input.organisationId,
@@ -328,6 +342,7 @@ export async function startPublishIntent(
         operation: "publish",
         intendedBody: record.body,
         publishGeneration: record.publish_generation,
+        authorisation,
       })
   if (!attempt) return null
   await supersedeQueuedSiblings(sql, {

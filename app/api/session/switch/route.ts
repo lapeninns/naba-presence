@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 import {
   scopeFingerprintColumn,
+  assuranceOf,
   setSessionCookie,
   type Session,
 } from "@/lib/server/session"
@@ -70,10 +71,14 @@ export const POST = route({
           "You are not a member of that organisation."
         )
       }
+      // Switching is not signing in again: the new session carries the
+      // assurance (aal, factor, when verified, proof expiry) of the one it
+      // replaces, and the person's current security_version.
       const token = await createSession(
         sql,
         current.userId,
-        membership.organisationId
+        membership.organisationId,
+        { assurance: assuranceOf(current) }
       )
       const [session] = await sql<Session[]>`
         select

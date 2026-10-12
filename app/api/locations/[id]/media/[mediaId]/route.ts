@@ -10,6 +10,7 @@ import { route } from "@/lib/server/route"
 const paramsSchema = z.object({ id: z.string(), mediaId: z.string() })
 
 export const PATCH = route({
+  mfa: "step_up",
   params: paramsSchema,
   body: mediaUpdateRequestSchema,
   // Parks for a second publisher in two-person mode
@@ -25,6 +26,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  mfa: "step_up",
   params: paramsSchema,
   body: mediaDeleteRequestSchema,
   handler: ({ session, params, body, requestId }) =>

@@ -270,15 +270,25 @@ describeDatabase("listing writes - two-person change approval", () => {
     const row = await stored(changeId)
     expect(row?.attemptId).not.toBeNull()
     const [decision] = await admin<
-      { decidedBy: string; requestedBy: string; decision: string }[]
+      {
+        decidedBy: string
+        requestedBy: string
+        decision: string
+        aal: string | null
+        securityVersion: number | null
+      }[]
     >`
-      select decided_by::text as "decidedBy", requested_by::text as "requestedBy", decision
+      select decided_by::text as "decidedBy", requested_by::text as "requestedBy", decision,
+        authorised_aal as aal, authorised_security_version as "securityVersion"
       from mutation_approval_decision where operation_id = ${changeId}
     `
+    // The assurance it was decided with (0106): MFA is off here, so aal1.
     expect(decision).toEqual({
       decidedBy: second.userId,
       requestedBy: owner.userId,
       decision: "approved",
+      aal: "aal1",
+      securityVersion: 1,
     })
     expect(row?.approvalRef).not.toBeNull()
 

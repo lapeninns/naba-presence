@@ -13,7 +13,10 @@ import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { createHomeClient } from "@/lib/server/clients"
-import { createSession } from "@/lib/server/session-store"
+import {
+  createSession,
+  type SessionAssurance,
+} from "@/lib/server/session-store"
 import { requireOpenRegistration } from "@/lib/server/registration"
 
 export type GoogleProfile = {
@@ -105,7 +108,8 @@ async function provisionAuthenticatedUser(
 }
 
 export async function provisionAuthenticatedOwner(
-  identity: AuthenticatedIdentity
+  identity: AuthenticatedIdentity,
+  options: { assurance?: SessionAssurance } = {}
 ) {
   return getDatabase()
     .begin(async (sql) => {
@@ -203,7 +207,9 @@ export async function provisionAuthenticatedOwner(
           select set_config('app.organisation_id', ${organisationId}, true)
         `
       }
-      const token = await createSession(sql, user.id, organisationId)
+      const token = await createSession(sql, user.id, organisationId, {
+        assurance: options.assurance,
+      })
       return {
         organisationId,
         userId: user.id,
@@ -295,7 +301,8 @@ export async function provisionAuthenticatedMember(
     role: string
     canPublish: boolean
   },
-  requestId: string
+  requestId: string,
+  options: { assurance?: SessionAssurance } = {}
 ): Promise<{
   organisationId: string
   userId: string
@@ -439,7 +446,12 @@ export async function provisionAuthenticatedMember(
           scopedListings,
         },
       })
-      const token = await createSession(sql, user.id, invitation.organisationId)
+      const token = await createSession(
+        sql,
+        user.id,
+        invitation.organisationId,
+        { assurance: options.assurance }
+      )
       return {
         organisationId: invitation.organisationId,
         userId: user.id,
@@ -470,7 +482,9 @@ export async function acceptInvitationForSessionUser(
     role: string
     canPublish: boolean
   },
-  requestId: string
+  requestId: string,
+  /** The accepting session's assurance, carried into the new session. */
+  options: { assurance?: SessionAssurance } = {}
 ): Promise<{ organisationId: string; userId: string; token: string }> {
   if (user.supportActor) {
     throw new ApiError(
@@ -601,7 +615,8 @@ export async function acceptInvitationForSessionUser(
     const token = await createSession(
       sql,
       user.userId,
-      invitation.organisationId
+      invitation.organisationId,
+      { assurance: options.assurance }
     )
     return {
       organisationId: invitation.organisationId,

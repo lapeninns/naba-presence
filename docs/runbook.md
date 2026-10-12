@@ -753,8 +753,77 @@ menu, `DELETE /api/session?scope=all`) ends every session the person has in
 every organisation. If that fails (503 `sign_out_everywhere_failed`, logged as
 `session.revoke_all_failed`), the requesting browser is still signed out but
 the other sessions may remain; the person can sign in and retry. None of this
-touches Google connections or background sync. MFA for owners and admins is a
-Supabase Auth feature still to enable.
+touches Google connections or background sync. Two-step verification for
+owners and admins is behind `MFA_ENABLED` (default off) and needs TOTP
+enabled in the Supabase project first.
+
+### MFA recovery
+
+For a person who lost every authenticator app. Verify their identity out of
+band first (a call to a number already on file, a second owner's
+confirmation) and record how in the reason. Running it against production is
+a release operation that needs approval, and the recovery procedure itself
+needs security reviewer sign-off before first use. It runs outside the app,
+with the owner/operator database connection and the Supabase service-role
+key, which the operator holds:
+
+```sh
+DIRECT_DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  pnpm ops:mfa-recover --email person@example.com \
+  --operator you@example.com --reason "Lost phone; identity checked by call, ticket 123" --dry-run
+DIRECT_DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  pnpm ops:mfa-recover --email person@example.com \
+  --operator you@example.com --reason "Lost phone; identity checked by call, ticket 123"
+```
+
+`recover_user_mfa` (0106; the runtime role cannot execute it) bumps the
+person's `security_version`, so every session they hold stops resolving and
+what they authorised or approved before it is voided wherever the recorded
+version is compared: queued reply retries, stored reply and post approvals,
+reviewed change sets at execute, and scheduled posts and bulk listing
+operations they approved (the runners block or fail them as
+`approval_invalid`). Records made before 0106 carry no version and are judged
+on membership and role alone. It also deletes their sessions and
+pending MFA tickets; zeroes `mfa_factor_count`, so their next sensitive action
+asks them to enroll again; and writes one `user.mfa_recovered` audit row per
+organisation naming the operator and reason. The script then deletes every
+TOTP factor at the provider. If that step fails the person is signed out
+everywhere but still needs a code; re-run it (safe). `--skip-provider` does
+only the database step; without it a missing key refuses to start.
+
+#### Reply attempts in flight when 0106 is applied
+
+0106 backfills who authorised each in-flight reply attempt (from the
+`publish_requested` / `delete_requested` audit row, or the reply's publisher)
+so the retry worker can recheck it. A row it cannot attribute fails closed
+(`authorisation_unverifiable`) on its next retry, and its reply is marked
+failed for the person to send again. Before deploying, count them with the
+owner connection:
+
+```sql
+select count(*) from publish_attempt pa
+join review_reply rr on rr.id = pa.review_reply_id
+where pa.status in ('started', 'accepted', 'retryable', 'ambiguous')
+  and not (pa.operation = 'publish' and rr.published_by is not null)
+  and not exists (
+    select 1 from audit_log a
+    where a.organisation_id = pa.organisation_id
+      and a.action in ('review.reply.publish_requested',
+                       'review.reply.delete_requested')
+      and a.subject_type = 'review'
+      and a.subject_id = rr.review_id::text
+      and a.metadata->>'publishAttemptId' = pa.id::text
+      and a.actor_user_id is not null
+  );
+```
+
+and after it, find the ones left unattributed:
+
+```sql
+select organisation_id, id, operation, status from publish_attempt
+where status in ('started', 'accepted', 'retryable', 'ambiguous')
+  and authorised_by is null;
+```
 
 ### Support impersonation
 
@@ -1098,6 +1167,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
 | `member` | customer | keep | while the person is a member | none | none | no | lifecycle |
+| `mfa_pending_login` | operational | delete | when the five-minute sign-in ticket expires (expires_at) | purgeExpiredMfaTickets (lib/server/retention/purge.ts), once per cycle | ungated | no | internal |
 | `mutation_approval_decision` | operational | keep | with its operation receipt | none | none | no | lifecycle |
 | `mutation_operation` | operational | keep | for the life of the organisation; approved requests whose dispatch never started are settled failed | `interruptedApprovals` | none | no | pending D-47: keep every operation receipt as the outcome record of the write it answers |
 | `notification_delivery` | operational | keep | kept after it is sent or fails | none | none | no | pending D-47: keep delivery history for the life of the organisation |

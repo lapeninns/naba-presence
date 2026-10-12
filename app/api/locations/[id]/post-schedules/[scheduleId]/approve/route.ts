@@ -8,6 +8,7 @@ export const runtime = "nodejs"
 const params = z.object({ id: z.uuid(), scheduleId: z.uuid() })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params, body: scheduleApprovalSchema,
   handler: async ({ session, params, body, requestId }) => ({ schedule: await approvePublicationSchedule(session, params.id, params.scheduleId, body, requestId) }),
 })

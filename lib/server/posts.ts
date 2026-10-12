@@ -47,6 +47,12 @@ import {
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import {
+  authorisationAssurance,
+  mfaStepUpRefusal,
+  requireRecentMfa,
+  type AuthorisationAssurance,
+} from "@/lib/server/mfa"
+import {
   loadPauseSnapshot,
   requireGbpDispatch,
 } from "@/lib/server/pause-controls"
@@ -894,6 +900,15 @@ export async function updateLocalPostDraft(
 ) {
   return withTenant(organisationId, async (sql) => {
     await requireLocationAction(sql, session, locationId, "edit")
+    if (mfaStepUpRefusal(session)) {
+      // Editing a published post republishes it (the route sends it on), so
+      // an owner or admin needs a recent code for that; a draft does not.
+      const [current] = await sql<{ status: string }[]>`
+        select status from gbp_local_post
+        where id = ${postId} and location_id = ${locationId}
+      `
+      if (current?.status === "published") requireRecentMfa(session)
+    }
     if (expectedUpdatedAt) {
       const [current] = await sql<{ changed: boolean }[]>`
         select date_trunc('milliseconds', updated_at) <> ${expectedUpdatedAt}::timestamptz as changed
@@ -983,6 +998,12 @@ type LocalPostAttemptIntent = {
    * the read and the claim can never be sent under an approval of other text.
    */
   revision: number | null
+  /**
+   * The assurance the person who caused this dispatch held (0106): the
+   * session's for a request, the schedule approval's for a scheduled
+   * publish. `actor_user_id` already names the person.
+   */
+  assurance: AuthorisationAssurance
 }
 
 type AttemptSelection = { id: string; status: string; startedAt?: Date | null }
@@ -1062,6 +1083,7 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
       approvedBy,
       approvalDecisionId,
       revision,
+      assurance,
     } = input.intent
     // The publish key is derived from the write now, not from the request, so
     // a retry after a settled failure finds its own row: re-arm it in place
@@ -1072,6 +1094,9 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
           update gbp_local_post_attempt
           set status = 'started', actor_user_id = ${input.actorUserId},
             approval_decision_id = ${approvalDecisionId},
+            authorised_aal = ${assurance.aal},
+            authorised_mfa_verified_at = ${assurance.mfaVerifiedAt},
+            authorised_security_version = ${assurance.securityVersion},
             provider_error_code = null, provider_http_status = null,
             provider_response = null, finished_at = null, started_at = now()
           where id = ${input.existing.id}
@@ -1081,11 +1106,14 @@ const localPostAttempts: AttemptStore<LocalPostAttemptIntent> = {
       : await sql<AttemptSelection[]>`
           insert into gbp_local_post_attempt (
             organisation_id, post_id, actor_user_id, operation,
-            status, idempotency_key, intended_payload, approval_decision_id
+            status, idempotency_key, intended_payload, approval_decision_id,
+            authorised_aal, authorised_mfa_verified_at,
+            authorised_security_version
           ) values (
             ${input.organisationId}, ${postId}, ${input.actorUserId},
             ${operation}, 'started', ${input.key}, ${jsonColumn(sql, payload)},
-            ${approvalDecisionId}
+            ${approvalDecisionId}, ${assurance.aal}, ${assurance.mfaVerifiedAt},
+            ${assurance.securityVersion}
           )
           on conflict (organisation_id, idempotency_key) do nothing
           returning id::text as id, status, started_at as "startedAt"
@@ -1209,6 +1237,13 @@ async function qualifyingApproval(
       and d.content_hash = ${postContentHash(post)}
       and d.decided_by is not null
       and d.decided_by is distinct from ${post.authorId}::uuid
+      -- Operator MFA recovery since the approval (0106) voids it.
+      and (
+        d.authorised_security_version is null
+        or d.authorised_security_version = (
+          select u.security_version from app_user u where u.id = d.decided_by
+        )
+      )
       and not exists (
         select 1 from post_approval_decision r
         where r.post_id = d.post_id
@@ -1265,14 +1300,19 @@ async function insertDecision(
   post: LocalPost,
   decision: "approved" | "rejected"
 ): Promise<string> {
+  // The assurance the decision was made with (0106), as evidence.
+  const assurance = authorisationAssurance(input.session)
   const [row] = await sql<{ id: string }[]>`
     insert into post_approval_decision (
       organisation_id, post_id, content_revision, content_hash,
-      requested_by, author_id, decided_by, decision
+      requested_by, author_id, decided_by, decision,
+      authorised_aal, authorised_mfa_verified_at, authorised_security_version
     ) values (
       ${input.organisationId}, ${post.id}, ${post.contentRevision},
       ${postContentHash(post)}, ${post.approvalRequestedBy},
-      ${post.authorId}, ${input.session.userId}, ${decision}
+      ${post.authorId}, ${input.session.userId}, ${decision},
+      ${assurance.aal}, ${assurance.mfaVerifiedAt},
+      ${assurance.securityVersion}
     )
     returning id::text as id
   `
@@ -1572,6 +1612,7 @@ async function publishLocalPost(input: {
       approvedBy: input.approval?.decidedBy ?? null,
       approvalDecisionId: input.approval?.id ?? null,
       revision: post.contentRevision,
+      assurance: authorisationAssurance(input.session),
     },
     onExisting: "resume",
     inProgress: POST_PUBLISH_IN_PROGRESS,
@@ -1836,6 +1877,7 @@ export async function deleteLocalPost(input: {
         approvedBy: null,
         approvalDecisionId: null,
         revision: null,
+        assurance: authorisationAssurance(input.session),
       },
       onExisting: "replay",
       failureCode: "google_post_failed",

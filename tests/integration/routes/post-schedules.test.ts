@@ -233,6 +233,33 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "published",
       summary: "Sunday roast is back",
     })
+    // The scheduled dispatch records the approval's assurance (0106).
+    const [attempt] = await admin<
+      { actor: string; aal: string | null; version: number | null }[]
+    >`
+      select actor_user_id::text as actor, authorised_aal as aal,
+        authorised_security_version as version
+      from gbp_local_post_attempt where post_id = ${done.post_id}`
+    expect(attempt).toEqual({ actor: t.owner.userId, aal: "aal1", version: 1 })
+  })
+
+  it("blocks without publishing when the approver was recovered after approving", async () => {
+    const t = await tenant()
+    const s = await t.schedule(await t.draft(), {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    // Operator MFA recovery (recover_user_mfa) bumps the version.
+    await admin`update app_user set security_version = security_version + 1 where id = ${t.owner.userId}`
+    await t.age((await t.occurrences(s.id))[0].id, 0.1)
+    await tick()
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "blocked",
+      status_reason: "approval_invalid",
+    })
+    expect(creates()).toHaveLength(0)
   })
 
   it("requires a different approver under two-person policy and invalidates approval when content is edited", async () => {
@@ -261,6 +288,27 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       "scheduled",
       "scheduled",
     ])
+    // The assurance it was approved with (0106): MFA is off here, so aal1.
+    const assuranceOf = async () =>
+      (
+        await admin<
+          {
+            aal: string | null
+            verifiedAt: Date | null
+            version: number | null
+          }[]
+        >`
+          select approved_aal as aal,
+            approved_mfa_verified_at as "verifiedAt",
+            approved_security_version as version
+          from post_publication_schedule where id = ${s.id}
+        `
+      )[0]
+    expect(await assuranceOf()).toEqual({
+      aal: "aal1",
+      verifiedAt: null,
+      version: 1,
+    })
     const revised = await t.api(`/post-schedules/${s.id}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -279,6 +327,11 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
       status: "awaiting_approval",
       revision: 2,
       approvedBy: null,
+    })
+    expect(await assuranceOf()).toEqual({
+      aal: null,
+      verifiedAt: null,
+      version: null,
     })
     expect(
       (await t.occurrences(s.id)).map((o) => `${o.status}:${o.status_reason}`)

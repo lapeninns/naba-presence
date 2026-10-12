@@ -52,6 +52,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: clientIdParamsSchema,
   body: reportShareCreateSchema,

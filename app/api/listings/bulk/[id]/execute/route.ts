@@ -9,6 +9,7 @@ const params = z.object({ id: z.uuid() })
 
 /** Queues the approved children; the job tick runs them. 202 with the operation. */
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params,
   handler: async ({ session, params, requestId }) => NextResponse.json({ operation: await executeBulkOperation(session, params.id, requestId) }, { status: 202 }),
 })

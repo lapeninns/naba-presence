@@ -1,6 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { once } from "node:events"
 
+type StubFactor = {
+  id: string
+  friendlyName: string
+  status: "verified" | "unverified"
+  /** The one code this stub accepts for the factor. */
+  code: string
+}
+
 type StubUser = {
   id: string
   email: string
@@ -9,6 +17,16 @@ type StubUser = {
   confirmed: boolean
   /** Signup metadata other than display_name (e.g. workspace_mode). */
   metadata?: Record<string, unknown>
+  factors: StubFactor[]
+}
+
+/** The code a factor accepts unless addFactor names another. */
+export const STUB_TOTP_CODE = "246810"
+/** What the stub's admin API accepts as the service-role key. */
+export const STUB_SERVICE_ROLE_KEY = "stub-service-role-key"
+
+function base64url(value: unknown) {
+  return Buffer.from(JSON.stringify(value)).toString("base64url")
 }
 
 async function requestBody(request: IncomingMessage) {
@@ -30,6 +48,12 @@ function providerUser(user: StubUser) {
       ? "2026-07-30T10:00:00.000Z"
       : null,
     user_metadata: { ...user.metadata, display_name: user.displayName },
+    factors: user.factors.map((factor) => ({
+      id: factor.id,
+      factor_type: "totp",
+      status: factor.status,
+      friendly_name: factor.friendlyName,
+    })),
   }
 }
 
@@ -70,7 +94,39 @@ export async function startAuthProviderStub() {
   const resendRequests: Array<{ email: string; redirectTo: string | null }> =
     []
   const passwordUpdates: Array<{ email: string; password: string }> = []
-  const accessTokens = new Map<string, string>()
+  const accessTokens = new Map<string, { email: string; aal: string }>()
+  const challenges = new Map<string, string>()
+  const mfaCalls: Array<{ kind: "enroll" | "challenge" | "verify"; factorId?: string }> = []
+  // The assurance a correct factor verification is answered with. A real
+  // provider says aal2; tests set aal1 to prove the app fails closed.
+  const options: { verifyAal: "aal1" | "aal2" } = { verifyAal: "aal2" }
+
+  // GoTrue-shaped access tokens: a JWT whose claims carry aal and amr. The
+  // signature is not checked by the app (lib/server/mfa.ts).
+  function issueToken(user: StubUser, aal: "aal1" | "aal2") {
+    const token = [
+      base64url({ alg: "HS256", typ: "JWT" }),
+      base64url({
+        sub: user.id,
+        aal,
+        amr:
+          aal === "aal2"
+            ? [{ method: "totp" }, { method: "password" }]
+            : [{ method: "password" }],
+        nonce: crypto.randomUUID(),
+      }),
+      "stub-signature",
+    ].join(".")
+    accessTokens.set(token, { email: user.email, aal })
+    return token
+  }
+
+  function bearerUser(request: IncomingMessage) {
+    const bearer = request.headers.authorization?.replace(/^Bearer /, "")
+    const entry = bearer ? accessTokens.get(bearer) : undefined
+    const user = entry ? users.get(entry.email) : undefined
+    return user && entry ? { user, aal: entry.aal } : null
+  }
 
   function addUser(input: {
     id: string
@@ -85,9 +141,27 @@ export async function startAuthProviderStub() {
       email: input.email.toLowerCase(),
       displayName: input.displayName ?? "Auth route user",
       confirmed: input.confirmed ?? true,
+      factors: [],
     }
     users.set(user.email, user)
     return user
+  }
+
+  /** Gives a user an already-verified TOTP factor. */
+  function addFactor(
+    email: string,
+    input: { code?: string; friendlyName?: string } = {}
+  ) {
+    const user = users.get(email.toLowerCase())
+    if (!user) throw new Error(`No stub user ${email}`)
+    const factor: StubFactor = {
+      id: crypto.randomUUID(),
+      friendlyName: input.friendlyName ?? `Factor ${user.factors.length + 1}`,
+      status: "verified",
+      code: input.code ?? STUB_TOTP_CODE,
+    }
+    user.factors.push(factor)
+    return factor
   }
 
   const server = createServer(async (request, response) => {
@@ -113,7 +187,7 @@ export async function startAuthProviderStub() {
           })
         }
         return json(response, 200, {
-          access_token: `access-${user.id}`,
+          access_token: issueToken(user, "aal1"),
           refresh_token: `refresh-${user.id}`,
           user: providerUser(user),
         })
@@ -191,27 +265,150 @@ export async function startAuthProviderStub() {
           })
         }
         user.confirmed = true
-        const accessToken = `verified-${crypto.randomUUID()}`
-        accessTokens.set(accessToken, user.email)
         return json(response, 200, {
-          access_token: accessToken,
+          access_token: issueToken(user, "aal1"),
           refresh_token: `refresh-${user.id}`,
           user: providerUser(user),
         })
       }
 
+      if (request.method === "GET" && url.pathname === "/auth/v1/user") {
+        const caller = bearerUser(request)
+        if (!caller) return json(response, 401, { error_code: "bad_jwt" })
+        return json(response, 200, providerUser(caller.user))
+      }
+
+      if (request.method === "POST" && url.pathname === "/auth/v1/factors") {
+        const caller = bearerUser(request)
+        if (!caller) return json(response, 401, { error_code: "bad_jwt" })
+        const verified = caller.user.factors.filter(
+          (factor) => factor.status === "verified"
+        )
+        // GoTrue: a user with a verified factor enrolls another only at aal2.
+        if (verified.length > 0 && caller.aal !== "aal2") {
+          return json(response, 403, { error_code: "insufficient_aal" })
+        }
+        const friendlyName = String(body.friendly_name ?? "")
+        if (
+          caller.user.factors.some(
+            (factor) => factor.friendlyName === friendlyName
+          )
+        ) {
+          return json(response, 422, { error_code: "mfa_factor_name_conflict" })
+        }
+        const factor: StubFactor = {
+          id: crypto.randomUUID(),
+          friendlyName,
+          status: "unverified",
+          code: STUB_TOTP_CODE,
+        }
+        caller.user.factors.push(factor)
+        mfaCalls.push({ kind: "enroll", factorId: factor.id })
+        return json(response, 200, {
+          id: factor.id,
+          type: "totp",
+          friendly_name: friendlyName,
+          totp: {
+            qr_code: "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            secret: "STUBSECRETBASE32",
+            uri: `otpauth://totp/NabaPresence:${caller.user.email}?secret=STUBSECRETBASE32`,
+          },
+        })
+      }
+
+      const factorRoute = url.pathname.match(
+        /^\/auth\/v1\/factors\/([^/]+)\/(challenge|verify)$/
+      )
+      if (request.method === "POST" && factorRoute) {
+        const caller = bearerUser(request)
+        if (!caller) return json(response, 401, { error_code: "bad_jwt" })
+        const [, factorId, action] = factorRoute
+        const factor = caller.user.factors.find((item) => item.id === factorId)
+        if (!factor) return json(response, 404, { error_code: "mfa_factor_not_found" })
+        if (action === "challenge") {
+          const challengeId = crypto.randomUUID()
+          challenges.set(challengeId, factor.id)
+          mfaCalls.push({ kind: "challenge", factorId: factor.id })
+          return json(response, 200, {
+            id: challengeId,
+            type: "totp",
+            expires_at: Math.floor(Date.now() / 1000) + 300,
+          })
+        }
+        mfaCalls.push({ kind: "verify", factorId: factor.id })
+        const challengeId = String(body.challenge_id ?? "")
+        if (challenges.get(challengeId) !== factor.id) {
+          return json(response, 422, { error_code: "mfa_challenge_expired" })
+        }
+        challenges.delete(challengeId)
+        if (String(body.code ?? "") !== factor.code) {
+          return json(response, 422, { error_code: "mfa_verification_failed" })
+        }
+        factor.status = "verified"
+        return json(response, 200, {
+          access_token: issueToken(caller.user, options.verifyAal),
+          token_type: "bearer",
+          expires_in: 3600,
+          refresh_token: `refresh-${caller.user.id}`,
+          user: providerUser(caller.user),
+        })
+      }
+
       if (request.method === "PUT" && url.pathname === "/auth/v1/user") {
-        const bearer = request.headers.authorization?.replace(/^Bearer /, "")
-        const email = bearer ? accessTokens.get(bearer) : undefined
-        const user = email ? users.get(email) : undefined
+        const caller = bearerUser(request)
+        const user = caller?.user
         if (!user || typeof body.password !== "string") {
           return json(response, 401, {
             error_code: "invalid_token",
           })
         }
+        // GoTrue: a user with a verified factor changes the password only
+        // with an aal2 token.
+        if (
+          caller.aal !== "aal2" &&
+          user.factors.some((factor) => factor.status === "verified")
+        ) {
+          return json(response, 401, { error_code: "insufficient_aal" })
+        }
         user.password = body.password
         passwordUpdates.push({ email: user.email, password: body.password })
         return json(response, 200, { user: providerUser(user) })
+      }
+
+      // GoTrue admin API, for scripts/mfa-recover.mjs: the service-role key
+      // reads a user (with factors) and deletes a factor.
+      const admin = url.pathname.match(
+        /^\/auth\/v1\/admin\/users\/([^/]+)(?:\/factors\/([^/]+))?$/
+      )
+      if (admin) {
+        if (
+          request.headers.authorization !==
+          `Bearer ${STUB_SERVICE_ROLE_KEY}`
+        ) {
+          return json(response, 401, { error_code: "not_admin" })
+        }
+        const user = [...users.values()].find((item) => item.id === admin[1])
+        if (!user) return json(response, 404, { error_code: "user_not_found" })
+        if (request.method === "GET" && !admin[2]) {
+          return json(response, 200, {
+            id: user.id,
+            email: user.email,
+            factors: user.factors.map((factor) => ({
+              id: factor.id,
+              factor_type: "totp",
+              status: factor.status,
+              friendly_name: factor.friendlyName,
+            })),
+          })
+        }
+        if (request.method === "DELETE" && admin[2]) {
+          const index = user.factors.findIndex((item) => item.id === admin[2])
+          if (index === -1) {
+            return json(response, 404, { error_code: "mfa_factor_not_found" })
+          }
+          const [removed] = user.factors.splice(index, 1)
+          return json(response, 200, { id: removed?.id })
+        }
       }
 
       return json(response, 404, { error_code: "not_found" })
@@ -232,7 +429,10 @@ export async function startAuthProviderStub() {
     resetRequests,
     resendRequests,
     passwordUpdates,
+    mfaCalls,
+    options,
     addUser,
+    addFactor,
     confirmationToken(email: string) {
       const entry = [...confirmationTokens].find(
         ([, tokenEmail]) => tokenEmail === email.toLowerCase()

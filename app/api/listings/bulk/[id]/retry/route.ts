@@ -7,6 +7,7 @@ export const runtime = "nodejs"
 const params = z.object({ id: z.uuid() })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params,
   handler: async ({ session, params, requestId }) => ({ operation: await retryBulkOperation(session, params.id, requestId) }),
 })

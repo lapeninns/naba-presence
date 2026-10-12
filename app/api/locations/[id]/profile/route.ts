@@ -56,6 +56,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: profileOperationBodySchema,

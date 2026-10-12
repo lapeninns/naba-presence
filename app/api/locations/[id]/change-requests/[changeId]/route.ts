@@ -17,6 +17,7 @@ export const maxDuration = 60
  * the author may reject their own request, which withdraws it.
  */
 export const POST = route({
+  mfa: "step_up",
   params: listingChangeParamsSchema,
   body: listingChangeDecisionBodySchema,
   handler: async ({ session, params, body, requestId }) =>

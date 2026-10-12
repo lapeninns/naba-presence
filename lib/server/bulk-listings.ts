@@ -21,6 +21,7 @@ import {
   stableGoogleHash,
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
 import {
   grantsFor,
   isManagerialRole,
@@ -378,7 +379,9 @@ export async function approveBulkOperation(
         "publish_not_allowed",
         "You cannot publish to every listing in this change."
       )
-    await sql`update bulk_listing_operation set status = 'approved', approved_by = ${session.userId}, approved_at = now(), skipped_acknowledged = ${skipped > 0}, updated_at = now() where id = ${operationId}`
+    // The assurance the approval was given with (0106), as evidence.
+    const assurance = authorisationAssurance(session)
+    await sql`update bulk_listing_operation set status = 'approved', approved_by = ${session.userId}, approved_at = now(), approved_aal = ${assurance.aal}, approved_mfa_verified_at = ${assurance.mfaVerifiedAt}, approved_security_version = ${assurance.securityVersion}, skipped_acknowledged = ${skipped > 0}, updated_at = now() where id = ${operationId}`
     await writeAudit(sql, {
       organisationId: session.organisationId,
       actorUserId: session.userId,

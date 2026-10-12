@@ -58,9 +58,11 @@ export type AuthorisationRecheck = {
    */
   connectionId?: string | null
   /**
-   * The actor's security version when the work was queued. Reserved for the
-   * security-version mechanism (P02-S9); until it exists a supplied value
-   * cannot be verified, so the recheck refuses rather than ignoring it.
+   * The actor's security version when the work was queued (the session's
+   * `securityVersion`, 0105). When given, app_user.security_version must
+   * still equal it: operator MFA recovery (scripts/mfa-recover.mjs) bumps the
+   * version, and work a recovered account queued before that must not
+   * dispatch. Omit it only for work queued before versions were recorded.
    */
   securityVersion?: number | null
   /**
@@ -101,7 +103,7 @@ export type RecheckRefusal =
   | "location_hidden"
   | "action_denied"
   | "connection_changed"
-  | "security_version_unverifiable"
+  | "security_version_changed"
   | "policy_changed"
   | "generation_changed"
   | "entitlement_unverifiable"
@@ -120,9 +122,6 @@ export async function recheckAuthorisation(
   sql: TransactionSql,
   input: AuthorisationRecheck
 ): Promise<RecheckResult> {
-  if (input.securityVersion !== undefined && input.securityVersion !== null) {
-    return { ok: false, reason: "security_version_unverifiable" }
-  }
   if (input.entitlement !== undefined && input.entitlement !== null) {
     return { ok: false, reason: "entitlement_unverifiable" }
   }
@@ -132,6 +131,19 @@ export async function recheckAuthorisation(
     input.actorUserId
   )
   if (!scope) return { ok: false, reason: "actor_not_member" }
+
+  if (input.securityVersion !== undefined && input.securityVersion !== null) {
+    // app_user is visible here: the actor is a member of this tenant, which
+    // is what app_user's policy admits (0001, 0040).
+    const [user] = await sql<{ securityVersion: number }[]>`
+      select security_version as "securityVersion"
+      from app_user
+      where id = ${input.actorUserId}
+    `
+    if (!user || user.securityVersion !== input.securityVersion) {
+      return { ok: false, reason: "security_version_changed" }
+    }
+  }
 
   const grants = await grantsFor(sql, scope, [input.locationId])
   const grant = grants.get(input.locationId) ?? NO_GRANT

@@ -25,6 +25,7 @@ export const maxDuration = 60
 const paramsSchema = z.object({ id: z.uuid() })
 
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: z.union([approveGbpChangeSetRequestSchema, industryConfirmationRequestSchema]),
@@ -52,6 +53,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
   body: industryMutationSchema,

@@ -23,6 +23,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { jsonColumn, jsonColumnOrNull, withTenant } from "@/lib/server/db"
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
+import { authorisationAssurance } from "@/lib/server/mfa"
 import {
   canPublishLocation,
   isManagerialRole,
@@ -343,9 +344,12 @@ export async function approvePublicationSchedule(
         "schedule_in_past",
         "Every publication time in this schedule has already passed."
       )
+    // The assurance the approval was given with (0106), as evidence.
+    const assurance = authorisationAssurance(session)
     await sql`
       update post_publication_schedule set status = 'active', status_reason = null, approved_by = ${session.userId}, approved_at = now(),
-        approved_revision = revision, updated_at = now() where id = ${scheduleId}`
+        approved_revision = revision, approved_aal = ${assurance.aal}, approved_mfa_verified_at = ${assurance.mfaVerifiedAt},
+        approved_security_version = ${assurance.securityVersion}, updated_at = now() where id = ${scheduleId}`
     await sql`
       insert into post_publication_occurrence (organisation_id, schedule_id, location_id, schedule_revision, intended_at, local_date, local_time, adjustment)
       select ${session.organisationId}, ${scheduleId}, ${locationId}, ${row.revision}, x.intended_at, x.local_date, x.local_time, x.adjustment
@@ -431,6 +435,7 @@ export async function revisePublicationSchedule(
       update post_publication_schedule set template = ${jsonColumn(sql, template)}, rule = ${jsonColumn(sql, input.rule)}, timezone = ${input.timezone},
         event_offsets = ${jsonColumnOrNull(sql, input.eventOffsets)}, payload_hash = ${payloadHash}, revision = revision + 1,
         status = 'awaiting_approval', status_reason = null, approved_by = null, approved_at = null, approved_revision = null,
+        approved_aal = null, approved_mfa_verified_at = null, approved_security_version = null,
         requested_by = ${session.userId}, require_two_person_approval = ${policy?.required ?? false}, updated_at = now()
       where id = ${scheduleId}`
     await writeAudit(sql, {

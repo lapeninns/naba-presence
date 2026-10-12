@@ -51,6 +51,12 @@ type AmbientIntent = {
    * too, even if this request never finishes.
    */
   followers?: readonly string[]
+  /**
+   * The security version of the session that sent the request (0105), so
+   * its receipts record that session's version rather than the person's
+   * version at write time.
+   */
+  securityVersion?: number | null
 }
 
 const ambientIntent = new AsyncLocalStorage<AmbientIntent>()
@@ -82,11 +88,19 @@ export function parseIntentHeader(request: Request): string | null {
 export function withMutationIntent<T>(
   intentId: string | null,
   fn: () => T,
-  options: { followers?: readonly string[] } = {}
+  options: {
+    followers?: readonly string[]
+    securityVersion?: number | null
+  } = {}
 ): T {
   if (!intentId) return fn()
   return ambientIntent.run(
-    { intentId, claimed: false, followers: options.followers },
+    {
+      intentId,
+      claimed: false,
+      followers: options.followers,
+      securityVersion: options.securityVersion ?? null,
+    },
     fn
   )
 }
@@ -211,6 +225,12 @@ export async function beginOperation(
 ): Promise<{ operation: MutationOperation; created: boolean }> {
   const d = input.descriptor
   const connectionId = d.googleConnectionId ?? null
+  // security_version (0105): the descriptor's, else the requesting
+  // session's (the ambient intent's), else the actor's current version for
+  // a worker re-running a recorded intent. Recorded for audit; nothing reads
+  // it yet. mutation_recover compares it once it rechecks (P03-S6).
+  const securityVersion =
+    d.securityVersion ?? ambientIntent.getStore()?.securityVersion ?? null
   const [inserted] = await sql<MutationOperation[]>`
     insert into mutation_operation (
       organisation_id, intent_id, actor_user_id, surface, action,
@@ -223,7 +243,12 @@ export async function beginOperation(
       ${d.surface}, ${d.action}, ${d.locationId ?? null},
       ${d.targetType ?? null}, ${d.targetRef ?? null}, ${input.payloadHash},
       ${d.expectedRevision === undefined || d.expectedRevision === null ? null : String(d.expectedRevision)},
-      ${d.approvalRef ?? null}, ${d.securityVersion ?? null}, ${connectionId},
+      ${d.approvalRef ?? null},
+      coalesce(
+        ${securityVersion}::integer,
+        (select security_version from app_user where id = ${input.actorUserId})
+      ),
+      ${connectionId},
       (select credential_generation from google_connection where id = ${connectionId}),
       ${input.attemptTable}, 'sent'
     )

@@ -37,13 +37,19 @@ export async function GET(request: Request) {
       tokenHash: input.token_hash,
       type: "email",
     })
-    await completeEmailAuthentication({
+    const result = await completeEmailAuthentication({
       identity: verified.identity,
       inviteToken: input.inviteToken,
       requestId: rid.id,
       clientRequestId: rid.clientId,
+      authMethod: "email_link",
+      provider: verified,
     })
-    return NextResponse.redirect(new URL("/inbox", baseUrl))
+    // An enrolled person confirming (or accepting an invitation by link)
+    // finishes on the code screen; the ticket cookie is already set.
+    return NextResponse.redirect(
+      new URL(result.mfaRequired ? "/sign-in/verify" : "/inbox", baseUrl)
+    )
   } catch (error) {
     const signInUrl = new URL("/sign-in", baseUrl)
     signInUrl.searchParams.set("email", "error")

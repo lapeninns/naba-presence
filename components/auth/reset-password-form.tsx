@@ -92,8 +92,11 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
     setFieldErrors({})
     startTransition(async () => {
       try {
-        await authApi.completePasswordReset({ tokenHash, password })
-        hardNavigate("/inbox")
+        const result = await authApi.completePasswordReset({
+          tokenHash,
+          password,
+        })
+        hardNavigate(result.mfaRequired ? "/sign-in/verify" : "/inbox")
         // Deliberately never resolve: the page is navigating away, and
         // letting the transition "finish" here would flip the submit
         // button back to enabled during that window - reopening the

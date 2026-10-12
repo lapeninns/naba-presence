@@ -4,6 +4,7 @@ import { QueryClientContext } from "@tanstack/react-query"
 import { usePathname } from "next/navigation"
 import { useContext } from "react"
 
+import { useSettingsFeatures } from "@/components/settings/settings-features"
 import { TabNav } from "@/components/ui/tabs"
 import { useSettingsCapabilities } from "@/lib/queries/use-settings-capabilities"
 import {
@@ -26,10 +27,13 @@ import {
 const AREAS: {
   href: string
   label: string
-  capability: "always" | "canManageConnections" | "canViewPrivacy"
+  capability: "always" | "canManageConnections" | "canViewPrivacy" | "mfa"
 }[] = [
   { href: "/settings", label: "Policy", capability: "always" },
   { href: "/settings/notifications", label: "Notifications", capability: "always" },
+  // Two-step verification is per person, so every role sees it once the
+  // MFA_ENABLED flag is on (P02-S8).
+  { href: "/settings/security", label: "Sign-in security", capability: "mfa" },
   {
     href: "/settings/connections",
     label: "Google connections",
@@ -56,8 +60,13 @@ function SettingsNavTabs({
 }: SettingsNavProps & { privacy: PrivacyAccess }) {
   const pathname = usePathname()
   const caps = { ...settingsGatingFromRole(role), ...privacyGating(privacy) }
-  const items = AREAS.filter(
-    (area) => area.capability === "always" || caps[area.capability]
+  const features = useSettingsFeatures()
+  const items = AREAS.filter((area) =>
+    area.capability === "always"
+      ? true
+      : area.capability === "mfa"
+        ? features.mfa
+        : caps[area.capability]
   ).map((area) => ({
     href: area.href,
     label: area.label,

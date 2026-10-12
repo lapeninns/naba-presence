@@ -12,6 +12,7 @@ import {
   uniqueClientSlug,
 } from "@/lib/server/clients"
 import { ApiError } from "@/lib/server/http"
+import { requireRecentMfa } from "@/lib/server/mfa"
 import {
   requireClientAccess,
   visibilityPredicate,
@@ -93,6 +94,9 @@ export const PATCH = route({
           )
         }
         if (body.detachLocations) {
+          // Detaching is DELETE ../locations for every location at once, so
+          // it asks for the same step-up; a rename or recolour does not.
+          requireRecentMfa(session)
           await sql`update location set client_id = null where client_id = ${params.clientId}`
         }
       }

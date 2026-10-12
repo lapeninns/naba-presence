@@ -45,6 +45,7 @@ export const GET = route({
  * would widen live report share links until `confirmReportShares` is sent.
  */
 export const PATCH = route({
+  mfa: "step_up",
   roles: ["owner"],
   body: organisationUpdateSchema,
   handler: async ({ session, body, requestId, clientRequestId, tenant }) => {

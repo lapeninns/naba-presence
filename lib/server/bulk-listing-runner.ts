@@ -33,6 +33,7 @@ type Child = {
   proposed: unknown
   input: unknown
   approvedBy: string | null
+  approvedSecurityVersion: number | null
   requestedBy: string
   requireTwoPersonApproval: boolean
   operationStatus: string
@@ -88,7 +89,7 @@ export async function processBulkChild(
   const child = await withTenant(organisationId, async (sql) => {
     const [row] = await sql<Child[]>`
       select c.id::text as id, c.operation_id::text as "operationId", c.location_id::text as "locationId", c.update_mask as "updateMask",
-        c.baseline_hash as "baselineHash", c.current_value as current, c.proposed_value as proposed, o.input, o.approved_by::text as "approvedBy",
+        c.baseline_hash as "baselineHash", c.current_value as current, c.proposed_value as proposed, o.input, o.approved_by::text as "approvedBy", o.approved_security_version as "approvedSecurityVersion",
         o.requested_by::text as "requestedBy", o.require_two_person_approval as "requireTwoPersonApproval", o.status as "operationStatus",
         o.execute_requested_at as "executeRequestedAt", o.approval_expires_at as "expiresAt"
       from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id where c.id = ${childId}`
@@ -101,7 +102,8 @@ export async function processBulkChild(
     if (summary) summary.failed += 1
   }
   // Deferred execution rechecks: the approval, the approver's current grant
-  // for this listing, the policy and the provider kill switch.
+  // for this listing, the policy, the approver's security version and the
+  // provider kill switch.
   const gate = await withTenant(organisationId, async (sql) => {
     if (child.operationStatus !== "running" || !child.approvedBy)
       return { code: "approval_invalid" }
@@ -121,11 +123,19 @@ export async function processBulkChild(
         email: string
         displayName: string
         workspaceMode: Session["workspaceMode"]
+        securityVersion: number
       }[]
     >`
-      select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.workspace_mode as "workspaceMode" from member m join app_user u on u.id = m.user_id cross join organisation o where m.user_id = ${child.approvedBy}`
+      select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.workspace_mode as "workspaceMode", u.security_version as "securityVersion" from member m join app_user u on u.id = m.user_id cross join organisation o where m.user_id = ${child.approvedBy}`
     if (!requester || !approver || !["owner", "admin"].includes(approver.role))
       return { code: "permission_revoked" }
+    // Operator MFA recovery since the approval (0106) voids it; approvals
+    // recorded before versions were (null) rest on the checks above.
+    if (
+      child.approvedSecurityVersion !== null &&
+      child.approvedSecurityVersion !== approver.securityVersion
+    )
+      return { code: "approval_invalid" }
     const session: Session = {
       sessionId: `bulk:${child.operationId}`,
       userId: child.approvedBy,

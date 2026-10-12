@@ -8,6 +8,7 @@ import { log } from "@/lib/server/logger"
 import type { TickFinding } from "@/lib/server/ops-liveness"
 import {
   purgeEndedAbuseBuckets,
+  purgeExpiredMfaTickets,
   purgeOrganisation,
   requireRetentionEnabled,
   retentionDeadline,
@@ -587,13 +588,17 @@ export async function runRetentionCycle({
       partial: [],
       failures: [] as RetentionFailure[],
       abuseRateBuckets: null,
+      mfaPendingLogins: null,
     }
   }
   const { cycle, opened } = current
-  // Ended abuse-limit windows are platform-level, so they are purged once per
-  // cycle, when it opens.
+  // Ended abuse-limit windows and expired two-step sign-in tickets are
+  // platform-level, so they are purged once per cycle, when it opens.
   const abuseRateBuckets = opened
     ? await purgeEndedAbuseBuckets(requestId)
+    : null
+  const mfaPendingLogins = opened
+    ? await purgeExpiredMfaTickets(requestId)
     : null
 
   const results: Array<Record<string, string | number>> = []
@@ -686,5 +691,6 @@ export async function runRetentionCycle({
     partial,
     failures,
     abuseRateBuckets,
+    mfaPendingLogins,
   }
 }

@@ -88,7 +88,7 @@ describe("ResetPasswordForm", () => {
 
   it("updates the password and lands on /inbox", async () => {
     const user = userEvent.setup()
-    vi.spyOn(authApi, "completePasswordReset").mockResolvedValue(undefined)
+    vi.spyOn(authApi, "completePasswordReset").mockResolvedValue({ mfaRequired: false })
     render(<ResetPasswordForm tokenHash="token-hash-value-long-enough" />)
     await user.type(screen.getByLabelText("New password"), "correct-horse-9")
     await user.type(

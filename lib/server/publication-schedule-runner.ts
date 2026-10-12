@@ -41,6 +41,9 @@ type Schedule = {
   requestedBy: string
   approvedBy: string | null
   approvedRevision: number | null
+  approvedSecurityVersion: number | null
+  approvedAal: "aal1" | "aal2" | null
+  approvedMfaVerifiedAt: Date | null
   requireTwoPersonApproval: boolean
 }
 type Due = { id: string; intendedAt: string; localDate: string }
@@ -125,10 +128,20 @@ async function approvalProblem(
   const [requester] =
     await sql`select 1 from member where user_id = ${schedule.requestedBy}`
   const [approver] = await sql<
-    { role: Session["role"]; canPublish: boolean }[]
-  >`select role, can_publish as "canPublish" from member where user_id = ${schedule.approvedBy}`
+    { role: Session["role"]; canPublish: boolean; securityVersion: number }[]
+  >`select m.role, m.can_publish as "canPublish", u.security_version as "securityVersion"
+    from member m join app_user u on u.id = m.user_id where m.user_id = ${schedule.approvedBy}`
   if (!requester || !approver || !["owner", "admin"].includes(approver.role))
     return "permission_revoked"
+  // An approval given before operator MFA recovery bumped the approver's
+  // security version (0106, scripts/mfa-recover.mjs) no longer stands: the
+  // account may have been someone else's at the time. Approvals recorded
+  // before versions were (null) are judged on the checks above alone.
+  if (
+    schedule.approvedSecurityVersion !== null &&
+    schedule.approvedSecurityVersion !== approver.securityVersion
+  )
+    return "approval_invalid"
   const session = {
     userId: schedule.approvedBy,
     role: approver.role,
@@ -165,6 +178,11 @@ async function approverSession(
     role: row.role,
     canPublish: row.canPublish,
     workspaceMode: row.workspaceMode,
+    // The publish goes out under the approval, so its attempt records the
+    // assurance the approval was given with (0106), not a worker's.
+    aal: schedule.approvedAal ?? "aal1",
+    mfaVerifiedAt: schedule.approvedMfaVerifiedAt,
+    securityVersion: schedule.approvedSecurityVersion ?? undefined,
   }
 }
 
@@ -183,7 +201,8 @@ export async function processSchedule(
     const [schedule] = await sql<Schedule[]>`
       select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, timezone, template,
         event_offsets as "eventOffsets", requested_by::text as "requestedBy", approved_by::text as "approvedBy",
-        approved_revision as "approvedRevision", require_two_person_approval as "requireTwoPersonApproval"
+        approved_revision as "approvedRevision", approved_security_version as "approvedSecurityVersion",
+        approved_aal as "approvedAal", approved_mfa_verified_at as "approvedMfaVerifiedAt", require_two_person_approval as "requireTwoPersonApproval"
       from post_publication_schedule where id = ${scheduleId} for update`
     if (!schedule || schedule.status !== "active") return null
     const due = await sql<Due[]>`

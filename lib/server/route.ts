@@ -19,6 +19,7 @@ import {
   serverRequestId,
   withRequestIdHeader,
 } from "@/lib/server/http"
+import { requireRecentMfa } from "@/lib/server/mfa"
 import {
   parseIntentHeader,
   withMutationIntent,
@@ -66,7 +67,14 @@ import { requireRole, requireSession, type Session } from "@/lib/server/session"
  *      route, not inside the handler. Location-level access is NOT a wrapper
  *      concern: handlers still call `requireLocationAccess`,
  *      `canPublishLocation` or `grantsFor` from `lib/server/permissions`
- *      inside `ctx.tenant(...)` once they know which location is involved;
+ *      inside `ctx.tenant(...)` once they know which location is involved.
+ *      `mfa: "step_up"` then holds an owner or admin to a two-step
+ *      verification from the last 15 minutes (`requireRecentMfa`,
+ *      lib/server/mfa.ts; 403 `mfa_step_up_required` or
+ *      `mfa_enrollment_required`). Declare it on every handler that changes
+ *      the team, a Google connection, organisation settings, or publishes or
+ *      approves; never on reads, enrollment, exports or invoice viewing. It
+ *      does nothing while MFA_ENABLED is off;
  *   5. parsing — `params` (zod schema over the awaited `context.params`),
  *      `query` (zod schema over an object built from `searchParams`, where a
  *      repeated key becomes a string array; or a plain function receiving the
@@ -190,6 +198,11 @@ export type RouteConfig<
   origin?: "same" | "any"
   /** Organisation roles allowed through. Only with auth "session". */
   roles?: A extends "session" ? Session["role"][] : never
+  /**
+   * "step_up": a sensitive action. Owners and admins need a recent two-step
+   * verification (see the header comment). Only with auth "session".
+   */
+  mfa?: A extends "session" ? "step_up" : never
   /** Validates the awaited `context.params`. */
   params?: ZodType<P>
   /**
@@ -347,6 +360,7 @@ export function route<
     try {
       if (origin === "same") assertSameOrigin(request)
       const session = await authenticate(request, auth, config.roles)
+      if (session && config.mfa === "step_up") requireRecentMfa(session)
       const rawParams = (await context?.params) ?? {}
       const params = (
         config.params ? config.params.parse(rawParams) : rawParams
@@ -397,7 +411,10 @@ export function route<
       }
       // Only impersonated sessions and requests with an intent pay for an
       // async context; every other request calls the handler as before.
-      const run = () => withMutationIntent(intentId, () => config.handler(ctx))
+      const run = () =>
+        withMutationIntent(intentId, () => config.handler(ctx), {
+          securityVersion: session?.securityVersion ?? null,
+        })
       const result = await (session?.supportActor
         ? withAuditActor(
             {

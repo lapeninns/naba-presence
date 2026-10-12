@@ -8,6 +8,7 @@ import { getDatabase, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { purgeMfaPendingLogins } from "@/lib/server/mfa"
 import { settleOperationsForAttempts } from "@/lib/server/mutation-operations"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
@@ -1068,6 +1069,23 @@ export async function purgeEndedAbuseBuckets(
   }
 }
 
+/**
+ * Purges the expired two-step sign-in tickets (mfa_pending_login, 0105).
+ * Like the abuse-limit windows they are platform-level and short-lived (five
+ * minutes), so RETENTION_DELETES_ENABLED does not stop this, and a failure is
+ * logged without stopping the tenant walk.
+ */
+export async function purgeExpiredMfaTickets(
+  requestId: string
+): Promise<number | null> {
+  try {
+    return await purgeMfaPendingLogins()
+  } catch (error) {
+    log.error("retention.mfa_pending_failed", { requestId, error })
+    return null
+  }
+}
+
 export type RetentionPageInput = {
   requestId: string
   clientRequestId: string | null
@@ -1115,6 +1133,9 @@ export async function retainPage({
     limit ${batchSize}
   `
   const abuseRateBuckets = cursor ? null : await purgeEndedAbuseBuckets(requestId)
+  const mfaPendingLogins = cursor
+    ? null
+    : await purgeExpiredMfaTickets(requestId)
   const results = []
   const partial = []
   const failures: RetentionFailure[] = []
@@ -1160,6 +1181,7 @@ export async function retainPage({
     partial,
     failures,
     abuseRateBuckets,
+    mfaPendingLogins,
     nextCursor: partial.length
       ? (lastProcessedOrganisationId ?? cursor ?? RETENTION_HEAD_CURSOR)
       : budgetExhausted || organisations.length === batchSize

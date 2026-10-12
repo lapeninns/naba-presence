@@ -7,6 +7,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 const params = z.object({ accountId: z.uuid(), draftId: z.uuid() })
 export const POST = route({
+  mfa: "step_up",
   roles: ["owner", "admin"], params, body: googleOnboardingSubmitSchema,
   handler: ({ session, params, body, requestId }) => submitOnboardingCreation(session, params.accountId, params.draftId, body.reviewId, body.expectedReviewHash, requestId),
 })

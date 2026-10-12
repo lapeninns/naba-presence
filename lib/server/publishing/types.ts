@@ -8,7 +8,15 @@
  * `succeeded`, `not_applied`, or `diverged`.
  */
 
+import type { AuthorisationAssurance } from "@/lib/server/mfa"
 import type { Session } from "@/lib/server/session"
+
+/** `publish_attempt.authorised_*` (0106): see attemptAuthorisation. */
+export type AttemptAuthorisation = {
+  userId: string
+  assurance: AuthorisationAssurance
+  connectionId: string | null
+}
 
 /**
  * `publish_attempt.status` CHECK constraint vocabulary (0001_initial.sql,
@@ -88,9 +96,19 @@ export type ReplyDeleteInput = {
    * Session in a route, or the scope a background worker re-derived from
    * membership at dispatch (lib/server/authz/actor.ts), as the privacy
    * withdrawal tick does. Either way prepareDelete re-checks location
-   * visibility and publish permission against it.
+   * visibility and publish permission against it. The attempt records the
+   * session's assurance (0106); a worker's scope carries none, so its
+   * attempt records aal1 with no security version.
    */
-  session: Pick<Session, "role" | "userId" | "canPublish">
+  session: Pick<
+    Session,
+    | "role"
+    | "userId"
+    | "canPublish"
+    | "aal"
+    | "mfaVerifiedAt"
+    | "securityVersion"
+  >
   reviewId: string
   requestId: string
 }
