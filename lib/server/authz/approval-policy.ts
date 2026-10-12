@@ -11,8 +11,14 @@ import {
   type RecheckRefusal,
   type RecheckResult,
 } from "@/lib/server/authz/actor"
+import {
+  accessFromView,
+  getOrganisationBilling,
+} from "@/lib/server/billing/state"
+import { enforcementApplies } from "@/lib/server/entitlement-policy"
 import { ApiError } from "@/lib/server/http"
 import { isManagerialRole } from "@/lib/server/permissions"
+import type { Session } from "@/lib/server/session"
 
 export type { ApprovalPolicy }
 
@@ -274,4 +280,80 @@ export async function recheckApprovedWork(
   if (!work.perItemApproval && !isManagerialRole(approver.scope.role))
     return { ok: false, reason: "approver_not_manager", subject: "approver" }
   return { ok: true, approver: approver.scope }
+}
+
+export type ApprovalSessionInput = {
+  organisationId: string
+  /** The approver the work goes out under. */
+  approvedBy: string
+  /** Names the worker session in what it records, e.g. `bulk:<operation>`. */
+  sessionId: string
+  /** The assurance recorded with the approval (0106); null reads as aal1. */
+  approvedAal: "aal1" | "aal2" | null
+  approvedMfaVerifiedAt: Date | null
+  approvedSecurityVersion: number | null
+}
+
+/**
+ * The session a worker dispatches approved work under: the approver's own
+ * membership, person and organisation as they are now, carrying the
+ * assurance the approval was given with (0106), not a worker's. Shared by
+ * the bulk runner (lib/server/bulk-listing-runner.ts) and the scheduled
+ * post runner (lib/server/publication-schedule-runner.ts), after
+ * recheckApprovedWork has passed in the same transaction.
+ *
+ * Billing access is derived as for a person's session (lookupSession,
+ * lib/server/session.ts), so anything downstream that asks sessionCanWrite
+ * (lib/server/entitlement-policy.ts) gets the organisation's real answer
+ * rather than "not enforced". Each runner still holds a read-only
+ * organisation itself (organisationWriteBlock) before it gets here.
+ *
+ * Null when the approver is no longer a member: the caller refuses.
+ */
+export async function approvalSession(
+  sql: TransactionSql,
+  input: ApprovalSessionInput,
+  now: Date = new Date()
+): Promise<Session | null> {
+  const [row] = await sql<
+    {
+      role: Session["role"]
+      canPublish: boolean
+      email: string
+      displayName: string
+      organisationName: string
+      workspaceMode: Session["workspaceMode"]
+    }[]
+  >`
+    select
+      m.role,
+      m.can_publish as "canPublish",
+      u.email,
+      coalesce(u.display_name, '') as "displayName",
+      o.name as "organisationName",
+      o.workspace_mode as "workspaceMode"
+    from member m
+    join app_user u on u.id = m.user_id
+    join organisation o on o.id = m.organisation_id
+    where m.organisation_id = ${input.organisationId}
+      and m.user_id = ${input.approvedBy}
+  `
+  if (!row) return null
+  const billing = await getOrganisationBilling(sql, input.organisationId)
+  return {
+    sessionId: input.sessionId,
+    userId: input.approvedBy,
+    organisationId: input.organisationId,
+    organisationName: row.organisationName,
+    displayName: row.displayName,
+    email: row.email,
+    role: row.role,
+    canPublish: row.canPublish,
+    workspaceMode: row.workspaceMode,
+    aal: input.approvedAal ?? "aal1",
+    mfaVerifiedAt: input.approvedMfaVerifiedAt,
+    securityVersion: input.approvedSecurityVersion ?? undefined,
+    access: accessFromView(billing, now),
+    entitlementEnforced: enforcementApplies(billing),
+  }
 }

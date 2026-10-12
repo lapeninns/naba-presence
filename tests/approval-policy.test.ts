@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { RecheckResult } from "@/lib/server/authz/actor"
 import {
+  approvalSession,
   currentApprovalPolicy,
   currentManager,
   recheckApprovedWork,
@@ -17,6 +18,12 @@ import {
 } from "@/lib/server/authz/approval-policy"
 import { ApiError } from "@/lib/server/http"
 import type { GrantScope } from "@/lib/server/permissions"
+
+// Billing enforcement on, for the worker session's access
+// (approvalSession, through enforcementApplies).
+vi.mock("@/lib/server/env", () => ({
+  getServerEnv: () => ({ BILLING_ENFORCEMENT_ENABLED: true }),
+}))
 
 // The shared approval-policy helper (P09-R2): current policy, current
 // manager, the second-approver rule and the worker recheck used by reviewed
@@ -156,7 +163,9 @@ describe("approval policy -- the approver's security version (stream A)", () => 
 
   it("does not compare an approval recorded before versions were (null)", async () => {
     const { sql, queries } = scriptedSql({ member: admin, user: null })
-    await expect(currentManager(sql, ORG, APPROVER, null)).resolves.not.toBeNull()
+    await expect(
+      currentManager(sql, ORG, APPROVER, null)
+    ).resolves.not.toBeNull()
     expect(queries.some((query) => query.text.includes("from app_user"))).toBe(
       false
     )
@@ -448,7 +457,9 @@ describe("approval policy -- one implementation for every reviewed write", () =>
       "lib/server/publication-schedules.ts",
     ]) {
       const source = read(file)
-      expect(source, file).toContain('from "@/lib/server/authz/approval-policy"')
+      expect(source, file).toContain(
+        'from "@/lib/server/authz/approval-policy"'
+      )
       expect(source, file).not.toMatch(/async function requireCurrentManager/)
       expect(source, file).not.toMatch(/async function currentPolicy/)
     }
@@ -468,5 +479,104 @@ describe("approval policy -- one implementation for every reviewed write", () =>
     expect(read("lib/server/authz/approval-policy.ts")).not.toContain(
       "INTEGRATION:"
     )
+  })
+
+  it("builds the worker session under the approval in one place", () => {
+    // Both runners dispatch under the approver through approvalSession; a
+    // private copy would drift (organisation name, billing access).
+    for (const file of [
+      "lib/server/bulk-listing-runner.ts",
+      "lib/server/publication-schedule-runner.ts",
+    ]) {
+      const source = read(file)
+      expect(source, file).toContain("approvalSession(sql, {")
+      expect(source, file).not.toMatch(/from member m/)
+      expect(source, file).not.toMatch(/organisationName: ""/)
+    }
+  })
+})
+
+describe("approval policy -- the worker session under an approval", () => {
+  const SEEN_AT = new Date("2026-10-12T09:00:00.000Z")
+
+  function sessionSql(member: Record<string, unknown> | null) {
+    const queries: { text: string; values: unknown[] }[] = []
+    const fn = (first: unknown, ...values: unknown[]) => {
+      const text = (first as string[]).join("?")
+      return {
+        then(onFulfilled: (rows: unknown[]) => unknown) {
+          queries.push({ text, values })
+          let rows: unknown[]
+          if (text.includes("from organisation_billing")) rows = []
+          else if (text.includes("from member m")) rows = member ? [member] : []
+          else throw new Error(`sessionSql: unexpected query -- ${text}`)
+          return Promise.resolve(rows).then(onFulfilled)
+        },
+      }
+    }
+    return { sql: fn as unknown as TransactionSql, queries }
+  }
+
+  const input = {
+    organisationId: ORG,
+    approvedBy: APPROVER,
+    sessionId: "bulk:op-1",
+    approvedAal: "aal2" as const,
+    approvedMfaVerifiedAt: SEEN_AT,
+    approvedSecurityVersion: 3,
+  }
+
+  it("carries the approval's assurance, the real organisation name and the billing access", async () => {
+    const { sql, queries } = sessionSql({
+      role: "admin",
+      canPublish: true,
+      email: "approver@example.test",
+      displayName: "Approver",
+      organisationName: "The Old Crown",
+      workspaceMode: "business",
+    })
+    const session = await approvalSession(sql, input, SEEN_AT)
+    expect(session).toMatchObject({
+      sessionId: "bulk:op-1",
+      userId: APPROVER,
+      organisationId: ORG,
+      organisationName: "The Old Crown",
+      role: "admin",
+      canPublish: true,
+      aal: "aal2",
+      mfaVerifiedAt: SEEN_AT,
+      securityVersion: 3,
+      // No billing row reads as read-only, and enforcement applies to it.
+      entitlementEnforced: true,
+      access: expect.objectContaining({ canWrite: false }),
+    })
+    // The membership is read for this organisation and this approver.
+    expect(queries[0].values).toEqual([ORG, APPROVER])
+  })
+
+  it("reads aal1 without a recorded assurance and returns null for a former member", async () => {
+    const member = {
+      role: "owner",
+      canPublish: true,
+      email: "a@example.test",
+      displayName: "",
+      organisationName: "Org",
+      workspaceMode: "agency",
+    }
+    const session = await approvalSession(
+      sessionSql(member).sql,
+      {
+        ...input,
+        approvedAal: null,
+        approvedMfaVerifiedAt: null,
+        approvedSecurityVersion: null,
+      },
+      SEEN_AT
+    )
+    expect(session?.aal).toBe("aal1")
+    expect(session?.securityVersion).toBeUndefined()
+    await expect(
+      approvalSession(sessionSql(null).sql, input, SEEN_AT)
+    ).resolves.toBeNull()
   })
 })

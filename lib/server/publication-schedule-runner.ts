@@ -13,7 +13,10 @@ import {
   selectDueOccurrences,
 } from "@/lib/domain/publication-schedule"
 import { writeAudit } from "@/lib/server/audit"
-import { recheckApprovedWork } from "@/lib/server/authz/approval-policy"
+import {
+  approvalSession,
+  recheckApprovedWork,
+} from "@/lib/server/authz/approval-policy"
 import { sha256 } from "@/lib/server/crypto"
 import {
   getDatabase,
@@ -350,38 +353,27 @@ async function scheduledPostEntitlement(
     : "read_only"
 }
 
+/**
+ * The approver's session for the publish (approvalSession). The recheck
+ * that ran earlier in this transaction proved the approver is a member, so
+ * a missing one throws and the claim rolls back.
+ */
 async function approverSession(
   sql: TransactionSql,
   schedule: Schedule
 ): Promise<Session> {
-  const [row] = await sql<
-    {
-      role: Session["role"]
-      canPublish: boolean
-      email: string
-      displayName: string
-      organisationName: string
-      workspaceMode: Session["workspaceMode"]
-    }[]
-  >`
-    select m.role, m.can_publish as "canPublish", u.email, coalesce(u.display_name, '') as "displayName", o.name as "organisationName", o.workspace_mode as "workspaceMode"
-    from member m join app_user u on u.id = m.user_id cross join organisation o where m.user_id = ${schedule.approvedBy}`
-  return {
-    sessionId: `post-schedule:${schedule.id}`,
-    userId: schedule.approvedBy!,
+  // The publish goes out under the approval, so its attempt records the
+  // assurance the approval was given with (0106), not a worker's.
+  const session = await approvalSession(sql, {
     organisationId: schedule.organisationId,
-    organisationName: row.organisationName,
-    displayName: row.displayName,
-    email: row.email,
-    role: row.role,
-    canPublish: row.canPublish,
-    workspaceMode: row.workspaceMode,
-    // The publish goes out under the approval, so its attempt records the
-    // assurance the approval was given with (0106), not a worker's.
-    aal: schedule.approvedAal ?? "aal1",
-    mfaVerifiedAt: schedule.approvedMfaVerifiedAt,
-    securityVersion: schedule.approvedSecurityVersion ?? undefined,
-  }
+    approvedBy: schedule.approvedBy!,
+    sessionId: `post-schedule:${schedule.id}`,
+    approvedAal: schedule.approvedAal,
+    approvedMfaVerifiedAt: schedule.approvedMfaVerifiedAt,
+    approvedSecurityVersion: schedule.approvedSecurityVersion,
+  })
+  if (!session) throw new Error("Schedule approver is no longer a member")
+  return session
 }
 
 /** One claimed schedule: at most one publication per tick, never a resend of an unresolved one. */
@@ -470,8 +462,7 @@ export async function processSchedule(
     // So is a read-only subscription under billing enforcement
     // (lib/server/entitlement-policy.ts): nothing new is sent while it lasts.
     const readOnly =
-      (await scheduledPostEntitlement(sql, organisationId, now)) ===
-      "read_only"
+      (await scheduledPostEntitlement(sql, organisationId, now)) === "read_only"
     if (paused || readOnly || !link) {
       // Transient: the approval stands. The occurrence waits inside its
       // window and is recorded missed once the window closes; a schedule

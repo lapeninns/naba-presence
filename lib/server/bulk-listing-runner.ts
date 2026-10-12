@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
 import {
+  approvalSession,
   recheckApprovedWork,
   type ApprovedWorkResult,
 } from "@/lib/server/authz/approval-policy"
@@ -36,7 +37,6 @@ import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { gbpWriteScopes, isScopeEnabled } from "@/lib/server/pause-controls"
-import type { Session } from "@/lib/server/session"
 
 type Child = {
   id: string
@@ -217,32 +217,17 @@ export async function processBulkChild(
       ...(family.recheck ?? {}),
     })
     if (!recheck.ok) return { code: recheckCode(recheck) }
-    const [approver] = await sql<
-      {
-        email: string
-        displayName: string
-        workspaceMode: Session["workspaceMode"]
-      }[]
-    >`
-      select u.email, coalesce(u.display_name, '') as "displayName", o.workspace_mode as "workspaceMode"
-      from app_user u cross join organisation o where u.id = ${child.approvedBy} and o.id = ${organisationId}`
-    if (!approver) return { code: "permission_revoked" }
-    const session: Session = {
-      sessionId: `bulk:${child.operationId}`,
-      userId: child.approvedBy,
+    // Each write goes out under the approval, so its attempt records the
+    // assurance the approval was given with (0106), not a worker's.
+    const session = await approvalSession(sql, {
       organisationId,
-      organisationName: "",
-      displayName: approver.displayName,
-      email: approver.email,
-      role: recheck.approver.role,
-      canPublish: recheck.approver.canPublish,
-      workspaceMode: approver.workspaceMode,
-      // Each write goes out under the approval, so its attempt records the
-      // assurance the approval was given with (0106), not a worker's.
-      aal: child.approvedAal ?? "aal1",
-      mfaVerifiedAt: child.approvedMfaVerifiedAt,
-      securityVersion: child.approvedSecurityVersion ?? undefined,
-    }
+      approvedBy: child.approvedBy,
+      sessionId: `bulk:${child.operationId}`,
+      approvedAal: child.approvedAal,
+      approvedMfaVerifiedAt: child.approvedMfaVerifiedAt,
+      approvedSecurityVersion: child.approvedSecurityVersion,
+    })
+    if (!session) return { code: "permission_revoked" }
     let linked: Awaited<ReturnType<typeof resolveGbpLocationContext>>
     try {
       linked = await resolveGbpLocationContext(sql, session, child.locationId)
