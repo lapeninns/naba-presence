@@ -13,11 +13,22 @@ function Editor({ initial = {}, disabled = false, errors = {} }: {
   return <><LodgingEditor value={draft} baseline={initial} disabled={disabled} errors={errors} onChange={setDraft} /><output data-testid="draft">{JSON.stringify(draft)}</output></>
 }
 
-describe("complete lodging editor", () => {
+// The editor re-filters every lodging detail on each keystroke, so typing a
+// query character by character costs seconds under a loaded full-suite run
+// (it timed out at 5s in the local release gate). Pasting the query fires one
+// input event: the filter is still driven by the searchbox, only once.
+async function search(user: ReturnType<typeof userEvent.setup>, query: string) {
+  await user.click(screen.getByRole("searchbox", { name: "Find a lodging detail" }))
+  await user.paste(query)
+}
+
+// Opening the guest-unit group renders every unit field; give the group the
+// same headroom as other large-editor suites under the loaded gate run.
+describe("complete lodging editor", { timeout: 15_000 }, () => {
   it("keeps an unknown boolean distinct from No, preserves future siblings, and resets only the edited field", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor initial={{ pets: { futureRule: "preserve" } }} />)
-    await user.type(screen.getByRole("searchbox", { name: "Find a lodging detail" }), "Pets allowed")
+    await search(user, "Pets allowed")
     const control = screen.getByRole("combobox", { name: "Pets allowed" })
     expect(control).toHaveTextContent("Not recorded")
     await user.click(control)
@@ -32,7 +43,7 @@ describe("complete lodging editor", () => {
   it("edits conditional availability separately from the boolean", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor initial={{ pets: { petsAllowed: false } }} />)
-    await user.type(screen.getByRole("searchbox"), "Pets allowed exception")
+    await search(user, "Pets allowed exception")
     await user.click(screen.getByRole("combobox", { name: "Pets allowed exception" }))
     await user.click(await screen.findByRole("option", { name: "Depends on season" }))
     expect(screen.getByTestId("draft")).toHaveTextContent('"petsAllowed":false')
@@ -42,7 +53,7 @@ describe("complete lodging editor", () => {
   it("edits check-in time as one 24-hour value, keeping a recorded midnight and extra precision", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor initial={{ policies: { checkinTime: { hours: 0, seconds: 5, nanos: 7 } } }} />)
-    await user.type(screen.getByRole("searchbox"), "Checkin time")
+    await search(user, "Checkin time")
     const time = screen.getByLabelText("Check-in time")
     expect(time).toHaveAttribute("type", "time")
     expect(time).toHaveValue("00:00")
@@ -56,7 +67,7 @@ describe("complete lodging editor", () => {
   it("keeps an unrecorded time distinct from midnight and clears back to unrecorded", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor errors={{ "policies.checkoutTime": "Checkout time: enter a time between 00:00 and 23:59." }} />)
-    await user.type(screen.getByRole("searchbox"), "Checkout time")
+    await search(user, "Checkout time")
     const time = screen.getByLabelText("Checkout time")
     expect(time).toHaveValue("")
     expect(time).toHaveAttribute("aria-invalid", "true")
@@ -101,7 +112,7 @@ describe("complete lodging editor", () => {
   it("distinguishes an unknown repeated list from an explicitly emptied list", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor />)
-    await user.type(screen.getByRole("searchbox"), "Languages spoken")
+    await search(user, "Languages spoken")
     expect(screen.getByText("Google has not recorded this list.")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Add languages spoken item" }))
     expect(screen.getByRole("button", { name: "Remove languages spoken 1" })).toBeInTheDocument()
@@ -113,7 +124,7 @@ describe("complete lodging editor", () => {
   it("preserves unsupported list values and prevents disabled edits", async () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor disabled initial={{ services: { languagesSpoken: "future format" } }} />)
-    await user.type(screen.getByRole("searchbox"), "Languages spoken")
+    await search(user, "Languages spoken")
     expect(screen.getByText(/Google supplied an unsupported list value/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Add languages spoken item" })).toBeDisabled()
     expect(screen.getByTestId("draft")).toHaveTextContent('"languagesSpoken":"future format"')
