@@ -2,14 +2,11 @@
  * What one listing's bulk change does, in the approver's words.
  *
  * Derived only from the child's frozen `currentValue`, `proposedValue` and
- * `updateMask` (plus the operation's own input for the action-link type), so
+ * `updateMask` (plus the child's own change for the action-link type), so
  * the approver reads exactly what will be sent to that listing, not the
  * request in general. Pure and client-safe.
  */
-import type {
-  BulkChild,
-  BulkOperationView,
-} from "@/lib/contracts/bulk-listings"
+import type { BulkChild } from "@/lib/contracts/bulk-listings"
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 
 export type ChangeRow = {
@@ -204,7 +201,7 @@ function attributeRows(
 function placeActionRows(
   current: unknown,
   proposed: unknown,
-  input: BulkOperationView["input"]
+  input: BulkChild["input"]
 ): ChangeRow[] {
   type Link = { name?: string; uri?: string; isPreferred?: boolean }
   const links = list<Link>(current)
@@ -249,14 +246,15 @@ function placeActionRows(
 
 /** The listing's exact change, one row per thing that differs. */
 export function describeChildChange(
-  operation: BulkOperationView["operation"],
-  input: BulkOperationView["input"],
-  child: Pick<BulkChild, "currentValue" | "proposedValue" | "updateMask">
+  child: Pick<
+    BulkChild,
+    "operation" | "input" | "currentValue" | "proposedValue" | "updateMask"
+  >
 ): ChangeRow[] {
   if (child.proposedValue === null || child.proposedValue === undefined)
     return []
-  const { currentValue: current, proposedValue: proposed } = child
-  switch (operation) {
+  const { currentValue: current, proposedValue: proposed, input } = child
+  switch (child.operation) {
     case "regular_hours":
       return regularHoursRows(current, proposed)
     case "special_hours":

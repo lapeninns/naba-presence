@@ -3,15 +3,42 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import {
-  describeChildChange,
+  describeChildChange as describeChange,
   maskLabel,
 } from "@/components/bulk/bulk-change-summary"
 import { BulkOperationView } from "@/components/bulk/bulk-operation-view"
 import type { BulkOperationView as Operation } from "@/lib/contracts/bulk-listings"
 
+const describeChildChange = (
+  operation: Operation["children"][number]["operation"],
+  input: unknown,
+  child: Pick<
+    Operation["children"][number],
+    "currentValue" | "proposedValue" | "updateMask"
+  >
+) =>
+  describeChange({
+    operation,
+    input: input as Operation["children"][number]["input"],
+    ...child,
+  })
+
 vi.mock("@/lib/queries/use-session", () => ({
   useSessionRole: () => "owner",
 }))
+
+const specialInput = {
+  operation: "special_hours" as const,
+  dates: [
+    { action: "closed" as const, date: "2026-12-25" },
+    {
+      action: "open" as const,
+      date: "2026-12-26",
+      opensAt: "12:00",
+      closesAt: "18:00",
+    },
+  ],
+}
 
 const child = (overrides: Partial<Operation["children"][number]>) => ({
   id: "00000000-0000-4000-8000-0000000000c1",
@@ -28,24 +55,18 @@ const child = (overrides: Partial<Operation["children"][number]>) => ({
   attempts: 0,
   finishedAt: null,
   mutationOperationId: null,
+  seq: 0,
+  itemKey: "0:special_hours",
+  operation: "special_hours" as const,
+  input: specialInput,
+  dependsOn: [],
   ...overrides,
 })
 
 const operation: Operation = {
   id: "00000000-0000-4000-8000-0000000000b1",
   operation: "special_hours",
-  input: {
-    operation: "special_hours",
-    dates: [
-      { action: "closed", date: "2026-12-25" },
-      {
-        action: "open",
-        date: "2026-12-26",
-        opensAt: "12:00",
-        closesAt: "18:00",
-      },
-    ],
-  },
+  items: [specialInput],
   status: "previewed",
   previewHash: "a".repeat(64),
   requestedBy: "00000000-0000-4000-8000-0000000000e1",
@@ -199,6 +220,68 @@ describe("BulkOperationView", () => {
       await screen.findByText(/^The sending window closed at /)
     ).toBeInTheDocument()
     expect(screen.queryByText(/will not be sent/)).not.toBeInTheDocument()
+  })
+})
+
+describe("BulkOperationView with several changes", () => {
+  it("labels each listing's changes in order and says which wait for earlier ones", async () => {
+    const first = "00000000-0000-4000-8000-0000000000c1"
+    const wifi = {
+      operation: "attributes" as const,
+      changes: [{ name: "attributes/has_wifi", values: [true] }],
+    }
+    const view: Operation = {
+      ...operation,
+      operation: "mixed",
+      items: [specialInput, wifi],
+      status: "running",
+      canApprove: false,
+      approvedBy: operation.requestedBy,
+      dispatchExpiresAt: "2099-10-02T00:00:00.000Z",
+      counts: { running: 1, queued: 1 },
+      children: [
+        child({ id: first, status: "running", updateMask: ["specialHours"] }),
+        child({
+          id: "00000000-0000-4000-8000-0000000000c2",
+          seq: 1,
+          itemKey: "1:attributes",
+          operation: "attributes",
+          input: wifi,
+          status: "queued",
+          dependsOn: [first],
+          currentValue: [{ name: "attributes/has_wifi", values: [false] }],
+          proposedValue: [{ name: "attributes/has_wifi", values: [true] }],
+          updateMask: ["attributes/has_wifi"],
+        }),
+      ],
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ operation: view }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+      )
+    )
+    renderWithProviders(<BulkOperationView operationId={view.id} />)
+    expect(
+      await screen.findByRole("heading", {
+        name: "Several changes across 1 listing",
+      })
+    ).toBeInTheDocument()
+    expect(screen.getByText("1. Special hours")).toBeInTheDocument()
+    expect(screen.getByText("2. Attributes")).toBeInTheDocument()
+    expect(
+      screen.getByText("Waits for the earlier changes to this listing")
+    ).toBeInTheDocument()
+    const second = screen.getByRole("list", {
+      name: "Change 2 for Old Crown",
+    })
+    expect(within(second).getByRole("listitem")).toHaveTextContent(
+      "Has wifi: No →changes to Yes"
+    )
   })
 })
 

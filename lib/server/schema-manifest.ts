@@ -106,5 +106,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0260_bulk_engine_alignment",
   "0261_bulk_approval_policy",
   "0262_bulk_child_receipts",
+  "0263_bulk_multi_item_batches",
   "20260729000400_remove_local_demo_data",
 ]

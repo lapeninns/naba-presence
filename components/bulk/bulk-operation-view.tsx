@@ -85,6 +85,8 @@ const REASON: Record<string, string> = {
     "The Google connection changed after the preview; prepare a new preview",
   resource_busy: "Waiting for another change to this listing to finish",
   feature_disabled: "Bulk changes are switched off for this workspace",
+  dependency_not_applied:
+    "Not sent: an earlier change it needs didn’t apply to this listing",
 }
 const reason = (code: string | null) =>
   code
@@ -101,6 +103,7 @@ const OPERATION_LABEL: Record<Operation["operation"], string> = {
   more_hours: "Service hours",
   attributes: "Attributes",
   place_action: "Action link",
+  mixed: "Several changes",
 }
 
 /**
@@ -144,6 +147,16 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       ),
   })
   const op = query.data
+  const listings = new Set(op?.children.map((child) => child.locationId)).size
+  const multiple = (op?.items.length ?? 1) > 1
+  const unit = (count: number) =>
+    multiple
+      ? count === 1
+        ? "change"
+        : "changes"
+      : count === 1
+        ? "listing"
+        : "listings"
   const skipped =
     op?.children.filter((child) => child.eligibility === "skipped").length ?? 0
   const retryable =
@@ -156,7 +169,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       <PageHeader
         title={
           op
-            ? `${OPERATION_LABEL[op.operation]} across ${op.children.length} ${op.children.length === 1 ? "listing" : "listings"}`
+            ? `${OPERATION_LABEL[op.operation]} across ${listings} ${listings === 1 ? "listing" : "listings"}`
             : "Bulk change"
         }
         description="Each listing is read from Google, changed once and confirmed by reading it back. Listings are independent: one failing does not undo another."
@@ -210,7 +223,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                   <>
                     {skipped ? (
                       <Checkbox
-                        label={`I understand ${skipped} ${skipped === 1 ? "listing is" : "listings are"} skipped and will not change`}
+                        label={`I understand ${skipped} ${unit(skipped)} ${skipped === 1 ? "is" : "are"} skipped and will not be sent`}
                         checked={acknowledged}
                         onCheckedChange={(checked) =>
                           setAcknowledged(checked === true)
@@ -259,15 +272,16 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                     disabled={mutate.isPending}
                     onClick={() => mutate.mutate("retry")}
                   >
-                    Retry {retryable} unsettled{" "}
-                    {retryable === 1 ? "listing" : "listings"}
+                    Retry {retryable} unsettled {unit(retryable)}
                   </Button>
                 ) : null}
               </div>
             ) : null}
             <Table surface responsive>
               <caption className="sr-only">
-                Per-listing preview and outcome
+                {multiple
+                  ? "Per-listing preview and outcome of each change, in the order they are sent"
+                  : "Per-listing preview and outcome"}
               </caption>
               <TableHeader>
                 <TableRow>
@@ -286,6 +300,11 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                       >
                         {child.locationName}
                       </Link>
+                      {multiple ? (
+                        <span className="block text-caption text-ink-muted">
+                          {child.seq + 1}. {OPERATION_LABEL[child.operation]}
+                        </span>
+                      ) : null}
                     </TableCell>
                     <TableCell label="Outcome">
                       <StatusPill tone={CHILD[child.status].tone}>
@@ -355,17 +374,31 @@ function ChildDetail({
   operation: Operation
   child: BulkChild
 }) {
+  // A queued change waits for the earlier changes at its listing.
+  const waiting =
+    child.status === "queued" &&
+    !child.resultCode &&
+    child.dependsOn.some((id) =>
+      ["previewed", "queued", "running"].includes(
+        operation.children.find((other) => other.id === id)?.status ?? ""
+      )
+    )
   const note =
     reason(child.skipReason ?? child.resultCode) ??
+    (waiting ? "Waits for the earlier changes to this listing" : null) ??
     (child.status === "succeeded" ? "Google shows the change" : null)
-  const rows = describeChildChange(operation.operation, operation.input, child)
+  const rows = describeChildChange(child)
   const fields = child.updateMask.map(maskLabel)
   return (
     <div className="flex min-w-0 flex-col gap-1.5 text-ui break-words text-ink-secondary">
       {note ? <span>{note}</span> : null}
       {rows.length ? (
         <ul
-          aria-label={`Change for ${child.locationName}`}
+          aria-label={
+            operation.items.length > 1
+              ? `Change ${child.seq + 1} for ${child.locationName}`
+              : `Change for ${child.locationName}`
+          }
           className="flex flex-col gap-1"
         >
           {rows.map((row) => (

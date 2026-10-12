@@ -135,7 +135,7 @@ export async function processBulkChild(
   const child = await withTenant(organisationId, async (sql) => {
     const [row] = await sql<Child[]>`
       select c.id::text as id, c.operation_id::text as "operationId", c.location_id::text as "locationId", c.update_mask as "updateMask",
-        c.baseline_hash as "baselineHash", c.current_value as current, c.proposed_value as proposed, o.input, o.approved_by::text as "approvedBy",
+        c.baseline_hash as "baselineHash", c.current_value as current, c.proposed_value as proposed, c.input, o.approved_by::text as "approvedBy",
         o.requested_by::text as "requestedBy", o.require_two_person_approval as "requireTwoPersonApproval", o.status as "operationStatus",
         o.execute_requested_at as "executeRequestedAt", o.dispatch_expires_at as "dispatchExpiresAt", c.resource_key as "resourceKey",
         c.connection_id::text as "connectionId", c.credential_generation as "credentialGeneration", c.google_location_name as "googleLocationName",
@@ -144,6 +144,8 @@ export async function processBulkChild(
     return row
   })
   if (!child) return
+  // The child's own change from the batch's ordered list (0263); the claim
+  // only hands it over once the earlier changes at its listing settled.
   const input = bulkOperationInputSchema.parse(child.input)
   const family = bulkFamily(input.operation)
   const fail = async (code: string) => {
@@ -421,10 +423,9 @@ async function reconcileResolvedChildren(
           attemptStatus: string | null
         }[]
       >`
-        select c.operation_id::text as "operationId", c.location_id::text as "locationId", o.operation,
+        select c.operation_id::text as "operationId", c.location_id::text as "locationId", c.input->>'operation' as operation,
           m.state, m.error_code as "errorCode", m.receipt->>'attemptStatus' as "attemptStatus"
         from bulk_listing_child c
-        join bulk_listing_operation o on o.id = c.operation_id
         join mutation_operation m on m.organisation_id = c.organisation_id and m.id = c.mutation_operation_id
         where c.id = ${row.childId} and c.status = 'ambiguous'
         for update of c`

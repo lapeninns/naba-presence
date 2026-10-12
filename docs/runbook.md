@@ -1646,6 +1646,12 @@ update needs a reviewed change set, and accepting Google's suggested update in
 one step is refused (`business_info_review_required`) while two-person
 approval is on; review the suggested fields in Business information instead.
 
+A batch with several changes sends each listing's changes in list order: a
+listing marked "Waits for the earlier changes to this listing" is queued
+behind them. `dependency_not_applied` means a change it needs (for example a
+category change) did not apply at that listing, so it was not sent; retrying
+the batch requeues both, in order.
+
 A batch finishing with failures raises `bulk_completed_with_failures`. On the
 bulk change page, "Retry unsettled listings" re-reads Google for failed and
 ambiguous listings: already-applied listings settle without a write, unchanged

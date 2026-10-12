@@ -335,8 +335,13 @@ for (const width of [375, 768, 1280])
       ).toBeVisible()
       await expect(page.getByText("Confirmed", { exact: true })).toHaveCount(2)
       await capture(page, info, "bulk-confirmed")
+      // One real write per listing; bulk hours publish through the hours
+      // editor's path, which validates first (`validateOnly=true`).
       expect(
-        backend.google.calls.filter((call) => call.method === "PATCH")
+        backend.google.calls.filter(
+          (call) =>
+            call.method === "PATCH" && !call.path.includes("validateOnly=true")
+        )
       ).toHaveLength(2)
     })
 

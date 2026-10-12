@@ -555,13 +555,13 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
       admin`update bulk_listing_operation set legacy_over_cap = true where id = ${op.id}`
     ).rejects.toThrow(/legacy_over_cap is set only by migration 0260/)
     await expect(
-      admin`insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval, legacy_over_cap)
-        select organisation_id, operation, input, array_fill(target_location_ids[1], array[51]), preview_hash, requested_by, false, true
+      admin`insert into bulk_listing_operation (organisation_id, operation, input, items, target_location_ids, preview_hash, requested_by, require_two_person_approval, legacy_over_cap)
+        select organisation_id, operation, input, items, array_fill(target_location_ids[1], array[51]), preview_hash, requested_by, false, true
         from bulk_listing_operation where id = ${op.id}`
     ).rejects.toThrow(/legacy_over_cap is set only by migration 0260/)
     await expect(
-      admin`insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval)
-        select organisation_id, operation, input, array_fill(target_location_ids[1], array[51]), preview_hash, requested_by, false
+      admin`insert into bulk_listing_operation (organisation_id, operation, input, items, target_location_ids, preview_hash, requested_by, require_two_person_approval)
+        select organisation_id, operation, input, items, array_fill(target_location_ids[1], array[51]), preview_hash, requested_by, false
         from bulk_listing_operation where id = ${op.id}`
     ).rejects.toThrow(/bulk_listing_operation_target_cap/)
   })
@@ -1496,5 +1496,209 @@ describeDatabase("durable bulk listing changes", { timeout: 60_000 }, () => {
     expect(after.status).toBe("completed")
     expect(stub.links.get(name)).toHaveLength(1)
     expect(linkWrites()).toHaveLength(1)
+  })
+
+  describe("ordered change lists (P09-R4)", () => {
+    const wifiOff = {
+      operation: "attributes",
+      changes: [{ name: "attributes/has_wifi", values: [false] }],
+    }
+    const twoChanges = [input, wifiOff]
+    const attributePatches = (name: string) =>
+      google.calls.filter(
+        (call) =>
+          call.method === "PATCH" && call.path.includes(`${name}/attributes`)
+      )
+    const previewItems = async (
+      t: Awaited<ReturnType<typeof tenant>>,
+      items: unknown[]
+    ) =>
+      t.read(
+        await t.api("/preview", {
+          locationIds: t.linked.map((l) => l.locationId),
+          items,
+        })
+      )
+    const childrenOf = (operationId: string) =>
+      admin<
+        {
+          id: string
+          location_id: string
+          seq: number
+          item_key: string
+          status: string
+          result_code: string | null
+          depends_on: string[]
+          started_at: Date | null
+          finished_at: Date | null
+        }[]
+      >`
+        select id::text, location_id::text, seq, item_key, status, result_code,
+          array(select d::text from unnest(depends_on) d) as depends_on, started_at, finished_at
+        from bulk_listing_child where operation_id = ${operationId} order by location_id, seq`
+
+    it("holds one child per (listing, change) and sends each listing's changes in list order", async () => {
+      const t = await tenant(2)
+      for (const location of t.linked)
+        stubAttributes(location.googleLocationName, [
+          { name: "attributes/has_wifi", values: [true] },
+        ])
+      const op = await previewItems(t, twoChanges)
+      expect(op.operation).toBe("mixed")
+      expect(op.items).toHaveLength(2)
+      expect(op.children).toHaveLength(4)
+      const rows = await childrenOf(op.id)
+      for (const location of t.linked) {
+        const [first, second] = rows.filter(
+          (row) => row.location_id === location.locationId
+        )
+        expect(first).toMatchObject({
+          seq: 0,
+          item_key: "0:special_hours",
+          depends_on: [],
+        })
+        expect(second).toMatchObject({
+          seq: 1,
+          item_key: "1:attributes",
+          depends_on: [first.id],
+        })
+        expect(
+          op.children.find((child) => child.id === second.id)
+        ).toMatchObject({ operation: "attributes", dependsOn: [first.id] })
+      }
+      await execute(t, op)
+      await tick()
+      const after = await t.status(op)
+      expect(after.status).toBe("completed")
+      expect(after.counts).toEqual({ succeeded: 4 })
+      const settled = await childrenOf(op.id)
+      for (const location of t.linked) {
+        const name = location.googleLocationName
+        const hoursAt = google.calls.findIndex(
+          (call) =>
+            call.method === "PATCH" &&
+            call.path.includes(name) &&
+            call.path.includes("updateMask=specialHours") &&
+            !call.path.includes("validateOnly=true")
+        )
+        const attributesAt = google.calls.indexOf(attributePatches(name)[0])
+        expect(hoursAt).toBeGreaterThanOrEqual(0)
+        expect(attributesAt).toBeGreaterThan(hoursAt)
+        const [first, second] = settled.filter(
+          (row) => row.location_id === location.locationId
+        )
+        expect(second.started_at!.getTime()).toBeGreaterThanOrEqual(
+          first.finished_at!.getTime()
+        )
+      }
+    })
+
+    it("claims a listing's next change only once the earlier one settled, and still sends it when that one failed", async () => {
+      const t = await tenant(1)
+      const name = t.linked[0].googleLocationName
+      stubAttributes(name, [{ name: "attributes/has_wifi", values: [true] }])
+      listings.get(name)!.patchStatus = 400
+      const op = await previewItems(t, twoChanges)
+      await execute(t, op)
+      // Two free slots and two different resources: without the ordering
+      // both would be claimed at once.
+      const claimed = await admin<{ child_id: string }[]>`
+        select child_id::text from claim_due_bulk_children(10, 60, 2)
+        where organisation_id = ${t.owner.organisationId}`
+      const [first, second] = await childrenOf(op.id)
+      expect(claimed.map((row) => row.child_id)).toEqual([first.id])
+      // Hand the claim back untouched, as if the lease had never started.
+      await admin`update bulk_listing_child set status = 'queued', attempts = 0, started_at = null, lease_expires_at = null
+        where id = ${first.id}`
+      await tick()
+      const rows = await childrenOf(op.id)
+      expect(rows.map((row) => row.status)).toEqual(["failed", "succeeded"])
+      expect(rows[1].id).toBe(second.id)
+      expect(attributePatches(name)).toHaveLength(1)
+      expect((await t.status(op)).status).toBe("completed_with_failures")
+    })
+
+    it("fails a change whose hard prerequisite did not apply without sending it, and sends it after a retry applies the prerequisite", async () => {
+      const t = await tenant(1)
+      const name = t.linked[0].googleLocationName
+      stubAttributes(name, [{ name: "attributes/has_wifi", values: [true] }])
+      listings.get(name)!.patchStatus = 400
+      const op = await previewItems(t, twoChanges)
+      // The categories family (P09-R5) declares these; the engine rule is
+      // exercised here by marking the attribute change as needing the first.
+      await admin`update bulk_listing_child set requires_applied = depends_on
+        where operation_id = ${op.id} and seq = 1`
+      await execute(t, op)
+      await tick()
+      const failed = await t.status(op)
+      expect(failed.status).toBe("completed_with_failures")
+      expect(
+        failed.children.map((child) => [
+          child.seq,
+          child.status,
+          child.resultCode,
+        ])
+      ).toEqual([
+        [0, "failed", expect.stringMatching(/^provider_rejected/)],
+        [1, "failed", "dependency_not_applied"],
+      ])
+      expect(attributePatches(name)).toHaveLength(0)
+      listings.get(name)!.patchStatus = 200
+      await t.read(await t.api(`/${op.id}/retry`, {}))
+      await tick()
+      const after = await t.status(op)
+      expect(after.status).toBe("completed")
+      expect(after.children.map((child) => child.status)).toEqual([
+        "succeeded",
+        "succeeded",
+      ])
+      expect(attributePatches(name)).toHaveLength(1)
+      const [first, second] = await childrenOf(op.id)
+      expect(second.started_at!.getTime()).toBeGreaterThanOrEqual(
+        first.finished_at!.getTime()
+      )
+    })
+
+    it("caps a batch at 500 listing changes and refuses overlapping changes, in the route and in the tables", async () => {
+      const t = await tenant(1)
+      const eleven = Array.from({ length: 11 }, (_, index) => ({
+        operation: "special_hours",
+        dates: [{ action: "closed", date: `2026-11-${10 + index}` }],
+      }))
+      const tooMany = await t.api("/preview", {
+        locationIds: Array.from({ length: 50 }, () => crypto.randomUUID()),
+        items: eleven,
+      })
+      expect(tooMany.status).toBe(400)
+      expect(await tooMany.text()).toMatch(/at most 500/)
+      const overlapping = await t.api("/preview", {
+        locationIds: [t.linked[0].locationId],
+        items: [input, wifiOff, input],
+      })
+      expect(overlapping.status).toBe(400)
+      const ten = await previewItems(t, eleven.slice(0, 10))
+      expect(ten.children).toHaveLength(10)
+      expect(ten.operation).toBe("special_hours")
+      await expect(
+        admin`insert into bulk_listing_operation (organisation_id, operation, items, target_location_ids, preview_hash, requested_by, require_two_person_approval)
+          select organisation_id, operation, items || jsonb_build_array(items->0), array_fill(target_location_ids[1], array[50]), preview_hash, requested_by, false
+          from bulk_listing_operation where id = ${ten.id}`
+      ).rejects.toThrow(/bulk_listing_operation_item_cap/)
+      await expect(
+        admin`update bulk_listing_operation set items = items->0 where id = ${ten.id}`
+      ).rejects.toThrow(/bulk_listing_operation_item(s_check|_cap)/)
+      const [first, second] = await childrenOf(ten.id)
+      await expect(
+        admin`insert into bulk_listing_child (organisation_id, operation_id, location_id, eligibility, status, resource_key, seq, item_key, input)
+          select organisation_id, operation_id, location_id, eligibility, status, resource_key, seq, item_key, input
+          from bulk_listing_child where id = ${first.id}`
+      ).rejects.toThrow(/bulk_listing_child_item_unique/)
+      await expect(
+        admin`update bulk_listing_child set depends_on = array[${second.id}::uuid] where id = ${first.id}`
+      ).rejects.toThrow(/depends only on earlier changes at its own listing/)
+      await expect(
+        admin`update bulk_listing_child set requires_applied = array[${first.id}::uuid], depends_on = array[]::uuid[] where id = ${second.id}`
+      ).rejects.toThrow(/bulk_listing_child_requires_subset/)
+    })
   })
 })

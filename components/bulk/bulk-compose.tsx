@@ -163,7 +163,9 @@ export function BulkCompose() {
     mutationFn: () =>
       previewBulkChange({
         locationIds: ids,
-        input: bulkOperationInputSchema.parse(raw),
+        // One change per batch from this composer; the API takes an
+        // ordered list (P09-R9 adds the multi-change editor).
+        items: [bulkOperationInputSchema.parse(raw)],
       }),
     onSuccess: (op) => router.push(`/listings/bulk/${op.id}`),
     onError: (error) =>

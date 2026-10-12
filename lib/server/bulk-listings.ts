@@ -6,14 +6,17 @@ import type { z } from "zod"
 import {
   bulkOperationListSchema,
   bulkOperationSchema,
+  bulkRequestItems,
   type bulkPreviewRequestSchema,
   type BulkOperationView,
 } from "@/lib/contracts/bulk-listings"
 import {
   BULK_PREVIEW_TTL_MS,
-  bulkOperationInputSchema,
+  bulkBatchOperation,
+  bulkChangeListSchema,
+  bulkItemKey,
+  bulkListingOrder,
   bulkResourceKey,
-  type BulkOperationInput,
 } from "@/lib/domain/bulk-merge"
 import { writeAudit } from "@/lib/server/audit"
 import { planTarget, type TargetPlan } from "@/lib/server/bulk-listing-targets"
@@ -127,12 +130,14 @@ const BULK_TARGETS_UNAVAILABLE = {
 }
 
 /**
- * Plans one bulk change for an explicit, frozen set of listings. Every
- * selected listing must be visible to the requester, who must be able to ask
- * for approval there: a batch that names a hidden listing is refused as a
+ * Plans one bulk batch for an explicit, frozen set of listings and an
+ * ordered change list: one child per (listing, change). Every selected
+ * listing must be visible to the requester, who must be able to ask for
+ * approval there: a batch that names a hidden listing is refused as a
  * whole, without saying which. Visible listings the requester cannot
- * publish, or that Google cannot take the change for, are kept as skipped
- * with a reason.
+ * publish, or that Google cannot take a change for, keep that child as
+ * skipped with a reason. At each listing, a change waits for the earlier
+ * ones (`depends_on`), so the listing's changes reach Google in list order.
  */
 export async function previewBulkOperation(
   session: Session,
@@ -141,7 +146,7 @@ export async function previewBulkOperation(
 ) {
   if (session.role === "viewer")
     throw new ApiError(403, "forbidden", "Viewers cannot prepare bulk changes.")
-  const input = bulkOperationInputSchema.parse(body.input)
+  const items = bulkChangeListSchema.parse(bulkRequestItems(body))
   const ids = [...body.locationIds]
   const contexts = await withTenant(session.organisationId, async (sql) => {
     await requireBulkFeature(sql, session)
@@ -219,65 +224,116 @@ export async function previewBulkOperation(
   // insert after them, which can be up to the route's duration later. The
   // elapsed time is measured here and applied to the database clock.
   const readsStartedAt = performance.now()
+  const pairs = contexts.flatMap((target) =>
+    items.map((item, seq) => ({ target, item, seq }))
+  )
   const plans = await mapLimit(
-    contexts,
+    pairs,
     PREVIEW_CONCURRENCY,
-    async (
-      target
-    ): Promise<{ locationId: string; plan: TargetPlan; frozen?: Frozen }> => {
+    async ({
+      target,
+      item,
+      seq,
+    }): Promise<{
+      locationId: string
+      seq: number
+      plan: TargetPlan
+      frozen?: Frozen
+    }> => {
+      const locationId = target.locationId
       if (!("context" in target) || !target.context)
         return {
-          locationId: target.locationId,
+          locationId,
+          seq,
           plan: { eligible: false, reason: target.skip },
         }
       try {
         return {
-          locationId: target.locationId,
-          plan: await planTarget(input, target.context),
+          locationId,
+          seq,
+          plan: await planTarget(item, target.context),
           frozen: target.frozen,
         }
       } catch (error) {
         return {
-          locationId: target.locationId,
+          locationId,
+          seq,
           plan: { eligible: false, reason: readableReason(error) },
           frozen: target.frozen,
         }
       }
     }
   )
-  const children = plans.map(({ locationId, plan, frozen }) => ({
-    locationId,
-    frozen: frozen ?? null,
-    eligibility: plan.eligible ? ("eligible" as const) : ("skipped" as const),
-    skipReason: plan.eligible ? null : plan.reason,
-    current: plan.current ?? null,
-    proposed: plan.eligible ? plan.proposed : null,
-    updateMask: plan.eligible ? plan.updateMask : [],
-    baselineHash:
-      plan.current === undefined ? null : stableGoogleHash(plan.current),
-  }))
+  // Each listing's run order: a change waits for the earlier eligible ones,
+  // and one whose hard prerequisite was skipped is skipped too.
+  const byLocation = new Map<string, typeof plans>()
+  for (const entry of plans)
+    byLocation.set(entry.locationId, [
+      ...(byLocation.get(entry.locationId) ?? []),
+      entry,
+    ])
+  const children = [...byLocation.values()].flatMap((entries) => {
+    const order = bulkListingOrder(
+      entries.map((entry) => ({
+        operation: items[entry.seq].operation,
+        eligible: entry.plan.eligible,
+        skipReason: entry.plan.eligible ? null : entry.plan.reason,
+      }))
+    )
+    return entries.map(({ locationId, seq, plan, frozen }, index) => {
+      const blocked = plan.eligible && order[index].blocked
+      const eligible = plan.eligible && !blocked
+      return {
+        locationId,
+        seq,
+        itemKey: bulkItemKey(items[seq], seq),
+        item: items[seq],
+        frozen: frozen ?? null,
+        eligibility: eligible ? ("eligible" as const) : ("skipped" as const),
+        skipReason: plan.eligible
+          ? blocked
+            ? "dependency_not_applied"
+            : null
+          : plan.reason,
+        current: plan.current ?? null,
+        proposed: eligible && plan.eligible ? plan.proposed : null,
+        updateMask: eligible && plan.eligible ? plan.updateMask : [],
+        baselineHash:
+          plan.current === undefined ? null : stableGoogleHash(plan.current),
+        dependsOn: eligible ? order[index].dependsOn : [],
+        requiresApplied: eligible ? order[index].requiresApplied : [],
+      }
+    })
+  })
   const previewHash = stableGoogleHash({
-    input,
+    items,
     children: children.map(
       ({
         locationId,
+        itemKey,
         eligibility,
         skipReason,
         proposed,
         updateMask,
         baselineHash,
         frozen,
+        dependsOn,
+        requiresApplied,
       }) => ({
         locationId,
+        itemKey,
         eligibility,
         skipReason,
         proposed,
         updateMask,
         baselineHash,
         frozen,
+        dependsOn,
+        requiresApplied,
       })
     ),
   })
+  const operationName = bulkBatchOperation(items)
   return withTenant(session.organisationId, async (sql) => {
     const policy = await currentApprovalPolicy(sql, session.organisationId)
     const readSecondsAgo = Math.max(
@@ -285,18 +341,26 @@ export async function previewBulkOperation(
       (performance.now() - readsStartedAt) / 1000
     )
     const [operation] = await sql<{ id: string }[]>`
-      insert into bulk_listing_operation (organisation_id, operation, input, target_location_ids, preview_hash, requested_by, require_two_person_approval, preview_expires_at)
-      values (${session.organisationId}, ${input.operation}, ${jsonColumn(sql, input)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy.requireTwoPersonApproval},
+      insert into bulk_listing_operation (organisation_id, operation, input, items, target_location_ids, preview_hash, requested_by, require_two_person_approval, preview_expires_at)
+      values (${session.organisationId}, ${operationName}, ${items.length === 1 ? jsonColumn(sql, items[0]) : null}, ${jsonColumn(sql, items)}, ${ids}::uuid[], ${previewHash}, ${session.userId}, ${policy.requireTwoPersonApproval},
         clock_timestamp() - make_interval(secs => ${readSecondsAgo}::float8) + make_interval(secs => ${BULK_PREVIEW_TTL_MS / 1000}::float8))
       returning id::text as id`
-    const resourceKey = bulkResourceKey(input.operation)
+    // Inserted listing by listing in list order, so each child's
+    // dependencies already exist (bulk_listing_child_dependency_guard, 0263).
+    const childIds = new Map<string, string>()
+    const idOf = (locationId: string, seq: number) =>
+      childIds.get(`${locationId}:${seq}`) as string
     for (const child of children) {
-      await sql`
+      const [row] = await sql<{ id: string }[]>`
         insert into bulk_listing_child (organisation_id, operation_id, location_id, eligibility, skip_reason, current_value, proposed_value, update_mask, baseline_hash, status,
-          resource_key, connection_id, credential_generation, google_location_name)
+          resource_key, connection_id, credential_generation, google_location_name, seq, item_key, input, depends_on, requires_applied)
         values (${session.organisationId}, ${operation.id}, ${child.locationId}, ${child.eligibility}, ${child.skipReason}, ${jsonColumnOrNull(sql, child.current)},
           ${jsonColumnOrNull(sql, child.proposed)}, ${child.updateMask}, ${child.baselineHash}, ${child.eligibility === "eligible" ? "previewed" : "skipped"},
-          ${resourceKey}, ${child.frozen?.connectionId ?? null}, ${child.frozen?.credentialGeneration ?? null}, ${child.frozen?.googleLocationName ?? null})`
+          ${bulkResourceKey(child.item.operation)}, ${child.frozen?.connectionId ?? null}, ${child.frozen?.credentialGeneration ?? null}, ${child.frozen?.googleLocationName ?? null},
+          ${child.seq}, ${child.itemKey}, ${jsonColumn(sql, child.item)},
+          ${child.dependsOn.map((seq) => idOf(child.locationId, seq))}::uuid[], ${child.requiresApplied.map((seq) => idOf(child.locationId, seq))}::uuid[])
+        returning id::text as id`
+      childIds.set(`${child.locationId}:${child.seq}`, row.id)
     }
     await writeAudit(sql, {
       organisationId: session.organisationId,
@@ -306,8 +370,10 @@ export async function previewBulkOperation(
       subjectId: operation.id,
       requestId,
       metadata: {
-        operation: input.operation,
+        operation: operationName,
+        items: items.map((item) => item.operation),
         targets: ids.length,
+        children: children.length,
         eligible: children.filter((c) => c.eligibility === "eligible").length,
         previewHash,
       },
@@ -328,7 +394,7 @@ async function project(
   operationId: string
 ): Promise<BulkOperationView> {
   const [operation] = await sql`
-    select o.id::text as id, o.operation, o.input, ${effectiveStatus(sql)} as status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy",
+    select o.id::text as id, o.operation, o.items, ${effectiveStatus(sql)} as status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy",
       o.approved_by::text as "approvedBy", o.require_two_person_approval as "requiresSecondApprover", coalesce(o.dispatch_expires_at, o.preview_expires_at) as "approvalExpiresAt",
       o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt"
     from bulk_listing_operation o where o.id = ${operationId}`
@@ -336,9 +402,10 @@ async function project(
   const children = await sql`
     select c.id::text as id, c.location_id::text as "locationId", l.name as "locationName", c.eligibility, c.skip_reason as "skipReason", ${effectiveChildStatus(sql)} as status,
       c.confirmation_state as "confirmationState", ${effectiveChildCode(sql)} as "resultCode", c.current_value as "currentValue", c.proposed_value as "proposedValue",
-      c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt", c.mutation_operation_id::text as "mutationOperationId"
+      c.update_mask as "updateMask", c.attempts, c.finished_at as "finishedAt", c.mutation_operation_id::text as "mutationOperationId",
+      c.seq, c.item_key as "itemKey", c.input->>'operation' as operation, c.input, array(select d::text from unnest(c.depends_on) d) as "dependsOn"
     from bulk_listing_child c join bulk_listing_operation o on o.id = c.operation_id join location l on l.id = c.location_id
-    where c.operation_id = ${operationId} order by l.name, c.id`
+    where c.operation_id = ${operationId} order by l.name, c.location_id, c.seq, c.id`
   const counts: Record<string, number> = {}
   for (const child of children)
     counts[child.status as string] = (counts[child.status as string] ?? 0) + 1
@@ -375,11 +442,10 @@ async function loadForUpdate(sql: TransactionSql, operationId: string) {
       requireTwoPersonApproval: boolean
       previewExpiresAt: Date
       dispatchExpiresAt: Date | null
-      input: BulkOperationInput
     }[]
   >`
     select status, preview_hash as "previewHash", requested_by::text as "requestedBy", require_two_person_approval as "requireTwoPersonApproval",
-      preview_expires_at as "previewExpiresAt", dispatch_expires_at as "dispatchExpiresAt", input
+      preview_expires_at as "previewExpiresAt", dispatch_expires_at as "dispatchExpiresAt"
     from bulk_listing_operation where id = ${operationId} for update`
   if (!row) throw NOT_FOUND()
   return row
@@ -406,7 +472,7 @@ export async function listBulkOperations(session: Session) {
       select o.id::text as id, o.operation, ${effectiveStatus(sql)} as status, o.preview_hash as "previewHash", o.requested_by::text as "requestedBy", o.approved_by::text as "approvedBy",
         o.require_two_person_approval as "requiresSecondApprover", coalesce(o.dispatch_expires_at, o.preview_expires_at) as "approvalExpiresAt",
         o.preview_expires_at as "previewExpiresAt", o.dispatch_expires_at as "dispatchExpiresAt", o.created_at as "createdAt", o.finished_at as "finishedAt",
-        cardinality(o.target_location_ids) as "targetCount",
+        cardinality(o.target_location_ids) as "targetCount", jsonb_array_length(o.items) as "itemCount",
         coalesce((select jsonb_object_agg(status, n) from (select ${effectiveChildStatus(sql)} as status, count(*)::int as n from bulk_listing_child c where c.operation_id = o.id group by 1) s), '{}'::jsonb) as counts
       from bulk_listing_operation o
       where ${isManagerialRole(session.role) ? sql`true` : sql`o.requested_by = ${session.userId}`}
@@ -514,11 +580,9 @@ export async function approveBulkOperation(
         "bulk_skipped_unacknowledged",
         "Acknowledge the skipped listings before approving."
       )
-    const grants = await grantsFor(
-      sql,
-      session,
-      eligible.map((row) => row.locationId)
-    )
+    const grants = await grantsFor(sql, session, [
+      ...new Set(eligible.map((row) => row.locationId)),
+    ])
     if ([...grants.values()].some((grant) => !grant.canPublish))
       throw new ApiError(
         403,

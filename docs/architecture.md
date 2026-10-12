@@ -1535,7 +1535,7 @@ is resubmitted automatically. Edits create a new revision and cancel pending
 occurrences. Spring-forward times run at the first valid local time; repeated
 autumn times run once, at the earlier instant; absent month days are skipped.
 
-## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262)
+## Bulk listing changes (WP6, 0080; P09-R1, 0260; P09-R2, 0261; P09-R3, 0262; P09-R4, 0263)
 
 Bulk ships dark behind the per-organisation feature `bulk_actions`: every
 `/api/listings/bulk/**` route answers 404 `feature_disabled` without it, the
@@ -1617,6 +1617,27 @@ runner settles the child from it (`bulk_children_to_reconcile`, 0262; audit
 anything. Retry leaves such a child alone while recovery is still reading it
 back, so succeeded and uncertain children are never replayed. Cancelling
 stops only queued children.
+
+A batch holds an ordered change list (`items`, 1-50 changes; P09-R4, 0263).
+Each child is one (listing, change) pair, keyed `<seq>:<family>`
+(`item_key`, unique per batch and listing), and carries its own change
+(`input`); the batch's `operation` is the shared family or `mixed`. A batch
+holds at most 500 children (listings x changes), in the request contract and
+the table (`bulk_listing_operation_item_cap`). Two changes of one batch never
+touch the same part of a listing (weekday, date, service hours type,
+attribute, action-link type; `bulkChangeParts`), because every child is
+previewed against the same Google read and pins only its own parts. At each
+listing a change waits for every earlier eligible change (`depends_on`), so
+the listing's changes reach Google in list order; the claim skips a child
+while any dependency is previewed, queued or running. Hard prerequisites
+(`requires_applied`, a subset of `depends_on`; the rule is
+`BULK_PREREQUISITES` in `lib/domain/bulk-merge.ts`, where P09-R5 adds
+category changes before service hours and attributes) must have applied: a
+dependent waits while one is unresolved and fails `dependency_not_applied`,
+unsent, when one ends otherwise (or is skipped at preview with it). Retry
+requeues such a dependent with its prerequisite. A trigger
+(`bulk_listing_child_dependency_guard`) holds dependencies to earlier changes
+at the same listing of the same batch.
 
 ## Reporting provenance (WP9)
 

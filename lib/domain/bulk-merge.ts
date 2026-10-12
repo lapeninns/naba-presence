@@ -20,6 +20,13 @@ export const BULK_PREVIEW_TTL_MS = 15 * 60_000
 export const BULK_DISPATCH_TTL_MS = 24 * 60 * 60_000
 /** At most this many bulk children run at once per organisation (enforced in SQL). */
 export const BULK_MAX_RUNNING_PER_ORGANISATION = 2
+/**
+ * Plan P09: a batch holds at most 500 items in total, one per (listing,
+ * change) pair, so the listing count times the change count. The change
+ * list itself is capped too, so one listing cannot carry an unbounded chain.
+ */
+export const BULK_MAX_ITEMS = 500
+export const BULK_MAX_CHANGES = 50
 const time = z
   .string()
   .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a 24-hour time such as 09:30.")
@@ -140,6 +147,121 @@ export const bulkOperationInputSchema = z.discriminatedUnion("operation", [
 ])
 export type BulkOperationInput = z.infer<typeof bulkOperationInputSchema>
 export type BulkOperation = BulkOperationInput["operation"]
+
+/**
+ * The parts of a listing one change touches, as stable keys: weekdays,
+ * special dates, a service hours type, attribute IDs, an action-link type.
+ * Two changes of one batch never share a part: each child is previewed
+ * against the same Google read and pins only its own parts, so changes with
+ * disjoint parts commute and none conflicts with an earlier one's write.
+ */
+export function bulkChangeParts(input: BulkOperationInput): string[] {
+  switch (input.operation) {
+    case "regular_hours":
+      return input.days.map((entry) => `regular_hours:${entry.dayOfWeek}`)
+    case "special_hours":
+      return input.dates.map((entry) => `special_hours:${entry.date}`)
+    case "more_hours":
+      return [`more_hours:${input.hoursTypeId}`]
+    case "attributes":
+      return input.changes.map((change) => `attributes:${change.name}`)
+    case "place_action":
+      return [`place_action:${input.placeActionType}`]
+  }
+}
+
+/** The ordered change list of one batch. */
+export const bulkChangeListSchema = z
+  .array(bulkOperationInputSchema)
+  .min(1)
+  .max(BULK_MAX_CHANGES)
+  .superRefine((items, context) => {
+    const owner = new Map<string, number>()
+    items.forEach((item, index) => {
+      for (const part of bulkChangeParts(item)) {
+        const earlier = owner.get(part)
+        if (earlier !== undefined) {
+          context.addIssue({
+            code: "custom",
+            path: [index],
+            message: `Change ${index + 1} overlaps change ${earlier + 1}; give each day, date, type, attribute or link type once.`,
+          })
+          return
+        }
+        owner.set(part, index)
+      }
+    })
+  })
+
+/** One child's change key within its batch: its position and family. */
+export const bulkItemKey = (item: BulkOperationInput, seq: number) =>
+  `${seq}:${item.operation}`
+
+/** The batch-level family: the shared one, or `mixed`. */
+export function bulkBatchOperation(
+  items: readonly BulkOperationInput[]
+): BulkOperation | "mixed" {
+  const families = new Set(items.map((item) => item.operation))
+  return families.size === 1 ? items[0].operation : "mixed"
+}
+
+/**
+ * Hard prerequisites: a change of the key's family needs an earlier change
+ * of one of the listed families at the same listing to have applied first,
+ * and is not sent when it did not. Plan P09: category changes precede the
+ * work that depends on them (service hours types and attributes are offered
+ * per category); P09-R5 adds the categories family and its entries here.
+ */
+export type BulkPrerequisites = Partial<
+  Record<BulkOperation, readonly string[]>
+>
+export const BULK_PREREQUISITES: BulkPrerequisites = {}
+
+export type BulkChildOrder = {
+  /** Earlier eligible changes at the listing: this one waits until they settle. */
+  dependsOn: number[]
+  /** Of those, the ones that must have applied (hard prerequisites). */
+  requiresApplied: number[]
+  /** A hard prerequisite at this listing was skipped, so this change is too. */
+  blocked: boolean
+}
+
+/**
+ * The run order of one listing's changes, by position in the batch's list:
+ * every change waits for each earlier eligible change at the same listing
+ * to settle, so a listing's changes reach Google in the order given. A
+ * change also requires its hard prerequisites (`BULK_PREREQUISITES`) to
+ * apply. A prerequisite skipped at preview for any reason but
+ * `already_applied` blocks it; one already applied is not waited on.
+ */
+export function bulkListingOrder(
+  changes: readonly {
+    operation: string
+    eligible: boolean
+    skipReason?: string | null
+  }[],
+  prerequisites: BulkPrerequisites = BULK_PREREQUISITES
+): BulkChildOrder[] {
+  return changes.map((change, index) => {
+    const needs = new Set(
+      prerequisites[change.operation as BulkOperation] ?? []
+    )
+    const earlier = changes.slice(0, index).map((entry, seq) => ({
+      ...entry,
+      seq,
+    }))
+    const hard = earlier.filter((entry) => needs.has(entry.operation))
+    return {
+      dependsOn: earlier.filter((entry) => entry.eligible).map((e) => e.seq),
+      requiresApplied: hard
+        .filter((entry) => entry.eligible)
+        .map((entry) => entry.seq),
+      blocked: hard.some(
+        (entry) => !entry.eligible && entry.skipReason !== "already_applied"
+      ),
+    }
+  })
+}
 
 /**
  * The provider resource one bulk child writes. Two running children never
