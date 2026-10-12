@@ -1370,7 +1370,11 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     await admin`update gbp_local_post set summary = 'Changed underneath' where id = ${changedPost}`
     const [changedSlot] = await t.occurrences(changed.id)
     await t.age(changedSlot.id, 1)
-    await tick()
+    // A re-freeze is counted as such, not as a block.
+    expect((await tick()).schedules).toMatchObject({
+      sourceChanged: 1,
+      blocked: 0,
+    })
     expect(creates()).toHaveLength(0)
     expect(await t.scheduleRow(changed.id)).toEqual({
       status: "awaiting_approval",
@@ -1430,6 +1434,212 @@ describeDatabase("scheduled post publication", { timeout: 60_000 }, () => {
     expect(await again.json()).toMatchObject({
       error: "schedule_source_unavailable",
     })
+  })
+
+  it("leaves a one-time slot scheduled while its draft is being published by hand, and publishes it if that publish fails (P08-R4)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const postId = await t.draft()
+    const s = await t.schedule(postId, {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    const [slot] = await t.occurrences(s.id)
+    await t.age(slot.id, 1)
+
+    // A manual publish in flight, then one whose outcome is unresolved:
+    // neither is an end state, so nothing is sent and nothing is superseded.
+    for (const status of ["publishing", "ambiguous"]) {
+      await admin`update gbp_local_post set status = ${status}, google_post_name = null where id = ${postId}`
+      const summary = await tick()
+      expect(summary.schedules).toMatchObject({ superseded: 0 })
+      expect(creates()).toHaveLength(0)
+      expect((await t.occurrences(s.id))[0]).toMatchObject({
+        status: "scheduled",
+        status_reason: null,
+      })
+      expect(await t.scheduleRow(s.id)).toEqual({
+        status: "active",
+        status_reason: null,
+      })
+    }
+
+    // That publish failed for good: the draft is publishable again and the
+    // approved slot, still inside its window, publishes it once.
+    await admin`update gbp_local_post set status = 'failed' where id = ${postId}`
+    await tick()
+    expect(creates()).toHaveLength(1)
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "published",
+      post_id: postId,
+    })
+    expect(await t.scheduleRow(s.id)).toMatchObject({ status: "completed" })
+  })
+
+  it("refuses at publish a draft changed after the occurrence was claimed, and re-freezes the schedule (P08-R4)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const postId = await t.draft()
+    const s = await t.schedule(postId, {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    })
+    expect((await t.approve(s)).status).toBe(200)
+    const [slot] = await t.occurrences(s.id)
+    // The draft changes in the claim's own transaction, after the runner
+    // checked its revision: the publish reads the edited row and must refuse
+    // it before anything is recorded or sent.
+    const name = `test_edit_on_claim_${slot.id.replaceAll("-", "")}`
+    await admin.unsafe(`
+      create function ${name}() returns trigger language plpgsql as $$
+      begin
+        update gbp_local_post set summary = 'Edited after the claim' where id = '${postId}';
+        return new;
+      end $$;
+      create trigger ${name} after update of status on post_publication_occurrence
+        for each row when (new.id = '${slot.id}' and new.status = 'publishing')
+        execute function ${name}();`)
+    try {
+      await t.age(slot.id, 1)
+      const summary = await tick()
+      expect(summary.schedules).toMatchObject({ sourceChanged: 1, blocked: 0 })
+    } finally {
+      await admin.unsafe(
+        `drop trigger if exists ${name} on post_publication_occurrence; drop function if exists ${name}();`
+      )
+    }
+    expect(creates()).toHaveLength(0)
+    expect(
+      await admin`select 1 from mutation_operation where organisation_id = ${t.owner.organisationId}`
+    ).toHaveLength(0)
+    expect((await t.occurrences(s.id))[0]).toMatchObject({
+      status: "cancelled",
+      status_reason: "source_changed",
+    })
+    expect(await t.scheduleRow(s.id)).toEqual({
+      status: "awaiting_approval",
+      status_reason: "source_changed",
+    })
+    const listed = schedulesResponseSchema
+      .parse(await (await t.api("/post-schedules")).json())
+      .schedules.find((row) => row.id === s.id)!
+    expect(listed).toMatchObject({
+      revision: 2,
+      template: { summary: "Edited after the claim" },
+    })
+    await tick()
+    expect(creates()).toHaveLength(0)
+  })
+
+  it("keeps one live one-time schedule per draft under concurrent requests (P08-R4)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const postId = await t.draft()
+    const body = JSON.stringify({
+      postId,
+      rule: { frequency: "once", startDate: tomorrow(), localTime: "09:00" },
+      timezone: "Europe/London",
+    })
+    const responses = await Promise.all(
+      [1, 2, 3, 4].map(() => t.api("/post-schedules", { method: "POST", body }))
+    )
+    const statuses = responses.map((response) => response.status).sort()
+    expect(statuses).toEqual([200, 409, 409, 409])
+    for (const response of responses.filter((r) => r.status === 409))
+      expect(await response.json()).toMatchObject({
+        error: "schedule_source_already_scheduled",
+      })
+    expect(
+      await admin`select 1 from post_publication_schedule where source_post_id = ${postId}`
+    ).toHaveLength(1)
+  })
+
+  it("keeps a paused or blocked schedule so when its draft is edited, and asks for approval on resume (P08-R4)", async () => {
+    const t = await tenant(["post_scheduling"])
+    const body = {
+      topicType: "STANDARD",
+      languageCode: "en-GB",
+      summary: "Sunday roast is back",
+      media: [],
+    }
+    const rule = {
+      frequency: "once",
+      startDate: tomorrow(),
+      localTime: "09:00",
+    }
+    const edit = (postId: string, summary: string) =>
+      t.api(`/posts/${postId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...body, summary }),
+      })
+    const act = (id: string, action: string) =>
+      t.api(`/post-schedules/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ action }),
+      })
+    const listed = async (id: string) =>
+      schedulesResponseSchema
+        .parse(await (await t.api("/post-schedules")).json())
+        .schedules.find((row) => row.id === id)!
+
+    // Paused by a manager: the pause stands, the approval does not.
+    const pausedPost = await t.draft(body)
+    const paused = await t.schedule(pausedPost, rule)
+    expect((await t.approve(paused)).status).toBe(200)
+    expect((await act(paused.id, "pause")).status).toBe(200)
+    expect((await edit(pausedPost, "Roast and pudding")).status).toBe(200)
+    expect(await t.scheduleRow(paused.id)).toEqual({
+      status: "paused",
+      status_reason: "source_changed",
+    })
+    expect((await t.occurrences(paused.id))[0]).toMatchObject({
+      status: "cancelled",
+      status_reason: "source_changed",
+    })
+    const refrozen = await listed(paused.id)
+    expect(refrozen).toMatchObject({
+      revision: 2,
+      approvedBy: null,
+      canApprove: false,
+      template: { summary: "Roast and pudding" },
+    })
+    // Resuming asks for the approval the edit cleared; only that makes it
+    // active again.
+    expect((await act(paused.id, "resume")).status).toBe(200)
+    expect(await t.scheduleRow(paused.id)).toEqual({
+      status: "awaiting_approval",
+      status_reason: "source_changed",
+    })
+    expect((await t.approve(await listed(paused.id))).status).toBe(200)
+    expect(await t.scheduleRow(paused.id)).toEqual({
+      status: "active",
+      status_reason: null,
+    })
+
+    // Blocked (the feature went off when it came due): the block and its
+    // reason stand.
+    const blockedPost = await t.draft(body)
+    const blocked = await t.schedule(blockedPost, rule)
+    expect((await t.approve(blocked)).status).toBe(200)
+    await setFeature(t.owner.organisationId, "post_scheduling", false)
+    await t.age((await t.occurrences(blocked.id))[0].id, 1)
+    await tick()
+    expect(await t.scheduleRow(blocked.id)).toEqual({
+      status: "blocked",
+      status_reason: "feature_disabled",
+    })
+    await setFeature(t.owner.organisationId, "post_scheduling", true)
+    expect((await edit(blockedPost, "Roast and pudding")).status).toBe(200)
+    expect(await t.scheduleRow(blocked.id)).toEqual({
+      status: "blocked",
+      status_reason: "feature_disabled",
+    })
+    expect(await listed(blocked.id)).toMatchObject({
+      revision: 2,
+      approvedBy: null,
+      template: { summary: "Roast and pudding" },
+    })
+    expect(creates()).toHaveLength(0)
   })
 
   // Last: re-running 0240 touches every tenant's rows in this database.

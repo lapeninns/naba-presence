@@ -282,19 +282,37 @@ const sourceChanged = () =>
   )
 
 /**
- * Whether a one-time schedule can publish this post: a draft (waiting for a
- * post approval, or whose own publish failed) that Google does not hold.
- * Anything else was published another way, is being published or was
- * deleted, and a one-time occurrence publishing it is superseded.
+ * Where a one-time schedule's source post stands (P08-R4):
+ * - `publishable`: a draft (waiting for a post approval, or whose own
+ *   publish failed) that Google does not hold;
+ * - `in_flight`: a publish of it is under way or unresolved (`publishing`,
+ *   or `ambiguous` with no Google name). It may yet fail and be a draft
+ *   again, so it neither publishes nor supersedes: a later tick inside the
+ *   window decides, and past the window the slot is missed as usual;
+ * - `superseded`: an end state. It is on Google (published, or any row with
+ *   a Google name) or deleted, so a one-time occurrence ends without
+ *   sending.
  */
+export type SourceState = "publishable" | "in_flight" | "superseded"
+
+export function sourceState(post: {
+  status: string
+  googlePostName: string | null
+}): SourceState {
+  if (post.googlePostName !== null) return "superseded"
+  if (["draft", "awaiting_approval", "failed"].includes(post.status))
+    return "publishable"
+  if (post.status === "publishing" || post.status === "ambiguous")
+    return "in_flight"
+  return "superseded"
+}
+
+/** Whether a one-time schedule can publish this post now. */
 export function publishableSource(post: {
   status: string
   googlePostName: string | null
 }) {
-  return (
-    ["draft", "awaiting_approval", "failed"].includes(post.status) &&
-    post.googlePostName === null
-  )
+  return sourceState(post) === "publishable"
 }
 
 type SourceSnapshot = {
@@ -303,6 +321,7 @@ type SourceSnapshot = {
   revision: number
   /** postContentHash: what a publish of the post sends. */
   hash: string
+  state: SourceState
   publishable: boolean
 }
 
@@ -310,12 +329,14 @@ type SourceSnapshot = {
  * The source draft as a schedule freezes it: its content as a template, its
  * content revision and the hash an approval of the post would bind (P08-R4).
  * Throws 404 for a missing post and 422 for one not finished enough to
- * schedule.
+ * schedule. `lock` takes the post FOR UPDATE; a caller locks the post's
+ * schedules first (lockSourceSchedules), the order every path takes them in.
  */
 async function sourceSnapshot(
   sql: TransactionSql,
   locationId: string,
-  postId: string
+  postId: string,
+  lock = false
 ): Promise<SourceSnapshot> {
   const [post] = await sql<
     Array<
@@ -328,7 +349,8 @@ async function sourceSnapshot(
   >`
     select topic_type as "topicType", language_code as "languageCode", summary, call_to_action as "callToAction",
       event, offer, media, status, google_post_name as "googlePostName", content_revision::integer as revision
-    from gbp_local_post where id = ${postId} and location_id = ${locationId} and status <> 'deleted'`
+    from gbp_local_post where id = ${postId} and location_id = ${locationId} and status <> 'deleted'
+    ${lock ? sql`for update` : sql``}`
   if (!post) throw new ApiError(404, "post_not_found", "Post not found.")
   const { status, googlePostName, revision, ...content } = post
   const parsed = localPostInputSchema.safeParse(
@@ -342,17 +364,22 @@ async function sourceSnapshot(
       "schedule_content_invalid",
       "Finish the post before scheduling it."
     )
+  const state = sourceState({ status, googlePostName })
   return {
     template: parsed.data,
     revision,
     hash: postContentHash(content),
-    publishable: publishableSource({ status, googlePostName }),
+    state,
+    publishable: state === "publishable",
   }
 }
 
 /**
  * A draft publishes once, so it has at most one live one-time schedule: a
- * second would only ever be superseded by the first.
+ * second would only ever be superseded by the first. The caller holds the
+ * source post FOR UPDATE (sourceSnapshot with `lock`), so two concurrent
+ * requests for one draft check in turn and the second sees the first
+ * (READ COMMITTED: each statement reads what has committed).
  */
 async function requireOnlyOnceSchedule(
   sql: TransactionSql,
@@ -411,9 +438,10 @@ async function requireSourceAsFrozen(
 }
 
 /**
- * Locks the live schedules made from a post, before the post itself is
- * written. The runner locks a schedule and then its source post, so an edit
- * taking them in the same order cannot deadlock with it.
+ * Locks the live schedules made from a post, in id order, before the post
+ * itself. Every path that locks more than one of them, or one of them and
+ * the post, takes this first (the editor, the runner, create and revise), so
+ * no two of them can wait on each other in opposite orders.
  */
 export async function lockSourceSchedules(sql: TransactionSql, postId: string) {
   await sql`
@@ -447,6 +475,7 @@ export async function invalidateSourceSchedules(
   const rows = await sql<
     {
       id: string
+      status: string
       revision: number
       rule: unknown
       timezone: string
@@ -454,7 +483,7 @@ export async function invalidateSourceSchedules(
       eventOffsets: unknown
     }[]
   >`
-    select s.id::text as id, s.revision, s.rule, s.timezone, s.offset_minutes as "offsetMinutes", s.event_offsets as "eventOffsets"
+    select s.id::text as id, s.status, s.revision, s.rule, s.timezone, s.offset_minutes as "offsetMinutes", s.event_offsets as "eventOffsets"
     from post_publication_schedule s
     join gbp_local_post p on p.id = s.source_post_id
     where s.source_post_id = ${input.postId} and s.location_id = ${input.locationId}
@@ -476,7 +505,12 @@ export async function invalidateSourceSchedules(
   for (const row of rows) {
     const rule = scheduleRuleSchema.parse(row.rule)
     let payloadHash: string | null = null
-    if (source && (rule.frequency !== "once" || source.publishable)) {
+    // A post still being published (in flight) is re-frozen like a draft:
+    // approval refuses it until its publish has settled one way or the other.
+    if (
+      source &&
+      (rule.frequency !== "once" || source.state !== "superseded")
+    ) {
       try {
         validateShape(source.template, rule, row.eventOffsets)
         payloadHash = schedulePayloadHash({
@@ -496,11 +530,19 @@ export async function invalidateSourceSchedules(
       update post_publication_occurrence set status = 'cancelled', status_reason = 'source_changed', finished_at = now()
       where schedule_id = ${row.id} and status = 'scheduled'`
     if (source && payloadHash) {
+      // A manager's pause, and a block with its own reason (feature off,
+      // connection changed), stand: only the approval goes. Resuming a
+      // paused one asks for the approval (actOnPublicationSchedule); a
+      // blocked one is submitted again, as any block is.
+      const status =
+        row.status === "paused" || row.status === "blocked"
+          ? sql`status = ${row.status}, status_reason = ${row.status === "paused" ? "source_changed" : sql`status_reason`}`
+          : sql`status = 'awaiting_approval', status_reason = 'source_changed'`
       await sql`
         update post_publication_schedule set template = ${jsonColumn(sql, source.template)},
           source_content_revision = ${source.revision}, source_content_hash = ${source.hash},
           payload_hash = ${payloadHash}, revision = revision + 1,
-          status = 'awaiting_approval', status_reason = 'source_changed',
+          ${status},
           approved_by = null, approved_at = null, approved_revision = null,
           target_google_connection_id = null, target_credential_generation = null, target_google_location_name = null,
           approved_approval_required = null, approved_security_version = null,
@@ -510,7 +552,7 @@ export async function invalidateSourceSchedules(
     } else {
       await sql`
         update post_publication_schedule set status = 'needs_review', updated_at = now(),
-          status_reason = ${source && !source.publishable && rule.frequency === "once" ? "source_superseded" : "source_changed"}
+          status_reason = ${source?.state === "superseded" && rule.frequency === "once" ? "source_superseded" : "source_changed"}
         where id = ${row.id}`
     }
     await writeAudit(sql, {
@@ -636,17 +678,21 @@ export async function createPublicationSchedule(
     >`select timezone from location where id = ${locationId}`
     const timezone =
       draft.timezone ?? location?.timezone ?? DEFAULT_SCHEDULE_TIMEZONE
-    const source = await sourceSnapshot(sql, locationId, draft.postId)
+    // A one-time schedule locks its draft (after the draft's schedules, the
+    // order every path takes), so the one-live-schedule check below cannot
+    // pass for two concurrent requests.
+    const once = draft.rule.frequency === "once"
+    if (once) await lockSourceSchedules(sql, draft.postId)
+    const source = await sourceSnapshot(sql, locationId, draft.postId, once)
     // A one-time schedule publishes the draft itself (P08-R4), so the draft
     // must not already be on Google; a repeating one publishes copies.
-    if (draft.rule.frequency === "once" && !source.publishable)
+    if (once && !source.publishable)
       throw new ApiError(
         409,
         SOURCE_UNAVAILABLE.code,
         SOURCE_UNAVAILABLE.message
       )
-    if (draft.rule.frequency === "once")
-      await requireOnlyOnceSchedule(sql, draft.postId, null)
+    if (once) await requireOnlyOnceSchedule(sql, draft.postId, null)
     const template = source.template
     validateShape(template, draft.rule, draft.eventOffsets)
     const { offsetMinutes } = planSlots(
@@ -861,6 +907,12 @@ export async function revisePublicationSchedule(
       "request_approval",
       NOT_FOUND
     )
+    // The draft's live schedules first, in id order, then this one and the
+    // draft: the order the editor and the runner take them in.
+    const [owner] = await sql<{ sourcePostId: string | null }[]>`
+      select source_post_id::text as "sourcePostId" from post_publication_schedule
+      where id = ${scheduleId} and location_id = ${locationId}`
+    if (owner?.sourcePostId) await lockSourceSchedules(sql, owner.sourcePostId)
     const row = await loadRow(sql, locationId, scheduleId, true)
     if (row.status === "cancelled" || row.status === "completed")
       throw new ApiError(
@@ -880,7 +932,7 @@ export async function revisePublicationSchedule(
       )
     const source =
       row.sourcePostId && (once || input.refreshContent)
-        ? await sourceSnapshot(sql, locationId, row.sourcePostId)
+        ? await sourceSnapshot(sql, locationId, row.sourcePostId, once)
         : null
     if (once && !source?.publishable)
       throw new ApiError(
@@ -983,28 +1035,39 @@ export async function actOnPublicationSchedule(
           "schedule_not_paused",
           "Only a paused schedule can be resumed."
         )
-      const [upcoming] = await sql`
+      // Its draft was edited while it was paused (P08-R4): it holds the new
+      // text as a new revision with no approval, so resuming asks for one.
+      if (!row.approvedBy) {
+        await requireScheduling(
+          sql,
+          session.organisationId,
+          scheduleRuleSchema.parse(row.rule)
+        )
+        await sql`update post_publication_schedule set status = 'awaiting_approval', updated_at = now() where id = ${scheduleId}`
+      } else {
+        const [upcoming] = await sql`
         select 1 from post_publication_occurrence
         where schedule_id = ${scheduleId} and schedule_revision = ${row.revision}
           and status = 'scheduled' and deadline_at > now()
         limit 1`
-      if (!upcoming) throw scheduleMissed()
-      await requireScheduling(
-        sql,
-        session.organisationId,
-        scheduleRuleSchema.parse(row.rule)
-      )
-      const [policy] = await sql<
-        { required: boolean }[]
-      >`select require_two_person_approval as required from organisation limit 1`
-      if ((policy?.required ?? false) !== row.requireTwoPersonApproval)
-        throw new ApiError(
-          409,
-          "approval_policy_changed",
-          "The approval policy changed. Edit the schedule and approve it again."
+        if (!upcoming) throw scheduleMissed()
+        await requireScheduling(
+          sql,
+          session.organisationId,
+          scheduleRuleSchema.parse(row.rule)
         )
-      if (row.approvedBy) await requireCurrentManager(sql, row.approvedBy)
-      await sql`update post_publication_schedule set status = 'active', updated_at = now() where id = ${scheduleId}`
+        const [policy] = await sql<
+          { required: boolean }[]
+        >`select require_two_person_approval as required from organisation limit 1`
+        if ((policy?.required ?? false) !== row.requireTwoPersonApproval)
+          throw new ApiError(
+            409,
+            "approval_policy_changed",
+            "The approval policy changed. Edit the schedule and approve it again."
+          )
+        await requireCurrentManager(sql, row.approvedBy)
+        await sql`update post_publication_schedule set status = 'active', updated_at = now() where id = ${scheduleId}`
+      }
     } else {
       if (row.status === "cancelled" || row.status === "completed")
         throw new ApiError(

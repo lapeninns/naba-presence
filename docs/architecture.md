@@ -1596,17 +1596,25 @@ the draft (`updateLocalPostDraft`) re-freezes every live schedule made from it
 in the same transaction: a new revision with the new text, approval and frozen
 target cleared, status `awaiting_approval` / `source_changed`, its waiting
 occurrences cancelled `source_changed` (a schedule whose rule no longer fits the
-content goes to `needs_review`). Re-saving identical text keeps the revision
-and changes nothing. The edit locks those schedules before the post, the order
-the runner takes them in. Approval refuses a draft that moved on some other way
+content goes to `needs_review`). A paused schedule stays `paused` (reason
+`source_changed`) and resuming it asks for the approval again; a blocked one
+keeps its block and reason. Re-saving identical text keeps the revision
+and changes nothing. Every path that locks a draft's schedules and the draft
+(the editor, the runner, create, revise) first locks all the draft's live
+schedules in id order, then the draft, so none of them can deadlock another. Approval refuses a draft that moved on some other way
 (409 `schedule_source_changed`). A one-time occurrence publishes the source post
 itself instead of a copy, and `publishScheduledLocalPost` sends it only at the
 frozen revision and hash (`schedule_source_changed`, nothing sent; the publish
 claim also requires the revision it read). A draft already on Google, being
 published or deleted cannot be scheduled once (409
-`schedule_source_unavailable`) and supersedes a due occurrence: the occurrence
-and schedule end `cancelled` / `source_superseded`, nothing sent. A draft has at
-most one live one-time schedule (409 `schedule_source_already_scheduled`). The
+`schedule_source_unavailable`). Only an end state (on Google, or deleted)
+supersedes a due occurrence: the occurrence and schedule end `cancelled` /
+`source_superseded`, nothing sent. A manual publish still in flight
+(`publishing`, or `ambiguous` with no Google name) leaves the occurrence
+`scheduled`; a later tick inside the window publishes it if that publish
+failed, and past the window it is missed. A draft has at most one live
+one-time schedule (409 `schedule_source_already_scheduled`); create and revise
+lock the draft for the check, so concurrent requests cannot both pass. The
 runner re-freezes a schedule whose draft changed without the editor and sends
 nothing. 0244 binds live rows whose template is their draft's current content
 (revision only, no hash); a live one-time schedule it cannot bind goes to

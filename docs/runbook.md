@@ -1643,6 +1643,12 @@ A schedule shows "Needs attention" with its reason:
   longer fits the content): the post was edited after the schedule was set up.
   The schedule now holds the edited text as a new revision; review and approve
   it, or cancel it. Nothing was or will be published from the old approval.
+  A paused schedule stays paused with this reason: resuming it moves it to
+  "Awaiting approval", and only an approval makes it active. A blocked schedule
+  keeps its block reason; submit it again once the block is cleared.
+  A one-time slot that comes due while the post is being published by hand
+  waits inside its 5-minute window rather than ending; if that publish fails
+  it goes out, and otherwise it is superseded or missed.
 - `source_superseded`: the post was published another way or deleted before a
   one-time slot came due. The schedule ended without sending anything; schedule
   a new draft if another publication is wanted.

@@ -38,7 +38,8 @@ import {
 } from "@/lib/server/posts"
 import {
   invalidateSourceSchedules,
-  publishableSource,
+  lockSourceSchedules,
+  sourceState,
   schedulingAvailability,
 } from "@/lib/server/publication-schedules"
 import type { Session } from "@/lib/server/session"
@@ -88,6 +89,11 @@ export type ScheduleTickSummary = {
   blocked: number
   /** One-time occurrences whose source draft was published another way or deleted. */
   superseded: number
+  /**
+   * Schedules re-frozen for a fresh approval because their source draft
+   * changed without the editor (P08-R4); not blocked.
+   */
+  sourceChanged: number
 }
 export type ScheduleSweepSummary = { missed: number; resolved: number }
 
@@ -188,9 +194,9 @@ async function markMissed(
 }
 
 /**
- * A one-time occurrence whose source draft is no longer a publishable draft
- * (P08-R4): it was published another way, is being published, or was
- * deleted. Nothing is sent; the occurrence and its schedule end as
+ * A one-time occurrence whose source draft reached an end state another way
+ * (P08-R4): it is on Google or was deleted. A publish still in flight is not
+ * this (sourceState). Nothing is sent; the occurrence and its schedule end as
  * superseded rather than publishing the content a second time.
  */
 async function supersede(
@@ -351,6 +357,13 @@ export async function processSchedule(
   // connection the transaction itself holds (lib/server/db.ts).
   const pauses = await loadPauseSnapshot()
   const plan = await withTenant(organisationId, async (sql) => {
+    // Every live schedule made from the same draft is locked first, in id
+    // order, then this one and the draft: the order the editor takes them
+    // in. Re-freezing (invalidateSourceSchedules) touches those siblings, so
+    // locking only this one first could wait on the editor in reverse.
+    const [owner] = await sql<{ sourcePostId: string | null }[]>`
+      select source_post_id::text as "sourcePostId" from post_publication_schedule where id = ${scheduleId}`
+    if (owner?.sourcePostId) await lockSourceSchedules(sql, owner.sourcePostId)
     const [schedule] = await sql<Schedule[]>`
       select id::text as id, organisation_id::text as "organisationId", location_id::text as "locationId", status, revision, rule, timezone, template,
         event_offsets as "eventOffsets", source_post_id::text as "sourcePostId",
@@ -435,7 +448,7 @@ export async function processSchedule(
     }
     // A one-time occurrence publishes its source draft (P08-R4), at the
     // revision the approval covered, rather than a copy that would leave the
-    // draft behind. The draft is locked after the schedule (the order an
+    // draft behind. The draft is locked after its schedules (the order an
     // edit takes them in), so an edit waits for this claim or lands first.
     let postId = run.postId
     let source: { revision: number; hash: string | null } | null = null
@@ -452,8 +465,21 @@ export async function processSchedule(
             from gbp_local_post where id = ${schedule.sourcePostId} and location_id = ${schedule.locationId}
             for update`
         : []
-      if (!post || !publishableSource(post)) {
+      const state = post ? sourceState(post) : "superseded"
+      if (state === "superseded") {
         await supersede(sql, schedule, run, requestId, summary)
+        return { schedule, run: null }
+      }
+      if (state === "in_flight") {
+        // Someone is publishing the draft by hand. If that publish fails the
+        // draft is publishable again, so the occurrence stays scheduled: a
+        // later tick inside its window publishes it or finds it superseded,
+        // and past the window it is missed.
+        log.info("post_schedule.source_in_flight", {
+          organisationId,
+          scheduleId,
+          occurrenceId: run.id,
+        })
         return { schedule, run: null }
       }
       if (post.revision !== schedule.sourceContentRevision) {
@@ -467,7 +493,7 @@ export async function processSchedule(
           actorUserId: null,
           requestId,
         })
-        if (summary) summary.blocked += 1
+        if (summary) summary.sourceChanged += 1
         return { schedule, run: null }
       }
       postId = schedule.sourcePostId
@@ -569,6 +595,9 @@ export async function processSchedule(
         (failureCode === SCHEDULE_SOURCE_CHANGED ||
           failureCode === "approval_post_changed")
       ) {
+        // The draft's schedules first (the editor's order), then the
+        // occurrence.
+        await lockSourceSchedules(sql, run.postId)
         await sql`update post_publication_occurrence set status = 'cancelled', status_reason = 'source_changed', finished_at = now()
           where id = ${run.id} and status = 'publishing'`
         await invalidateSourceSchedules(sql, {
@@ -578,6 +607,7 @@ export async function processSchedule(
           actorUserId: null,
           requestId,
         })
+        if (summary) summary.sourceChanged += 1
         log.warn("post_schedule.source_changed", {
           organisationId,
           scheduleId,
@@ -789,17 +819,28 @@ export async function runDueSchedules(options: {
     missed: 0,
     blocked: 0,
     superseded: 0,
+    sourceChanged: 0,
   }
   const env = getServerEnv()
   const deadline = Date.now() + options.budgetMs
+  // A schedule handled once this tick and due again was deferred with its
+  // occurrence still scheduled (no link yet, or its draft being published
+  // by hand): the next tick looks again. Re-running it now would only spin
+  // until the budget ran out.
+  const seen = new Set<string>()
   while (Date.now() + env.GOOGLE_TIMEOUT_MS <= deadline) {
     const claimed = await getDatabase()<
       { organisationId: string; scheduleId: string }[]
     >`
       select organisation_id::text as "organisationId", schedule_id::text as "scheduleId"
       from claim_due_publication_schedules(${env.JOBS_BATCH_SIZE}, ${Math.ceil(options.budgetMs / 1000) + 60}, ${env.JOBS_PER_ORGANISATION})`
-    if (!claimed.length) break
-    for (const row of claimed) {
+    const fresh = claimed.filter((row) => !seen.has(row.scheduleId))
+    for (const row of claimed)
+      if (seen.has(row.scheduleId))
+        await finish(row.organisationId, row.scheduleId).catch(() => undefined)
+    if (!fresh.length) break
+    for (const row of fresh) {
+      seen.add(row.scheduleId)
       summary.schedules += 1
       try {
         await processSchedule(
