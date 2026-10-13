@@ -61,6 +61,11 @@ export function SectionNav({
   const listRef = useRef<HTMLOListElement>(null)
   const [present, setPresent] = useState<string[]>([])
   const [current, setCurrent] = useState<string | null>(null)
+  // The section a chip just jumped to. A jump lands the section at its
+  // scroll margin, which on a phone can sit below the scroll-spy line, so
+  // the spy would light the section above it. The chosen section stays
+  // current until the person scrolls or types themselves.
+  const pinned = useRef<string | null>(null)
   const wanted = entries.map((entry) => entry.id).join(" ")
 
   // Which entries are on the page, in document order. Self-gating blocks
@@ -101,6 +106,7 @@ export function SectionNav({
       .map((id) => document.getElementById(id))
       .filter((element): element is HTMLElement => element !== null)
     const update = () => {
+      if (pinned.current) return
       const line = (navRef.current?.getBoundingClientRect().bottom ?? 0) + 16
       let next: string | null = sections[0]?.id ?? null
       for (const section of sections)
@@ -111,7 +117,17 @@ export function SectionNav({
       threshold: [0, 0.25, 0.5, 0.75, 1],
     })
     sections.forEach((section) => observer.observe(section))
-    return () => observer.disconnect()
+    const release = () => {
+      pinned.current = null
+    }
+    const events = ["wheel", "touchstart", "keydown"] as const
+    events.forEach((name) =>
+      window.addEventListener(name, release, { passive: true })
+    )
+    return () => {
+      observer.disconnect()
+      events.forEach((name) => window.removeEventListener(name, release))
+    }
   }, [present])
 
   // Keep the current chip in view in the sideways-scrolling row.
@@ -155,6 +171,7 @@ export function SectionNav({
               aria-current={current === entry.id ? "location" : undefined}
               onClick={(event) => {
                 event.preventDefault()
+                pinned.current = entry.id
                 setCurrent(entry.id)
                 jumpToSection(entry.id)
               }}
