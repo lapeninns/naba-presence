@@ -22,6 +22,26 @@
 /* Hover motion only where a fine pointer can actually hover. */
 @custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
 
+/* The system is touch-first: every size token's default is the one a thumb
+   needs (16px body, 44px controls). `desk` is the one condition that earns
+   the compact operator's-desk scale back — a fine pointer AND at least 48rem
+   of width. Width alone is not enough (a tablet is wide and touched), and a
+   fine pointer alone is not enough (a narrow desktop window gets the phone
+   layout, so it gets the phone scale with it). Size tokens switch on this in
+   `:root` below; `desk:` is for the rare component that must follow it. The
+   query is written out in full in both places because a custom variant
+   cannot be referenced from plain CSS. */
+@custom-variant desk (@media (min-width: 48rem) and (pointer: fine));
+
+/* Named layout breakpoints. Tailwind's defaults stand (sm 40rem, md 48rem,
+   lg 64rem, xl 80rem); `wide` is where the shell can afford the 240px
+   sidebar beside a 940px work area. It replaces the `max-[1181px]:`
+   arbitrary variants the rail band used to be written with. Keep
+   lib/ui/breakpoints.ts in step with this block. */
+@theme {
+  --breakpoint-wide: 73.75rem;
+}
+
 /* ---------------------------------------------------------------------------
    NabaPresence design system — the operator's desk.
 
@@ -71,33 +91,36 @@
   --font-heading: var(--font-display);
   --font-reading: var(--font-display);
 
-  /* Type roles — the only sanctioned font sizes in feature code. */
-  --text-caption: 0.75rem;
-  --text-caption--line-height: 1rem;
+  /* Type roles — the only sanctioned font sizes in feature code. Each role
+     reads its size from the TYPE SCALE in `:root`, which is touch-first and
+     steps down to the desk scale under `desk` (see the variant above). A
+     role's name never changes meaning between the two: `text-body` is the
+     running text on a phone (16px) and on a desk (14px). */
+  --text-caption: var(--np-text-caption);
+  --text-caption--line-height: var(--np-text-caption-lh);
   --text-caption--letter-spacing: 0;
-  --text-ui: 0.8125rem;
-  --text-ui--line-height: 1.25rem;
+  --text-ui: var(--np-text-ui);
+  --text-ui--line-height: var(--np-text-ui-lh);
   --text-ui--letter-spacing: 0;
-  --text-body: 0.875rem;
-  --text-body--line-height: 1.375rem;
+  --text-body: var(--np-text-body);
+  --text-body--line-height: var(--np-text-body-lh);
   --text-body--letter-spacing: 0;
-  --text-title: 1rem;
-  --text-title--line-height: 1.5rem;
+  --text-title: var(--np-text-title);
+  --text-title--line-height: var(--np-text-title-lh);
   --text-title--letter-spacing: 0;
-  --text-section: 1.125rem;
-  --text-section--line-height: 1.625rem;
+  --text-section: var(--np-text-section);
+  --text-section--line-height: var(--np-text-section-lh);
   --text-section--letter-spacing: -0.005em;
-  /* Page titles are serif and fluid: 22px on a phone, 28px from ~1180px. */
-  --text-page-title: clamp(1.375rem, 1.1vw + 0.9375rem, 1.75rem);
+  --text-page-title: var(--np-text-page-title);
   --text-page-title--line-height: 1.18;
   --text-page-title--letter-spacing: -0.01em;
-  --text-display: clamp(1.75rem, 2vw + 1rem, 2.25rem);
+  --text-display: var(--np-text-display);
   --text-display--line-height: 1.1;
   --text-display--letter-spacing: -0.015em;
-  /* The customer's words: serif, 17/28, the largest readable body on the
-     screen. Not a heading role. */
-  --text-reading: 1.0625rem;
-  --text-reading--line-height: 1.75rem;
+  /* The customer's words: serif, 17/28 at every size, the largest readable
+     body on the screen. Not a heading role. */
+  --text-reading: var(--np-text-reading);
+  --text-reading--line-height: var(--np-text-reading-lh);
   --text-reading--letter-spacing: 0;
 
   /* Semantic colour utilities: bg-canvas, text-ink-muted, border-line… */
@@ -179,8 +202,7 @@
     both;
   --animate-np-slide-in: np-slide-in var(--np-duration-standard)
     var(--np-ease-out) both;
-  --animate-np-fade: np-fade var(--np-duration-standard) var(--np-ease-out)
-    both;
+  --animate-np-fade: np-fade var(--np-duration-standard) var(--np-ease-out) both;
   @keyframes np-rise {
     from {
       opacity: 0;
@@ -426,9 +448,11 @@
   --np-shadow-raised:
     0 1px 2px oklch(0.22 0.02 240 / 0.06), 0 2px 8px oklch(0.22 0.02 240 / 0.06);
   --np-shadow-pop:
-    0 1px 2px oklch(0.22 0.02 240 / 0.08), 0 8px 28px oklch(0.22 0.02 240 / 0.14);
+    0 1px 2px oklch(0.22 0.02 240 / 0.08),
+    0 8px 28px oklch(0.22 0.02 240 / 0.14);
   --np-shadow-modal:
-    0 1px 2px oklch(0.22 0.02 240 / 0.08), 0 12px 40px oklch(0.22 0.02 240 / 0.2);
+    0 1px 2px oklch(0.22 0.02 240 / 0.08),
+    0 12px 40px oklch(0.22 0.02 240 / 0.2);
 
   /* Motion: one ease-out, short durations, nothing bounces. */
   --np-duration-fast: 140ms;
@@ -441,12 +465,40 @@
   --np-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --np-ease-spring-snappy: cubic-bezier(0.2, 0, 0, 1);
   --np-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  /* A screen pushed over its parent (list → detail on a phone) and a bottom
+     sheet rising are the two longest movements; both stay under 1/3s. */
+  --np-duration-push: 300ms;
+  --np-duration-sheet: 320ms;
 
-  /* Chrome and page frame. The sidebar is 240px on desktop, a 64px icon rail
-     from 768px to 1180px, and a sheet below 768px. */
+  /* TYPE SCALE. Touch-first: the default is what a phone held at reading
+     distance needs (16px running text, 15px controls, nothing under 13px);
+     `desk` below steps every role down to the operator's-desk scale. The
+     customer's words stay 17/28 everywhere. */
+  --np-text-caption: 0.8125rem; /* 13 */
+  --np-text-caption-lh: 1.125rem;
+  --np-text-ui: 0.9375rem; /* 15 */
+  --np-text-ui-lh: 1.25rem;
+  --np-text-body: 1rem; /* 16 */
+  --np-text-body-lh: 1.5rem;
+  --np-text-title: 1.0625rem; /* 17 */
+  --np-text-title-lh: 1.5rem;
+  --np-text-section: 1.25rem; /* 20 */
+  --np-text-section-lh: 1.625rem;
+  --np-text-page-title: 1.625rem; /* 26 */
+  --np-text-display: 2rem; /* 32 */
+  --np-text-reading: 1.0625rem; /* 17 */
+  --np-text-reading-lh: 1.75rem;
+
+  /* Chrome and page frame. Below 48rem the shell is a top app bar and a
+     bottom tab bar; from 48rem a 64px icon rail; from `wide` (73.75rem) the
+     240px sidebar. Only one bar ever owns the bottom edge of a phone: the
+     tab bar on a top-level screen, the action bar on a task screen. */
   --np-sidebar-width: 240px;
   --np-rail-width: 64px;
   --np-toolbar-h: 56px;
+  --np-appbar-h: 52px;
+  --np-tabbar-h: 56px;
+  --np-actionbar-h: 64px;
   --np-page-pad-x: clamp(16px, 2.4vw, 32px);
   --np-page-pad-y: clamp(16px, 2vw, 28px);
   --np-page-max-width: 1440px;
@@ -454,28 +506,59 @@
   --np-page-narrow-width: 760px;
   --np-gap-card: 16px;
   --np-gap-section: 24px;
-  --np-card-pad: 20px;
-  --np-panel-pad: 20px;
+  --np-card-pad: 16px;
+  --np-panel-pad: 16px;
   --np-measure-reading: 72ch;
-  /* Primary touch controls meet 44×44 on coarse pointers. */
-  --np-touch: 44px;
+
+  /* Safe areas and the on-screen keyboard. The insets need
+     `viewport-fit=cover` (app/layout.tsx). `--np-keyboard-inset` is written
+     on <html> by components/app-shell/viewport-insets.tsx while a keyboard
+     covers the layout viewport (iOS); Android resizes the layout viewport
+     instead (`interactive-widget=resizes-content`) and leaves it at 0.
+     `--np-dock-bottom` is the edge a bar docked to the bottom must clear:
+     the keyboard while it is open, otherwise the home indicator. */
+  --np-safe-top: env(safe-area-inset-top, 0px);
+  --np-safe-right: env(safe-area-inset-right, 0px);
+  --np-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --np-safe-left: env(safe-area-inset-left, 0px);
+  --np-keyboard-inset: 0px;
+  --np-dock-bottom: max(var(--np-keyboard-inset), var(--np-safe-bottom));
+
+  /* Stacking layers, lowest first. Popovers sit above dialogs because a
+     select or menu opened inside a dialog portals to <body> after it; toasts
+     sit above both so a result is never hidden by the sheet that caused it.
+     Read them through the `z-*` utilities below, never a bare number. */
+  --np-z-raised: 1;
+  --np-z-sticky: 10;
+  --np-z-chrome: 20;
+  --np-z-scrim: 40;
+  --np-z-overlay: 50;
+  --np-z-popover: 60;
+  --np-z-toast: 70;
+  --np-z-tooltip: 80;
+  --np-z-skip-link: 90;
 
   /* ---- 3. COMPONENT TOKENS -------------------------------------------- */
-  /* Density: `comfortable` is the default; DataTable and the inbox list opt
-     into `compact` by setting data-density on their own subtree. Only
-     spacing moves — the type role never shrinks, so nothing drops below
-     12px, and no control falls under the 24px target-size floor. */
+  /* Sizes are touch-first: 44px controls, fields and menu rows (WCAG 2.5.8
+     asks for 24px; 44px is the project's own floor for a primary target on
+     touch). `desk` restores the 36px desk controls, and only there may a
+     subtree opt into `compact` density (DataTable, the inbox list). Density
+     moves spacing and control height only — the type role never shrinks,
+     and no control falls under the 24px target-size floor. */
+  --np-touch: 44px;
+  --np-touch-min: 24px;
   --np-row-py: 12px;
-  --np-row-h: 44px;
+  --np-row-h: 52px;
   --np-cell-px: 14px;
-  --np-control-h: 36px;
+  --np-control-h: 44px;
+  --np-control-h-sm: 36px;
   --np-list-gap: 8px;
 
-  --np-field-h: 36px;
+  --np-field-h: 44px;
   --np-field-bg: var(--np-surface);
   --np-table-header-bg: var(--np-surface-alt);
-  --np-pill-h: 22px;
-  --np-menu-item-h: 32px;
+  --np-pill-h: 24px;
+  --np-menu-item-h: 44px;
 
   /* ---- 4. ALIASES ------------------------------------------------------ */
   /* shadcn's `--accent` is a HIGHLIGHT SURFACE, not the brand colour: it maps
@@ -539,7 +622,6 @@
   --np-charcoal: oklch(0.92 0.006 250);
   --np-ink-on-charcoal: oklch(0.2 0.014 240);
   --np-ink-muted-on-charcoal: oklch(0.4 0.014 240);
-
 
   --np-ink: oklch(0.95 0.006 250);
   --np-ink-secondary: oklch(0.85 0.01 240);
@@ -620,37 +702,55 @@
   --np-table-header-bg: var(--np-surface-alt);
 }
 
-/* Compact density: spacing only. Applied by DataTable and the inbox list, and
-   by the shell when the viewer sets the preference. */
-[data-density="compact"] {
-  --np-row-py: 8px;
-  --np-row-h: 36px;
-  --np-cell-px: 10px;
-  --np-control-h: 30px;
-  --np-list-gap: 4px;
-  --np-field-h: 32px;
-  --np-menu-item-h: 28px;
-}
-
-/* Coarse pointers get 44px primary controls and fields whatever the
-   density; the 16px field text stops iOS zooming on focus. */
-@media (pointer: coarse) {
-  :root,
-  [data-density="compact"],
-  [data-density="comfortable"] {
-    --np-control-h: var(--np-touch);
-    --np-field-h: var(--np-touch);
+/* DESK. A fine pointer with at least 48rem of width earns the operator's-desk
+   scale: 14px running text, 36px controls, and the option of compact density.
+   Everywhere else the touch-first defaults above stand, whatever the density
+   a subtree asks for, so a phone never gets a 30px control. The query is the
+   `desk` custom variant's, written out because plain CSS cannot name it. */
+@media (min-width: 48rem) and (pointer: fine) {
+  :root {
+    --np-text-caption: 0.75rem; /* 12 */
+    --np-text-caption-lh: 1rem;
+    --np-text-ui: 0.8125rem; /* 13 */
+    --np-text-ui-lh: 1.25rem;
+    --np-text-body: 0.875rem; /* 14 */
+    --np-text-body-lh: 1.375rem;
+    --np-text-title: 1rem; /* 16 */
+    --np-text-title-lh: 1.5rem;
+    --np-text-section: 1.125rem; /* 18 */
+    --np-text-section-lh: 1.625rem;
+    /* Serif and fluid on a desk: 23px at 48rem, 28px from ~1180px. */
+    --np-text-page-title: clamp(1.375rem, 1.1vw + 0.9375rem, 1.75rem);
+    --np-text-display: clamp(1.75rem, 2vw + 1rem, 2.25rem);
+    --np-card-pad: 20px;
+    --np-panel-pad: 20px;
   }
-}
 
-[data-density="comfortable"] {
-  --np-row-py: 12px;
-  --np-row-h: 44px;
-  --np-cell-px: 14px;
-  --np-control-h: 36px;
-  --np-list-gap: 8px;
-  --np-field-h: 36px;
-  --np-menu-item-h: 32px;
+  :root,
+  [data-density="comfortable"] {
+    --np-row-py: 12px;
+    --np-row-h: 44px;
+    --np-cell-px: 14px;
+    --np-control-h: 36px;
+    --np-control-h-sm: 30px;
+    --np-list-gap: 8px;
+    --np-field-h: 36px;
+    --np-menu-item-h: 32px;
+    --np-pill-h: 22px;
+  }
+
+  /* Compact density: spacing and control height only. DataTable and the
+     inbox list opt in on their own subtree. */
+  [data-density="compact"] {
+    --np-row-py: 8px;
+    --np-row-h: 36px;
+    --np-cell-px: 10px;
+    --np-control-h: 30px;
+    --np-control-h-sm: 28px;
+    --np-list-gap: 4px;
+    --np-field-h: 32px;
+    --np-menu-item-h: 28px;
+  }
 }
 
 /* Materials resolve to their opaque twins when the viewer asks for less
@@ -681,6 +781,8 @@
     --np-duration-standard: 1ms;
     --np-duration-deliberate: 1ms;
     --np-duration-overlay: 1ms;
+    --np-duration-push: 1ms;
+    --np-duration-sheet: 1ms;
   }
 }
 
@@ -694,6 +796,9 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Landscape iOS otherwise inflates text past the type roles. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     @apply bg-background text-foreground;
@@ -721,6 +826,60 @@
 
 @utility material-popover {
   background-color: var(--np-material-popover);
+}
+
+/* Stacking layers (see `--np-z-*`). Overlays and chrome take their layer
+   from here so a menu inside a sheet, or a toast over a dialog, is never a
+   z-index guess. */
+@utility z-raised {
+  z-index: var(--np-z-raised);
+}
+@utility z-sticky {
+  z-index: var(--np-z-sticky);
+}
+@utility z-chrome {
+  z-index: var(--np-z-chrome);
+}
+@utility z-scrim {
+  z-index: var(--np-z-scrim);
+}
+@utility z-overlay {
+  z-index: var(--np-z-overlay);
+}
+@utility z-popover {
+  z-index: var(--np-z-popover);
+}
+@utility z-toast {
+  z-index: var(--np-z-toast);
+}
+@utility z-tooltip {
+  z-index: var(--np-z-tooltip);
+}
+@utility z-skip-link {
+  z-index: var(--np-z-skip-link);
+}
+
+/* Safe-area padding. `pb-dock` is for a bar docked to the bottom edge: it
+   clears the home indicator, and while the iOS keyboard is open it is the
+   keyboard's height instead (the bar rides on top of the keyboard). */
+@utility pt-safe {
+  padding-top: var(--np-safe-top);
+}
+@utility pb-safe {
+  padding-bottom: var(--np-safe-bottom);
+}
+@utility pl-safe {
+  padding-left: var(--np-safe-left);
+}
+@utility pr-safe {
+  padding-right: var(--np-safe-right);
+}
+@utility px-safe {
+  padding-left: var(--np-safe-left);
+  padding-right: var(--np-safe-right);
+}
+@utility pb-dock {
+  padding-bottom: var(--np-dock-bottom);
 }
 
 /* The hairline as a utility: a half-pixel edge that never changes layout. */
@@ -775,7 +934,6 @@
       var(--np-stagger)
   );
 }
-
 
 @media (prefers-reduced-motion: reduce) {
   *,
