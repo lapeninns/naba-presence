@@ -76,22 +76,33 @@ describe("status variants", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Default")
   })
 
-  // prim-19: a banner present on load is page content, not an interruption.
-  it("is static by default, except a destructive alert, which reports a failure", () => {
+  // prim-19: only a failure interrupts. Every other variant is a polite
+  // status by default (a result appearing after an action is still read
+  // out), and `live={false}` makes a banner plain page content.
+  it("interrupts only for destructive by default; the rest are polite; live={false} is static", () => {
     const { container, rerender } = render(<Alert variant="warning">Heads up</Alert>)
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-    expect(screen.queryByRole("status")).not.toBeInTheDocument()
-    expect(container.querySelector('[data-slot="alert"]')).toHaveTextContent("Heads up")
+    expect(screen.getByRole("status")).toHaveTextContent("Heads up")
     rerender(<Alert variant="info">Note</Alert>)
-    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toHaveTextContent("Note")
+    rerender(<Alert variant="success">Done</Alert>)
+    expect(screen.getByRole("status")).toHaveTextContent("Done")
+    rerender(<Alert>Plain</Alert>)
+    expect(screen.getByRole("status")).toHaveTextContent("Plain")
     rerender(<Alert variant="destructive">Failed</Alert>)
     expect(screen.getByRole("alert")).toHaveTextContent("Failed")
     rerender(<Alert variant="destructive" live={false}>Static failure</Alert>)
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(container.querySelector('[data-slot="alert"]')).toHaveTextContent("Static failure")
+    rerender(<Alert variant="warning" live={false}>Static warning</Alert>)
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
     rerender(<Alert variant="success" live="assertive">Forced</Alert>)
     expect(screen.getByRole("alert")).toHaveTextContent("Forced")
     rerender(<Alert variant="warning" live="polite">Polite</Alert>)
     expect(screen.getByRole("status")).toHaveTextContent("Polite")
+    rerender(<Alert variant="warning" role="note">Own role</Alert>)
+    expect(screen.getByRole("note")).toHaveTextContent("Own role")
   })
 })
 

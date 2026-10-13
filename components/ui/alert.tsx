@@ -63,26 +63,32 @@ function hasOwnGlyph(children: React.ReactNode) {
 }
 
 /**
- * Whether an Alert is a live region (prim-19). A banner that is simply part
- * of the page when it loads ("Heads up: these hours are not on Google yet")
- * is static content and must not interrupt anyone: it has no role and is
- * read in document order like the rest of the page. Only an alert that
- * APPEARS or CHANGES because of something that just happened — a failed
- * save, a load that broke, a result coming back — is announced:
+ * How an Alert is announced (prim-19). The audit's complaint was that every
+ * warning was an ASSERTIVE live region (`role="alert"`), so a "Heads up"
+ * banner present on load could interrupt like a failure. Only a failure
+ * interrupts now:
  *
- *   live            the variant decides: destructive and warning interrupt
- *                   (`role="alert"`, assertive), the rest are polite
- *                   (`role="status"`).
- *   live="polite"   always `role="status"`.
+ *   (default)        destructive: `role="alert"` (a failure that just
+ *                    happened: a save refused, a load broken). Every other
+ *                    variant: `role="status"`, polite. A polite region
+ *                    present when the page loads is not read out, so a
+ *                    static banner costs nothing, while a result that
+ *                    appears after an action (an invitation created, an
+ *                    export finished, an import paused) is still announced
+ *                    without each call site having to remember `live`.
+ *   live             the variant decides, for a change that must interrupt:
+ *                    destructive and warning `role="alert"`, the rest
+ *                    `role="status"`.
+ *   live="polite"    always `role="status"`.
  *   live="assertive" always `role="alert"`.
- *   live={false}    static: no role.
+ *   live={false}     static: no role. For a banner that is page content
+ *                    and never changes in place (a destructive banner
+ *                    present on load, a reference note).
  *
- * The default is static for every variant except `destructive`. A
- * destructive alert is, in this app, the report of a failure that just
- * happened (a save refused, a load broken), so it stays announced unless
- * the caller says `live={false}` for a destructive banner that is present
- * on load. Warnings, info, success and the neutral panel are static by
- * default and need `live` to be announced.
+ * The default deliberately keeps the roles the app shipped with for info,
+ * success and the neutral panel, and moves warning from assertive to
+ * polite: screen streams and e2e specs that find these banners by role keep
+ * working, and nothing that used to be announced goes silent.
  *
  * An explicit `role` still wins. For a page-wide condition use `Banner`
  * (CapabilityBanner-style: "Reviews are not enabled for this listing").
@@ -93,11 +99,12 @@ function liveRole(
   live: AlertLive | undefined,
   variant: AlertVariant | null | undefined
 ): "alert" | "status" | undefined {
-  const resolved = live ?? variant === "destructive"
-  if (!resolved) return undefined
-  if (resolved === "assertive") return "alert"
-  if (resolved === "polite") return "status"
-  return variant === "destructive" || variant === "warning" ? "alert" : "status"
+  if (live === false) return undefined
+  if (live === "assertive") return "alert"
+  if (live === "polite") return "status"
+  if (variant === "destructive") return "alert"
+  if (live === true && variant === "warning") return "alert"
+  return "status"
 }
 
 function Alert({
@@ -117,8 +124,9 @@ function Alert({
      */
     icon?: React.ReactNode
     /**
-     * Announce this alert (see `AlertLive`). Default: announced for
-     * `destructive`, static for every other variant.
+     * How this alert is announced (see `AlertLive`). Default: `role="alert"`
+     * for `destructive`, polite `role="status"` for every other variant;
+     * `live={false}` for none.
      */
     live?: AlertLive
   }) {
