@@ -63,12 +63,12 @@ const buttonCva = cva(
         // shrinks its buttons with it (the token is 44px on coarse pointers).
         default: "h-(--np-control-h) gap-2 px-3.5",
         xs: "h-6 gap-1 px-2 text-caption [&_svg:not([class*='size-'])]:size-3.5",
-        sm: "h-(--np-control-h-sm) gap-1.5 px-2.5 text-ui after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] desk:after:hidden",
+        sm: "h-(--np-control-h-sm) gap-1.5 px-2.5 text-ui after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
         lg: "h-11 gap-2 px-5 text-body",
         icon: "size-(--np-control-h)",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3.5",
         "icon-sm":
-          "size-(--np-control-h-sm) after:absolute after:-inset-1 after:content-[''] desk:after:hidden",
+          "size-(--np-control-h-sm) after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
         "icon-lg": "size-11",
       },
       // A capsule, for the rare prominent call to action.

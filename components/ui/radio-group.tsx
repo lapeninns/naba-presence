@@ -68,7 +68,7 @@ function RadioGroupItem<Value>({
         // An unlabelled radio gets the same 44px-on-touch hit area as an
         // unlabelled checkbox; a labelled one is reached through its row.
         hasLabel
-          ? "after:absolute after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)] after:content-['']"
+          ? "after:absolute after:inset-[calc((100%-var(--np-touch-min))/2)] after:content-['']"
           : selectionHitAreaClassName,
         className
       )}

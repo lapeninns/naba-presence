@@ -31,8 +31,10 @@ function chipClassName({
 }: { pressed?: boolean; className?: string } = {}) {
   return cn(
     "group/chip relative inline-flex h-(--np-control-h-sm) shrink-0 items-center gap-1.5 rounded-(--np-radius-pill) border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,border-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none",
-    // The touch hit area: 36px drawn, 44px pressable.
-    "after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] desk:after:hidden",
+    // The touch hit area: 36px drawn, 44px pressable. A percentage inset
+    // resolves against the padding box, so the 1px border can't shave it
+    // (a fixed -4px gave 34 + 8 = 42px).
+    "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
     "hover-fine:hover:border-line-strong hover-fine:hover:bg-surface-alt",
     "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
     "aria-[current=page]:border-ink aria-[current=page]:bg-ink aria-[current=page]:text-canvas",
