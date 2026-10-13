@@ -298,12 +298,23 @@ test.describe("touch: critical journeys at 390x844", () => {
 
     await tap(more)
     await expect(sheet).toBeVisible()
-    // Let the sheet finish rising before the finger lands on it.
-    await sheet.evaluate((element) =>
-      Promise.all(
-        element.getAnimations({ subtree: true }).map((run) => run.finished)
+    // Let the sheet finish rising before the finger lands on it: its top
+    // edge holds still across several frames (a transition that has not
+    // started yet reports no animations, so those are no signal).
+    await expect
+      .poll(
+        () =>
+          sheet.evaluate(async (element) => {
+            const tops: number[] = []
+            for (let frame = 0; frame < 6; frame++) {
+              tops.push(element.getBoundingClientRect().top)
+              await new Promise((resolve) => requestAnimationFrame(resolve))
+            }
+            return tops.every((top) => top === tops[0])
+          }),
+        { message: "the More sheet settles", timeout: 3_000 }
       )
-    )
+      .toBe(true)
     await swipeDown(page, sheet.getByRole("heading", { name: "More" }))
     await expect(sheet).toBeHidden()
     await expect(more).toBeFocused()
