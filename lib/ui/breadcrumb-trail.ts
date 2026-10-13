@@ -3,7 +3,12 @@ import type { Crumb } from "@/components/ui/breadcrumb"
 export type TrailInput = {
   pathname: string
   clients: { id: string; name: string }[]
-  locations: { id: string; name: string; clientId?: string | null; clientName?: string | null }[]
+  locations: {
+    id: string
+    name: string
+    clientId?: string | null
+    clientName?: string | null
+  }[]
   /** Business mode has no client layer: no client crumbs, no /clients trail. */
   mode?: "business" | "agency"
 }
@@ -25,14 +30,25 @@ const TOP_LEVEL: Record<string, string> = {
   inbox: "Inbox",
   listings: "Listings",
   clients: "Clients",
+  calendar: "Calendar",
   reports: "Reports",
+  notifications: "Notifications",
   team: "Team",
   settings: "Settings",
   setup: "Setup",
 }
 
+// The section names the Settings tabs use (components/settings/settings-nav
+// AREAS), so the trail and the phone back control name a section the way
+// its tab does. The Policy tab is /settings itself.
 const SETTINGS_SECTIONS: Record<string, string> = {
+  notifications: "Notifications",
+  security: "Sign-in security",
   connections: "Google connections",
+  operations: "Operations",
+  privacy: "Data and privacy",
+  usage: "Usage",
+  billing: "Billing",
 }
 
 /**
@@ -57,6 +73,12 @@ export function breadcrumbTrail({
   if (segments.length === 0) return []
   const [first, second, third] = segments
 
+  // Composing a bulk change and following one are both "Bulk change", and
+  // both go back up to Listings, where a bulk change starts.
+  if (first === "listings" && second === "bulk") {
+    return [{ label: "Listings", href: "/listings" }, { label: "Bulk change" }]
+  }
+
   if (first === "listings" && second) {
     const location = locations.find((entry) => entry.id === second)
     if (!location) return [{ label: "Listings", href: "/listings" }]
@@ -66,7 +88,12 @@ export function breadcrumbTrail({
       ...(business
         ? []
         : location.clientId && location.clientName
-          ? [{ label: location.clientName, href: `/clients/${location.clientId}` }]
+          ? [
+              {
+                label: location.clientName,
+                href: `/clients/${location.clientId}`,
+              },
+            ]
           : // A listing nobody has filed yet says so, which is what the operator
             // needs to know when they arrive here from a search.
             [{ label: "Unfiled", href: "/listings" }]),
