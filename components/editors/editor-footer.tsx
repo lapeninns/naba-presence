@@ -2,7 +2,7 @@
 
 import { useId } from "react"
 
-import { CircleAlert, CircleCheck, Clock, Eye, Save, Undo2 } from "lucide-react"
+import { CircleAlert, CircleCheck, Clock, Eye, Save } from "lucide-react"
 
 import { useReportEditorStatus } from "@/components/editors/editor-status"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
@@ -41,7 +41,11 @@ function countWords(count: number) {
  * A viewer gets the same bar with no buttons and the reason in words, so the
  * page never shows controls that can't be used without saying why.
  *
- * `EditorFrame` pins it to the bottom of the scrolling pane.
+ * Phones (under 48rem): a clean editor shows no bar; with the first change
+ * it docks edge to edge at the bottom of the screen (`data-docked`, so the
+ * tab bar steps aside and scroll padding follows it), riding the keyboard.
+ * Desk: `EditorFrame` pins it to the bottom of the scrolling pane. The
+ * view-only bar is never docked: it sits inline and says why.
  */
 function EditorFooter({
   status,
@@ -113,6 +117,7 @@ function EditorFooter({
       <ActionBar
         data-slot="editor-footer"
         sticky={false}
+        safeArea={false}
         label="Editor actions"
         className={className}
         status={
@@ -141,17 +146,30 @@ function EditorFooter({
       : null
   const StatusIcon =
     status === "conflict" ? CircleAlert : isDirty ? Clock : CircleCheck
+  // Nothing to save, publish or resolve. A phone then shows no bar at all
+  // (the header's pill already says where the area stands); it appears,
+  // docked to the bottom edge, with the first change. The desk keeps it.
+  const idle = !isDirty && !localEdits && status !== "conflict"
 
   return (
     <ActionBar
       data-slot="editor-footer"
+      data-docked={idle ? undefined : "bottom"}
       sticky={false}
+      safeArea={false}
       label="Editor actions"
-      className={className}
+      className={cn(
+        idle
+          ? "max-md:hidden"
+          : // Docked edge to edge on a phone, riding the keyboard and
+            // clearing the home indicator (the tab bar steps aside for it).
+            "max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:gap-2 max-md:rounded-none max-md:px-3 max-md:pb-[calc(--spacing(3)+var(--np-dock-bottom))] max-md:[&>[data-slot=action-bar-actions]]:w-full",
+        className
+      )}
       status={
         <>
           <StatusIcon aria-hidden />
-          <span className="min-w-0">
+          <span className="min-w-0 max-md:truncate">
             {isDirty ? (
               <>
                 <strong className="font-semibold">{headline}</strong>
@@ -175,10 +193,9 @@ function EditorFooter({
             variant="ghost-dark"
             onClick={onDiscard}
             disabled={!localEdits}
-            className="max-sm:size-(--np-control-h) max-sm:px-0"
+            className="max-md:grow max-md:px-2.5"
           >
-            <Undo2 aria-hidden className="sm:hidden" />
-            <span className="max-sm:sr-only">Discard</span>
+            Discard
           </Button>
           {onSave ? (
             <Button
@@ -188,35 +205,35 @@ function EditorFooter({
               pending={saving}
               pendingLabel="Saving…"
               disabled={!localEdits || Boolean(saveDisabledReason)}
-              // Under 360px three labelled buttons wrap the bar onto a third
-              // row and it covers a quarter of the screen; the icon keeps it
-              // to two, with the words kept for assistive tech.
-              className="max-[359px]:size-(--np-control-h) max-[359px]:px-0"
+              className="max-md:grow max-md:px-2.5"
             >
-              <Save aria-hidden className="min-[360px]:max-sm:hidden" />
-              <span className="max-[359px]:sr-only">Save here</span>
+              <Save aria-hidden className="max-md:hidden" />
+              Save here
             </Button>
           ) : null}
           <Button
             onClick={onReview}
             disabled={!isDirty || Boolean(disabledReason)}
+            className="max-md:grow max-md:px-2.5"
           >
             {reviewLabel}
           </Button>
         </>
       }
     >
+      {/* What a partial save covers. The area header already says it as its
+          model note, so here it only describes the button. */}
       {onSave && saveDescription ? (
-        <p id={saveDescriptionId} className="order-last w-full text-caption text-ink-muted-on-charcoal">{saveDescription}</p>
+        <span id={saveDescriptionId} className="sr-only">
+          {saveDescription}
+        </span>
       ) : null}
       {/* The reason only matters when there is something it is blocking;
           with nothing to publish the status line already says so. */}
       {(isDirty && disabledReason) || (localEdits && saveDisabledReason) ? (
         <p
           role="note"
-          className={cn(
-            "order-last w-full text-caption text-ink-muted-on-charcoal"
-          )}
+          className="order-last w-full text-caption text-ink-muted-on-charcoal"
         >
           {(isDirty && disabledReason) || saveDisabledReason}
         </p>
