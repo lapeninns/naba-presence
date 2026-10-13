@@ -34,7 +34,11 @@ const EMAIL_LABEL: Record<NotificationMode, string> = {
 }
 
 type Channel = "in_app" | "email"
-type Change = { kind: NotificationEventKind; channel: Channel; mode: NotificationMode }
+type Change = {
+  kind: NotificationEventKind
+  channel: Channel
+  mode: NotificationMode
+}
 
 /**
  * The signed-in person's own choices, saved one change at a time (the
@@ -120,11 +124,13 @@ export function NotificationPreferences() {
                 </div>
                 <Switch
                   // The words are the tap target; the name keeps the row's
-                  // subject ("In app: New reviews") for a screen reader.
+                  // subject ("In app: New reviews") for a screen reader. The
+                  // name is one text run: an sr-only sibling is block-level
+                  // and would put a space before the colon.
                   label={
                     <>
-                      In app
-                      <span className="sr-only">: {copy.label}</span>
+                      <span aria-hidden="true">In app</span>
+                      <span className="sr-only">In app: {copy.label}</span>
                     </>
                   }
                   labelClassName="justify-start gap-3 text-ui text-ink-secondary"

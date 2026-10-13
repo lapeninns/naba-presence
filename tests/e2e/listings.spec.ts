@@ -204,13 +204,14 @@ test.describe("listings", () => {
         "Only owners and admins can edit this location."
       )
       if (canEdit) {
-        // Review is enabled once there is something to publish; what matters
-        // here is that nothing tells an owner they may not edit.
-        await expect(review).toBeVisible()
+        // Nothing tells an owner they may not edit. A clean editor draws no
+        // footer bar; the owner's first edit brings "Review changes" in.
         await expect(gate).toHaveCount(0)
-        await expect(
-          page.getByRole("textbox", { name: "Business name" })
-        ).toBeEnabled()
+        const name = page.getByRole("textbox", { name: "Business name" })
+        await expect(name).toBeEnabled()
+        await expect(review).toHaveCount(0)
+        await name.fill(`${await name.inputValue()} edited`)
+        await expect(review).toBeVisible()
       } else {
         // A role that can't edit gets the one view-only bar: it says why and
         // offers no actions, rather than a row of disabled buttons.
