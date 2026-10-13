@@ -198,7 +198,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                   <span
                     aria-hidden
                     className={cn(
-                      "grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-caption tabular-nums",
+                      "grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] font-sans text-caption font-semibold tabular-nums",
                       index === 0
                         ? "border-primary bg-accent-tint text-accent-ink"
                         : "border-line-strong text-ink-muted"
