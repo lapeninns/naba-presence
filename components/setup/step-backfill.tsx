@@ -76,8 +76,8 @@ function StepBackfill({
       )}
       <p className="text-ui text-ink-muted">
         {business
-          ? "The import keeps going if you move on. Listings shows how far it has got."
-          : `The import keeps going if you move on. ${clientName}’s client page shows how far it has got.`}
+          ? "The import keeps going if you move on. Come back to this step to see how far it has got."
+          : `The import keeps going if you move on. ${clientName}’s client page shows whether it is still running.`}
       </p>
     </>
   )

@@ -38,6 +38,8 @@ const STATUS: Record<
   succeeded: { label: "Imported", tone: "ok" },
   failed: { label: "Failed", tone: "bad" },
   cancelled: { label: "Cancelled", tone: "neutral" },
+  // Terminal (lib/contracts/sync.ts): the runner stopped retrying it.
+  dead: { label: "Stopped", tone: "bad" },
 }
 
 function statusPill(status: string) {
@@ -56,7 +58,7 @@ const BACKFILL_ERROR_COPY: Record<string, string> = {
   location_not_verified: "This location is not yet verified on Google.",
   location_not_linked: "This location is no longer linked to Google.",
   google_reconnect_required:
-    "Google access has expired. Reconnect this account to continue.",
+    "This Google login needs reconnecting. Reconnect it to continue.",
   sync_failed: "Google did not respond. It will retry automatically.",
   job_failed: "The import failed unexpectedly. It will retry automatically.",
 }
@@ -66,6 +68,14 @@ function describeBackfillError(code: string): string {
     BACKFILL_ERROR_COPY[code] ??
     "This import could not complete. It will retry automatically."
   )
+}
+
+// A stopped (dead) import is never retried by the runner; only starting the
+// import again re-arms it (the checkpoint upsert in syncLinkedLocation).
+function describeStoppedImport(code: string | null): string {
+  if (code === "location_not_verified")
+    return "This location is not yet verified on Google. Start the import again once it is."
+  return "The import stopped after repeated failures. Start the import again to retry."
 }
 
 function attempts(count: number): string {
@@ -172,7 +182,7 @@ export function BackfillCard({
         <Alert variant="warning">
           <AlertTitle>Review import is paused</AlertTitle>
           <AlertDescription>
-            Importing is temporarily paused. Try again shortly.
+            Importing is paused on our side. Try again later.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -215,7 +225,9 @@ export function BackfillCard({
               const failure =
                 item.status === "failed" && item.lastErrorCode
                   ? describeBackfillError(item.lastErrorCode)
-                  : null
+                  : item.status === "dead"
+                    ? describeStoppedImport(item.lastErrorCode)
+                    : null
               return (
                 <TableRow key={item.externalLocationId}>
                   <TableCell label="Listing">

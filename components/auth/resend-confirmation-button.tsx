@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react"
 
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { buttonVariants } from "@/components/ui/button"
 import { resendConfirmation } from "@/lib/api/auth"
 import { authErrorMessage } from "@/lib/api/auth-errors"
@@ -13,16 +14,19 @@ import { cn } from "@/lib/utils"
  * it is the secondary route on a surface whose one filled button is the
  * form's submit. `variant="button"` draws it as the full-width outlined
  * secondary button for the check-your-email panel, where it is the main
- * thing to do.
+ * thing to do; its label wraps rather than spilling past a 320px card.
+ * `className` adds to the button itself.
  */
 function ResendConfirmationButton({
   email,
   inviteToken,
   variant = "link",
+  className,
 }: {
   email: string
   inviteToken?: string
   variant?: "link" | "button"
+  className?: string
 }) {
   const [state, setState] = useState<"idle" | "sent" | "failed">("idle")
   const [failure, setFailure] = useState<string | null>(null)
@@ -47,11 +51,13 @@ function ResendConfirmationButton({
         type="button"
         disabled={pending}
         aria-busy={pending || undefined}
-        className={
+        className={cn(
           variant === "link"
             ? "inline-flex min-h-(--np-touch) items-center rounded-sm text-ui font-semibold text-accent-ink underline decoration-1 underline-offset-3 focus-halo hover:decoration-2 focus-visible:outline-none disabled:cursor-default disabled:text-ink-muted disabled:no-underline desk:min-h-6"
-            : buttonVariants({ variant: "secondary", size: "lg", block: true })
-        }
+            : buttonVariants({ variant: "secondary", size: "lg", block: true }),
+          variant === "button" && WRAPPING_BLOCK_BUTTON,
+          className
+        )}
         onClick={() =>
           startTransition(async () => {
             try {

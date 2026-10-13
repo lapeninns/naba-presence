@@ -283,18 +283,23 @@ function SignInForm({
           <h2 className="text-section font-semibold text-ink">
             Check your email
           </h2>
+          {/* Neutral on purpose, like the reset screen: the server answers
+              an address that already has an account exactly as it answers a
+              new one, and no email goes to it, so "we sent" would be untrue
+              there and would confirm the account exists elsewhere. */}
           <p className="text-body text-ink-muted">
-            We sent a confirmation link to{" "}
+            If{" "}
             <span className="font-semibold [overflow-wrap:anywhere] text-ink">
               {email}
-            </span>
-            . Open it, then sign in.
+            </span>{" "}
+            can be used for a new account, a confirmation link is on its way.
+            Open it, then sign in.
           </p>
         </div>
         <div className="flex flex-col gap-3 rounded-lg bg-surface-alt p-4">
           <p className="text-ui text-ink">
             Not there after a few minutes? Check spam or promotions, then send a
-            fresh link.
+            fresh link. Already have an account? Sign in instead.
           </p>
           <ResendConfirmationButton
             email={email}

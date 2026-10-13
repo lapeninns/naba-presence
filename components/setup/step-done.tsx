@@ -4,16 +4,20 @@ import { CircleCheckIcon } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { StatusPill } from "@/components/ui/status-pill"
 import { formatNumber } from "@/lib/format"
 import type { SetupFacts } from "@/lib/setup/steps"
 import { cn } from "@/lib/utils"
-import { cardClassName } from "@/components/ui/card"
 
 const IMPORT = {
   running: { tone: "info", label: "Running" },
   done: { tone: "ok", label: "Complete" },
-  failed: { tone: "bad", label: "Stopped · retry from Listings" },
+  failed: {
+    tone: "bad",
+    label: "Stopped",
+    hint: "Retry it from the Import reviews step",
+  },
   not_started: { tone: "neutral", label: "Not started" },
 } as const
 
@@ -44,51 +48,67 @@ function StepDone({
       </span>
       <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink">
         {business ? "Your business" : clientName} is connected. New reviews
-        appear in your inbox as Google sends them.
+        from Google appear in your inbox.
       </p>
-      <dl
-        data-testid="setup-summary"
-        className={cardClassName({
-          surface: "sunken",
-          className:
-            "grid w-full grid-cols-1 gap-x-6 gap-y-1 p-4 text-ui text-ink @min-[520px]/wiz:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] @min-[520px]/wiz:gap-y-2.5 [&>dd]:text-body",
-        })}
-      >
-        <dt className="text-ink-muted">Google login</dt>
-        <dd className="mb-2 @min-[520px]/wiz:mb-0">
-          {facts.connection ? (
-            <StatusPill tone={connectionActive ? "ok" : "bad"}>
-              {connectionActive ? "Connected" : "Needs reconnecting"}
-            </StatusPill>
-          ) : (
-            <StatusPill tone="neutral" dashed>
-              No login linked yet
-            </StatusPill>
-          )}
-        </dd>
-        <dt className="text-ink-muted">Business Profile accounts</dt>
-        <dd className="mb-2 tabular-nums @min-[520px]/wiz:mb-0">
-          {formatNumber(facts.accountsActive)} selected
-        </dd>
-        <dt className="text-ink-muted">Listings linked</dt>
-        <dd className="mb-2 tabular-nums @min-[520px]/wiz:mb-0">
-          {formatNumber(facts.locationsLinked)}
-        </dd>
-        <dt className="text-ink-muted">Review import</dt>
-        <dd className="mb-2 @min-[520px]/wiz:mb-0">
-          <StatusPill tone={importState.tone}>{importState.label}</StatusPill>
-        </dd>
-        <dt className="text-ink-muted">Real-time notifications</dt>
-        <dd className="mb-2 @min-[520px]/wiz:mb-0">
-          {facts.notificationsEnabled
-            ? "On"
-            : "Off · reviews arrive on the scheduled check"}
-        </dd>
-        <dt className="text-ink-muted">Team</dt>
-        <dd>
-          {facts.teamInvited ? "Teammates added or invited" : "Only you so far"}
-        </dd>
-      </dl>
+      {/* Notion Mail's settings rows: a label, an optional line under it,
+          and the value on the right. Static rows, nothing here is a control.
+          Pills sit in the trailing slot (`action`) rather than `value`, so a
+          long one can wrap on a 320px phone instead of pushing past the
+          edge. */}
+      <SettingsGroup data-testid="setup-summary" card className="mt-0 w-full">
+        <SettingsRow
+          label="Google login"
+          action={
+            facts.connection ? (
+              <StatusPill tone={connectionActive ? "ok" : "bad"}>
+                {connectionActive ? "Connected" : "Needs reconnecting"}
+              </StatusPill>
+            ) : (
+              <StatusPill tone="neutral" dashed>
+                No login linked yet
+              </StatusPill>
+            )
+          }
+        />
+        <SettingsRow
+          label="Business Profile accounts"
+          value={
+            <span className="tabular-nums">
+              {formatNumber(facts.accountsActive)} selected
+            </span>
+          }
+        />
+        <SettingsRow
+          label="Listings linked"
+          value={
+            <span className="tabular-nums">
+              {formatNumber(facts.locationsLinked)}
+            </span>
+          }
+        />
+        <SettingsRow
+          label="Review import"
+          description={"hint" in importState ? importState.hint : undefined}
+          action={
+            <StatusPill tone={importState.tone}>{importState.label}</StatusPill>
+          }
+        />
+        <SettingsRow
+          label="Real-time notifications"
+          description={
+            facts.notificationsEnabled
+              ? undefined
+              : "Reviews arrive on the scheduled check"
+          }
+          value={facts.notificationsEnabled ? "On" : "Off"}
+        />
+        <SettingsRow
+          label="Team"
+          value={
+            facts.teamInvited ? "Teammates added or invited" : "Only you so far"
+          }
+        />
+      </SettingsGroup>
       <div className="flex w-full flex-col gap-2 @min-[520px]/wiz:w-auto @min-[520px]/wiz:flex-row @min-[520px]/wiz:flex-wrap">
         {business ? null : (
           <Link href={`/clients/${clientId}`} className={cn(buttonVariants())}>

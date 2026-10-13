@@ -10,6 +10,7 @@ import { InvitationActions } from "@/components/auth/invitation-actions"
 import { SignInForm, type SignInMode } from "@/components/auth/sign-in-form"
 import { Alert, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, confirmStatusMessage } from "@/lib/api/auth-errors"
@@ -33,9 +34,13 @@ function GoToSignInLink() {
 /**
  * Who is inviting whom: the organisation and the address the invitation
  * was sent to, plus the account the visitor is currently signed in with
- * when there is one. Facts to read, not fields to fill, so a bordered card
- * of rows. Only what the lookup actually returns is shown: the response
- * carries no inviter name, so none is invented.
+ * when there is one. Facts to read, not fields to fill, so static settings
+ * rows (no link, no button): on a phone they sit straight on the card, at
+ * the desk in a bordered card. Each row keeps its words-first order, the
+ * field's name over its value, and the value wraps so a long address never
+ * spills past a 320px screen. Only what the lookup actually returns is
+ * shown: the response carries no inviter name, so none is invented (and no
+ * inviter avatar either).
  */
 function InvitationDetails({
   organisationName,
@@ -54,29 +59,22 @@ function InvitationDetails({
       : []),
   ]
   return (
-    <section aria-label="Invitation details">
-      <ul className="flex flex-col divide-y divide-line-subtle rounded-lg border border-line bg-surface">
-        {rows.map((row) => (
-          <li
-            key={row.label}
-            className="flex min-h-(--np-touch) items-center gap-3 px-4 py-3"
-          >
-            <span
-              aria-hidden
-              className="grid size-8 shrink-0 place-items-center rounded-full bg-fill-secondary text-ink-secondary"
-            >
-              <row.icon className="size-4" strokeWidth={1.75} />
+    <SettingsGroup aria-label="Invitation details" card>
+      {rows.map((row) => (
+        <SettingsRow
+          key={row.label}
+          icon={<row.icon />}
+          label={
+            <span className="text-caption text-ink-muted">{row.label}</span>
+          }
+          description={
+            <span className="text-body font-medium [overflow-wrap:anywhere] text-ink">
+              {row.value}
             </span>
-            <span className="flex min-w-0 flex-col">
-              <span className="text-caption text-ink-muted">{row.label}</span>
-              <span className="text-body font-medium [overflow-wrap:anywhere] text-ink">
-                {row.value}
-              </span>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
+          }
+        />
+      ))}
+    </SettingsGroup>
   )
 }
 

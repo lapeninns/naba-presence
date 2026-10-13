@@ -147,3 +147,25 @@ describe("BackfillCard", () => {
     expect(screen.getByText("Failed")).toBeInTheDocument()
   })
 })
+
+describe("BackfillCard stopped imports", () => {
+  // `dead` is terminal (lib/contracts/sync.ts): the runner never retries it,
+  // so the row must not leak the raw enum or promise an automatic retry.
+  it("names a stopped import and says only Start import retries it", () => {
+    renderCard([
+      item({
+        status: "dead",
+        hasMorePages: false,
+        lastErrorCode: "sync_failed",
+      }),
+    ])
+    expect(screen.getByText("Stopped")).toBeInTheDocument()
+    expect(screen.queryByText("dead")).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "The import stopped after repeated failures. Start the import again to retry."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/retry automatically/)).not.toBeInTheDocument()
+  })
+})

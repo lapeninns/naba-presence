@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
 import { FormError } from "@/components/ui/field"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast } from "@/components/ui/toast"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import type { GoogleAccount } from "@/lib/api/google-accounts"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
@@ -55,7 +55,7 @@ export function AccountPickerCard({
   const resolvedConnectionId = connectionId ?? derivedConnectionId
 
   const accounts = useGoogleAccounts(resolvedConnectionId, { clientId })
-  const toast = useToastManager()
+  const toast = useOutcomeToast()
   const headingId = useId()
 
   // Success is a toast; a failure stays inline beside the Save button (see
@@ -65,8 +65,7 @@ export function AccountPickerCard({
   useEffect(() => {
     if (previousSaveStatus.current === saveStatus) return
     previousSaveStatus.current = saveStatus
-    if (saveStatus === "success")
-      toast.add({ title: "Accounts updated", type: "success" })
+    if (saveStatus === "success") toast.show({ title: "Accounts updated" })
   }, [saveStatus, toast])
 
   if (accounts.query.isPending) {

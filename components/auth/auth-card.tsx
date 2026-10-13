@@ -39,7 +39,7 @@ const ASIDES: Record<
       {
         icon: ShieldCheck,
         title: "Approve replies before they go live",
-        text: "Drafts are checked against your reply policy, and a reply can need a second person’s approval.",
+        text: "Your reply policy can hold replies for approval, and can require a second person to approve each one.",
       },
       {
         icon: Send,
@@ -99,7 +99,7 @@ const ASIDES: Record<
       {
         icon: Send,
         title: "Publish to each Business Profile",
-        text: "Through the Google logins already connected. You don’t connect your own.",
+        text: "Through the Google logins already connected, so you don’t need to connect your own.",
       },
     ],
     footnote:
@@ -128,7 +128,7 @@ function AuthAside({ variant }: { variant: AsideVariant }) {
         </span>
       </Link>
       <div className="flex flex-col gap-8">
-        <p className="max-w-88 font-display text-display font-semibold text-balance">
+        <p className="max-w-88 text-display font-semibold text-balance">
           {aside.statement}
         </p>
         <ul className="flex max-w-96 flex-col gap-5">
@@ -251,7 +251,7 @@ function AuthCard({
             <h1
               ref={titleRef}
               tabIndex={-1}
-              className="font-display text-page-title font-semibold text-balance text-ink outline-none"
+              className="text-page-title font-semibold text-balance text-ink outline-none"
             >
               {title}
             </h1>

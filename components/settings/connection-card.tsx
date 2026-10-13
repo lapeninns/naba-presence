@@ -24,6 +24,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -40,7 +41,7 @@ import { Empty } from "@/components/ui/empty"
 import { QueryError } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast } from "@/components/ui/toast"
 import { TypedConfirmation } from "@/components/ui/typed-confirmation"
 import {
   Table,
@@ -283,8 +284,8 @@ function DisconnectDialog({
               Now
             </span>
             <span>
-              Linked locations and notifications are deactivated. Nothing can
-              publish through this login.
+              Its listings are unlinked and Google notifications turn off.
+              Nothing can sync or publish through this login.
             </span>
           </li>
           <li className="col-span-2 grid grid-cols-subgrid">
@@ -292,7 +293,8 @@ function DisconnectDialog({
               After 7 days
             </span>
             <span>
-              The account’s data is permanently removed. This can’t be undone.
+              Its listings and their reviews are permanently deleted, unless
+              this login is reconnected first. Deletion can’t be undone.
             </span>
           </li>
         </ol>
@@ -302,7 +304,7 @@ function DisconnectDialog({
           onValueChange={setTyped}
           onMatchChange={setArmed}
           fieldClassName="[overflow-wrap:anywhere]"
-          description="This deactivates linked locations and purges the data after 7 days."
+          description="This unlinks its listings now and deletes them, with their reviews, after 7 days."
         />
         <AlertDialogFooter>
           <AlertDialogClose
@@ -343,7 +345,7 @@ export function ConnectionCard({
   clientsByConnection?: ReadonlyMap<string, ServedClient[]>
 } = {}) {
   const { query, connect, disconnect } = useConnectionWorkspace()
-  const toast = useToastManager()
+  const toast = useOutcomeToast()
   const business = useWorkspaceMode() === "business"
   // Null outside the app router (component tests render it bare).
   const params = useSearchParams() as URLSearchParams | null
@@ -464,12 +466,11 @@ export function ConnectionCard({
               >
                 <TableCell label="Google login">
                   <span className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      aria-hidden
-                      className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-pill) bg-fill text-ink-secondary"
-                    >
-                      <Globe className="size-4" strokeWidth={1.75} />
-                    </span>
+                    <Avatar aria-hidden>
+                      <AvatarFallback>
+                        <Globe className="size-4" strokeWidth={1.75} />
+                      </AvatarFallback>
+                    </Avatar>
                     <span className="min-w-0 font-semibold [overflow-wrap:anywhere] text-ink">
                       {name}
                     </span>
@@ -580,9 +581,9 @@ export function ConnectionCard({
             disconnect.mutate(disconnectTarget.id, {
               onSuccess: () => {
                 setDisconnectOpen(false)
-                // The outcome, with no Undo: disconnecting revokes access on
-                // Google's side and schedules the purge (a Google write).
-                toast.add({ title: `Disconnected ${label}`, type: "success" })
+                // The outcome, with no Undo (D5): disconnecting asks Google to
+                // revoke the grant and schedules the purge.
+                toast.show({ kind: "google", title: `Disconnected ${label}` })
               },
             })
           }
