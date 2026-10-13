@@ -320,6 +320,13 @@ export type ReviewDetailBack = {
   label: string
   onBack: () => void
   ref: Ref<HTMLButtonElement>
+  /**
+   * The shell's app bar already draws this way back ("‹ Inbox", the
+   * inbox's `<PageChrome back>` on a pushed review), so the head leaves its
+   * own button out: one back control on the screen. The title, position
+   * and steps stay.
+   */
+  inAppBar?: boolean
 }
 
 /** Where this review sits in the loaded list, and the steps either side. */
@@ -335,7 +342,8 @@ export type ReviewDetailNav = {
 }
 
 /**
- * The phone head (below lg): back to the list, whose review this is, where
+ * The phone head (below lg): back to the list (unless the app bar already
+ * draws it, `back.inAppBar`), whose review this is, where
  * it sits in the queue and a step either way. Shared by the loading, error
  * and loaded pane so the back control is the SAME element throughout: it
  * takes focus when a review opens from the list, and a control swapped for
@@ -356,25 +364,31 @@ function HeadFrame({
 }) {
   if (!back) return null
   const Title = titleIsHeading ? "h1" : "p"
-  const { ref: backRef, label: backLabel, onBack } = back
+  const { ref: backRef, label: backLabel, onBack, inAppBar = false } = back
   const total = `${nav?.total ?? 0}${nav?.more ? "+" : ""}`
   return (
     <div
       data-slot="review-head"
-      className="flex min-w-0 shrink-0 items-center gap-1 border-b border-line px-1 py-1 lg:hidden"
+      className={cn(
+        "flex min-w-0 shrink-0 items-center gap-1 border-b border-line px-1 py-1 lg:hidden",
+        // Without the back button the title starts at the page gutter.
+        inAppBar && "pl-3"
+      )}
     >
       {/* The visible word is part of the name ("Back to Inbox" contains
           "Inbox"), so a voice user can say what they see. */}
-      <Button
-        ref={backRef}
-        variant="ghost"
-        aria-label={`Back to ${backLabel}`}
-        onClick={onBack}
-        className="h-11 shrink-0 gap-0.5 pr-2.5 pl-1.5 text-ui"
-      >
-        <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
-        {backLabel}
-      </Button>
+      {inAppBar ? null : (
+        <Button
+          ref={backRef}
+          variant="ghost"
+          aria-label={`Back to ${backLabel}`}
+          onClick={onBack}
+          className="h-11 shrink-0 gap-0.5 pr-2.5 pl-1.5 text-ui"
+        >
+          <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
+          {backLabel}
+        </Button>
+      )}
       <Title
         data-slot="review-title"
         className="min-w-0 flex-1 truncate px-1 font-display text-title font-semibold text-ink"

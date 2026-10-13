@@ -806,6 +806,38 @@ describe("ReviewDetail — phone head", () => {
     expect(container.querySelector('[data-slot="review-head"]')).not.toBeNull()
   })
 
+  it("leaves the way back to the app bar when it draws one, keeping the head", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const props = head({
+      nav: { position: 2, total: 5, more: false, onPrevious: vi.fn() },
+    })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        {...props}
+        back={{ ...props.back, inAppBar: true }}
+      />
+    )
+    // One back control on the screen: the shell's "‹ Inbox", not this one.
+    expect(
+      screen.queryByRole("button", { name: "Back to Inbox" })
+    ).not.toBeInTheDocument()
+    const headRow = container.querySelector<HTMLElement>(
+      '[data-slot="review-head"]'
+    )
+    expect(headRow).not.toBeNull()
+    expect(
+      within(headRow!).getByRole("heading", { level: 1, name: "Sam Traveller" })
+    ).toBeInTheDocument()
+    expect(headRow).toHaveTextContent("2 of 5")
+    expect(
+      within(headRow!).getByRole("button", { name: "Previous review" })
+    ).toBeEnabled()
+    expect(
+      within(headRow!).getByRole("button", { name: "Next review" })
+    ).toBeDisabled()
+  })
+
   it("keeps the same back control from loading to loaded", () => {
     fakeDetail({ isPending: true, isError: false })
     const props = head()

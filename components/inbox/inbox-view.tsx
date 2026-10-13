@@ -659,7 +659,7 @@ function InboxViewInner({
         return
       }
     }
-    backButtonRef.current?.focus({ preventScroll: true })
+    focusBackControl(backButtonRef.current)
   }, [state.selected])
 
   // `r`, `g` and `a` are handled by the detail pane's own controls, which
@@ -854,10 +854,14 @@ function InboxViewInner({
         }
       : undefined
   // Back also works because opening from the list pushed (spec §6).
+  // Where the app bar leads with "‹ Inbox" (the PageChrome below: a pushed
+  // review, list not beside it) the head draws no back of its own.
+  const backInAppBar = Boolean(state.selected) && splitView === false
   const back = {
     label: "Inbox",
     onBack: onBackToList,
     ref: backButtonRef,
+    inAppBar: backInAppBar,
   }
 
   // The detail is mounted in exactly one place, so the composer's dirty guard
@@ -1037,6 +1041,28 @@ function InboxViewInner({
 // user who was already reaching for it. Defaults to true so every existing
 // caller and test keeps a visible filter; a redundant control is a much better
 // failure mode than a silently missing one.
+/**
+ * Focuses the way back that is on screen: the review head's button, or,
+ * where the head leaves it to the app bar, the shell's "‹ Inbox" link
+ * (`[data-slot="back-control"]`, the visible one: the tablet toolbar draws
+ * its own copy). The app bar takes the page's back from PageChrome a render
+ * after the review opens, so the link is looked for over a few frames.
+ */
+function focusBackControl(button: HTMLButtonElement | null, frames = 10) {
+  const target =
+    button ??
+    [
+      ...document.querySelectorAll<HTMLElement>('[data-slot="back-control"]'),
+    ].find((element) => element.checkVisibility?.() ?? true)
+  if (target) {
+    target.focus({ preventScroll: true })
+    return
+  }
+  if (frames > 0) {
+    requestAnimationFrame(() => focusBackControl(null, frames - 1))
+  }
+}
+
 function InboxView({
   showLocationFilter = true,
   actions,
