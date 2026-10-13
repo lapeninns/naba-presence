@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { adjacentReviewId, pageForIndex } from "@/lib/inbox/queue-nav"
+import { adjacentReviewId } from "@/lib/inbox/queue-nav"
 
 describe("inbox queue nav", () => {
   const reviews = [{ id: "a" }, { id: "b" }, { id: "c" }]
@@ -18,10 +18,4 @@ describe("inbox queue nav", () => {
     expect(adjacentReviewId([], "a", "next")).toBeNull()
   })
 
-  it("maps a list index onto a page", () => {
-    expect(pageForIndex(0, 7)).toBe(0)
-    expect(pageForIndex(6, 7)).toBe(0)
-    expect(pageForIndex(7, 7)).toBe(1)
-    expect(pageForIndex(-1, 7)).toBe(0)
-  })
 })

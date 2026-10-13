@@ -1034,9 +1034,9 @@ for (const theme of themes) {
               .locator('section[aria-label="Review list"] button')
               .filter({ hasText: "Jordan Lee" })
           ).toHaveAttribute("aria-current", "true")
-          // Renamed from "Back to review list" (components/inbox/inbox-view.tsx).
+          // The phone head's labelled back (components/inbox/review-detail.tsx).
           const backButton = page.getByRole("button", {
-            name: "Back to reviews",
+            name: "Back to Inbox",
           })
           await expect(backButton).toBeVisible()
           await expect(backButton).toBeFocused()
@@ -1143,7 +1143,7 @@ for (const theme of themes) {
         await expect(history).toBeHidden()
         await expect(more).toBeFocused()
         if (viewport.name === "mobile") {
-          await page.getByRole("button", { name: "Back to reviews" }).click()
+          await page.getByRole("button", { name: "Back to Inbox" }).click()
           await expect(reviewList).toBeVisible()
           await expect(selectedReview).toBeHidden()
           await expect(

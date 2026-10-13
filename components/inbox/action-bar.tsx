@@ -51,15 +51,14 @@ import { saveShortcutLabel } from "@/lib/inbox/shortcut-label"
 
 const REJECT_NOTE_LIMIT = 2000
 
-// On a phone the step the bar exists for fills the row at a 48px thumb
-// height (reference `.publish .btn`).
-const PRIMARY_CLASS = "max-md:h-12 max-md:flex-1"
-
 /**
- * The pane's footer: one filled capsule for the irreversible step (publish,
- * submit, approve), a grey capsule for the way back (reject), and the rest
- * behind an ellipsis. Why a button is off is said by the status line beside
- * it, not hidden in a title attribute.
+ * The pane's footer actions: ONE filled button for the step the bar exists
+ * for (publish, submit, approve, retry), sized to its words at the control
+ * height (44px on touch) so the docked bar on a phone stays one row beside
+ * the status words. Everything else sits behind the ⋯ menu: Delete always,
+ * and Reject below md, where it would crowd the primary off the row; from md
+ * up Reject is a grey button beside Approve. Why a button is off is said by
+ * the status line beside it, not hidden in a title attribute.
  *
  * Publish is one press: when the text on screen is not yet a checked draft,
  * it saves it (the drafts route checks what it stores), stops if the check
@@ -265,29 +264,28 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     !oneStep &&
     (primary.kind === "publish" || primary.kind === "update")
 
+  // Reject is offered with Approve: inline from md up, in the ⋯ menu below.
+  const offerReject = awaitingApproval && !inFlight
+
   const shortcutHint = oneStep ? (
-    <Kbd aria-hidden className="ml-1 max-md:hidden pointer-coarse:hidden">
+    // Desk only: a key hint means nothing to a thumb.
+    <Kbd aria-hidden className="ml-1 hidden desk:inline-flex">
       {saveShortcutLabel()}
     </Kbd>
   ) : null
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2 max-md:w-full">
-      <div className="flex flex-wrap items-center justify-end gap-2 max-md:w-full">
+    <div className="flex min-w-0 items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
         {inFlight ? (
-          <Button
-            variant="secondary"
-            pending
-            pendingLabel="Publishing…"
-            className={PRIMARY_CLASS}
-          >
+          <Button variant="secondary" pending pendingLabel="Publishing…">
             Publishing…
           </Button>
         ) : awaitingApproval ? (
           <>
             <Button
               variant="secondary"
-              className={PRIMARY_CLASS}
+              className="max-md:hidden"
               disabled={!primary.enabled || approval.isPending}
               onClick={() => setRejectOpen(true)}
             >
@@ -296,7 +294,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             </Button>
             <Button
               ref={primaryRef}
-              className={PRIMARY_CLASS}
               disabled={!primary.enabled || approval.isPending}
               onClick={() => void onDecision("approve")}
             >
@@ -311,7 +308,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : offerRequestApproval ? (
           <Button
             ref={primaryRef}
-            className={PRIMARY_CLASS}
             disabled={!sendEnabled}
             pending={sending}
             pendingLabel={checking ? "Checking…" : "Submitting…"}
@@ -328,7 +324,6 @@ function ActionBar({ reviewId }: { reviewId: string }) {
         ) : (
           <Button
             ref={primaryRef}
-            className={PRIMARY_CLASS}
             disabled={!sendEnabled}
             pending={sending}
             pendingLabel={checking ? "Checking…" : "Publishing…"}
@@ -352,7 +347,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
           </Button>
         )}
 
-        {deleteState.enabled ? (
+        {offerReject || deleteState.enabled ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -360,19 +355,34 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                   variant="ghost"
                   size="icon"
                   aria-label="Review actions"
+                  // Holding only Reject, the menu is the phone's way to it;
+                  // from md up Reject has its own button.
+                  className={deleteState.enabled ? undefined : "md:hidden"}
                 />
               }
             >
               <MoreHorizontalIcon aria-hidden strokeWidth={1.75} />
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => setDeleteOpen(true)}
-              >
-                <Trash2Icon aria-hidden />
-                Delete published reply
-              </DropdownMenuItem>
+              {offerReject ? (
+                <DropdownMenuItem
+                  className="md:hidden"
+                  disabled={!primary.enabled || approval.isPending}
+                  onClick={() => setRejectOpen(true)}
+                >
+                  <XIcon aria-hidden />
+                  Reject reply
+                </DropdownMenuItem>
+              ) : null}
+              {deleteState.enabled ? (
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2Icon aria-hidden />
+                  Delete published reply
+                </DropdownMenuItem>
+              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
