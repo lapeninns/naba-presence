@@ -3,11 +3,15 @@
 import {
   CheckIcon,
   CircleAlertIcon,
+  ClockIcon,
   EyeIcon,
   PencilIcon,
   RefreshCwIcon,
+  StoreIcon,
   UnplugIcon,
   UploadIcon,
+  UtensilsIcon,
+  type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -310,6 +314,13 @@ const AREA_LABEL: Record<AreaKey, string> = {
   menu: "Food menu",
 }
 
+/** The neutral leading mark of each area's row (an icon, never a status). */
+const AREA_ICON: Record<AreaKey, LucideIcon> = {
+  profile: StoreIcon,
+  hours: ClockIcon,
+  menu: UtensilsIcon,
+}
+
 /**
  * One area's pre-publication diff: what Google shows now against what it
  * will show after publishing, field by field. Below 560px of its own width
@@ -341,6 +352,7 @@ function AreaSection({
   }
 }) {
   const label = AREA_LABEL[area]
+  const Icon = AREA_ICON[area]
   const headingId = `review-${area}`
   const conflict = review?.needsAck ?? false
   return (
@@ -350,24 +362,34 @@ function AreaSection({
       data-area={area}
       className={cardClassName({ className: "flex flex-col overflow-hidden" })}
     >
-      <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <h2 id={headingId} className="text-title font-semibold text-ink">
-            {label}
-          </h2>
-          {review ? (
-            review.blockedReason ? (
-              <StatusPill tone="attention">Needs review</StatusPill>
-            ) : review.rows.length === 0 ? (
-              <StatusPill tone="healthy">In sync with Google</StatusPill>
-            ) : conflict ? (
-              <StatusPill tone="attention">Google changed too</StatusPill>
-            ) : (
-              <StatusPill tone="pending">Not on Google yet</StatusPill>
-            )
-          ) : null}
+      {/* The row: a neutral area mark, the area and its state in words,
+          how many fields change, and the way to edit it. */}
+      <div className="flex items-start gap-3 border-b border-line px-4 py-3">
+        <span
+          aria-hidden
+          className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-fill-secondary text-ink-muted"
+        >
+          <Icon className="size-4" strokeWidth={1.75} />
+        </span>
+        <div className="flex min-w-0 grow flex-col gap-0.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+            <h2 id={headingId} className="text-title font-semibold text-ink">
+              {label}
+            </h2>
+            {review ? (
+              review.blockedReason ? (
+                <StatusPill tone="attention">Needs review</StatusPill>
+              ) : review.rows.length === 0 ? (
+                <StatusPill tone="healthy">In sync with Google</StatusPill>
+              ) : conflict ? (
+                <StatusPill tone="attention">Google changed too</StatusPill>
+              ) : (
+                <StatusPill tone="pending">Not on Google yet</StatusPill>
+              )
+            ) : null}
+          </div>
           {review && review.rows.length > 0 ? (
-            <span className="font-mono text-caption text-ink-muted tabular-nums">
+            <span className="text-caption text-ink-muted tabular-nums">
               {review.rows.length === 1
                 ? "1 field"
                 : `${formatNumber(review.rows.length)} fields`}
@@ -815,35 +837,60 @@ function ReviewPublish({
                 </Alert>
               ) : null}
 
-              {areas.map((area) => {
-                const source =
-                  area === "profile" ? profile : area === "hours" ? hours : menu
-                return (
-                  <AreaSection
-                    key={area}
-                    locationId={locationId}
-                    area={area}
-                    review={source.review}
-                    pending={source.query.isPending}
-                    error={source.query.error}
-                    onRetry={() => void source.query.refetch()}
-                    include={
-                      areas.length > 1
-                        ? {
-                            checked: !excluded.includes(area),
-                            disabled: flow.isPublishing,
-                            onChange: (checked) =>
-                              setExcluded((current) =>
-                                checked
-                                  ? current.filter((key) => key !== area)
-                                  : [...current, area]
-                              ),
+              {/* The areas as one labelled list, in publish order. "To review",
+                  not "waiting": an area here can already be in sync. */}
+              <div className="flex flex-col gap-2">
+                <p
+                  id="review-areas-label"
+                  className="text-caption font-medium text-ink-muted"
+                >
+                  Areas to review ·{" "}
+                  <span className="tabular-nums">
+                    {areas.length === 1
+                      ? "1 area"
+                      : `${formatNumber(areas.length)} areas`}
+                  </span>
+                </p>
+                <ul
+                  aria-labelledby="review-areas-label"
+                  className="flex flex-col gap-3"
+                >
+                  {areas.map((area) => {
+                    const source =
+                      area === "profile"
+                        ? profile
+                        : area === "hours"
+                          ? hours
+                          : menu
+                    return (
+                      <li key={area}>
+                        <AreaSection
+                          locationId={locationId}
+                          area={area}
+                          review={source.review}
+                          pending={source.query.isPending}
+                          error={source.query.error}
+                          onRetry={() => void source.query.refetch()}
+                          include={
+                            areas.length > 1
+                              ? {
+                                  checked: !excluded.includes(area),
+                                  disabled: flow.isPublishing,
+                                  onChange: (checked) =>
+                                    setExcluded((current) =>
+                                      checked
+                                        ? current.filter((key) => key !== area)
+                                        : [...current, area]
+                                    ),
+                                }
+                              : undefined
                           }
-                        : undefined
-                    }
-                  />
-                )
-              })}
+                        />
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
 
               {unresolved.length > 0 ? (
                 <Alert variant="warning">
@@ -938,7 +985,7 @@ function ReviewPublish({
                         "Reading each area from Google…"
                       ) : (
                         <>
-                          <span className="font-mono tabular-nums">
+                          <span className="tabular-nums">
                             {formatNumber(rows)}
                           </span>{" "}
                           {rows === 1 ? "field" : "fields"} will change on
