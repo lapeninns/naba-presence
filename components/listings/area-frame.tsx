@@ -18,6 +18,7 @@ import Link from "next/link"
 import * as React from "react"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { useQueryClient } from "@tanstack/react-query"
 
 import { ActivityDrawer } from "@/components/editors/activity-drawer"
@@ -198,7 +199,7 @@ function AreaSwitcher({
           <DropdownMenuItem
             key={item.href}
             render={
-              <Link
+              <ShellLink
                 href={item.href}
                 aria-current={item.current ? "page" : undefined}
                 data-unavailable={item.unavailableReason ? true : undefined}
