@@ -2,6 +2,7 @@ import { ArrowDownRight, ArrowUpRight, ChevronRight, Minus } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
+import { COUNT_TEXT_CLASS } from "@/components/ui/count-text"
 import { toneClasses } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
@@ -180,7 +181,8 @@ function KpiTile({
         <Line className="flex flex-wrap items-center gap-1.5 text-caption text-ink-muted">
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 font-mono text-caption font-semibold tabular-nums",
+              "inline-flex items-center gap-0.5 font-semibold",
+              COUNT_TEXT_CLASS,
               DELTA_TONE_CLASS[tone]
             )}
           >

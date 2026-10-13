@@ -2,6 +2,7 @@ import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { COUNT_TEXT_CLASS } from "@/components/ui/count-text"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
@@ -44,10 +45,17 @@ const badgeVariants = cva(
         pill: "rounded-(--np-radius-pill)",
         tag: "rounded-(--np-radius-tag)",
       },
+      // A badge that is only a number ("3 new" is a label; "3" is a count)
+      // draws it in the shared count figure, like a chip or tab count.
+      count: {
+        true: COUNT_TEXT_CLASS,
+        false: "",
+      },
     },
     defaultVariants: {
       variant: "default",
       shape: "tag",
+      count: false,
     },
   }
 )
@@ -56,6 +64,7 @@ function Badge({
   className,
   variant = "default",
   shape = "tag",
+  count = false,
   render,
   ...props
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
@@ -63,7 +72,7 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        className: cn(badgeVariants({ variant, shape }), className),
+        className: cn(badgeVariants({ variant, shape, count }), className),
       },
       props
     ),

@@ -3,6 +3,7 @@
 import { X } from "lucide-react"
 import * as React from "react"
 
+import { COUNT_TEXT_CLASS } from "@/components/ui/count-text"
 import { cn } from "@/lib/utils"
 
 /**
@@ -52,7 +53,7 @@ function ChipCount({
       data-slot="chip-count"
       data-tone={tone}
       className={cn(
-        "font-mono text-caption leading-none tabular-nums",
+        COUNT_TEXT_CLASS,
         tone === "alert"
           ? "font-bold text-danger-ink"
           : "text-ink-muted group-aria-pressed/chip:text-canvas/80 group-aria-[current=page]/chip:text-canvas/80",

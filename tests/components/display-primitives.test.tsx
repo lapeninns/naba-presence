@@ -362,9 +362,21 @@ describe("Stars label", () => {
 })
 
 describe("Chip", () => {
-  it("keeps counts at the caption size, never a sub-12px literal", () => {
-    render(<ChipCount>4</ChipCount>)
-    expect(screen.getByText("4")).toHaveClass("text-caption")
+  it("draws counts in the shared count figure, never a sub-12px literal", () => {
+    render(
+      <>
+        <ChipCount>4</ChipCount>
+        <Badge variant="secondary" count>
+          7
+        </Badge>
+      </>
+    )
+    for (const figure of [screen.getByText("4"), screen.getByText("7")]) {
+      expect(figure.className).toContain("--np-text-count")
+      expect(figure.className).not.toMatch(/text-\[\d/)
+    }
+    // tailwind-merge keeps the colour beside the count size.
+    expect(screen.getByText("7")).toHaveClass("text-ink-secondary")
   })
 
   it("scrolls the pressed chip into view when it changes", () => {
