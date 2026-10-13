@@ -1,6 +1,9 @@
-import { render, screen, within } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
+import type { ReactElement } from "react"
+import { hydrateRoot } from "react-dom/client"
+import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { BillingBanner } from "@/components/app-shell/billing-banner"
@@ -635,5 +638,55 @@ describe("PlanUsageCard", () => {
     render(<PlanUsageCard />)
     expect(screen.getByText("3 locations linked, no limit")).toBeVisible()
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+})
+
+// C-S1: the server never has billing, but the shell's banner can fill the
+// query cache before a billing screen hydrates. The hydration render must
+// still be the server's pending markup (React #418); the record lands after.
+describe("billing screens hydrate from a filled cache", () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  async function hydrateWithCache(page: () => ReactElement) {
+    mockBilling(undefined, { isPending: true })
+    const html = renderToString(page())
+    const container = document.createElement("div")
+    container.innerHTML = html
+    document.body.appendChild(container)
+    mockBilling(ACTIVE)
+    const errors: unknown[] = []
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    let root: ReturnType<typeof hydrateRoot> | undefined
+    await act(async () => {
+      root = hydrateRoot(container, page(), {
+        onRecoverableError: (error) => errors.push(error),
+      })
+    })
+    const hydrationErrors = [
+      ...errors.map(String),
+      ...consoleError.mock.calls
+        .map((call) => call.map(String).join(" "))
+        .filter((line) => /hydrat|didn't match/i.test(line)),
+    ]
+    const text = container.textContent
+    act(() => root!.unmount())
+    container.remove()
+    return { hydrationErrors, text }
+  }
+
+  it("PlanUsageCard matches the server's skeleton, then shows the plan", async () => {
+    const { hydrationErrors, text } = await hydrateWithCache(() => (
+      <PlanUsageCard />
+    ))
+    expect(hydrationErrors).toEqual([])
+    expect(text).toMatch(/locations linked/)
+  })
+
+  it("BillingConfirming matches the server's wait, then confirms", async () => {
+    const { hydrationErrors, text } = await hydrateWithCache(() => (
+      <BillingConfirming now={() => 0} />
+    ))
+    expect(hydrationErrors).toEqual([])
+    expect(text).toContain("Subscription confirmed")
   })
 })

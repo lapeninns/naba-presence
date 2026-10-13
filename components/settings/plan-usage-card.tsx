@@ -1,12 +1,6 @@
 "use client"
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { SettingsSection } from "@/components/settings/settings-section"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -16,6 +10,7 @@ import {
   describeLocationUsage,
   pendingLinkLimitNote,
 } from "@/lib/billing/presentation"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useBilling } from "@/lib/queries/use-billing"
 
 /**
@@ -26,58 +21,60 @@ import { useBilling } from "@/lib/queries/use-billing"
  */
 export function PlanUsageCard() {
   const billing = useBilling()
-  const data = billing.data
+  // The server never has billing, so it renders the skeleton. The shell's
+  // billing banner reads the same query and can fill the cache before this
+  // card hydrates; the hydration render must still match the server's
+  // skeleton (React #418), so the plan lands one render later.
+  const hydrated = useHydrated()
+  const data = hydrated ? billing.data : undefined
   const limit = data?.access.locationLimit ?? null
   const status = data ? billingStatus(data) : null
   const linkNote = data ? pendingLinkLimitNote(data) : null
 
   return (
-    <Card flush data-slot="plan-usage-card">
-      <CardHeader divided>
-        <CardTitle as="h2">Plan</CardTitle>
-        <CardDescription>
-          Linked Google locations count toward the plan, including disconnected
-          ones.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
-        {billing.isPending ? (
-          <Skeleton className="h-10 w-full" />
-        ) : data && status ? (
-          <>
-            <p className="m-0 flex flex-wrap items-center gap-2 text-body text-ink">
-              <StatusPill tone={status.tone}>{status.label}</StatusPill>
-              <span>
-                {data.plan?.name ??
-                  (data.state === "pilot" ? "Pilot" : "No plan")}
-              </span>
-            </p>
-            <p className="m-0 text-ui text-ink-secondary">
-              {describeBilling(data)}
-            </p>
-            <p className="m-0 text-body text-ink">
-              <strong className="font-semibold">
-                {describeLocationUsage(data)}
-              </strong>
-            </p>
-            {limit !== null ? (
-              <Progress
-                label="Locations linked"
-                value={data.billableLocations}
-                max={Math.max(1, limit)}
-                tone={data.billableLocations >= limit ? "bad" : "default"}
-              />
-            ) : null}
-            {linkNote ? (
-              <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
-            ) : null}
-          </>
-        ) : (
-          <p role="alert" className="m-0 text-caption text-danger-ink">
-            The plan could not be loaded.
+    <SettingsSection
+      id="settings-usage-plan"
+      data-slot="plan-usage-card"
+      title="Plan"
+      description="Linked Google locations count toward the plan, including disconnected ones."
+      variant="group"
+    >
+      {!hydrated || billing.isPending ? (
+        <Skeleton className="h-10 w-full" />
+      ) : data && status ? (
+        <>
+          <p className="m-0 flex flex-wrap items-center gap-2 text-body text-ink">
+            <StatusPill tone={status.tone}>{status.label}</StatusPill>
+            <span>
+              {data.plan?.name ??
+                (data.state === "pilot" ? "Pilot" : "No plan")}
+            </span>
           </p>
-        )}
-      </CardContent>
-    </Card>
+          <p className="m-0 text-ui text-ink-secondary">
+            {describeBilling(data)}
+          </p>
+          <p className="m-0 text-body text-ink">
+            <strong className="font-semibold">
+              {describeLocationUsage(data)}
+            </strong>
+          </p>
+          {limit !== null ? (
+            <Progress
+              label="Locations linked"
+              value={data.billableLocations}
+              max={Math.max(1, limit)}
+              tone={data.billableLocations >= limit ? "bad" : "default"}
+            />
+          ) : null}
+          {linkNote ? (
+            <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
+          ) : null}
+        </>
+      ) : (
+        <p role="alert" className="m-0 text-caption text-danger-ink">
+          The plan could not be loaded.
+        </p>
+      )}
+    </SettingsSection>
   )
 }

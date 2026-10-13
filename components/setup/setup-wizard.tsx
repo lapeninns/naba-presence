@@ -14,6 +14,7 @@ import { PageHeader } from "@/components/app-shell/page-frame"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { cardClassName } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -48,6 +49,14 @@ import { StepTeam } from "./step-team"
 
 const AGENCY_UNSAVED =
   "Save the new timezone, or change it back, before continuing."
+
+/**
+ * Below md the step is a focused screen rather than a card (Notion Mail's
+ * onboarding): no border, radius or white slab, just the step on the page
+ * ground with the page's own gutter. From md it is the card beside the rail.
+ */
+const PHONE_UNCARDED =
+  "max-md:rounded-none max-md:border-0 max-md:bg-transparent"
 
 /** The control a step's validation message moves focus to. */
 function focusTargetFor(step: SetupStep): string {
@@ -102,9 +111,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
   // clear of the bar's measured top, which is two rows when a blocked
   // step's reason sits over Back and Continue. The section mounts after the
   // loading states, so the hook follows it through a callback ref.
-  const [stepSection, setStepSection] = React.useState<HTMLElement | null>(
-    null
-  )
+  const [stepSection, setStepSection] = React.useState<HTMLElement | null>(null)
   const stepSectionRef = React.useMemo(
     () => ({ current: stepSection }),
     [stepSection]
@@ -167,7 +174,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
           clientName={clientName}
           business={business}
         />
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <div className={cardClassName({ className: PHONE_UNCARDED })}>
           <Empty
             tone="bad"
             titleAs="h2"
@@ -291,7 +298,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
         <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
           <nav
             aria-label="Setup progress"
-            className="sticky top-[calc(var(--np-toolbar-h)+16px)] hidden flex-col gap-3 @3xl/setup:flex"
+            className="sticky top-(--np-toolbar-h) -mt-4 hidden flex-col gap-3 pt-4 @3xl/setup:flex"
           >
             <Stepper
               orientation="vertical"
@@ -307,9 +314,14 @@ function SetupWizard({ clientId }: { clientId: string }) {
             ref={setStepSection}
             aria-labelledby="setup-step-title"
             data-step={current}
-            className="@container/wiz flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface"
+            className={cardClassName({
+              className: cn(
+                "@container/wiz flex min-w-0 flex-col",
+                PHONE_UNCARDED
+              ),
+            })}
           >
-            <div className="flex flex-col gap-1 border-b border-line px-(--np-card-pad) pt-(--np-card-pad) pb-4">
+            <div className="flex flex-col gap-1 border-b border-line-subtle px-(--np-card-pad) pt-(--np-card-pad) pb-4 max-md:px-0 max-md:pt-0">
               <div className="mb-2 flex flex-col gap-2 @3xl/setup:hidden">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-caption font-semibold text-ink">
@@ -350,7 +362,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                       orientation="vertical"
                       aria-label="Setup steps"
                       steps={steps}
-                      className="mt-2 rounded-(--np-radius-card) border border-line bg-surface-alt p-1.5"
+                      className="mt-2 rounded-(--np-radius-card) border border-line-subtle bg-surface-alt p-1.5"
                     />
                   ) : null}
                 </div>
@@ -371,12 +383,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
               >
                 {definition.title}
               </h2>
-              <p className="max-w-[64ch] text-ui text-pretty text-ink-muted">
+              <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink-muted">
                 {definition.description}
               </p>
             </div>
 
-            <div className="flex min-w-0 flex-col gap-4 p-(--np-card-pad)">
+            <div className="flex min-w-0 flex-col gap-4 p-(--np-card-pad) max-md:px-0">
               {resolved.redirected ? (
                 <Alert variant="info" icon={<InfoIcon aria-hidden />}>
                   <AlertDescription>
@@ -541,10 +553,17 @@ function WizardSkeleton({
             <Skeleton key={step} className="h-8" />
           ))}
         </div>
-        <div className="flex flex-col gap-3.5 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
-          <Skeleton className="h-3.5 w-24" />
-          <Skeleton className="h-6 w-56 max-w-full" />
-          <Skeleton className="h-4 w-80 max-w-full" />
+        <div
+          className={cardClassName({
+            pad: true,
+            className: cn("flex flex-col gap-4", PHONE_UNCARDED, "max-md:p-0"),
+          })}
+        >
+          <div className="flex flex-col gap-2 border-b border-line-subtle pb-4">
+            <Skeleton className="h-3.5 w-24" />
+            <Skeleton className="h-6 w-56 max-w-full" />
+            <Skeleton className="h-4 w-80 max-w-full" />
+          </div>
           <Skeleton className="h-32 w-full rounded-(--np-radius-card)" />
         </div>
       </div>

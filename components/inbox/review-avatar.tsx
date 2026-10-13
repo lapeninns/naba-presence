@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils"
 /**
  * Decorative identity beside the reviewer's accessible name, in both panes.
  *
- * Neutral on purpose: the Avatar primitive's `bg-fill` circle with
- * `text-ink-secondary` initials. Tinting it by a hash of the name put the
+ * Neutral on purpose: the Avatar primitive's `--np-avatar-bg` circle with
+ * `--np-avatar-ink` initials. Tinting it by a hash of the name put the
  * info, success and warning hues on rows where those colours mean a status
  * (design rule D3), so a reviewer could read as "failed" or "done".
  *

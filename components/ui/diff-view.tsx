@@ -34,6 +34,13 @@ export type DiffRow = {
  * shows its column label above it (a caption, never below the 12px floor).
  *
  * Labels are props: `fieldLabel`, `beforeLabel`, `afterLabel`.
+ *
+ * `variant="flat"` draws the same table with no card and no tints, for a
+ * diff that already sits inside a sheet or editor surface: the field name
+ * and the old value in muted ink (the old one struck through in muted ink),
+ * the new value in ink at the regular weight, rows split by hairlines. The
+ * words "Not set" and "Cleared" and the strike-through still say which
+ * value is which without colour.
  */
 function DiffView({
   rows,
@@ -41,20 +48,30 @@ function DiffView({
   beforeLabel = "On Google now",
   afterLabel = "After publishing",
   caption,
+  variant = "card",
   className,
 }: {
   rows: DiffRow[]
+  /** `card` (default): bordered card with tints. `flat`: no card, no tints. */
+  variant?: "card" | "flat"
   fieldLabel?: string
   beforeLabel?: string
   afterLabel?: string
   caption: string
   className?: string
 }) {
+  const flat = variant === "flat"
+  const headCell = cn(
+    "border-b border-line px-3 py-2.5 text-left text-caption text-ink-muted",
+    flat ? "font-medium" : "bg-surface-alt font-semibold"
+  )
   return (
     <div
       data-slot="diff-view"
+      data-variant={variant}
       className={cn(
-        "@container/diff min-w-0 overflow-hidden rounded-(--np-radius-card) border border-line bg-surface",
+        "@container/diff min-w-0 overflow-hidden",
+        !flat && "rounded-(--np-radius-card) border border-line bg-surface",
         className
       )}
     >
@@ -67,22 +84,13 @@ function DiffView({
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
-            <th
-              scope="col"
-              className="w-1/4 border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
-            >
+            <th scope="col" className={cn("w-1/4", headCell)}>
               {fieldLabel}
             </th>
-            <th
-              scope="col"
-              className="border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
-            >
+            <th scope="col" className={headCell}>
               {beforeLabel}
             </th>
-            <th
-              scope="col"
-              className="border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
-            >
+            <th scope="col" className={headCell}>
               {afterLabel}
             </th>
           </tr>
@@ -94,11 +102,19 @@ function DiffView({
               <tr
                 key={row.field}
                 data-state={row.state ?? "changed"}
-                className="border-b border-line last:border-0"
+                className={cn(
+                  "border-b last:border-0",
+                  flat ? "border-line-subtle" : "border-line"
+                )}
               >
                 <th
                   scope="row"
-                  className="px-3 py-2.5 text-left align-top font-semibold break-words text-ink @max-xl/diff:bg-surface-alt"
+                  className={cn(
+                    "px-3 py-2.5 text-left align-top break-words",
+                    flat
+                      ? "font-normal text-ink-muted"
+                      : "font-semibold text-ink @max-xl/diff:bg-surface-alt"
+                  )}
                 >
                   <span className="flex flex-col items-start gap-1">
                     {row.field}
@@ -114,14 +130,22 @@ function DiffView({
                   className={cn(
                     "px-3 py-2.5 align-top [overflow-wrap:anywhere]",
                     "@max-xl/diff:before:block @max-xl/diff:before:text-caption @max-xl/diff:before:text-ink-secondary @max-xl/diff:before:content-[attr(data-label)]",
-                    changed
-                      ? "bg-danger-tint text-ink-secondary"
-                      : "text-ink-muted"
+                    flat
+                      ? "text-ink-muted"
+                      : changed
+                        ? "bg-danger-tint text-ink-secondary"
+                        : "text-ink-muted"
                   )}
                 >
                   {row.before ? (
                     changed ? (
-                      <del className="decoration-danger-ink">{row.before}</del>
+                      <del
+                        className={
+                          flat ? "decoration-ink-muted" : "decoration-danger-ink"
+                        }
+                      >
+                        {row.before}
+                      </del>
                     ) : (
                       row.before
                     )
@@ -134,7 +158,7 @@ function DiffView({
                   className={cn(
                     "px-3 py-2.5 align-top [overflow-wrap:anywhere]",
                     "@max-xl/diff:before:block @max-xl/diff:before:text-caption @max-xl/diff:before:font-normal @max-xl/diff:before:text-ink-secondary @max-xl/diff:before:content-[attr(data-label)]",
-                    changed
+                    changed && !flat
                       ? "bg-success-tint font-semibold text-ink"
                       : "text-ink"
                   )}

@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils"
 
 /**
  * An iOS inset-grouped list: a white card of rows on the grey canvas, with a
- * caption above and a footnote below. For settings, profile and any screen
+ * sentence-case caption above (D8: `text-caption` medium muted, never mono
+ * uppercase) and a footnote below. Rows are divided by `line-subtle`
+ * hairlines inset to the label. For settings, profile and any screen
  * that is a column of labelled rows.
  *
  * The rows are an `ul > li`, and an interactive row puts its link or button
@@ -29,9 +31,15 @@ function GroupedList({
   const headerId = header ? `${id}-header` : undefined
   const footerId = footer ? `${id}-footer` : undefined
   return (
-    <div data-slot="grouped-list" className={cn("flex flex-col gap-1.5", className)}>
+    <div
+      data-slot="grouped-list"
+      className={cn("flex flex-col gap-1.5", className)}
+    >
       {header ? (
-        <p id={headerId} className="px-1 font-mono text-caption font-medium tracking-[0.06em] text-ink-muted uppercase">
+        <p
+          id={headerId}
+          className="px-1 text-caption font-medium text-ink-muted"
+        >
           {header}
         </p>
       ) : null}
@@ -71,7 +79,10 @@ type GroupedListItemBase = {
   tone?: "default" | "danger"
   disabled?: boolean
   className?: string
-} & Omit<React.HTMLAttributes<HTMLElement>, "onClick" | "children" | "className">
+} & Omit<
+  React.HTMLAttributes<HTMLElement>,
+  "onClick" | "children" | "className"
+>
 
 type GroupedListItemProps = GroupedListItemBase & {
   /** Renders the row as a Link. */
@@ -156,9 +167,9 @@ function GroupedListItem({
   )
 
   const rowClass = cn(
-    "flex w-full min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
+    "flex min-h-(--np-row-h) w-full items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
     interactive &&
-      "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover-fine:hover:bg-surface-alt active:bg-fill focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]",
+      "transition-colors duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none active:bg-fill hover-fine:hover:bg-surface-alt",
     disabled && "pointer-events-none opacity-50",
     className
   )
@@ -174,7 +185,7 @@ function GroupedListItem({
       data-slot="grouped-list-item"
       data-tone={tone}
       style={{ "--gl-inset": inset } as React.CSSProperties}
-      className="relative before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--gl-inset) before:h-px before:bg-line before:content-[''] first:before:hidden"
+      className="relative before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--gl-inset) before:h-px before:bg-line-subtle before:content-[''] first:before:hidden"
     >
       {href ? (
         <Link

@@ -96,7 +96,7 @@ export function OnboardingCategories({
       aria-label="Business categories"
     >
       <div className="space-y-1">
-        <h5 className="text-ui font-semibold">Business categories</h5>
+        <h5 className="text-ui font-semibold text-ink">Business categories</h5>
         <p className="text-caption text-ink-muted">
           Choose the primary category that describes the business as a whole,
           then up to nine additional categories. Categories are saved with your
@@ -104,7 +104,7 @@ export function OnboardingCategories({
         </p>
       </div>
       {value ? (
-        <div className="space-y-2 rounded-(--np-radius-card) border border-line p-4">
+        <div className="flex flex-col gap-2 border-y border-line-subtle py-3">
           <p className="text-ui break-words">
             <strong>Primary:</strong> {label(value.primaryCategory.name)}
           </p>
@@ -142,7 +142,7 @@ export function OnboardingCategories({
           </Button>
         </div>
       ) : (
-        <p className="text-ui text-ink-muted">No primary category selected.</p>
+        <p className="text-body text-ink-muted">No primary category selected.</p>
       )}
       <Field>
         <FieldLabel>Search Google categories</FieldLabel>
@@ -198,13 +198,13 @@ export function OnboardingCategories({
               ? `${categories.length} categories loaded.`
               : "Google returned no categories for this search. Try another category name."}
           </p>
-          <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">
+          <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
             {categories.map((category) => (
               <li
                 key={category.name}
-                className="flex flex-wrap items-center justify-between gap-2 p-3"
+                className="flex flex-wrap items-center justify-between gap-2 py-3"
               >
-                <span className="min-w-0 text-ui font-medium break-words">
+                <span className="min-w-0 text-body font-medium break-words text-ink">
                   {category.displayName}
                 </span>
                 <div className="flex flex-wrap gap-2">

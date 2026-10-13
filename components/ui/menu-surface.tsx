@@ -22,13 +22,14 @@ import { cn } from "@/lib/utils"
 /* ---- Desk: the floating panel ------------------------------------------ */
 
 /**
- * The floating popup (reference `.menu`): surface, hairline edge, 10px
- * radius, pop shadow, 6px inset. Base UI's Select aligns the popup with the
+ * The floating popup (Notion Mail's popover menu): an opaque surface (no
+ * glass, D3), hairline edge, the menu radius, the soft float shadow, 6px
+ * inset. Base UI's Select aligns the popup with the
  * trigger item by default (`data-side="none"`), in which case nothing
  * scales: the menu simply appears over the trigger.
  */
 export const menuPopupClassName = cn(
-  "rounded-(--np-radius-menu) border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none",
+  "rounded-menu border border-line bg-surface p-1.5 text-ink shadow-np-float outline-none",
   "origin-(--transform-origin) transition-[transform,opacity] duration-(--np-duration-overlay) ease-spring",
   "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
   "data-[side=none]:data-starting-style:scale-100 data-[side=none]:data-starting-style:opacity-100 data-[side=none]:data-starting-style:transition-none"

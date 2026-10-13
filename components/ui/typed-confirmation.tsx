@@ -57,8 +57,21 @@ export type TypedConfirmationProps = Omit<
   React.ComponentProps<typeof Input>,
   "value" | "defaultValue" | "onChange"
 > & {
-  /** The text the person must type (a location name, usually). */
-  expected: string
+  /**
+   * The text the person must type (a location name, usually).
+   *
+   * It may be `null` or empty while it loads or when the source has none (a
+   * Google connection whose email is unknown). Then `fallbackExpected` is
+   * asked for instead; with no fallback either, nothing can match, so the
+   * caller's destructive button never arms (see `confirmationMatches`).
+   */
+  expected: string | null | undefined
+  /**
+   * What to ask for when `expected` is `null`, `undefined` or blank, e.g.
+   * the connection's display name when its Google email is unknown. The
+   * label and the match both use it.
+   */
+  fallbackExpected?: string | null
   value?: string
   defaultValue?: string
   onValueChange?: (value: string) => void
@@ -74,7 +87,8 @@ export type TypedConfirmationProps = Omit<
 }
 
 function TypedConfirmation({
-  expected,
+  expected: expectedProp,
+  fallbackExpected,
   value: valueProp,
   defaultValue,
   onValueChange,
@@ -87,6 +101,10 @@ function TypedConfirmation({
 }: TypedConfirmationProps) {
   const [uncontrolled, setUncontrolled] = React.useState(defaultValue ?? "")
   const value = valueProp ?? uncontrolled
+  const expected =
+    expectedProp && expectedProp.trim().length > 0
+      ? expectedProp
+      : (fallbackExpected ?? "")
   const matched = confirmationMatches(value, expected, match)
 
   // Report flips, not keystrokes; an effect (not the change handler) so a

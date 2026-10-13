@@ -13,13 +13,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { SettingsSection } from "@/components/settings/settings-section"
 import { ApiClientError } from "@/lib/api/client"
 import { changeWorkspaceMode } from "@/lib/api/session"
 import { hardNavigate } from "@/lib/client/hard-navigate"
@@ -65,8 +59,7 @@ function reportShareExposure(
     return null
   }
   const details = error.details as
-    | { locationsToRefile?: unknown; activeReportShares?: unknown }
-    | undefined
+    { locationsToRefile?: unknown; activeReportShares?: unknown } | undefined
   return {
     locationsToRefile: Number(details?.locationsToRefile) || 0,
     activeReportShares: Number(details?.activeReportShares) || 0,
@@ -127,29 +120,29 @@ export function WorkspaceModeCard() {
   const copy = COPY[session.workspaceMode]
 
   return (
-    <Card flush>
-      <CardHeader divided>
-        <CardTitle as="h2">Workspace type</CardTitle>
-        <CardDescription>{copy.current}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col items-start gap-3 py-(--np-card-pad)">
-        {error ? (
-          <Alert variant="destructive">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => {
-            setError(null)
-            setExposure(null)
-            setConfirming(true)
-          }}
-        >
-          {copy.action}
-        </Button>
-      </CardContent>
+    <SettingsSection
+      id="settings-workspace-type"
+      title="Workspace type"
+      description={copy.current}
+      variant="group"
+      contentClassName="items-start"
+    >
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => {
+          setError(null)
+          setExposure(null)
+          setConfirming(true)
+        }}
+      >
+        {copy.action}
+      </Button>
       <AlertDialog
         open={confirming}
         onOpenChange={(open) => {
@@ -180,6 +173,6 @@ export function WorkspaceModeCard() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </SettingsSection>
   )
 }

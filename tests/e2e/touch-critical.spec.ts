@@ -743,8 +743,13 @@ test.describe("touch: critical journeys at 390x844", () => {
       page.getByRole("heading", { name: "Settings", level: 1 })
     ).toBeVisible()
     const index = page.getByRole("navigation", { name: "Settings" })
-    await expect(index.getByRole("list", { name: "You" })).toBeVisible()
-    await expect(index.getByRole("list", { name: "Workspace" })).toBeVisible()
+    // The shared SettingsGroup (FOUNDATION Drop 1) names its section, not
+    // its list: each named group must still hold a visible list of rows.
+    for (const group of ["You", "Workspace"]) {
+      const region = index.getByRole("region", { name: group })
+      await expect(region).toBeVisible()
+      await expect(region.getByRole("list")).toBeVisible()
+    }
 
     await tap(index.getByRole("link", { name: /^Reply policy/ }))
     await expect(page).toHaveURL(/\/settings\/policy$/)

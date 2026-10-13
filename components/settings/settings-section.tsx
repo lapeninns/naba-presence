@@ -10,9 +10,14 @@ import {
 import { cn } from "@/lib/utils"
 
 /**
- * One titled settings block: a Card with a divided header (title, one line of
- * description, optional action) and its content. Replaces the hand-rolled
- * `rounded border bg-surface p-4` sections across settings, setup and privacy.
+ * One titled settings block. Two looks, one API:
+ * - `card` (default): a Card with a divided header (title, one line of
+ *   description, optional action) and its content. Setup uses this.
+ * - `group`: the Drop 1 SettingsGroup look. A quiet sentence-case label in
+ *   `ink-muted` sits above the content; on a phone (and any touch screen)
+ *   the content lies flat on the canvas, and at the desk it sits in a
+ *   bordered card.
+ * Either way the block is a region labelled by its heading.
  */
 function SettingsSection({
   id,
@@ -21,7 +26,10 @@ function SettingsSection({
   action,
   children,
   className,
+  contentClassName,
   headingLevel = "h2",
+  variant = "card",
+  "data-slot": slot,
 }: {
   /** Heading id; the section is labelled by it. */
   id: string
@@ -30,10 +38,59 @@ function SettingsSection({
   action?: React.ReactNode
   children: React.ReactNode
   className?: string
+  /** Extra classes for the content box (`group` only). */
+  contentClassName?: string
   headingLevel?: "h2" | "h3"
+  variant?: "card" | "group"
+  /** Overrides the block's `data-slot` (tests and pages find it by this). */
+  "data-slot"?: string
 }) {
+  if (variant === "group") {
+    // Drop 1's SettingsGroup look (components/ui/settings-row.tsx): its
+    // label row and its desk-only card. That primitive holds a list of
+    // rows; a section holds forms and facts, so it keeps its own box.
+    const Heading = headingLevel
+    return (
+      <section
+        aria-labelledby={id}
+        data-slot={slot ?? "settings-section"}
+        data-variant="group"
+        className={cn("flex min-w-0 flex-col gap-1", className)}
+      >
+        <div className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-3 gap-y-1 desk:min-h-8">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <Heading
+              id={id}
+              data-slot="settings-group-label"
+              className="text-ui font-medium text-ink-muted"
+            >
+              {title}
+            </Heading>
+            {description ? (
+              <p className="text-caption text-ink-muted">{description}</p>
+            ) : null}
+          </div>
+          {action ? <div className="shrink-0">{action}</div> : null}
+        </div>
+        <div
+          className={cn(
+            "@container flex min-w-0 flex-col gap-3 desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)",
+            contentClassName
+          )}
+        >
+          {children}
+        </div>
+      </section>
+    )
+  }
   return (
-    <Card role="region" aria-labelledby={id} className={className}>
+    <Card
+      role="region"
+      aria-labelledby={id}
+      // Only when given: otherwise the Card keeps its own `card` slot.
+      {...(slot ? { "data-slot": slot } : {})}
+      className={className}
+    >
       <CardHeader divided>
         <CardTitle as={headingLevel} id={id}>
           {title}

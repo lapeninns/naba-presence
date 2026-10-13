@@ -815,7 +815,12 @@ describe("ReviewList row anatomy", () => {
     const avatar = button.querySelector("[data-reviewer-avatar]")!
     expect(avatar).not.toHaveAttribute("data-avatar-tone")
     expect(avatar).toHaveAttribute("data-size", "default")
-    expect(avatar).toHaveClass("bg-fill", "text-ink-secondary")
+    // The primitive's neutral pair (Drop 1 names it --np-avatar-bg/-ink),
+    // and none of the status tints the name hash used to pick.
+    expect(avatar).toHaveClass("bg-avatar-bg", "text-avatar-ink")
+    expect(avatar.className).not.toMatch(
+      /(info|success|warning|danger)-(tint|ink)/
+    )
   })
 
   it("draws the inset hairline under every row but the selected one and the last", () => {

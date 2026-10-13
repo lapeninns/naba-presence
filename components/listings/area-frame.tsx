@@ -3,6 +3,7 @@
 import {
   CheckIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
   DownloadIcon,
   ExternalLinkIcon,
   GlobeIcon,
@@ -372,7 +373,7 @@ function HeaderOverflow({
  * Phone (under 48rem), three short rows so the editor starts above the
  * fold: the listing's name as the switcher to its sibling listings (the
  * client's name on the overview) with a "⋯" menu holding the page's links,
- * Review & publish and Activity; the page title in the serif with ONE
+ * Review & publish and Activity; the page title (sans, D1) with ONE
  * status pill; and one area button opening the area list, beside an info
  * button that says where a change made here goes.
  *
@@ -442,8 +443,17 @@ function ListingAreaHeader({
         <Link
           href={listingHref(locationId)}
           data-slot="listing-name"
-          className="inline-flex min-h-(--np-control-h) max-w-full min-w-0 items-center rounded-(--np-radius-tag) text-title font-semibold text-ink underline-offset-3 focus-halo hover:underline"
+          className="inline-flex min-h-(--np-control-h) max-w-full min-w-0 items-center gap-0.5 rounded-(--np-radius-tag) text-title font-semibold text-ink underline-offset-3 focus-halo hover:underline"
         >
+          {/* "‹ The Bell": the labelled way up to the listing. Below `wide`
+              the shell's app bar or toolbar already draws this back control
+              from the same trail, so the chevron shows only where the shell
+              draws breadcrumbs instead: one labelled back per screen. */}
+          <ChevronLeftIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="-ml-1 hidden size-5 shrink-0 text-ink-muted wide:block"
+          />
           <span className="truncate">{entry.name}</span>
         </Link>
       }
@@ -487,7 +497,7 @@ function ListingAreaHeader({
             />
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-            <h1 className="min-w-0 font-display text-page-title font-semibold text-balance break-words text-ink">
+            <h1 className="min-w-0 text-page-title font-semibold text-balance break-words text-ink">
               {title}
             </h1>
             {status === undefined ? (

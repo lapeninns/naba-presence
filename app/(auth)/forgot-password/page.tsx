@@ -10,7 +10,7 @@ export default function ForgotPasswordPage() {
       aside="recovery"
       eyebrow="Account recovery"
       title="Reset your password"
-      description="Enter the email you sign in with. We’ll send a link to choose a new password. Your Google connections are not affected."
+      description="We’ll email you a link to choose a new password. Your Google connections are not affected."
       footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
     >
       <ForgotPasswordForm />
