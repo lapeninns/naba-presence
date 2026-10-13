@@ -124,7 +124,7 @@ function FileUnderClient({
       >
         <SelectTrigger
           ref={selectRef}
-          className="h-7 w-44 text-caption"
+          className="w-44 max-w-full desk:h-(--np-control-h-sm) desk:text-caption"
           aria-label={`File ${locationName} under a client`}
           onClick={(event: React.MouseEvent) => event.stopPropagation()}
         >

@@ -13,6 +13,16 @@ import type { FoodMenu } from "@/lib/api/location-menu"
 
 afterEach(() => vi.clearAllMocks())
 
+/** Opens a row's overflow menu ("Actions for Soup") and picks one action. */
+async function rowAction(
+  user: ReturnType<typeof userEvent.setup>,
+  trigger: string,
+  action: string
+) {
+  await user.click(screen.getByRole("button", { name: trigger }))
+  await user.click(await screen.findByRole("menuitem", { name: action }))
+}
+
 function fixture(): FoodMenu[] {
   return [
     {
@@ -241,7 +251,7 @@ describe("MenuEditor structured workspace", () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     render(<Harness onChange={onChange} />)
-    await user.click(screen.getByRole("button", { name: "Remove Soup" }))
+    await rowAction(user, "Actions for Soup", "Remove item")
     const dialog = screen.getByRole("alertdialog")
     expect(dialog).toHaveTextContent("Google keeps its menu")
     await user.click(
@@ -254,7 +264,7 @@ describe("MenuEditor structured workspace", () => {
   it("undo restores only the removed item, preserving later edits", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await user.click(screen.getByRole("button", { name: "Remove Soup" }))
+    await rowAction(user, "Actions for Soup", "Remove item")
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
         name: "Remove item",
@@ -278,9 +288,7 @@ describe("MenuEditor structured workspace", () => {
   it("confirms the affected item count before removing a section", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await user.click(
-      screen.getByRole("button", { name: "Remove section Starters" })
-    )
+    await rowAction(user, "Actions for section Starters", "Remove section")
     expect(screen.getByRole("alertdialog")).toHaveTextContent(
       "2 items will be removed"
     )
@@ -318,7 +326,7 @@ describe("MenuEditor structured workspace", () => {
     fireEvent.change(screen.getByLabelText("Price (EUR)"), {
       target: { value: "12." },
     })
-    await user.click(screen.getByRole("button", { name: "Move Soup down" }))
+    await rowAction(user, "Actions for Soup", "Move down")
     expect(
       wire()[0].sections[0].items.map(
         (item: { labels: Array<{ displayName: string }> }) =>
@@ -331,7 +339,7 @@ describe("MenuEditor structured workspace", () => {
   it("duplicates an item with its options and independent identity", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await user.click(screen.getByRole("button", { name: "Duplicate Soup" }))
+    await rowAction(user, "Actions for Soup", "Duplicate")
     const copy = screen.getByDisplayValue("Soup (copy)")
     expect(copy).toHaveFocus()
     expect(wire()[0].sections[0].items[1].options).toEqual(
@@ -393,7 +401,7 @@ describe("MenuEditor structured workspace", () => {
       screen.queryByRole("button", { name: "New menu" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Remove Soup" })
+      screen.queryByRole("button", { name: "Actions for Soup" })
     ).not.toBeInTheDocument()
     await user.selectOptions(
       screen.getByLabelText("Menu"),
@@ -409,7 +417,7 @@ describe("MenuEditor structured workspace", () => {
     const { rerender } = render(
       <MenuEditor menus={initial} disabled={false} onChange={() => {}} />
     )
-    await user.click(screen.getByRole("button", { name: "Remove Soup" }))
+    await rowAction(user, "Actions for Soup", "Remove item")
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
         name: "Remove item",

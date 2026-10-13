@@ -1,9 +1,8 @@
 "use client"
 
 import { PencilIcon, Plus } from "lucide-react"
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useImperativeHandle, useRef, useState } from "react"
 
-import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { PostPreview } from "@/components/locations/posts/post-preview"
 import { Button } from "@/components/ui/button"
@@ -29,6 +28,7 @@ import {
 import {
   Sheet,
   SheetBody,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetFooter,
@@ -45,7 +45,6 @@ import {
   type LocalPostActionType,
   type LocalPostTopicType,
 } from "@/lib/contracts/location-posts"
-import { useCloseGuard } from "@/lib/editors/use-close-guard"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   localPostFormSchema,
@@ -67,6 +66,7 @@ import {
 } from "@/lib/locations/post-recurrence"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
+import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 const TOPICS: ReadonlyArray<{ value: LocalPostTopicType; label: string }> = [
   { value: "STANDARD", label: "Update" },
@@ -334,6 +334,7 @@ export function PostComposerSheet({
   disabledReason,
   post,
   timezone = DEFAULT_TIMEZONE,
+  openRef,
 }: {
   locationId: string
   disabledReason: string | null
@@ -341,6 +342,11 @@ export function PostComposerSheet({
   post?: Post
   /** The listing's IANA timezone: a repeat's last day ends at its midnight. */
   timezone?: string
+  /**
+   * Opened from somewhere else (a post's "More actions" menu): the sheet
+   * draws no trigger of its own and hands back an `open()` instead.
+   */
+  openRef?: React.Ref<{ open: () => void }>
 }) {
   const editing = Boolean(post)
   const [open, setOpen] = useState(false)
@@ -351,8 +357,16 @@ export function PostComposerSheet({
     initial: post ? postFormValues(post, timezone) : EMPTY,
     revision: post ? post.updatedAt : "new",
     scope: post
-      ? { resource: "location-post-edit", resourceId: `${locationId}/${post.id}`, schemaVersion: 1 }
-      : { resource: "location-post-new", resourceId: locationId, schemaVersion: 1 },
+      ? {
+          resource: "location-post-edit",
+          resourceId: `${locationId}/${post.id}`,
+          schemaVersion: 1,
+        }
+      : {
+          resource: "location-post-new",
+          resourceId: locationId,
+          schemaVersion: 1,
+        },
     parseStashed: parseValues,
     isEqual: post ? undefined : sameNewPost,
   })
@@ -363,7 +377,6 @@ export function PostComposerSheet({
   const [serverError, setServerError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const formRef = useRef<HTMLDivElement | null>(null)
-  const pausedId = useId()
   const typeLabelId = useId()
   const datesId = useId()
   const repeatId = useId()
@@ -372,17 +385,15 @@ export function PostComposerSheet({
   const set = <K extends keyof Values>(key: K, value: Values[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
 
-  // Closing with unsaved edits (Escape, a click outside, Cancel) asks
-  // first; discarding puts the fields back to the saved post.
-  const close = useCloseGuard({
-    isDirty,
-    onOpenChange: setOpen,
-    onDiscard: () => {
-      editor.discard()
-      setErrors({})
-      setServerError(null)
-    },
-  })
+  // Closing with unsaved edits asks first (the sheet's own `dirty` guard:
+  // Escape, a tap outside, a swipe down, the ✕ and Cancel); discarding puts
+  // the fields back to the saved post.
+  const discard = () => {
+    editor.discard()
+    setErrors({})
+    setServerError(null)
+  }
+  useImperativeHandle(openRef, () => ({ open: () => setOpen(true) }), [])
 
   // After a failed save, move focus to the first field that needs fixing.
   useEffect(() => {
@@ -466,465 +477,455 @@ export function PostComposerSheet({
     create.mutate(parsed.data)
   }
 
+  // The trigger carries no reason of its own: the list's banner says why
+  // composing is off (paused publishing, or a role that can only look), and
+  // the reason is repeated inside the sheet.
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:justify-end">
-      {disabled && !editing ? (
-        <span
-          id={pausedId}
-          className="max-w-[30ch] text-caption text-warning-ink"
+    <Sheet
+      open={open}
+      onOpenChange={setOpen}
+      dirty={isDirty}
+      onDiscard={discard}
+      discardPrompt={{
+        title: "Close without saving?",
+        confirmLabel: "Close and discard",
+        description: editing
+          ? "Your edits to this post aren’t saved. Closing throws them away and keeps the saved draft. Google is not affected."
+          : "This post isn’t saved. Closing throws it away. Google is not affected.",
+      }}
+    >
+      {openRef ? null : editing ? (
+        <SheetTrigger
+          render={<Button size="sm" variant="ghost" disabled={disabled} />}
         >
-          Paused: publishing to Google is switched off
-        </span>
-      ) : null}
-      <Sheet open={open} onOpenChange={close.onOpenChange}>
-        {editing ? (
-          <SheetTrigger
-            render={<Button size="sm" variant="ghost" disabled={disabled} />}
-          >
-            <PencilIcon aria-hidden />
-            Edit
-          </SheetTrigger>
-        ) : (
-          <SheetTrigger
-            render={
-              <Button
-                disabled={disabled}
-                aria-describedby={disabled ? pausedId : undefined}
-              />
-            }
-          >
-            <Plus aria-hidden />
-            New post
-          </SheetTrigger>
-        )}
-        <SheetContent side="right" size="wide">
-          <SheetHeader>
-            <SheetTitle>{editing ? "Edit post" : "New post"}</SheetTitle>
-            <SheetDescription>
-              {post?.status === "failed"
-                ? "Saving turns it back into a draft. Nothing reaches Google until you publish it from the list."
-                : "Saved as a draft. Nothing reaches Google until you publish it from the list."}
-            </SheetDescription>
-          </SheetHeader>
+          <PencilIcon aria-hidden />
+          Edit
+        </SheetTrigger>
+      ) : (
+        <SheetTrigger render={<Button disabled={disabled} />}>
+          <Plus aria-hidden />
+          New post
+        </SheetTrigger>
+      )}
+      <SheetContent side="right" size="wide">
+        <SheetHeader>
+          <SheetTitle>{editing ? "Edit post" : "New post"}</SheetTitle>
+          <SheetDescription>
+            {post?.status === "failed"
+              ? "Saving turns it back into a draft. Nothing reaches Google until you publish it from the list."
+              : "Saved as a draft. Nothing reaches Google until you publish it from the list."}
+          </SheetDescription>
+        </SheetHeader>
 
-          <SheetBody className="@container/composer">
-            <DraftNotices drafts={[editor]} noun="this post" />
-            <div className="grid grid-cols-1 items-start gap-6 @[760px]/composer:grid-cols-[minmax(0,1fr)_300px]">
-              <div ref={formRef} className="flex min-w-0 flex-col gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <span
-                    id={typeLabelId}
-                    className="text-ui font-semibold text-ink"
-                  >
-                    Type
-                  </span>
-                  <SegmentedControl
-                    aria-labelledby={typeLabelId}
-                    value={values.topicType}
-                    onValueChange={(next) =>
-                      set("topicType", next as LocalPostTopicType)
-                    }
-                    className="self-start"
-                  >
-                    {TOPICS.map((topic) => (
-                      <SegmentedControlItem
-                        key={topic.value}
-                        value={topic.value}
-                      >
-                        {topic.label}
-                      </SegmentedControlItem>
-                    ))}
-                  </SegmentedControl>
-                </div>
+        <SheetBody {...drawerContentProps} className="@container/composer">
+          <DraftNotices drafts={[editor]} noun="this post" />
+          <div className="grid grid-cols-1 items-start gap-6 @[760px]/composer:grid-cols-[minmax(0,1fr)_300px]">
+            <div ref={formRef} className="flex min-w-0 flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <span
+                  id={typeLabelId}
+                  className="text-ui font-semibold text-ink"
+                >
+                  Type
+                </span>
+                <SegmentedControl
+                  semantics="radio"
+                  aria-labelledby={typeLabelId}
+                  value={values.topicType}
+                  onValueChange={(next) =>
+                    set("topicType", next as LocalPostTopicType)
+                  }
+                  className="self-start"
+                >
+                  {TOPICS.map((topic) => (
+                    <SegmentedControlItem key={topic.value} value={topic.value}>
+                      {topic.label}
+                    </SegmentedControlItem>
+                  ))}
+                </SegmentedControl>
+              </div>
 
-                {event ? (
-                  <Field error={errors.eventTitle}>
-                    <FieldLabel>
-                      {offer ? "Offer title" : "Event title"}
-                    </FieldLabel>
-                    <Input
-                      value={values.eventTitle}
-                      onChange={(e) => set("eventTitle", e.target.value)}
-                      disabled={disabled}
-                      autoComplete="off"
-                    />
-                    <FieldError>{errors.eventTitle}</FieldError>
-                  </Field>
-                ) : null}
+              {event ? (
+                <Field error={errors.eventTitle}>
+                  <FieldLabel>
+                    {offer ? "Offer title" : "Event title"}
+                  </FieldLabel>
+                  <Input
+                    value={values.eventTitle}
+                    onChange={(e) => set("eventTitle", e.target.value)}
+                    disabled={disabled}
+                    autoComplete="off"
+                  />
+                  <FieldError>{errors.eventTitle}</FieldError>
+                </Field>
+              ) : null}
 
-                {event ? (
-                  <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
-                    <legend className="mb-1.5 text-ui font-semibold text-ink">
-                      When it runs{" "}
-                      <span className="font-normal text-ink-muted">
-                        (optional for a draft)
-                      </span>
-                    </legend>
-                    <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
-                      <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
-                        <Field>
-                          <FieldLabel>Starts</FieldLabel>
-                          <Input
-                            type="date"
-                            value={values.startDate}
-                            onChange={(e) => set("startDate", e.target.value)}
-                            disabled={disabled}
-                            aria-invalid={errors.dates ? true : undefined}
-                            aria-describedby={datesId}
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel>
-                            <span className="sr-only">Start </span>Time
-                          </FieldLabel>
-                          <Input
-                            type="time"
-                            value={values.startTime}
-                            onChange={(e) => set("startTime", e.target.value)}
-                            disabled={disabled}
-                          />
-                        </Field>
-                      </div>
-                      <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
-                        <Field>
-                          <FieldLabel>Ends</FieldLabel>
-                          <Input
-                            type="date"
-                            value={values.endDate}
-                            min={values.startDate || undefined}
-                            onChange={(e) => set("endDate", e.target.value)}
-                            disabled={disabled}
-                            aria-invalid={errors.dates ? true : undefined}
-                            aria-describedby={datesId}
-                          />
-                        </Field>
-                        <Field>
-                          <FieldLabel>
-                            <span className="sr-only">End </span>Time
-                          </FieldLabel>
-                          <Input
-                            type="time"
-                            value={values.endTime}
-                            onChange={(e) => set("endTime", e.target.value)}
-                            disabled={disabled}
-                          />
-                        </Field>
-                      </div>
-                    </div>
-                    {errors.dates ? (
-                      <p
-                        id={datesId}
-                        role="alert"
-                        className="text-caption font-medium text-danger-ink"
-                      >
-                        {errors.dates}
-                      </p>
-                    ) : (
-                      <p id={datesId} className="text-caption text-ink-muted">
-                        Times are the listing’s local time. Without a time, the
-                        post runs all day.
-                      </p>
-                    )}
-                  </fieldset>
-                ) : null}
-
-                {event ? (
-                  <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
-                    <legend className="sr-only">Repeat</legend>
-                    <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
+              {event ? (
+                <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+                  <legend className="mb-1.5 text-ui font-semibold text-ink">
+                    When it runs{" "}
+                    <span className="font-normal text-ink-muted">
+                      (optional for a draft)
+                    </span>
+                  </legend>
+                  <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
+                    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
                       <Field>
-                        <FieldLabel>Repeats</FieldLabel>
-                        <Select
-                          value={values.repeat}
-                          onValueChange={(next) =>
-                            changeRepeat(next as PostRepeat)
-                          }
+                        <FieldLabel>Starts</FieldLabel>
+                        <Input
+                          type="date"
+                          value={values.startDate}
+                          onChange={(e) => set("startDate", e.target.value)}
                           disabled={disabled}
-                        >
-                          <SelectTrigger
-                            className="w-full"
-                            aria-invalid={errors.repeat ? true : undefined}
-                            aria-describedby={repeatId}
-                          >
-                            <SelectValue>
-                              {(value: string | null) =>
-                                REPEATS.find((entry) => entry.value === value)
-                                  ?.label ?? "Doesn’t repeat"
-                              }
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {REPEATS.map((entry) => (
-                              <SelectItem key={entry.value} value={entry.value}>
-                                {entry.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          aria-invalid={errors.dates ? true : undefined}
+                          aria-describedby={datesId}
+                        />
                       </Field>
-                      {values.repeat !== "none" ? (
-                        <Field>
-                          <FieldLabel optional>Last repeat</FieldLabel>
-                          <Input
-                            type="date"
-                            value={values.seriesEnd}
-                            min={values.startDate || undefined}
-                            onChange={(e) => set("seriesEnd", e.target.value)}
-                            disabled={disabled}
-                            aria-invalid={errors.repeat ? true : undefined}
-                            aria-describedby={repeatId}
-                          />
-                        </Field>
-                      ) : null}
-                    </div>
-                    {values.repeat === "weekly" ? (
-                      <div className="flex flex-col gap-1.5">
-                        <span
-                          id={weekdaysLabelId}
-                          className="text-ui font-semibold text-ink"
-                        >
-                          On
-                        </span>
-                        <div
-                          role="group"
-                          aria-labelledby={weekdaysLabelId}
-                          className="flex flex-wrap gap-2"
-                        >
-                          {DAYS_OF_WEEK.map((day) => (
-                            <ToggleChip
-                              key={day}
-                              pressed={values.weekdays.includes(day)}
-                              onClick={() => toggleWeekday(day)}
-                              disabled={disabled}
-                            >
-                              {WEEKDAY_SHORT[day]}
-                            </ToggleChip>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                    {values.repeat === "monthly" ? (
                       <Field>
-                        <FieldLabel>Each month</FieldLabel>
-                        <Select
-                          value={
-                            monthly.some(
-                              (entry) => entry.value === values.monthly
-                            )
-                              ? values.monthly
-                              : "date"
-                          }
-                          onValueChange={(next) =>
-                            set("monthly", next as MonthlyRepeat)
-                          }
+                        <FieldLabel>
+                          <span className="sr-only">Start </span>Time
+                        </FieldLabel>
+                        <Input
+                          type="time"
+                          value={values.startTime}
+                          onChange={(e) => set("startTime", e.target.value)}
                           disabled={disabled}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue>
-                              {(value: string | null) =>
-                                monthly.find((entry) => entry.value === value)
-                                  ?.label ?? monthly[0].label
-                              }
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {monthly.map((entry) => (
-                              <SelectItem key={entry.value} value={entry.value}>
-                                {entry.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        />
                       </Field>
-                    ) : null}
-                    {errors.repeat ? (
-                      <p
-                        id={repeatId}
-                        role="alert"
-                        className="text-caption font-medium text-danger-ink"
-                      >
-                        {errors.repeat}
-                      </p>
-                    ) : values.repeat !== "none" ? (
-                      <p id={repeatId} className="text-caption text-ink-muted">
-                        {recurrenceText ||
-                          "Set the start date to see when it repeats."}
-                      </p>
-                    ) : null}
-                  </fieldset>
-                ) : null}
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-2">
+                      <Field>
+                        <FieldLabel>Ends</FieldLabel>
+                        <Input
+                          type="date"
+                          value={values.endDate}
+                          min={values.startDate || undefined}
+                          onChange={(e) => set("endDate", e.target.value)}
+                          disabled={disabled}
+                          aria-invalid={errors.dates ? true : undefined}
+                          aria-describedby={datesId}
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel>
+                          <span className="sr-only">End </span>Time
+                        </FieldLabel>
+                        <Input
+                          type="time"
+                          value={values.endTime}
+                          onChange={(e) => set("endTime", e.target.value)}
+                          disabled={disabled}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                  {errors.dates ? (
+                    <p
+                      id={datesId}
+                      role="alert"
+                      className="text-caption font-medium text-danger-ink"
+                    >
+                      {errors.dates}
+                    </p>
+                  ) : (
+                    <p id={datesId} className="text-caption text-ink-muted">
+                      Times are the listing’s local time. Without a time, the
+                      post runs all day.
+                    </p>
+                  )}
+                </fieldset>
+              ) : null}
 
-                {offer ? (
+              {event ? (
+                <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
+                  <legend className="sr-only">Repeat</legend>
                   <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
                     <Field>
-                      <FieldLabel optional>Voucher code</FieldLabel>
-                      <Input
-                        value={values.couponCode}
-                        onChange={(e) => set("couponCode", e.target.value)}
+                      <FieldLabel>Repeats</FieldLabel>
+                      <Select
+                        value={values.repeat}
+                        onValueChange={(next) =>
+                          changeRepeat(next as PostRepeat)
+                        }
                         disabled={disabled}
-                        maxLength={100}
-                        autoComplete="off"
-                      />
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          aria-invalid={errors.repeat ? true : undefined}
+                          aria-describedby={repeatId}
+                        >
+                          <SelectValue>
+                            {(value: string | null) =>
+                              REPEATS.find((entry) => entry.value === value)
+                                ?.label ?? "Doesn’t repeat"
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REPEATS.map((entry) => (
+                            <SelectItem key={entry.value} value={entry.value}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
-                    <Field error={errors.redeemUrl}>
-                      <FieldLabel optional>Redeem online link</FieldLabel>
-                      <Input
-                        type="url"
-                        inputMode="url"
-                        placeholder="https://"
-                        value={values.redeemUrl}
-                        onChange={(e) => set("redeemUrl", e.target.value)}
-                        disabled={disabled}
-                      />
-                      <FieldError>{errors.redeemUrl}</FieldError>
-                    </Field>
-                    <Field className="@[440px]/composer:col-span-2">
-                      <FieldLabel optional>Terms</FieldLabel>
-                      <Input
-                        value={values.terms}
-                        onChange={(e) => set("terms", e.target.value)}
-                        disabled={disabled}
-                      />
-                    </Field>
+                    {values.repeat !== "none" ? (
+                      <Field>
+                        <FieldLabel optional>Last repeat</FieldLabel>
+                        <Input
+                          type="date"
+                          value={values.seriesEnd}
+                          min={values.startDate || undefined}
+                          onChange={(e) => set("seriesEnd", e.target.value)}
+                          disabled={disabled}
+                          aria-invalid={errors.repeat ? true : undefined}
+                          aria-describedby={repeatId}
+                        />
+                      </Field>
+                    ) : null}
                   </div>
-                ) : null}
-
-                <Field error={errors.summary}>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <FieldLabel>Summary</FieldLabel>
-                    <FieldCounter over={summaryLength > SUMMARY_MAX}>
-                      {summaryLength.toLocaleString("en-GB")} /{" "}
-                      {SUMMARY_MAX.toLocaleString("en-GB")}
-                    </FieldCounter>
-                  </div>
-                  <Textarea
-                    value={values.summary}
-                    onChange={(e) => set("summary", e.target.value)}
-                    rows={6}
-                    disabled={disabled}
-                    aria-label="Post summary"
-                  />
-                  <FieldError>{errors.summary}</FieldError>
-                </Field>
-
-                <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
-                  <Field>
-                    <FieldLabel optional>Button</FieldLabel>
-                    <Select
-                      value={values.action || "NONE"}
-                      onValueChange={(next) =>
-                        set(
-                          "action",
-                          next === "NONE" ? "" : (next as LocalPostActionType)
-                        )
-                      }
-                      disabled={disabled}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue>
-                          {(value: string | null) =>
-                            value && value !== "NONE"
-                              ? POST_ACTION_LABEL[value as LocalPostActionType]
-                              : "No button"
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">No button</SelectItem>
-                        {LOCAL_POST_ACTION_TYPES.map((action) => (
-                          <SelectItem key={action} value={action}>
-                            {POST_ACTION_LABEL[action]}
-                          </SelectItem>
+                  {values.repeat === "weekly" ? (
+                    <div className="flex flex-col gap-1.5">
+                      <span
+                        id={weekdaysLabelId}
+                        className="text-ui font-semibold text-ink"
+                      >
+                        On
+                      </span>
+                      <div
+                        role="group"
+                        aria-labelledby={weekdaysLabelId}
+                        className="flex flex-wrap gap-2"
+                      >
+                        {DAYS_OF_WEEK.map((day) => (
+                          <ToggleChip
+                            key={day}
+                            pressed={values.weekdays.includes(day)}
+                            onClick={() => toggleWeekday(day)}
+                            disabled={disabled}
+                          >
+                            {WEEKDAY_SHORT[day]}
+                          </ToggleChip>
                         ))}
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {values.action && values.action !== "CALL" ? (
-                    <Field error={errors.actionUrl}>
-                      <FieldLabel>Button link</FieldLabel>
-                      <Input
-                        type="url"
-                        inputMode="url"
-                        placeholder="https://"
-                        value={values.actionUrl}
-                        onChange={(e) => set("actionUrl", e.target.value)}
+                      </div>
+                    </div>
+                  ) : null}
+                  {values.repeat === "monthly" ? (
+                    <Field>
+                      <FieldLabel>Each month</FieldLabel>
+                      <Select
+                        value={
+                          monthly.some(
+                            (entry) => entry.value === values.monthly
+                          )
+                            ? values.monthly
+                            : "date"
+                        }
+                        onValueChange={(next) =>
+                          set("monthly", next as MonthlyRepeat)
+                        }
                         disabled={disabled}
-                      />
-                      <FieldError>{errors.actionUrl}</FieldError>
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue>
+                            {(value: string | null) =>
+                              monthly.find((entry) => entry.value === value)
+                                ?.label ?? monthly[0].label
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {monthly.map((entry) => (
+                            <SelectItem key={entry.value} value={entry.value}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
-                  ) : values.action === "CALL" ? (
-                    <p className="self-end pb-2 text-caption text-ink-muted">
-                      Call now uses the listing’s phone number on Google.
+                  ) : null}
+                  {errors.repeat ? (
+                    <p
+                      id={repeatId}
+                      role="alert"
+                      className="text-caption font-medium text-danger-ink"
+                    >
+                      {errors.repeat}
+                    </p>
+                  ) : values.repeat !== "none" ? (
+                    <p id={repeatId} className="text-caption text-ink-muted">
+                      {recurrenceText ||
+                        "Set the start date to see when it repeats."}
                     </p>
                   ) : null}
-                </div>
+                </fieldset>
+              ) : null}
 
-                {serverError ? (
-                  <p role="alert" className="text-ui text-danger-ink">
-                    {serverError}
-                  </p>
-                ) : null}
-                {disabledReason ? (
-                  <p role="note" className="text-caption text-ink-muted">
-                    {disabledReason}
+              {offer ? (
+                <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
+                  <Field>
+                    <FieldLabel optional>Voucher code</FieldLabel>
+                    <Input
+                      value={values.couponCode}
+                      onChange={(e) => set("couponCode", e.target.value)}
+                      disabled={disabled}
+                      maxLength={100}
+                      autoComplete="off"
+                    />
+                  </Field>
+                  <Field error={errors.redeemUrl}>
+                    <FieldLabel optional>Redeem online link</FieldLabel>
+                    <Input
+                      type="url"
+                      inputMode="url"
+                      placeholder="https://"
+                      value={values.redeemUrl}
+                      onChange={(e) => set("redeemUrl", e.target.value)}
+                      disabled={disabled}
+                    />
+                    <FieldError>{errors.redeemUrl}</FieldError>
+                  </Field>
+                  <Field className="@[440px]/composer:col-span-2">
+                    <FieldLabel optional>Terms</FieldLabel>
+                    <Input
+                      value={values.terms}
+                      onChange={(e) => set("terms", e.target.value)}
+                      disabled={disabled}
+                    />
+                  </Field>
+                </div>
+              ) : null}
+
+              <Field error={errors.summary}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <FieldLabel>Summary</FieldLabel>
+                  <FieldCounter over={summaryLength > SUMMARY_MAX}>
+                    {summaryLength.toLocaleString("en-GB")} /{" "}
+                    {SUMMARY_MAX.toLocaleString("en-GB")}
+                  </FieldCounter>
+                </div>
+                <Textarea
+                  value={values.summary}
+                  onChange={(e) => set("summary", e.target.value)}
+                  autoSize
+                  minRows={5}
+                  maxRows={16}
+                  disabled={disabled}
+                  aria-label="Post summary"
+                />
+                <FieldError>{errors.summary}</FieldError>
+              </Field>
+
+              <div className="grid grid-cols-1 gap-3 @[440px]/composer:grid-cols-2">
+                <Field>
+                  <FieldLabel optional>Button</FieldLabel>
+                  <Select
+                    value={values.action || "NONE"}
+                    onValueChange={(next) =>
+                      set(
+                        "action",
+                        next === "NONE" ? "" : (next as LocalPostActionType)
+                      )
+                    }
+                    disabled={disabled}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {(value: string | null) =>
+                          value && value !== "NONE"
+                            ? POST_ACTION_LABEL[value as LocalPostActionType]
+                            : "No button"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NONE">No button</SelectItem>
+                      {LOCAL_POST_ACTION_TYPES.map((action) => (
+                        <SelectItem key={action} value={action}>
+                          {POST_ACTION_LABEL[action]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                {values.action && values.action !== "CALL" ? (
+                  <Field error={errors.actionUrl}>
+                    <FieldLabel>Button link</FieldLabel>
+                    <Input
+                      type="url"
+                      inputMode="url"
+                      placeholder="https://"
+                      value={values.actionUrl}
+                      onChange={(e) => set("actionUrl", e.target.value)}
+                      disabled={disabled}
+                    />
+                    <FieldError>{errors.actionUrl}</FieldError>
+                  </Field>
+                ) : values.action === "CALL" ? (
+                  <p className="self-end pb-2 text-caption text-ink-muted">
+                    Call now uses the listing’s phone number on Google.
                   </p>
                 ) : null}
               </div>
 
-              <aside
-                aria-label="Preview"
-                className="flex min-w-0 flex-col gap-2 @[760px]/composer:sticky @[760px]/composer:top-0"
-              >
-                <PostPreview
-                  topicType={values.topicType}
-                  summary={values.summary}
-                  eventTitle={values.eventTitle}
-                  schedule={
-                    event && values.startDate && values.endDate
-                      ? { ...values }
-                      : null
-                  }
-                  actionLabel={
-                    values.action ? POST_ACTION_LABEL[values.action] : ""
-                  }
-                  recurrence={recurrenceText}
-                />
-                <span className="text-caption text-ink-muted">
-                  An illustration. Google decides the final layout.
-                </span>
-              </aside>
+              {serverError ? (
+                <p role="alert" className="text-ui text-danger-ink">
+                  {serverError}
+                </p>
+              ) : null}
+              {disabledReason ? (
+                <p role="note" className="text-caption text-ink-muted">
+                  {disabledReason}
+                </p>
+              ) : null}
             </div>
-          </SheetBody>
 
-          <SheetFooter className="sm:items-center">
-            <span className="hidden text-caption text-ink-muted sm:mr-auto sm:block">
-              Posts publish when you press Publish; scheduling isn’t available.
-            </span>
-            <Button variant="ghost" onClick={close.requestClose}>
-              Cancel
-            </Button>
-            <Button
-              onClick={submit}
-              disabled={disabled || !isDirty}
-              pending={create.isPending}
-              pendingLabel="Saving…"
+            <aside
+              aria-label="Preview"
+              className="flex min-w-0 flex-col gap-2 @[760px]/composer:sticky @[760px]/composer:top-0"
             >
-              {editing ? "Save changes" : "Save draft"}
-            </Button>
-          </SheetFooter>
-          <DiscardDialog
-            {...close.prompt}
-            title="Close without saving?"
-            confirmLabel="Close and discard"
-            announce={false}
-            description={
-              editing
-                ? "Your edits to this post aren’t saved. Closing throws them away and keeps the saved draft. Google is not affected."
-                : "This post isn’t saved. Closing throws it away. Google is not affected."
-            }
-          />
-        </SheetContent>
-      </Sheet>
-    </div>
+              <PostPreview
+                topicType={values.topicType}
+                summary={values.summary}
+                eventTitle={values.eventTitle}
+                schedule={
+                  event && values.startDate && values.endDate
+                    ? { ...values }
+                    : null
+                }
+                actionLabel={
+                  values.action ? POST_ACTION_LABEL[values.action] : ""
+                }
+                recurrence={recurrenceText}
+              />
+              <span className="text-caption text-ink-muted">
+                An illustration. Google decides the final layout.
+              </span>
+            </aside>
+          </div>
+        </SheetBody>
+
+        <SheetFooter className="sm:items-center">
+          <span className="hidden text-caption text-ink-muted sm:mr-auto sm:block">
+            Posts publish when you press Publish; scheduling isn’t available.
+          </span>
+          {/* Marked as the overlay's close control so a dirty composer
+                asks before Cancel throws a half-written post away, as a
+                swipe or Escape does. */}
+          <SheetClose data-overlay-close="" render={<Button variant="ghost" />}>
+            Cancel
+          </SheetClose>
+          <Button
+            onClick={submit}
+            disabled={disabled || !isDirty}
+            pending={create.isPending}
+            pendingLabel="Saving…"
+          >
+            {editing ? "Save changes" : "Save draft"}
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }

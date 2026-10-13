@@ -20,7 +20,8 @@ import { useToastManager } from "@/components/ui/toast"
  *
  * Confirming disables the Discard button that opened the dialog (nothing is
  * left to discard), so focus can't go back to it. It moves to the editor's
- * next enabled footer action instead, or to the page's `main`, and a toast
+ * next enabled footer action still on screen instead (a phone hides a clean
+ * editor's footer), or to the page's `main`, and a toast
  * says what happened, rather than dropping focus on <body>.
  */
 function DiscardDialog({
@@ -49,11 +50,14 @@ function DiscardDialog({
         finalFocus={() => {
           if (!confirmed.current) return true
           confirmed.current = false
-          return (
-            document.querySelector<HTMLElement>(
+          // A phone hides a clean editor's footer, so only a button that is
+          // still drawn can take focus.
+          const next = [
+            ...document.querySelectorAll<HTMLElement>(
               "[data-slot=editor-footer] button:not(:disabled)"
-            ) ?? document.querySelector<HTMLElement>("main")
-          )
+            ),
+          ].find((button) => button.getClientRects().length > 0)
+          return next ?? document.querySelector<HTMLElement>("main")
         }}
       >
         <AlertDialogTitle>{title}</AlertDialogTitle>

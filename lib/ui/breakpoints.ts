@@ -18,7 +18,7 @@
 const REM_PX = 16
 
 /**
- * Tailwind's named widths, plus `wide`: the shell's switch from the 64px
+ * Tailwind's named widths, plus `wide`: the shell's switch from the 72px
  * icon rail to the full 240px sidebar, declared in globals.css as
  * `--breakpoint-wide` (so `wide:` / `max-wide:` exist as Tailwind
  * variants).

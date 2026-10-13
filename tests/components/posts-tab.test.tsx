@@ -128,7 +128,8 @@ describe("PostsTab", () => {
     renderTab()
     expect(screen.getByText(/Repeats weekly on Fri/)).toBeInTheDocument()
 
-    await user.click(screen.getByRole("button", { name: "Edit" }))
+    await user.click(screen.getByRole("button", { name: "More actions for Quiz night" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Edit" }))
     const sheet = await screen.findByRole("dialog")
     const group = within(sheet).getByRole("group", { name: "On" })
     expect(within(group).getByRole("button", { name: "Fri" })).toHaveAttribute(
@@ -174,13 +175,17 @@ describe("PostsTab", () => {
     usePostsMock.mockReturnValue({ data: makeState(), isPending: false, isError: false, error: null, refetch: vi.fn() })
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
-    await user.click(screen.getByRole("button", { name: "Edit" }))
+    const edit = async () => {
+      await user.click(screen.getByRole("button", { name: "More actions for Open late tonight" }))
+      await user.click(await screen.findByRole("menuitem", { name: "Edit" }))
+    }
+    await edit()
     let sheet = await screen.findByRole("dialog")
     await user.click(within(sheet).getByRole("button", { name: "Cancel" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     expect(screen.queryByRole("alertdialog")).toBeNull()
 
-    await user.click(screen.getByRole("button", { name: "Edit" }))
+    await edit()
     sheet = await screen.findByRole("dialog")
     const summary = within(sheet).getByRole("textbox", { name: "Post summary" })
     await user.clear(summary)
@@ -218,7 +223,7 @@ describe("PostsTab", () => {
     ).toBeInTheDocument()
   })
 
-  it("shows the second-approver copy path via an awaiting-approval post for a publisher", () => {
+  it("shows the second-approver copy path via an awaiting-approval post for a publisher", async () => {
     usePostsMock.mockReturnValue({
       data: makeState({ posts: [post({ status: "awaiting_approval" })] }),
       isPending: false,
@@ -231,11 +236,13 @@ describe("PostsTab", () => {
     })
     renderTab()
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument()
     // The status filter chip carries the same words, so read the post's own pill.
     expect(
       within(screen.getByRole("article")).getByText("Awaiting approval")
     ).toBeInTheDocument()
+    // Reject is a second choice, so it is in the post's menu.
+    await userEvent.click(screen.getByRole("button", { name: "More actions for Open late tonight" }))
+    expect(await screen.findByRole("menuitem", { name: "Reject" })).toBeInTheDocument()
   })
 
   // P08-R1: scheduling is an organisation feature, off by default.
@@ -274,15 +281,16 @@ describe("PostsTab", () => {
     })
     const view = renderTab()
     await user.click(
-      screen.getByRole("button", {
-        name: "Schedule publication: Open late tonight",
-      })
+      screen.getByRole("button", { name: "More actions for Open late tonight" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Schedule publication" })
     )
     const sheet = await screen.findByRole("dialog", {
       name: "Schedule publication",
     })
     expect(
-      within(sheet).queryByRole("tablist", { name: "How often" })
+      within(sheet).queryByRole("radiogroup", { name: "How often" })
     ).toBeNull()
     expect(within(sheet).getByLabelText("Date")).toBeInTheDocument()
     view.unmount()
@@ -297,15 +305,16 @@ describe("PostsTab", () => {
     })
     renderTab()
     await user.click(
-      screen.getByRole("button", {
-        name: "Schedule publication: Open late tonight",
-      })
+      screen.getByRole("button", { name: "More actions for Open late tonight" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Schedule publication" })
     )
     const repeating = await screen.findByRole("dialog", {
       name: "Schedule publication",
     })
     expect(
-      within(repeating).getByRole("tablist", { name: "How often" })
+      within(repeating).getByRole("radiogroup", { name: "How often" })
     ).toBeInTheDocument()
   })
 })
@@ -374,7 +383,9 @@ describe("PostsTab paging and views", () => {
     useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
     renderTab()
     expect(screen.getByRole("button", { name: /Drafts/ })).toHaveTextContent("25")
-    expect(screen.getByText("3 need attention")).toBeInTheDocument()
+    // The counts are on the filter chips; the area header above owns the
+    // status, so the list repeats no summary pill.
+    expect(screen.getByRole("button", { name: /Needs attention/ })).toHaveTextContent("3")
     expect(screen.getByText("Showing 1 of 41 posts")).toHaveAttribute("role", "status")
     await user.click(screen.getByRole("button", { name: "Load more posts" }))
     expect(loadMore).toHaveBeenCalledTimes(1)

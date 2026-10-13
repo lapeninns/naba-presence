@@ -1,19 +1,14 @@
 "use client"
 
-import { ExternalLinkIcon, RefreshCwIcon } from "lucide-react"
+import { RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
-import { ActivityDrawer } from "@/components/editors/activity-drawer"
-import {
-  ListingAreaHeader,
-  ReviewPublishLink,
-} from "@/components/listings/area-frame"
+import { ListingAreaHeader } from "@/components/listings/area-frame"
 import { AreaCards } from "@/components/listings/area-cards"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import { HealthStrip } from "@/components/listings/health-strip"
 import { ListingGate } from "@/components/listings/listing-gate"
-import { RecentActivity } from "@/components/listings/recent-activity"
 import {
   Alert,
   AlertActions,
@@ -226,28 +221,12 @@ function ListingOverview({
                   {address ? ` ${address}.` : ""}
                 </>
               }
-              actions={
-                <>
-                  <ReviewPublishLink
-                    locationId={locationId}
-                    summary={summary.data}
-                  />
-                  <ActivityDrawer locationId={locationId} />
-                  {/* Only when Google has given us the listing's Maps link;
-                      a button that can never be pressed says nothing. */}
-                  {mapsUrl ? (
-                    <a
-                      href={mapsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={cn(buttonVariants({ variant: "secondary" }))}
-                    >
-                      <ExternalLinkIcon aria-hidden />
-                      Open on Google
-                      <span className="sr-only"> (opens in a new tab)</span>
-                    </a>
-                  ) : null}
-                </>
+              // Only when Google has given us the listing's Maps link; a
+              // button that can never be pressed says nothing.
+              links={
+                mapsUrl
+                  ? [{ label: "Open on Google", href: mapsUrl, external: true }]
+                  : []
               }
             />
 
@@ -300,20 +279,6 @@ function ListingOverview({
                 summaryFailed={summaryFailed}
                 canManageConsoles={canManageConsoles}
               />
-            </section>
-
-            <section
-              aria-labelledby="listing-activity"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                id="listing-activity"
-                title="Recent activity"
-                description="The last five things sent to Google from here, newest first."
-              />
-              <div className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-3">
-                <RecentActivity locationId={locationId} />
-              </div>
             </section>
           </PageFrame>
         )

@@ -1,16 +1,6 @@
 "use client"
 
-import {
-  ArrowLeft,
-  BarChart3,
-  Building2,
-  ChevronRight,
-  Inbox,
-  Search,
-  Settings,
-  Store,
-  Users,
-} from "lucide-react"
+import { ArrowLeft, ChevronRight, Search } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -22,49 +12,10 @@ import { PageEmptyState, PageFrame } from "@/components/app-shell/page-frame"
 import { Code } from "@/components/app-shell/system-page"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { visibleDestinations } from "@/lib/navigation/destinations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
-
-const DESTINATIONS = [
-  {
-    href: "/inbox",
-    label: "Inbox",
-    description: "Reviews that need a reply, an approval or a retry",
-    icon: Inbox,
-  },
-  {
-    href: "/listings",
-    label: "Listings",
-    description: "Every Google Business Profile, health first",
-    icon: Store,
-  },
-  {
-    href: "/clients",
-    label: "Clients",
-    description: "The businesses you look after and their Google connections",
-    icon: Building2,
-  },
-  {
-    href: "/reports",
-    label: "Reports",
-    description: "Ratings, reply times and profile views by client",
-    icon: BarChart3,
-  },
-  {
-    href: "/team",
-    label: "Team",
-    description: "People and what each can reach",
-    icon: Users,
-    managersOnly: true,
-  },
-  {
-    href: "/settings",
-    label: "Settings",
-    description: "Reply policy, Google connections and notifications",
-    icon: Settings,
-  },
-] as const
 
 /**
  * Inside the shell, not the bare root 404: someone who follows a stale link to
@@ -75,20 +26,18 @@ export default function DashboardNotFound() {
   const pathname = usePathname()
   const role = useSessionRole()
   const shortcut = useShortcutHint()
-  const manager = role === "owner" || role === "admin"
-  const business = useWorkspaceMode() === "business"
-  const destinations = DESTINATIONS.filter(
-    (destination) =>
-      (!("managersOnly" in destination) || manager) &&
-      // A business has no Clients layer to go back to.
-      !(business && destination.href === "/clients")
-  ).map((destination) =>
-    business && destination.href === "/reports"
-      ? {
-          ...destination,
-          description: "Ratings, reply times and profile views by location",
-        }
-      : destination
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  // The shell's own destination list (lib/navigation/destinations.ts), so
+  // this page offers exactly what the navigation does for this role and
+  // mode. Calendar is offered whenever the role may see it: the 404 cannot
+  // read the scheduling flag, and the Calendar page explains itself when
+  // scheduling is off.
+  const destinations = visibleDestinations({ role, mode }).map(
+    (destination) => ({
+      ...destination,
+      description: destination.description[mode],
+    })
   )
 
   return (

@@ -9,8 +9,9 @@ import { Toaster } from "@/components/ui/toast"
 import { QueryProvider } from "@/lib/queries/provider"
 
 const push = vi.fn()
+const pathname = vi.hoisted(() => ({ current: "/inbox" }))
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/inbox",
+  usePathname: () => pathname.current,
   useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
   // The shell reads a Google connect result from the address on any page.
   useSearchParams: () => new URLSearchParams(),
@@ -20,7 +21,14 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   push.mockReset()
+  pathname.current = "/inbox"
 })
+
+// The phone tree (app bar, tab bar) and the tablet/desk tree (sidebar,
+// toolbar) are both in the DOM and switched by CSS, so jsdom sees both:
+// every query is scoped to the container it is about.
+const slot = (name: string) =>
+  document.querySelector<HTMLElement>(`[data-slot="${name}"]`)!
 
 const session = {
   sessionId: "s",
@@ -120,11 +128,19 @@ function renderShell() {
 }
 
 describe("AppShell", () => {
-  it("has a skip link as the first focusable, targeting main", () => {
+  it("has a skip link as the first focusable, targeting main", async () => {
     renderShell()
     const skip = screen.getByRole("link", { name: "Skip to content" })
     expect(skip).toHaveAttribute("href", "#main")
-    expect(screen.getByRole("main")).toHaveAttribute("id", "main")
+    await userEvent.tab()
+    expect(skip).toHaveFocus()
+    // The shell owns the target, focusable by script, around the page.
+    const main = screen.getByRole("main")
+    expect(main).toHaveAttribute("id", "main")
+    expect(main).toHaveAttribute("tabindex", "-1")
+    expect(within(main).getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Inbox"
+    )
   })
 
   it("renders exactly one main and one h1", () => {
@@ -133,21 +149,50 @@ describe("AppShell", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
   })
 
-  it("marks the active nav item", () => {
+  it("marks the active nav item in the sidebar and the tab bar", () => {
     renderShell()
-    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+    const sidebar = within(screen.getByRole("complementary", { name: "Sidebar" }))
+    expect(sidebar.getByRole("link", { name: "Inbox" })).toHaveAttribute(
       "aria-current",
       "page"
     )
-    expect(screen.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
+    expect(sidebar.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
+      "aria-current"
+    )
+    const tabs = within(slot("tab-bar"))
+    expect(tabs.getByRole("link", { name: /^Inbox/ })).toHaveAttribute(
+      "aria-current",
+      "page"
+    )
+    expect(tabs.getByRole("link", { name: "Clients" })).not.toHaveAttribute(
       "aria-current"
     )
   })
 
+  it("draws both navigation trees, each a labelled Primary nav", () => {
+    renderShell()
+    // One for phones (the tab bar), one for the rail/sidebar from 768px.
+    const primaries = screen.getAllByRole("navigation", { name: "Primary" })
+    expect(primaries).toHaveLength(2)
+    expect(primaries).toContain(slot("tab-bar"))
+    expect(
+      within(slot("sidebar")).getByRole("navigation", { name: "Primary" })
+    ).toBeInTheDocument()
+    // No hamburger or left drawer any more.
+    expect(
+      screen.queryByRole("button", { name: /navigation/i })
+    ).not.toBeInTheDocument()
+  })
+
   it("names the agency and the signed-in person without fetching either", () => {
     renderShell()
-    expect(screen.getByText("Lapen Inns Agency")).toBeInTheDocument()
-    expect(screen.getByText("Aman Shrestha")).toBeInTheDocument()
+    const sidebar = within(slot("sidebar"))
+    expect(sidebar.getByText("Lapen Inns Agency")).toBeInTheDocument()
+    expect(sidebar.getByText("Aman Shrestha")).toBeInTheDocument()
+    // One client: nothing to switch, so the phone app bar names the workspace.
+    expect(
+      within(slot("app-bar")).getByText("Lapen Inns Agency")
+    ).toBeInTheDocument()
   })
 
   it("pins the agency's clients into the sidebar", async () => {
@@ -310,15 +355,28 @@ describe("AppShell", () => {
   it("offers a command palette from the toolbar's search button", async () => {
     const user = userEvent.setup()
     renderShell()
+    // The Inbox has its own review search, so the phone app bar leaves
+    // the palette button out there: the toolbar's is the only one.
+    expect(
+      within(slot("app-bar")).queryByRole("button", { name: /^Search/ })
+    ).toBeNull()
     await user.click(
-      screen.getByRole("button", {
+      within(slot("toolbar")).getByRole("button", {
         name: "Search clients, listings, pages and actions",
       })
     )
     expect(
-      await screen.findByPlaceholderText(
-        "Go to a client, a location or an action…"
-      )
+      await screen.findByRole("dialog", { name: "Commands" })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps the palette button in the phone app bar off the Inbox", () => {
+    pathname.current = "/listings"
+    renderShell()
+    expect(
+      within(slot("app-bar")).getByRole("button", {
+        name: "Search clients, listings, pages and actions",
+      })
     ).toBeInTheDocument()
   })
 
@@ -345,13 +403,15 @@ describe("AppShell", () => {
     // The mocked page is an unscoped Inbox address: the switcher follows the
     // address (the sync fills the remembered client in through the router),
     // and the sidebar links already carry it.
-    const toolbar = screen.getAllByRole("banner")[0]!
+    const toolbar = slot("toolbar")
     expect(
       await within(toolbar).findByRole("button", {
         name: "Client: All clients",
       })
     ).toBeInTheDocument()
-    const primary = screen.getAllByRole("navigation", { name: "Primary" })[0]!
+    const primary = within(slot("sidebar")).getByRole("navigation", {
+      name: "Primary",
+    })
     expect(
       within(primary).getByRole("link", { name: "Inbox" })
     ).toHaveAttribute("href", "/inbox?clientId=c2")
@@ -361,6 +421,20 @@ describe("AppShell", () => {
     expect(
       within(primary).getByRole("link", { name: "Clients" })
     ).toHaveAttribute("href", "/clients")
+    // The phone tab bar carries the same scope, and the app bar's leading
+    // control is the client chip (more than one client to switch between).
+    const tabs = within(slot("tab-bar"))
+    expect(tabs.getByRole("link", { name: /^Inbox/ })).toHaveAttribute(
+      "href",
+      "/inbox?clientId=c2"
+    )
+    expect(tabs.getByRole("link", { name: "Clients" })).toHaveAttribute(
+      "href",
+      "/clients"
+    )
+    expect(
+      await within(slot("app-bar")).findByRole("button", { name: /^Client: / })
+    ).toBeInTheDocument()
   })
 
   it("offers Switch client commands in the palette", async () => {
@@ -368,9 +442,10 @@ describe("AppShell", () => {
     stubApi({ clients: [client, harbour] })
     const user = userEvent.setup()
     renderStubbedShell()
-    await screen.findByRole("button", { name: "Client: All clients" })
+    const toolbar = within(slot("toolbar"))
+    await toolbar.findByRole("button", { name: "Client: All clients" })
     await user.click(
-      screen.getByRole("button", {
+      toolbar.getByRole("button", {
         name: "Search clients, listings, pages and actions",
       })
     )
@@ -384,22 +459,38 @@ describe("AppShell", () => {
     ).toBeInTheDocument()
   })
 
-  it("opens the mobile nav in a labelled sheet", async () => {
+  it("opens the More sheet from the tab bar, with Team and Settings in it", async () => {
     const user = userEvent.setup()
     renderShell()
-    await user.click(screen.getByRole("button", { name: "Open navigation" }))
-    const dialog = await screen.findByRole("dialog", { name: "Navigation" })
-    // A left drawer, not the shared Sheet's phone bottom sheet: navigation
-    // slides in from the edge the sidebar lives on (reference: min(300px,
-    // 86vw)), and the toggle reports it is open.
-    expect(dialog).toHaveClass("left-0", "w-[min(var(--np-drawer-w),86vw)]")
-    expect(dialog).toHaveAttribute("id", "mobile-navigation")
+    const more = within(slot("tab-bar")).getByRole("button", { name: "More" })
+    expect(more).toHaveAttribute("aria-haspopup", "dialog")
+    expect(more).toHaveAttribute("aria-expanded", "false")
+    await user.click(more)
+    const dialog = await screen.findByRole("dialog", { name: "More" })
+    expect(more).toHaveAttribute("aria-expanded", "true")
+    const nav = within(dialog).getByRole("navigation", { name: "More" })
+    // Two taps from anywhere: More, then the destination.
+    expect(within(nav).getByRole("link", { name: "Team" })).toHaveAttribute(
+      "href",
+      "/team"
+    )
     expect(
-      within(dialog).getByRole("navigation", { name: "Primary" })
-    ).toBeInTheDocument()
+      within(nav).getByRole("link", { name: "Settings" })
+    ).toHaveAttribute("href", "/settings")
     expect(
-      within(dialog).getByRole("button", { name: "Close navigation" })
+      within(dialog).getByRole("region", { name: "Account" })
     ).toBeInTheDocument()
+  })
+
+  it("puts a labelled back control in both bars on a deep page", async () => {
+    pathname.current = "/settings/billing"
+    renderShell()
+    for (const name of ["app-bar", "toolbar"]) {
+      const back = await within(slot(name)).findByRole("link", {
+        name: "Back to Settings",
+      })
+      expect(back).toHaveAttribute("href", "/settings")
+    }
   })
 })
 
@@ -445,9 +536,7 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     expect(
-      await screen.findByText(
-        /Full access, including the agency.s settings and team/
-      )
+      await screen.findByText(/Full access, including the agency.s settings and team/)
     ).toBeInTheDocument()
   })
 

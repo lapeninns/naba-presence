@@ -8,12 +8,21 @@ import { cn } from "@/lib/utils"
  * - `wide`: 1440px, boards and tables that earn the room.
  * - `narrow`: 760px, one column of prose or one form.
  * - `workspace`: no max width. Where the window is at least 768 wide and
- *   620 tall it is locked to the viewport under the toolbar, so its panes
- *   scroll internally and a pinned action row never leaves the screen.
- *   Below that it scrolls with the column like any other page.
+ *   620 tall it fills the height the shell's content column has left under
+ *   the toolbar and any notices (flex, not a viewport calculation, so a
+ *   banner can never push its pinned action row off the screen), and its
+ *   panes scroll internally. Below that it scrolls with the page like any
+ *   other: a phone scrolls the document.
  */
 type PageWidth = "default" | "standard" | "wide" | "narrow" | "workspace"
 
+/**
+ * The page's width, gutters and vertical rhythm.
+ *
+ * A `div`, not the landmark: AppShell owns the one `<main id="main">`, so
+ * the skip link has a target while a route is still streaming and no page
+ * can render a second main.
+ */
 function PageFrame({
   width = "default",
   className,
@@ -24,9 +33,8 @@ function PageFrame({
   children: React.ReactNode
 }) {
   return (
-    <main
-      id="main"
-      tabIndex={-1}
+    <div
+      data-slot="page-frame"
       data-width={width}
       // Phones keep the 20px/24px gutters page sections already bleed
       // against (`-mx-5`, `-mb-6`); from 768px the gutters are fluid.
@@ -39,12 +47,12 @@ function PageFrame({
         (width === "default" || width === "standard") && "max-w-(--np-page-default-width)",
         width === "wide" && "max-w-(--np-page-max-width)",
         width === "narrow" && "max-w-(--np-page-narrow-width)",
-        width === "workspace" && "min-h-0 max-w-none flex-1 pb-6 md:pb-(--np-page-pad-y) md:[@media(min-height:620px)]:h-[calc(100svh-var(--np-toolbar-h))] md:[@media(min-height:620px)]:flex-none md:[@media(min-height:620px)]:overflow-hidden",
+        width === "workspace" && "min-h-0 max-w-none flex-1 pb-6 md:pb-(--np-page-pad-y) md:[@media(min-height:620px)]:overflow-hidden",
         className
       )}
     >
       {children}
-    </main>
+    </div>
   )
 }
 
@@ -93,7 +101,12 @@ function PageHeader({
         <div className="flex min-w-0 flex-[1_1_22.5rem] flex-col gap-1.5">
           {eyebrow ? <p className={EYEBROW_CLASS}>{eyebrow}</p> : null}
           <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-            <h1 className="font-display text-page-title font-semibold text-balance text-ink">
+            {/* Focusable by script only: the shell moves focus here after a
+                navigation (route-focus.tsx). */}
+            <h1
+              tabIndex={-1}
+              className="font-display text-page-title font-semibold text-balance text-ink outline-none"
+            >
               {title}
             </h1>
             {meta}
@@ -125,8 +138,8 @@ const EYEBROW_CLASS =
  * its actions, left-aligned like every other page header so the shell reads
  * the same whether the page worked or not.
  *
- * Renders NO landmark. The route or layout that owns the page's single
- * `<main>` wraps it (`PageFrame`, or the route file's own `main`).
+ * Renders NO landmark: inside the dashboard AppShell owns the single
+ * `<main>`; a route file outside it (the root 404) supplies its own.
  */
 function PageEmptyState({
   title,

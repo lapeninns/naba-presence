@@ -185,6 +185,13 @@
   --shadow-np-pop: var(--np-shadow-pop);
   --shadow-np-modal: var(--np-shadow-modal);
   --shadow-np-hairline: var(--np-shadow-hairline);
+  /* One-sided hairlines for chrome that meets the page on one edge (the
+     app bar and toolbar above, the tab bar below, the rail beside). Inset,
+     so they never change layout; written against --np-line here rather than
+     through a :root token so the colour resolves on the element itself. */
+  --shadow-np-edge-top: inset 0 1px 0 var(--np-line);
+  --shadow-np-edge-bottom: inset 0 -1px 0 var(--np-line);
+  --shadow-np-edge-right: inset -1px 0 0 var(--np-line);
   --shadow-np-focus: var(--np-focus-halo);
 
   /* Skeleton shimmer: a highlight that travels once every two seconds. */
@@ -503,11 +510,12 @@
   --np-text-reading-lh: 1.75rem;
 
   /* Chrome and page frame. Below 48rem the shell is a top app bar and a
-     bottom tab bar; from 48rem a 64px icon rail; from `wide` (73.75rem) the
+     bottom tab bar; from 48rem a 72px icon rail (wide enough for
+     "Calendar" at the 13px touch caption); from `wide` (73.75rem) the
      240px sidebar. Only one bar ever owns the bottom edge of a phone: the
      tab bar on a top-level screen, the action bar on a task screen. */
   --np-sidebar-width: 240px;
-  --np-rail-width: 64px;
+  --np-rail-width: 72px;
   --np-toolbar-h: 56px;
   --np-appbar-h: 52px;
   --np-tabbar-h: 56px;

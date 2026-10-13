@@ -15,7 +15,11 @@ vi.mock("next/link", () => ({
   ),
 }))
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+
 import DashboardError from "@/app/(dashboard)/error"
+import DashboardNotFound from "@/app/(dashboard)/not-found"
+import { queryKeys } from "@/lib/queries/keys"
 import GlobalError from "@/app/global-error"
 import NotFound from "@/app/not-found"
 
@@ -43,7 +47,10 @@ describe("route error boundary", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(retry).toHaveBeenCalledTimes(1)
     expect(reset).not.toHaveBeenCalled()
-    expect(screen.getAllByRole("main")).toHaveLength(1)
+    // Inside the dashboard the shell owns the one <main>; the boundary
+    // renders its page frame (a div) and no landmark of its own.
+    expect(screen.queryByRole("main")).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="page-frame"]')).not.toBeNull()
   })
 
   it("falls back to reset when retry is unavailable", async () => {
@@ -80,5 +87,51 @@ describe("root pages", () => {
     expect(screen.getByText("g-9").tagName).toBe("CODE")
     expect(screen.queryByText(/secret detail/)).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled()
+  })
+})
+
+describe("dashboard 404", () => {
+  function renderNotFound(role: string, workspaceMode: "agency" | "business") {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    client.setQueryData(queryKeys.session, {
+      session: { role, workspaceMode },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <DashboardNotFound />
+      </QueryClientProvider>
+    )
+    const section = screen.getByRole("region", { name: "Where to go instead" })
+    return Array.from(section.querySelectorAll("a")).map((link) =>
+      link.getAttribute("href")
+    )
+  }
+
+  it("offers the registry's destinations for an agency owner", () => {
+    expect(renderNotFound("owner", "agency")).toEqual([
+      "/inbox",
+      "/listings",
+      "/clients",
+      "/calendar",
+      "/reports",
+      "/notifications",
+      "/team",
+      "/settings",
+    ])
+    // Inside the shell: no landmark of its own.
+    expect(screen.queryByRole("main")).not.toBeInTheDocument()
+  })
+
+  it("leaves Team out for a member and Clients out for a business", () => {
+    expect(renderNotFound("member", "business")).toEqual([
+      "/inbox",
+      "/listings",
+      "/calendar",
+      "/reports",
+      "/notifications",
+      "/settings",
+    ])
   })
 })

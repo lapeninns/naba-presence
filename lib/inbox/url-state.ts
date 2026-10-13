@@ -1,3 +1,4 @@
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { ageRange, isReviewAge, type ReviewAge } from "@/lib/inbox/review-age"
 import {
   DEFAULT_REVIEW_QUEUE,
@@ -16,10 +17,11 @@ import {
 export { DEFAULT_REVIEW_QUEUE as DEFAULT_QUEUE, REVIEW_QUEUES as QUEUES }
 export type Queue = ReviewQueue
 
-// Two-pane + auto-select from Tailwind `md` (768px), where a tablet has room
-// for a 280px queue beside the reply thread. Below it the list and the review
-// take turns.
-export const DESKTOP_MEDIA_QUERY = "(min-width: 768px)"
+// Two-pane + auto-select from `lg` (64rem). At `md` a portrait tablet left the
+// reply thread a 315px column, so below `lg` the list and the review take
+// turns. The layout itself is CSS (inbox-view.tsx); this query is only for
+// behaviour that must agree with it, read inside a handler or effect.
+export const DESKTOP_MEDIA_QUERY = mediaQuery("lg")
 
 /**
  * The inbox's whole state, in the URL.
@@ -274,11 +276,6 @@ export function queueForApprovalOwner(owner: ApprovalOwner): Queue {
   if (owner === "me") return "awaiting_my_approval"
   if (owner === "others") return "awaiting_others"
   return "approval"
-}
-
-/** Which pane the mobile (<lg) layout shows. Desktop always shows both. */
-export function mobilePaneFor(selected: string | undefined): "list" | "detail" {
-  return selected ? "detail" : "list"
 }
 
 /**

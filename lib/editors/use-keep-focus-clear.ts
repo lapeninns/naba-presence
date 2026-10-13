@@ -22,6 +22,25 @@ function scrollParent(element: HTMLElement): HTMLElement | null {
 }
 
 /**
+ * The top of the bar the footer draws: the footer slot itself while it sits
+ * in the flow (sticky on a desk), or the docked bar inside it on a phone,
+ * where the slot collapses to nothing and the bar is fixed to the screen's
+ * bottom edge. A bar that isn't drawn (a clean editor on a phone) is no
+ * boundary at all.
+ */
+function barTop(footer: HTMLElement | null): number {
+  if (!footer) return Number.POSITIVE_INFINITY
+  const tops = [
+    footer,
+    ...footer.querySelectorAll<HTMLElement>("[data-docked=bottom]"),
+  ]
+    .map((element) => element.getBoundingClientRect())
+    .filter((rect) => rect.height > 0)
+    .map((rect) => rect.top)
+  return tops.length > 0 ? Math.min(...tops) : Number.POSITIVE_INFINITY
+}
+
+/**
  * Keyboard safety for an editor with a pinned footer bar.
  *
  * A browser only scrolls a focused field into view when it is off screen;
@@ -59,16 +78,13 @@ export function useKeepFocusClear(
       const viewportBottom = viewport
         ? viewport.offsetTop + viewport.height
         : window.innerHeight
-      const barTop = footer
-        ? footer.getBoundingClientRect().top
-        : Number.POSITIVE_INFINITY
       const scroller = scrollParent(target)
       const scrollBottom = scroller
         ? scroller.getBoundingClientRect().top +
           scroller.clientTop +
           scroller.clientHeight
         : Number.POSITIVE_INFINITY
-      const limit = Math.min(barTop, viewportBottom, scrollBottom) - GAP
+      const limit = Math.min(barTop(footer), viewportBottom, scrollBottom) - GAP
       let delta = 0
       if (rect.bottom > limit) delta = rect.bottom - limit
       else if (rect.top < TOP_CLEARANCE) delta = rect.top - TOP_CLEARANCE
