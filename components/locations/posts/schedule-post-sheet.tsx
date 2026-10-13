@@ -49,6 +49,7 @@ import {
 import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
+import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 type Frequency = ScheduleRule["frequency"]
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -321,7 +322,7 @@ export function SchedulePostSheet({
               {existing ? ", and changing it needs a fresh approval" : ""}.
             </SheetDescription>
           </SheetHeader>
-          <SheetBody className="flex flex-col gap-5">
+          <SheetBody {...drawerContentProps} className="flex flex-col gap-5">
             {recurring ? (
               <SegmentedControl
                 semantics="radio"

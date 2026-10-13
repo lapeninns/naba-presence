@@ -235,6 +235,28 @@ describe("Posts tab scheduling (P08-R5)", () => {
     ).toBeInTheDocument()
   })
 
+  it("switches the schedule sheet to a daily repeat with a Starting date, a time and a count", async () => {
+    renderTab([post()], { postScheduling: true, postSchedulingRecurring: true })
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole("button", { name: "More actions for Sunday roast is back" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Schedule publication" })
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Schedule publication",
+    })
+    await user.click(within(sheet).getByRole("radio", { name: "Daily" }))
+    expect(within(sheet).getByRole("radio", { name: "Daily" })).toBeChecked()
+    const starting = within(sheet).getByLabelText("Starting")
+    await user.clear(starting)
+    await user.type(starting, "2026-10-24")
+    expect(starting).toHaveValue("2026-10-24")
+    expect(within(sheet).getByLabelText("Local time")).toBeInTheDocument()
+    expect(within(sheet).getByLabelText("Times")).toBeInTheDocument()
+  })
+
   it("shows a missed slot as missed, with a new time instead of resume or retry", async () => {
     schedules = [
       schedule({ status: "needs_review", statusReason: "paused_when_due" }),

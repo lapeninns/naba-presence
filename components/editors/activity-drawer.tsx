@@ -14,6 +14,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 /**
  * The location's change history, on demand.
@@ -73,7 +74,7 @@ function ActivityDrawer({
             Google change attempts and confirmation results for this location.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody>
+        <SheetBody {...drawerContentProps}>
           {open ? (
             <LocationActivityPanel key={locationId} locationId={locationId} />
           ) : null}

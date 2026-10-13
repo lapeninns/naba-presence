@@ -24,6 +24,7 @@ import {
   stepOutcome,
   type PublishStepResult,
 } from "@/lib/editors/use-publish-flow"
+import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 /**
  * The confirmation step in front of every Google write (reference review
@@ -145,7 +146,7 @@ function ReviewChangesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <SheetBody>
+        <SheetBody {...drawerContentProps}>
           {selection && selection.options.length > 1 ? (
             <fieldset className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
               <legend className="px-1 text-ui font-semibold text-ink">
@@ -246,7 +247,11 @@ function ReviewChangesSheet({
               {failed
                 ? [
                     error,
-                    results?.slice(0, failedAt).some((step) => step.status === "done" && !step.noop) ? "Completed steps remain recorded." : null,
+                    results
+                      ?.slice(0, failedAt)
+                      .some((step) => step.status === "done" && !step.noop)
+                      ? "Completed steps remain recorded."
+                      : null,
                     laterSteps > 0 ? "Nothing after it was sent." : null,
                   ]
                     .filter(Boolean)
@@ -333,7 +338,10 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         id: step.key,
         label: step.label,
         state: stepOutcome(step) ?? "failed",
-        stateLabel: step.code === "google_confirmation_required" ? "Not confirmed" : undefined,
+        stateLabel:
+          step.code === "google_confirmation_required"
+            ? "Not confirmed"
+            : undefined,
         detail: step.message,
         errorCode: step.code,
       }
@@ -343,7 +351,9 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       state: failedAt !== -1 && index > failedAt ? "skipped" : "pending",
       stateLabel:
         failedAt !== -1 && index > failedAt
-          ? results[failedAt].code === "google_confirmation_required" ? "Not sent — an earlier step needs confirmation" : "Not sent — an earlier step failed"
+          ? results[failedAt].code === "google_confirmation_required"
+            ? "Not sent — an earlier step needs confirmation"
+            : "Not sent — an earlier step failed"
           : undefined,
     }
   })
