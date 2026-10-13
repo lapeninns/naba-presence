@@ -1,13 +1,13 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 77,
+    "R1": 53,
     "R2": 9,
-    "R3": 204,
-    "R4": 57,
-    "R5": 6,
+    "R3": 163,
+    "R4": 39,
+    "R5": 5,
     "R6": 5,
-    "R7": 53
+    "R7": 49
   },
   "files": {
     "app/(auth)/layout.tsx": {
@@ -29,44 +29,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[minmax(0,1fr)_20rem]": 1
-        }
-      }
-    },
-    "app/(dashboard)/inbox/loading.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-[1.18]": 1,
-          "text-[clamp(22px,1.1vw+15px,28px)]": 1
-        }
-      },
-      "R3": {
-        "total": 11,
-        "patterns": {
-          "grid-cols-[22px_minmax(0,1fr)]": 1,
-          "grid-cols-[clamp(320px,32%,420px)_minmax(0,1fr)]": 1,
-          "grid-cols-[minmax(280px,340px)_minmax(0,1fr)]": 1,
-          "h-[30px]": 2,
-          "h-[38px]": 1,
-          "p-[3px]": 1,
-          "size-[18px]": 1,
-          "w-[220px]": 1,
-          "w-[300px]": 1,
-          "w-[92px]": 1
-        }
-      },
-      "R4": {
-        "total": 3,
-        "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[5px]": 1,
-          "rounded-[7px]": 1
-        }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "[@media(min-height:620px)]:": 1
         }
       }
     },
@@ -503,117 +465,7 @@
         }
       }
     },
-    "components/inbox/activity-timeline.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "w-[calc(100%+1rem)]": 1
-        }
-      }
-    },
-    "components/inbox/bulk-action-bar.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "pb-[max(10px,env(safe-area-inset-bottom))]": 1
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-b-[calc(var(--np-radius-card)-1px)]": 1,
-          "z-20": 1
-        }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "[@media(min-height:620px)]:": 1
-        }
-      }
-    },
-    "components/inbox/detail/reply-status-line.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-5": 1,
-          "text-[13px]": 1
-        }
-      }
-    },
-    "components/inbox/dirty-context.tsx": {
-      "R5": {
-        "total": 1,
-        "patterns": {
-          "window.confirm()": 1
-        }
-      }
-    },
-    "components/inbox/filter-controls.tsx": {
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-[6px]": 1,
-          "rounded-[calc(var(--np-radius-control)-2px)]": 1
-        }
-      }
-    },
-    "components/inbox/filter-toolbar.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[18px]": 1,
-          "min-w-[18px]": 1
-        }
-      }
-    },
-    "components/inbox/google-freshness.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      }
-    },
-    "components/inbox/inbox-toolbar.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-[1.18]": 1,
-          "text-[13px]": 1,
-          "text-[clamp(22px,1.1vw+15px,28px)]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[0_1_220px]": 1,
-          "flex-[0_1_300px]": 1
-        }
-      }
-    },
     "components/inbox/inbox-view.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11.5px]": 1,
-          "text-[13px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "grid-cols-[22px_minmax(0,1fr)]": 1,
-          "grid-cols-[clamp(320px,32%,420px)_minmax(0,1fr)]": 1,
-          "grid-cols-[minmax(280px,340px)_minmax(0,1fr)]": 1
-        }
-      },
       "R7": {
         "total": 6,
         "patterns": {
@@ -621,142 +473,25 @@
         }
       }
     },
-    "components/inbox/more-filters.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "pb-[max(16px,env(safe-area-inset-bottom))]": 1
-        }
-      }
-    },
-    "components/inbox/queue-tabs.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 4,
-        "patterns": {
-          "min-h-[30px]": 1,
-          "min-h-[38px]": 2,
-          "p-[3px]": 1
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[7px]": 1
-        }
-      }
-    },
-    "components/inbox/reply-composer.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[13px]": 1,
-          "text-[15px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "flex-[1_1_200px]": 1,
-          "h-[34px]": 1,
-          "min-h-[160px]": 1
-        }
-      },
-      "R4": {
-        "total": 3,
-        "patterns": {
-          "rounded-[7px]": 1,
-          "rounded-[9px]": 1,
-          "shadow-[0_0_0_3px_var(--np-fill)]": 1
-        }
-      }
-    },
     "components/inbox/review-detail.tsx": {
-      "R1": {
-        "total": 7,
-        "patterns": {
-          "leading-5": 2,
-          "text-[13px]": 2,
-          "text-[15px]": 1,
-          "text-[17px]": 2
-        }
-      },
       "R2": {
         "total": 1,
         "patterns": {
           "bg-black": 1
         }
       },
-      "R3": {
-        "total": 10,
-        "patterns": {
-          "grid-cols-[32px_minmax(0,1fr)]": 1,
-          "grid-cols-[44px_minmax(0,1fr)]": 1,
-          "grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]": 1,
-          "max-h-[min(60vh,32rem)]": 1,
-          "max-h-[min(70vh,36rem)]": 2,
-          "max-w-[760px]": 1,
-          "max-w-[min(42rem,calc(100%-2rem))]": 1,
-          "pb-[max(12px,env(safe-area-inset-bottom))]": 1,
-          "top-[52px]": 1
-        }
-      },
-      "R4": {
+      "R7": {
         "total": 2,
         "patterns": {
-          "rounded-b-[calc(var(--np-radius-card)-1px)]": 1,
-          "z-20": 1
-        }
-      },
-      "R7": {
-        "total": 3,
-        "patterns": {
-          "[@media(min-height:620px)]:": 3
+          "[@media(min-height:620px)]:": 2
         }
       }
     },
     "components/inbox/review-list.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-5": 1,
-          "text-[11.5px]": 1,
-          "text-[13px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "mt-[3px]": 1,
-          "mt-[7px]": 1,
-          "w-[3px]": 1
-        }
-      },
-      "R4": {
-        "total": 3,
-        "patterns": {
-          "rounded-r-[3px]": 1,
-          "z-10": 2
-        }
-      },
       "R7": {
         "total": 1,
         "patterns": {
           "[@media(min-height:620px)]:": 1
-        }
-      }
-    },
-    "components/inbox/sync-reviews-button.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-10": 1
         }
       }
     },
@@ -1477,14 +1212,6 @@
         "total": 1,
         "patterns": {
           "window.confirm()": 1
-        }
-      }
-    },
-    "lib/inbox/url-state.ts": {
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "(min-width: 768px)": 1
         }
       }
     }
