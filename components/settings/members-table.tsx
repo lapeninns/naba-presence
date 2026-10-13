@@ -9,6 +9,11 @@ import {
   ChangeRoleDialog,
   RemoveMemberDialog,
 } from "@/components/settings/member-dialogs"
+import {
+  RoleChip,
+  TEAM_LIST_CONTAINER_CLASS,
+  TEAM_LIST_TABLE_CLASS,
+} from "@/components/settings/team-list"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -46,7 +51,6 @@ import {
 } from "@/lib/api/members"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { memberRowGate } from "@/lib/settings/gating"
-import { roleLabel } from "@/lib/settings/forms/invitation"
 import { accessSummary, formatDay, publishingState } from "@/lib/settings/roles"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms, type WorkspaceTerms } from "@/lib/workspace/terms"
@@ -242,7 +246,13 @@ function MemberRows({
 
   return (
     <>
-      <Table surface responsive aria-label="Members">
+      <Table
+        surface
+        responsive
+        aria-label="Members"
+        className={TEAM_LIST_TABLE_CLASS}
+        containerClassName={TEAM_LIST_CONTAINER_CLASS}
+      >
         <TableHeader>
           <TableRow>
             <TableHead>Member</TableHead>
@@ -295,7 +305,7 @@ function MemberRows({
                   </div>
                 </TableCell>
                 <TableCell label="Role" priority="trailing">
-                  <Badge variant="role">{roleLabel(m.role)}</Badge>
+                  <RoleChip role={m.role} />
                 </TableCell>
                 <TableCell label={terms.access} span>
                   <span className="flex min-w-0 flex-col">
