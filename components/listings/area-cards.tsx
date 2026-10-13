@@ -4,6 +4,7 @@ import { EyeIcon, PencilIcon } from "lucide-react"
 import Link from "next/link"
 
 import { buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
@@ -250,8 +251,16 @@ function AreaCards({
             pill={<StatusPill tone={state.tone}>{state.label}</StatusPill>}
             line={
               <>
-                {state.line ?? (
-                  <span className="text-ink-muted">Nothing to add</span>
+                {state.line && state.since ? (
+                  <RelativeTime
+                    iso={state.since}
+                    prefix={`${state.line} `}
+                    casing="mid-sentence"
+                  />
+                ) : (
+                  (state.line ?? (
+                    <span className="text-ink-muted">Nothing to add</span>
+                  ))
                 )}
                 {area.key === "photos" ? (
                   <span className="mt-1 block text-caption text-ink-muted">

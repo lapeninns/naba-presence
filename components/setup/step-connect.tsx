@@ -7,10 +7,10 @@ import * as React from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
 import { startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatRelativeTime } from "@/lib/format"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
@@ -217,9 +217,14 @@ function StepConnect({
                           {connection.googleEmail ?? "Google account"}
                         </span>
                         <span className="text-caption text-ink-muted">
-                          {connection.lastRefreshAt
-                            ? `Refreshed ${formatRelativeTime(connection.lastRefreshAt)}`
-                            : "Not refreshed yet"}
+                          {connection.lastRefreshAt ? (
+                            <RelativeTime
+                              iso={connection.lastRefreshAt}
+                              prefix="Refreshed "
+                            />
+                          ) : (
+                            "Not refreshed yet"
+                          )}
                         </span>
                         {broken ? (
                           <span className="text-caption text-ink-muted">

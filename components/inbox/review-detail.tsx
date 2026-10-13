@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
@@ -42,7 +43,7 @@ import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
-import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
   derivePrimaryAction,
@@ -205,21 +206,18 @@ function ReviewerIdentity({
             <span aria-hidden>·</span>
           </>
         ) : null}
-        <time
-          dateTime={review.createTime}
-          title={formatDateTime(review.createTime, review.timezone)}
+        <RelativeTime
+          iso={review.createTime}
+          timeZone={review.timezone}
           className="tabular-nums"
-        >
-          {formatRelativeTime(review.createTime)}
-        </time>
+        />
         {wasEdited(review.createTime, review.updateTime) ? (
-          <time
-            dateTime={review.updateTime}
-            title={formatDateTime(review.updateTime, review.timezone)}
+          <RelativeTime
+            iso={review.updateTime}
+            timeZone={review.timezone}
+            prefix="· edited "
             className="tabular-nums"
-          >
-            · edited {formatRelativeTime(review.updateTime)}
-          </time>
+          />
         ) : null}
         <span aria-hidden>·</span>
         <span>Google review</span>

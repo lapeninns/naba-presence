@@ -1,12 +1,14 @@
 "use client"
 
 import Link from "next/link"
+import { Fragment } from "react"
 
 import { buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { uncheckedAreas } from "@/lib/listings/area-state"
 import {
   googleChangedCount,
@@ -54,10 +56,6 @@ function Tile({
       {action ? <div className="mt-auto pt-1">{action}</div> : null}
     </div>
   )
-}
-
-function capitalise(text: string): string {
-  return text ? text[0]!.toUpperCase() + text.slice(1) : text
 }
 
 const ACTION = cn(
@@ -175,14 +173,24 @@ function HealthStrip({
                     : business
                       ? "Link it from setup"
                       : "Link it from the client’s setup"),
-                linked && summary.freshness
-                  ? summary.freshness.lastCheckedAt
-                    ? `reviews checked ${formatRelativeTime(summary.freshness.lastCheckedAt)}`
-                    : "reviews not checked yet"
-                  : null,
+                linked && summary.freshness ? (
+                  summary.freshness.lastCheckedAt ? (
+                    <RelativeTime
+                      iso={summary.freshness.lastCheckedAt}
+                      prefix="reviews checked "
+                    />
+                  ) : (
+                    "reviews not checked yet"
+                  )
+                ) : null,
               ]
                 .filter(Boolean)
-                .join(" · ")
+                .map((part, index) => (
+                  <Fragment key={index}>
+                    {index > 0 ? " · " : null}
+                    {part}
+                  </Fragment>
+                ))
         }
         action={
           linked && connectionBroken && clientId && canManageConsoles ? (
@@ -291,7 +299,7 @@ function HealthStrip({
           last ? (
             <>
               <span className="font-mono text-[17px] leading-6 font-semibold text-ink tabular-nums">
-                {capitalise(formatRelativeTime(last.at))}
+                <RelativeTime iso={last.at} casing="sentence" />
               </span>
               {last.status === "failed" ? (
                 <StatusPill tone="at-risk">Failed</StatusPill>

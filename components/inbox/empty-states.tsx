@@ -13,9 +13,9 @@ import {
 } from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Empty } from "@/components/ui/empty"
 import { formatNumber } from "@/lib/format"
-import { formatRelativeTime } from "@/lib/format/date"
 import type { EmptyReason } from "@/lib/inbox/empty-reason"
 import { visibleQueue, type Queue } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
@@ -23,7 +23,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 type Content = {
   title: string
-  description: string
+  description: React.ReactNode
 }
 
 /**
@@ -156,9 +156,14 @@ function content(
     case "checked":
       return {
         title: "No reviews yet.",
-        description: counts.lastSyncAt
-          ? `Google had none for these locations when we last checked, ${formatRelativeTime(counts.lastSyncAt)}.`
-          : "Google had none for these locations when we last checked.",
+        description: counts.lastSyncAt ? (
+          <>
+            Google had none for these locations when we last checked,{" "}
+            <RelativeTime iso={counts.lastSyncAt} />.
+          </>
+        ) : (
+          "Google had none for these locations when we last checked."
+        ),
       }
     case "unknown":
       return {
