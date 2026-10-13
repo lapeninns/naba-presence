@@ -177,9 +177,7 @@ function WaitingFigure({ summary }: { summary: ListingSummary | undefined }) {
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-secondary">
       {count > 0 ? (
-        <span className="font-mono tabular-nums">
-          {formatNumber(count)} waiting
-        </span>
+        <span className="tabular-nums">{formatNumber(count)} waiting</span>
       ) : failed ? null : (
         <span className="text-ink-muted">Nothing waiting</span>
       )}
@@ -264,24 +262,23 @@ function columnsFor(business: boolean) {
 }
 
 /*
- * The phone row (the table's container under 48rem): a compact record, not
- * a stack of labelled cells. The listing name is the headline with a
- * chevron, and one line under it carries the health pill and the waiting
- * figure; the client, verification and last-published columns step aside
- * (they are one tap away on the listing). The responsive table's own rules
- * select on `tbody > tr > td`, so these overrides are marked important.
+ * The phone row (the table's container under 48rem) is a record card laid
+ * out by the Table's own cell priorities, the anatomy of a list row:
+ *
+ *   [select] Listing name ........................ ›
+ *            Client · address           [health pill]
+ *            n waiting
+ *            Client: File under…   (unfiled rows only)
+ *
+ * The verification and last-published columns step aside (desk-only; they
+ * are one tap away on the listing). These classes only show or hide content
+ * INSIDE a cell, so none of them has to fight the table's own rules.
  */
 const PHONE = {
-  rowSelectable:
-    "@max-3xl/table:grid-cols-[auto_auto_minmax(0,1fr)]! @max-3xl/table:gap-y-1!",
-  rowPlain: "@max-3xl/table:grid-cols-[auto_minmax(0,1fr)]!",
-  select:
-    "@max-3xl/table:col-span-1! @max-3xl/table:row-span-2 @max-3xl/table:self-center",
-  /** The name spans every column right of the checkbox. */
-  nameSelectable: "@max-3xl/table:col-span-2!",
-  hidden: "@max-3xl/table:hidden!",
   /** Shown only on the phone row. */
   only: "hidden @max-3xl/table:inline-flex",
+  /** Inline text shown only on the phone row. */
+  onlyInline: "hidden @max-3xl/table:inline",
   /** Shown only from 48rem. */
   wide: "@max-3xl/table:hidden",
 } as const
@@ -331,34 +328,50 @@ function BoardTable({
 function BoardSkeleton() {
   const business = useWorkspaceMode() === "business"
   return (
-    <div className="flex flex-col gap-3" aria-busy="true">
-      <Skeleton className="h-8 w-full max-w-140 rounded-(--np-radius-pill)" />
-      <div className="flex flex-wrap gap-3">
-        <Skeleton className="h-(--np-control-h) w-full max-w-80" />
-        <Skeleton className="h-(--np-control-h) w-full max-w-96 rounded-(--np-radius-control)" />
+    <div className="flex flex-col gap-4" aria-busy="true">
+      {/* The toolbar's shape: search and the order control on one row,
+          then the chip strip, then the summary line. */}
+      <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Skeleton className="h-(--np-control-h) min-w-0 grow basis-36 rounded-(--np-radius-control) sm:max-w-80" />
+          {business ? null : (
+            <Skeleton className="h-(--np-control-h) w-48 rounded-(--np-radius-control)" />
+          )}
+        </div>
+        <div className="flex gap-2 overflow-hidden">
+          {[0, 1, 2, 3, 4].map((index) => (
+            <Skeleton
+              key={index}
+              className="h-(--np-control-h-sm) w-28 shrink-0 rounded-(--np-radius-pill)"
+            />
+          ))}
+        </div>
+        <Skeleton className="h-3.5 w-72 max-w-full" />
       </div>
-      <Skeleton className="h-3.5 w-72 max-w-full" />
       <BoardTable busy>
         {[0, 1, 2, 3, 4].map((index) => (
           <TableRow key={index} aria-hidden>
-            <TableCell>
-              <Skeleton className="h-3.5 w-40 max-w-full" />
+            <TableCell priority="primary">
+              <span className="flex flex-col gap-1.5">
+                <Skeleton className="h-4 w-40 max-w-full" />
+                <Skeleton className="h-3 w-56 max-w-full" />
+              </span>
             </TableCell>
             {business ? null : (
-              <TableCell>
+              <TableCell priority="desk-only">
                 <Skeleton className="h-3.5 w-28" />
               </TableCell>
             )}
-            <TableCell>
+            <TableCell priority="trailing" className="@max-3xl/table:self-end">
               <Skeleton className="h-5.5 w-24" />
             </TableCell>
-            <TableCell>
-              <Skeleton className="h-5.5 w-32" />
+            <TableCell priority="meta">
+              <Skeleton className="h-3.5 w-24 @3xl/table:h-5.5 @3xl/table:w-32" />
             </TableCell>
-            <TableCell>
+            <TableCell priority="desk-only">
               <Skeleton className="h-5.5 w-20" />
             </TableCell>
-            <TableCell>
+            <TableCell priority="desk-only">
               <Skeleton className="h-3.5 w-20" />
             </TableCell>
           </TableRow>
@@ -379,10 +392,10 @@ function BoardSkeleton() {
  * `clientId`, `order`), so a filtered board can be shared or reloaded. The
  * Waiting column reads the DB-only summary, so the board answers "what is
  * waiting on which listing" without a single Google call. Below 48rem of
- * width each row becomes a compact record (name, health, one waiting
- * figure, chevron) that is one tap target, and the filters are pressed
- * buttons throughout (client chips, health chips, order), so moving through
- * them by keyboard never re-filters the board.
+ * width each row becomes a compact record (name; client · address with the
+ * health pill; one waiting figure; chevron) that is one tap target, and the
+ * filters are pressed buttons throughout (client chips, health chips,
+ * order), so moving through them by keyboard never re-filters the board.
  */
 function ListingsBoard({
   role,
@@ -491,24 +504,19 @@ function ListingsBoard({
   // A failed background refetch keeps the board it already has.
   if (directory.isError && !directory.data) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
-        <Empty
-          tone="bad"
-          icon={<CircleAlertIcon />}
-          titleAs="h2"
-          title="We couldn’t load your listings"
-          description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
-          action={
-            <Button
-              variant="secondary"
-              onClick={() => void directory.refetch()}
-            >
-              <RefreshCwIcon aria-hidden />
-              Try again
-            </Button>
-          }
-        />
-      </div>
+      <Empty
+        framed
+        variant="error"
+        titleAs="h2"
+        title="We couldn’t load your listings"
+        description="The listings service didn’t answer, so nothing is shown rather than a partial board. Nothing was changed."
+        action={
+          <Button variant="secondary" onClick={() => void directory.refetch()}>
+            <RefreshCwIcon aria-hidden />
+            Try again
+          </Button>
+        }
+      />
     )
   }
 
@@ -538,31 +546,30 @@ function ListingsBoard({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
-        <Empty
-          icon={<StoreIcon />}
-          titleAs="h2"
-          title="No listings yet"
-          description={
-            canManage
-              ? business
-                ? "Connect your Google login and link your locations, and they appear here with their health."
-                : "Connect a client’s Google login and link its locations, and they appear here with their health."
-              : "Nothing is linked to Google yet. An owner or admin can add the first listing."
-          }
-          action={
-            canManage ? (
-              <Link
-                href="/setup"
-                className={cn(buttonVariants({ variant: "secondary" }))}
-              >
-                <PlusIcon aria-hidden strokeWidth={1.75} />
-                Add listings from Google
-              </Link>
-            ) : undefined
-          }
-        />
-      </div>
+      <Empty
+        framed
+        icon={<StoreIcon />}
+        titleAs="h2"
+        title="No listings yet"
+        description={
+          canManage
+            ? business
+              ? "Connect your Google login and link your locations, and they appear here with their health."
+              : "Connect a client’s Google login and link its locations, and they appear here with their health."
+            : "Nothing is linked to Google yet. An owner or admin can add the first listing."
+        }
+        action={
+          canManage ? (
+            <Link
+              href="/setup"
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              <PlusIcon aria-hidden strokeWidth={1.75} />
+              Add listings from Google
+            </Link>
+          ) : undefined
+        }
+      />
     )
   }
 
@@ -647,18 +654,15 @@ function ListingsBoard({
 
   const renderRow = (row: BoardRow) => {
     const address = formatAddressLine(row.entry.address)
-    const filing = row.clientId === UNFILED && canManage
+    const unfiledRow = row.clientId === UNFILED
+    // The phone row names the client before the address ("Client ·
+    // address"); a desk has its own Client column, so this part is phone
+    // only. An unfiled row keeps its Client cell on the phone instead.
+    const clientInSubtitle = !business && !unfiledRow
     return (
-      <TableRow
-        key={row.entry.id}
-        interactive
-        className={cn(
-          "relative",
-          canSelect ? PHONE.rowSelectable : PHONE.rowPlain
-        )}
-      >
+      <TableRow key={row.entry.id} interactive className="relative">
         {canSelect ? (
-          <TableCell className={PHONE.select}>
+          <TableCell priority="select">
             {/* Above the row's stretched link, so a tap here selects. */}
             <span className="relative z-raised flex">
               <Checkbox
@@ -675,61 +679,57 @@ function ListingsBoard({
             </span>
           </TableCell>
         ) : null}
-        <TableCell
-          className={cn(
-            canSelect ? PHONE.nameSelectable : "@max-3xl/table:col-span-full!"
-          )}
-        >
-          <span className="flex min-w-0 items-start gap-2">
-            <span className="flex min-w-0 flex-1 flex-col">
-              {/* The whole row is this link's target: its ::after stretches
-                  over the row (positioned), so a phone row is one tap and
-                  never a 24px line of text. */}
-              <ShellLink
-                href={listingHref(row.entry.id)}
-                className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-3xl/table:text-body"
-              >
-                {row.entry.name}
-              </ShellLink>
-              {address ? (
-                <span className="text-caption break-words text-ink-muted">
-                  {address}
-                </span>
-              ) : null}
-            </span>
-            {/* No chevron of its own: the row is `interactive`, so the
-                Table's record card already draws one on a phone. */}
+        <TableCell priority="primary">
+          <span className="flex min-w-0 flex-col">
+            {/* The whole row is this link's target: its ::after stretches
+                over the row (positioned), so a phone row is one tap and
+                never a 24px line of text. No chevron of its own: the row is
+                `interactive`, so the record card already draws one. */}
+            <ShellLink
+              href={listingHref(row.entry.id)}
+              className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-3xl/table:min-h-0 @max-3xl/table:text-body"
+            >
+              {row.entry.name}
+            </ShellLink>
+            {clientInSubtitle || address ? (
+              <span className="text-caption break-words text-ink-muted">
+                {clientInSubtitle ? (
+                  <span className={PHONE.onlyInline}>
+                    {row.clientName}
+                    {address ? " · " : null}
+                  </span>
+                ) : null}
+                {address}
+              </span>
+            ) : null}
           </span>
         </TableCell>
-        {business ? null : (
-          <TableCell
-            label={filing ? "Client" : undefined}
-            span={filing}
-            className={cn(
-              filing ? "@max-3xl/table:col-span-full!" : PHONE.hidden
-            )}
-          >
-            {row.clientId === UNFILED ? (
-              canManage ? (
-                <span className="relative z-raised inline-flex max-w-full">
-                  <FileUnderClient
-                    locationId={row.entry.id}
-                    locationName={row.entry.name}
-                  />
-                </span>
-              ) : (
-                <span className="text-ink-muted">Not filed</span>
-              )
-            ) : (
-              <span className="flex min-w-0 items-center gap-2">
-                <ClientAvatar name={row.clientName} colour={null} size="sm" />
-                <span className="min-w-0 break-words">{row.clientName}</span>
+        {business ? null : unfiledRow ? (
+          // Unfiled: the one thing this listing needs, so it stays on the
+          // phone row as a labelled line under the record.
+          <TableCell priority="detail" label="Client" span>
+            {canManage ? (
+              <span className="relative z-raised inline-flex max-w-full">
+                <FileUnderClient
+                  locationId={row.entry.id}
+                  locationName={row.entry.name}
+                />
               </span>
+            ) : (
+              <span className="text-ink-muted">Not filed</span>
             )}
           </TableCell>
+        ) : (
+          <TableCell priority="desk-only">
+            <span className="flex min-w-0 items-center gap-2">
+              <ClientAvatar name={row.clientName} colour={null} size="sm" />
+              <span className="min-w-0 break-words">{row.clientName}</span>
+            </span>
+          </TableCell>
         )}
-        <TableCell className="@max-3xl/table:self-center">
-          <span className="flex flex-col items-start gap-1">
+        {/* On the phone the health pill closes the subtitle line. */}
+        <TableCell priority="trailing" className="@max-3xl/table:self-end">
+          <span className="flex flex-col items-start gap-1 @max-3xl/table:items-end">
             <StatusPill tone={listingHealthTone(row.health)}>
               {listingHealthLabel(row.health)}
             </StatusPill>
@@ -738,9 +738,9 @@ function ListingsBoard({
             </span>
           </span>
         </TableCell>
-        <TableCell className="@max-3xl/table:self-center">
+        <TableCell priority="meta">
           {summaries.isPending ? (
-            <Skeleton className="h-5.5 w-32" />
+            <Skeleton className="h-3.5 w-24 @3xl/table:h-5.5 @3xl/table:w-32" />
           ) : quietRow(row.summary) ? (
             // One node at every width: a quiet row says so once, not once
             // per layout (the phone figure and the pills would repeat it).
@@ -758,14 +758,14 @@ function ListingsBoard({
             </>
           )}
         </TableCell>
-        <TableCell className={PHONE.hidden}>
+        <TableCell priority="desk-only">
           <VerificationCell row={row} />
         </TableCell>
-        <TableCell className={PHONE.hidden}>
+        <TableCell priority="desk-only">
           {summaries.isPending ? (
             <Skeleton className="h-3.5 w-20" />
           ) : (
-            <span className="font-mono text-caption text-ink-muted tabular-nums">
+            <span className="text-caption text-ink-muted tabular-nums">
               {/* No summary means we don't know, not that it never happened. */}
               {!row.summary ? (
                 "—"
@@ -786,42 +786,13 @@ function ListingsBoard({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The toolbar: search and the order control on one row (they wrap
+          only on the narrowest phones), then one strip of filter chips. */}
       <div className="flex min-w-0 flex-col gap-3">
-        {clientChips.length > 1 ? (
-          <ChipRow
-            role="group"
-            aria-label="Filter by client"
-            className="-mx-5 px-5 md:mx-0 md:px-0.5"
-          >
-            <ToggleChip
-              pressed={clientFilter === null}
-              onClick={() => setClientFilter(null)}
-              count={formatNumber(rows.length)}
-            >
-              All clients
-            </ToggleChip>
-            {clientChips.map((chip) => {
-              const pressed = clientFilter === chip.id
-              return (
-                <ToggleChip
-                  key={chip.id}
-                  pressed={pressed}
-                  onClick={() => setClientFilter(pressed ? null : chip.id)}
-                >
-                  {chip.id === UNFILED ? (
-                    <CircleAlertIcon aria-hidden strokeWidth={1.75} />
-                  ) : null}
-                  <span className="max-w-64 truncate">{chip.name}</span>
-                  <ChipCount>{formatNumber(chip.count)}</ChipCount>
-                </ToggleChip>
-              )
-            })}
-          </ChipRow>
-        ) : null}
         <div
           role="search"
           aria-label="Filter listings"
-          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2"
+          className="flex min-w-0 flex-wrap items-center gap-2"
         >
           <SearchInput
             aria-label="Search listings"
@@ -833,7 +804,7 @@ function ListingsBoard({
               setSearch(event.target.value)
             }
             onClear={() => setSearch("")}
-            className="w-full min-w-0 sm:w-auto sm:max-w-80 sm:shrink sm:grow sm:basis-55"
+            className="min-w-0 grow basis-36 sm:max-w-80"
           />
           {business ? null : (
             // Pressed buttons, like the client chips: arrows move focus and
@@ -842,7 +813,7 @@ function ListingsBoard({
             <SegmentedControl
               semantics="toggle"
               aria-label="Order listings"
-              className="max-w-full min-w-0"
+              className="w-auto max-w-full min-w-0 flex-none"
               value={order}
               onValueChange={(next) => setOrder(next as BoardOrder)}
             >
@@ -855,31 +826,70 @@ function ListingsBoard({
             </SegmentedControl>
           )}
         </div>
-        {/* Health is one more set of filter chips: five options never fit a
-            phone's segmented track, so they wrap rather than hide behind a
-            scroll, and every label and count stays visible. */}
-        <div
-          role="group"
-          aria-label="Filter by health"
-          className="flex min-w-0 flex-wrap gap-2"
-        >
-          {HEALTH_FILTERS.map((filter) => (
-            <ToggleChip
-              key={filter.value}
-              pressed={health === filter.value}
-              onClick={() => setHealth(filter.value)}
-              count={formatNumber(healthCount(filter.value))}
+        {/* Two chip strips: health, then clients. Each is its own ChipRow so
+            each keeps ITS pressed chip in view: on a phone a strip scrolls
+            sideways (edge fade) rather than truncating a label; from md it
+            wraps, so a desk sees every chip. Each chip is a 44px target on
+            touch. */}
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-x-3">
+          <ChipRow className="-mx-5 px-5 md:mx-0 md:flex-wrap md:px-0.5">
+            <div
+              role="group"
+              aria-label="Filter by health"
+              className="flex shrink-0 gap-2 md:shrink md:flex-wrap"
             >
-              {filter.label}
-            </ToggleChip>
-          ))}
+              {HEALTH_FILTERS.map((filter) => (
+                <ToggleChip
+                  key={filter.value}
+                  pressed={health === filter.value}
+                  onClick={() => setHealth(filter.value)}
+                  count={formatNumber(healthCount(filter.value))}
+                >
+                  {filter.label}
+                </ToggleChip>
+              ))}
+            </div>
+          </ChipRow>
+          {clientChips.length > 1 ? (
+            <ChipRow className="-mx-5 px-5 md:mx-0 md:flex-wrap md:border-l md:border-line md:px-0.5 md:pl-3">
+              <div
+                role="group"
+                aria-label="Filter by client"
+                className="flex shrink-0 gap-2 md:shrink md:flex-wrap"
+              >
+                <ToggleChip
+                  pressed={clientFilter === null}
+                  onClick={() => setClientFilter(null)}
+                  count={formatNumber(rows.length)}
+                >
+                  All clients
+                </ToggleChip>
+                {clientChips.map((chip) => {
+                  const pressed = clientFilter === chip.id
+                  return (
+                    <ToggleChip
+                      key={chip.id}
+                      pressed={pressed}
+                      onClick={() => setClientFilter(pressed ? null : chip.id)}
+                    >
+                      {chip.id === UNFILED ? (
+                        <CircleAlertIcon aria-hidden strokeWidth={1.75} />
+                      ) : null}
+                      {chip.name}
+                      <ChipCount>{formatNumber(chip.count)}</ChipCount>
+                    </ToggleChip>
+                  )
+                })}
+              </div>
+            </ChipRow>
+          ) : null}
         </div>
         <p className="text-caption text-ink-muted" aria-live="polite">
           {summaries.isPending ? (
             "Checking each listing…"
           ) : (
             <>
-              <span className="font-mono tabular-nums">
+              <span className="tabular-nums">
                 {rows.length === 1
                   ? "1 listing"
                   : `${formatNumber(rows.length)} listings`}
@@ -901,22 +911,21 @@ function ListingsBoard({
       </div>
 
       {visible.length === 0 ? (
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
-          <Empty
-            icon={<FilterIcon />}
-            title="No listings match"
-            description={
-              business
-                ? "Nothing fits this health and search together. Widen one of them to see the rest."
-                : "Nothing fits this client, health and search together. Widen one of them to see the rest."
-            }
-            action={
-              <Button variant="secondary" onClick={clearFilters}>
-                Clear filters
-              </Button>
-            }
-          />
-        </div>
+        <Empty
+          framed
+          icon={<FilterIcon />}
+          title="No listings match"
+          description={
+            business
+              ? "Nothing fits this health and search together. Widen one of them to see the rest."
+              : "Nothing fits this client, health and search together. Widen one of them to see the rest."
+          }
+          action={
+            <Button variant="secondary" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          }
+        />
       ) : (
         <div className="flex flex-col gap-2">
           {selectAllBlocked ? (
