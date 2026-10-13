@@ -157,4 +157,15 @@ describe("LocationReport period", () => {
       screen.getByRole("button", { name: /^Girton.*Last \d+ days$/ })
     ).toBeInTheDocument()
   })
+
+  it("names the scoped location in words at every width", async () => {
+    stubDirectory()
+    search = "locationId=l1"
+    renderView()
+    const scope = await screen.findByText(/^Reporting on/)
+    expect(scope).toHaveTextContent(/^Reporting on Girton/)
+    // Not inside the phone-only summary button or the desk-only meta line.
+    expect(scope.closest("button")).toBeNull()
+    expect(scope.closest(".hidden")).toBeNull()
+  })
 })

@@ -81,6 +81,7 @@ function NoLocationsPanel({ client }: { client: ClientSummary }) {
   return (
     <ReportingPanel
       framed
+      titleAs="h2"
       variant="empty"
       icon={<Link2OffIcon />}
       title="No linked location"

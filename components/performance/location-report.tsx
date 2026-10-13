@@ -92,68 +92,76 @@ function LocationReport({
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      <ReportToolbar
-        summary={[location.name, periodLabel]}
-        meta={[location.name, whose, periodDates].filter(Boolean).join(" · ")}
-        fields={(placement) => {
-          const field = reportToolbarFieldProps(placement)
-          return (
-            <>
-              <LocationSelect
-                {...field}
-                locations={siblings}
-                value={locationId}
-                onChange={(next) => {
-                  const params = new URLSearchParams(searchParams.toString())
-                  if (next) params.set("locationId", next)
-                  else {
-                    params.delete("locationId")
-                    if (location.clientId && !business)
-                      params.set("clientId", location.clientId)
-                  }
-                  router.replace(`${pathname}?${params.toString()}`, {
-                    scroll: false,
-                  })
-                }}
-              />
-              {onRangeChange ? (
-                <RangeSelect
+      <div className="flex flex-col gap-3">
+        {/* The scope, said once in words at every width: the summary button
+            is phone-only and the meta line is desk-only. */}
+        <p className="text-body text-ink">
+          Reporting on <span className="font-semibold">{location.name}</span>
+          {whose ? <span className="text-ink-muted"> · {whose}</span> : null}
+        </p>
+        <ReportToolbar
+          summary={[location.name, periodLabel]}
+          meta={periodDates}
+          fields={(placement) => {
+            const field = reportToolbarFieldProps(placement)
+            return (
+              <>
+                <LocationSelect
                   {...field}
-                  className={placement === "bar" ? "w-44" : field.className}
-                  value={rangeId}
-                  onChange={onRangeChange}
-                  options={REPLY_RANGES}
-                  period={placement === "sheet" ? periodDates : undefined}
+                  locations={siblings}
+                  value={locationId}
+                  onChange={(next) => {
+                    const params = new URLSearchParams(searchParams.toString())
+                    if (next) params.set("locationId", next)
+                    else {
+                      params.delete("locationId")
+                      if (location.clientId && !business)
+                        params.set("clientId", location.clientId)
+                    }
+                    router.replace(`${pathname}?${params.toString()}`, {
+                      scroll: false,
+                    })
+                  }}
                 />
-              ) : null}
+                {onRangeChange ? (
+                  <RangeSelect
+                    {...field}
+                    className={placement === "bar" ? "w-44" : field.className}
+                    value={rangeId}
+                    onChange={onRangeChange}
+                    options={REPLY_RANGES}
+                    period={placement === "sheet" ? periodDates : undefined}
+                  />
+                ) : null}
+              </>
+            )
+          }}
+          extras={
+            <>
+              <Link
+                href={`/listings/${location.id}`}
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                Open listing
+              </Link>
+              <Link
+                href={
+                  location.clientId && !business
+                    ? `/reports?clientId=${location.clientId}`
+                    : "/reports"
+                }
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                {business
+                  ? "All locations"
+                  : location.clientId
+                    ? "Whole client"
+                    : "All clients"}
+              </Link>
             </>
-          )
-        }}
-        extras={
-          <>
-            <Link
-              href={`/listings/${location.id}`}
-              className={cn(buttonVariants({ variant: "secondary" }))}
-            >
-              Open listing
-            </Link>
-            <Link
-              href={
-                location.clientId && !business
-                  ? `/reports?clientId=${location.clientId}`
-                  : "/reports"
-              }
-              className={cn(buttonVariants({ variant: "secondary" }))}
-            >
-              {business
-                ? "All locations"
-                : location.clientId
-                  ? "Whole client"
-                  : "All clients"}
-            </Link>
-          </>
-        }
-      />
+          }
+        />
+      </div>
       {/* The period picker is the toolbar's, so none is drawn below. */}
       <LocationPerformance locationId={locationId} rangeId={rangeId} />
     </div>

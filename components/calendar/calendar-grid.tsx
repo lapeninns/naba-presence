@@ -14,6 +14,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
+import type { StatusTone } from "@/lib/ui/status-tone"
 import {
   Table,
   TableBody,
@@ -30,14 +31,14 @@ import { cn } from "@/lib/utils"
 
 const STATUS: Record<
   ScheduleOccurrence["status"],
-  { label: string; tone: PillTone }
+  { label: string; tone: StatusTone | PillTone }
 > = {
-  scheduled: { label: "Scheduled", tone: "info" },
-  publishing: { label: "Publishing", tone: "info" },
-  published: { label: "Published", tone: "ok" },
-  rejected: { label: "Rejected", tone: "bad" },
-  ambiguous: { label: "Outcome unknown", tone: "warn" },
-  missed: { label: "Missed", tone: "warn" },
+  scheduled: { label: "Scheduled", tone: "pending" },
+  publishing: { label: "Publishing", tone: "pending" },
+  published: { label: "Published", tone: "healthy" },
+  rejected: { label: "Rejected", tone: "at-risk" },
+  ambiguous: { label: "Outcome unknown", tone: "attention" },
+  missed: { label: "Missed", tone: "attention" },
   cancelled: { label: "Cancelled", tone: "outline" },
 }
 

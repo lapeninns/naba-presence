@@ -153,6 +153,7 @@ export function LocationPerformance({
         ) : !presence.data.ingestionEnabled ? (
           <ReportingPanel
             framed
+            titleAs="h3"
             variant="off"
             title="Not switched on"
             description="Visibility metrics are not switched on for your account yet."
@@ -160,13 +161,14 @@ export function LocationPerformance({
         ) : presence.data.state === "no_link" ? (
           <ReportingPanel
             framed
+            titleAs="h3"
             variant="empty"
             icon={<Link2OffIcon />}
             title="Not linked"
             description="This location is not linked to Google."
           />
         ) : presence.data.state === "pending" ? (
-          <ReportingPanel framed variant="collecting" />
+          <ReportingPanel framed titleAs="h3" variant="collecting" />
         ) : presence.data.state === "unavailable" ? (
           <UnavailableAlert
             codes={
@@ -179,6 +181,7 @@ export function LocationPerformance({
         ) : presence.data.state !== "ready" ? (
           <ReportingPanel
             framed
+            titleAs="h3"
             variant="empty"
             title="No visibility data yet"
             description="Google has not reported visibility data for this window."
@@ -207,6 +210,7 @@ export function LocationPerformance({
           keywordsPaused ? (
             <ReportingPanel
               framed
+              titleAs="h3"
               variant="paused"
               title="Keyword reporting is paused"
               description="Google search-keyword reporting is temporarily paused."
@@ -221,6 +225,7 @@ export function LocationPerformance({
         ) : keywords.data.keywords.length === 0 ? (
           <ReportingPanel
             framed
+            titleAs="h3"
             variant="empty"
             icon={<SearchIcon />}
             title="No keywords yet"
