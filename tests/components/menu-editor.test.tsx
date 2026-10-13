@@ -23,6 +23,22 @@ async function rowAction(
   await user.click(await screen.findByRole("menuitem", { name: action }))
 }
 
+/**
+ * The menu switcher is the shared Select (a combobox and a listbox), not a
+ * native <select>: open it and pick the menu by name.
+ */
+function menuSwitcher() {
+  return screen.getByRole("combobox", { name: "Menu" })
+}
+
+async function chooseMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await user.click(menuSwitcher())
+  await user.click(await screen.findByRole("option", { name }))
+}
+
 function fixture(): FoodMenu[] {
   return [
     {
@@ -122,7 +138,7 @@ describe("MenuEditor structured workspace", () => {
     render(<Harness onChange={onChange} />)
     expect(onChange).not.toHaveBeenCalled()
     expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Lunch")
+    expect(menuSwitcher()).toHaveTextContent(/^Lunch$/)
   })
 
   it("keeps a decimal point and fractional digits during ordinary typing", async () => {
@@ -191,20 +207,14 @@ describe("MenuEditor structured workspace", () => {
   it("retains unfinished input across a menu switch and shows hidden errors", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Dinner" })
-    )
+    await chooseMenu(user, "Dinner")
     fireEvent.change(screen.getByLabelText("Price (GBP)"), {
       target: { value: "." },
     })
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Lunch" })
-    )
+    await chooseMenu(user, "Lunch")
     expect(screen.getByTestId("valid")).toHaveTextContent("false")
     await user.click(screen.getByRole("button", { name: "Validate" }))
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Dinner")
+    expect(menuSwitcher()).toHaveTextContent(/^Dinner$/)
     expect(screen.getByLabelText("Price (GBP)")).toHaveValue(".")
     const summary = screen.getByRole("alert")
     expect(summary).toHaveTextContent("Dinner · Curry")
@@ -214,10 +224,7 @@ describe("MenuEditor structured workspace", () => {
     const user = userEvent.setup()
     render(<Harness />)
     const first = wire()[0]
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Dinner" })
-    )
+    await chooseMenu(user, "Dinner")
     await user.clear(screen.getByLabelText("Menu name"))
     await user.type(screen.getByLabelText("Menu name"), "Evening menu")
     expect(wire()[0]).toEqual(first)
@@ -312,7 +319,7 @@ describe("MenuEditor structured workspace", () => {
       })
     )
     expect(wire()).toHaveLength(1)
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Dinner")
+    expect(menuSwitcher()).toHaveTextContent(/^Dinner$/)
     await user.click(screen.getByRole("button", { name: "Undo removal" }))
     expect(wire().map((menu: FoodMenu) => menu.labels)).toEqual([
       [{ displayName: "Lunch" }],
@@ -370,7 +377,7 @@ describe("MenuEditor structured workspace", () => {
     render(<Harness />)
     await user.click(screen.getByRole("button", { name: "New menu" }))
     expect(screen.getByLabelText("Menu name")).toHaveFocus()
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Untitled menu 3")
+    expect(menuSwitcher()).toHaveTextContent(/^Untitled menu 3$/)
     expect(screen.getByTestId("valid")).toHaveTextContent("false")
     await user.click(screen.getByRole("button", { name: "Validate" }))
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -403,10 +410,7 @@ describe("MenuEditor structured workspace", () => {
     expect(
       screen.queryByRole("button", { name: "Actions for Soup" })
     ).not.toBeInTheDocument()
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Dinner" })
-    )
+    await chooseMenu(user, "Dinner")
     expect(screen.getByDisplayValue("Curry")).toBeInTheDocument()
     expect(onChange).not.toHaveBeenCalled()
   })

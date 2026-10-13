@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { googleServiceAreaSchema } from "@/lib/domain/google-service-area"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
 import { SectionCard } from "../section-card"
+import { HandoffNote, ItemRow, RowList, SettingsGroupLabel } from "./setting-rows"
 
 /** The country a two-letter code names, in words, so a person can check the code. */
 function countryName(code: string | undefined): string | null {
@@ -39,7 +40,7 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
   const blocked = disabled || unsupported
   const existingCountry = asRecord(baseline.serviceArea).regionCode
   return <SectionCard id="section-service-area" model="google" title="Service area" description="Choose where you meet customers and the areas you serve." changed={changed}>
-    {unsupported && <p role="status" className="text-ui text-ink-muted">Google returned service-area data this editor cannot preserve. <a className="underline underline-offset-4" href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer">Manage service areas in Google</a>, then refresh this profile.</p>}
+    {unsupported && <HandoffNote>Google returned service-area data this editor cannot preserve. <a className="underline underline-offset-4" href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer">Manage service areas in Google</a>, then refresh this profile.</HandoffNote>}
     <Field error={error}>
       <FieldLabel htmlFor="profile-service-area">Where do you serve customers?</FieldLabel>
       <Select value={area?.businessType ?? "unchanged"} disabled={blocked} onValueChange={(value) => {
@@ -72,12 +73,11 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
         </div>
         <FieldDescription>Required for customer-only businesses. The address removal will appear in your review before publishing.</FieldDescription>
       </Field>}
-      <div className="flex flex-col gap-3">
-        {places.map((place, index) => <div key={place.placeId} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
-          <div className="min-w-0"><p className="text-ui font-medium break-words">{place.placeName}</p><p className="text-caption font-mono text-ink-muted break-all">{place.placeId}</p></div>
-          <Button type="button" variant="outline" disabled={blocked} aria-label={`Remove service area ${place.placeName}`} onClick={() => setDraft((current) => current.serviceArea ? { ...current, serviceArea: { ...current.serviceArea, places: { placeInfos: (current.serviceArea.places?.placeInfos ?? []).filter((_, position) => position !== index) } } } : current)}>Remove</Button>
-        </div>)}
-        <p className="text-ui text-ink-muted">{places.length} of 20 service areas in this draft.</p>
+      <div className="flex flex-col gap-2">
+        <SettingsGroupLabel>Areas served</SettingsGroupLabel>
+        {places.length > 0 && <RowList>{places.map((place, index) => <ItemRow key={place.placeId} title={place.placeName} detail={place.placeId}
+          trailing={<Button type="button" variant="ghost" disabled={blocked} aria-label={`Remove service area ${place.placeName}`} onClick={() => setDraft((current) => current.serviceArea ? { ...current, serviceArea: { ...current.serviceArea, places: { placeInfos: (current.serviceArea.places?.placeInfos ?? []).filter((_, position) => position !== index) } } } : current)}>Remove</Button>} />)}</RowList>}
+        <p className="text-caption text-ink-muted tabular-nums">{places.length} of 20 service areas in this draft.</p>
       </div>
       {places.length < 20 && <div className="flex flex-col gap-3">
         <Field><FieldLabel htmlFor="profile-area-name">New area name</FieldLabel><Input id="profile-area-name" value={name} maxLength={255} disabled={blocked} onChange={(event) => { setName(event.target.value); setEntryError(undefined) }} /></Field>

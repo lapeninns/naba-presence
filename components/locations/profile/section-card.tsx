@@ -56,8 +56,32 @@ export const SAVE_MODEL_DETAIL: Record<SaveModel, string> = {
     "No NabaPresence draft: each change is reviewed and approved, then sent to Google directly.",
 }
 
-export function SaveModelTag({ model }: { model: SaveModel }) {
+export function SaveModelTag({
+  model,
+  variant = "pill",
+}: {
+  model: SaveModel
+  /**
+   * `pill`: the outlined tag beside a heading (hours, typed attributes).
+   * `caption`: a quiet line under a settings-group label (profile sections),
+   * the same words and glyph without the pill.
+   */
+  variant?: "pill" | "caption"
+}) {
   const Icon = model === "here" ? ShieldCheckIcon : GlobeIcon
+  if (variant === "caption")
+    return (
+      <span
+        data-slot="save-model"
+        data-model={model}
+        title={SAVE_MODEL_DETAIL[model]}
+        className="inline-flex items-center gap-1 text-caption font-medium text-ink-secondary"
+      >
+        <Icon className="size-3 shrink-0" strokeWidth={2} aria-hidden />
+        {SAVE_MODEL_LABEL[model]}
+        <span className="sr-only">. {SAVE_MODEL_DETAIL[model]}</span>
+      </span>
+    )
   return (
     <StatusPill
       tone="outline"
@@ -75,11 +99,22 @@ export function SaveModelTag({ model }: { model: SaveModel }) {
   )
 }
 
+/** A quiet bordered card, drawn on a desk only (`desk:` variants of `cardClassName`). */
+const DESK_CARD =
+  "desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)"
+
 /**
- * One profile section (reference `.card.section-card`): a white card with a
- * hairline, the heading and a muted line saying what the section is for,
- * then the fields. `id` is the jump target for the section index; the scroll
- * margin keeps the heading clear of the sticky toolbar.
+ * One profile section, drawn as a settings group (Notion Mail settings): a
+ * quiet group label, a caption saying where its edits go (SaveModelTag) and
+ * what it is for, then the fields. On a phone the group sits flat on the
+ * page, with only the space between groups setting them apart; on a desk it
+ * keeps a quiet bordered card. `id` is the jump target for the section nav,
+ * and `${id}-heading` the heading it focuses; the scroll margin keeps the
+ * heading clear of the phone's sticky section tabs.
+ *
+ * `bare`: no chrome, for a section made of its own groups (attributes).
+ * `info`: an information card on every screen (the sunken surface), for a
+ * note rather than fields, such as the Google details NabaPresence can't edit.
  */
 export function SectionCard({
   id,
@@ -89,6 +124,7 @@ export function SectionCard({
   model,
   children,
   bare = false,
+  info = false,
   className,
 }: {
   id: string
@@ -100,6 +136,8 @@ export function SectionCard({
   children: React.ReactNode
   /** No card chrome, for a section made of its own cards (attributes). */
   bare?: boolean
+  /** A sunken information card on every screen, not a settings group. */
+  info?: boolean
   className?: string
 }) {
   const headingId = `${id}-heading`
@@ -107,27 +145,32 @@ export function SectionCard({
     <section
       id={id}
       aria-labelledby={headingId}
+      data-slot="section-card"
       className={cn(
-        // Clear of the phone's sticky section chips; a desk has a rail.
+        // Clear of the phone's sticky section tabs; a desk has a rail.
         "flex min-w-0 scroll-mt-18 flex-col gap-4 desk:scroll-mt-4",
-        !bare && cardClassName({ pad: true }),
+        info
+          ? cardClassName({ surface: "sunken", pad: true })
+          : !bare && DESK_CARD,
         className
       )}
     >
-      <div className="flex flex-col gap-0.5">
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <h3
             id={headingId}
             tabIndex={-1}
-            className="text-section font-semibold text-ink outline-none"
+            className="text-caption font-medium text-ink-muted outline-none"
           >
             {title}
           </h3>
-          {model ? <SaveModelTag model={model} /> : null}
           {changed ? <ChangedMark /> : null}
         </div>
+        {model ? <SaveModelTag model={model} variant="caption" /> : null}
         {description ? (
-          <p className="text-ui text-ink-muted">{description}</p>
+          <p className="text-caption text-pretty text-ink-muted">
+            {description}
+          </p>
         ) : null}
       </div>
       {children}

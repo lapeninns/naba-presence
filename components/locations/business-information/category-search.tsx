@@ -15,7 +15,15 @@ import {
 } from "@/lib/locations/google-values"
 import { useBusinessInformationMetadata } from "@/lib/queries/use-location-business-information"
 
-/** A Google category search box; picking a result clears the query. */
+/**
+ * A Google category search box; picking a result clears the query.
+ *
+ * Results are option rows in the field's list (44px on touch). Besides the
+ * list's own "Searching…" and "No matches.", a failed search says so under
+ * the field: an empty list after an error would otherwise read as "Google
+ * has no such category". Changing the search asks Google again (the query
+ * is keyed on the text), so the message says that is the retry.
+ */
 export function CategorySearch({
   locationId,
   label,
@@ -36,8 +44,12 @@ export function CategorySearch({
   )
   const categories = extractCategories(metadataQuery.data?.result)
 
+  const errorId = `${inputId}-error`
+  const failed =
+    metadataQuery.isError && !metadataQuery.isFetching && query.trim() !== ""
+
   return (
-    <div className="flex max-w-xs flex-col gap-1.5">
+    <div className="flex w-full min-w-0 flex-col gap-1.5 desk:max-w-xs">
       <label htmlFor={inputId} className="text-ui font-medium text-ink">
         {label}
       </label>
@@ -55,10 +67,19 @@ export function CategorySearch({
         }}
         itemToStringLabel={(category: CategoryRef) => categoryLabel(category)}
       >
-        <ComboboxInput id={inputId} placeholder="Search Google categories…" />
+        <ComboboxInput
+          id={inputId}
+          placeholder="Search Google categories…"
+          aria-describedby={failed ? errorId : undefined}
+        />
         <ComboboxContent>
           {metadataQuery.isFetching ? (
-            <div className="px-2 py-2 text-ui text-ink-muted">Searching…</div>
+            <div
+              role="status"
+              className="flex min-h-(--np-menu-item-h) items-center px-2 text-ui text-ink-muted"
+            >
+              Searching…
+            </div>
           ) : (
             categories.map((category) => (
               <ComboboxItem key={category.name} value={category}>
@@ -68,6 +89,11 @@ export function CategorySearch({
           )}
         </ComboboxContent>
       </Combobox>
+      {failed ? (
+        <p id={errorId} role="alert" className="text-caption text-danger-ink">
+          Google categories could not be loaded. Change the search to try again.
+        </p>
+      ) : null}
     </div>
   )
 }

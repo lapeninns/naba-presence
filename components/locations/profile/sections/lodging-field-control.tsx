@@ -14,6 +14,7 @@ import {
 } from "@/lib/locations/forms/lodging-draft"
 import { LodgingScalarControl } from "./lodging-scalar-control"
 import { LodgingTimeControl } from "./lodging-time-control"
+import { cn } from "@/lib/utils"
 
 export const lodgingErrorCountText = (count: number) =>
   `${count} ${count === 1 ? "detail" : "details"} to correct`
@@ -60,7 +61,7 @@ export function LodgingFieldControl({
     const current = lodgingRecord(value),
       before = lodgingRecord(original)
     return (
-      <Fieldset className="@container/lodging-fields col-span-full border-l border-line pl-3">
+      <Fieldset className="@container/lodging-fields col-span-full border-l border-line-subtle pl-3">
         <FieldsetLegend className="mb-2">{node.label}</FieldsetLegend>
         <div className="grid min-w-0 gap-4 @[36rem]/lodging-fields:grid-cols-2">
           {node.children.map((child) => (
@@ -92,7 +93,7 @@ export function LodgingFieldControl({
     const hint = LODGING_FIELD_GUIDANCE[node.path]?.hint
     const error = errors[path]
     return (
-      <Fieldset className="col-span-full border-l border-line pl-3">
+      <Fieldset className="col-span-full border-l border-line-subtle pl-3">
         <FieldsetLegend className="mb-2">{node.label}</FieldsetLegend>
         {hint ? <p className="text-caption text-ink-muted">{hint}</p> : null}
         {!supported ? (
@@ -114,12 +115,17 @@ export function LodgingFieldControl({
             itemAdded = added || index >= before.length
           const invalid = lodgingErrorsWithin(errors, itemPath).length
           return (
+            // An item is a row under a hairline, not a box: the danger
+            // hairline and the words marker flag an item holding errors.
             <div
               key={index}
-              className={`flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border p-3 ${invalid ? "border-danger-ink" : "border-line"}`}
+              className={cn(
+                "flex min-w-0 flex-col gap-3 border-t pt-3",
+                invalid ? "border-danger-ink" : "border-line-subtle"
+              )}
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <p className="text-ui font-semibold text-ink">
+                <p className="text-ui font-medium text-ink">
                   {node.label} {index + 1}
                 </p>
                 <LodgingErrorMarker count={invalid} />
@@ -143,7 +149,8 @@ export function LodgingFieldControl({
               <Button
                 type="button"
                 size="sm"
-                variant="secondary"
+                variant="ghost"
+                className="self-start"
                 disabled={disabled}
                 onClick={() =>
                   onChange(rows.filter((_item, position) => position !== index))
@@ -168,6 +175,7 @@ export function LodgingFieldControl({
           type="button"
           size="sm"
           variant="secondary"
+          className="self-start"
           disabled={disabled || !supported}
           onClick={() =>
             onChange([...rows, node.item.kind === "group" ? {} : ""])
@@ -181,6 +189,7 @@ export function LodgingFieldControl({
             size="sm"
             variant="ghost"
             disabled={disabled}
+            className="self-start"
             onClick={() => onChange(original)}
           >
             Reset {node.label.toLowerCase()}

@@ -11,6 +11,9 @@ import type {
 } from "@/lib/api/location-business-information"
 import { groupByLabel } from "@/lib/locations/google-values"
 
+const ATTRIBUTE_ROW =
+  "relative flex min-h-(--np-row-h) items-center px-(--np-card-pad) py-2 before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--np-card-pad) before:h-px before:bg-line before:content-[''] first:before:hidden"
+
 /**
  * Google's attributes, grouped as Google groups them: one bordered list per
  * group (reference `.attr-group`), a row per attribute.
@@ -73,7 +76,10 @@ export function AttributesSection({
           {items.map((meta) => (
             <li
               key={meta.parent}
-              className="flex min-h-12 items-center border-t border-line px-4 py-2.5 first:border-t-0"
+              // GroupedListItem's row metrics and hairline (inset to the
+              // label, none above the first row), around the typed control
+              // FOUNDATION-B owns, so a later SettingsRow swap is mechanical.
+              className={ATTRIBUTE_ROW}
             >
               <TypedAttributeControl
                 metadata={meta}
