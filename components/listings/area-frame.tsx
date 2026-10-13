@@ -65,6 +65,8 @@ import {
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import type { DirectoryEntry } from "@/lib/queries/use-locations"
 import { queryKeys } from "@/lib/queries/keys"
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
@@ -77,6 +79,9 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
  * would otherwise clip that bleed. Only where the pane scrolls (md and up);
  * a phone's footer is docked to the screen edge, outside the flow.
  */
+/** Where the editor pane is a scroller (matches its md + 620px tall classes). */
+const PANE_SCROLLS_QUERY = `${mediaQuery("md")} and (min-height: 620px)`
+
 const PANE_BLEED =
   "-mx-5 -mb-6 px-5 pb-6 md:-mx-(--np-page-pad-x) md:-mb-(--np-page-pad-y) md:px-(--np-page-pad-x) md:pb-(--np-page-pad-y)"
 
@@ -634,6 +639,8 @@ function AreaFrameBody({
   const summary = useListingSummary(locationId)
   const caps = useLocationCapabilities(locationId)
   const editor = useEditorStatus()
+  // The pane scrolls from md and 620px tall (the classes below).
+  const paneScrolls = useMediaQuery(PANE_SCROLLS_QUERY)
   // An editor's "In sync" is a claim about Google; while Google can't be
   // reached for this listing the summary's "Unknown" speaks instead.
   const reported = editorStatusPill(editor)
@@ -695,14 +702,16 @@ function AreaFrameBody({
               to the screen's bottom edge instead. */}
           {/* A keyboard user must be able to scroll it even when the editor
               holds nothing focusable (a viewer's read-only hours or booking),
-              so it is a named, focusable region (WCAG 2.1.1, axe
-              scrollable-region-focusable). */}
+              so where it scrolls it is a named, focusable region (WCAG 2.1.1,
+              axe scrollable-region-focusable). Where it does not scroll (a
+              phone) it is no Tab stop. The halo is drawn inside the box:
+              PageFrame clips anything outside the full-bleed pane. */}
           <div
             role="region"
             aria-label={listingArea(areaKey).label}
-            tabIndex={0}
+            tabIndex={paneScrolls ? 0 : undefined}
             className={cn(
-              "flex flex-col gap-6 rounded-(--np-radius-card) outline-none focus-visible:shadow-np-focus md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:flex-1 md:[@media(min-height:620px)]:overflow-y-auto",
+              "flex flex-col gap-6 rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:flex-1 md:[@media(min-height:620px)]:overflow-y-auto",
               PANE_BLEED
             )}
           >
