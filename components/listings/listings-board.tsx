@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  ChevronRightIcon,
   CircleAlertIcon,
   FilterIcon,
   PlusIcon,
@@ -692,14 +691,8 @@ function ListingsBoard({
                 </span>
               ) : null}
             </span>
-            <ChevronRightIcon
-              aria-hidden
-              strokeWidth={1.75}
-              className={cn(
-                PHONE.only,
-                "mt-0.5 size-4 shrink-0 text-ink-muted"
-              )}
-            />
+            {/* No chevron of its own: the row is `interactive`, so the
+                Table's record card already draws one on a phone. */}
           </span>
         </TableCell>
         {business ? null : (
