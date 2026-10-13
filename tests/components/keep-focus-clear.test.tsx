@@ -182,4 +182,48 @@ describe("the on-screen keyboard opening under a focused field", () => {
     flush()
     expect(scroll).toHaveBeenCalledWith({ top: 496 - (427 - 12) })
   })
+
+  // Typing the first change docks the bar while the field keeps focus (and
+  // the keyboard is often already up): no focus or resize event follows, so
+  // the bar arriving must re-check the field itself.
+  it("re-checks the focused field when a docked bar arrives", async () => {
+    vi.stubGlobal("innerHeight", 844)
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal("cancelAnimationFrame", () => {})
+    const flush = () => frames.splice(0).forEach((frame) => frame(0))
+    const scroll = vi.spyOn(window, "scrollBy").mockImplementation(() => {})
+
+    function DockingHarness() {
+      const root = useRef<HTMLDivElement>(null)
+      useKeepFocusClear(root)
+      return (
+        <div ref={root}>
+          <input aria-label="Business name" />
+          <div data-slot="editor-frame-footer" data-testid="footer">
+            <div data-testid="bar" />
+          </div>
+        </div>
+      )
+    }
+    render(<DockingHarness />)
+    const input = screen.getByRole("textbox")
+    const bar = screen.getByTestId("bar")
+    bounds(input, 720, 760)
+    bounds(screen.getByTestId("footer"), 900, 900)
+    bounds(bar, 900, 900)
+    input.focus()
+    flush()
+    expect(scroll).not.toHaveBeenCalled()
+
+    // The first change: the bar docks over the bottom edge.
+    bounds(bar, 763, 844)
+    bar.setAttribute("data-docked", "bottom")
+    await Promise.resolve()
+    flush()
+    expect(scroll).toHaveBeenCalledWith({ top: 760 - (763 - 12) })
+  })
 })

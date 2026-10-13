@@ -111,12 +111,60 @@ export function useKeepFocusClear(
       })
     }
 
+    // The bar itself moving: a docked bar arrives with the first change (it
+    // slides up from the bottom edge) and grows when its status wraps or a
+    // reason row appears, all while a field keeps focus, often with the
+    // keyboard already up. Nothing re-focuses then, so watch for it: a docked
+    // bar in the footer appearing (mutations; the footer itself may be
+    // swapped, as the inbox's loading bar is for the loaded one), resizing
+    // (ResizeObserver) and finishing its slide (transitionend) each re-check
+    // the focused field.
+    let barFrame = 0
+    function onBarChange() {
+      cancelAnimationFrame(barFrame)
+      barFrame = requestAnimationFrame(() => keepClear(document.activeElement))
+    }
+    const dockedBars = `${footerSelector}[data-docked=bottom], ${footerSelector} [data-docked=bottom]`
+    const resize =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(onBarChange)
+    const watched = new Set<Element>()
+    function watchBars() {
+      let added = false
+      for (const bar of container!.querySelectorAll(dockedBars)) {
+        if (watched.has(bar)) continue
+        watched.add(bar)
+        resize?.observe(bar)
+        added = true
+      }
+      return added
+    }
+    const mutations = new MutationObserver(() => {
+      if (watchBars()) onBarChange()
+    })
+    mutations.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-docked"],
+    })
+    function onTransitionEnd(event: TransitionEvent) {
+      if ((event.target as Element).matches?.(dockedBars)) onBarChange()
+    }
+    container.addEventListener("transitionend", onTransitionEnd)
+    watchBars()
+
     container.addEventListener("focusin", onFocusIn)
     window.visualViewport?.addEventListener("resize", onViewportResize)
     return () => {
       container.removeEventListener("focusin", onFocusIn)
       window.visualViewport?.removeEventListener("resize", onViewportResize)
+      container.removeEventListener("transitionend", onTransitionEnd)
+      mutations.disconnect()
+      resize?.disconnect()
       cancelAnimationFrame(frame)
+      cancelAnimationFrame(barFrame)
     }
   }, [root, footerSelector])
 }
