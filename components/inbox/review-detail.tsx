@@ -209,6 +209,9 @@ function ReviewerIdentity({
           dateTime={review.createTime}
           title={formatDateTime(review.createTime, review.timezone)}
           className="tabular-nums"
+          // Relative: the server and the hydrating browser may read the
+          // clock a minute apart (the review can arrive in the first HTML).
+          suppressHydrationWarning
         >
           {formatRelativeTime(review.createTime)}
         </time>
@@ -217,6 +220,7 @@ function ReviewerIdentity({
             dateTime={review.updateTime}
             title={formatDateTime(review.updateTime, review.timezone)}
             className="tabular-nums"
+            suppressHydrationWarning
           >
             · edited {formatRelativeTime(review.updateTime)}
           </time>

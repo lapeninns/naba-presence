@@ -355,7 +355,9 @@ function ReviewList({
                       title={exactTime}
                       className="ml-auto shrink-0 font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums"
                     >
-                      <span aria-hidden>
+                      {/* Relative, so the server and the hydrating browser
+                          can read the clock a minute apart. */}
+                      <span aria-hidden suppressHydrationWarning>
                         {listTime(review.createTime, timezone)}
                         {edited ? " · edited" : ""}
                       </span>

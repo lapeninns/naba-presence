@@ -6,12 +6,14 @@ import {
   reviewsPageSchema,
   type ReviewCapabilities,
 } from "@/lib/contracts/reviews"
+import { parseInboxState, toReviewsFilters } from "@/lib/inbox/url-state"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
   inboxPrefetch,
   locationTabPrefetch,
   prefetch,
+  readReviewsFirstPage,
   readSettingsCapabilities,
   throughWire,
 } from "@/lib/server/prefetch"
@@ -26,6 +28,10 @@ import type { Session } from "@/lib/server/session"
 vi.mock("@/lib/server/db", () => ({ withTenant: vi.fn() }))
 vi.mock("@/lib/server/logger", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+vi.mock("@/lib/server/review-reads", () => ({
+  readReviewsPage: vi.fn(),
+  readReviewDetail: vi.fn(),
 }))
 
 const UUID = "00000000-0000-4000-8000-000000000001"
@@ -224,10 +230,69 @@ describe("prefetch", () => {
 })
 
 describe("page composers", () => {
-  it("inboxPrefetch targets the unscoped counts key the queue badges read", () => {
-    expect(inboxPrefetch()(session).map((entry) => entry.queryKey)).toEqual([
-      queryKeys.reviewCounts("organisation"),
+  // The keys must be the ones InboxView's hooks build from the same URL:
+  // useReviews(toReviewsFilters(state)), useReviewCounts({ clientId }) and
+  // useReviewDetail(selected). The unscoped counts are the layout's.
+  const inboxKeys = (search: string, who: Session = session) =>
+    inboxPrefetch(new URLSearchParams(search))(who).map(
+      (entry) => entry.queryKey
+    )
+  const listKey = (search: string, business = false) => {
+    const state = parseInboxState(new URLSearchParams(search))
+    return queryKeys.reviews(
+      "organisation",
+      toReviewsFilters(business ? { ...state, clientId: undefined } : state)
+    )
+  }
+  const CLIENT = "00000000-0000-4000-8000-000000000030"
+  const REVIEW = "00000000-0000-4000-8000-000000000040"
+  const agency: Session = { ...session, workspaceMode: "agency" }
+
+  it("inboxPrefetch hydrates the default queue's first page and nothing else", () => {
+    expect(inboxKeys("", agency)).toEqual([listKey("")])
+    expect(listKey("")[2]).toMatchObject({ queue: "needs_reply" })
+  })
+
+  it("inboxPrefetch follows the URL's queue and filters", () => {
+    const search = "queue=done&rating=1,2&search=cold&sort=rating_asc"
+    expect(inboxKeys(search, agency)).toEqual([listKey(search)])
+    expect(listKey(search)[2]).toMatchObject({
+      queue: "done",
+      ratings: [1, 2],
+      search: "cold",
+    })
+  })
+
+  it("inboxPrefetch scopes the list and counts to the URL's client", () => {
+    const search = `clientId=${CLIENT}`
+    expect(inboxKeys(search, agency)).toEqual([
+      listKey(search),
+      queryKeys.reviewCounts(`organisation:${CLIENT}`),
     ])
+  })
+
+  it("inboxPrefetch ignores a client scope in a business, as the view does", () => {
+    const search = `clientId=${CLIENT}`
+    expect(inboxKeys(search, session)).toEqual([listKey(search, true)])
+    expect(listKey(search, true)[2]).not.toHaveProperty("clientId", CLIENT)
+  })
+
+  it("inboxPrefetch hydrates an open review, and only a well-formed one", () => {
+    expect(inboxKeys(`selected=${REVIEW}`, agency)).toEqual([
+      listKey(`selected=${REVIEW}`),
+      queryKeys.reviewDetail(REVIEW),
+    ])
+    expect(inboxKeys("selected=not-a-uuid", agency)).toEqual([
+      listKey("selected=not-a-uuid"),
+    ])
+  })
+
+  it("inboxPrefetch leaves a relative age window to the browser", () => {
+    // Its range moves with the hour, so the server's key could miss the
+    // browser's and draw rows the hydrating render does not have.
+    expect(inboxKeys("age=7d", agency)).toEqual([])
+    const explicit = "age=7d&dateFrom=2026-09-01T00:00:00.000Z"
+    expect(inboxKeys(explicit, agency)).toEqual([listKey(explicit)])
   })
 
   it("locationTabPrefetch hydrates capabilities only", () => {
@@ -242,5 +307,33 @@ describe("page composers", () => {
 
   it("locationTabPrefetch is empty without a location", () => {
     expect(locationTabPrefetch(null)(session)).toEqual([])
+  })
+})
+
+describe("readReviewsFirstPage", () => {
+  it("decodes the filters as the route would and stores the infinite-query shape", async () => {
+    const { withTenant } = await import("@/lib/server/db")
+    const { readReviewsPage } = await import("@/lib/server/review-reads")
+    vi.mocked(withTenant).mockImplementationOnce(async (_org, fn) =>
+      fn({} as never)
+    )
+    const at = new Date("2026-09-01T10:00:00.000Z")
+    vi.mocked(readReviewsPage).mockResolvedValueOnce({
+      items: [row("r1", at)],
+      nextCursor: "cursor-1",
+    })
+    const data = await readReviewsFirstPage(session, {
+      queue: "needs_reply",
+      ratings: [1],
+    })
+    expect(data.pageParams).toEqual([null])
+    expect(data.pages).toHaveLength(1)
+    expect(data.pages[0].items[0].updateTime).toBe("2026-09-01T10:00:00.000Z")
+    expect(data.pages[0].nextCursor).toBe("cursor-1")
+    expect(reviewsPageSchema.safeParse(data.pages[0]).success).toBe(true)
+    const query = vi.mocked(readReviewsPage).mock.calls[0][2]
+    expect(query).toMatchObject({ queue: "needs_reply", ratings: [1] })
+    expect(query.pageSize).toBeGreaterThan(0)
+    expect(query.sort).toBeDefined()
   })
 })

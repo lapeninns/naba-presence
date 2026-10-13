@@ -23,7 +23,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 type Content = {
   title: string
-  description: string
+  description: React.ReactNode
 }
 
 /**
@@ -156,9 +156,19 @@ function content(
     case "checked":
       return {
         title: "No reviews yet.",
-        description: counts.lastSyncAt
-          ? `Google had none for these locations when we last checked, ${formatRelativeTime(counts.lastSyncAt)}.`
-          : "Google had none for these locations when we last checked.",
+        // The age is read against the clock twice, on the server and again
+        // while hydrating, so it may have moved on a minute in between.
+        description: counts.lastSyncAt ? (
+          <>
+            Google had none for these locations when we last checked,{" "}
+            <span suppressHydrationWarning>
+              {formatRelativeTime(counts.lastSyncAt)}
+            </span>
+            .
+          </>
+        ) : (
+          "Google had none for these locations when we last checked."
+        ),
       }
     case "unknown":
       return {

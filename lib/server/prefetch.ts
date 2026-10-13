@@ -4,6 +4,7 @@ import {
   dehydrate,
   QueryClient,
   type DehydratedState,
+  type InfiniteData,
   type QueryKey,
 } from "@tanstack/react-query"
 import type { ZodType } from "zod"
@@ -20,7 +21,20 @@ import {
   type SettingsCapabilities,
   type SettingsCapabilitiesResponse,
 } from "@/lib/contracts/location-capabilities"
-import { reviewCountsSchema, type ReviewCounts } from "@/lib/contracts/reviews"
+import {
+  decodeReviewsQuery,
+  encodeReviewsQuery,
+  reviewCountsQuerySchema,
+  reviewCountsSchema,
+  reviewDetailSchema,
+  reviewIdParamsSchema,
+  reviewsPageSchema,
+  type ReviewCounts,
+  type ReviewDetail,
+  type ReviewsFilters,
+  type ReviewsPage,
+} from "@/lib/contracts/reviews"
+import { parseInboxState, toReviewsFilters } from "@/lib/inbox/url-state"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
@@ -34,7 +48,14 @@ import { withTenant } from "@/lib/server/db"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
 import { loadPauseSnapshot } from "@/lib/server/pause-controls"
-import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
+import {
+  readReviewCounts as loadReviewCounts,
+  type ReviewCountsScope,
+} from "@/lib/server/review-counts"
+import {
+  readReviewDetail as loadReviewDetail,
+  readReviewsPage as loadReviewsPage,
+} from "@/lib/server/review-reads"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -119,21 +140,55 @@ export async function prefetch(
 // ---------------------------------------------------------------------------
 
 /**
- * What `useReviewCounts(locationId)` fetches.
+ * What `useReviewCounts(scope)` (and the shell's `useNeedsReplyCount`)
+ * fetches.
  *
  * Delegates to `lib/server/review-counts.ts`, the one implementation the
  * route also calls: the counts hydrated into the cache on first paint and the
  * counts a later refetch returns must be produced the same way, or the rail
- * flickers between two different truths.
+ * flickers between two different truths. The scope goes through the route's
+ * own query schema, so an id the route would refuse is refused here too.
  */
 export async function readReviewCounts(
   session: Session,
-  locationId?: string
+  scope: ReviewCountsScope = {}
 ): Promise<ReviewCounts> {
+  const parsed = reviewCountsQuerySchema.parse(scope)
   const counts = await withTenant(session.organisationId, (sql) =>
-    loadReviewCounts(sql, session, locationId ? { locationId } : {})
+    loadReviewCounts(sql, session, parsed)
   )
   return throughWire(reviewCountsSchema, counts)
+}
+
+/**
+ * What `useReviews(filters)` holds after its first page: the infinite-query
+ * shape (`initialPageParam` null) around what `GET /api/reviews` answers for
+ * `filters`. The filters take the browser's path to the route, encoded to
+ * the wire and decoded by the route's codec, so defaults (sort, page size)
+ * and narrowing match the request `fetchReviews` would have sent.
+ */
+export async function readReviewsFirstPage(
+  session: Session,
+  filters: ReviewsFilters
+): Promise<InfiniteData<ReviewsPage, string | null>> {
+  const query = decodeReviewsQuery(
+    encodeReviewsQuery({ ...filters, cursor: null })
+  )
+  const page = await withTenant(session.organisationId, (sql) =>
+    loadReviewsPage(sql, session, query)
+  )
+  return { pages: [throughWire(reviewsPageSchema, page)], pageParams: [null] }
+}
+
+/** What `useReviewDetail(id)` fetches: `GET /api/reviews/{id}`. */
+export async function readReviewDetail(
+  session: Session,
+  id: string
+): Promise<ReviewDetail> {
+  const review = await withTenant(session.organisationId, (sql) =>
+    loadReviewDetail(sql, session, id)
+  )
+  return throughWire(reviewDetailSchema, { review })
 }
 
 /** What `useLocationCapabilities(id)` fetches. */
@@ -204,18 +259,56 @@ export function listingPagePrefetch(
 }
 
 /**
- * /inbox: the queue badges' organisation-wide counts, under the key
- * `useReviewCounts({ clientId: undefined })` reads. A client-filtered inbox
- * reads a client-scoped key the page cannot know without the query string,
- * so that one is fetched in the browser.
+ * /inbox: what the inbox's own hooks read on their first render for the
+ * URL's query string, so the list (and an open `?selected=` review) is in
+ * the first HTML instead of waiting for the client bundle.
+ *
+ * - the first page of `useReviews(filters)`, under the key built from the
+ *   same `parseInboxState` → `toReviewsFilters` the view runs. A business
+ *   has no client scope, so its `clientId` is dropped as the view drops it.
+ *   An `age` preset is skipped: its window is relative to the hour it is
+ *   read in, and a server and browser either side of the hour would key
+ *   differently, rendering rows on one side and a skeleton on the other.
+ * - the client-scoped counts `useReviewCounts({ clientId })` reads while
+ *   the inbox is filtered to one client. The unscoped counts are hydrated
+ *   by the dashboard layout for the shell's badges, which is the same key.
+ * - the open review, under `useReviewDetail(selected)`'s key. A malformed
+ *   id is left to the client, whose request the route refuses.
  */
-export function inboxPrefetch(): (session: Session) => PrefetchEntry[] {
-  return (session) => [
-    {
-      queryKey: queryKeys.reviewCounts("organisation"),
-      load: () => readReviewCounts(session),
-    },
-  ]
+export function inboxPrefetch(
+  search: URLSearchParams
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    const parsed = parseInboxState(search)
+    const state =
+      session.workspaceMode === "business"
+        ? { ...parsed, clientId: undefined }
+        : parsed
+    const entries: PrefetchEntry[] = []
+    if (!state.age || state.dateFrom || state.dateTo) {
+      const filters = toReviewsFilters(state)
+      entries.push({
+        queryKey: queryKeys.reviews("organisation", filters),
+        load: () => readReviewsFirstPage(session, filters),
+      })
+    }
+    if (state.clientId) {
+      const clientId = state.clientId
+      entries.push({
+        queryKey: queryKeys.reviewCounts(`organisation:${clientId}`),
+        load: () => readReviewCounts(session, { clientId }),
+      })
+    }
+    const selected = reviewIdParamsSchema.safeParse({ id: state.selected })
+    if (selected.success) {
+      const id = selected.data.id
+      entries.push({
+        queryKey: queryKeys.reviewDetail(id),
+        load: () => readReviewDetail(session, id),
+      })
+    }
+    return entries
+  }
 }
 
 /**

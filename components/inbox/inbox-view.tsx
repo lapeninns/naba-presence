@@ -137,14 +137,17 @@ function InboxViewInner({
 
   const reviewsQuery = useReviews(filters)
   // Scoped to the client in view, so a queue's badge counts the rows that
-  // queue will show. Unscoped, this is the key the page prefetches.
+  // queue will show. Unscoped, this is the key the dashboard layout
+  // hydrates for the shell badge; scoped, the inbox page prefetches it.
   const countsQuery = useReviewCounts({ clientId: state.clientId })
   // The sidebar badge registers the same organisation-wide counts key in the
   // shell before this page's HydrationBoundary runs, and TanStack defers
   // hydrating an existing query to an effect. The server render and the
   // first client render could therefore disagree on whether counts exist,
   // which threw a hydration error on every inbox load. The queue tabs show
-  // their skeleton until hydration has finished, on both sides.
+  // their skeleton until hydration has finished, on both sides. (The
+  // dashboard layout now hydrates that key above the shell, so both renders
+  // normally agree; the gate stays as the cheap guarantee that they do.)
   const hydrated = useHydrated()
   const toolbarCounts = hydrated ? countsQuery.data : undefined
   const toolbarCountsPending = !hydrated || countsQuery.isPending
@@ -719,7 +722,9 @@ function InboxViewInner({
     : undefined
 
   const loaded = !reviewsQuery.isPending && !reviewsQuery.isError
-  const refreshed = refreshedAt(reviewsQuery.dataUpdatedAt)
+  // In the viewer's own clock, which the server rendering a prefetched list
+  // does not share: held back until hydration so the two renders agree.
+  const refreshed = hydrated ? refreshedAt(reviewsQuery.dataUpdatedAt) : null
   const countLabel = reviewsQuery.isPending
     ? "Loading reviews…"
     : reviewsQuery.isError
