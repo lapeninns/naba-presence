@@ -167,8 +167,11 @@ export function PublicationCalendar({
   const locations = (directory.data ?? [])
     .filter((entry) => !clientId || entry.clientId === clientId)
     .map((entry) => ({ id: entry.id, name: entry.name }))
-  const description =
-    "Scheduled post publications across the listings you can see. Times are each listing’s local time."
+  // One line that names the zones in play: each entry's time is its
+  // listing's own, and "today" is the organisation's date.
+  const description = timeZone
+    ? `Scheduled post publications across the listings you can see. Times are each listing’s local time; today follows ${timeZone}.`
+    : "Scheduled post publications across the listings you can see. Times are each listing’s local time."
 
   if (unavailable) {
     const manager = role === "owner" || role === "admin"
@@ -198,18 +201,13 @@ export function PublicationCalendar({
   return (
     <>
       <PageHeader title="Publication calendar" description={description} />
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setAnchorDay(iso(stepAnchor(view, anchor, -1)))}
-            aria-label={`Previous ${periodNoun}`}
-          >
-            <ChevronLeft aria-hidden />
-          </Button>
+      <div className="flex flex-col gap-3">
+        {/* The period header (Notion Mail's month header): the period's name
+            on the left, then previous / next as round ghost buttons and a
+            plain "Today". */}
+        <div className="flex min-w-0 items-center gap-1">
           <h2
-            className="min-w-40 text-center text-title font-semibold text-ink tabular-nums"
+            className="min-w-0 flex-1 truncate text-title font-semibold text-ink tabular-nums"
             aria-live="polite"
           >
             {heading}
@@ -217,43 +215,58 @@ export function PublicationCalendar({
           <Button
             variant="ghost"
             size="icon"
+            pill
+            onClick={() => setAnchorDay(iso(stepAnchor(view, anchor, -1)))}
+            aria-label={`Previous ${periodNoun}`}
+          >
+            <ChevronLeft aria-hidden className="size-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            pill
             onClick={() => setAnchorDay(iso(stepAnchor(view, anchor, 1)))}
             aria-label={`Next ${periodNoun}`}
           >
-            <ChevronRight aria-hidden />
+            <ChevronRight aria-hidden className="size-5" />
           </Button>
-          <Button variant="secondary" onClick={() => setAnchorDay(today)}>
+          <Button variant="ghost" onClick={() => setAnchorDay(today)}>
             Today
           </Button>
         </div>
-        <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto">
-          {business ? null : (
-            <ClientSelect
-              clients={clientItems}
-              value={clientId}
+        {/* Filters share a wrapping row (each full width when two will not
+            fit on a phone); the view switch fills its own row there. */}
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="flex w-full flex-wrap items-end gap-2 empty:hidden sm:w-auto">
+            {business ? null : (
+              <ClientSelect
+                clients={clientItems}
+                value={clientId}
+                onChange={(next) =>
+                  replaceParams((params) => {
+                    if (next) params.set("clientId", next)
+                    else params.delete("clientId")
+                    params.delete("locationId")
+                  })
+                }
+              />
+            )}
+            <LocationSelect
+              locations={locations}
+              value={locationId}
               onChange={(next) =>
                 replaceParams((params) => {
-                  if (next) params.set("clientId", next)
-                  else params.delete("clientId")
-                  params.delete("locationId")
+                  if (next) params.set("locationId", next)
+                  else params.delete("locationId")
                 })
               }
             />
-          )}
-          <LocationSelect
-            locations={locations}
-            value={locationId}
-            onChange={(next) =>
-              replaceParams((params) => {
-                if (next) params.set("locationId", next)
-                else params.delete("locationId")
-              })
-            }
-          />
+          </div>
           <SegmentedControl
             value={view}
             onValueChange={setView}
             aria-label="Calendar view"
+            className="w-full sm:w-auto"
           >
             <SegmentedControlItem value="month">Month</SegmentedControlItem>
             <SegmentedControlItem value="week">Week</SegmentedControlItem>

@@ -1,6 +1,5 @@
 "use client"
 
-import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
 import {
@@ -101,7 +100,7 @@ export function SharedClientReportView({
   return (
     <div
       className={cn(
-        "@container/report mx-auto flex w-full max-w-5xl flex-col gap-(--np-gap-section) px-4 py-8 sm:px-6 sm:py-10",
+        "@container/report mx-auto flex w-full max-w-5xl flex-col gap-(--np-gap-section) px-5 py-8 sm:px-6 sm:py-10",
         // Print: the figures only, edge to edge on the page; no buttons.
         "print:max-w-none print:gap-6 print:p-0 print:[&_button]:hidden print:[&_figure]:break-inside-avoid print:[&_section]:break-inside-avoid"
       )}
@@ -112,34 +111,38 @@ export function SharedClientReportView({
       >
         Skip to the figures
       </a>
-      <header className="flex flex-col gap-3 border-b border-line pb-6">
-        <p className={EYEBROW_CLASS}>Performance report</p>
-        <h1 className="font-display text-page-title font-semibold text-balance [overflow-wrap:anywhere] text-ink">
+      <header className="flex flex-col gap-3 border-b border-line-subtle pb-5">
+        <p className="text-caption font-medium text-ink-muted">
+          Performance report
+        </p>
+        <h1 className="text-page-title font-semibold text-balance [overflow-wrap:anywhere] text-ink">
           {report.clientName}
         </h1>
-        <dl className="grid gap-x-8 gap-y-2 text-ui text-ink sm:grid-cols-[auto_1fr]">
-          <dt className="text-ink-muted">Period</dt>
+        <dl className="grid gap-x-8 gap-y-0.5 text-ui text-ink sm:grid-cols-[auto_1fr] sm:gap-y-1.5">
+          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">Period</dt>
           <dd>
             {period.label}
             {periodText ? (
               <span className="text-ink-muted"> · {periodText}</span>
             ) : null}
           </dd>
-          <dt className="text-ink-muted">
+          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">
             {report.venues.length === 1 ? "Venue" : "Venues"}
           </dt>
           <dd className="[overflow-wrap:anywhere]">
             {report.venues.length ? report.venues.join(", ") : "None yet"}
           </dd>
-          <dt className="text-ink-muted">Prepared by</dt>
+          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">
+            Prepared by
+          </dt>
           <dd className="[overflow-wrap:anywhere]">{report.agencyName}</dd>
-          <dt className="text-ink-muted">Generated</dt>
-          <dd className="font-mono tabular-nums">
+          <dt className="mt-2 text-ink-muted first:mt-0 sm:mt-0">Generated</dt>
+          <dd className="tabular-nums">
             <ZonedTime iso={report.generatedAt} timeZone={timezone} />
           </dd>
         </dl>
-        <nav aria-label="Report period" className="print:hidden">
-          <ul className="flex flex-wrap gap-2">
+        <nav aria-label="Report period" className="pt-1 print:hidden">
+          <ul className="flex flex-wrap gap-x-1 gap-y-1">
             {SHARE_PERIODS.map((option) => {
               const current = option.id === period.id
               return (
@@ -148,10 +151,13 @@ export function SharedClientReportView({
                     href={`?period=${option.id}`}
                     aria-current={current ? "page" : undefined}
                     className={cn(
-                      "inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-control) border px-3 text-ui focus-halo focus-visible:outline-none",
+                      // Text tabs: the current period is the accent tint
+                      // (the "current item" use of the accent), the others
+                      // plain text that takes a quiet fill on hover.
+                      "inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-control) px-3 text-ui focus-halo focus-visible:outline-none",
                       current
-                        ? "border-ink bg-ink text-canvas"
-                        : "border-line bg-surface text-ink hover:border-line-strong"
+                        ? "bg-accent-tint font-semibold text-accent-ink"
+                        : "text-ink-secondary hover:bg-fill hover:text-ink"
                     )}
                   >
                     {option.label}
@@ -172,7 +178,10 @@ export function SharedClientReportView({
           aria-labelledby="shared-replies"
           className="flex flex-col gap-(--np-gap-section)"
         >
-          <h2 id="shared-replies" className="text-section font-semibold text-ink">
+          <h2
+            id="shared-replies"
+            className="text-section font-semibold text-ink"
+          >
             Reviews and replies
           </h2>
 
@@ -202,8 +211,8 @@ export function SharedClientReportView({
               </h3>
               <p className="text-caption text-ink-muted">
                 Highest response rate first. “Unresolved” counts one- and
-                two-star reviews without a published reply. Missing figures
-                show “—”, never zero.
+                two-star reviews without a published reply. Missing figures show
+                “—”, never zero.
               </p>
               <ReplyLocationsTable locations={locations} linked={false} />
             </section>
@@ -236,7 +245,7 @@ export function SharedClientReportView({
         ) : null}
       </main>
 
-      <footer className="border-t border-line pt-4 text-caption text-ink-muted">
+      <footer className="border-t border-line-subtle pt-4 text-caption text-ink-muted">
         A read-only report prepared by {report.agencyName} for{" "}
         {report.clientName}. It shows totals only: no individual reviews,
         reviewers or replies. Review figures come from Google reviews collected
