@@ -1,4 +1,4 @@
-import { MEMBER_ROLES, type MemberRole, roleLabel } from "@/lib/settings/forms/invitation"
+import { MEMBER_ROLES, type MemberRole, roleLabel } from "@/lib/settings/member-roles"
 
 export type SettingsCapabilities = {
   canManageTeam: boolean

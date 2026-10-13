@@ -1,41 +1,41 @@
-import {
-  clientResponseSchema,
-  clientSetupResponseSchema,
-  clientsResponseSchema,
-  clientSummarySchema,
-  type ClientAssignLocationsInput,
-  type ClientAttachConnectionInput,
-  type ClientCreateInput,
-  type ClientUpdateInput,
+import type {
+  ClientAssignLocationsInput,
+  ClientAttachConnectionInput,
+  ClientCreateInput,
+  ClientUpdateInput,
 } from "@/lib/contracts/clients"
-import { z } from "zod"
 
 import { apiFetch } from "./client"
 
-const mutationResponseSchema = z.object({ client: clientSummarySchema })
+// Schemas load on demand (see `ResponseSchema` in ./client): the sidebar
+// reads the client list on every page, and the contract pulls in zod.
+const contract = () => import("@/lib/contracts/clients")
 
 export function fetchClients(signal?: AbortSignal) {
-  return apiFetch("/api/clients", { schema: clientsResponseSchema, signal })
+  return apiFetch("/api/clients", {
+    schema: () => contract().then((m) => m.clientsResponseSchema),
+    signal,
+  })
 }
 
 /** Archived clients only, for the Clients page's Archived view. */
 export function fetchArchivedClients(signal?: AbortSignal) {
   return apiFetch("/api/clients?archived=1", {
-    schema: clientsResponseSchema,
+    schema: () => contract().then((m) => m.clientsResponseSchema),
     signal,
   })
 }
 
 export function fetchClient(clientId: string, signal?: AbortSignal) {
   return apiFetch(`/api/clients/${clientId}`, {
-    schema: clientResponseSchema,
+    schema: () => contract().then((m) => m.clientResponseSchema),
     signal,
   })
 }
 
 export function fetchClientSetup(clientId: string, signal?: AbortSignal) {
   return apiFetch(`/api/clients/${clientId}/setup`, {
-    schema: clientSetupResponseSchema,
+    schema: () => contract().then((m) => m.clientSetupResponseSchema),
     signal,
   })
 }
@@ -48,7 +48,7 @@ export function attachClientConnection(
   return apiFetch(`/api/clients/${clientId}/connections`, {
     method: "POST",
     body: input,
-    schema: clientSetupResponseSchema,
+    schema: () => contract().then((m) => m.clientSetupResponseSchema),
   })
 }
 
@@ -56,7 +56,7 @@ export function createClient(input: ClientCreateInput) {
   return apiFetch("/api/clients", {
     method: "POST",
     body: input,
-    schema: mutationResponseSchema,
+    schema: () => contract().then((m) => m.clientMutationResponseSchema),
   })
 }
 
@@ -64,7 +64,7 @@ export function updateClient(clientId: string, input: ClientUpdateInput) {
   return apiFetch(`/api/clients/${clientId}`, {
     method: "PATCH",
     body: input,
-    schema: mutationResponseSchema,
+    schema: () => contract().then((m) => m.clientMutationResponseSchema),
   })
 }
 
@@ -75,7 +75,8 @@ export function assignLocationsToClient(
   return apiFetch(`/api/clients/${clientId}/locations`, {
     method: "POST",
     body: input,
-    schema: z.object({ assigned: z.array(z.string()) }),
+    schema: () =>
+      contract().then((m) => m.clientLocationsAssignedResponseSchema),
   })
 }
 
@@ -86,6 +87,7 @@ export function unassignLocationsFromClient(
   return apiFetch(`/api/clients/${clientId}/locations`, {
     method: "DELETE",
     body: { locationIds },
-    schema: z.object({ unassigned: z.array(z.string()) }),
+    schema: () =>
+      contract().then((m) => m.clientLocationsUnassignedResponseSchema),
   })
 }

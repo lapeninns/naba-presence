@@ -2,14 +2,11 @@ import type { ZodType } from "zod"
 
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import {
+  INTENT_HEADER,
+  LISTING_CHANGE_AWAITING_APPROVAL,
   MFA_ENROLLMENT_REQUIRED,
   MFA_STEP_UP_REQUIRED,
-} from "@/lib/contracts/auth"
-import {
-  LISTING_CHANGE_AWAITING_APPROVAL,
-  listingChangeParkedResponseSchema,
-} from "@/lib/contracts/listing-changes"
-import { INTENT_HEADER } from "@/lib/contracts/mutation-operations"
+} from "@/lib/contracts/wire-codes"
 
 import { stashAllDrafts } from "./draft-stash"
 
@@ -84,10 +81,21 @@ export type RequestOptions = {
   idempotencyKey?: string
 }
 
+/**
+ * What `apiFetch` checks a 2xx answer against: a zod schema, or a function
+ * that imports one. The loader form keeps zod and the contract out of the
+ * JavaScript a page needs before it can render, which is what the app
+ * shell's reads use: they are on every page, and the import resolves while
+ * the request is in flight.
+ *
+ *     schema: () => import("@/lib/contracts/reviews").then((m) => m.reviewCountsSchema)
+ */
+export type ResponseSchema<T> = ZodType<T> | (() => Promise<ZodType<T>>)
+
 type ApiFetchOptions<T> = RequestOptions & {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"
   body?: unknown
-  schema?: ZodType<T>
+  schema?: ResponseSchema<T>
   /**
    * The intent this mutation belongs to, sent as `Idempotency-Key`. Pass the
    * same id when retrying the same user action so the server answers from
@@ -303,6 +311,12 @@ export async function apiFetch<T = unknown>(
   const headers: Record<string, string> = {}
   if (body !== undefined) headers["content-type"] = "application/json"
   if (intentId) headers[INTENT_HEADER] = intentId
+  // Started before the request so a lazy schema loads alongside it.
+  const schemaReady =
+    typeof schema === "function" ? schema() : Promise.resolve(schema)
+  // An unhandled rejection here would surface before the response does;
+  // the await below rethrows it in order.
+  schemaReady.catch(() => {})
   let response: Response
   try {
     response = await fetch(path, {
@@ -373,6 +387,10 @@ export async function apiFetch<T = unknown>(
   // code -- never a failure -- with the change request in `details`, so
   // every editor's error path can say "sent for approval" and keep the edit.
   if (response.status === 202) {
+    // Loaded on demand: only the listing editors can be answered with one.
+    const { listingChangeParkedResponseSchema } = await import(
+      "@/lib/contracts/listing-changes"
+    )
     const parked = listingChangeParkedResponseSchema.safeParse(payload.raw)
     if (parked.success) {
       throw new ApiClientError(
@@ -389,8 +407,9 @@ export async function apiFetch<T = unknown>(
     }
   }
 
-  if (!schema) return payload.raw as T
-  const parsed = schema.safeParse(payload.raw)
+  const responseSchema = await schemaReady
+  if (!responseSchema) return payload.raw as T
+  const parsed = responseSchema.safeParse(payload.raw)
   if (!parsed.success) {
     // The server answered 2xx, so a write behind it was applied: the intent
     // lets a retry be answered from its receipt instead of writing again.

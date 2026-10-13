@@ -82,3 +82,11 @@ export const notificationPreferencesUpdateSchema = z.strictObject({
     .min(1)
     .max(40),
 })
+
+/** POST `/api/notifications/read`: how many incidents changed. */
+export const notificationsReadResponseSchema = z.object({ updated: z.number() })
+
+/** POST `/api/notifications/{id}/resolve`. */
+export const notificationResolvedResponseSchema = z.object({
+  resolved: z.boolean(),
+})

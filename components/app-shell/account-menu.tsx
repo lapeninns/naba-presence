@@ -8,7 +8,6 @@ import {
 import { LogOut, Monitor, Moon, MoreHorizontal, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import * as React from "react"
-import { z } from "zod"
 
 import {
   DropdownMenu,
@@ -34,21 +33,24 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useToastManager } from "@/components/ui/toast"
 import { signedOutHereOnly, signOut } from "@/lib/api/auth"
 import { ApiClientError, apiFetch } from "@/lib/api/client"
+import { fetchOrganisations } from "@/lib/api/session"
 import { abandonAllDrafts, clearAllStashedDrafts } from "@/lib/api/draft-stash"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
-import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms, type WorkspaceMode } from "@/lib/workspace/terms"
 
 import type { ShellSession } from "./app-shell"
 
-const organisationsSchema = z.object({
-  items: z.array(
-    z.object({ organisationId: z.string(), name: z.string(), role: z.string() })
-  ),
-})
+// The error copy table is large and only a failed sign-out or switch reads
+// it, so it loads then rather than with every page.
+async function describeActionError(error: unknown): Promise<string> {
+  const { describeActionError: describe } = await import(
+    "@/lib/errors/action-errors"
+  )
+  return describe(error)
+}
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
@@ -120,8 +122,7 @@ function useAccount(session: ShellSession | null) {
 
   const organisations = useQuery({
     queryKey: ["organisations"],
-    queryFn: ({ signal }) =>
-      apiFetch("/api/organisations", { schema: organisationsSchema, signal }),
+    queryFn: ({ signal }) => fetchOrganisations({ signal }),
     enabled: Boolean(session),
     staleTime: 5 * 60 * 1000,
   })
@@ -161,7 +162,7 @@ function useAccount(session: ShellSession | null) {
         // The route's own refusal means nothing changed. A lost request, or
         // a bare gateway answer (a 502 or a function timeout, which carries
         // no route error code), may have reached it and done its work.
-        description: `${describeActionError(error)} ${
+        description: `${await describeActionError(error)} ${
           error instanceof ApiClientError &&
           error.code !== "http_error" &&
           error.code !== "network_error"
@@ -186,7 +187,6 @@ function useAccount(session: ShellSession | null) {
       await apiFetch("/api/session/switch", {
         method: "POST",
         body: { organisationId },
-        schema: z.unknown(),
       })
       // A full reload, not a router push: switching mints a new session and
       // every cached query in memory belongs to the previous organisation.
@@ -195,7 +195,7 @@ function useAccount(session: ShellSession | null) {
       setSwitching(false)
       toast.add({
         title: `Couldn’t switch to ${name}`,
-        description: `${describeActionError(error)} You’re still in ${session?.organisationName ?? "your current organisation"}.`,
+        description: `${await describeActionError(error)} You’re still in ${session?.organisationName ?? "your current organisation"}.`,
         type: "error",
       })
     }

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 
 import { AppShell } from "@/components/app-shell/app-shell"
 import { REQUEST_PATH_HEADER, signInPathFor } from "@/lib/api/next-path"
-import { sessionSchema } from "@/lib/api/session"
+import { sessionSchema } from "@/lib/contracts/session"
 import {
   CLIENT_SCOPE_COOKIE,
   parseClientScopeCookie,
