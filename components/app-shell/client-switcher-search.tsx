@@ -59,7 +59,7 @@ function ClientSearchList({
         className="h-11 text-body"
         autoFocus
       />
-      <CommandList className="max-h-[min(50vh,24rem)]">
+      <CommandList className="max-h-[min(50vh,--spacing(96))]">
         <CommandEmpty>No client matches that.</CommandEmpty>
         <CommandItem
           value={ALL}

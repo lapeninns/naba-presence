@@ -167,7 +167,7 @@ function AppBar({
   return (
     <header
       data-slot="app-bar"
-      className="sticky top-0 z-chrome bg-canvas pt-safe px-safe shadow-[inset_0_-1px_0_var(--np-line)] md:hidden print:hidden"
+      className="sticky top-0 z-chrome bg-canvas pt-safe px-safe shadow-np-edge-bottom md:hidden print:hidden"
     >
       <div className="flex h-(--np-appbar-h) items-center gap-1 pr-1 pl-2">
         <div className="flex max-w-1/2 min-w-0 shrink-0 items-center">

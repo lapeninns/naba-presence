@@ -15,6 +15,7 @@ import {
 } from "@/lib/navigation/destinations"
 import { cn } from "@/lib/utils"
 
+import { CountBadge } from "./count-badge"
 import {
   notificationsName,
   useUnreadNotificationCount,
@@ -33,18 +34,6 @@ const TAB_CLASS = cn(
   "aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink",
   "data-[current=true]:font-semibold data-[current=true]:text-accent-ink"
 )
-
-function CountBadge({ count }: { count: number }) {
-  return (
-    <span
-      aria-hidden
-      data-slot="tab-count"
-      className="absolute -top-1 left-[calc(50%+4px)] inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none font-semibold text-primary-foreground tabular-nums"
-    >
-      {count > 99 ? "99+" : count}
-    </span>
-  )
-}
 
 /**
  * The phone's primary navigation: a bottom tab bar, below 768px only.
@@ -106,7 +95,7 @@ function TabBar({
     <nav
       aria-label="Primary"
       data-slot="tab-bar"
-      className="fixed inset-x-0 bottom-0 z-chrome bg-canvas px-safe pb-safe shadow-[inset_0_1px_0_var(--np-line)] md:hidden print:hidden"
+      className="fixed inset-x-0 bottom-0 z-chrome bg-canvas px-safe pb-safe shadow-np-edge-top md:hidden print:hidden"
     >
       <ul className="grid h-(--np-tabbar-h) grid-cols-5 items-stretch px-1">
         {tabs.map((destination) => {
@@ -123,7 +112,14 @@ function TabBar({
               >
                 <span className="relative flex">
                   <Icon className="size-6" strokeWidth={1.75} aria-hidden />
-                  {count > 0 ? <CountBadge count={count} /> : null}
+                  {count > 0 ? (
+                    // 4px right of the 24px icon's centre.
+                    <CountBadge
+                      count={count}
+                      slot="tab-count"
+                      className="absolute -top-1.5 left-4"
+                    />
+                  ) : null}
                 </span>
                 <span className="max-w-full truncate">{destination.label}</span>
               </Link>
