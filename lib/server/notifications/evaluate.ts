@@ -392,6 +392,8 @@ export async function deliverPending(
   limit = 50
 ): Promise<DeliveryOutcome> {
   const appUrl = getServerEnv().NEXTAUTH_URL ?? "http://localhost:3000"
+  // Credit emails link Usage only where the usage page exists (billing on).
+  const billingEnabled = getServerEnv().BILLING_ENABLED
   let claimed: ClaimedDelivery[] = []
   let context: Promise<{
     members: Awaited<ReturnType<typeof loadNotificationMembers>>
@@ -465,7 +467,7 @@ export async function deliverPending(
         const incident = { id: delivery.incidentId, kind: delivery.kind, locationId: delivery.locationId }
         if (!canSeeIncident(member, incident)) return { status: "suppressed", reason: "recipient_access_revoked" }
         if (effectiveMode(preferences, member, delivery.kind, "email") !== "immediate") return { status: "suppressed", reason: "recipient_preference_off" }
-        email = renderIncidentEmail(delivery.kind as IncidentKind, delivery.summary ?? {}, appUrl)
+        email = renderIncidentEmail(delivery.kind as IncidentKind, delivery.summary ?? {}, appUrl, { billingEnabled })
       } else {
         const visible = digestIncidents.filter((incident) => (delivery.digestIncidentIds ?? []).includes(incident.id)
           && canSeeIncident(member, incident) && effectiveMode(preferences, member, incident.kind, "email") === "digest")
