@@ -39,6 +39,9 @@ const proofSections = [
   "Typography",
   "Spacing and radius",
   "Primitives",
+  // FOUNDATION Drop 1 (2026-10-13) added the shared Notion Mail pattern
+  // section; it is axe-checked with the rest of the page.
+  "Notion Mail patterns",
   "Compositions",
 ]
 
