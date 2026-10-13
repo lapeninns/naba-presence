@@ -8,6 +8,13 @@ import {
 } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+// The keyboard-safety hook is the editors' own (keep-focus-clear.test.tsx);
+// here only its wiring to the form is checked.
+const keepFocusClear = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/editors/use-keep-focus-clear", () => ({
+  useKeepFocusClear: keepFocusClear,
+}))
+
 import { PolicyForm } from "@/components/settings/policy-form"
 import { Toaster } from "@/components/ui/toast"
 import type { OrgSettings } from "@/lib/api/settings"
@@ -126,6 +133,32 @@ describe("PolicyForm", () => {
     // Nothing docked is left behind for the tab bar to step aside for.
     expect(document.querySelector('[data-docked="bottom"]')).toBeNull()
     expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
+  })
+
+  it("keeps a focused field clear of the docked save bar's measured top", () => {
+    useSettingsMock.mockReturnValue({
+      data: makeSettings(),
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: {
+        canManageTeam: true,
+        canManageConnections: true,
+        canEditSettings: true,
+      },
+    })
+    renderForm("owner")
+    const form = screen.getByRole("form", { name: "Reply policy" })
+    // Wired to the mounted form (past its loading states) and to the bar
+    // inside it: with a phone keyboard up the browser alone leaves a field
+    // that is above the keyboard but under the bar.
+    const wired = keepFocusClear.mock.calls.filter(
+      ([ref]) => (ref as { current: Element | null }).current === form
+    )
+    expect(wired.length).toBeGreaterThan(0)
+    expect(wired.at(-1)?.[1]).toBe("[data-slot=action-bar]")
   })
 
   it("links each switch's hint to it as its description", () => {

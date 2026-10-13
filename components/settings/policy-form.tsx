@@ -26,7 +26,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CircleAlert, Eye, Info, PenLine } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -81,6 +81,7 @@ import { useSession } from "@/lib/queries/use-session"
 import { workspaceTerms } from "@/lib/workspace/terms"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
+import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 
@@ -191,6 +192,24 @@ export function PolicyForm({ role }: { role: string | null }) {
   const router = useRouter()
   const toast = useToastManager()
   const formRef = useRef<HTMLFormElement>(null)
+  // Keyboard safety for the docked save bar, as the editors and the setup
+  // wizard have it: the browser only scrolls a focused field it thinks is
+  // off screen, and with a phone keyboard up a field above the keyboard can
+  // still sit under the bar. The form mounts after the loading states, so
+  // the hook follows it through a callback ref.
+  const [formElement, setFormElement] = useState<HTMLFormElement | null>(
+    null
+  )
+  const keepClearRoot = useMemo(
+    () => ({ current: formElement }),
+    [formElement]
+  )
+  useKeepFocusClear(keepClearRoot, "[data-slot=action-bar]")
+  // Stable, so React doesn't detach and reattach it on every render.
+  const setFormRef = useCallback((node: HTMLFormElement | null) => {
+    formRef.current = node
+    setFormElement(node)
+  }, [])
   const isOwner = role === "owner"
   const canEdit = caps.data?.canEditSettings ?? false
   const readOnly = caps.data !== undefined && !canEdit
@@ -421,7 +440,7 @@ export function PolicyForm({ role }: { role: string | null }) {
 
   return (
     <form
-      ref={formRef}
+      ref={setFormRef}
       aria-label="Reply policy"
       // Focus lands here after a save takes the bar away; it is never a
       // Tab stop of its own.
