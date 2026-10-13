@@ -132,6 +132,7 @@ function ActionBar({
           ? "on-charcoal [&_:focus-visible]:outline-ink-on-charcoal"
           : "border border-line bg-surface text-ink",
         sticky && cn("sticky", offset),
+        sticky && !dock && STICKY_ABOVE_TAB_BAR,
         safeArea && "pb-[max(--spacing(3),var(--np-safe-bottom))]",
         dock && DOCKED_CLASS,
         className
@@ -203,6 +204,16 @@ function ActionBar({
     </>
   )
 }
+
+/**
+ * A sticky bar that has not opted into `dock` still shares the phone's bottom
+ * edge with the shell's fixed tab bar (`data-slot="tab-bar"`), which would
+ * cover its buttons. While that tab bar is showing (phone, keyboard closed, no
+ * docked bar hiding it) the sticky bar rests on top of it instead, the same
+ * condition the toast viewport uses. Screens should still migrate to `dock`.
+ */
+const STICKY_ABOVE_TAB_BAR =
+  "max-md:[html:not([data-keyboard=open])_body:has([data-slot=tab-bar]):not(:has([data-docked=bottom]))_&]:bottom-[calc(var(--np-tabbar-h)+var(--np-safe-bottom))]"
 
 /**
  * The phone drawing of a docked bar: full width on the bottom edge, square

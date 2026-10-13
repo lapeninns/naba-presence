@@ -79,6 +79,19 @@ describe("DisabledReason", () => {
 })
 
 describe("ActionBar", () => {
+  it("rests a sticky, undocked bar on top of the phone tab bar", () => {
+    const { container, rerender } = render(<ActionBar>Saved</ActionBar>)
+    const lift = "data-slot=tab-bar"
+    expect(
+      container.querySelector('[data-slot="action-bar"]')?.className
+    ).toContain(lift)
+    // A docked bar hides the tab bar instead, so it never takes the lift.
+    rerender(<ActionBar dock>Saved</ActionBar>)
+    expect(
+      container.querySelector('[data-slot="action-bar"]')?.className
+    ).not.toContain(lift)
+  })
+
   const slots = (container: HTMLElement) =>
     container.ownerDocument.querySelectorAll('[data-slot="action-bar"]')
 
