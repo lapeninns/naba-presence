@@ -1,24 +1,11 @@
 "use client"
 
-import {
-  ClockIcon,
-  PauseCircleIcon,
-  PowerOffIcon,
-  RefreshCwIcon,
-} from "lucide-react"
+import { ClockIcon, PauseCircleIcon, PowerOffIcon } from "lucide-react"
 import type * as React from "react"
 
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Spinner } from "@/components/ui/spinner"
+import { QueryError, QueryPending } from "@/components/ui/query-states"
 import { describeActionError } from "@/lib/errors/action-errors"
 
 type PanelVariant =
@@ -68,10 +55,11 @@ const ICONS: Record<
 
 /**
  * One report's non-figure states (reference `loadingPanel`, `errorPanel`,
- * `emptyPanel`). Loading is a named spinner over the shapes that will
- * arrive; an error is the danger alert with a retry; the rest are the
- * `Empty` pattern, drawn on a bordered card when `framed` (a panel standing
- * on the page) and bare inside a card that already has an edge.
+ * `emptyPanel`), drawn with the shared state primitives: loading is
+ * `QueryPending` (a named spinner over the rows that will arrive), an error
+ * is `QueryError` (the `Empty` error state, announced, with a retry), and
+ * the rest are `Empty`, drawn on a bordered card when `framed` (a panel
+ * standing on the page) and bare inside a card that already has an edge.
  */
 export function ReportingPanel({
   variant,
@@ -109,43 +97,27 @@ export function ReportingPanel({
   titleAs?: "p" | "h2" | "h3"
 }) {
   if (variant === "loading") {
-    return (
-      <div
-        aria-busy="true"
-        role={title ? "status" : undefined}
-        className="flex flex-col gap-3"
-      >
-        {title ? (
-          <p className="flex items-center gap-2 text-ui text-ink-muted">
-            <Spinner decorative size="sm" className="shrink-0" />
-            {title}
-          </p>
-        ) : null}
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-12 rounded-(--np-radius-control)" />
-        ))}
-      </div>
-    )
+    // The shared pending state: a named, announced wait when a caller says
+    // what is loading, and the row placeholders either way.
+    return <QueryPending label={title} />
   }
   if (variant === "error") {
+    // The shared failed-load state: `<Empty variant="error">` announced as
+    // an alert, with a 44px "Try again" when there is a retry. Always on its
+    // own card, as the danger alert it replaces was: a failed report stands
+    // in for content, so it is never a bare line on the page.
     return (
-      <Alert variant="destructive">
-        <AlertTitle>{title ?? COPY.error.title}</AlertTitle>
-        <AlertDescription>
-          {description ??
-            (cause === undefined
-              ? COPY.error.description
-              : `${describeActionError(cause)} Nothing was changed.`)}
-        </AlertDescription>
-        {onRetry ? (
-          <AlertActions>
-            <Button variant="secondary" size="sm" onClick={onRetry}>
-              <RefreshCwIcon aria-hidden strokeWidth={1.75} />
-              Try again
-            </Button>
-          </AlertActions>
-        ) : null}
-      </Alert>
+      <QueryError
+        framed
+        title={title ?? COPY.error.title}
+        description={
+          description ??
+          (cause === undefined
+            ? COPY.error.description
+            : `${describeActionError(cause)} Nothing was changed.`)
+        }
+        onRetry={onRetry}
+      />
     )
   }
   const copy = COPY[variant]
