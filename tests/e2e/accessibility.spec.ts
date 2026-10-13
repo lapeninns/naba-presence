@@ -602,7 +602,17 @@ for (const theme of themes) {
           await expect(header).toBeVisible()
         } else {
           await expect(header).toBeHidden()
-          await expect(page.locator("tbody > tr").first()).toBeVisible()
+          // A card per listing: the row holding this listing is led by its
+          // name as the link and still carries its health as a status pill.
+          const card = page
+            .locator("tbody > tr")
+            .filter({ hasText: state.directReview.locationName })
+          await expect(
+            card.getByRole("link", { name: state.directReview.locationName })
+          ).toBeVisible()
+          await expect(
+            card.locator('[data-slot="status-pill"]').first()
+          ).toBeVisible()
         }
         await expect(
           page.getByRole("link", { name: state.directReview.locationName })
