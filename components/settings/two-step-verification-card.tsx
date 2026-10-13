@@ -46,7 +46,12 @@ function statusLine(factorCount: number): string {
 
 /** "JBSWY3DPEHPK3PXP" → "JBSW Y3DP EHPK 3PXP": easier to read and retype. */
 export function groupSecret(secret: string): string {
-  return secret.replace(/\s+/g, "").match(/.{1,4}/g)?.join(" ") ?? ""
+  return (
+    secret
+      .replace(/\s+/g, "")
+      .match(/.{1,4}/g)
+      ?.join(" ") ?? ""
+  )
 }
 
 type CopyState = "idle" | "copied" | "failed"
@@ -70,11 +75,7 @@ function authenticatorHref(uri: string): string | null {
  * app is on the phone in the person's other hand. Layout only: the order
  * flips in CSS, and every route is present at every width.
  */
-function AuthenticatorSetup({
-  enrollment,
-}: {
-  enrollment: MfaEnrollResponse
-}) {
+function AuthenticatorSetup({ enrollment }: { enrollment: MfaEnrollResponse }) {
   const [copy, setCopy] = useState<CopyState>("idle")
   const appHref = authenticatorHref(enrollment.uri)
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -116,17 +117,12 @@ function AuthenticatorSetup({
       ) : null}
 
       <div className="flex flex-col gap-1.5 desk:order-3">
-        <p className="text-ui font-semibold text-ink">
-          Setup key
-        </p>
+        <p className="text-ui font-semibold text-ink">Setup key</p>
         <p className="text-caption text-ink-muted">
-          If the app doesn’t open, copy this key and add it in the app by
-          hand.
+          If the app doesn’t open, copy this key and add it in the app by hand.
         </p>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <code
-            className="min-w-0 rounded-md border border-line bg-surface-alt px-2.5 py-1.5 font-mono text-body tracking-wide [overflow-wrap:anywhere] text-ink"
-          >
+          <code className="min-w-0 rounded-md border border-line bg-surface-alt px-2.5 py-1.5 font-mono text-body tracking-wide [overflow-wrap:anywhere] text-ink">
             {groupSecret(enrollment.secret)}
           </code>
           <Button type="button" variant="secondary" onClick={copyKey}>
@@ -299,10 +295,11 @@ export function TwoStepVerificationCard({
       id={titleId}
       title="Two-step verification"
       description={statusLine(factorCount)}
+      variant="group"
     >
       <div className="flex flex-col gap-4">
         {factorCount > 0 ? (
-          <p className="text-body text-ink-muted">
+          <p className="text-ui text-ink-secondary">
             {verifiedThisSession
               ? "You entered a code when you signed in to this session."
               : "This session was opened without a code. Sign in again to use one."}

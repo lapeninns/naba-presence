@@ -117,6 +117,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
         id="billing-subscription"
         title="Subscription"
         description={describeBilling(overview)}
+        variant="group"
       >
         <SettingsFacts
           columns={2}
@@ -168,86 +169,93 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
           ]}
         />
 
-          {overview.pendingPlan && overview.pendingEffectiveAt ? (
-            <div
-              data-slot="pending-change"
-              className="flex flex-col gap-2 rounded-md bg-fill px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <p className="m-0 text-ui text-ink">
-                Changes to <strong>{overview.pendingPlan.name}</strong> on{" "}
-                {formatBillingDate(overview.pendingEffectiveAt)}.
-              </p>
-              {overview.plan ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabledReason={manageBlocked}
-                  pending={keep.isPending}
-                  onClick={() => keep.mutate(overview.plan!.id)}
-                >
-                  Keep {overview.plan.name}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {linkNote ? (
-            <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
-          ) : null}
-
-          <div className="flex flex-wrap gap-2">
-            {overview.hasCustomer ? (
+        {overview.pendingPlan && overview.pendingEffectiveAt ? (
+          <div
+            data-slot="pending-change"
+            className="flex flex-col gap-2 rounded-md bg-fill px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p className="m-0 text-ui text-ink">
+              Changes to <strong>{overview.pendingPlan.name}</strong> on{" "}
+              {formatBillingDate(overview.pendingEffectiveAt)}.
+            </p>
+            {overview.plan ? (
               <Button
                 variant="outline"
-                disabledReason={
-                  manageBlocked ??
-                  (overview.checkout.reason === "billing_disabled" ||
-                  overview.checkout.reason === "billing_paused"
-                    ? "Billing is not available right now."
-                    : undefined)
-                }
-                pending={portal.isPending}
-                onClick={() => portal.mutate()}
-              >
-                Payment details and invoices
-              </Button>
-            ) : null}
-            {subscribed && !overview.cancelAtPeriodEnd ? (
-              <Button
-                variant="destructive"
+                size="sm"
                 disabledReason={manageBlocked}
-                onClick={() => {
-                  cancel.reset()
-                  setConfirmCancel(true)
-                }}
+                pending={keep.isPending}
+                onClick={() => keep.mutate(overview.plan!.id)}
               >
-                Cancel subscription
-              </Button>
-            ) : null}
-            {subscribed && overview.cancelAtPeriodEnd ? (
-              <Button
-                variant="outline"
-                disabledReason={manageBlocked}
-                pending={cancel.isPending}
-                onClick={() => cancel.mutate(false)}
-              >
-                Resume subscription
+                Keep {overview.plan.name}
               </Button>
             ) : null}
           </div>
-          {actionError && !confirmCancel ? (
-            <p role="alert" className="m-0 text-ui text-danger-ink">
-              {billingActionError(actionError)}
-            </p>
+        ) : null}
+        {linkNote ? (
+          <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          {overview.hasCustomer ? (
+            <Button
+              variant="outline"
+              disabledReason={
+                manageBlocked ??
+                (overview.checkout.reason === "billing_disabled" ||
+                overview.checkout.reason === "billing_paused"
+                  ? "Billing is not available right now."
+                  : undefined)
+              }
+              pending={portal.isPending}
+              onClick={() => portal.mutate()}
+            >
+              Payment details and invoices
+            </Button>
           ) : null}
+          {subscribed && overview.cancelAtPeriodEnd ? (
+            <Button
+              variant="outline"
+              disabledReason={manageBlocked}
+              pending={cancel.isPending}
+              onClick={() => cancel.mutate(false)}
+            >
+              Resume subscription
+            </Button>
+          ) : null}
+        </div>
+        {actionError && !confirmCancel ? (
+          <p role="alert" className="m-0 text-ui text-danger-ink">
+            {billingActionError(actionError)}
+          </p>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection
         id="billing-plans"
         title="Plans"
         description="Limits apply to linked Google locations, including disconnected ones. Linked locations are never removed automatically."
+        variant="group"
       >
         <PlanPicker overview={overview} />
       </SettingsSection>
+
+      {/* The one destructive action goes last on the page, alone and
+          centred (REFERENCE-BRIEF §4.3); it still asks first. */}
+      {subscribed && !overview.cancelAtPeriodEnd ? (
+        <div className="flex justify-center">
+          <Button
+            variant="ghost"
+            className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
+            disabledReason={manageBlocked}
+            onClick={() => {
+              cancel.reset()
+              setConfirmCancel(true)
+            }}
+          >
+            Cancel subscription
+          </Button>
+        </div>
+      ) : null}
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
