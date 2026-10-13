@@ -18,7 +18,11 @@ import { cn } from "@/lib/utils"
  * Save). On a phone the rows sit straight on the page (no card, no
  * dividers); `card` draws a bordered card at the desk only, with the footer
  * inside it. With an `id`, the heading is `${id}-heading` and focusable by
- * script (`tabIndex={-1}`) for section navigation.
+ * script (`tabIndex={-1}`) for section navigation; `headingId` (or its
+ * alias `labelId`) sets the heading id outright. `listProps` reach the
+ * rows' `<ul>` (`aria-label="Danger zone actions"`). `bodyAs="div"` drops
+ * the list for a group that is one form card: no `<ul>`, and its rows (and
+ * a `SettingsDestructiveAction asRow`) render as `<div>`s.
  *
  * `SettingsRow`: `--np-settings-row-h` tall (56px touch, 44px desk); a
  * leading 28px `fill-secondary` circle holding an 18px, 1.5-stroke icon; a
@@ -27,15 +31,42 @@ import { cn } from "@/lib/utils"
  * row (`checked` + `onCheckedChange`), static (a `value` or a trailing
  * `action` button of its own), or an inline field (`control`: the label
  * and description above the field, nothing wrapping it). Any row can show a
- * `changed` word after its label.
+ * `changed` word after its label. A `footnote` is a block under the row,
+ * aligned to the text column (a gate reason; pass `footnoteProps={{ role:
+ * "note" }}`). Switch, link and button rows are described by it; a field
+ * row's control should reference `${controlId}-footnote`, and a static row
+ * with an `action` must pass `footnoteProps.id` and wire the action itself.
  *
  * `SettingsDestructiveAction`: the last thing on the page, a centred
  * danger-ink text button. It only reports the press. For removing an
  * account, a location or a client, the caller MUST open `TypedConfirmation`
  * (components/ui/typed-confirmation.tsx) with the consequences listed; a
  * plain two-button alert is not enough, and this button never removes
- * anything itself.
+ * anything itself. `asRow` draws it as one row of a group (an `<li>` in a
+ * list group, a `<div>` in a `bodyAs="div"` group) instead of the page's
+ * closing button, and it takes a `footnote` like a row.
  */
+
+/** Whether rows sit in the group's `<ul>` (`li`) or a `div` body. */
+const SettingsListContext = React.createContext(true)
+
+/** A row's outer element: `<li>` in a list group, else `<div>`. */
+function RowItem({
+  className,
+  children,
+  ...data
+}: {
+  className?: string
+  children?: React.ReactNode
+  [data: `data-${string}`]: string | undefined
+}) {
+  const Item = React.useContext(SettingsListContext) ? "li" : "div"
+  return (
+    <Item {...data} className={className}>
+      {children}
+    </Item>
+  )
+}
 
 function SettingsGroup({
   label,
@@ -46,6 +77,9 @@ function SettingsGroup({
   as,
   headingAs,
   headingId,
+  labelId: labelIdProp,
+  listProps,
+  bodyAs = "ul",
   id,
   card = false,
   className,
@@ -79,6 +113,15 @@ function SettingsGroup({
    * script only (`tabIndex={-1}`), never a tab stop.
    */
   headingId?: string
+  /** Alias of `headingId`; `headingId` wins when both are given. */
+  labelId?: string
+  /** Props for the rows' `<ul>` (`aria-label`); ignored with `bodyAs="div"`. */
+  listProps?: Omit<React.ComponentProps<"ul">, "children">
+  /**
+   * `"ul"` (default): the rows are a list. `"div"`: one form card, no list;
+   * rows render as `<div>`s.
+   */
+  bodyAs?: "ul" | "div"
   id?: string
   /** Draw the rows in a bordered card at the desk (never on a phone). */
   card?: boolean
@@ -87,7 +130,7 @@ function SettingsGroup({
   const autoId = React.useId()
   const Heading = headingAs ?? as ?? "h2"
   const labelId = label
-    ? (headingId ?? (id ? `${id}-heading` : `${autoId}-label`))
+    ? (headingId ?? labelIdProp ?? (id ? `${id}-heading` : `${autoId}-label`))
     : undefined
   const captionId = caption ? `${autoId}-caption` : undefined
   const hasFooter = footer != null && footer !== false
@@ -135,17 +178,36 @@ function SettingsGroup({
           {caption}
         </p>
       ) : null}
-      <ul
-        data-slot="settings-group-rows"
-        className={cn(
-          "flex flex-col",
-          card &&
-            "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>li>*]:mx-0 desk:[&>li>*]:w-full",
-          card && hasFooter && "desk:rounded-b-none"
+      <SettingsListContext.Provider value={bodyAs === "ul"}>
+        {bodyAs === "div" ? (
+          <div
+            data-slot="settings-group-rows"
+            data-body="div"
+            className={cn(
+              "flex flex-col",
+              card &&
+                "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>div>*]:mx-0 desk:[&>div>*]:w-full",
+              card && hasFooter && "desk:rounded-b-none"
+            )}
+          >
+            {children}
+          </div>
+        ) : (
+          <ul
+            {...listProps}
+            data-slot="settings-group-rows"
+            className={cn(
+              "flex flex-col",
+              card &&
+                "desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-1 desk:[&>li>*]:mx-0 desk:[&>li>*]:w-full",
+              card && hasFooter && "desk:rounded-b-none",
+              listProps?.className
+            )}
+          >
+            {children}
+          </ul>
         )}
-      >
-        {children}
-      </ul>
+      </SettingsListContext.Provider>
       {hasFooter ? (
         <div
           data-slot="settings-group-footer"
@@ -211,6 +273,41 @@ type SettingsRowBase = {
   changed?: React.ReactNode
   className?: string
   disabled?: boolean
+  /**
+   * A block under the row, aligned to the text column: a gate reason, a
+   * consequence. The row's control is described by it.
+   */
+  footnote?: React.ReactNode
+  /** Props for the footnote's `<div>` (`role: "note"`). */
+  footnoteProps?: Omit<React.ComponentProps<"div">, "children">
+}
+
+/** The block under a row (or a destructive row). */
+function Footnote({
+  id,
+  indent,
+  footnoteProps,
+  children,
+}: {
+  id: string
+  indent: boolean
+  footnoteProps?: Omit<React.ComponentProps<"div">, "children">
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      {...footnoteProps}
+      id={id}
+      data-slot="settings-row-footnote"
+      className={cn(
+        "-mt-1 pb-2 text-caption text-ink-muted",
+        indent && "ps-10",
+        footnoteProps?.className
+      )}
+    >
+      {children}
+    </div>
+  )
 }
 
 type SettingsRowProps = SettingsRowBase &
@@ -364,8 +461,32 @@ function Value({ children }: { children: React.ReactNode }) {
 }
 
 function SettingsRow(props: SettingsRowProps) {
-  const { icon, label, description, changed, className, disabled } = props
+  const {
+    icon,
+    label,
+    description,
+    changed,
+    className,
+    disabled,
+    footnote,
+    footnoteProps,
+  } = props
   const id = React.useId()
+  const hasFootnote = footnote != null && footnote !== false
+  const footnoteId =
+    footnoteProps?.id ??
+    (props.control !== undefined && props.controlId
+      ? `${props.controlId}-footnote`
+      : `${id}-footnote`)
+  const note = hasFootnote ? (
+    <Footnote
+      id={footnoteId}
+      indent={icon != null}
+      footnoteProps={footnoteProps}
+    >
+      {footnote}
+    </Footnote>
+  ) : null
   const leading = icon ? <SettingsIcon>{icon}</SettingsIcon> : null
   const text = (
     <SettingsText
@@ -378,7 +499,11 @@ function SettingsRow(props: SettingsRowProps) {
   // The changed word is part of the row's meaning (words first), so it is
   // announced with the description.
   const describedBy =
-    [description ? `${id}-desc` : null, changed ? `${id}-changed` : null]
+    [
+      description ? `${id}-desc` : null,
+      changed ? `${id}-changed` : null,
+      hasFootnote ? footnoteId : null,
+    ]
       .filter(Boolean)
       .join(" ") || undefined
 
@@ -389,7 +514,7 @@ function SettingsRow(props: SettingsRowProps) {
     const labelClassName =
       "min-w-0 text-ui font-medium text-ink group-data-disabled/field:text-ink-muted"
     return (
-      <li data-slot="settings-row" data-kind="field">
+      <RowItem data-slot="settings-row" data-kind="field">
         <div
           data-disabled={disabled || undefined}
           className={cn(
@@ -436,7 +561,8 @@ function SettingsRow(props: SettingsRowProps) {
             {props.control}
           </div>
         </div>
-      </li>
+        {note}
+      </RowItem>
     )
   }
 
@@ -444,7 +570,7 @@ function SettingsRow(props: SettingsRowProps) {
     // A native <label> wraps the row, so tapping the words toggles; the
     // Switch is named and described by them, and keeps its own 44px box.
     return (
-      <li data-slot="settings-row" data-kind="switch">
+      <RowItem data-slot="settings-row" data-kind="switch">
         <label
           className={cn(
             rowClassName,
@@ -462,7 +588,8 @@ function SettingsRow(props: SettingsRowProps) {
             aria-describedby={describedBy}
           />
         </label>
-      </li>
+        {note}
+      </RowItem>
     )
   }
 
@@ -476,7 +603,7 @@ function SettingsRow(props: SettingsRowProps) {
       </>
     )
     return (
-      <li data-slot="settings-row" data-kind="link">
+      <RowItem data-slot="settings-row" data-kind="link">
         {disabled ? (
           <span
             role="link"
@@ -496,13 +623,14 @@ function SettingsRow(props: SettingsRowProps) {
             {inner}
           </Link>
         )}
-      </li>
+        {note}
+      </RowItem>
     )
   }
 
   if (props.onClick) {
     return (
-      <li data-slot="settings-row" data-kind="button">
+      <RowItem data-slot="settings-row" data-kind="button">
         <button
           type="button"
           onClick={props.onClick}
@@ -515,19 +643,21 @@ function SettingsRow(props: SettingsRowProps) {
           {props.value ? <Value>{props.value}</Value> : null}
           <Chevron />
         </button>
-      </li>
+        {note}
+      </RowItem>
     )
   }
 
   return (
-    <li data-slot="settings-row" data-kind="static">
+    <RowItem data-slot="settings-row" data-kind="static">
       <div className={cn(rowClassName, className)}>
         {leading}
         {text}
         {props.value ? <Value>{props.value}</Value> : null}
         {props.action}
       </div>
-    </li>
+      {note}
+    </RowItem>
   )
 }
 
@@ -540,19 +670,67 @@ function SettingsRow(props: SettingsRowProps) {
 function SettingsDestructiveAction({
   className,
   type = "button",
+  asRow = false,
+  footnote,
+  footnoteProps,
   ...props
-}: React.ComponentProps<"button">) {
+}: React.ComponentProps<"button"> & {
+  /**
+   * One row of a group (an `<li>` in a list group, a `<div>` in a
+   * `bodyAs="div"` group) instead of the page's closing button.
+   */
+  asRow?: boolean
+  /** A block under the button (a gate reason); the button is described by it. */
+  footnote?: React.ReactNode
+  /** Props for the footnote's `<div>` (`role: "note"`). */
+  footnoteProps?: Omit<React.ComponentProps<"div">, "children">
+}) {
+  const autoId = React.useId()
+  const hasFootnote = footnote != null && footnote !== false
+  const footnoteId = footnoteProps?.id ?? `${autoId}-footnote`
+  const describedBy =
+    [props["aria-describedby"], hasFootnote ? footnoteId : null]
+      .filter(Boolean)
+      .join(" ") || undefined
+  const button = (
+    <button
+      type={type}
+      className={cn(
+        "inline-flex min-h-(--np-touch) items-center justify-center rounded-(--np-radius-control) px-4 text-body font-medium text-danger-ink focus-halo hover-fine:hover:bg-danger-tint desk:min-h-(--np-control-h)",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        className
+      )}
+      {...props}
+      aria-describedby={describedBy}
+    />
+  )
+  const note = hasFootnote ? (
+    <Footnote id={footnoteId} indent={false} footnoteProps={footnoteProps}>
+      {footnote}
+    </Footnote>
+  ) : null
+  if (asRow) {
+    return (
+      <RowItem
+        data-slot="settings-destructive"
+        data-kind="destructive"
+        className="flex min-h-(--np-settings-row-h) flex-col items-center justify-center py-1 text-center"
+      >
+        {button}
+        {note}
+      </RowItem>
+    )
+  }
   return (
-    <div data-slot="settings-destructive" className="mt-8 flex justify-center">
-      <button
-        type={type}
-        className={cn(
-          "inline-flex min-h-(--np-touch) items-center justify-center rounded-(--np-radius-control) px-4 text-body font-medium text-danger-ink focus-halo hover-fine:hover:bg-danger-tint desk:min-h-(--np-control-h)",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          className
-        )}
-        {...props}
-      />
+    <div
+      data-slot="settings-destructive"
+      className={cn(
+        "mt-8 flex justify-center",
+        hasFootnote && "flex-col items-center text-center"
+      )}
+    >
+      {button}
+      {note}
     </div>
   )
 }

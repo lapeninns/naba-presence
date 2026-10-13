@@ -46,6 +46,23 @@ import { cn } from "@/lib/utils"
  *   element, with `aria-expanded`/`aria-controls`; the button's words are
  *   entirely the caller's ("Show receipt for The Bell").
  * - `wrapperProps`: attributes for the outer `<li>`/`<div>` (`data-status`).
+ * - `footer` is a block `<div>` under the text column, outside the hit
+ *   element, so it may hold buttons, a `<form>`, a `<dl>` or a `<details>`.
+ *   `footerLayout="stack"` stacks its children full width (a form, a
+ *   definition list) instead of the default wrapping row of buttons.
+ * - `titleAs="h2"|"h3"|"h4"`: the title is a real heading (name it with
+ *   `titleId` for `aria-labelledby`). A heading is not phrasing content, so
+ *   it may not sit inside a `<button>`, and a button's children are
+ *   presentational to assistive tech anyway. Heading titles are therefore
+ *   drawn on NON-INTERACTIVE rows (`interactive={false}`, the row carries
+ *   its own controls) and on LINK rows (`href`: an `<a>` is transparent
+ *   content, so `<a><div><h3>` is valid). The title's wrappers become
+ *   `<div>`s so no `<span>` contains the heading. On a button row, a
+ *   `render` row or inside `ListRows listbox` the heading is not drawn
+ *   (a dev warning) and the title stays a plain span.
+ * - `wrap`: the title and subtitle wrap (breaking long words such as email
+ *   addresses anywhere) instead of truncating, so two long values never
+ *   look identical.
  * - `ListRows listbox`: a selectable list. The `ul` is a `listbox`, each
  *   `li` is `presentation` and each row an `option` with `aria-selected`
  *   (rows default to `selectedAs="selected"`). Name it with `aria-label`.
@@ -222,6 +239,20 @@ export type ListRowProps = Omit<
   /** Uncontrolled initial open state of `details`. */
   defaultDetailsOpen?: boolean
   onDetailsOpenChange?: (open: boolean) => void
+  /**
+   * `"row"` (default): the footer's children wrap in one row of buttons.
+   * `"stack"`: a full-width column (a form, a `<dl>`, a `<details>`).
+   */
+  footerLayout?: "row" | "stack"
+  /**
+   * Draw the title as a real heading. Only on `interactive={false}` rows
+   * and link (`href`) rows; see the notes above for why.
+   */
+  titleAs?: "span" | "h2" | "h3" | "h4"
+  /** The title element's id (e.g. for a section's `aria-labelledby`). */
+  titleId?: string
+  /** Title and subtitle wrap instead of truncating. */
+  wrap?: boolean
 }
 
 export type ListRowWrapperProps = Omit<
@@ -257,6 +288,10 @@ function ListRow({
   detailsOpen,
   defaultDetailsOpen = false,
   onDetailsOpenChange,
+  footerLayout = "row",
+  titleAs = "span",
+  titleId,
+  wrap = false,
   className,
   render,
   ...props
@@ -276,6 +311,21 @@ function ListRow({
     }
     footer = details = leadingControl = undefined
   }
+  // A heading may only sit in a non-interactive row or a plain link row:
+  // never inside a <button> (or an unknown `render` element) or an option.
+  const headingAllowed =
+    !inListbox && render === undefined && (!interactive || href !== undefined)
+  if (titleAs !== "span" && !headingAllowed) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        `ListRow: titleAs="${titleAs}" needs interactive={false} or href (a heading cannot sit inside a button or an option); the title is drawn as a span.`
+      )
+    }
+  }
+  const TitleTag = headingAllowed ? titleAs : "span"
+  const titleIsHeading = TitleTag !== "span"
+  // No <span> may contain the heading: its wrappers become <div>s.
+  const TitleBox = titleIsHeading ? "div" : "span"
   const hasFooter = footer != null && footer !== false
   const hasDetails = details != null && details !== false
   const hasLeading = leading != null || leadingControl != null
@@ -323,18 +373,24 @@ function ListRow({
           {leading}
         </span>
       ) : null}
-      <span data-slot="list-row-body" className="flex min-w-0 flex-1 flex-col">
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
-            <span
+      <TitleBox
+        data-slot="list-row-body"
+        className="flex min-w-0 flex-1 flex-col"
+      >
+        <TitleBox className="flex min-w-0 items-baseline gap-2">
+          <TitleBox className="flex min-w-0 flex-1 items-center gap-1.5">
+            <TitleTag
+              id={titleId}
               data-slot="list-row-title"
+              data-wrap={wrap || undefined}
               className={cn(
-                "min-w-0 truncate text-body",
+                "min-w-0 text-body",
+                wrap ? "wrap-anywhere" : "truncate",
                 TITLE_CLASS[emphasis]
               )}
             >
               {title}
-            </span>
+            </TitleTag>
             {emphasis === "unread" ? (
               <>
                 <span
@@ -345,7 +401,7 @@ function ListRow({
                 <span className="sr-only">, {unreadLabel}</span>
               </>
             ) : null}
-          </span>
+          </TitleBox>
           {meta != null ? (
             <span
               data-slot="list-row-meta"
@@ -354,13 +410,14 @@ function ListRow({
               {meta}
             </span>
           ) : null}
-        </span>
+        </TitleBox>
         {subtitle != null || trailing != null ? (
           <span className="flex min-w-0 items-center gap-2">
             <span
               data-slot="list-row-subtitle"
               className={cn(
-                "min-w-0 flex-1 truncate text-ui",
+                "min-w-0 flex-1 text-ui",
+                wrap ? "wrap-anywhere" : "truncate",
                 emphasis === "read" ? "text-ink-secondary" : "text-ink"
               )}
             >
@@ -395,7 +452,7 @@ function ListRow({
             {tags}
           </span>
         ) : null}
-      </span>
+      </TitleBox>
     </>
   )
 
@@ -480,8 +537,12 @@ function ListRow({
       {hasFooter ? (
         <div
           data-slot="list-row-footer"
+          data-layout={footerLayout}
           className={cn(
-            "-mt-1 flex min-w-0 flex-wrap items-center gap-2 pb-(--np-row-mail-py)",
+            "-mt-1 flex min-w-0 gap-2 pb-(--np-row-mail-py)",
+            footerLayout === "stack"
+              ? "flex-col items-stretch"
+              : "flex-wrap items-center",
             textStart,
             textEnd
           )}
@@ -542,13 +603,21 @@ const TAG_TONES = {
   orange: "bg-tag-orange-bg text-tag-orange-ink",
   purple: "bg-tag-purple-bg text-tag-purple-ink",
   green: "bg-tag-green-bg text-tag-green-ink",
+  // A label over a photo ("Logo", "Customer"): an opaque surface chip in
+  // full ink, lifted off the image by the raised shadow (ink on surface is
+  // a gated pair, whatever the photo underneath).
+  "on-image": "bg-surface text-ink shadow-np-raised",
+  // An emphasised label (the accent-ink on accent-tint pair of the active
+  // chip). Not a status: status words use StatusPill.
+  accent: "bg-accent-tint text-accent-ink",
 } as const
 
 export type ListRowTagTone = keyof typeof TAG_TONES
 
 /**
  * A user tag in a row (review tags, AI topics, post type). Decorative tag
- * ramp only: status hues are reserved for status pills.
+ * ramp only: status hues are reserved for status pills. `on-image` is for a
+ * label laid over a photo; `accent` for an emphasised label.
  */
 function ListRowTag({
   tone = "neutral",
