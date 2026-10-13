@@ -1,43 +1,24 @@
 "use client"
 
-import {
-  ArrowRightLeft,
-  Building2,
-  Inbox,
-  MapPin,
-  Plus,
-  Search,
-  Settings,
-  Store,
-  TrendingUp,
-  UserPlus,
-  Users,
-} from "lucide-react"
+import { Plus, Search, UserPlus } from "lucide-react"
+import dynamic from "next/dynamic"
 import * as React from "react"
 
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import { Kbd } from "@/components/ui/kbd"
-import { StatusPill } from "@/components/ui/status-pill"
-import { healthTone } from "@/lib/clients/health"
-import { withClientScope } from "@/lib/clients/scope"
-import { useGuardedRouter } from "@/lib/editors/use-leave-guard"
+import { DESTINATIONS } from "@/lib/navigation/destinations"
 import { settingsGatingFromRole } from "@/lib/settings/gating"
-import { useClients } from "@/lib/queries/use-clients"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
-import { useLocationDirectory } from "@/lib/queries/use-locations"
-import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
-import { useRememberedClient } from "./client-context"
-import { useClientSwitch } from "./client-switcher"
+/**
+ * The command palette's light half: its trigger, its shortcuts, its entry
+ * lists and the lazy mount. The dialog itself (everything built on cmdk) is
+ * command-palette-dialog.tsx, loaded the first time the palette opens, so
+ * cmdk and its second dialog stack stay out of every route's first
+ * JavaScript. Keep it that way: nothing here may import `@/components/ui/
+ * command` or `cmdk`, statically or through another module.
+ */
 
 type PaletteEntry = {
   href: string
@@ -53,14 +34,20 @@ type PaletteEntry = {
   agencyOnly?: boolean
 }
 
-const GO_TO: PaletteEntry[] = [
-  { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/listings", label: "Listings", icon: Store },
-  { href: "/clients", label: "Clients", icon: Building2, agencyOnly: true },
-  { href: "/reports", label: "Reports", icon: TrendingUp },
-  { href: "/team", label: "Team", icon: Users, adminOnly: true },
-  { href: "/settings", label: "Settings", icon: Settings },
-]
+/**
+ * The "Go to" destinations as palette entries, derived from the one
+ * destination registry (lib/navigation/destinations.ts) so the palette can
+ * never drift from the navigation again. The palette itself filters the
+ * registry with `visibleDestinations`, which also knows the scheduling
+ * flag; this list stays for callers that use `paletteEntriesFor`.
+ */
+const GO_TO: PaletteEntry[] = DESTINATIONS.map((destination) => ({
+  href: destination.href,
+  label: destination.label,
+  icon: destination.icon,
+  adminOnly: destination.managersOnly,
+  agencyOnly: destination.agencyOnly,
+}))
 
 const ACTIONS: PaletteEntry[] = [
   {
@@ -100,206 +87,51 @@ export function paletteEntriesFor(
 
 export { GO_TO as PALETTE_GO_TO, ACTIONS as PALETTE_ACTIONS }
 
-const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
+/**
+ * One import shared by the lazy component and the warm-up, so warming on
+ * hover and opening later fetch the same chunk once.
+ */
+const loadPaletteDialog = () => import("./command-palette-dialog")
+
+const CommandPaletteDialog = dynamic(
+  () => loadPaletteDialog().then((module) => module.CommandPaletteDialog),
+  // Client-only: it never renders on the server, and nothing paints while
+  // the chunk arrives (the dialog appears when it is ready).
+  { ssr: false, loading: () => null }
+)
+
+/** Starts fetching the dialog before it is asked for. */
+function warmCommandPalette() {
+  void loadPaletteDialog()
+}
 
 /**
- * Jump to anything: a client, a location, a page, an action.
- *
- * The agency IA is genuinely deep — client, then location, then section — and
- * an operator who knows the venue's name should not have to walk the tree to
- * reach it. This is the shortcut across that depth, which is why it lists
- * locations by name with their client alongside.
+ * The palette, mounted lazily: nothing at all until it has been opened once,
+ * then the dialog, which stays mounted so closing animates and reopening is
+ * instant. `hideCalendar` is the organisation's `post_scheduling` flag being
+ * off, read by the dashboard layout, so Go to never offers a Calendar the
+ * navigation hides.
  */
 function CommandPalette({
   open,
   onOpenChange,
+  hideCalendar = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  hideCalendar?: boolean
 }) {
-  // Leaving an editor with unsaved edits from the palette asks first, the
-  // way a sidebar link does.
-  const router = useGuardedRouter()
-  const clients = useClients()
-  const role = useSessionRole()
-  const locations = useLocationDirectory(role)
-  const mode = useWorkspaceMode()
-  const business = mode === "business"
-  const goTo = paletteEntriesFor(GO_TO, role, mode)
-  const actions = paletteEntriesFor(ACTIONS, role, mode)
-  // Go to Inbox, Listings or Reports keeps the client in scope, like the
-  // sidebar's links.
-  const { remembered } = useRememberedClient()
-
-  const go = (href: string) => {
-    onOpenChange(false)
-    router.push(href)
-  }
-
-  const clientNameById = new Map(
-    clients.data?.items.map((client) => [client.id, client.name]) ?? []
-  )
-
+  // Latches on the first open; adjusted during render, so the open that
+  // flips it is the same render that mounts the dialog.
+  const [opened, setOpened] = React.useState(open)
+  if (open && !opened) setOpened(true)
+  if (!opened) return null
   return (
-    // "Commands", not "Search": this looks for clients, locations and actions,
-    // and deliberately never looks inside review text. The Inbox's own
-    // "Search reviews" field is the one place to type a customer's words, and
-    // two fields that both look like search but answer different questions is
-    // how an operator ends up believing a review does not exist.
-    <CommandDialog
+    <CommandPaletteDialog
       open={open}
       onOpenChange={onOpenChange}
-      title="Commands"
-      description={
-        business
-          ? "Jump to a location or a page, or run an action. To search review text, use Search reviews in the Inbox."
-          : "Jump to a client or a location, or run an action. To search review text, use Search reviews in the Inbox."
-      }
-    >
-      <CommandInput
-        placeholder={
-          business
-            ? "Go to a location or an action…"
-            : "Go to a client, a location or an action…"
-        }
-      />
-      <CommandList>
-        <CommandEmpty>
-          Nothing matched that. To search review text, use Search reviews in the
-          Inbox.
-        </CommandEmpty>
-
-        {!business && clients.data?.items.length ? (
-          <CommandGroup heading="Clients">
-            {clients.data.items.map((client) => (
-              <CommandItem
-                key={client.id}
-                value={`client ${client.name}`}
-                onSelect={() => go(`/clients/${client.id}`)}
-              >
-                <StatusPill tone={healthTone(client.health)} variant="dot" />
-                <span className="flex-1 truncate">{client.name}</span>
-                <span className="text-caption text-ink-muted tabular-nums">
-                  {client.locationCount === 1
-                    ? "1 location"
-                    : `${client.locationCount} locations`}
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        ) : null}
-
-        {locations.data?.length ? (
-          <CommandGroup heading="Listings">
-            {locations.data.map((location) => (
-              <CommandItem
-                key={location.id}
-                value={`listing ${location.name}`}
-                onSelect={() => go(`/listings/${location.id}`)}
-              >
-                <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-                <span className="flex-1 truncate">{location.name}</span>
-                {!business && location.clientId ? (
-                  <span className="truncate text-caption text-ink-muted">
-                    {clientNameById.get(location.clientId)}
-                  </span>
-                ) : null}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        ) : null}
-
-        {business ? null : (
-          <React.Suspense fallback={null}>
-            <SwitchClientCommands onDone={() => onOpenChange(false)} />
-          </React.Suspense>
-        )}
-
-        <CommandGroup heading="Go to">
-          {goTo.map((item) => {
-            const Icon = item.icon
-            return (
-              <CommandItem
-                key={item.href}
-                value={`go ${item.label}`}
-                onSelect={() =>
-                  go(
-                    business
-                      ? item.href
-                      : withClientScope(item.href, remembered)
-                  )
-                }
-              >
-                <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-                {item.label}
-              </CommandItem>
-            )
-          })}
-        </CommandGroup>
-
-        <CommandGroup heading="Actions">
-          {actions.map((item) => {
-            const Icon = item.icon
-            return (
-              <CommandItem
-                key={item.label}
-                value={`action ${item.label}`}
-                onSelect={() => go(item.href)}
-              >
-                <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-                {item.label}
-              </CommandItem>
-            )
-          })}
-        </CommandGroup>
-      </CommandList>
-    </CommandDialog>
-  )
-}
-
-/**
- * "Switch client: …" for every client but the current one, and "All
- * clients" while one is in scope. The same switch the top-bar switcher
- * makes, so it follows the same page rules and the Inbox's unsaved-reply
- * guard. Offered only when there is more than one client to switch between.
- */
-function SwitchClientCommands({ onDone }: { onDone: () => void }) {
-  const { clients, current, select } = useClientSwitch()
-  if (!clients || clients.length <= 1) return null
-  const choose = (clientId: string | null) => {
-    onDone()
-    void select(clientId)
-  }
-  return (
-    <CommandGroup heading="Switch client">
-      {current ? (
-        <CommandItem
-          value="switch client all clients"
-          onSelect={() => choose(null)}
-        >
-          <Building2 className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-          <span className="flex-1 truncate">Switch client: All clients</span>
-        </CommandItem>
-      ) : null}
-      {clients
-        .filter((client) => client.id !== current)
-        .map((client) => (
-          <CommandItem
-            key={client.id}
-            value={`switch client ${client.name} ${client.id}`}
-            onSelect={() => choose(client.id)}
-          >
-            <ArrowRightLeft
-              className={ICON_CLASS}
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            <span className="flex-1 truncate">
-              Switch client: {client.name}
-            </span>
-          </CommandItem>
-        ))}
-    </CommandGroup>
+      hideCalendar={hideCalendar}
+    />
   )
 }
 
@@ -390,6 +222,11 @@ function CommandPaletteButton({
     <button
       type="button"
       onClick={onClick}
+      // A pointer on its way to the button, or focus arriving on it, is a
+      // good sign the palette is next: fetch the dialog now so it opens
+      // without waiting on the network.
+      onPointerEnter={warmCommandPalette}
+      onFocus={warmCommandPalette}
       aria-label={
         business
           ? "Search listings, pages and actions"

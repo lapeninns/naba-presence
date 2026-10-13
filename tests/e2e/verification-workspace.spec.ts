@@ -4,19 +4,36 @@ import { setupVerificationWorkspace } from "./helpers/verification-workspace"
 
 async function captureWorkspace(page: Page, info: TestInfo, name: string) {
   expect((await new AxeBuilder({ page }).include('section[aria-labelledby^="verification-"]').analyze()).violations).toEqual([])
-  const scrollers = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>("body *")).filter((element) => ["auto", "scroll"].includes(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).map((element, index) => {
-    element.dataset.verificationCaptureScroll = String(index)
-    element.scrollTop = 0
-    return { index, height: element.clientHeight, extent: element.scrollHeight - element.clientHeight }
-  }))
+  // Every inner pane that overflows (desk: the shell's column and the
+  // workspace panes), plus the document itself, which is what scrolls on a
+  // phone (components/app-shell/app-shell.tsx). The document is marked -1
+  // and driven through window.scrollTo.
+  const scrollers = await page.evaluate(() => {
+    const panes = Array.from(document.querySelectorAll<HTMLElement>("body *")).filter((element) => ["auto", "scroll"].includes(getComputedStyle(element).overflowY) && element.scrollHeight > element.clientHeight + 1).map((element, index) => {
+      element.dataset.verificationCaptureScroll = String(index)
+      element.scrollTo({ top: 0, behavior: "instant" })
+      return { index, height: element.clientHeight, extent: element.scrollHeight - element.clientHeight }
+    })
+    const root = (document.scrollingElement ?? document.documentElement) as HTMLElement
+    window.scrollTo({ top: 0, behavior: "instant" })
+    if (root.scrollHeight <= root.clientHeight + 1) return panes
+    const style = getComputedStyle(document.documentElement)
+    const covered = (Number.parseFloat(style.scrollPaddingTop) || 0) + (Number.parseFloat(style.scrollPaddingBottom) || 0)
+    return [...panes, { index: -1, height: Math.max(1, root.clientHeight - covered), extent: root.scrollHeight - root.clientHeight }]
+  })
+  const scrollTo = (index: number, top: number) =>
+    index === -1
+      ? page.evaluate((value) => window.scrollTo({ top: value, behavior: "instant" }), top)
+      : page.locator(`[data-verification-capture-scroll="${index}"]`).evaluate((element, value) => element.scrollTo({ top: value, behavior: "instant" }), top)
   await page.screenshot({ path: info.outputPath(`${name}-top.png`), animations: "disabled" })
   for (const scroller of scrollers) {
+    const label = scroller.index === -1 ? "document" : String(scroller.index)
     for (let offset = Math.min(scroller.height * 0.75, scroller.extent), frame = 1; ; offset = Math.min(offset + scroller.height * 0.75, scroller.extent), frame += 1) {
-      await page.locator(`[data-verification-capture-scroll="${scroller.index}"]`).evaluate((element, top) => { element.scrollTop = top }, offset)
-      await page.screenshot({ path: info.outputPath(`${name}-scroll-${scroller.index}-${frame}.png`), animations: "disabled" })
+      await scrollTo(scroller.index, offset)
+      await page.screenshot({ path: info.outputPath(`${name}-scroll-${label}-${frame}.png`), animations: "disabled" })
       if (offset === scroller.extent) break
     }
-    await page.locator(`[data-verification-capture-scroll="${scroller.index}"]`).evaluate((element) => { element.scrollTop = 0 })
+    await scrollTo(scroller.index, 0)
   }
 }
 

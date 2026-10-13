@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
+import * as React from "react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -18,8 +19,11 @@ import {
   useRememberedClient,
 } from "@/components/app-shell/client-context"
 import {
+  ClientScopeChip,
+  ClientScopeSheet,
   ClientScopeSync,
   ClientSwitcher,
+  useClientScopeLabel,
 } from "@/components/app-shell/client-switcher"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import * as clientsHook from "@/lib/queries/use-clients"
@@ -281,6 +285,9 @@ describe("ClientSwitcher", () => {
       name: "Search clients",
     })
     await waitFor(() => expect(search).toHaveFocus())
+    // Field size, not the 13px control size that made iOS zoom on focus.
+    expect(search).toHaveClass("text-body")
+    expect(search).not.toHaveClass("text-ui")
     await user.type(search, "client e")
     const matches = screen.getAllByRole("option")
     expect(matches).toHaveLength(1)
@@ -289,6 +296,264 @@ describe("ClientSwitcher", () => {
     expect(replace).toHaveBeenLastCalledWith("/inbox?clientId=c5", {
       scroll: false,
     })
+  })
+})
+
+/**
+ * The phone pieces as the app bar wires them: the chip opens the sheet.
+ * Inside a Suspense boundary, because the shell renders them inside one
+ * (useSearchParams).
+ */
+function PhoneScope() {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <>
+      <ClientScopeChip onOpen={() => setOpen(true)} />
+      <ClientScopeSheet open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
+function renderPhoneScope({
+  remembered = null,
+  children,
+}: { remembered?: string | null; children?: React.ReactNode } = {}) {
+  return render(
+    <ClientScopeRoot rememberedClientId={remembered}>
+      <React.Suspense fallback={null}>
+        <ClientScopeSync />
+        <PhoneScope />
+      </React.Suspense>
+      <Remembered />
+      {children}
+    </ClientScopeRoot>
+  )
+}
+
+async function openSheet(name: string) {
+  await userEvent.click(screen.getByRole("button", { name }))
+  return screen.findByRole("dialog", { name: "Working on" })
+}
+
+describe("ClientScopeChip", () => {
+  it("is hidden when there is nothing to switch, or the list is unknown", () => {
+    stubClients([OLD_CROWN])
+    const { unmount } = renderPhoneScope()
+    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    unmount()
+
+    stubClients(undefined)
+    renderPhoneScope()
+    expect(screen.queryByRole("button", { name: /^Client:/ })).toBeNull()
+  })
+
+  it("names the client in scope and opens a dialog", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c2"
+    renderPhoneScope()
+    const chip = screen.getByRole("button", { name: "Client: Harbour Kitchen" })
+    expect(chip).toHaveAttribute("aria-haspopup", "dialog")
+    expect(chip).toHaveTextContent("Harbour Kitchen")
+  })
+
+  it("says All clients when no client is in scope", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    renderPhoneScope()
+    expect(
+      screen.getByRole("button", { name: "Client: All clients" })
+    ).toHaveTextContent("All clients")
+  })
+})
+
+describe("ClientScopeSheet", () => {
+  it("lists All clients and every client, with health in words", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c2"
+    renderPhoneScope()
+    const sheet = await openSheet("Client: Harbour Kitchen")
+    const group = within(sheet).getByRole("radiogroup", { name: "Client" })
+    const radios = within(group).getAllByRole("radio")
+    expect(radios).toHaveLength(3)
+    expect(radios[0]).toHaveAccessibleName("All clients")
+    expect(radios[1]).toHaveAccessibleName("Old Crown")
+    // Health is printed as words in the row, not only announced.
+    expect(within(radios[1]).getByText("In sync")).toBeVisible()
+    expect(within(radios[2]).getByText("Action needed")).toBeVisible()
+    expect(radios[1]).toHaveAccessibleDescription("In sync")
+    expect(radios[2]).toHaveAccessibleDescription("Action needed")
+    expect(radios[2]).toHaveAttribute("aria-checked", "true")
+    expect(radios[0]).toHaveAttribute("aria-checked", "false")
+    // One Tab stop for the group: the checked row.
+    expect(radios[2]).toHaveAttribute("tabindex", "0")
+    expect(radios[0]).toHaveAttribute("tabindex", "-1")
+    // Two clients: no filter field.
+    expect(within(sheet).queryByRole("searchbox")).toBeNull()
+  })
+
+  it("swaps the Inbox's client in place, remembers it and closes", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "queue=failed&clientId=c1&selected=r1"
+    renderPhoneScope()
+    const sheet = await openSheet("Client: Old Crown")
+    await userEvent.click(
+      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+    )
+    expect(replace).toHaveBeenLastCalledWith(
+      "/inbox?queue=failed&clientId=c2",
+      { scroll: false }
+    )
+    expect(cookie()).toBe("c2")
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Working on" })).toBeNull()
+    )
+  })
+
+  it("goes to the same page of the other client from a client's pages", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.pathname = "/clients/c1/settings"
+    renderPhoneScope()
+    const sheet = await openSheet("Client: Old Crown")
+    await userEvent.click(
+      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+    )
+    expect(push).toHaveBeenCalledWith("/clients/c2/settings")
+  })
+
+  it("clears the scope for All clients", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.pathname = "/listings"
+    location.search = "clientId=c1&order=client"
+    renderPhoneScope({ remembered: "c1" })
+    const sheet = await openSheet("Client: Old Crown")
+    await userEvent.click(
+      within(sheet).getByRole("radio", { name: "All clients" })
+    )
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
+      scroll: false,
+    })
+    expect(cookie()).toBeNull()
+  })
+
+  it("lets a page decline the switch (an unsaved reply)", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c1"
+    const handler = vi.fn(async () => false)
+    function Page() {
+      useClientScopeHandler(handler)
+      return null
+    }
+    renderPhoneScope({ remembered: "c1", children: <Page /> })
+    const sheet = await openSheet("Client: Old Crown")
+    await userEvent.click(
+      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+    )
+    expect(handler).toHaveBeenCalledWith("c2")
+    expect(replace).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("status", { name: "Remembered" })
+    ).toHaveTextContent("c1")
+  })
+
+  it("moves between rows with the arrow keys without choosing", async () => {
+    const user = userEvent.setup()
+    stubClients([OLD_CROWN, HARBOUR])
+    renderPhoneScope()
+    const sheet = await openSheet("Client: All clients")
+    const all = within(sheet).getByRole("radio", { name: "All clients" })
+    all.focus()
+    await user.keyboard("{ArrowDown}")
+    expect(
+      within(sheet).getByRole("radio", { name: "Old Crown" })
+    ).toHaveFocus()
+    expect(replace).not.toHaveBeenCalled()
+    await user.keyboard("{ArrowDown}{Enter}")
+    expect(replace).toHaveBeenLastCalledWith("/inbox?clientId=c2", {
+      scroll: false,
+    })
+  })
+
+  it("filters with a plain 16px search field past eight clients", async () => {
+    const many = Array.from({ length: 9 }, (_, index) =>
+      client(`c${index + 1}`, `Client ${String.fromCharCode(65 + index)}`)
+    )
+    stubClients(many)
+    const user = userEvent.setup()
+    renderPhoneScope()
+    const sheet = await openSheet("Client: All clients")
+    const search = within(sheet).getByRole("searchbox", {
+      name: "Search clients",
+    })
+    // A native field, not a cmdk combobox, at field size (`text-body`) so
+    // iOS does not zoom on focus.
+    expect(search.tagName).toBe("INPUT")
+    expect(search).toHaveClass("text-body")
+    expect(within(sheet).getAllByRole("radio")).toHaveLength(10)
+
+    await user.type(search, "client e")
+    const matches = within(sheet).getAllByRole("radio")
+    expect(matches).toHaveLength(1)
+    expect(matches[0]).toHaveAccessibleName("Client E")
+    await user.click(matches[0])
+    expect(replace).toHaveBeenLastCalledWith("/inbox?clientId=c5", {
+      scroll: false,
+    })
+  })
+
+  it("says so when nothing matches the filter", async () => {
+    const many = Array.from({ length: 9 }, (_, index) =>
+      client(`c${index + 1}`, `Client ${String.fromCharCode(65 + index)}`)
+    )
+    stubClients(many)
+    const user = userEvent.setup()
+    renderPhoneScope()
+    const sheet = await openSheet("Client: All clients")
+    await user.type(
+      within(sheet).getByRole("searchbox", { name: "Search clients" }),
+      "zzz"
+    )
+    expect(within(sheet).queryAllByRole("radio")).toHaveLength(0)
+    expect(within(sheet).getByText("No client matches that.")).toBeVisible()
+  })
+})
+
+describe("useClientScopeLabel", () => {
+  function Label() {
+    const { visible, label, healthWords, client } = useClientScopeLabel()
+    return (
+      <output aria-label="Scope">
+        {JSON.stringify({ visible, label, healthWords, id: client?.id })}
+      </output>
+    )
+  }
+
+  function renderLabel() {
+    return render(
+      <ClientScopeRoot rememberedClientId={null}>
+        <Label />
+      </ClientScopeRoot>
+    )
+  }
+
+  it("names the scoped client and its health in words", () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.search = "clientId=c2"
+    renderLabel()
+    expect(
+      JSON.parse(screen.getByRole("status", { name: "Scope" }).textContent!)
+    ).toEqual({
+      visible: true,
+      label: "Harbour Kitchen",
+      healthWords: "Action needed",
+      id: "c2",
+    })
+  })
+
+  it("says All clients, and is not visible with one client", () => {
+    stubClients([OLD_CROWN])
+    renderLabel()
+    expect(
+      JSON.parse(screen.getByRole("status", { name: "Scope" }).textContent!)
+    ).toEqual({ visible: false, label: "All clients", healthWords: null })
   })
 })
 

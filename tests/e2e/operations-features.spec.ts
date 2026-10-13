@@ -295,9 +295,11 @@ for (const width of [375, 768, 1280])
     }, info) => {
       const f = await backend.fixture(page, 1)
       // CSS, not a role query: on a phone the sidebar is in the page but
-      // hidden, and a role query would not count it either way.
+      // hidden, and a role query would not count it either way. Scoped to
+      // the sidebar: the phone tab bar is a second Primary nav, and in a
+      // business workspace Calendar is one of its tabs too.
       const calendarLink = page.locator(
-        'nav[aria-label="Primary"] a[href^="/calendar"]'
+        'aside[aria-label="Sidebar"] nav[aria-label="Primary"] a[href^="/calendar"]'
       )
       // Off (the default): no scheduling anywhere, Calendar included.
       const created = await page.request.post(

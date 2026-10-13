@@ -28,7 +28,19 @@ const dashboardRoutes = [
   { path: "/settings", label: "Settings", heading: /^Reply policy$/ },
 ]
 
+// The shell draws the Primary nav three ways (components/app-shell): the
+// desk sidebar from 1180px (Team and Settings behind its More disclosure),
+// the labelled rail from 768 to 1180 (every destination, no disclosure) and
+// the phone tab bar below 768 (four tabs and a More sheet).
+const DESK = { width: 1280, height: 800 }
+const TABLET = { width: 900, height: 1000 }
+const PHONE = { width: 390, height: 844 }
+
+/** The phone tabs; the rest of the destinations live in the More sheet. */
+const PHONE_TABS = new Set(["/inbox", "/listings", "/clients", "/reports"])
+
 test("dashboard pages have direct URLs", async ({ page }) => {
+  await page.setViewportSize(DESK)
   // A business has no Clients destination (it redirects to Listings).
   const business = (await pageWorkspaceMode(page)) === "business"
   for (const route of dashboardRoutes.filter(
@@ -52,6 +64,78 @@ test("dashboard pages have direct URLs", async ({ page }) => {
         .getByRole("link", { name: route.label, exact: true })
     ).toHaveAttribute("aria-current", "page")
   }
+})
+
+test("dashboard pages mark their tab, or More, as current on a phone", async ({
+  page,
+}) => {
+  await page.setViewportSize(PHONE)
+  const business = (await pageWorkspaceMode(page)) === "business"
+  for (const route of dashboardRoutes.filter(
+    (entry) => !(business && entry.path === "/clients")
+  )) {
+    await page.goto(route.path)
+    expect(new URL(page.url()).pathname).toBe(route.path)
+    await expect(
+      page.getByRole("heading", { name: route.heading, level: 1 })
+    ).toBeVisible()
+    const tabs = page.getByRole("navigation", { name: "Primary" })
+    await expect(tabs).toHaveAttribute("data-slot", "tab-bar")
+    if (PHONE_TABS.has(route.path)) {
+      // The Inbox tab's name may carry its count ("Inbox, 2 need a reply").
+      await expect(
+        tabs.getByRole("link", {
+          name:
+            route.label === "Inbox"
+              ? /^Inbox(, \d+ needs? a reply)?$/
+              : route.label,
+          exact: route.label === "Inbox" ? undefined : true,
+        })
+      ).toHaveAttribute("aria-current", "page")
+    } else {
+      // Team and Settings live in the More sheet: More reads as current,
+      // and the sheet marks the row.
+      const more = tabs.getByRole("button", { name: "More", exact: true })
+      await expect(more).toHaveAttribute("data-current", "true")
+      await more.click()
+      await expect(
+        page
+          .getByRole("dialog", { name: "More" })
+          .getByRole("navigation", { name: "More" })
+          .getByRole("link", { name: route.label, exact: true })
+      ).toHaveAttribute("aria-current", "page")
+      await page.keyboard.press("Escape")
+      await expect(page.getByRole("dialog", { name: "More" })).toHaveCount(0)
+    }
+  }
+})
+
+test("the tablet rail lists every destination with a visible label", async ({
+  page,
+}) => {
+  await page.setViewportSize(TABLET)
+  const business = (await pageWorkspaceMode(page)) === "business"
+  await page.goto("/reports")
+  await expect(
+    page.getByRole("heading", { name: "Reports", level: 1 })
+  ).toBeVisible()
+  const sidebar = page.locator('aside[aria-label="Sidebar"]')
+  await expect(sidebar).toBeVisible()
+  const rail = sidebar.getByRole("navigation", { name: "Primary" })
+  // No disclosure in the rail: Team and Settings are tiles like the rest.
+  await expect(rail.getByRole("button", { name: "More" })).toBeHidden()
+  for (const label of ["Inbox", "Listings", "Reports", "Settings"]) {
+    const link = rail.getByRole("link", { name: label, exact: true })
+    await expect(link).toBeVisible()
+    await expect(link.getByText(label, { exact: true })).toBeVisible()
+  }
+  await expect(
+    rail.getByRole("link", { name: "Clients", exact: true })
+  ).toHaveCount(business ? 0 : 1)
+  // The phone furniture is gone at this width.
+  await expect(page.locator('nav[data-slot="tab-bar"]')).toBeHidden()
+  await expect(page.locator('header[data-slot="app-bar"]')).toBeHidden()
+  await expect(page.locator('header[data-slot="toolbar"]')).toBeVisible()
 })
 
 test("root and the retired home land on the inbox", async ({ page }) => {
@@ -123,6 +207,7 @@ test("sidebar links update browser history", async ({ page }) => {
   const first = business
     ? { label: "Listings", path: "/listings" }
     : { label: "Clients", path: "/clients" }
+  await page.setViewportSize(DESK)
   await page.goto("/reports")
 
   const primaryNav = page.getByRole("navigation", { name: "Primary" })
@@ -130,10 +215,42 @@ test("sidebar links update browser history", async ({ page }) => {
   await primaryNav.getByRole("link", { name: first.label, exact: true }).click()
   await expect(page).toHaveURL(first.path)
 
-  // Settings sits behind More; the disclosure is a button, the row a link.
-  await primaryNav.getByRole("button", { name: "More" }).click()
+  // Settings sits behind the sidebar's More disclosure; the disclosure is a
+  // button that says whether it is open, the row a link.
+  const more = primaryNav.getByRole("button", { name: "More", exact: true })
+  await expect(more).toHaveAttribute("aria-expanded", "false")
+  await more.click()
+  await expect(more).toHaveAttribute("aria-expanded", "true")
   await primaryNav.getByRole("link", { name: "Settings", exact: true }).click()
   await expect(page).toHaveURL("/settings")
+
+  await page.goBack()
+  await expect(page).toHaveURL(first.path)
+})
+
+test("phone tabs and the More sheet update browser history", async ({
+  page,
+}) => {
+  await page.setViewportSize(PHONE)
+  const business = (await pageWorkspaceMode(page)) === "business"
+  const first = business
+    ? { label: "Listings", path: "/listings" }
+    : { label: "Clients", path: "/clients" }
+  await page.goto("/reports")
+
+  const tabs = page.getByRole("navigation", { name: "Primary" })
+  await tabs.getByRole("link", { name: first.label, exact: true }).click()
+  await expect(page).toHaveURL(first.path)
+
+  // Settings is two taps away: More opens a sheet, the row is a link.
+  await tabs.getByRole("button", { name: "More", exact: true }).click()
+  await page
+    .getByRole("dialog", { name: "More" })
+    .getByRole("navigation", { name: "More" })
+    .getByRole("link", { name: "Settings", exact: true })
+    .click()
+  await expect(page).toHaveURL("/settings")
+  await expect(page.getByRole("dialog", { name: "More" })).toHaveCount(0)
 
   await page.goBack()
   await expect(page).toHaveURL(first.path)
@@ -148,6 +265,7 @@ test("old location routes land on the listing, owned by Listings in the nav", as
   // /photos would silently show a DIFFERENT business's photos.
   const state = await readJourneyState()
   await applyCookie(page, baseURL, state.cookie)
+  await page.setViewportSize(DESK)
   await page.goto(`/locations/${state.primaryLocationId}/photos`)
 
   expect(new URL(page.url()).pathname).toBe(
@@ -164,8 +282,39 @@ test("old location routes land on the listing, owned by Listings in the nav", as
     primaryNav.getByRole("link", { name: "Listings", exact: true })
   ).toHaveAttribute("aria-current", "page")
 
-  // And the trail names the whole path back out.
+  // And the trail names the whole path back out (from 1180px).
   await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeVisible()
+
+  // From 768 to 1180 the trail gives way to one labelled way up, to the
+  // listing this area belongs to (lib/navigation/back-target.ts).
+  await page.setViewportSize(TABLET)
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toBeHidden()
+  const toolbarBack = page
+    .locator('header[data-slot="toolbar"]')
+    .getByRole("link", { name: `Back to ${state.directReview.locationName}` })
+  await expect(toolbarBack).toBeVisible()
+  await expect(
+    page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: "Listings", exact: true })
+  ).toHaveAttribute("aria-current", "page")
+
+  // On a phone the app bar carries it, visible text the listing's name.
+  await page.setViewportSize(PHONE)
+  const barBack = page
+    .locator('header[data-slot="app-bar"]')
+    .getByRole("link", { name: `Back to ${state.directReview.locationName}` })
+  await expect(barBack).toBeVisible()
+  await expect(barBack).toContainText(state.directReview.locationName)
+  await expect(
+    page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("link", { name: "Listings", exact: true })
+  ).toHaveAttribute("aria-current", "page")
+  await barBack.click()
+  await expect
+    .poll(() => new URL(page.url()).pathname)
+    .toBe(`/listings/${state.primaryLocationId}`)
 })
 
 test("retired flat routes forward to a real location or to Clients", async ({
@@ -218,7 +367,9 @@ test("a client hub names its locations and trails back to Clients", async ({
   ).toBeVisible()
 
   // The trail is what makes the depth navigable: from an area three levels
-  // in, the board, the client and the listing are each one click away.
+  // in, the board, the client and the listing are each one click away. It
+  // is drawn from 1180px; narrower widths show the back link instead.
+  await page.setViewportSize(DESK)
   await page.goto(`/listings/${state.primaryLocationId}/hours`)
   const trail = page.getByRole("navigation", { name: "Breadcrumb" })
   await expect(trail.getByRole("link", { name: "Listings" })).toBeVisible()
