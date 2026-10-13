@@ -157,6 +157,46 @@ describe("Table record cards", () => {
     const scrollPort = container.querySelector('[data-slot="table-container"]')!
     expect(scrollPort).not.toHaveAttribute("tabindex")
   })
+
+  // The tab stop is a primitive option: "auto" stays the default, "always"
+  // keeps the stop whatever the width, "never" drops it even while it scrolls.
+  it("lets a table choose when its scroll container is a tab stop", () => {
+    const scrollWidth = vi
+      .spyOn(HTMLElement.prototype, "scrollWidth", "get")
+      .mockReturnValue(800)
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockReturnValue(320)
+    try {
+      const port = (scrollFocus?: "auto" | "always" | "never") => {
+        const { container, unmount } = render(
+          <Table scrollFocus={scrollFocus}>
+            <TableBody>
+              <TableRow>
+                <TableCell>Old Crown</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        )
+        const box = container.querySelector('[data-slot="table-container"]')!
+        const tabindex = box.getAttribute("tabindex")
+        unmount()
+        return tabindex
+      }
+      // Overflowing: the default and "always" are stops, "never" is not.
+      expect(port()).toBe("0")
+      expect(port("auto")).toBe("0")
+      expect(port("always")).toBe("0")
+      expect(port("never")).toBeNull()
+      // Fitting: only "always" keeps the stop.
+      scrollWidth.mockReturnValue(320)
+      expect(port()).toBeNull()
+      expect(port("always")).toBe("0")
+    } finally {
+      scrollWidth.mockRestore()
+      clientWidth.mockRestore()
+    }
+  })
 })
 
 describe("DataTable record cards", () => {
