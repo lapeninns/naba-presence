@@ -195,8 +195,16 @@ export function LocationTab<T>({
     // In both the resource hook below is not mounted, so the owner/admin-only
     // GET is never issued.
     if (capsQuery.isPending) return <TabLoading label={pendingLabel} />
+    // The reason in words (the title says who can), the lock glyph as
+    // reinforcement, and the one next step a member actually has.
     if (!gateSatisfied(capsQuery.data, requires))
-      return <Empty title={gatedTitle ?? GATED_SECTION_TITLE} />
+      return (
+        <Empty
+          variant="forbidden"
+          title={gatedTitle ?? GATED_SECTION_TITLE}
+          description="Your role can’t open this section. Ask an owner or admin if something here needs to change."
+        />
+      )
   }
 
   return (

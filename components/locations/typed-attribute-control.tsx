@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { googleAttributeWriteSchema } from "@/lib/domain/google-attributes"
 
 import { ChangedMark } from "@/components/locations/profile/section-card"
@@ -38,6 +38,13 @@ import { enumOptionsFor } from "@/lib/locations/google-values"
  * Not set segmented choice. "Not set" is a real third state on Google — the
  * attribute simply isn't there — so it is shown as an answer, and choosing
  * it (when `onClear` is given) takes the value back off Google.
+ *
+ * `layout`: `stack` (default) is the original drawing. `row` is the settings
+ * row look — the label in body text (with an optional muted `description`)
+ * at the leading edge, the control at the trailing edge on one line of at
+ * least 44px, wrapping under the label when the row is narrow (CSS only:
+ * flex-wrap plus the controls' own `sm:` widths). Ids, labels and every
+ * value path are the same in both layouts.
  */
 type Answer = boolean | null
 
@@ -53,6 +60,8 @@ export function TypedAttributeControl({
   onChange,
   onClear,
   changed = false,
+  layout = "stack",
+  description,
 }: {
   metadata: AttributeMetadata
   attribute: GoogleAttribute | undefined
@@ -62,6 +71,10 @@ export function TypedAttributeControl({
   onClear?: (name: string) => void
   /** The draft differs from Google for this attribute. */
   changed?: boolean
+  /** `row`: the settings-row drawing (see above). Default `stack`. */
+  layout?: "stack" | "row"
+  /** A muted line under the label. Drawn in the `row` layout only. */
+  description?: ReactNode
 }) {
   const labelId = useId()
   const [newUri, setNewUri] = useState("")
@@ -70,7 +83,20 @@ export function TypedAttributeControl({
   const kind = metadata.deprecated ? "readonly" : attributeControlKind(metadata.valueType)
   const enumOptions = enumOptionsFor(metadata)
 
-  const labelBlock = (
+  const row = layout === "row"
+  const labelBlock = row ? (
+    <span className="flex min-w-0 grow basis-48 flex-col gap-0.5">
+      <span className="flex min-w-0 flex-wrap items-center gap-2">
+        <span id={labelId} className="text-body text-ink">
+          {label}
+        </span>
+        {changed ? <ChangedMark /> : null}
+      </span>
+      {description ? (
+        <span className="text-caption text-ink-muted">{description}</span>
+      ) : null}
+    </span>
+  ) : (
     <span className="flex min-w-0 flex-wrap items-center gap-2">
       <span id={labelId} className="text-ui font-semibold text-ink">
         {label}
@@ -79,8 +105,9 @@ export function TypedAttributeControl({
     </span>
   )
 
-  const rowClass =
-    "flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2"
+  const rowClass = row
+    ? "flex min-h-11 w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 py-1"
+    : "flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2"
 
   if (!metadata.deprecated && metadata.valueType === "REPEATED_ENUM" && enumOptions.length > 0) {
     const selected = attribute?.repeatedEnumValue?.setValues ?? []
@@ -242,8 +269,9 @@ export function TypedAttributeControl({
   }
   return (
     <div className={rowClass}>
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <span className="text-ui font-semibold text-ink">{label}</span>
+      <span className={row ? "flex min-w-0 grow basis-48 flex-col gap-0.5" : "flex min-w-0 flex-col gap-0.5"}>
+        <span className={row ? "text-body text-ink" : "text-ui font-semibold text-ink"}>{label}</span>
+        {row && description ? <span className="text-caption text-ink-muted">{description}</span> : null}
         <span className="text-caption text-ink-muted">
           {metadata.deprecated ? "Google no longer accepts changes to this attribute." : "Not editable here yet. Change it in Google directly."}
         </span>

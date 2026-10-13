@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /**
- * Pieces the system pages (not found, no access, error) share, drawn with
- * the reference's card, definition list and sunken-panel recipes.
+ * Pieces the system pages (not found, no access, error) share. Flat and
+ * words-first: sections are separated by a hairline, not boxed, so the one
+ * message above them stays the loudest thing on the page.
  */
 
-/** A white card with a section title. */
+/** A titled section under a hairline (the name is kept for callers). */
 function SystemCard({
   title,
   description,
@@ -28,12 +29,12 @@ function SystemCard({
     <section
       aria-labelledby={id}
       className={cn(
-        "flex min-w-0 flex-col gap-3.5 rounded-lg border border-line bg-surface p-4 sm:p-5",
+        "flex min-w-0 flex-col gap-3 border-t border-line pt-4",
         className
       )}
     >
       <div className="flex flex-col gap-1">
-        <h2 id={id} className="text-title font-semibold text-ink">
+        <h2 id={id} className="text-ui font-medium text-ink">
           {title}
         </h2>
         {description ? (
@@ -70,7 +71,7 @@ function DetailList({
 /** Inline mono code, wrapping anywhere so a long path never overflows. */
 function Code({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-[12px] [overflow-wrap:anywhere] text-ink">
+    <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-caption [overflow-wrap:anywhere] text-ink">
       {children}
     </code>
   )
