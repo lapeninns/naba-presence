@@ -1,6 +1,7 @@
 import { GlobeIcon, PenLine, ShieldCheckIcon } from "lucide-react"
 
 import { StatusPill } from "@/components/ui/status-pill"
+import { cardClassName } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 /** The reference `.changed-mark`: an info-ink word with a pen, never colour alone. */
@@ -109,8 +110,7 @@ export function SectionCard({
       className={cn(
         // Clear of the phone's sticky section chips; a desk has a rail.
         "flex min-w-0 scroll-mt-18 flex-col gap-4 desk:scroll-mt-4",
-        !bare &&
-          "rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)",
+        !bare && cardClassName({ pad: true }),
         className
       )}
     >
