@@ -18,6 +18,8 @@ import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
+import { CountBadge } from "./count-badge"
+
 /**
  * The primary destinations for a workspace mode, as the desk sidebar lists
  * them (lib/navigation/destinations.ts holds the one registry; this is its
@@ -176,13 +178,11 @@ function NavRow({
           {showCount ? (
             // The rail has no count column, so the number rides on the
             // icon as a badge there instead of disappearing.
-            <span
-              aria-hidden
-              data-slot="rail-count"
-              className="absolute -top-1.5 left-3 hidden h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none text-primary-foreground tabular-nums md:max-wide:inline-flex"
-            >
-              {count > 99 ? "99+" : count}
-            </span>
+            <CountBadge
+              count={count}
+              slot="rail-count"
+              className="absolute -top-2 left-3 hidden md:max-wide:inline-flex"
+            />
           ) : null}
         </span>
         <span className={LABEL_CLASS}>{label}</span>

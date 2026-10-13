@@ -1,7 +1,7 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 53,
+    "R1": 50,
     "R2": 9,
     "R3": 163,
     "R4": 33,
@@ -245,10 +245,9 @@
     },
     "components/app-shell/nav.tsx": {
       "R1": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "text-[0.71875rem]": 1,
-          "text-[10px]": 1
+          "text-[0.71875rem]": 1
         }
       },
       "R3": {
@@ -258,15 +257,6 @@
           "min-h-[30px]": 1,
           "min-h-[34px]": 1,
           "w-[3px]": 1
-        }
-      }
-    },
-    "components/app-shell/notifications-link.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-4": 1,
-          "text-[10px]": 1
         }
       }
     },

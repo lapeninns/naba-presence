@@ -15,6 +15,7 @@ import {
 } from "@/lib/navigation/destinations"
 import { cn } from "@/lib/utils"
 
+import { CountBadge } from "./count-badge"
 import {
   notificationsName,
   useUnreadNotificationCount,
@@ -33,23 +34,6 @@ const TAB_CLASS = cn(
   "aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink",
   "data-[current=true]:font-semibold data-[current=true]:text-accent-ink"
 )
-
-/**
- * The count on a tab's icon. It is set in the caption role, the smallest
- * size the type scale allows on touch (13px), so the pill is 20px tall to
- * hold it; it starts 4px right of the 24px icon's centre (`left-4`).
- */
-function CountBadge({ count }: { count: number }) {
-  return (
-    <span
-      aria-hidden
-      data-slot="tab-count"
-      className="absolute -top-1.5 left-4 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 font-mono text-caption leading-none font-semibold text-primary-foreground tabular-nums"
-    >
-      {count > 99 ? "99+" : count}
-    </span>
-  )
-}
 
 /**
  * The phone's primary navigation: a bottom tab bar, below 768px only.
@@ -128,7 +112,14 @@ function TabBar({
               >
                 <span className="relative flex">
                   <Icon className="size-6" strokeWidth={1.75} aria-hidden />
-                  {count > 0 ? <CountBadge count={count} /> : null}
+                  {count > 0 ? (
+                    // 4px right of the 24px icon's centre.
+                    <CountBadge
+                      count={count}
+                      slot="tab-count"
+                      className="absolute -top-1.5 left-4"
+                    />
+                  ) : null}
                 </span>
                 <span className="max-w-full truncate">{destination.label}</span>
               </Link>
