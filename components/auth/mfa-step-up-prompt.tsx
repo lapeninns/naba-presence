@@ -55,8 +55,23 @@ type Mode = "closed" | "step_up" | "enroll" | "verified"
  * once a password or code is typed, a stray swipe or scrim tap asks before
  * throwing it away.
  */
-function MfaStepUpPrompt() {
-  const [mode, setMode] = useState<Mode>("closed")
+function MfaStepUpPrompt({
+  initialCode,
+}: {
+  /**
+   * The event that caused this prompt to load, when it was loaded on demand
+   * (components/auth/mfa-step-up-host.tsx): it opens straight away instead
+   * of waiting for the next one.
+   */
+  initialCode?: MfaStepUpEventDetail["code"]
+} = {}) {
+  const [mode, setMode] = useState<Mode>(() =>
+    initialCode === undefined
+      ? "closed"
+      : initialCode === MFA_ENROLLMENT_REQUIRED
+        ? "enroll"
+        : "step_up"
+  )
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
   const [backup, setBackup] = useState(false)

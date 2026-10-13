@@ -6,13 +6,13 @@ import {
   mediaCreateRequestSchema,
   mediaListQuerySchema,
   mediaUploadFieldsSchema,
-  type MediaListResponseWire,
   type MediaMutationOutcome,
 } from "@/lib/contracts/location-media"
 import { ApiError } from "@/lib/server/http"
 import { submitListingChange } from "@/lib/server/listing-change-registry"
 import { refuseUploadWhenApprovalRequired } from "@/lib/server/listing-changes"
-import { loadMedia, uploadMedia } from "@/lib/server/media"
+import { readMediaListResponse } from "@/lib/server/listing-reads"
+import { uploadMedia } from "@/lib/server/media"
 import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string() })
@@ -23,16 +23,10 @@ export const maxDuration = 60
 export const GET = route({
   params: paramsSchema,
   query: mediaListQuerySchema,
-  handler: async ({ session, params, query }) =>
-    ({
-      media: await loadMedia(session.organisationId, session, params.id, {
-        cursor: query.cursor,
-        pageSize: query.pageSize ?? 12,
-        refresh: query.refresh === "1",
-        category: query.category,
-        ownership: query.ownership,
-      }),
-    }) satisfies MediaListResponseWire,
+  // The read lives in lib/server/listing-reads.ts so the photos page's
+  // streamed server prefetch produces exactly what this route answers.
+  handler: ({ session, params, query }) =>
+    readMediaListResponse(session, params.id, query),
 })
 
 // The upload branch is multipart/form-data, so the body is read from the

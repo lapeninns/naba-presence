@@ -1,12 +1,8 @@
-import {
-  billingOverviewSchema,
-  cancelResultSchema,
-  checkoutResultSchema,
-  planChangeResultSchema,
-  portalResultSchema,
-} from "@/lib/contracts/billing"
-
 import { apiFetch, type RequestOptions } from "./client"
+
+// Schemas load on demand (see `ResponseSchema` in ./client): the billing
+// banner reads the overview on every page, and the contract pulls in zod.
+const contract = () => import("@/lib/contracts/billing")
 
 export type {
   BillingOverview,
@@ -19,7 +15,10 @@ export type {
 
 /** GET /api/billing: state, access, limits and the plans on offer. */
 export function getBilling(options?: RequestOptions) {
-  return apiFetch("/api/billing", { schema: billingOverviewSchema, ...options })
+  return apiFetch("/api/billing", {
+    schema: () => contract().then((m) => m.billingOverviewSchema),
+    ...options,
+  })
 }
 
 /** Owner only: a Stripe Checkout session for one plan from the catalog. */
@@ -27,7 +26,7 @@ export function startCheckout(planId: string) {
   return apiFetch("/api/billing/checkout", {
     method: "POST",
     body: { planId },
-    schema: checkoutResultSchema,
+    schema: () => contract().then((m) => m.checkoutResultSchema),
   })
 }
 
@@ -35,7 +34,7 @@ export function startCheckout(planId: string) {
 export function openBillingPortal() {
   return apiFetch("/api/billing/portal", {
     method: "POST",
-    schema: portalResultSchema,
+    schema: () => contract().then((m) => m.portalResultSchema),
   })
 }
 
@@ -44,7 +43,7 @@ export function changePlan(planId: string) {
   return apiFetch("/api/billing/plan-change", {
     method: "POST",
     body: { planId },
-    schema: planChangeResultSchema,
+    schema: () => contract().then((m) => m.planChangeResultSchema),
   })
 }
 
@@ -53,6 +52,6 @@ export function setCancelAtPeriodEnd(cancelAtPeriodEnd: boolean) {
   return apiFetch("/api/billing/cancel", {
     method: "POST",
     body: { cancelAtPeriodEnd },
-    schema: cancelResultSchema,
+    schema: () => contract().then((m) => m.cancelResultSchema),
   })
 }

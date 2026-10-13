@@ -1,10 +1,10 @@
 "use client"
 
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import type * as React from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -89,7 +89,7 @@ function SiblingSwitcher({
             <DropdownMenuItem
               key={entry.id}
               render={
-                <Link
+                <ShellLink
                   href={isCurrent ? base : `/listings/${entry.id}${suffix}`}
                   aria-current={isCurrent ? "true" : undefined}
                 />

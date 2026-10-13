@@ -1,15 +1,25 @@
 "use client"
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
+import dynamic from "next/dynamic"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { SavedWorkList } from "@/components/reviewed-write"
 import { fetchLodgingWorkflows } from "@/lib/api/location-industry"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { resourceDisabledReason } from "@/lib/locations/gating"
-import { LodgingApprovalSheet } from "./lodging-approval-sheet"
 import { savedChangeItem } from "./saved-change-work"
 import { useLodgingReview } from "./use-lodging-review"
+
+// The approval sheet's diff labels come from the Google lodging discovery
+// schema (about 100 KB), which most listings never need. The sheet is closed
+// (renders nothing) until a lodging review exists, so it loads then; once a
+// listing has saved lodging work its chunk is fetched ahead of the first open.
+const loadLodgingApprovalSheet = () => import("./lodging-approval-sheet")
+const LodgingApprovalSheet = dynamic(
+  () => loadLodgingApprovalSheet().then((m) => m.LodgingApprovalSheet),
+  { loading: () => null }
+)
 
 type DraftStatus = { dirty: boolean; blocked: string | null }
 type DraftActions = { review: () => void; discard: () => void }
@@ -49,6 +59,10 @@ export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly l
     queryFn: ({ pageParam }) => fetchLodgingWorkflows(locationId, pageParam || undefined),
     getNextPageParam: (page) => page.nextCursor ?? undefined, enabled,
   })
+  const hasSavedWork = Boolean(query.data?.pages.some((page) => page.items.length > 0))
+  useEffect(() => {
+    if (hasSavedWork) void loadLodgingApprovalSheet()
+  }, [hasSavedWork])
   if (!enabled || !workflow) return null
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
   return <div id={SAVED_LODGING_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
@@ -77,6 +91,6 @@ export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly l
       loadingMore={query.isFetchingNextPage}
       onLoadMore={() => void query.fetchNextPage()}
     />
-    <LodgingApprovalSheet workflow={workflow} disabled={disabled} />
+    {workflow.review ? <LodgingApprovalSheet workflow={workflow} disabled={disabled} /> : null}
   </div>
 }

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation"
 
 import { AppShell } from "@/components/app-shell/app-shell"
 import { REQUEST_PATH_HEADER, signInPathFor } from "@/lib/api/next-path"
-import { sessionSchema } from "@/lib/api/session"
+import { sessionSchema } from "@/lib/contracts/session"
 import {
   CLIENT_SCOPE_COOKIE,
   parseClientScopeCookie,
@@ -21,6 +21,7 @@ import { makeQueryClient } from "@/lib/queries/query-client"
 import { listClientSummaries } from "@/lib/server/clients"
 import { listConnections } from "@/lib/server/connections"
 import { withTenant } from "@/lib/server/db"
+import { readReviewCounts } from "@/lib/server/prefetch"
 import { listLocationDirectoryRows } from "@/lib/server/location-directory"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { getSession, isLocalBootstrapEnabled } from "@/lib/server/session"
@@ -61,19 +62,35 @@ export default async function DashboardLayout({
     // Each of these opens its own short read transaction and none reads the
     // others' output, so awaiting them one after another only stacked four
     // round trips onto every full load of every dashboard page. Issued
-    // together they cost the slowest one instead of the sum, and four
+    // together they cost the slowest one instead of the sum, and five
     // concurrent checkouts sit well inside DATABASE_POOL_MAX (10 by default).
-    const [connections, clients, rows, scheduling] = await Promise.allSettled([
-      listConnections(session),
-      withTenant(session.organisationId, (sql) =>
-        listClientSummaries(sql, session)
-      ),
-      listLocationDirectoryRows(session),
-      withTenant(session.organisationId, (sql) =>
-        isOrgFeatureEnabled(sql, session.organisationId, "post_scheduling")
-      ),
-    ])
+    const [connections, clients, rows, scheduling, reviewCounts] =
+      await Promise.allSettled([
+        listConnections(session),
+        withTenant(session.organisationId, (sql) =>
+          listClientSummaries(sql, session)
+        ),
+        listLocationDirectoryRows(session),
+        withTenant(session.organisationId, (sql) =>
+          isOrgFeatureEnabled(sql, session.organisationId, "post_scheduling")
+        ),
+        readReviewCounts(session),
+      ])
     hideCalendar = scheduling.status === "fulfilled" && !scheduling.value
+
+    // The Inbox badge on the tab bar, rail and sidebar (useNeedsReplyCount).
+    // Its key is the organisation-wide one in every mode and whatever client
+    // is remembered, and it is the key the Inbox's queue controls read when
+    // no client filter is set. Hydrated here, above the shell, the badge is
+    // drawn in the first HTML, no page pays a /api/reviews/counts request on
+    // load, and the shell no longer registers the key empty before the
+    // Inbox page's own boundary could fill it (which made it fetch anyway).
+    if (reviewCounts.status === "fulfilled") {
+      queryClient.setQueryData(
+        queryKeys.reviewCounts("organisation"),
+        reviewCounts.value
+      )
+    }
 
     // Failed optional prefetches leave their cache empty so the client can
     // show its error/retry state. Authentication above remains mandatory.

@@ -6,7 +6,8 @@ import {
   postsListQuerySchema,
   type PostCreateResponse,
 } from "@/lib/contracts/location-posts"
-import { createLocalPostDraft, listLocalPosts } from "@/lib/server/posts"
+import { readPostsListResponse } from "@/lib/server/listing-reads"
+import { createLocalPostDraft } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
 const paramsSchema = z.object({ id: z.string() })
@@ -14,8 +15,10 @@ const paramsSchema = z.object({ id: z.string() })
 export const GET = route({
   params: paramsSchema,
   query: postsListQuerySchema,
+  // The read lives in lib/server/listing-reads.ts so the posts page's
+  // streamed server prefetch produces exactly what this route answers.
   handler: ({ session, params, query }) =>
-    listLocalPosts(session.organisationId, session, params.id, query),
+    readPostsListResponse(session, params.id, query),
 })
 
 export const POST = route({

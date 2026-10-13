@@ -16,6 +16,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { ClientAvatar } from "@/components/clients/client-avatar"
 import { useDebouncedSearchParam } from "@/components/clients/clients-index-search"
 import {
@@ -366,13 +367,13 @@ function ClientsIndex({ role }: { role: string | null }) {
                   <span className="flex min-w-0 items-center gap-2.5">
                     <ClientAvatar name={client.name} colour={client.colour} />
                     <span className="flex min-w-0 flex-col">
-                      <Link
+                      <ShellLink
                         href={`/clients/${client.id}`}
                         className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
                         onClick={(event) => event.stopPropagation()}
                       >
                         {client.name}
-                      </Link>
+                      </ShellLink>
                       {/* A card says this in its meta line. */}
                       <span className="text-caption text-ink-muted @max-3xl/table:hidden">
                         {client.locationCount === 0
@@ -670,13 +671,13 @@ function OpenWork({ client }: { client: ClientSummary }) {
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1 tabular-nums">
       {needsReply > 0 ? (
-        <Link
+        <ShellLink
           href={`/inbox?clientId=${client.id}`}
           onClick={(event) => event.stopPropagation()}
           className="rounded-(--np-radius-tag) font-medium text-ink underline underline-offset-3 focus-halo hover:decoration-2 pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
         >
           {formatNumber(needsReply)} to reply
-        </Link>
+        </ShellLink>
       ) : null}
       {awaitingApproval > 0 ? (
         <span className="text-ink-muted">

@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import { backTarget, type BackTarget } from "@/lib/navigation/back-target"
@@ -12,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { usePageChromeOverride } from "./page-chrome"
+import { ShellLink } from "./shell-link"
 
 /**
  * The trail for the current path, derived from the path and the lists the
@@ -103,13 +103,13 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
                   {crumb.label}
                 </span>
               ) : (
-                <Link
+                <ShellLink
                   href={crumb.href}
                   title={crumb.label}
                   className="max-w-[16rem] min-w-0 truncate rounded-sm text-ink-muted underline-offset-3 focus-halo hover:text-ink hover:underline focus-visible:outline-none"
                 >
                   {crumb.label}
-                </Link>
+                </ShellLink>
               )}
             </li>
           )

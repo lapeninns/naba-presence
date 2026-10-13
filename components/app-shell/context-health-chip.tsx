@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import * as React from "react"
 
 import { healthLabel, healthTone } from "@/lib/clients/health"
@@ -10,6 +9,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
+import { ShellLink } from "./shell-link"
 
 /**
  * Connection health for whatever the page is about.
@@ -78,7 +78,7 @@ function ContextHealthChip() {
 
   if (isPending) return null
   return (
-    <Link
+    <ShellLink
       href={href}
       data-slot="health-chip"
       data-tone={tone}
@@ -105,7 +105,7 @@ function ContextHealthChip() {
           label
         )}
       </span>
-    </Link>
+    </ShellLink>
   )
 }
 

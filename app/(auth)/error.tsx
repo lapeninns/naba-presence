@@ -3,10 +3,12 @@
 import { RotateCw } from "lucide-react"
 import * as React from "react"
 
+import {
+  BoundaryAlert,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
 import { AuthCard } from "@/components/auth/auth-card"
 import { AuthLink } from "@/components/auth/auth-link"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 
 /**
  * A sign-in, invitation or password screen failed to render. Without this
@@ -14,6 +16,9 @@ import { Button } from "@/components/ui/button"
  * dashboard they cannot reach yet. Here they get the same auth card, a retry,
  * and the way back to sign in. Only the digest is shown: the message may
  * carry details the visitor should not see.
+ *
+ * AuthCard is the auth layout's own frame; the alert and button are the
+ * light ones from components/app-shell/boundary.tsx, not the primitives.
  */
 export default function AuthError({
   error,
@@ -31,24 +36,20 @@ export default function AuthError({
       title="This page didn’t load"
       footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
     >
-      <Alert variant="destructive">
-        <AlertTitle>We couldn’t show this page.</AlertTitle>
-        <AlertDescription>
-          Nothing about your account changed. Try again in a moment.
-          {error.digest ? (
-            <span className="mt-1 block text-caption text-ink-muted">
-              Reference{" "}
-              <code className="rounded-sm bg-surface px-1 font-mono">
-                {error.digest}
-              </code>
-            </span>
-          ) : null}
-        </AlertDescription>
-      </Alert>
-      <Button
+      <BoundaryAlert title="We couldn’t show this page.">
+        Nothing about your account changed. Try again in a moment.
+        {error.digest ? (
+          <span className="mt-1 block text-caption text-ink-muted">
+            Reference{" "}
+            <code className="rounded-sm bg-surface px-1 font-mono">
+              {error.digest}
+            </code>
+          </span>
+        ) : null}
+      </BoundaryAlert>
+      <button
         type="button"
-        size="lg"
-        className="h-11 w-full"
+        className={boundaryButtonClass("primary", "lg", "w-full")}
         disabled={pending}
         aria-busy={pending || undefined}
         onClick={() =>
@@ -59,7 +60,7 @@ export default function AuthError({
       >
         <RotateCw strokeWidth={1.75} aria-hidden />
         {pending ? "Trying again…" : "Try again"}
-      </Button>
+      </button>
     </AuthCard>
   )
 }

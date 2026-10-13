@@ -5,7 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Suspense, useEffect, useRef, useState } from "react"
 
-import { MfaStepUpPrompt } from "@/components/auth/mfa-step-up-prompt"
+import { MfaStepUpHost } from "@/components/auth/mfa-step-up-host"
 import { BrandMark } from "@/components/app-shell/brand-mark"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { fetchSession } from "@/lib/api/session"
@@ -29,7 +29,7 @@ import { ImpersonationBanner } from "./impersonation-banner"
 import { MoreSheet } from "./more-sheet"
 import { Nav } from "./nav"
 import { PageChromeProvider } from "./page-chrome"
-import { ReconnectBanner } from "./reconnect-banner"
+import { ShellReconnectBanner } from "./reconnect-banner-gate"
 import { RouteFocus } from "./route-focus"
 import { ShellNotices } from "./shell-notices"
 import { ShellOAuthReturn } from "./shell-oauth-return"
@@ -156,6 +156,9 @@ function SidebarBody({
         href={
           mode === "business" ? "/inbox" : withClientScope("/inbox", remembered)
         }
+        // The sidebar's Inbox row already prefetches on intent; the brand
+        // mark is a second way to the same page.
+        prefetch={false}
         className="m-1 flex min-w-0 shrink-0 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none md:max-wide:justify-center md:max-wide:px-0"
       >
         <BrandMark
@@ -396,10 +399,10 @@ function ShellFrame({
             />
           ) : null}
           {sessionReady ? <ShellOAuthReturn /> : null}
-          {sessionReady ? <ReconnectBanner /> : null}
+          {sessionReady ? <ShellReconnectBanner /> : null}
           {sessionReady ? <BillingBanner /> : null}
         </ShellNotices>
-        {sessionReady ? <MfaStepUpPrompt /> : null}
+        {sessionReady ? <MfaStepUpHost /> : null}
 
         <main
           id="main"

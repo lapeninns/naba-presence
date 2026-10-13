@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
+import { MfaStepUpHost } from "@/components/auth/mfa-step-up-host"
 import { MfaStepUpPrompt } from "@/components/auth/mfa-step-up-prompt"
 import {
   ApiClientError,
@@ -168,5 +169,25 @@ describe("MfaStepUpPrompt", () => {
       code: "123456",
       factor: "primary",
     })
+  })
+})
+
+describe("MfaStepUpHost", () => {
+  it("renders nothing until an action asks for a code", () => {
+    const { container } = render(<MfaStepUpHost />)
+    expect(container.innerHTML).toBe("")
+    expect(screen.queryByText("Confirm it’s you")).toBeNull()
+  })
+
+  it("loads the prompt on the first event and opens it for that event", async () => {
+    render(<MfaStepUpHost />)
+    raise("mfa_step_up_required")
+    expect(await screen.findByText("Confirm it’s you")).toBeTruthy()
+  })
+
+  it("opens enrollment when the first event is mfa_enrollment_required", async () => {
+    render(<MfaStepUpHost />)
+    raise("mfa_enrollment_required")
+    expect(await screen.findByText("Set up two-step verification")).toBeTruthy()
   })
 })

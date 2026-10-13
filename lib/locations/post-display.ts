@@ -185,15 +185,27 @@ export function postContentTimestamp(post: Pick<PostRow,
   return candidates.find((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value))) ?? null
 }
 
-/** "20 Sep 2026, 16:40" for the row's last change. */
-export function formatPostTimestamp(value: string): string {
+/**
+ * "20 Sep 2026, 16:40" for the row's last change, on the listing's clock
+ * (`timeZone`, its IANA zone) as the inbox shows review times. A fixed zone
+ * also keeps the server-rendered list and the hydrating browser on the same
+ * text; without one (or with one Intl does not know) it is the runtime's.
+ */
+export function formatPostTimestamp(value: string, timeZone?: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ""
-  return new Intl.DateTimeFormat("en-GB", {
+  const options: Intl.DateTimeFormatOptions = {
     day: "numeric",
     month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(date)
+  }
+  try {
+    return new Intl.DateTimeFormat("en-GB", { ...options, timeZone }).format(
+      date
+    )
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", options).format(date)
+  }
 }

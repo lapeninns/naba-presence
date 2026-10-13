@@ -19,11 +19,14 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { useClientScope } from "./client-context"
+import {
+  CONNECTIONS_PATH,
+  hidesReconnectBanner,
+  lostListingAccess,
+  needsReconnect,
+} from "./reconnect-banner-rules"
 
 const CAN_RECONNECT = new Set(["owner", "admin"])
-
-/** The page that lists every connection with its own Reconnect. */
-const CONNECTIONS_PATH = "/settings/connections"
 
 const DISMISS_KEY = "np.reconnect-banner.dismissed"
 
@@ -92,10 +95,7 @@ export function ReconnectBanner({ className }: { className?: string }) {
     () => null
   )
 
-  const broken = (query.data?.connections ?? []).filter(
-    (connection) =>
-      connection.reconnectRequired && connection.status !== "disconnected"
-  )
+  const broken = (query.data?.connections ?? []).filter(needsReconnect)
   const scoped = clientId
     ? clients.data?.items.find((entry) => entry.id === clientId)
     : undefined
@@ -104,15 +104,10 @@ export function ReconnectBanner({ className }: { className?: string }) {
     .sort()
     .join(",")
 
-  if (
-    pathname === CONNECTIONS_PATH ||
-    pathname?.startsWith(`${CONNECTIONS_PATH}/`)
-  ) {
-    return null
-  }
+  if (hidesReconnectBanner(pathname)) return null
 
   if (broken.length === 0) {
-    if (scoped?.freshness?.reason !== "listing_access_lost") return null
+    if (!scoped || !lostListingAccess(scoped)) return null
     const lost = scoped.checks?.accessLost ?? 0
     return (
       <Banner

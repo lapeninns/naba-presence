@@ -1,18 +1,16 @@
 import { ApiClientError, apiFetch, type RequestOptions } from "./client"
-import {
-  loginResponseSchema,
-  registerResponseSchema,
-  resetCompleteResponseSchema,
-  type RegisterInput,
-  type ResendConfirmationInput,
-  type ResetPasswordInput,
-  type ResetRequestInput,
-  type SignInInput,
+import type {
+  RegisterInput,
+  ResendConfirmationInput,
+  ResetPasswordInput,
+  ResetRequestInput,
+  SignInInput,
 } from "@/lib/contracts/auth"
-import {
-  invitationAcceptedResponseSchema,
-  invitationLookupSchema,
-} from "@/lib/contracts/invitations"
+
+// Schemas load on demand (see `ResponseSchema` in ./client): the account
+// menu signs out from every page, and the contracts pull in zod.
+const authContract = () => import("@/lib/contracts/auth")
+const invitations = () => import("@/lib/contracts/invitations")
 
 /**
  * `mfaRequired`: the password was right but no session exists yet; the
@@ -24,7 +22,7 @@ export async function signIn(
   const result = await apiFetch("/api/auth/password/login", {
     method: "POST",
     body: input,
-    schema: loginResponseSchema,
+    schema: () => authContract().then((m) => m.loginResponseSchema),
   })
   return { mfaRequired: result.mfaRequired === true }
 }
@@ -35,7 +33,7 @@ export async function register(
   const result = await apiFetch("/api/auth/password/register", {
     method: "POST",
     body: input,
-    schema: registerResponseSchema,
+    schema: () => authContract().then((m) => m.registerResponseSchema),
   })
   return {
     authenticated: result.authenticated,
@@ -56,7 +54,7 @@ export async function completePasswordReset(
   const result = await apiFetch("/api/auth/password/reset/complete", {
     method: "POST",
     body: input,
-    schema: resetCompleteResponseSchema,
+    schema: () => authContract().then((m) => m.resetCompleteResponseSchema),
   })
   return { mfaRequired: result.mfaRequired === true }
 }
@@ -112,7 +110,7 @@ export async function endImpersonation(): Promise<void> {
 export async function acceptInvitation(token: string) {
   return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
     method: "POST",
-    schema: invitationAcceptedResponseSchema,
+    schema: () => invitations().then((m) => m.invitationAcceptedResponseSchema),
   })
 }
 
@@ -121,7 +119,7 @@ export async function lookupInvitation(
   options?: RequestOptions
 ) {
   return apiFetch(`/api/invitations/${encodeURIComponent(token)}`, {
-    schema: invitationLookupSchema,
+    schema: () => invitations().then((m) => m.invitationLookupSchema),
     ...options,
   })
 }

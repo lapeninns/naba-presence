@@ -1,10 +1,11 @@
 import { Search } from "lucide-react"
 import Link from "next/link"
 
+import {
+  BOUNDARY_EYEBROW_CLASS,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
 import { BrandMark } from "@/components/app-shell/brand-mark"
-import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
-import { buttonVariants } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
 export const metadata = { title: "Page not found · NabaPresence" }
 
@@ -36,7 +37,7 @@ export default function NotFound() {
           <Search className="size-5" strokeWidth={1.75} />
         </span>
         <div className="flex flex-col gap-1.5">
-          <p className={EYEBROW_CLASS}>Page not found · 404</p>
+          <p className={BOUNDARY_EYEBROW_CLASS}>Page not found · 404</p>
           <h1
             id="not-found-title"
             className="font-display text-page-title font-semibold text-balance"
@@ -51,7 +52,7 @@ export default function NotFound() {
         <div className="flex flex-col gap-2">
           <Link
             href="/inbox"
-            className={cn(buttonVariants({ size: "lg" }), "w-full")}
+            className={boundaryButtonClass("primary", "lg", "w-full")}
           >
             Go to Inbox
           </Link>
