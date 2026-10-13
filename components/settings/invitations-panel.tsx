@@ -23,7 +23,12 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
+import {
+  RoleChip,
+  TEAM_LIST_CONTAINER_CLASS,
+  TEAM_LIST_TABLE_CLASS,
+} from "@/components/settings/team-list"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, cardClassName } from "@/components/ui/card"
 import {
@@ -929,7 +934,13 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
 
   return (
     <>
-      <Table surface responsive aria-label="Pending invitations">
+      <Table
+        surface
+        responsive
+        aria-label="Pending invitations"
+        className={TEAM_LIST_TABLE_CLASS}
+        containerClassName={TEAM_LIST_CONTAINER_CLASS}
+      >
         <TableHeader>
           <TableRow>
             <TableHead>Invited</TableHead>
@@ -947,19 +958,26 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
             const expired = isExpired(invitation)
             return (
               <TableRow key={invitation.id}>
-                <TableCell label="Invited">
-                  <span className="flex min-w-0 flex-col">
-                    <span className="font-semibold [overflow-wrap:anywhere] text-ink">
-                      {invitation.email}
-                    </span>
-                    <span className="text-caption text-ink-muted">
-                      Created {formatDay(invitation.createdAt)}
+                <TableCell label="Invited" priority="primary">
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <Avatar>
+                      <AvatarFallback>
+                        <Mail aria-hidden className="size-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="text-body font-semibold [overflow-wrap:anywhere] text-ink desk:text-ui">
+                        {invitation.email}
+                      </span>
+                      <span className="text-caption text-ink-muted">
+                        Created {formatDay(invitation.createdAt)}
+                      </span>
                     </span>
                   </span>
                 </TableCell>
                 <TableCell label="Role">
                   <span className="flex flex-col items-start gap-1">
-                    <Badge variant="role">{roleLabel(invitation.role)}</Badge>
+                    <RoleChip role={invitation.role} />
                     <span className="text-caption text-ink-muted">
                       {invitation.role === "owner" ||
                       invitation.role === "admin"
