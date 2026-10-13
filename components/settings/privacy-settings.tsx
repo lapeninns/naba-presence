@@ -20,7 +20,10 @@ export function PrivacySettings({ access }: { access: PrivacyAccess }) {
       {gating.canManagePrivacy ? (
         <PrivacyExportForm />
       ) : (
-        <p className="text-caption text-ink-muted" data-slot="export-owner-only">
+        <p
+          className="text-caption text-ink-muted"
+          data-slot="export-owner-only"
+        >
           Only an owner can fulfil requests, apply legal holds or export a
           subject’s records.
         </p>

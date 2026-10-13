@@ -2,6 +2,8 @@ import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+
 import { MfaStepUpHost } from "@/components/auth/mfa-step-up-host"
 import { MfaStepUpPrompt } from "@/components/auth/mfa-step-up-prompt"
 import {
@@ -11,6 +13,7 @@ import {
   MFA_STEP_UP_EVENT,
 } from "@/lib/api/client"
 import * as mfaApi from "@/lib/api/mfa"
+import { queryKeys } from "@/lib/queries/keys"
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -84,7 +87,7 @@ describe("MfaStepUpPrompt", () => {
     raise("mfa_step_up_required")
     expect(await screen.findByText("Confirm it’s you")).toBeTruthy()
     await user.type(screen.getByLabelText("Password"), "secret-password")
-    await user.type(screen.getByLabelText("6-digit code"), "123 456")
+    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "123 456")
     await user.click(screen.getByText("The code is from my backup app"))
     await user.click(screen.getByRole("button", { name: "Verify" }))
     expect(await screen.findByText("You’re verified")).toBeTruthy()
@@ -103,7 +106,7 @@ describe("MfaStepUpPrompt", () => {
     render(<MfaStepUpPrompt />)
     raise("mfa_step_up_required")
     await user.type(await screen.findByLabelText("Password"), "pw")
-    await user.type(screen.getByLabelText("6-digit code"), "000000")
+    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "000000")
     await user.click(screen.getByRole("button", { name: "Verify" }))
     expect(await screen.findByText(/That code did not match/)).toBeTruthy()
   })
@@ -127,6 +130,45 @@ describe("MfaStepUpPrompt", () => {
         screen.getByRole("link", { name: "Set up now" }).getAttribute("href")
       ).toBe("/settings/security")
     )
+  })
+
+  it("hints the signed-in account for password managers, never sending it", async () => {
+    const user = userEvent.setup()
+    const stepUp = vi
+      .spyOn(mfaApi, "stepUpMfa")
+      .mockReturnValue(new Promise(() => {}))
+    const client = new QueryClient()
+    client.setQueryData(queryKeys.session, {
+      session: { email: "owner@example.test" },
+    })
+    render(
+      <QueryClientProvider client={client}>
+        <MfaStepUpPrompt />
+      </QueryClientProvider>
+    )
+    raise("mfa_step_up_required")
+    await user.type(await screen.findByLabelText("Password"), "pw")
+    const username = document.querySelector<HTMLInputElement>(
+      'input[autocomplete="username"]'
+    )
+    expect(username).toHaveValue("owner@example.test")
+    expect(username).not.toBeVisible()
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123456"
+    )
+    // Six digits alone do not submit: the backup choice is part of the answer.
+    expect(stepUp).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Verify" }))
+    const busy = await screen.findByRole("button", { name: "Checking…" })
+    expect(busy).toBeDisabled()
+    await user.click(busy)
+    expect(stepUp).toHaveBeenCalledTimes(1)
+    expect(stepUp).toHaveBeenCalledWith({
+      password: "pw",
+      code: "123456",
+      factor: "primary",
+    })
   })
 })
 

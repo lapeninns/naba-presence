@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
 
+import { LISTING_HEALTH, listingHealthLabel } from "@/lib/listings/health"
+
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // Several authenticated surfaces below are gated server-side by the REAL
@@ -605,15 +607,34 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
         // The board's table is responsive (components/ui/table.tsx): below
-        // 720px of container width the header row hides and each cell is
-        // labelled with its column name instead.
+        // 720px of container width the header row hides and each listing
+        // becomes a compact record card led by its name (no per-cell
+        // labels: the name, health pill and waiting count speak for
+        // themselves).
+        const header = page.getByRole("columnheader", {
+          name: "Listing",
+          exact: true,
+        })
         if (viewport.name === "desktop") {
-          await expect(
-            page.getByRole("columnheader", { name: "Listing", exact: true })
-          ).toBeVisible()
+          await expect(header).toBeVisible()
         } else {
+          await expect(header).toBeHidden()
+          // A card per listing, identified by it: the row holding the
+          // journey listing carries its name as the link and its health as
+          // a word (one of the board's labels), not as colour alone.
+          const card = page
+            .locator("tbody > tr")
+            .filter({ hasText: state.directReview.locationName })
+          await expect(card).toHaveCount(1)
           await expect(
-            page.locator('td[data-label="Listing"]').first()
+            card.getByRole("link", { name: state.directReview.locationName })
+          ).toBeVisible()
+          await expect(
+            card.getByText(
+              new RegExp(
+                `^(${LISTING_HEALTH.map(listingHealthLabel).join("|")})$`
+              )
+            )
           ).toBeVisible()
         }
         await expect(
@@ -993,8 +1014,15 @@ for (const theme of themes) {
         await expect(
           filtersSheet.getByRole("checkbox", { name: "5 stars" })
         ).toBeVisible()
+        // Every filter keeps an accessible group name. The sheet's sections
+        // were named regions (a dozen landmarks); they are now groups named
+        // by their headings, and where the control is itself the named group
+        // (Reply status is a radio group) that control carries the name.
         await expect(
-          filtersSheet.getByRole("region", { name: "Reply status" })
+          filtersSheet.getByRole("radiogroup", { name: "Reply status" })
+        ).toBeVisible()
+        await expect(
+          filtersSheet.getByRole("group", { name: "Date range" })
         ).toBeVisible()
         await expectAccessible(
           page,
@@ -1524,9 +1552,20 @@ for (const theme of themes) {
             },
           })
         })
+        // On phones /settings is the grouped settings index and Reply policy
+        // is its own page; from md /settings still lands on Reply policy.
+        // Scan both pages at every width.
         await page.goto("/settings")
         await expect(
-          page.getByRole("heading", { name: "Reply policy" })
+          page.getByRole("heading", {
+            name: viewport.name === "mobile" ? "Settings" : "Reply policy",
+            level: 1,
+          })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} settings home`)
+        await page.goto("/settings/policy")
+        await expect(
+          page.getByRole("heading", { name: "Reply policy", level: 1 })
         ).toBeVisible()
         await expectAccessible(
           page,

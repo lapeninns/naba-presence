@@ -1,9 +1,18 @@
 "use client"
 
+import { QueryClientContext } from "@tanstack/react-query"
 import Link from "next/link"
-import { useEffect, useState, useTransition, type FormEvent } from "react"
+import {
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { PasswordField } from "@/components/auth/password-field"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -17,7 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { OtpField } from "@/components/ui/otp-field"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
 import {
   ApiClientError,
@@ -26,6 +35,8 @@ import {
 } from "@/lib/api/client"
 import * as mfaApi from "@/lib/api/mfa"
 import { MFA_ENROLLMENT_REQUIRED, totpCodeSchema } from "@/lib/contracts/auth"
+import type { SessionResponse } from "@/lib/contracts/session"
+import { queryKeys } from "@/lib/queries/keys"
 
 type Mode = "closed" | "step_up" | "enroll" | "verified"
 
@@ -39,6 +50,10 @@ type Mode = "closed" | "step_up" | "enroll" | "verified"
  * The action itself is not replayed: the editor kept what was typed, and the
  * person sends it again. An owner or admin with no authenticator app
  * (`mfa_enrollment_required`) is sent to the enrollment screen instead.
+ *
+ * On a phone the Dialog is a bottom sheet whose footer rides the keyboard;
+ * once a password or code is typed, a stray swipe or scrim tap asks before
+ * throwing it away.
  */
 function MfaStepUpPrompt({
   initialCode,
@@ -64,10 +79,20 @@ function MfaStepUpPrompt({
   const [codeError, setCodeError] = useState<string | undefined>()
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [pending, startTransition] = useTransition()
+  // The signed-in address, for the password manager (see the hidden field
+  // below). Read from the session already in the query cache when the
+  // prompt opens; the shell only mounts this once the session is ready.
+  const queryClient = useContext(QueryClientContext)
+  const [username, setUsername] = useState("")
+  const codeRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     function onStepUp(event: Event) {
       const detail = (event as CustomEvent<MfaStepUpEventDetail>).detail
+      setUsername(
+        queryClient?.getQueryData<SessionResponse>(queryKeys.session)?.session
+          ?.email ?? ""
+      )
       setMessage(null)
       setPasswordError(undefined)
       setCodeError(undefined)
@@ -76,7 +101,7 @@ function MfaStepUpPrompt({
     }
     window.addEventListener(MFA_STEP_UP_EVENT, onStepUp)
     return () => window.removeEventListener(MFA_STEP_UP_EVENT, onStepUp)
-  }, [])
+  }, [queryClient])
 
   function close() {
     setMode("closed")
@@ -117,6 +142,7 @@ function MfaStepUpPrompt({
               "That code did not match. Try the code your app shows now."
             )
             setCode("")
+            focusFirstCodeBox(codeRef.current)
             return
           }
           if (error.code === "mfa_factor_unknown") {
@@ -139,6 +165,8 @@ function MfaStepUpPrompt({
       onOpenChange={(open) => {
         if (!open) close()
       }}
+      dirty={mode === "step_up" && (password !== "" || code !== "")}
+      onDiscard={close}
     >
       <DialogContent>
         {mode === "enroll" ? (
@@ -190,6 +218,17 @@ function MfaStepUpPrompt({
             </DialogHeader>
             <DialogBody className="flex flex-col gap-4">
               {message ? <AuthErrorAlert message={message} /> : null}
+              {/* Which account the password belongs to, for password
+                  managers: they pair a current-password field with the
+                  username beside it. Never shown, never submitted. */}
+              <input
+                type="email"
+                name="username"
+                autoComplete="username"
+                value={username}
+                readOnly
+                hidden
+              />
               <PasswordField
                 label="Password"
                 name="password"
@@ -201,13 +240,14 @@ function MfaStepUpPrompt({
               />
               <Field error={codeError}>
                 <FieldLabel>6-digit code</FieldLabel>
-                <Input
+                {/* No auto-submit: the password and the backup choice are
+                    part of the same answer. Spaces are dropped. */}
+                <OtpField
+                  ref={codeRef}
                   name="code"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  maxLength={7}
+                  length={6}
                   value={code}
-                  onChange={(event) => setCode(event.target.value)}
+                  onValueChange={setCode}
                 />
                 <FieldError>{codeError}</FieldError>
               </Field>

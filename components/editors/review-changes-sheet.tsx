@@ -246,7 +246,11 @@ function ReviewChangesSheet({
               {failed
                 ? [
                     error,
-                    results?.slice(0, failedAt).some((step) => step.status === "done" && !step.noop) ? "Completed steps remain recorded." : null,
+                    results
+                      ?.slice(0, failedAt)
+                      .some((step) => step.status === "done" && !step.noop)
+                      ? "Completed steps remain recorded."
+                      : null,
                     laterSteps > 0 ? "Nothing after it was sent." : null,
                   ]
                     .filter(Boolean)
@@ -333,7 +337,10 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
         id: step.key,
         label: step.label,
         state: stepOutcome(step) ?? "failed",
-        stateLabel: step.code === "google_confirmation_required" ? "Not confirmed" : undefined,
+        stateLabel:
+          step.code === "google_confirmation_required"
+            ? "Not confirmed"
+            : undefined,
         detail: step.message,
         errorCode: step.code,
       }
@@ -343,7 +350,9 @@ function stepsView(results: PublishStepResult[]): PublishStepView[] {
       state: failedAt !== -1 && index > failedAt ? "skipped" : "pending",
       stateLabel:
         failedAt !== -1 && index > failedAt
-          ? results[failedAt].code === "google_confirmation_required" ? "Not sent — an earlier step needs confirmation" : "Not sent — an earlier step failed"
+          ? results[failedAt].code === "google_confirmation_required"
+            ? "Not sent — an earlier step needs confirmation"
+            : "Not sent — an earlier step failed"
           : undefined,
     }
   })

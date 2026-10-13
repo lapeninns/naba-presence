@@ -5,7 +5,12 @@ import { googleAttributeWriteSchema } from "@/lib/domain/google-attributes"
 
 import { ChangedMark } from "@/components/locations/profile/section-card"
 import { Button } from "@/components/ui/button"
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import {
   Select,
   SelectContent,
@@ -14,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { StatusPill } from "@/components/ui/status-pill"
-import { Switch } from "@/components/ui/switch"
+import { TriState } from "@/components/ui/tri-state"
 import type {
   AttributeMetadata,
   GoogleAttribute,
@@ -29,11 +34,18 @@ import { enumOptionsFor } from "@/lib/locations/google-values"
  * anything else is read-only with the pressure-valve note, never a JSON
  * escape hatch.
  *
- * A BOOL attribute is a switch with its state in words ("Yes" / "No"). "Not
- * set" is a real third state on Google — the attribute simply isn't there —
- * so the row says "Not set" until a value is chosen, and `onClear` (when
- * given) offers "Clear" to take a value back off Google.
+ * A BOOL attribute, and each option of a REPEATED_ENUM one, is a Yes / No /
+ * Not set segmented choice. "Not set" is a real third state on Google — the
+ * attribute simply isn't there — so it is shown as an answer, and choosing
+ * it (when `onClear` is given) takes the value back off Google.
  */
+type Answer = boolean | null
+
+/** The answer an attribute value holds: `null` is "Not set". */
+function answerOf(value: unknown): Answer {
+  return value === true ? true : value === false ? false : null
+}
+
 export function TypedAttributeControl({
   metadata,
   attribute,
@@ -73,59 +85,75 @@ export function TypedAttributeControl({
   if (!metadata.deprecated && metadata.valueType === "REPEATED_ENUM" && enumOptions.length > 0) {
     const selected = attribute?.repeatedEnumValue?.setValues ?? []
     const unselected = attribute?.repeatedEnumValue?.unsetValues ?? []
-    return <fieldset disabled={disabled} className="w-full space-y-3">
-      <legend className="mb-2">{labelBlock}</legend>
-      {enumOptions.map((option) => <div key={option.value} className={rowClass}>
-        <span className="text-ui text-ink">{option.label}</span>
-        <Select items={[{ value: "unknown", label: "Not set" }, { value: "yes", label: "Yes" }, { value: "no", label: "No" }]} disabled={disabled} value={selected.includes(option.value) ? "yes" : unselected.includes(option.value) ? "no" : "unknown"} onValueChange={(answer) => {
-          if (!answer) return
-          const setValues = selected.filter((value) => value !== option.value)
-          const unsetValues = unselected.filter((value) => value !== option.value)
-          if (answer === "yes") setValues.push(option.value)
-          if (answer === "no") unsetValues.push(option.value)
-          if (!setValues.length && !unsetValues.length && onClear) onClear(name)
-          else onChange({ name, repeatedEnumValue: { setValues, unsetValues } })
-        }}>
-          <SelectTrigger aria-label={`${label}: ${option.label}`} className="w-full sm:w-40"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="unknown">Not set</SelectItem><SelectItem value="yes">Yes</SelectItem><SelectItem value="no">No</SelectItem></SelectContent>
-        </Select>
-      </div>)}
-      {(selected.length > 0 || unselected.length > 0) && onClear && !disabled ? <Button type="button" variant="ghost" size="xs" onClick={() => onClear(name)} aria-label={`Clear ${label}`}>Clear all answers</Button> : null}
-    </fieldset>
+    return <Fieldset disabled={disabled} className="w-full">
+      <FieldsetLegend className="mb-2">{labelBlock}</FieldsetLegend>
+      {enumOptions.map((option) => {
+        const answer: Answer = selected.includes(option.value) ? true : unselected.includes(option.value) ? false : null
+        return <div key={option.value} className={rowClass}>
+          <span className="min-w-0 text-ui text-ink">{option.label}</span>
+          {/* Taking the final answer away removes the attribute (onClear). */}
+          <TriState
+            aria-label={`${label}: ${option.label}`}
+            className="w-full sm:w-auto"
+            value={answer}
+            disabled={disabled}
+            onValueChange={(next) => {
+              const setValues = selected.filter((value) => value !== option.value)
+              const unsetValues = unselected.filter((value) => value !== option.value)
+              if (next === true) setValues.push(option.value)
+              if (next === false) unsetValues.push(option.value)
+              if (!setValues.length && !unsetValues.length && onClear) onClear(name)
+              else onChange({ name, repeatedEnumValue: { setValues, unsetValues } })
+            }}
+          />
+        </div>
+      })}
+      {(selected.length > 0 || unselected.length > 0) && onClear && !disabled ? <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => onClear(name)} aria-label={`Clear ${label}`}>Clear all answers</Button> : null}
+    </Fieldset>
   }
 
   if (kind === "bool") {
-    const value = attribute?.values?.[0]
-    const set = typeof value === "boolean"
-    const checked = value === true
+    const answer = answerOf(attribute?.values?.[0])
     return (
       <div className={rowClass}>
         {labelBlock}
-        <span className="flex items-center gap-2">
-          {set && onClear && !disabled ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              aria-label={`Clear ${label}`}
-              onClick={() => onClear(name)}
-            >
-              Clear
-            </Button>
-          ) : null}
-          <span aria-hidden className="w-14 text-right text-ui text-ink-muted">
-            {set ? (checked ? "Yes" : "No") : "Not set"}
-          </span>
-          <Switch
-            checked={checked}
-            disabled={disabled}
+        {onClear ? (
+          <TriState
             aria-labelledby={labelId}
-            aria-description={set ? undefined : "Not set on Google"}
-            onCheckedChange={(next) =>
-              onChange({ name, values: [next === true] })
-            }
+            className="w-full sm:w-auto"
+            value={answer}
+            disabled={disabled}
+            onValueChange={(next) => {
+              if (next === null) onClear(name)
+              else onChange({ name, values: [next] })
+            }}
           />
-        </span>
+        ) : (
+          // "Not set" takes the value back off Google, so without `onClear`
+          // it is shown but not a choice. TriState has no per-answer
+          // disabled state, so this is the same segmented radio track it is
+          // built from, with the third segment locked.
+          <SegmentedControl
+            semantics="radio"
+            aria-labelledby={labelId}
+            className="w-full sm:w-auto"
+            value={answer === null ? "unset" : String(answer)}
+            disabled={disabled}
+            onValueChange={(next) => {
+              if (next !== "unset") onChange({ name, values: [next === "true"] })
+            }}
+          >
+            <SegmentedControlItem value="true">Yes</SegmentedControlItem>
+            <SegmentedControlItem value="false">No</SegmentedControlItem>
+            <SegmentedControlItem
+              value="unset"
+              disabled
+              className="data-checked:data-disabled:opacity-100"
+            >
+              Not set
+            </SegmentedControlItem>
+          </SegmentedControl>
+        )}
       </div>
     )
   }
@@ -137,7 +165,7 @@ export function TypedAttributeControl({
         {labelBlock}
         <span className="flex w-full items-center gap-2 sm:w-auto">
         {current && onClear && !disabled ? (
-          <Button type="button" variant="ghost" size="xs" aria-label={`Clear ${label}`} onClick={() => onClear(name)}>Clear</Button>
+          <Button type="button" variant="ghost" size="sm" aria-label={`Clear ${label}`} onClick={() => onClear(name)}>Clear</Button>
         ) : null}
         <Select
           value={current}
@@ -165,11 +193,11 @@ export function TypedAttributeControl({
     if (metadata.repeatable || (attribute?.uriValues?.length ?? 0) > 1) {
       const uris = attribute?.uriValues ?? []
       const canAdd = metadata.repeatable === true && googleAttributeWriteSchema.safeParse({ name, uriValues: [{ uri: newUri }] }).success
-      return <fieldset disabled={disabled} className="w-full space-y-3">
-        <legend className="mb-2">{labelBlock}</legend>
+      return <Fieldset disabled={disabled} className="w-full">
+        <FieldsetLegend className="mb-2">{labelBlock}</FieldsetLegend>
         {uris.map((entry, index) => <div key={index} className="flex items-center gap-2">
           <Input type="url" inputMode="url" value={entry.uri} aria-label={`${label} URL ${index + 1}`} disabled={disabled} onChange={(event) => onChange({ name, uriValues: uris.map((item, position) => position === index ? { ...item, uri: event.target.value } : item) })} />
-          <Button type="button" variant="ghost" size="xs" disabled={disabled} aria-label={`Remove ${label} URL ${index + 1}`} onClick={() => {
+          <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-label={`Remove ${label} URL ${index + 1}`} onClick={() => {
             const remaining = uris.filter((_, position) => position !== index)
             if (!remaining.length && onClear) onClear(name)
             else onChange({ name, uriValues: remaining })
@@ -182,7 +210,7 @@ export function TypedAttributeControl({
             setNewUri("")
           }}>Add URL</Button>
         </div> : null}
-      </fieldset>
+      </Fieldset>
     }
     const uri = attribute?.uriValues?.[0]?.uri ?? ""
     return (

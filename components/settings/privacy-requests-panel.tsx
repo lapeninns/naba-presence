@@ -4,9 +4,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { FileLock2, Plus } from "lucide-react"
 import { useRef, useState } from "react"
 
+import { SettingsSection } from "@/components/settings/settings-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import {
   Dialog,
   DialogBody,
@@ -127,11 +127,23 @@ function CreateRequestDialog({
     create.mutate(parsed.data)
   }
 
+  const dirty =
+    requestType !== "access" || subject.trim() !== "" || reason.trim() !== ""
+
   return (
     <Dialog
       open={open}
+      dirty={dirty && !create.isPending}
+      onDiscard={reset}
+      discardPrompt={{
+        title: "Discard this request?",
+        description: "The details you entered won’t be logged.",
+      }}
       onOpenChange={(next) => {
-        if (!next) reset()
+        if (!next) {
+          if (create.isPending) return
+          reset()
+        }
         onOpenChange(next)
       }}
     >
@@ -172,6 +184,7 @@ function CreateRequestDialog({
               <Input
                 ref={subjectRef}
                 autoComplete="off"
+                spellCheck={false}
                 value={subject}
                 placeholder="The reviewer’s name as shown on Google, or a review id"
                 onChange={(event) => {
@@ -184,6 +197,7 @@ function CreateRequestDialog({
             <Field>
               <FieldLabel optional>Notes</FieldLabel>
               <Textarea
+                autoSize
                 value={reason}
                 maxLength={2000}
                 onChange={(event) => setReason(event.target.value)}
@@ -325,6 +339,12 @@ function ResolveDialog({
   return (
     <Dialog
       open={target !== null}
+      dirty={note.trim() !== "" && !resolve.isPending}
+      onDiscard={close}
+      discardPrompt={{
+        title: "Discard this note?",
+        description: "The request stays open and the note you wrote is lost.",
+      }}
       onOpenChange={(open) => {
         if (!open && !resolve.isPending) close()
       }}
@@ -347,6 +367,7 @@ function ResolveDialog({
             <Field error={noteError ?? undefined}>
               <FieldLabel>Resolution note</FieldLabel>
               <Textarea
+                autoSize
                 value={note}
                 maxLength={2000}
                 onChange={(event) => {
@@ -394,27 +415,23 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
   const requests = query.data ? sortPrivacyRequests(query.data.requests) : []
 
   return (
-    <section aria-labelledby="privacy-requests" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2
-            id="privacy-requests"
-            className="text-title font-semibold text-ink"
+    <SettingsSection
+      id="privacy-requests"
+      title="Privacy requests"
+      description="Access, correction, erasure and restriction requests about reviewers’ data, each due 30 days after it is logged."
+      action={
+        gating.canCreateRequests ? (
+          <Button
+            variant="secondary"
+            className="w-full sm:w-auto"
+            onClick={() => setCreating(true)}
           >
-            Privacy requests
-          </h2>
-          <p className="text-caption text-ink-muted">
-            Access, correction, erasure and restriction requests about
-            reviewers’ data, each due 30 days after it is logged.
-          </p>
-        </div>
-        {gating.canCreateRequests ? (
-          <Button variant="secondary" onClick={() => setCreating(true)}>
             <Plus aria-hidden />
             Log a request
           </Button>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
       <QueryStates
         status={queryStatus(query, { isEmpty: requests.length === 0 })}
         pendingLabel="Loading privacy requests"
@@ -424,17 +441,15 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
         }}
         onRetry={() => void query.refetch()}
         empty={
-          <Card flush>
-            <Empty
-              icon={<FileLock2 />}
-              title="No privacy requests"
-              description="Requests you log appear here with their due dates."
-            />
-          </Card>
+          <Empty
+            icon={<FileLock2 />}
+            title="No privacy requests"
+            description="Requests you log appear here with their due dates."
+          />
         }
       >
         {() => (
-          <Table surface responsive aria-label="Privacy requests">
+          <Table responsive aria-label="Privacy requests">
             <TableHeader>
               <TableRow>
                 <TableHead>Request</TableHead>
@@ -490,7 +505,7 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
                     </TableCell>
                     <TableCell data-actions="" className="text-right">
                       {open && gating.canManagePrivacy ? (
-                        <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
+                        <span className="grid grid-cols-2 gap-2 @min-[720px]/table:inline-flex @min-[720px]/table:justify-end @min-[720px]/table:gap-1.5">
                           <Button
                             variant="secondary"
                             size="sm"
@@ -530,6 +545,6 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
       {gating.canManagePrivacy ? (
         <ResolveDialog target={target} onClose={() => setTarget(null)} />
       ) : null}
-    </section>
+    </SettingsSection>
   )
 }

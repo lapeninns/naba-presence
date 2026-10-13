@@ -1,42 +1,33 @@
 import { Info, Lock, Pause, TriangleAlert, type LucideIcon } from "lucide-react"
 
 import { SupportDetails } from "@/components/editors/support-details"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
 
 export type CapabilityTone = "blocked" | "read_only" | "info" | "warning"
 
 /**
- * Reference `.alert` drawings: `read_only` is the sunken panel with a
- * hairline and a lock, `blocked` (publishing paused, disconnected) sits on
- * the danger tint, `warning` (Google holds a different copy) on the warning
- * tint, `info` on the info tint. The words stay ink; only the glyph takes the
- * status colour, so every pair is one the contrast gate measures.
+ * Each tone as an Alert: `read_only` is the sunken default panel with a
+ * lock, `blocked` (publishing paused, disconnected) the danger tint with a
+ * pause, `warning` (Google holds a different copy) and `info` their own
+ * tints. The words stay ink; only the glyph takes the status colour.
  */
 const TONE: Record<
   CapabilityTone,
-  { className: string; glyph: string; Icon: LucideIcon }
+  {
+    variant: "default" | "destructive" | "warning" | "info"
+    Icon: LucideIcon
+  }
 > = {
-  blocked: {
-    className: "border-transparent bg-danger-tint",
-    glyph: "text-danger-ink",
-    Icon: Pause,
-  },
-  read_only: {
-    className: "border-line bg-surface-alt",
-    glyph: "text-ink-secondary",
-    Icon: Lock,
-  },
-  warning: {
-    className: "border-transparent bg-warning-tint",
-    glyph: "text-warning-ink",
-    Icon: TriangleAlert,
-  },
-  info: {
-    className: "border-transparent bg-info-tint",
-    glyph: "text-info-ink",
-    Icon: Info,
-  },
+  blocked: { variant: "destructive", Icon: Pause },
+  read_only: { variant: "default", Icon: Lock },
+  warning: { variant: "warning", Icon: TriangleAlert },
+  info: { variant: "info", Icon: Info },
 }
 
 /**
@@ -50,6 +41,9 @@ const TONE: Record<
  * `code` is the machine reason (e.g. `publishing_paused`), folded behind
  * "Details for support" under the sentence; the sentence is always the
  * primary signal.
+ *
+ * Drawn by the shared `Alert`; this keeps only the editors' vocabulary of
+ * tones and the support details.
  */
 function CapabilityBanner({
   tone = "read_only",
@@ -66,32 +60,26 @@ function CapabilityBanner({
   action?: { label: string; href?: string; onClick?: () => void }
   className?: string
 }) {
-  const { className: toneClass, glyph, Icon } = TONE[tone]
+  const { variant, Icon } = TONE[tone]
   return (
-    <div
+    <Alert
+      variant={variant}
+      icon={<Icon strokeWidth={1.75} aria-hidden />}
+      // A state the editor is in, announced politely: never an interruption.
+      role={tone === "blocked" || tone === "warning" ? "status" : "note"}
       data-slot="capability-banner"
       data-tone={tone}
-      role={tone === "blocked" || tone === "warning" ? "status" : undefined}
-      className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-(--np-radius-card) border px-3.5 py-3 text-ui text-ink",
-        toneClass,
-        className
-      )}
+      className={className}
     >
-      <Icon
-        className={cn("mt-0.5 size-4 shrink-0", glyph)}
-        strokeWidth={1.75}
-        aria-hidden
-      />
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="font-semibold text-ink">{title}</p>
-        {description ? (
-          <p className="text-ink-secondary">{description}</p>
-        ) : null}
-        <SupportDetails items={[code]} />
-      </div>
+      <AlertTitle className="text-ui">{title}</AlertTitle>
+      {description || code ? (
+        <AlertDescription className="text-ink-secondary">
+          {description}
+          <SupportDetails items={[code]} />
+        </AlertDescription>
+      ) : null}
       {action ? (
-        <div className="col-start-2">
+        <AlertActions>
           <Button
             size="sm"
             variant="secondary"
@@ -100,9 +88,9 @@ function CapabilityBanner({
           >
             {action.label}
           </Button>
-        </div>
+        </AlertActions>
       ) : null}
-    </div>
+    </Alert>
   )
 }
 

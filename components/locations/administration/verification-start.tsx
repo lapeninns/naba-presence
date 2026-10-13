@@ -1,6 +1,9 @@
 "use client"
 
 import { useState } from "react"
+import { ReviewedWritePanel, reviewedWriteStage } from "@/components/reviewed-write"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { ApiClientError } from "@/lib/api/client"
 import { previewGoogleVerification, approveGoogleVerification, fetchGoogleVerificationReview } from "@/lib/api/google-verification-reviews"
 import { executeGoogleVerification, fetchGoogleVerificationAttempt, refreshGoogleVerificationAttempt } from "@/lib/api/google-verification-attempt"
@@ -39,7 +42,11 @@ export function ReviewedStartVerification() {
       }
     })
   }
+  const errorNote = error && <p role="alert" className="text-ui text-danger-ink">{error}</p>
   return <div className="flex min-w-0 flex-col gap-4">
+    {attempt || review ? <ReviewedWritePanel id="verification-start-review" headingLevel="h3" title={attempt ? "Verification request outcome" : "Review verification request"}
+      stage={reviewedWriteStage({ approved: Boolean(review?.changeSet.approvedBy), recorded: Boolean(attempt) })} secondApprover={review?.changeSet.requiresSecondApprover}
+      focusKey={attempt ? `attempt:${attempt.id}` : review ? `review:${review.changeSet.id}` : null}>
     {attempt ? <VerificationAttemptStatus attempt={attempt} busy={busy} onRefresh={() => void run(async () => { setAttempt(await refreshGoogleVerificationAttempt(locationId, attempt.reviewId)); invalidate() })} /> : review ? <VerificationStartReview key={`${review.changeSet.id}:${review.changeSet.approvedBy}:${active}`} review={review} busy={busy} active={active} onActivate={activate} blocked={writeBlocked || freshReviewRequired || invalidIds.includes(review.changeSet.id)} uncertain={uncertain || lostSendIds.includes(review.changeSet.id)} reportedExpired={expiredIds.includes(review.changeSet.id)}
       onApprove={() => void runReview(async () => { setReview(await approveGoogleVerification(locationId, review.changeSet.id, review.changeSet.payloadHash)); activate(); invalidate() })}
       onExecute={() => void runReview(async () => {
@@ -58,10 +65,14 @@ export function ReviewedStartVerification() {
         setUncertain(false); invalidate()
       })}
       onBack={() => { setReview(null); setFreshReviewRequired(false); clearError() }}
-    /> : <VerificationStartForm locationId={locationId} blocked={writeBlocked} busy={busy} onPreview={(input) => void run(async () => { setReview(await previewGoogleVerification(locationId, input)); activate(); setUncertain(false); setFreshReviewRequired(false); invalidate() })} />}
+    /> : null}
     {review && !attempt && (freshReviewRequired || invalidIds.includes(review.changeSet.id)) && <p role="status" className="text-ui text-ink-secondary">This request needs a fresh review. Check its saved outcome before replacing an uncertain send; otherwise return to methods.</p>}
-    {review && !attempt && !uncertain && !lostSendIds.includes(review.changeSet.id) && <button type="button" className="self-start rounded-(--np-radius-control) px-3 py-2 text-ui underline focus-halo disabled:opacity-50" disabled={busy} onClick={() => void runReview(async () => { setReview(await fetchGoogleVerificationReview(locationId, review.changeSet.id)) })}>Refresh exact review</button>}
-    {error && <p role="alert" className="text-ui text-danger-ink">{error}</p>}
+    {review && !attempt && !uncertain && !lostSendIds.includes(review.changeSet.id) && <Button variant="ghost" className="self-start" disabled={busy} onClick={() => void runReview(async () => { setReview(await fetchGoogleVerificationReview(locationId, review.changeSet.id)) })}>Refresh exact review</Button>}
+    {errorNote}
+    </ReviewedWritePanel> : <Card><CardContent className="flex min-w-0 flex-col gap-4">
+      <VerificationStartForm locationId={locationId} blocked={writeBlocked} busy={busy} onPreview={(input) => void run(async () => { setReview(await previewGoogleVerification(locationId, input)); activate(); setUncertain(false); setFreshReviewRequired(false); invalidate() })} />
+      {errorNote}
+    </CardContent></Card>}
     <SectionGateNote />
     <SavedVerificationWorkflows locationId={locationId} busy={busy} expiredReviewIds={expiredIds} lostSendReviewIds={lostSendIds} invalidReviewIds={invalidIds} onSelect={(item) => void runReview(async () => {
       if (item.attempt) { const saved = await fetchGoogleVerificationAttempt(locationId, item.reviewId); setAttempt(saved); setReview(null); setUncertain(false); setFreshReviewRequired(false); settleSend(item.reviewId) }

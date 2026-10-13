@@ -183,6 +183,31 @@ export { describeSpecialEntry }
 
 export type HoursIssue = { fieldId: string; label: string; message: string }
 
+/** The wording for a time the contract rejects (see `validateHours`). */
+export const INVALID_TIME_MESSAGE =
+  "Enter a 24-hour time such as 09:30 or 17:00. Use 24:00 for midnight at the end of the day."
+
+/**
+ * The closing-day choices for a period that opens on `dayOfWeek`: the same
+ * day, the next day, then each following day, as `{ value, label }` with the
+ * value a `dayOfWeek` string. Overnight hours need this said explicitly —
+ * a closing time earlier than the opening time is never guessed.
+ */
+export function closingDayOptions(
+  dayOfWeek: number
+): { value: string; label: string }[] {
+  return Array.from({ length: 7 }, (_, offset) => {
+    const end = (dayOfWeek + offset) % 7
+    const label =
+      offset === 0
+        ? `Same day (${DAY_LABELS[end]})`
+        : offset === 1
+          ? `Next day (${DAY_LABELS[end]})`
+          : `Following ${DAY_LABELS[end]}`
+    return { value: String(end), label }
+  })
+}
+
 /** Every problem in the draft, in page order, each tied to a field. */
 export function validateHours(hours: NormalizedHours): HoursIssue[] {
   const issues: HoursIssue[] = []
@@ -232,12 +257,19 @@ export function validateHours(hours: NormalizedHours): HoursIssue[] {
               : hoursFieldId.opens(day, dayIndex)
         fieldId = `service-${encodeURIComponent(entry?.hoursTypeId ?? "")}-${id}`
       }
+      // The time fields tidy loose input on blur ("9" → 09:00, "930" →
+      // 09:30), so what still fails the format is a time that does not
+      // exist ("25:00") or one too ambiguous to guess ("9:5"): say what a
+      // good one looks like rather than naming a pattern.
+      const leaf = area === "special" ? field : periodField
       issues.push({
         fieldId,
         label,
         message:
           issue.code === "invalid_format"
-            ? "Enter a valid date or 24-hour time (HH:MM; midnight may be 24:00)."
+            ? leaf === "effectiveDate" || leaf === "endDate"
+              ? "Enter a valid date."
+              : INVALID_TIME_MESSAGE
             : issue.message,
       })
     }

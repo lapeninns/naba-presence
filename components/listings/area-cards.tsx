@@ -28,7 +28,7 @@ function AreaCardSkeleton() {
     <div className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4">
       <Skeleton className="h-4 w-2/5" />
       <Skeleton className="h-3.5 w-4/5" />
-      <Skeleton className="ml-auto h-[30px] w-20" />
+      <Skeleton className="ml-auto h-8 w-20" />
     </div>
   )
 }
@@ -38,6 +38,10 @@ function AreaCardSkeleton() {
  * status pill at the top edge, and the one line of substance with the way in
  * at the foot. A blocked area is drawn sunken and says why instead of
  * offering the way in.
+ *
+ * The way in is the card's one link, and its hit area is the whole card
+ * (a stretched `::after`), so a thumb can tap anywhere on it; its name keeps
+ * the verb ("Check Opening hours").
  */
 function AreaCard({
   area,
@@ -59,13 +63,14 @@ function AreaCard({
       data-slot="area-card"
       data-area={area.key}
       className={cn(
-        "flex min-w-0 flex-col gap-2.5 rounded-(--np-radius-card) border bg-surface p-4",
+        "relative flex min-w-0 flex-col gap-2.5 rounded-(--np-radius-card) border bg-surface p-4",
+        action && "hover-fine:has-[a:hover]:border-line-strong",
         blocked ? "border-line bg-surface-alt" : "border-line",
         emphasis && "border-warning-solid"
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
-        <div className="flex min-w-0 flex-[1_1_9rem] flex-col gap-0.5">
+        <div className="flex min-w-0 grow basis-36 flex-col gap-0.5">
           <h3 className="text-title font-semibold text-ink">{area.label}</h3>
           <p className="text-caption text-ink-muted">{area.description}</p>
         </div>
@@ -198,7 +203,10 @@ function AreaCards({
         const action = (
           <Link
             href={listingHref(locationId, area.segment)}
-            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+            className={cn(
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              "static after:absolute after:inset-0 after:rounded-(--np-radius-card)"
+            )}
             aria-label={`${verb} ${area.label}`}
           >
             {verb === "Edit" ? (

@@ -2,8 +2,8 @@
 
 import { createContext, useContext, useEffect, type ReactNode } from "react"
 import { useInfiniteQuery, useIsFetching, useQueryClient } from "@tanstack/react-query"
+import { ReviewedWritePanel, reviewedWriteStage, SavedWorkList, type SavedWorkItem } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
-import { SectionHeader } from "@/components/ui/section-header"
 import { fetchAdministrationAccessWorkflows } from "@/lib/api/google-administration-access"
 import { queryKeys } from "@/lib/queries/keys"
 import { AdministrationProvider, useAdministrationSection } from "./context"
@@ -51,18 +51,52 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })
   const items = saved.data?.pages.flatMap((page) => page.items) ?? []
+  const review = action.review, attempt = action.attempt
+  // The panel claims focus (and so scrolls into view) whenever a review or
+  // outcome opens: after the dialog that created it closes, or from a saved
+  // work row far below. selectionRevision moves on every preview, open and
+  // send, but not on approval or a refresh, so those never steal focus.
+  const focusKey = attempt ? `attempt:${attempt.reviewId}:${action.selectionRevision}` : review ? `review:${review.changeSet.id}:${action.selectionRevision}` : null
+  const savedItems: SavedWorkItem[] = items.map((item) => ({
+    id: item.reviewId,
+    operation: ACCESS_OPERATION_LABELS[item.request.operation],
+    stage: item.attemptId ? "Recorded outcome" : "Saved review",
+    createdAt: item.createdAt,
+    actionLabel: item.attemptId ? "Open outcome" : "Open review",
+    disabled: action.busy || Boolean(action.unresolved && (review?.changeSet.id ?? attempt?.reviewId) !== item.reviewId),
+    onOpen: () => action.open(item),
+  }))
   return <Context.Provider value={{ ...action, rosterUpdating, rosterUnavailable, retryRoster }}><div className="flex min-w-0 flex-col gap-6">
-    <section aria-labelledby="access-review-workspace" className="flex min-w-0 flex-col gap-3">
-      <SectionHeader id="access-review-workspace" title={action.attempt ? "Saved access outcome" : action.review ? "Review access request" : "Review changes before sending"} description="Approve the exact administrator or invitation, then send once and check Google independently." />
+    {review || attempt || action.error ? <ReviewedWritePanel
+      id="access-review-workspace"
+      title={attempt ? "Saved access outcome" : review ? "Review access request" : "Access request"}
+      description={review && !attempt ? "Review this exact target and action. Approval saves permission to send; it does not change access on Google." : undefined}
+      stage={attempt ? "outcome" : review ? reviewedWriteStage({ approved: Boolean(review.changeSet.approvedBy), recorded: false }) : undefined}
+      secondApprover={review?.changeSet.requiresSecondApprover}
+      focusKey={focusKey}
+    >
       {action.error && <p role="alert" className="text-ui text-danger-ink">{action.error}</p>}
-      {action.attempt ? <AccessOutcome attempt={action.attempt} review={action.review} busy={action.busy} onCheck={() => action.check()} onRefresh={() => action.check(true)} onBack={action.reset} /> : action.review ? <AccessReview key={`${action.review.changeSet.id}:${action.selectionRevision}`} review={action.review} busy={action.busy} blocked={writeBlocked} uncertain={action.uncertain} stale={action.stale} onApprove={action.approve} onExecute={action.execute} onCheck={() => action.check()} onBack={action.reset} /> : <p className="text-ui text-ink-secondary">Choose an access change below to save a review. An invitation being sent or disappearing does not by itself prove access.</p>}
-    </section>
+      {attempt ? <AccessOutcome attempt={attempt} review={review} busy={action.busy} onCheck={() => action.check()} onRefresh={() => action.check(true)} onBack={action.reset} /> : review ? <AccessReview key={`${review.changeSet.id}:${action.selectionRevision}`} review={review} locationName={section.locationName} busy={action.busy} blocked={writeBlocked} uncertain={action.uncertain} stale={action.stale} onApprove={action.approve} onExecute={action.execute} onCheck={() => action.check()} onBack={action.reset} /> : null}
+    </ReviewedWritePanel> : null}
     <AdministrationProvider locationId={locationId} locationName={section.locationName} disabled={section.disabled} publishReason={section.publishReason ?? (action.busy ? "An access action is in progress. Wait for its saved response before another Google change." : action.unresolved ? "Resolve the saved access outcome before another Google change." : rosterUpdating ? ROSTER_UPDATING_REASON : rosterUnavailable ? ROSTER_UNAVAILABLE_REASON : null)}>{children}</AdministrationProvider>
-    <section aria-labelledby="access-saved-work" className="flex min-w-0 flex-col gap-3">
-      <SectionHeader id="access-saved-work" title="Saved access work" description="Open an exact review for approval, or read a recorded outcome after reloading this page." />
-      {saved.isPending ? <p role="status" className="text-ui text-ink-muted">Loading saved access work…</p> : saved.isError ? <p role="alert" className="text-ui text-danger-ink">Saved access work could not be loaded. Check access and connection.</p> : items.length === 0 ? <p className="text-ui text-ink-muted">No saved access work.</p> : <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">{items.map((item) => <li key={item.reviewId} className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-3"><div className="min-w-0"><p className="text-ui">{ACCESS_OPERATION_LABELS[item.request.operation]}</p><p className="text-caption text-ink-muted">{new Date(item.createdAt).toLocaleString("en-GB")} · {item.attemptId ? "Recorded outcome" : "Saved review"}</p></div><Button variant="secondary" size="sm" disabled={action.busy || Boolean(action.unresolved && (action.review?.changeSet.id ?? action.attempt?.reviewId) !== item.reviewId)} onClick={() => action.open(item)}>{item.attemptId ? "Open outcome" : "Open review"}</Button></li>)}</ul>}
-      <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={saved.isFetching} onClick={() => { void saved.refetch() }}>Reload saved access work</Button>{saved.hasNextPage && <Button variant="secondary" disabled={saved.isFetchingNextPage} onClick={() => { void saved.fetchNextPage() }}>Load earlier access work</Button>}</div>
-    </section>
+    <SavedWorkList
+      id="access-saved-work"
+      title="Saved access work"
+      description="Open an exact review for approval, or read a recorded outcome after reloading this page."
+      items={savedItems}
+      pending={saved.isPending}
+      failed={saved.isError}
+      loadingText="Loading saved access work…"
+      errorText="Saved access work could not be loaded. Check access and connection."
+      emptyText="No saved access work."
+      reloadLabel="Reload saved access work"
+      reloading={saved.isFetching}
+      onReload={() => { void saved.refetch() }}
+      loadMoreLabel="Load earlier access work"
+      hasMore={saved.hasNextPage}
+      loadingMore={saved.isFetchingNextPage}
+      onLoadMore={() => { void saved.fetchNextPage() }}
+    />
   </div></Context.Provider>
 }
 

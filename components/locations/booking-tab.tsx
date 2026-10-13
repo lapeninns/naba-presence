@@ -6,6 +6,7 @@ import {
   Clock,
   Link2,
   Lock,
+  MoreHorizontal,
   Pencil,
   ShoppingBag,
   Store,
@@ -29,16 +30,25 @@ import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogBody,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -63,7 +73,6 @@ import {
   humaniseActionType,
 } from "@/lib/editors/booking-presentation"
 import { editorGate } from "@/lib/editors/gate"
-import { useCloseGuard } from "@/lib/editors/use-close-guard"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
@@ -87,25 +96,25 @@ export function BookingTab({ locationId }: { locationId: string }) {
   const workflow = usePlaceActionReview(locationId)
   return (
     <div id="section-action-links" className="flex min-w-0 flex-col gap-5">
-    <LocationTab
-      locationId={locationId}
-      loadingLabel="action links"
-      useResource={usePlaceActions}
-      resource="booking"
-    >
-      {({ data: state, caps, publishReason }) => (
-        <EditorFrame title="Booking links" titleHidden>
-          <BookingLinks
-            locationId={locationId}
-            state={state}
-            caps={caps}
-            writeReason={publishReason}
-            workflow={workflow}
-          />
-        </EditorFrame>
-      )}
-    </LocationTab>
-    <SavedPlaceActionWork locationId={locationId} workflow={workflow} />
+      <LocationTab
+        locationId={locationId}
+        loadingLabel="action links"
+        useResource={usePlaceActions}
+        resource="booking"
+      >
+        {({ data: state, caps, publishReason }) => (
+          <EditorFrame title="Booking links" titleHidden>
+            <BookingLinks
+              locationId={locationId}
+              state={state}
+              caps={caps}
+              writeReason={publishReason}
+              workflow={workflow}
+            />
+          </EditorFrame>
+        )}
+      </LocationTab>
+      <SavedPlaceActionWork locationId={locationId} workflow={workflow} />
     </div>
   )
 }
@@ -147,31 +156,79 @@ function BookingLinks({
     savesHere: false,
   })
 
-  const remove = { isPending: workflow.busy, mutate: (link: PlaceActionLink) => void workflow.preview({ operation: "delete", name: link.googleLinkName }).then((result) => { if (result.ok) setDeleteTarget(null); else setConfirmFailure(result.error) }) }
-  const prefer = { isPending: workflow.busy, mutate: (link: PlaceActionLink) => void workflow.preview({ operation: "update", name: link.googleLinkName, payload: placeActionInputSchema.parse({ uri: link.uri, placeActionType: link.placeActionType, isPreferred: true }) }).then((result) => { if (result.ok) setPreferTarget(null); else setConfirmFailure(result.error) }) }
+  // Both confirmations only prepare a review (workflow.preview): nothing is
+  // sent to Google until the review is approved and sent separately.
+  const prepareRemoval = (link: PlaceActionLink) => {
+    void workflow
+      .preview({ operation: "delete", name: link.googleLinkName })
+      .then((result) => {
+        if (result.ok) setDeleteTarget(null)
+        else setConfirmFailure(result.error)
+      })
+  }
+  const preparePreferred = (link: PlaceActionLink) => {
+    void workflow
+      .preview({
+        operation: "update",
+        name: link.googleLinkName,
+        payload: placeActionInputSchema.parse({
+          uri: link.uri,
+          placeActionType: link.placeActionType,
+          isPreferred: true,
+        }),
+      })
+      .then((result) => {
+        if (result.ok) setPreferTarget(null)
+        else setConfirmFailure(result.error)
+      })
+  }
 
   if (state.supportedTypes.length === 0 && state.links.length === 0) {
-    const unsupported = Boolean(state.unsupportedTypes?.length || state.unsupportedLinks?.length)
+    const unsupported = Boolean(
+      state.unsupportedTypes?.length || state.unsupportedLinks?.length
+    )
     return (
       <div className="flex min-w-0 flex-col gap-4">
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
-        <Empty
-          icon={<Unlink />}
-          titleAs="h2"
-          title={unsupported ? "Manage these action types in Google" : "Google doesn’t offer action links for this listing"}
-          description={unsupported ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them." : "Google reports no action types for this exact listing. Check its category before preparing a new link."}
-          action={
-            unsupported ? <a href="https://business.google.com/" target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "secondary" }))}>Manage action links in Google</a> : <Link
-              href={`/listings/${locationId}/profile`}
-              className={cn(buttonVariants({ variant: "secondary" }))}
-            >
-              Check categories
-            </Link>
-          }
+        <Card flush>
+          <Empty
+            icon={<Unlink />}
+            titleAs="h2"
+            title={
+              unsupported
+                ? "Manage these action types in Google"
+                : "Google doesn’t offer action links for this listing"
+            }
+            description={
+              unsupported
+                ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them."
+                : "Google reports no action types for this exact listing. Check its category before preparing a new link."
+            }
+            action={
+              unsupported ? (
+                <a
+                  href="https://business.google.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(buttonVariants({ variant: "secondary" }))}
+                >
+                  Manage action links in Google
+                </a>
+              ) : (
+                <Link
+                  href={`/listings/${locationId}/profile`}
+                  className={cn(buttonVariants({ variant: "secondary" }))}
+                >
+                  Check categories
+                </Link>
+              )
+            }
+          />
+        </Card>
+        {/* The empty state above already carries the Google handoff. */}
+        <GoogleManagedLinks
+          links={state.unsupportedLinks ?? []}
+          handoff={false}
         />
-      </div>
-      {/* The empty state above already carries the Google handoff. */}
-      <GoogleManagedLinks links={state.unsupportedLinks ?? []} handoff={false} />
       </div>
     )
   }
@@ -191,7 +248,15 @@ function BookingLinks({
 
   return (
     <div className="@container/booking flex flex-col gap-5">
-      {workflow.unresolved ? <Alert variant="info"><AlertTitle>Action link changes are paused</AlertTitle><AlertDescription>Read the saved outcome and refresh its observation before another action link change.</AlertDescription></Alert> : null}
+      {workflow.unresolved ? (
+        <Alert variant="info">
+          <AlertTitle>Action link changes are paused</AlertTitle>
+          <AlertDescription>
+            Read the saved outcome and refresh its observation before another
+            action link change.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {gate ? (
         <CapabilityBanner
           tone={gate.tone}
@@ -214,25 +279,25 @@ function BookingLinks({
           <Alert variant="info">
             <AlertTitle>The last action link outcome needs a check</AlertTitle>
             <AlertDescription>
-              The last change ({latest.operation.toLowerCase()}) has no confirmed
-              outcome. Read its saved request before another change. The links
-              below are what Google held when we last checked.
+              The last change ({latest.operation.toLowerCase()}) has no
+              confirmed outcome. Read its saved request before another change.
+              The links below are what Google held when we last checked.
             </AlertDescription>
           </Alert>
         )
       ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-6 @[880px]/booking:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid grid-cols-1 items-start gap-6 @[880px]/booking:grid-cols-[minmax(0,1fr)_--spacing(80)]">
         <div className="flex min-w-0 flex-col gap-4">
           {state.links.length === 0 ? (
-            <div className="rounded-(--np-radius-card) border border-line bg-surface">
+            <Card flush>
               <Empty
                 icon={<Link2 />}
                 titleAs="h2"
                 title="No action links yet"
                 description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
               />
-            </div>
+            </Card>
           ) : (
             groupTypes.map((type) => {
               const links = state.links.filter(
@@ -280,7 +345,7 @@ function BookingLinks({
                           className="grid grid-cols-1 items-center gap-x-4 gap-y-2 px-5 py-3 @[560px]/group:grid-cols-[minmax(0,1fr)_auto]"
                         >
                           <div className="flex min-w-0 flex-col gap-1.5">
-                            <span className="font-mono text-[12.5px] break-all text-ink-secondary">
+                            <span className="font-mono text-caption break-all text-ink-secondary">
                               {link.uri}
                             </span>
                             <span className="flex flex-wrap items-center gap-1.5">
@@ -307,39 +372,14 @@ function BookingLinks({
                             </span>
                           </div>
                           {link.isEditable ? (
-                            <div className="-ml-2.5 flex flex-wrap gap-1 @[560px]/group:ml-0 @[560px]/group:justify-end">
-                              {!link.isPreferred && links.length > 1 ? (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={disabled}
-                                  onClick={() => setPreferTarget(link)}
-                                  aria-label={`Make this the preferred ${actionTypeLabel(type)} link`}
-                                >
-                                  Make preferred
-                                </Button>
-                              ) : null}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={disabled}
-                                onClick={() => setEditTarget(link)}
-                                aria-label={`Edit the ${actionTypeLabel(type)} link`}
-                              >
-                                <Pencil aria-hidden />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDeleteTarget(link)}
-                                disabled={disabled}
-                                aria-label={`Remove the ${actionTypeLabel(type)} link`}
-                              >
-                                <Trash2 aria-hidden />
-                                Remove
-                              </Button>
-                            </div>
+                            <LinkActions
+                              typeLabel={actionTypeLabel(type)}
+                              canPrefer={!link.isPreferred && links.length > 1}
+                              disabled={disabled}
+                              onEdit={() => setEditTarget(link)}
+                              onPrefer={() => setPreferTarget(link)}
+                              onRemove={() => setDeleteTarget(link)}
+                            />
                           ) : null}
                         </li>
                       )
@@ -386,10 +426,11 @@ function BookingLinks({
         confirmLabel="Prepare removal review"
         confirmVariant="danger"
         requireAcknowledgement={false}
-        pending={remove.isPending}
+        pending={workflow.busy}
+        pendingLabel="Preparing review…"
         onConfirm={() => {
           setConfirmFailure(null)
-          if (deleteTarget) remove.mutate(deleteTarget)
+          if (deleteTarget) prepareRemoval(deleteTarget)
         }}
       >
         {deleteTarget ? <UriPreview uri={deleteTarget.uri} /> : null}
@@ -411,10 +452,11 @@ function BookingLinks({
         description="Google shows the preferred link first on the button. The other links stay on the listing."
         confirmLabel="Prepare preferred link review"
         requireAcknowledgement={false}
-        pending={prefer.isPending}
+        pending={workflow.busy}
+        pendingLabel="Preparing review…"
         onConfirm={() => {
           setConfirmFailure(null)
-          if (preferTarget) prefer.mutate(preferTarget)
+          if (preferTarget) preparePreferred(preferTarget)
         }}
       >
         {preferTarget ? <UriPreview uri={preferTarget.uri} /> : null}
@@ -429,6 +471,71 @@ function BookingLinks({
         disabled={disabled}
         onClose={() => setEditTarget(null)}
       />
+    </div>
+  )
+}
+
+/**
+ * A link row's actions: Edit stays visible as the one direct action; making
+ * it preferred and removing it sit in an overflow menu (an action sheet on a
+ * phone), with the destructive Remove last. Remove still opens its own
+ * confirmation, which only prepares a review.
+ */
+function LinkActions({
+  typeLabel,
+  canPrefer,
+  disabled,
+  onEdit,
+  onPrefer,
+  onRemove,
+}: {
+  typeLabel: string
+  canPrefer: boolean
+  disabled: boolean
+  onEdit: () => void
+  onPrefer: () => void
+  onRemove: () => void
+}) {
+  return (
+    <div className="-ml-2.5 flex items-center gap-1 @[560px]/group:ml-0 @[560px]/group:justify-end">
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={disabled}
+        onClick={onEdit}
+        aria-label={`Edit the ${typeLabel} link`}
+      >
+        <Pencil aria-hidden />
+        Edit
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              disabled={disabled}
+              aria-label={`More actions for the ${typeLabel} link`}
+            />
+          }
+        >
+          <MoreHorizontal aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent title={`${typeLabel} link`}>
+          {canPrefer ? (
+            <>
+              <DropdownMenuItem onClick={onPrefer}>
+                Make preferred
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
+          <DropdownMenuItem variant="destructive" onClick={onRemove}>
+            <Trash2 aria-hidden />
+            Remove link
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
 }
@@ -452,7 +559,13 @@ function UriPreview({ uri }: { uri: string }) {
 
 /** "How customers see it": the buttons Google would draw, from real links only. */
 /** Links Google returned with an action type this release cannot model: listed read-only with a handoff. */
-function GoogleManagedLinks({ links, handoff = true }: { links: NonNullable<PlaceActionsState["unsupportedLinks"]>; handoff?: boolean }) {
+function GoogleManagedLinks({
+  links,
+  handoff = true,
+}: {
+  links: NonNullable<PlaceActionsState["unsupportedLinks"]>
+  handoff?: boolean
+}) {
   if (links.length === 0) return null
   return (
     <section
@@ -460,23 +573,35 @@ function GoogleManagedLinks({ links, handoff = true }: { links: NonNullable<Plac
       className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
     >
       <div className="flex flex-col gap-1 border-b border-line px-5 py-4">
-        <h2 id="booking-google-managed" className="text-title font-semibold text-ink">
+        <h2
+          id="booking-google-managed"
+          className="text-title font-semibold text-ink"
+        >
           Managed in Google
         </h2>
         <p className="text-ui text-ink-muted">
-          Google lists {links.length === 1 ? "an action link" : "action links"} of a type this editor can’t change yet. They stay in place and are part of every review’s Google baseline.
+          Google lists {links.length === 1 ? "an action link" : "action links"}{" "}
+          of a type this editor can’t change yet. They stay in place and are
+          part of every review’s Google baseline.
         </p>
       </div>
       <ul className="divide-y divide-line">
         {links.map((link) => (
-          <li key={link.name} className="flex min-w-0 flex-col gap-1.5 px-5 py-3">
-            <span className="font-mono text-[12.5px] break-all text-ink-secondary">{link.uri}</span>
+          <li
+            key={link.name}
+            className="flex min-w-0 flex-col gap-1.5 px-5 py-3"
+          >
+            <span className="font-mono text-caption break-all text-ink-secondary">
+              {link.uri}
+            </span>
             <span className="flex flex-wrap items-center gap-1.5">
               <StatusPill tone="outline" plain>
                 <Lock className="size-3" strokeWidth={1.75} aria-hidden />
                 {humaniseActionType(link.placeActionType)}
               </StatusPill>
-              <span className="text-caption text-ink-muted">Can’t be edited here</span>
+              <span className="text-caption text-ink-muted">
+                Can’t be edited here
+              </span>
             </span>
           </li>
         ))}
@@ -525,7 +650,7 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
                 <span
                   key={type}
                   title={preferred?.uri}
-                  className="inline-flex h-[34px] items-center gap-1.5 rounded-(--np-radius-pill) border border-line-strong bg-surface px-3.5 text-ui font-semibold text-info-ink"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-(--np-radius-pill) border border-line-strong bg-surface px-3.5 text-ui font-semibold text-info-ink"
                 >
                   <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
                   {actionTypeLabel(type)}
@@ -571,7 +696,9 @@ function sameNewLink(a: NewLink, b: NewLink): boolean {
 function parseNewLink(value: unknown): NewLink | null {
   if (!value || typeof value !== "object") return null
   const { type, uri, preferred } = value as Record<string, unknown>
-  return typeof type === "string" && typeof uri === "string" && typeof preferred === "boolean"
+  return typeof type === "string" &&
+    typeof uri === "string" &&
+    typeof preferred === "boolean"
     ? { type: type as PlaceActionType, uri, preferred }
     : null
 }
@@ -597,19 +724,27 @@ function AddLinkForm({
       // A table reservation is the button most listings here want first.
       type: state.supportedTypes.includes("DINING_RESERVATION")
         ? "DINING_RESERVATION"
-        : ((state.supportedTypes[0] as PlaceActionType) ?? "DINING_RESERVATION"),
+        : ((state.supportedTypes[0] as PlaceActionType) ??
+          "DINING_RESERVATION"),
       uri: "",
       preferred: false,
     },
     revision: "new",
-    scope: { resource: "location-place-action-new", resourceId: locationId, schemaVersion: 1 },
+    scope: {
+      resource: "location-place-action-new",
+      resourceId: locationId,
+      schemaVersion: 1,
+    },
     parseStashed: parseNewLink,
     isEqual: sameNewLink,
   })
   const { type, uri, preferred } = editor.draft
-  const setType = (next: PlaceActionType) => editor.setDraft((current) => ({ ...current, type: next }))
-  const setUri = (next: string) => editor.setDraft((current) => ({ ...current, uri: next }))
-  const setPreferred = (next: boolean) => editor.setDraft((current) => ({ ...current, preferred: next }))
+  const setType = (next: PlaceActionType) =>
+    editor.setDraft((current) => ({ ...current, type: next }))
+  const setUri = (next: string) =>
+    editor.setDraft((current) => ({ ...current, uri: next }))
+  const setPreferred = (next: boolean) =>
+    editor.setDraft((current) => ({ ...current, preferred: next }))
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -626,7 +761,20 @@ function AddLinkForm({
     setFailure(null)
     // Once the review is prepared the request is saved with it, so the form
     // empties rather than holding a copy that would ask before leaving.
-    if (!disabled) void workflow.preview({ operation: "create", payload: { uri: uri.trim(), placeActionType: type, isPreferred: preferred } }).then((result) => { if (result.ok) editor.discard(); else setFailure(result.error) })
+    if (disabled) return
+    void workflow
+      .preview({
+        operation: "create",
+        payload: {
+          uri: uri.trim(),
+          placeActionType: type,
+          isPreferred: preferred,
+        },
+      })
+      .then((result) => {
+        if (result.ok) editor.discard()
+        else setFailure(result.error)
+      })
   }
 
   if (state.supportedTypes.length === 0) return null
@@ -644,10 +792,11 @@ function AddLinkForm({
           Add an action link
         </h2>
         <p className="text-ui text-ink-muted">
-          Prepare a review first. Approval saves the exact request; sending to Google is a separate action.
+          Prepare a review first. Approval saves the exact request; sending to
+          Google is a separate action.
         </p>
       </div>
-      <div className="grid gap-4 @[560px]/booking:grid-cols-[minmax(0,15rem)_minmax(0,1fr)] @[560px]/booking:items-start">
+      <div className="grid gap-4 @[560px]/booking:grid-cols-[minmax(0,--spacing(60))_minmax(0,1fr)] @[560px]/booking:items-start">
         <Field>
           <FieldLabel>Type</FieldLabel>
           <Select
@@ -752,13 +901,6 @@ function EditLinkDialog({
     snapshot: () => JSON.stringify({ uri }),
     stash: false,
   })
-  const close = useCloseGuard({
-    isDirty,
-    onOpenChange: (open) => {
-      if (!open) onClose()
-    },
-    onDiscard: markDiscarded,
-  })
   const leave = useLeaveGuard({ when: isDirty, onLeave: markDiscarded })
 
   const sameType = link
@@ -769,7 +911,24 @@ function EditLinkDialog({
     : []
 
   return (
-    <Dialog open={link !== null} onOpenChange={close.onOpenChange}>
+    // The Dialog's own guard asks before a swipe, Escape, a scrim tap or the
+    // ✕ throws the edit away; Cancel is a deliberate discard.
+    <Dialog
+      open={link !== null}
+      onOpenChange={(open) => {
+        if (open) return
+        markDiscarded()
+        onClose()
+      }}
+      dirty={isDirty}
+      onDiscard={markDiscarded}
+      discardPrompt={{
+        title: "Close without saving?",
+        description:
+          "Your edit to this link isn’t saved. Closing throws it away. Google is not affected.",
+        confirmLabel: "Close and discard",
+      }}
+    >
       <DialogContent>
         <form
           noValidate
@@ -783,8 +942,22 @@ function EditLinkDialog({
               uriRef.current?.focus()
               return
             }
-            if (link && !disabled) void workflow.preview({ operation: "update", name: link.googleLinkName,
-              payload: placeActionInputSchema.parse({ uri: uri.trim(), placeActionType: link.placeActionType, isPreferred: link.isPreferred }) }).then((result) => { if (result.ok) { markDiscarded(); onClose() } else setFailure(result.error) })
+            if (!link || disabled) return
+            void workflow
+              .preview({
+                operation: "update",
+                name: link.googleLinkName,
+                payload: placeActionInputSchema.parse({
+                  uri: uri.trim(),
+                  placeActionType: link.placeActionType,
+                  isPreferred: link.isPreferred,
+                }),
+              })
+              .then((result) => {
+                if (!result.ok) return setFailure(result.error)
+                markDiscarded()
+                onClose()
+              })
           }}
         >
           <DialogHeader>
@@ -792,7 +965,8 @@ function EditLinkDialog({
               Edit {link ? actionTypeLabel(link.placeActionType) : ""} link
             </DialogTitle>
             <DialogDescription>
-              Review this change before approval. Sending to Google is a separate action.
+              Review this change before approval. Sending to Google is a
+              separate action.
             </DialogDescription>
           </DialogHeader>
           <DialogBody>
@@ -816,9 +990,9 @@ function EditLinkDialog({
             {failure ? <FailureNote message={failure} /> : null}
           </DialogBody>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={close.requestClose}>
+            <DialogClose render={<Button type="button" variant="ghost" />}>
               Cancel
-            </Button>
+            </DialogClose>
             <Button
               type="submit"
               pending={workflow.busy}
@@ -829,13 +1003,6 @@ function EditLinkDialog({
             </Button>
           </DialogFooter>
         </form>
-        <DiscardDialog
-          {...close.prompt}
-          title="Close without saving?"
-          confirmLabel="Close and discard"
-          announce={false}
-          description="Your edit to this link isn’t saved. Closing throws it away. Google is not affected."
-        />
         <DiscardDialog
           {...leave}
           title="Leave without saving?"

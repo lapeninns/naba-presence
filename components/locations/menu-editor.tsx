@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
 import { fieldChromeClassName } from "@/components/ui/field"
@@ -641,20 +642,22 @@ export function MenuEditor({
 
   if (menus.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-5 rounded-lg border border-line bg-surface px-6 py-12">
+      <Card flush>
         <Empty
           icon={<UtensilsCrossed aria-hidden />}
           titleAs="h3"
           title="Build your first menu"
           description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
+          action={
+            disabled ? undefined : (
+              <Button onClick={addMenu}>
+                <Plus aria-hidden />
+                Create menu
+              </Button>
+            )
+          }
         />
-        {!disabled ? (
-          <Button onClick={addMenu}>
-            <Plus aria-hidden />
-            Create menu
-          </Button>
-        ) : null}
-      </div>
+      </Card>
     )
   }
 
@@ -804,7 +807,9 @@ export function MenuEditor({
               </FieldCaption>
               <Textarea
                 id={`${menuNameId}-description`}
-                rows={2}
+                autoSize
+                minRows={2}
+                maxRows={8}
                 placeholder="A short introduction to this menu"
                 value={menuLabel.description}
                 disabled={disabled}
@@ -813,7 +818,6 @@ export function MenuEditor({
                     withLabel(menu, menuLabel.displayName, event.target.value)
                   )
                 }
-                className="field-sizing-content min-h-(--np-field-h)"
               />
             </div>
           </section>
@@ -906,14 +910,14 @@ export function MenuEditor({
               ) : null}
             </div>
           ) : (
-            <div className="rounded-lg border border-line bg-surface">
+            <Card flush>
               <Empty
                 icon={<UtensilsCrossed aria-hidden />}
                 titleAs="h3"
                 title="Start with a section"
                 description="Group this menu into sections such as starters, mains or drinks, then add the items customers can order."
               />
-            </div>
+            </Card>
           )}
 
           {sections.map((section, sectionIndex) => {

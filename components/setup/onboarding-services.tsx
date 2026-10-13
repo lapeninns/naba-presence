@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import type { Dispatch, SetStateAction } from "react"
 import { Button } from "@/components/ui/button"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { fetchOnboardingServices } from "@/lib/api/google-onboarding-services"
 import type { GoogleOnboardingDraft } from "@/lib/contracts/google-onboarding"
@@ -34,8 +34,8 @@ export function OnboardingServices({ draft, rows, setRows, contextSaved, error }
     <h4 className="text-ui font-semibold">Services</h4>
     <p className="text-caption text-ink-muted">Add the services this business offers. Saving keeps them in this proposal; Google validation and approval are separate.</p>
     {!hasCategory || !contextSaved ? <p role="status" className="text-ui text-ink-muted">Select and save the categories, language and country before loading service choices.</p> : metadata.isFetching ? <p role="status" className="text-ui text-ink-muted">Loading service choices…</p> : null}
-    {metadata.error && <div role="alert" className="flex flex-col gap-2">
-      <p className="text-ui text-danger-ink">{describeActionError(metadata.error)}</p>
+    {metadata.error && <div className="flex flex-col gap-2">
+      <FormError>{describeActionError(metadata.error)}</FormError>
       <Button type="button" variant="outline" className="self-start" disabled={!contextSaved} onClick={() => void metadata.refetch()}>Retry service choices</Button>
     </div>}
     {rows.length === 0 && <p className="text-ui text-ink-muted">No services in this proposal.</p>}
@@ -68,6 +68,6 @@ export function OnboardingServices({ draft, rows, setRows, contextSaved, error }
       </Select>
     </Field>
     {rows.length === 100 && <p role="status" className="text-caption text-ink-muted">This proposal has the maximum of 100 services.</p>}
-    {error && <p role="alert" className="text-ui text-danger-ink">{error}</p>}
+    <FormError>{error}</FormError>
   </div>
 }

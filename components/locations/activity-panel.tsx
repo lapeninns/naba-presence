@@ -4,8 +4,14 @@ import { LocationTab } from "@/components/locations/location-tab"
 import { Button } from "@/components/ui/button"
 import { LoadMore } from "@/components/ui/load-more"
 import { StatusPill } from "@/components/ui/status-pill"
-import { Timeline, type TimelineTone } from "@/components/ui/timeline"
+import { Timeline } from "@/components/ui/timeline"
 import { formatNumber } from "@/lib/format"
+import {
+  activityPillTone,
+  activityStatusLabel,
+  activityTone,
+  humaniseActivity,
+} from "@/lib/listings/activity-outcome"
 import { useLocationActivityPages } from "@/lib/queries/use-location-activity"
 import { confirmIndustry } from "@/lib/api/location-industry"
 import { confirmBusinessInformation } from "@/lib/api/location-business-information"
@@ -14,22 +20,7 @@ import { queryKeys } from "@/lib/queries/keys"
 
 const PAGE_SIZE = 10
 
-function humanise(value: string): string {
-  const lower = value.toLowerCase().replace(/_/g, " ")
-  return lower.charAt(0).toUpperCase() + lower.slice(1)
-}
-
-function statusTone(status: string): TimelineTone {
-  if (status === "succeeded") return "success"
-  if (status === "failed" || status === "ambiguous") return "danger"
-  return "neutral"
-}
-
-function statusPillTone(status: string): "ok" | "bad" | "outline" {
-  if (status === "succeeded") return "ok"
-  if (status === "failed" || status === "ambiguous") return "bad"
-  return "outline"
-}
+const humanise = humaniseActivity
 
 // The shell's resource hook: module-level, so its identity never changes.
 function useActivityPages(locationId: string) {
@@ -77,14 +68,14 @@ function ActivityList({
             aria-label="Recent changes"
             entries={activity.items.map((item) => ({
               id: item.id,
-              tone: statusTone(item.status),
+              tone: activityTone(item.status),
               title: (
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="font-semibold text-ink">
                     {humanise(item.operation)} · {humanise(item.resourceType)}
                   </span>
-                  <StatusPill tone={statusPillTone(item.status)}>
-                    {humanise(item.status)}
+                  <StatusPill tone={activityPillTone(item.status)}>
+                    {activityStatusLabel(item.status)}
                   </StatusPill>
                   {activity.canManage && (item.resourceType === "lodging" || item.resourceType === "business_info" || item.resourceType === "attributes") && (item.canConfirm || (item.resourceType === "lodging" && item.status === "ambiguous")) ? <ConfirmManagementButton locationId={locationId} mutationId={item.sourceId ?? item.id} resourceType={item.resourceType} /> : null}
                 </span>

@@ -112,6 +112,7 @@ export function GooglePerformanceTab({
     return frame(
       <ReportingPanel
         framed
+        titleAs="h3"
         variant="off"
         title="Google performance is not switched on"
         description="Ask an admin to turn this on for your organisation."
@@ -121,6 +122,7 @@ export function GooglePerformanceTab({
     return frame(
       <ReportingPanel
         framed
+        titleAs="h3"
         variant="empty"
         icon={<Link2OffIcon />}
         title="No linked location"
@@ -144,7 +146,7 @@ export function GooglePerformanceTab({
       <>
         {/* No figures yet: still name each location and why. */}
         <PartialCoverageAlert completeness={data.completeness} />
-        <ReportingPanel framed variant="collecting" />
+        <ReportingPanel framed titleAs="h3" variant="collecting" />
       </>
     )
   if (data.state === "unavailable")
@@ -166,6 +168,7 @@ export function GooglePerformanceTab({
         />
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           icon={<Link2OffIcon />}
           title="No Google figures for this window"
@@ -179,6 +182,7 @@ export function GooglePerformanceTab({
         <PartialCoverageAlert completeness={data.completeness} />
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           title="No activity yet"
           description={`Google has not reported any visibility data for ${period}.`}

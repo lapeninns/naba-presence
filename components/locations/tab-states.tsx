@@ -5,6 +5,7 @@ import Link from "next/link"
 
 import { SupportDetails } from "@/components/editors/support-details"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { QueryPending } from "@/components/ui/query-states"
 import { ApiClientError } from "@/lib/api/client"
@@ -43,7 +44,7 @@ export function TabError({
   // No Google link is a distinct state the tab can act on, not a failure.
   if (isNotLinkedError(error)) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <Card flush>
         <Empty
           icon={<Unplug aria-hidden />}
           title="This location isn’t linked to Google yet"
@@ -57,7 +58,7 @@ export function TabError({
             </Link>
           }
         />
-      </div>
+      </Card>
     )
   }
   const details =
@@ -65,10 +66,7 @@ export function TabError({
       ? [error.code, error.requestId ? `Request ${error.requestId}` : null]
       : []
   return (
-    <div
-      role="alert"
-      className="rounded-(--np-radius-card) border border-line bg-surface"
-    >
+    <Card flush role="alert">
       <Empty
         tone="bad"
         icon={<CircleAlert aria-hidden />}
@@ -84,6 +82,6 @@ export function TabError({
           </div>
         }
       />
-    </div>
+    </Card>
   )
 }

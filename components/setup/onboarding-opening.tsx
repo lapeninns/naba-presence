@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -128,9 +128,9 @@ export function OnboardingOpening({
         </p>
       )}
       {error && (
-        <p role="alert" className="text-ui text-danger-ink">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       )}
     </div>
   )

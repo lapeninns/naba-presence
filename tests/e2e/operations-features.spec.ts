@@ -217,15 +217,16 @@ for (const width of [375, 768, 1280])
       expect(created.status()).toBe(201)
       await f.goto(`/listings/${f.linked[0].locationId}/posts`)
       await page
-        .getByRole("button", {
-          name: "Schedule publication: Autumn menu launch",
-        })
+        .getByRole("button", { name: "More actions for Autumn menu launch" })
+        .click()
+      await page
+        .getByRole("menuitem", { name: "Schedule publication", exact: true })
         .click()
       const sheet = page.getByRole("dialog", {
         name: "Schedule publication",
         exact: true,
       })
-      await sheet.getByRole("tab", { name: "Daily", exact: true }).click()
+      await sheet.getByRole("radio", { name: "Daily", exact: true }).click()
       await sheet.getByLabel("Starting").fill(dayBefore(autumnChange()))
       await sheet.getByLabel("Local time").fill("01:30")
       await sheet.getByLabel("Times").fill("3")
@@ -320,9 +321,13 @@ for (const width of [375, 768, 1280])
       await expect(
         page.getByRole("button", { name: "Publish", exact: true })
       ).toBeVisible()
+      await page
+        .getByRole("button", { name: "More actions for Harvest supper club" })
+        .click()
       await expect(
-        page.getByRole("button", { name: /^Schedule publication/ })
+        page.getByRole("menuitem", { name: "Schedule publication" })
       ).toHaveCount(0)
+      await page.keyboard.press("Escape")
       await expect(calendarLink).toHaveCount(0)
 
       // On: Publish now or Schedule, one time only.
@@ -354,17 +359,21 @@ for (const width of [375, 768, 1280])
       await expect(
         page.getByRole("button", { name: "Publish now" }).first()
       ).toBeVisible()
-      await page
-        .getByRole("button", {
-          name: "Schedule publication: Harvest supper club",
-        })
-        .click()
+      const harvestMenu = page.getByRole("button", {
+        name: "More actions for Harvest supper club",
+      })
+      const scheduleItem = page.getByRole("menuitem", {
+        name: "Schedule publication",
+        exact: true,
+      })
+      await harvestMenu.click()
+      await scheduleItem.click()
       const sheet = page.getByRole("dialog", {
         name: "Schedule publication",
         exact: true,
       })
       await expect(
-        sheet.getByRole("tablist", { name: "How often" })
+        sheet.getByRole("radiogroup", { name: "How often" })
       ).toHaveCount(0)
       await expect(sheet.getByText(/1 publication from now/)).toBeVisible()
       await dialogCapture(page, info, "schedule-once-preview")
@@ -384,11 +393,10 @@ for (const width of [375, 768, 1280])
       await expect(
         page.getByText(/Scheduled publication awaiting approval:/)
       ).toBeVisible()
-      await expect(
-        page.getByRole("button", {
-          name: "Schedule publication: Harvest supper club",
-        })
-      ).toHaveCount(0)
+      await harvestMenu.click()
+      await expect(page.getByRole("menu")).toBeVisible()
+      await expect(scheduleItem).toHaveCount(0)
+      await page.keyboard.press("Escape")
       await capture(page, info, "schedule-once-awaiting")
 
       await schedules
@@ -397,11 +405,9 @@ for (const width of [375, 768, 1280])
       await expect(
         schedules.getByText("Cancelled", { exact: true })
       ).toBeVisible()
-      await expect(
-        page.getByRole("button", {
-          name: "Schedule publication: Harvest supper club",
-        })
-      ).toBeVisible()
+      await harvestMenu.click()
+      await expect(scheduleItem).toBeVisible()
+      await page.keyboard.press("Escape")
       const [schedule] = await backend.admin<
         { status: string; occurrences: number }[]
       >`select s.status, (select count(*)::int from post_publication_occurrence o where o.schedule_id = s.id) as occurrences

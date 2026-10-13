@@ -189,6 +189,7 @@ export function ReplyFigures({
         {banner}
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           title={
             audience === "public"

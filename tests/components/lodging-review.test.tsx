@@ -71,4 +71,20 @@ describe("explicit lodging approval and consent", () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1)
     await waitFor(() => expect(lock).toHaveBeenLastCalledWith(false))
   })
+
+  it("shows the steps, the expiry and the exact Google target as a technical detail", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ error: "lodging_attempt_not_found", message: "No saved attempt." }), { status: 404 })))
+    renderWithProviders(<LodgingReview locationId="fixture" payload={review.payload} updateMask={review.updateMask} googleHash={review.baselineHash} saved={[review]} disabled={false} />)
+    await userEvent.click(screen.getByRole("button", { name: "Review saved lodging change" }))
+    const sheet = screen.getByRole("dialog", { name: "Review changes" })
+    const dialog = within(sheet)
+    expect(dialog.getByLabelText("Steps to send this change")).toBeInTheDocument()
+    // Unapproved: the review's own deadline, in the viewer's time.
+    expect(dialog.getByText(/^Review expires/)).toBeInTheDocument()
+    expect(sheet.querySelector('time[datetime="2027-01-01T12:00:00Z"]')).not.toBeNull()
+    const technical = sheet.querySelector('[data-slot="technical-details"]')
+    expect(technical).toHaveTextContent("Exact Google target")
+    expect(technical).toHaveTextContent("locations/fixture")
+    expect(technical).not.toHaveAttribute("open")
+  })
 })

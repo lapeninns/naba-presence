@@ -13,7 +13,7 @@ function scopeOf(name: string): string {
 }
 
 /** Where an invitation would grant access, from Google's invitation row. */
-function invitationPlace(row: Row | undefined): string | undefined {
+export function invitationPlace(row: Row | undefined): string | undefined {
   const location = row?.targetLocation,
     account = row?.targetAccount
   const fromLocation =
@@ -30,7 +30,7 @@ function invitationPlace(row: Row | undefined): string | undefined {
 /**
  * A person-readable description of the Google resource an access request
  * acts on, drawn from the reviewed request and Google's listed rows. The
- * exact resource name stays available as a secondary reference.
+ * exact resource name is shown separately, as a technical detail.
  */
 export function accessTargetDescription(
   request: AdministrationAccessRequest,
@@ -63,24 +63,4 @@ export function accessTargetDescription(
         : "Pending invitation for the connected Google account"
     }
   }
-}
-
-/** The human target with the exact Google resource name as small secondary text. */
-export function AccessTarget({
-  request,
-  target,
-  rows,
-}: {
-  request: AdministrationAccessRequest
-  target: string
-  rows: readonly Row[]
-}) {
-  return (
-    <>
-      <span className="block">{accessTargetDescription(request, rows)}</span>
-      <span className="mt-0.5 block text-caption break-all text-ink-muted">
-        Google reference: {target}
-      </span>
-    </>
-  )
 }

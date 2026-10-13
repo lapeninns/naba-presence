@@ -22,9 +22,6 @@ vi.mock("next/link", () => ({
 vi.mock("@/components/editors/activity-drawer", () => ({
   ActivityDrawer: () => <button type="button">Activity</button>,
 }))
-vi.mock("@/components/listings/recent-activity", () => ({
-  RecentActivity: () => <p>recent activity</p>,
-}))
 
 import { ListingOverview } from "@/components/listings/listing-overview"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"

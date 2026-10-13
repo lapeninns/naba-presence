@@ -101,9 +101,9 @@ function statusPill(share: ReportShare) {
     )
   }
   if (share.status === "expired") {
-    return <StatusPill tone="warn">Expired</StatusPill>
+    return <StatusPill tone="attention">Expired</StatusPill>
   }
-  return <StatusPill tone="ok">Active</StatusPill>
+  return <StatusPill tone="healthy">Active</StatusPill>
 }
 
 /**

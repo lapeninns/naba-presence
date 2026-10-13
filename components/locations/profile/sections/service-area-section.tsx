@@ -4,11 +4,22 @@ import { useState, type Dispatch, type SetStateAction } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { googleServiceAreaSchema } from "@/lib/domain/google-service-area"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
 import { SectionCard } from "../section-card"
+
+/** The country a two-letter code names, in words, so a person can check the code. */
+function countryName(code: string | undefined): string | null {
+  if (!code || !/^[A-Z]{2}$/.test(code)) return null
+  try {
+    const name = new Intl.DisplayNames(["en-GB"], { type: "region", fallback: "none" }).of(code)
+    return name && name !== code ? name : null
+  } catch {
+    return null
+  }
+}
 
 export function ServiceAreaSection({ draft, setDraft, location, disabled, changed, error }: {
   draft: BusinessInformationDraft
@@ -48,8 +59,10 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
       <Field>
         <FieldLabel htmlFor="profile-service-country">Service-area country code</FieldLabel>
         <Input id="profile-service-country" value={area.regionCode ?? ""} maxLength={2} disabled={blocked || typeof existingCountry === "string"}
-          onChange={(event) => setDraft((current) => current.serviceArea ? { ...current, serviceArea: { ...current.serviceArea, regionCode: event.target.value.toUpperCase() } } : current)} />
-        <FieldDescription>Two-letter country code, such as GB. Google requires this for customer-only businesses and does not allow an existing country to change.</FieldDescription>
+          // Browsers fill `country` with the two-letter code Google wants.
+          autoComplete="country" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
+          onChange={(event) => setDraft((current) => current.serviceArea ? { ...current, serviceArea: { ...current.serviceArea, regionCode: event.target.value.trim().toUpperCase() } } : current)} />
+        <FieldDescription>{countryName(area.regionCode) ? `${countryName(area.regionCode)}. ` : ""}Two-letter country code, such as GB for the United Kingdom. Google requires this for customer-only businesses and does not allow an existing country to change.</FieldDescription>
       </Field>
       {area.businessType === "CUSTOMER_LOCATION_ONLY" && (asRecord(baseline.serviceArea).businessType !== "CUSTOMER_LOCATION_ONLY" || Object.keys(asRecord(baseline.storefrontAddress)).length > 0) && <Field>
         <div className="flex items-start gap-3">
@@ -60,7 +73,7 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
         <FieldDescription>Required for customer-only businesses. The address removal will appear in your review before publishing.</FieldDescription>
       </Field>}
       <div className="flex flex-col gap-3">
-        {places.map((place, index) => <div key={place.placeId} className="flex items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
+        {places.map((place, index) => <div key={place.placeId} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
           <div className="min-w-0"><p className="text-ui font-medium break-words">{place.placeName}</p><p className="text-caption font-mono text-ink-muted break-all">{place.placeId}</p></div>
           <Button type="button" variant="outline" disabled={blocked} aria-label={`Remove service area ${place.placeName}`} onClick={() => setDraft((current) => current.serviceArea ? { ...current, serviceArea: { ...current.serviceArea, places: { placeInfos: (current.serviceArea.places?.placeInfos ?? []).filter((_, position) => position !== index) } } } : current)}>Remove</Button>
         </div>)}
@@ -68,7 +81,8 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
       </div>
       {places.length < 20 && <div className="flex flex-col gap-3">
         <Field><FieldLabel htmlFor="profile-area-name">New area name</FieldLabel><Input id="profile-area-name" value={name} maxLength={255} disabled={blocked} onChange={(event) => { setName(event.target.value); setEntryError(undefined) }} /></Field>
-        <Field error={entryError}><FieldLabel htmlFor="profile-area-id">New area place ID</FieldLabel><Input id="profile-area-id" value={placeId} maxLength={255} disabled={blocked} onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} /><FieldError />
+        <Field error={entryError}><FieldLabel htmlFor="profile-area-id">New area place ID</FieldLabel><Input id="profile-area-id" value={placeId} maxLength={255} disabled={blocked}
+          {...inputHints.identifier} onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} /><FieldError />
           <FieldDescription>Use an existing Google place ID. These checks validate format only; Google validates the proposed areas before publication.</FieldDescription>
         </Field>
         <Button className="self-start" type="button" variant="outline" disabled={blocked || !name.trim() || !placeId.trim()} onClick={() => {

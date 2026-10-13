@@ -39,12 +39,10 @@ function initials(person: string): string {
  */
 export function AdminsTable({
   admins,
-  invitations,
   renderActions,
   caption = "People with access on Google",
 }: {
   admins: AdminRow[]
-  invitations: Array<{ name?: string; role?: string; targetType?: string }>
   renderActions?: (admin: AdminRow) => React.ReactNode
   caption?: string
 }) {
@@ -101,33 +99,6 @@ export function AdminsTable({
             </TableRow>
           )
         })}
-        {invitations.map((invitation, index) => (
-          <TableRow key={invitation.name ?? `inv-${index}`}>
-            <TableCell label="Person" className="font-medium text-ink">
-              <span className="flex min-w-0 items-center gap-2.5">
-                <Avatar size="sm">
-                  <AvatarFallback>
-                    {initials(invitation.name ?? "?")}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="min-w-0 break-all">
-                  {invitation.name ?? "—"}
-                </span>
-              </span>
-            </TableCell>
-            <TableCell label="Role">
-              {invitation.role ? (
-                <Badge variant="role">{adminRoleLabel(invitation.role)}</Badge>
-              ) : (
-                "—"
-              )}
-            </TableCell>
-            <TableCell label="Status">
-              <StatusPill tone="pending">Invited</StatusPill>
-            </TableCell>
-            {renderActions ? <TableCell /> : null}
-          </TableRow>
-        ))}
       </TableBody>
     </Table>
   )

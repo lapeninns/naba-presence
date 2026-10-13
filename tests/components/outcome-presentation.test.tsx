@@ -706,8 +706,11 @@ describe("toasts clear an open sheet footer", () => {
     await waitFor(() =>
       expect(viewport().style.getPropertyValue("--toast-footer-clearance")).toBe("80px")
     )
+    // The stack sits on the bottom edge at every width; the clearance and
+    // the bar that owns the edge both feed --toast-bottom, the larger wins.
+    expect(viewport().className).toContain("bottom-(--toast-bottom)")
     expect(viewport().className).toContain(
-      "sm:bottom-[calc(max(16px,env(safe-area-inset-bottom))+var(--toast-footer-clearance,0px))]"
+      "[--toast-bottom:calc(max(var(--toast-edge),var(--toast-footer-clearance))+var(--toast-gap))]"
     )
   })
 })

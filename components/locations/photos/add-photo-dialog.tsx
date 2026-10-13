@@ -1,11 +1,23 @@
 "use client"
 
-import { CircleAlertIcon, LinkIcon, UploadIcon, XIcon } from "lucide-react"
+import {
+  ArrowLeftIcon,
+  CameraIcon,
+  CircleAlertIcon,
+  ImagesIcon,
+  LinkIcon,
+  UploadIcon,
+  XIcon,
+} from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
 
-import { UploadDialog } from "@/components/locations/photos/upload-dialog"
+import {
+  UploadReview,
+  uploadReviewTitle,
+} from "@/components/locations/photos/upload-review"
 import { GateNote } from "@/components/locations/publish-gate"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -73,8 +85,10 @@ function formatSize(bytes: number) {
 
 /** The rules the upload route enforces, stated once for picker and drop. */
 function checkFile(file: File): string | undefined {
+  if (/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name))
+    return "HEIC photos aren’t supported. Choose a JPEG or PNG, or set the camera to save JPEG (on an iPhone: Settings › Camera › Formats › Most Compatible)."
   if (!ACCEPTED_TYPES.includes(file.type))
-    return `This file type isn’t supported (${file.type || "unknown type"}). Choose a JPG or PNG.`
+    return `This file type isn’t supported (${file.type || "unknown type"}). Choose a JPEG or PNG.`
   if (file.size > MAX_MEDIA_UPLOAD_BYTES)
     return `Too large at ${formatSize(file.size)}. Uploads can be up to ${MAX_MEDIA_UPLOAD_BYTES / MB} MB.`
   if (file.size < MIN_PHOTO_UPLOAD_BYTES)
@@ -111,8 +125,11 @@ const STATUS_PILL: Record<
 }
 
 /**
- * "Add media" (reference `#upload`): pick a Google category, then either
- * choose or drop JPG/PNG files, or import one photo from a public URL.
+ * "Add media" (reference `#upload`): pick a Google category, then take a
+ * photo with the camera, choose JPEG/PNG files from the library (or, at a
+ * desk, drop them), or import one photo from a public URL. Uploading is a
+ * second step of the same dialog — a review of exactly what goes to Google —
+ * never a confirmation stacked on top of it.
  *
  * Each file is checked against the upload route's own rules before it can
  * be sent, and each upload is its own request, so one refusal from Google
@@ -137,6 +154,8 @@ export function AddPhotoDialog({
   onAdded: () => void
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const cameraRef = useRef<HTMLInputElement | null>(null)
+  const stepRef = useRef<HTMLDivElement | null>(null)
   const toasts = useToastManager()
   const hintId = useId()
   const [category, setCategory] = useState<MediaCategory>(
@@ -148,7 +167,7 @@ export function AddPhotoDialog({
   const [entries, setEntries] = useState<UploadEntry[]>([])
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [step, setStep] = useState<"pick" | "review">("pick")
   const disabled = Boolean(writeReason)
 
   // Thumbnails are object URLs: release every one still held on unmount.
@@ -224,8 +243,20 @@ export function AddPhotoDialog({
     setEntries((current) => [...current, ...added])
   }
 
+  // Each step change replaces the button that was pressed, so focus moves to
+  // the new step rather than falling back to the page.
+  const stepped = useRef(false)
+  useEffect(() => {
+    if (!stepped.current) return
+    stepRef.current?.focus()
+  }, [step])
+  function goTo(next: "pick" | "review") {
+    stepped.current = true
+    setStep(next)
+  }
+
   async function uploadAll() {
-    setConfirmOpen(false)
+    goTo("pick")
     setUploading(true)
     let succeeded = 0
     let failed = 0
@@ -237,8 +268,11 @@ export function AddPhotoDialog({
       form.set("mediaFormat", "PHOTO")
       form.set("category", category)
       try {
-        const result = await uploadMediaFile(locationId, form, (fraction) =>
-          patch(entry.key, { progress: fraction }), { intentId: entry.intent }
+        const result = await uploadMediaFile(
+          locationId,
+          form,
+          (fraction) => patch(entry.key, { progress: fraction }),
+          { intentId: entry.intent }
         )
         succeeded += 1
         patch(entry.key, {
@@ -264,6 +298,7 @@ export function AddPhotoDialog({
     setUploading(false)
     if (succeeded > 0) onAdded()
     if (fileRef.current) fileRef.current.value = ""
+    if (cameraRef.current) cameraRef.current.value = ""
     toasts.add({
       title:
         succeeded > 0
@@ -283,239 +318,332 @@ export function AddPhotoDialog({
     })
   }
 
-  function onDrop(event: React.DragEvent<HTMLLabelElement>) {
+  function onDrop(event: React.DragEvent<HTMLDivElement>) {
     event.preventDefault()
     setDragging(false)
     if (disabled || uploading) return
     acceptFiles(event.dataTransfer.files)
   }
 
+  const reviewing = step === "review" && ready.length > 0
+  const pickDisabled = disabled || uploading
+
   return (
-    <>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next && uploading) return
-          if (!next) {
-            revoke(entries)
-            setEntries([])
-          }
-          onOpenChange(next)
-        }}
-      >
-        <DialogContent size="wide">
-          <DialogHeader>
-            <DialogTitle>Add media</DialogTitle>
+    <Dialog
+      open={open}
+      // Chosen files or a typed link would be lost to a stray swipe or tap
+      // outside, so those ask first. Mid-upload nothing may close it: the
+      // uploads run on, and the result belongs on screen.
+      dirty={!uploading && (ready.length > 0 || url.trim().length > 0)}
+      discardPrompt={{
+        title: "Discard these photos?",
+        description:
+          "The photos you chose haven’t been uploaded. Nothing has been sent to Google.",
+        confirmLabel: "Discard photos",
+      }}
+      onOpenChange={(next, details) => {
+        if (!next && uploading) {
+          details.cancel()
+          return
+        }
+        if (!next) {
+          revoke(entries)
+          setEntries([])
+          setUrl("")
+          stepped.current = false
+          setStep("pick")
+        }
+        onOpenChange(next)
+      }}
+    >
+      <DialogContent size="wide">
+        <DialogHeader>
+          <DialogTitle>
+            {reviewing ? uploadReviewTitle(ready.length) : "Add media"}
+          </DialogTitle>
+          {reviewing ? null : (
             <DialogDescription>
               Each photo goes to Google as soon as its upload finishes. Nothing
               waits for a publish step.
             </DialogDescription>
-          </DialogHeader>
+          )}
+        </DialogHeader>
 
-          <Field>
-            <FieldLabel>Google photo category</FieldLabel>
-            <Select
-              value={category}
-              onValueChange={(next) => setCategory(next as MediaCategory)}
-              disabled={disabled || uploading}
-            >
-              <SelectTrigger className="w-full sm:w-72">
-                <SelectValue>
-                  {(value: string | null) => humaniseCategory(value ?? "")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {humaniseCategory(c)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldDescription>
-              Every file in this upload goes into this category.
-            </FieldDescription>
-          </Field>
-
-          {/* The drop well is a label for the file input, so a tap anywhere
-              on it opens the picker (the camera roll on a phone); dropping
-              files is the desktop shortcut, never the only way in. */}
-          <label
-            data-dragging={dragging || undefined}
-            onDragOver={(event) => {
-              event.preventDefault()
-              if (!disabled && !dragging) setDragging(true)
-            }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={onDrop}
-            className={cn(
-              "flex min-h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed border-line-strong bg-surface-alt px-4 py-6 text-center transition-colors duration-(--np-duration-fast)",
-              "hover:bg-fill has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ring",
-              "data-[dragging]:border-primary data-[dragging]:bg-accent-tint",
-              "has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
-            )}
-          >
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              aria-label="Direct file upload"
-              aria-describedby={hintId}
-              accept={ACCEPTED_TYPES.join(",")}
-              onChange={(event) => {
-                acceptFiles(event.target.files)
-                event.target.value = ""
-              }}
-              disabled={disabled || uploading}
-              className="sr-only"
+        <div
+          ref={stepRef}
+          tabIndex={-1}
+          className="flex min-w-0 flex-col gap-4 outline-none"
+        >
+          {reviewing ? (
+            <UploadReview
+              files={ready.map((entry) => entry.file)}
+              previews={ready.map((entry) => entry.previewUrl ?? null)}
+              category={category}
             />
-            <UploadIcon aria-hidden className="size-6 text-ink-muted" />
-            <span className="text-body font-semibold text-ink">
-              Drop photos here, or choose files
-            </span>
-            <span id={hintId} className="text-caption text-ink-muted">
-              JPG or PNG, from {MIN_PHOTO_UPLOAD_BYTES / 1024} KB up to{" "}
-              {MAX_MEDIA_UPLOAD_BYTES / MB} MB each
-            </span>
-          </label>
+          ) : (
+            <>
+              <Field>
+                <FieldLabel>Google photo category</FieldLabel>
+                <Select
+                  value={category}
+                  onValueChange={(next) => setCategory(next as MediaCategory)}
+                  disabled={pickDisabled}
+                >
+                  <SelectTrigger className="w-full sm:w-72">
+                    <SelectValue>
+                      {(value: string | null) => humaniseCategory(value ?? "")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {humaniseCategory(c)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Every file in this upload goes into this category.
+                </FieldDescription>
+              </Field>
 
-          {/* One polite summary instead of a live list: a live <ul> read
-              out every progress tick of every file. */}
-          <p className="sr-only" aria-live="polite">
-            {entries.length > 0
-              ? uploading
-                ? `Uploading. ${done} sent, ${ready.length} still to send, ${cannot} can’t upload.`
-                : `${done} sent, ${ready.length} ready, ${cannot} can’t upload.`
-              : ""}
-          </p>
-
-          {entries.length > 0 ? (
-            <ul aria-label="Files to upload" className="flex flex-col gap-2">
-              {entries.map((entry) => {
-                const pill = STATUS_PILL[entry.status]
-                const removable =
-                  !uploading &&
-                  (entry.status === "ready" ||
-                    entry.status === "invalid" ||
-                    entry.status === "unconfirmed" ||
-                    entry.status === "failed")
-                return (
-                  <li
-                    key={entry.key}
-                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-md border border-line px-3 py-2.5"
+              {/* Two explicit ways in, both buttons: the camera (a phone
+                  opens it straight away; `capture` is ignored at a desk, so
+                  the button only shows on touch) and the photo library or
+                  file picker. Dropping files is a desk extra, never the only
+                  way in (WCAG 2.5.7). */}
+              <div
+                data-dragging={dragging || undefined}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  if (!pickDisabled && !dragging) setDragging(true)
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={onDrop}
+                className={cn(
+                  "flex flex-col items-center gap-3 rounded-lg border-[1.5px] border-dashed border-line-strong bg-surface-alt px-4 py-5 text-center transition-colors duration-(--np-duration-fast)",
+                  "data-[dragging]:border-primary data-[dragging]:bg-accent-tint"
+                )}
+              >
+                <input
+                  ref={cameraRef}
+                  type="file"
+                  hidden
+                  aria-label="Take a photo with the camera"
+                  accept={ACCEPTED_TYPES.join(",")}
+                  capture="environment"
+                  onChange={(event) => {
+                    acceptFiles(event.target.files)
+                    event.target.value = ""
+                  }}
+                  disabled={pickDisabled}
+                />
+                <input
+                  ref={fileRef}
+                  type="file"
+                  hidden
+                  multiple
+                  aria-label="Direct file upload"
+                  accept={ACCEPTED_TYPES.join(",")}
+                  onChange={(event) => {
+                    acceptFiles(event.target.files)
+                    event.target.value = ""
+                  }}
+                  disabled={pickDisabled}
+                />
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                  <Button
+                    variant="secondary"
+                    className="hidden pointer-coarse:inline-flex"
+                    onClick={() => cameraRef.current?.click()}
+                    disabled={pickDisabled}
+                    aria-describedby={hintId}
                   >
-                    <span
-                      aria-hidden
-                      className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-fill text-ink-muted"
-                    >
-                      {entry.previewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={entry.previewUrl}
-                          alt=""
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        <CircleAlertIcon className="size-4" />
-                      )}
-                    </span>
-                    <span className="flex min-w-0 flex-col">
-                      <span className="text-ui font-semibold break-words text-ink">
-                        {entry.file.name}
-                      </span>
-                      <span className="font-mono text-caption text-ink-muted tabular-nums">
-                        {formatSize(entry.file.size)}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <StatusPill tone={pill.tone}>
-                        {entry.status === "uploading"
-                          ? `${pill.label} ${Math.round(entry.progress * 100)}%`
-                          : pill.label}
-                      </StatusPill>
-                      {removable ? (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Remove ${entry.file.name}`}
-                          onClick={() => {
-                            revoke([entry])
-                            setEntries((current) =>
-                              current.filter((row) => row.key !== entry.key)
-                            )
-                          }}
-                        >
-                          <XIcon aria-hidden />
-                        </Button>
-                      ) : null}
-                    </span>
-                    {entry.status === "uploading" ? (
-                      <Progress
-                        className="col-span-3"
-                        value={Math.round(entry.progress * 100)}
-                        label={`Upload progress for ${entry.file.name}`}
-                      />
-                    ) : null}
-                    {entry.error ? (
-                      <p className="col-span-3 flex items-start gap-1.5 text-caption text-danger-ink">
-                        <CircleAlertIcon
-                          aria-hidden
-                          className="mt-px size-3.5 shrink-0"
-                        />
-                        <span>
-                          {entry.error}
-                          {entry.code ? (
-                            <span className="ml-1 font-mono text-ink-muted">
-                              {entry.code}
-                            </span>
-                          ) : null}
-                        </span>
-                      </p>
-                    ) : null}
-                  </li>
-                )
-              })}
-            </ul>
-          ) : null}
-
-          <div className="flex flex-col gap-3 rounded-lg border border-line p-3">
-            <div className="flex items-center gap-2.5">
-              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-fill text-ink-muted">
-                <LinkIcon aria-hidden className="size-4" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-ui font-semibold text-ink">
-                  Or import one photo from a link
+                    <CameraIcon aria-hidden />
+                    Take photo
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={pickDisabled}
+                    aria-describedby={hintId}
+                  >
+                    <ImagesIcon aria-hidden />
+                    Choose from library
+                  </Button>
+                </div>
+                <p className="hidden text-ui text-ink-muted hover-fine:block">
+                  or drop photos here
                 </p>
-                <p className="text-caption text-ink-muted">
-                  Google fetches it, so the link must be public.
+                <p id={hintId} className="text-caption text-ink-muted">
+                  JPEG or PNG only (not HEIC), from{" "}
+                  {MIN_PHOTO_UPLOAD_BYTES / 1024} KB up to{" "}
+                  {MAX_MEDIA_UPLOAD_BYTES / MB} MB each.
                 </p>
               </div>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                placeholder="https://example.com/photo.jpg"
-                inputMode="url"
-                type="url"
-                aria-label="Photo URL"
-                disabled={disabled || uploading}
-                className="min-w-0 flex-1"
-              />
-              <Button
-                variant="secondary"
-                onClick={() => addUrl.mutate()}
-                pending={addUrl.isPending}
-                pendingLabel="Adding…"
-                disabled={disabled || uploading || url.trim().length === 0}
-              >
-                Add from URL
-              </Button>
-            </div>
-          </div>
 
-          <GateNote reason={writeReason} />
+              {/* One polite summary instead of a live list: a live <ul> read
+                  out every progress tick of every file. */}
+              <p className="sr-only" aria-live="polite">
+                {entries.length > 0
+                  ? uploading
+                    ? `Uploading. ${done} sent, ${ready.length} still to send, ${cannot} can’t upload.`
+                    : `${done} sent, ${ready.length} ready, ${cannot} can’t upload.`
+                  : ""}
+              </p>
+
+              {entries.length > 0 ? (
+                <ul
+                  aria-label="Files to upload"
+                  className="flex flex-col gap-2"
+                >
+                  {entries.map((entry) => {
+                    const pill = STATUS_PILL[entry.status]
+                    const removable =
+                      !uploading &&
+                      (entry.status === "ready" ||
+                        entry.status === "invalid" ||
+                        entry.status === "unconfirmed" ||
+                        entry.status === "failed")
+                    return (
+                      <li
+                        key={entry.key}
+                        className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-md border border-line px-3 py-2.5"
+                      >
+                        <span
+                          aria-hidden
+                          className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-fill text-ink-muted"
+                        >
+                          {entry.previewUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={entry.previewUrl}
+                              alt=""
+                              className="size-full object-cover"
+                            />
+                          ) : (
+                            <CircleAlertIcon className="size-4" />
+                          )}
+                        </span>
+                        <span className="flex min-w-0 flex-col">
+                          <span className="text-ui font-semibold break-words text-ink">
+                            {entry.file.name}
+                          </span>
+                          <span className="font-mono text-caption text-ink-muted tabular-nums">
+                            {formatSize(entry.file.size)}
+                          </span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <StatusPill tone={pill.tone}>
+                            {entry.status === "uploading"
+                              ? `${pill.label} ${Math.round(entry.progress * 100)}%`
+                              : pill.label}
+                          </StatusPill>
+                          {removable ? (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Remove ${entry.file.name}`}
+                              onClick={() => {
+                                revoke([entry])
+                                setEntries((current) =>
+                                  current.filter((row) => row.key !== entry.key)
+                                )
+                              }}
+                            >
+                              <XIcon aria-hidden />
+                            </Button>
+                          ) : null}
+                        </span>
+                        {entry.status === "uploading" ? (
+                          <Progress
+                            className="col-span-3"
+                            value={Math.round(entry.progress * 100)}
+                            label={`Upload progress for ${entry.file.name}`}
+                          />
+                        ) : null}
+                        {entry.error ? (
+                          <p className="col-span-3 flex items-start gap-1.5 text-caption text-danger-ink">
+                            <CircleAlertIcon
+                              aria-hidden
+                              className="mt-px size-3.5 shrink-0"
+                            />
+                            <span>
+                              {entry.error}
+                              {entry.code ? (
+                                <span className="ml-1 font-mono text-ink-muted">
+                                  {entry.code}
+                                </span>
+                              ) : null}
+                            </span>
+                          </p>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+
+              <Card size="sm">
+                <CardContent className="flex flex-col gap-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="grid size-8 shrink-0 place-items-center rounded-md bg-fill text-ink-muted">
+                      <LinkIcon aria-hidden className="size-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-ui font-semibold text-ink">
+                        Or import one photo from a link
+                      </p>
+                      <p className="text-caption text-ink-muted">
+                        Google fetches it, so the link must be public.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      value={url}
+                      onChange={(event) => setUrl(event.target.value)}
+                      placeholder="https://example.com/photo.jpg"
+                      inputMode="url"
+                      type="url"
+                      aria-label="Photo URL"
+                      disabled={pickDisabled}
+                      className="min-w-0 flex-1"
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={() => addUrl.mutate()}
+                      pending={addUrl.isPending}
+                      pendingLabel="Adding…"
+                      disabled={pickDisabled || url.trim().length === 0}
+                    >
+                      Add from URL
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+
+        <GateNote reason={writeReason} />
+        {reviewing ? (
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => goTo("pick")}>
+              <ArrowLeftIcon aria-hidden />
+              Back
+            </Button>
+            <Button
+              onClick={() => void uploadAll()}
+              pending={uploading}
+              pendingLabel="Uploading…"
+              disabled={disabled}
+            >
+              <UploadIcon aria-hidden />
+              Upload {ready.length} {ready.length === 1 ? "photo" : "photos"}
+            </Button>
+          </DialogFooter>
+        ) : (
           <DialogFooter className="sm:items-center">
             {entries.length > 0 ? (
               <span className="text-caption text-ink-muted sm:mr-auto">
@@ -523,7 +651,7 @@ export function AddPhotoDialog({
               </span>
             ) : null}
             <Button
-              onClick={() => setConfirmOpen(true)}
+              onClick={() => goTo("review")}
               pending={uploading}
               pendingLabel="Uploading…"
               disabled={disabled || ready.length === 0}
@@ -531,18 +659,8 @@ export function AddPhotoDialog({
               Review file upload
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <UploadDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        files={ready.map((entry) => entry.file)}
-        previews={ready.map((entry) => entry.previewUrl ?? null)}
-        category={category}
-        pending={uploading}
-        onConfirm={() => void uploadAll()}
-      />
-    </>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }

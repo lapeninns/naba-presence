@@ -15,6 +15,7 @@ import { ApiClientError } from "@/lib/api/client"
 import type { VerificationStateResponse } from "@/lib/contracts/google-verification-state"
 import type { SessionResponse } from "@/lib/contracts/session"
 import { queryKeys } from "@/lib/queries/keys"
+import { formatInstant } from "@/components/editors/change-diff"
 import { completionLocationId as locationId, completionRequest as request, completionAttempt as attempt, completionWorkflow as workflow, completionReview as pinReview } from "../helpers/verification-completion"
 
 vi.mock("@/lib/api/session")
@@ -42,7 +43,34 @@ function fixture() {
   return { client, view }
 }
 
+/** Saved-work rows at `stage`, each checked to name its operation. */
+async function savedRows(region: HTMLElement, operation: string, stage: string) {
+  const rows = (await within(region).findAllByText(new RegExp(`· ${stage}$`))).map((element) => element.closest("li"))
+  for (const row of rows) expect(row).toHaveTextContent(operation)
+  return rows
+}
+const precedes = (first: HTMLElement, second: HTMLElement) => Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
 describe("independent verification workspace", () => {
+  it("leads with PIN entry, ahead of the standing card, while Google waits for a PIN", async () => {
+    fixture()
+    const pin = await screen.findByLabelText("PIN from Google")
+    const pinSection = screen.getByRole("region", { name: "Enter the PIN from Google" })
+    const status = screen.getByRole("region", { name: "How Google sees this listing" })
+    expect(pinSection).toContainElement(pin)
+    expect(precedes(pinSection, status)).toBe(true)
+    expect(precedes(status, screen.getByRole("region", { name: "Start a new verification" }))).toBe(true)
+    expect(precedes(screen.getByRole("region", { name: "Start a new verification" }), screen.getByRole("region", { name: "History" }))).toBe(true)
+    // The standing's secondary signals are one tap away, not five paragraphs.
+    expect(screen.getByText("Business authority reported").closest("details")).not.toHaveAttribute("open")
+  })
+  it("keeps the standing card first when no pending request takes a PIN", async () => {
+    vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [{ ...request, phase: "completed", providerState: "COMPLETED" }] })
+    fixture()
+    await screen.findByText("Request completed")
+    const pinSection = screen.getByRole("region", { name: "PIN completion and saved outcomes" })
+    expect(precedes(screen.getByRole("region", { name: "How Google sees this listing" }), pinSection)).toBe(true)
+  })
   it("retains both saved reviews with one active Google action bar", async () => {
     const startReview: VerificationReview = { changeSet: { ...pinReview.changeSet, id: "00000000-0000-4000-8000-000000000003", approvedBy: locationId }, payload: { method: "EMAIL", languageCode: "en-GB", emailAddress: "owner@example.test" }, choice: { id: pinReview.changeSet.payloadHash, kind: "email", method: "EMAIL", user: "owner", domain: "example.test", userNameEditable: true } }
     vi.mocked(fetchGoogleVerificationReview).mockResolvedValue(startReview)
@@ -103,8 +131,8 @@ describe("independent verification workspace", () => {
     await screen.findByText("Current Google state could not be read")
     expect(screen.getByText(/This does not mean the listing is unverified/)).toBeInTheDocument()
     await userEvent.click(await screen.findByRole("button", { name: "Open saved outcome" }))
-    expect(await screen.findByText("Google accepted the request")).toBeInTheDocument()
-    expect(screen.getByText("Confirmation unresolved")).toBeInTheDocument()
+    expect(await screen.findByText("Accepted by Google")).toBeInTheDocument()
+    expect(screen.getByText("Independent confirmation unresolved")).toBeInTheDocument()
     expect(fetchGoogleVerificationCompletionAttempt).toHaveBeenCalled()
     expect(screen.queryByText("private provider echo")).not.toBeInTheDocument()
   })
@@ -141,7 +169,7 @@ describe("independent verification workspace", () => {
   it("dates History so an empty list never reads as contradicting a newer saved outcome", async () => {
     vi.mocked(fetchGoogleVerificationState).mockResolvedValue({ ...state, verifications: [] })
     fixture()
-    const checked = new Date(state.checkedAt).toLocaleString("en-GB")
+    const checked = formatInstant(state.checkedAt)
     expect(await screen.findByText(new RegExp(`Google returned no verification requests when this list was checked at ${checked}`))).toBeInTheDocument()
     expect(screen.getByText(/A saved outcome above may have been observed after that check/)).toBeInTheDocument()
     expect(screen.getByText(`Requests Google returned when checked at ${checked}. Saved outcomes above can be newer than this check; completion does not establish current merchant standing.`)).toBeInTheDocument()
@@ -159,7 +187,12 @@ describe("independent verification workspace", () => {
     expect(await screen.findByText("Another Google method")).toBeInTheDocument()
     expect(screen.getByText("Google method code: FUTURE_METHOD")).toBeInTheDocument()
     expect(screen.queryByText("FUTURE METHOD")).not.toBeInTheDocument()
-    expect(screen.getByRole("table", { name: "Google verification request history" })).toHaveTextContent(`Google reference: ${request.name}`)
+    const history = screen.getByRole("list", { name: "Google verification request history" })
+    const reference = within(history).getByText(request.name)
+    expect(reference.closest("details")).toHaveTextContent(`Google reference${request.name}`)
+    expect(reference.closest("details")).not.toHaveAttribute("open")
+    // A list of records, not a scrolling table that adds a tab stop.
+    expect(screen.queryByRole("table")).not.toBeInTheDocument()
   })
   it("never lists an expired approved review as approved", async () => {
     vi.mocked(fetchGoogleVerificationWorkflows).mockImplementation(async (_id, query) => ({ workflows: query?.operation === "complete" ? [
@@ -169,8 +202,8 @@ describe("independent verification workspace", () => {
     ] : [], nextCursor: null }))
     fixture()
     const saved = await screen.findByRole("region", { name: "Saved PIN completions" })
-    expect(await within(saved).findAllByText("Text message · Approval expired")).toHaveLength(2)
-    expect(within(saved).getByText("Text message · Review expired")).toBeInTheDocument()
+    expect(await savedRows(saved, "Text message", "Approval expired")).toHaveLength(2)
+    expect(await savedRows(saved, "Text message", "Review expired")).toHaveLength(1)
     expect(within(saved).queryByText(/Approved review/)).not.toBeInTheDocument()
   })
   it("removes transient PIN controls on role revocation", async () => {

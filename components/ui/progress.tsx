@@ -61,10 +61,10 @@ function Progress({
       ) : (
         <span
           className={cn(
-            "block h-full rounded-[inherit] transition-[width] duration-(--np-duration-deliberate) ease-out-strong",
+            "block h-full w-(--progress) rounded-[inherit] transition-[width] duration-(--np-duration-deliberate) ease-out-strong",
             tone === "bad" ? "bg-danger-solid" : "bg-primary"
           )}
-          style={{ width: `${pct}%` }}
+          style={{ "--progress": `${pct}%` } as React.CSSProperties}
         />
       )}
     </div>
@@ -105,8 +105,8 @@ function Meter({
         className="h-2 overflow-hidden rounded-(--np-radius-pill) bg-fill"
       >
         <span
-          className="block h-full rounded-[inherit] bg-chart-1"
-          style={{ width: `${pct}%` }}
+          className="block h-full w-(--meter) rounded-[inherit] bg-chart-1"
+          style={{ "--meter": `${pct}%` } as React.CSSProperties}
         />
       </div>
     </div>

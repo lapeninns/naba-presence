@@ -10,9 +10,9 @@ import { getSession } from "@/lib/server/session"
 
 /**
  * Settings pages share one frame. Each page draws its own header with the
- * Policy · Connections tabs beneath the title (reference
- * `settings-subnav`), because the tabs sit under a title that changes per
- * page.
+ * settings tab row beneath the title (reference `settings-subnav`), because
+ * the tabs sit under a title that changes per page. On a phone /settings is
+ * an index of the areas instead (components/settings/settings-index.tsx).
  */
 export default async function SettingsLayout({
   children,

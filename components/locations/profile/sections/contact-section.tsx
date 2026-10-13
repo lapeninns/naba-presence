@@ -42,6 +42,7 @@ import { openStatusLabel } from "@/lib/locations/console-labels"
 import type { ProfileFormValues } from "@/lib/locations/forms/profile"
 import type { BusinessInformationDraft } from "@/lib/locations/google-values"
 import { cn } from "@/lib/utils"
+import { useWorkspaceTerms } from "@/lib/workspace/mode"
 import { OpeningDateFields } from "./opening-date-fields"
 import { AddressDetailsFields } from "./address-details-fields"
 
@@ -307,6 +308,9 @@ export function OpeningSection({
 }) {
   const [confirming, setConfirming] = useState(false)
   const [ack, setAck] = useState(false)
+  // An agency confirms with its client; a business owner confirms it
+  // themselves, so business mode never says "client".
+  const terms = useWorkspaceTerms()
   // The confirmation opens from a choice in the list, not from a button, so
   // it has no trigger of its own to hand focus back to; send it to the
   // status control instead of letting it fall to the page.
@@ -386,7 +390,11 @@ export function OpeningSection({
           <Checkbox
             checked={ack}
             onCheckedChange={(value) => setAck(value === true)}
-            label="I’ve confirmed with the client that this business has closed for good."
+            label={
+              terms.mode === "agency"
+                ? "I’ve confirmed with the client that this business has closed for good."
+                : "I’ve confirmed that this business has closed for good."
+            }
             labelClassName="text-ui"
           />
           <AlertDialogFooter>

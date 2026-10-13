@@ -443,8 +443,81 @@ export function useOverlayChrome() {
 }
 
 /**
+ * Marks a component as an overlay header (SheetHeader, DialogHeader), so
+ * `OverlayChrome` can keep it outside the drawer content: see
+ * `splitLeadingHeaders`.
+ */
+const OVERLAY_HEADER = Symbol.for("naba.overlay-header")
+
+export function markOverlayHeader<T extends object>(component: T): T {
+  Object.defineProperty(component, OVERLAY_HEADER, { value: true })
+  return component
+}
+
+function isOverlayHeader(node: React.ReactNode): boolean {
+  if (!React.isValidElement(node)) return false
+  const type = node.type as unknown
+  return (
+    (typeof type === "function" || typeof type === "object") &&
+    type !== null &&
+    (type as Record<symbol, unknown>)[OVERLAY_HEADER] === true
+  )
+}
+
+/**
+ * Split the content's leading headers (also inside a leading fragment) from
+ * everything after them. Keys come from `Children.toArray`, which numbers
+ * children by their place in the source, so a header that comes and goes
+ * does not remount the body.
+ */
+function splitLeadingHeaders(children: React.ReactNode): {
+  headers: React.ReactNode[]
+  rest: React.ReactNode[]
+} {
+  const items = React.Children.toArray(children)
+  const headers: React.ReactNode[] = []
+  let index = 0
+  while (index < items.length && isOverlayHeader(items[index])) {
+    headers.push(items[index])
+    index += 1
+  }
+  const next = items[index]
+  if (
+    headers.length === 0 &&
+    React.isValidElement<{ children?: React.ReactNode }>(next) &&
+    next.type === React.Fragment
+  ) {
+    const inner = splitLeadingHeaders(next.props.children)
+    if (inner.headers.length > 0) {
+      return {
+        headers: [
+          <React.Fragment key={next.key}>{inner.headers}</React.Fragment>,
+        ],
+        rest: [
+          <React.Fragment key={next.key}>{inner.rest}</React.Fragment>,
+          ...items.slice(index + 1),
+        ],
+      }
+    }
+  }
+  return { headers, rest: items.slice(index) }
+}
+
+/**
  * Provide the chrome context, and report whether a header has taken the
  * close button. `fallbackClose` renders where no header did.
+ *
+ * On every Drawer presentation (all but `dialog`) the content after the
+ * header is rendered inside Base UI's `Drawer.Content`. Base UI starts a
+ * mouse or pen swipe on any press it does not recognise as a control
+ * (`button, a, input, select, textarea, label, [role=button]`) and captures
+ * the pointer, so a press on a radio's span or a `<summary>` would never
+ * become a click. A press inside `Drawer.Content` is never a swipe start.
+ * The header stays outside it, so a mouse drag on the handle or the title
+ * still dismisses; touch swipes are arbitrated separately by Base UI and
+ * work from anywhere in the sheet, as before. The wrapper is
+ * `display: contents`, so the popup still lays out (and pins with
+ * `sticky`) its own children exactly as it did.
  */
 export function OverlayChrome({
   presentation,
@@ -460,9 +533,24 @@ export function OverlayChrome({
     () => ({ presentation, showCloseButton, hostClose: setHosted }),
     [presentation, showCloseButton]
   )
+  let body: React.ReactNode = children
+  if (presentation !== "dialog") {
+    const { headers, rest } = splitLeadingHeaders(children)
+    body = (
+      <>
+        {headers}
+        <DrawerPrimitive.Content
+          data-slot="overlay-content"
+          className="contents"
+        >
+          {rest}
+        </DrawerPrimitive.Content>
+      </>
+    )
+  }
   return (
     <OverlayChromeContext.Provider value={value}>
-      {children}
+      {body}
       {showCloseButton && !hosted ? <OverlayCloseButton /> : null}
     </OverlayChromeContext.Provider>
   )

@@ -315,6 +315,17 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     ]) {
       expect(screen.getByRole("heading", { name: title })).toBeInTheDocument()
     }
+    // Each filter keeps a group name without a landmark per section: a group
+    // named by its heading, or (Rating, Written review, Reply status) the
+    // control's own named group, never both.
+    const sheet = screen.getByRole("dialog", { name: "Filters" })
+    for (const title of ["Venue", "Assigned to", "Age", "Date range", "Sort"]) {
+      expect(within(sheet).getByRole("group", { name: title })).toBeVisible()
+    }
+    expect(
+      within(sheet).getAllByRole("group", { name: "Rating" })
+    ).toHaveLength(1)
+    expect(within(sheet).queryAllByRole("region")).toHaveLength(0)
     // The pipeline-state checkboxes and the saved presets stay gone: the
     // first filtered on a record's place in the publish pipeline, the second
     // duplicated controls already on the toolbar.

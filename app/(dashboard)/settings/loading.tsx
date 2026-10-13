@@ -1,9 +1,11 @@
 import { Skeleton } from "@/components/ui/skeleton"
 
 /**
- * The shape of a settings page while it loads: the title, the Policy ·
- * Connections tab row, then two cards. It claims nothing about what is
- * inside — only that a page is on its way.
+ * The shape of a settings page while it loads: the title and its line of
+ * description, the way round (the "All settings" link below md, the
+ * settings tab row from md), then two cards. It claims nothing about what is inside — only
+ * that a page is on its way — and is as tall as the real header, so nothing
+ * jumps when the page arrives.
  */
 export default function SettingsLoading() {
   return (
@@ -14,13 +16,18 @@ export default function SettingsLoading() {
     >
       <span className="sr-only">Loading settings</span>
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           <Skeleton className="h-8 w-52" />
-          <Skeleton className="h-4 w-96 max-w-full" />
+          <Skeleton className="h-5 w-full max-w-xl" />
+          <Skeleton className="h-5 w-2/3 max-w-md" />
         </div>
-        <div className="flex h-10 items-end gap-4 border-b border-line pb-2">
-          <Skeleton className="h-4 w-14" />
-          <Skeleton className="h-4 w-24" />
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-(--np-touch) w-28 md:hidden" />
+          <div className="flex h-11 items-end gap-4 overflow-hidden border-b border-line px-3 pb-3 max-md:hidden desk:h-10">
+            {["w-24", "w-24", "w-32", "w-20", "w-16"].map((width, index) => (
+              <Skeleton key={index} className={`h-4 shrink-0 ${width}`} />
+            ))}
+          </div>
         </div>
       </div>
       {[3, 2].map((rows, index) => (
@@ -28,9 +35,9 @@ export default function SettingsLoading() {
           key={index}
           className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
         >
-          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-5 w-1/3" />
           {Array.from({ length: rows }, (_, row) => (
-            <Skeleton key={row} className="h-9 w-full" />
+            <Skeleton key={row} className="h-(--np-control-h) w-full" />
           ))}
         </div>
       ))}

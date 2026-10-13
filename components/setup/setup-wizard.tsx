@@ -396,14 +396,18 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 data-slot="setup-footer"
                 className="sticky bottom-0 z-10 mt-auto flex flex-wrap items-center gap-2 rounded-b-(--np-radius-card) border-t border-line bg-surface-alt px-(--np-card-pad) pt-3 pb-[max(12px,env(safe-area-inset-bottom))]"
               >
+                {/* One row of buttons. The reason line shows only when it
+                    says why Continue is blocked; otherwise it stays for
+                    assistive tech (Continue's description, and the live
+                    region that announces a blocker), since the rail and the
+                    step header already say the step can be revisited. */}
                 <p
                   id="setup-continue-reason"
                   aria-live="polite"
                   className={cn(
-                    "order-first w-full text-caption @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right",
                     blocker
-                      ? "font-semibold text-warning-ink"
-                      : "text-ink-muted"
+                      ? "order-first w-full text-caption font-semibold text-warning-ink @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right"
+                      : "sr-only"
                   )}
                 >
                   {footerHint}
@@ -459,10 +463,16 @@ function WizardHeader({
       title={business ? "Setup" : "Client setup"}
       eyebrow={clientName ? `Setting up ${clientName}` : "Setting up"}
       description="Each step is worked out from what already exists, so you can leave and pick this up later."
-      actions={
+      // "Finish later" sits on the title row, compact, rather than in
+      // `actions`, which a phone stretches to a full-width row of its own
+      // above the step.
+      meta={
         <Link
           href={business ? "/listings" : `/clients/${clientId}`}
-          className={cn(buttonVariants({ variant: "ghost" }))}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "-mr-2 ml-auto"
+          )}
         >
           Finish later
         </Link>

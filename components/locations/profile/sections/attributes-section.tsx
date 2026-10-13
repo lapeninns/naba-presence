@@ -40,12 +40,24 @@ export function AttributesSection({
     [metadata]
   )
 
+  // Which rows differ from Google, worked out once per draft change rather
+  // than twice per row on every render of the profile.
+  const changedNames = useMemo(
+    () =>
+      new Set(
+        initial === undefined
+          ? []
+          : metadata
+              .filter((meta) => JSON.stringify(draft[meta.parent]) !== JSON.stringify(initial[meta.parent]))
+              .map((meta) => meta.parent)
+      ),
+    [metadata, draft, initial]
+  )
+
   if (metadata.length === 0) return null
 
-  const isChanged = (name: string) =>
-    initial !== undefined &&
-    JSON.stringify(draft[name]) !== JSON.stringify(initial[name])
-  const anyChanged = metadata.some((meta) => isChanged(meta.parent))
+  const isChanged = (name: string) => changedNames.has(name)
+  const anyChanged = changedNames.size > 0
 
   return (
     <SectionCard

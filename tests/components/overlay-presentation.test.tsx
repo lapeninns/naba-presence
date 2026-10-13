@@ -22,6 +22,7 @@ import {
 import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
 import {
   Sheet,
+  SheetBody,
   SheetContent,
   SheetFooter,
   SheetHeader,
@@ -254,6 +255,116 @@ describe("Sheet presentation", () => {
     expect(drawer).toHaveAttribute("data-presentation", "drawer")
     // The classes the shell's own navigation drawer is drawn with.
     expect(drawer).toHaveClass("left-0", "w-[min(var(--np-drawer-w),86vw)]")
+  })
+})
+
+/**
+ * Base UI's Drawer starts a mouse or pen swipe on any press it does not
+ * recognise as a control and captures the pointer, unless the press is
+ * inside `Drawer.Content` (`[data-drawer-content]`). Without it a click on
+ * a radio's span or a `<summary>` landed on the popup and did nothing. Pin
+ * that everything after the header is drawer content, and the header (the
+ * handle and title, where a mouse drag dismisses) is not.
+ */
+describe("Drawer content", () => {
+  const CONTENT = "[data-drawer-content]"
+
+  function expectHeaderOutsideBodyInside(
+    popup: HTMLElement,
+    headerSlot: string
+  ) {
+    const content = popup.querySelector(CONTENT)!
+    expect(content).toHaveAttribute("data-slot", "overlay-content")
+    // `display: contents`, a direct child: the popup lays out (and pins)
+    // its own children as before.
+    expect(content).toHaveClass("contents")
+    expect(content.parentElement).toBe(popup)
+    expect(popup.querySelectorAll(CONTENT)).toHaveLength(1)
+    const header = popup.querySelector(`[data-slot="${headerSlot}"]`)!
+    expect(header.closest(CONTENT)).toBeNull()
+    return content
+  }
+
+  it("renders a phone sheet's body and footer inside Drawer.Content", async () => {
+    asPhone(true)
+    render(
+      <Sheet defaultOpen>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Schedule post</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            <div role="radiogroup" aria-label="Repeat">
+              <label>
+                <input type="radio" name="repeat" value="once" /> Once
+              </label>
+            </div>
+            <details>
+              <summary>More options</summary>
+            </details>
+          </SheetBody>
+          <SheetFooter>
+            <Button>Schedule</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    )
+    const sheet = await screen.findByRole("dialog", { name: "Schedule post" })
+    expect(sheet).toHaveAttribute("data-presentation", "sheet")
+    const content = expectHeaderOutsideBodyInside(sheet, "sheet-header")
+    expect(
+      sheet.querySelector('[data-slot="overlay-grabber"]')!.closest(CONTENT)
+    ).toBeNull()
+    expect(content).toContainElement(
+      sheet.querySelector('[data-slot="sheet-body"]') as HTMLElement
+    )
+    expect(content).toContainElement(screen.getByRole("radio"))
+    expect(content).toContainElement(screen.getByText("More options"))
+    expect(content).toContainElement(
+      sheet.querySelector('[data-slot="sheet-footer"]') as HTMLElement
+    )
+  })
+
+  it("does the same for a panel, and for a header in a leading fragment", async () => {
+    asPhone(false)
+    render(
+      <Sheet defaultOpen>
+        <SheetContent>
+          <>
+            <SheetHeader>
+              <SheetTitle>Filters</SheetTitle>
+            </SheetHeader>
+            <SheetBody>
+              <input aria-label="Search" />
+            </SheetBody>
+          </>
+        </SheetContent>
+      </Sheet>
+    )
+    const panel = await screen.findByRole("dialog", { name: "Filters" })
+    expect(panel).toHaveAttribute("data-presentation", "panel")
+    const content = expectHeaderOutsideBodyInside(panel, "sheet-header")
+    expect(content).toContainElement(screen.getByRole("textbox"))
+  })
+
+  it("renders a Dialog's fields inside Drawer.Content when it is a sheet", async () => {
+    asPhone(true)
+    render(<EditDialog />)
+    const dialog = await screen.findByRole("dialog", { name: "Edit link" })
+    expect(dialog).toHaveAttribute("data-presentation", "sheet")
+    const content = expectHeaderOutsideBodyInside(dialog, "dialog-header")
+    expect(content).toContainElement(screen.getByRole("textbox"))
+    expect(content).toContainElement(
+      dialog.querySelector('[data-slot="dialog-footer"]') as HTMLElement
+    )
+  })
+
+  it("leaves a centred dialog, which has no gesture, unwrapped", async () => {
+    asPhone(false)
+    render(<EditDialog />)
+    const dialog = await screen.findByRole("dialog", { name: "Edit link" })
+    expect(dialog).toHaveAttribute("data-presentation", "dialog")
+    expect(dialog.querySelector(CONTENT)).toBeNull()
   })
 })
 

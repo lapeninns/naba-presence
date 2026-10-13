@@ -20,7 +20,7 @@ export function AdvertisingSection({ draft, setDraft, location, disabled, change
     {unsupported && <p role="status" className="text-ui text-ink-muted">The existing advertising data cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage advertising details in Google</a>, then refresh.</p>}
     <Field error={error}>
       <FieldLabel htmlFor="profile-ad-phone">Google Ads phone number</FieldLabel>
-      <Input id="profile-ad-phone" type="tel" maxLength={50} value={draft.adPhone ?? ""} disabled={disabled || unsupported} onChange={(event) => setDraft((current) => ({ ...current, adPhone: event.target.value }))} />
+      <Input id="profile-ad-phone" type="tel" inputMode="tel" autoComplete="off" maxLength={50} value={draft.adPhone ?? ""} disabled={disabled || unsupported} onChange={(event) => setDraft((current) => ({ ...current, adPhone: event.target.value }))} />
       <FieldDescription>Use the full number, including the country code. Leave blank to remove an existing override. Your public primary and additional phone numbers are separate. Review and publish to request the change.</FieldDescription>
       <FieldError />
     </Field>

@@ -91,7 +91,7 @@ export function PostCard({
         <div className="flex min-w-0 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
             {topic ? (
-              <span className="inline-flex h-[22px] items-center rounded-sm border border-line px-1.5 text-caption font-medium text-ink-secondary">
+              <span className="inline-flex h-6 items-center rounded-sm border border-line px-1.5 text-caption font-medium text-ink-secondary">
                 {topic}
               </span>
             ) : null}

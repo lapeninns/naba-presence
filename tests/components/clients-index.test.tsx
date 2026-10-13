@@ -195,8 +195,10 @@ describe("ClientsIndex", () => {
     const strip = await screen.findByRole("group", { name: "Filter by health" })
     const chosen = within(strip).getByRole("button", { pressed: true })
     expect(chosen).toHaveTextContent("Partially checked2")
-    const list = screen.getByRole("list", { name: "Clients" })
-    const cards = within(list).getAllByRole("link")
+    const table = screen.getByRole("table", {
+      name: "Clients, with their Google health and open review work",
+    })
+    const cards = within(table).getAllByRole("row").slice(1)
     expect(cards).toHaveLength(2)
     for (const card of cards)
       expect(card).toHaveTextContent("Partially checked")
@@ -228,15 +230,17 @@ describe("ClientsIndex", () => {
       },
     ])
     renderIndex()
-    const list = await screen.findByRole("list", { name: "Clients" })
+    const table = await screen.findByRole("table", {
+      name: "Clients, with their Google health and open review work",
+    })
     expect(
-      within(list)
-        .getAllByRole("link")
+      within(table)
+        .getAllByRole("link", { name: /Bar|Bistro|Cafe/ })
         .map((link) => link.getAttribute("href"))
     ).toEqual(["/clients/broken", "/clients/setup", "/clients/busy"])
   })
 
-  it("draws each client on a phone as one link with its health word and open work", async () => {
+  it("lays each client out as one tappable record card on a phone", async () => {
     stub([
       {
         ...base,
@@ -245,14 +249,31 @@ describe("ClientsIndex", () => {
       },
     ])
     renderIndex()
-    const list = await screen.findByRole("list", { name: "Clients" })
-    const [card] = within(list).getAllByRole("link")
-    expect(card).toHaveAttribute("href", "/clients/c1")
-    expect(card).toHaveTextContent("Action needed")
-    expect(card).toHaveTextContent("3open reviews")
-    expect(card).toHaveTextContent(
-      "3 listings · Google login needs reconnecting"
-    )
+    // One table at every width; the record card comes from the column
+    // priorities, so there is no second phone-only list to keep in step.
+    const table = await screen.findByRole("table", {
+      name: "Clients, with their Google health and open review work",
+    })
+    expect(
+      screen.queryByRole("list", { name: "Clients" })
+    ).not.toBeInTheDocument()
+    const [, row] = within(table).getAllByRole("row")
+    expect(row).toHaveAttribute("data-interactive")
+    const cell = (priority: string) =>
+      Array.from(row.querySelectorAll(`td[data-priority="${priority}"]`))
+    // The name link is the keyboard route and carries only the name.
+    const name = within(cell("primary")[0] as HTMLElement).getByRole("link")
+    expect(name).toHaveAccessibleName("Old Crown Group")
+    expect(name).toHaveAttribute("href", "/clients/c1")
+    expect(cell("secondary")[0]).toHaveTextContent("Action needed")
+    expect(cell("trailing")[0]).toHaveTextContent("2 to reply· 1 approval")
+    expect(cell("meta").map((td) => td.getAttribute("data-label"))).toEqual([
+      "Linked",
+      "Synced",
+    ])
+    // A tap anywhere on the card opens the client.
+    fireEvent.click(row)
+    expect(push).toHaveBeenCalledWith("/clients/c1")
   })
 
   it("keeps the name search in the address, written once typing pauses", async () => {
