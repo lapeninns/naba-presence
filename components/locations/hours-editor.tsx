@@ -704,7 +704,7 @@ export function HoursEditor({
                       aria-hidden
                       className="w-14 overflow-hidden rounded-(--np-radius-control) border border-line bg-surface text-center"
                     >
-                      <span className="block bg-fill py-0.5 font-mono text-caption tracking-wide text-ink-secondary uppercase">
+                      <span className="block bg-fill py-0.5 font-mono text-count tracking-wide text-ink-secondary uppercase">
                         {validDate
                           ? date.toLocaleDateString("en-GB", { month: "short" })
                           : "Date"}
@@ -784,7 +784,7 @@ export function HoursEditor({
                         </SegmentedControl>
                         {changed ? <ChangedMark /> : null}
                         {past ? (
-                          <span className="rounded-(--np-radius-tag) bg-fill px-1.5 text-caption font-semibold text-ink-secondary">
+                          <span className="rounded-(--np-radius-tag) bg-fill px-1.5 text-count font-semibold text-ink-secondary">
                             Past
                           </span>
                         ) : null}

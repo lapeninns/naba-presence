@@ -353,7 +353,7 @@ function ReviewList({
                     <time
                       dateTime={review.createTime}
                       title={exactTime}
-                      className="ml-auto shrink-0 font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums"
+                      className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
                     >
                       <span aria-hidden>
                         {listTime(review.createTime, timezone)}

@@ -30,7 +30,7 @@ function Kbd({
       data-slot="kbd"
       data-variant={variant}
       className={cn(
-        "h-5 min-w-5 items-center justify-center font-mono text-caption text-ink-muted tabular-nums",
+        "h-5 min-w-5 items-center justify-center font-mono text-count text-ink-muted tabular-nums",
         touch === "hide" ? "hidden desk:inline-flex" : "inline-flex",
         variant === "keycap" &&
           "rounded-sm border border-b-2 border-line bg-surface px-1",

@@ -381,7 +381,7 @@ describe("Chip", () => {
       </>
     )
     for (const figure of [screen.getByText("4"), screen.getByText("7")]) {
-      expect(figure.className).toContain("--np-text-count")
+      expect(figure).toHaveClass("text-count")
       expect(figure.className).not.toMatch(/text-\[\d/)
     }
     // tailwind-merge keeps the colour beside the count size.

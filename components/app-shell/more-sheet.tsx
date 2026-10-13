@@ -238,7 +238,7 @@ function MoreSheetContent({
                   {count > 0 ? (
                     <span
                       aria-hidden
-                      className="rounded-full bg-primary px-2 py-0.5 font-mono text-caption text-primary-foreground tabular-nums"
+                      className="rounded-full bg-primary px-2 py-0.5 font-mono text-count text-primary-foreground tabular-nums"
                     >
                       {count > 99 ? "99+" : count}
                     </span>

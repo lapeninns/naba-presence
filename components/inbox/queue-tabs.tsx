@@ -146,7 +146,7 @@ function QueueTabs({
                 <span
                   aria-hidden
                   className={cn(
-                    "font-mono text-caption tabular-nums",
+                    "font-mono text-count tabular-nums",
                     alert
                       ? "font-semibold text-danger-ink"
                       : active

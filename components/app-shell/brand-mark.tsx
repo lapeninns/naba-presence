@@ -88,7 +88,7 @@ function BrandMark({
         {subtitle ? (
           <span
             className={cn(
-              "truncate font-mono text-[11px] leading-[14px] tracking-[0.02em]",
+              "truncate font-mono text-count tracking-[0.02em]",
               inverse ? "text-ink-muted-on-charcoal" : "text-ink-muted"
             )}
             translate="no"

@@ -15,6 +15,7 @@ import {
   useState,
 } from "react"
 
+import { COUNT_TEXT_CLASS } from "@/components/ui/count-text"
 import { useFieldTriggerProps } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
@@ -547,8 +548,7 @@ function SegmentedControlItem({
               and `gap` does the spacing. */}{" "}
           <span
             data-slot="segmented-control-count"
-            // design-exempt R1: the 11.5px mono count figure Chip, Select and Combobox draw; no type role for it yet
-            className="font-mono text-[11.5px] leading-none text-ink-muted tabular-nums"
+            className={cn(COUNT_TEXT_CLASS, "text-ink-muted")}
           >
             {count}
           </span>

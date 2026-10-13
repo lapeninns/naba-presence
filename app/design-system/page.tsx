@@ -262,6 +262,11 @@ const TYPE_ROLES: Array<[string, string, string]> = [
     "Synced 12 min ago · Sample figures",
   ],
   [
+    "Count · 12/16",
+    "text-count font-medium tabular-nums text-ink-muted",
+    "Needs reply 12 · 140 / 1,500",
+  ],
+  [
     "Meta · mono 12",
     "font-mono text-caption text-ink-muted",
     "PROVIDER_PERMISSION_DENIED · 17 Sep, 18:02",

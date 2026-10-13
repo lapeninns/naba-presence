@@ -77,6 +77,7 @@ data), B's recolouring and serif removal.
 | Role              | Touch | Desk        | Use                         |
 | ----------------- | ----- | ----------- | --------------------------- |
 | `text-caption`    | 13/18 | 12/16       | Meta, hints, timestamps     |
+| `text-count`      | 13/16 | 12/16       | Counts and badges, key caps |
 | `text-ui`         | 15/20 | 13/20       | Controls, nav, labels       |
 | `text-body`       | 16/24 | 14/22       | Running text, field values  |
 | `text-title`      | 17/24 | 16/24       | `h3`, card titles           |
@@ -85,7 +86,10 @@ data), B's recolouring and serif removal.
 | `text-display`    | 32    | 28-36 fluid | Rare hero figures           |
 | `text-reading`    | 17/28 | 17/28       | The customer's words, serif |
 
-Nothing below 13px on touch or 12px on desk. Field text is `text-body`, so
+Nothing below 13px on touch or 12px on desk. A number set beside a label (a
+tab's queue size, a field's character count, a step number, a key cap) is
+`text-count`, never an arbitrary `text-[11px]`: caption's size on a 16px
+line, so a pill or tab keeps its height. Field text is `text-body`, so
 it is 16px on touch and iOS never zooms on focus.
 
 ### Size, chrome and layers
