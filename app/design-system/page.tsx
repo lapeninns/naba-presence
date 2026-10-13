@@ -935,7 +935,7 @@ export default function Page() {
           <div id="ds-data" className="flex scroll-mt-4 flex-col gap-4">
             <Specimen
               title="Tables"
-              note="Labelled rows below 720px of the table’s own width. Figures are mono and right-aligned."
+              note="Labelled rows below 48rem of the table’s own width. Figures are mono and right-aligned."
             >
               <Table surface responsive>
                 <caption className="sr-only">Locations, sample</caption>
