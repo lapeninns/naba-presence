@@ -28,6 +28,10 @@ import type { BackTarget } from "@/lib/navigation/back-target"
  * where it came from.
  * `title` replaces the h1 text in the phone app bar; keep it the h1's
  * words, shortened if anything, never different ones.
+ * `count` puts a muted view count after that title ("Inbox 12", the Notion
+ * Mail header); `countLabel` says what it counts ("need a reply"). The
+ * echo is visual only, so keep the count in the page's own h1 or region
+ * for assistive technology. Leave `count` out (or 0) and no count shows.
  *
  * The override lives only while the page that rendered it is mounted, so a
  * route change can never leave one page's back control on the next.
@@ -35,6 +39,10 @@ import type { BackTarget } from "@/lib/navigation/back-target"
 export type PageChromeOverride = {
   back?: ShellBackTarget | null
   title?: string
+  /** A view count shown, muted, after the title in the phone app bar. */
+  count?: number
+  /** What `count` counts, e.g. "need a reply". */
+  countLabel?: string
 }
 
 /** A back target, with the page's own handler when it declared one. */
@@ -82,10 +90,16 @@ function PageChromeProvider({ children }: { children: React.ReactNode }) {
 function PageChrome({
   back,
   title,
+  count,
+  countLabel,
   onBack,
 }: {
   back?: BackTarget | null
   title?: string
+  /** A muted view count after the title in the phone app bar. */
+  count?: number
+  /** What `count` counts, e.g. "need a reply". */
+  countLabel?: string
   /** Runs instead of following `back.href` on a plain activation. */
   onBack?: () => void
 }) {
@@ -118,8 +132,20 @@ function PageChrome({
           : null
     }
     if (title !== undefined) value.title = title
+    if (count !== undefined) value.count = count
+    if (countLabel !== undefined) value.countLabel = countLabel
     set(owner, value)
-  }, [set, owner, hasBack, backHref, backLabel, hasHandler, title])
+  }, [
+    set,
+    owner,
+    hasBack,
+    backHref,
+    backLabel,
+    hasHandler,
+    title,
+    count,
+    countLabel,
+  ])
 
   React.useEffect(() => () => set?.(owner, null), [set, owner])
 

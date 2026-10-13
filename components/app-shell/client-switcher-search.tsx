@@ -67,8 +67,8 @@ function ClientSearchList({
           aria-current={current === null ? "true" : undefined}
           onSelect={() => onChoose(null)}
         >
-          <CurrentMark current={current === null} />
           <AllClientsOption />
+          <CurrentMark current={current === null} />
         </CommandItem>
         <CommandSeparator />
         {clients.map((entry) => (
@@ -79,8 +79,8 @@ function ClientSearchList({
             aria-current={entry.id === current ? "true" : undefined}
             onSelect={() => onChoose(entry.id)}
           >
-            <CurrentMark current={entry.id === current} />
             <ClientOption client={entry} />
+            <CurrentMark current={entry.id === current} />
           </CommandItem>
         ))}
       </CommandList>

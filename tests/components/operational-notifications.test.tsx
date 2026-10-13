@@ -213,6 +213,24 @@ describe("NotificationsView interactions", () => {
     expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false)
   })
 
+  it("draws the actions as new buttons after the question, never the question's", async () => {
+    stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 1 }))
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    const questionButtons = screen
+      .getByRole("group", { name: "Resolve Publishing failed?" })
+      .querySelectorAll("button")
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    // A reused node would carry the green confirm button's colour into a
+    // ghost action mid transition (axe caught it in e2e).
+    const actions = screen.getAllByRole("button")
+    for (const button of questionButtons) {
+      expect(actions).not.toContain(button)
+    }
+  })
+
   it("names the pending confirm by the words it shows", async () => {
     let release: () => void = () => {}
     vi.stubGlobal(
@@ -314,6 +332,83 @@ describe("NotificationsView interactions", () => {
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).not.toMatch(/relation/)
     expect(alert.textContent?.length).toBeGreaterThan(0)
+  })
+})
+
+describe("NotificationsView rows and empty states", () => {
+  it("says unread with weight, a dot and a word, and read in the regular weight", async () => {
+    stub(() => ({
+      items: [
+        item({}),
+        item({
+          id: "44444444-4444-4444-8444-444444444444",
+          kind: "listing_access_lost",
+          readAt: "2026-09-30T11:00:00.000Z",
+        }),
+      ],
+      nextCursor: null,
+      unreadCount: 1,
+    }))
+    renderWith(<NotificationsView />)
+    const unreadTitle = (await screen.findByText("Publishing failed"))
+      .parentElement!
+    expect(unreadTitle).toHaveClass("font-semibold", "text-ink")
+    // The word is there for assistive technology; the dot only reinforces it.
+    expect(unreadTitle).toHaveTextContent("Publishing failed(unread)")
+    expect(
+      unreadTitle.querySelector('[data-slot="unread-dot"]')
+    ).toHaveAttribute("aria-hidden")
+    const readTitle = screen.getByText("Listing access lost").parentElement!
+    expect(readTitle).toHaveClass("font-normal", "text-ink-secondary")
+    expect(readTitle).not.toHaveClass("font-semibold")
+    expect(readTitle).not.toHaveTextContent("(unread)")
+    expect(screen.getAllByText("(unread)")).toHaveLength(1)
+    expect(screen.getAllByText("(unread)")[0]).toHaveClass("sr-only")
+    // No row tint: unread is weight and the dot, not a background.
+    for (const row of screen.getAllByRole("listitem"))
+      expect(row).not.toHaveClass("bg-surface-alt")
+  })
+
+  it("says why the list is empty and what will appear", async () => {
+    stub(() => ({ items: [], nextCursor: null, unreadCount: 0 }))
+    renderWith(<NotificationsView />)
+    expect(
+      await screen.findByRole("heading", { name: "No notifications yet" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Problems with Google connections, publishing and syncs/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Show all notifications" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers All from an empty filtered view", async () => {
+    nav.set("filter=unread")
+    const calls = stub(() => ({ items: [], nextCursor: null, unreadCount: 0 }))
+    renderWith(<NotificationsView />)
+    expect(
+      await screen.findByRole("heading", {
+        name: "Nothing matches this filter",
+      })
+    ).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all notifications" })
+    )
+    expect(nav.search).toBe("")
+    expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.url.includes("/api/notifications") &&
+            call.url.includes("filter=all")
+        )
+      ).toBe(true)
+    )
   })
 })
 

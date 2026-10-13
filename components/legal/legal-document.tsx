@@ -1,3 +1,4 @@
+import { ChevronLeft } from "lucide-react"
 import Link from "next/link"
 
 import { BrandMark } from "@/components/app-shell/brand-mark"
@@ -50,28 +51,31 @@ function LegalDocument({
 }) {
   assertLegalDetailsForProduction()
   return (
-    <div className="flex min-h-svh flex-col bg-canvas px-safe pb-safe">
+    <div className="flex min-h-svh flex-col bg-canvas pt-safe px-safe pb-safe">
       <a
         href="#main"
         className="sr-only z-skip-link rounded-full bg-primary px-4 py-2 text-ui font-semibold text-primary-foreground focus-halo focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus-visible:outline-none print:hidden"
       >
         Skip to content
       </a>
+      <header className="mx-auto flex h-(--np-appbar-h) w-full max-w-3xl items-center px-2 sm:mt-6 sm:px-4">
+        <Link
+          href="/"
+          className="inline-flex min-h-(--np-touch) items-center gap-1 rounded-md px-2 text-ink-secondary focus-halo hover-fine:bg-fill focus-visible:outline-none"
+          aria-label="NabaPresence home"
+        >
+          <ChevronLeft aria-hidden className="size-5" strokeWidth={1.5} />
+          <BrandMark />
+        </Link>
+      </header>
       <main
         id="main"
         tabIndex={-1}
-        className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-6 px-4 pt-6 pb-4 outline-none sm:px-6 sm:pt-16"
+        className="mx-auto flex w-full max-w-3xl min-w-0 flex-col pt-2 pb-4 outline-none sm:px-6 sm:pt-4"
       >
-        <Link
-          href="/"
-          className="inline-flex min-h-(--np-touch) items-center self-start rounded-sm focus-halo focus-visible:outline-none"
-          aria-label="NabaPresence home"
-        >
-          <BrandMark />
-        </Link>
-        <article className="flex min-w-0 flex-col gap-8 rounded-(--np-radius-panel) bg-surface p-5 wrap-break-word sm:p-10 [&_code]:font-mono [&_code]:wrap-anywhere">
+        <article className="flex min-w-0 flex-col gap-8 px-4 py-4 wrap-break-word sm:rounded-(--np-radius-panel) sm:bg-surface sm:p-10 [&_code]:font-mono [&_code]:wrap-anywhere">
           <header className="flex flex-col gap-2">
-            <h1 className="text-page-title font-bold text-balance text-ink">
+            <h1 className="text-page-title font-semibold text-balance text-ink">
               {title}
             </h1>
             <p className="text-ui text-ink-muted">
@@ -116,7 +120,7 @@ function LegalSection({
 }) {
   return (
     <section aria-labelledby={id} className="flex min-w-0 flex-col gap-3">
-      <h2 id={id} className="text-section font-semibold text-ink">
+      <h2 id={id} className="text-title font-semibold text-ink">
         {title}
       </h2>
       <div

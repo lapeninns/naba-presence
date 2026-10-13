@@ -51,7 +51,8 @@ function isMoreActive(pathname: string | null) {
 /**
  * The persistent column's row, drawn by one markup at two widths:
  *
- * - from 1180px (`wide`), a 240px sidebar row: icon, label and count in a
+ * - from 1180px (`wide`), a 240px sidebar row: icon, label and the count
+ *   as plain right-aligned figures (Notion Mail's drawer, no pill) in a
  *   line, 34px where a cursor drives it, 44px on touch;
  * - from 768 to 1180, a rail tile: the icon above a visible label (an
  *   iPad cannot hover, so a tooltip was no label at all), at least 56px
@@ -190,7 +191,7 @@ function NavRow({
           <span
             aria-hidden
             className={cn(
-              "ml-auto font-mono text-count tabular-nums md:max-wide:hidden",
+              "ml-auto text-count font-normal tabular-nums md:max-wide:hidden",
               active ? "text-accent-ink" : "text-ink-muted"
             )}
           >
@@ -334,10 +335,12 @@ function Nav({
               aria-controls={moreListId}
               aria-describedby={more.currentInside ? moreCurrentId : undefined}
               onClick={more.toggle}
+              // The group's label, quiet like Notion Mail's drawer headings;
+              // it takes the accent only while it hides the current page.
               className={cn(
                 ROW_CLASS,
                 "max-wide:hidden",
-                more.currentInside && "text-accent-ink"
+                more.currentInside ? "text-accent-ink" : "text-ink-muted"
               )}
             >
               <MoreIcon
