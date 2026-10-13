@@ -44,8 +44,8 @@ const ROW_CLASS = cn(
   "aria-[current=page]:bg-accent-tint aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink"
 )
 
-/** A group's label: sentence case, quiet, above its rows. */
-const GROUP_LABEL_CLASS = "px-3 pb-1 text-ui font-medium text-ink-muted"
+/** A group's label: sentence case, quiet, above its rows (D8). */
+const GROUP_LABEL_CLASS = "px-3 pb-1 text-caption font-medium text-ink-muted"
 
 const ICON_CLASS = "size-5 shrink-0 text-ink-muted"
 

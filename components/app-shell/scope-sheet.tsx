@@ -1,12 +1,14 @@
 "use client"
 
-import { ChevronLeft, ChevronRight, MapPin } from "lucide-react"
+import { Building2, ChevronRight, MapPin } from "lucide-react"
 import * as React from "react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
 import { Input } from "@/components/ui/input"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import {
   Sheet,
+  SheetBack,
   SheetBody,
   SheetContent,
   SheetDescription,
@@ -21,7 +23,7 @@ import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
-import { AllClientsMark, CurrentMark, HealthDot } from "./client-scope-rows"
+import { HealthDot } from "./client-scope-rows"
 import {
   SEARCH_THRESHOLD,
   announceSwitch,
@@ -32,14 +34,14 @@ import {
 } from "./scope-sheet-model"
 
 /**
- * The phone's scope switcher, after Notion Mail's account switcher: a bottom
- * sheet titled "Working on" whose rows are the scopes, the current one
- * ticked. Choosing applies at once, closes the sheet, and a toast names the
+ * The phone's scope switcher, after Notion Mail's account switcher: an
+ * inset sheet (a floating card above the dock) titled "Working on" whose
+ * option rows are the scopes, the current one ticked. Choosing applies at once, closes the sheet, and a toast names the
  * new scope ("Switched to Harbour Kitchen").
  *
  * - Agency: All clients and each client, health in words. A client's
  *   trailing chevron pushes, inside the sheet, to that client's locations
- *   ("‹ All clients" goes back).
+ *   ("‹ Back", named "Back to All clients", goes back).
  * - Business: All locations and each location. Never the word "client".
  *
  * Past eight rows the showing view gets a plain search field (not cmdk: a
@@ -89,7 +91,6 @@ function AgencyScopeSheet({ open, onOpenChange }: SheetProps) {
   const [pushedId, setPushedId] = React.useState<string | null>(null)
   const [query, setQuery] = useSheetQuery(open, () => setPushedId(null))
 
-  const titleRef = React.useRef<HTMLHeadingElement>(null)
   const pushButtons = React.useRef(new Map<string, HTMLButtonElement>())
   const returnTo = React.useRef<string | null>(null)
 
@@ -99,12 +100,12 @@ function AgencyScopeSheet({ open, onOpenChange }: SheetProps) {
     ? (list.find((entry) => entry.id === pushedId) ?? null)
     : null
 
-  // In-sheet push: focus moves to the new view's title, and back returns it
-  // to the chevron that pushed.
+  // In-sheet push: the header's `page` moves focus to the new view's title
+  // (SheetHeader). Back returns it to the chevron that pushed instead: this
+  // effect runs after the header's (a parent's effects follow its
+  // children's), so the chevron wins over the "Working on" title.
   React.useEffect(() => {
-    if (pushedId) {
-      titleRef.current?.focus()
-    } else if (returnTo.current) {
+    if (!pushedId && returnTo.current) {
       pushButtons.current.get(returnTo.current)?.focus()
       returnTo.current = null
     }
@@ -146,14 +147,14 @@ function AgencyScopeSheet({ open, onOpenChange }: SheetProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom">
-        <SheetHeader>
-          {pushed ? <BackControl label="All clients" onBack={back} /> : null}
-          <SheetTitle
-            ref={titleRef}
-            tabIndex={-1}
-            className="truncate text-title font-semibold outline-none"
-          >
+      <SheetContent variant="inset">
+        <SheetHeader
+          page={pushed ? `client:${pushed.id}` : "clients"}
+          back={
+            pushed ? <SheetBack to="All clients" onClick={back} /> : undefined
+          }
+        >
+          <SheetTitle className="max-w-full truncate">
             {pushed ? pushed.name : "Working on"}
           </SheetTitle>
           <SheetDescription>
@@ -162,7 +163,7 @@ function AgencyScopeSheet({ open, onOpenChange }: SheetProps) {
               : "Inbox, Listings and Reports show this client. Choose All clients to see everything."}
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="pb-[max(--spacing(5),var(--np-safe-bottom))]">
+        <SheetBody>
           {pushed ? (
             <ClientLocations
               client={pushed}
@@ -230,7 +231,7 @@ function ClientRows({
             key: null,
             name: "All clients",
             checked: scoped === null,
-            mark: <AllMark />,
+            mark: <Building2 />,
             onChoose: () => onChoose(null),
           },
         ]
@@ -239,7 +240,7 @@ function ClientRows({
       key: entry.id,
       name: entry.name,
       checked: entry.id === scoped,
-      mark: <ClientAvatar name={entry.name} colour={entry.colour} />,
+      mark: <ClientAvatar name={entry.name} colour={entry.colour} size="xs" />,
       sub: {
         words: healthLabel(entry.health),
         dot: <HealthDot client={entry} />,
@@ -254,7 +255,7 @@ function ClientRows({
           : undefined,
     })),
   ]
-  return <ScopeRadioGroup label="Client" rows={rows} pushRef={pushRef} />
+  return <ScopeOptions label="Client" rows={rows} pushRef={pushRef} />
 }
 
 /**
@@ -307,7 +308,13 @@ function ClientLocations({
             key: null,
             name: all,
             checked: clientInScope && !located,
-            mark: <ClientAvatar name={client.name} colour={client.colour} />,
+            mark: (
+              <ClientAvatar
+                name={client.name}
+                colour={client.colour}
+                size="xs"
+              />
+            ),
             onChoose: onChooseClient,
           },
         ]
@@ -316,7 +323,7 @@ function ClientLocations({
       key: entry.id,
       name: entry.name,
       checked: entry.id === currentLocation,
-      mark: <LocationMark />,
+      mark: <MapPin />,
       sub: wordsFor(entry),
       onChoose: () => onChooseLocation(entry),
     })),
@@ -331,11 +338,11 @@ function ClientLocations({
           onChange={onQuery}
         />
       ) : null}
-      <p id={groupId} className="text-ui font-medium text-ink-muted">
+      <p id={groupId} className="px-3 text-caption font-medium text-ink-muted">
         Locations
       </p>
       {rows.length ? (
-        <ScopeRadioGroup labelledBy={groupId} rows={rows} />
+        <ScopeOptions labelledBy={groupId} rows={rows} />
       ) : (
         <NoMatch>No location matches that.</NoMatch>
       )}
@@ -372,7 +379,7 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
             key: null,
             name: "All locations",
             checked: !located,
-            mark: <AllMark />,
+            mark: <Building2 />,
             onChoose: chooseAll,
           },
         ]
@@ -381,7 +388,7 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
       key: entry.id,
       name: entry.name,
       checked: entry.id === locations.current,
-      mark: <LocationMark />,
+      mark: <MapPin />,
       sub: wordsFor(entry),
       onChoose: () => choose(entry),
     })),
@@ -389,17 +396,15 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom">
+      <SheetContent variant="inset">
         <SheetHeader>
-          <SheetTitle className="text-title font-semibold">
-            Working on
-          </SheetTitle>
+          <SheetTitle>Working on</SheetTitle>
           <SheetDescription>
             Inbox and Reports narrow to the location you choose; anywhere else
             opens its listing.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="pb-[max(--spacing(5),var(--np-safe-bottom))]">
+        <SheetBody>
           {!directory.data ? (
             <NoMatch>
               {directory.isError
@@ -416,7 +421,7 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
                 />
               ) : null}
               {rows.length ? (
-                <ScopeRadioGroup label="Location" rows={rows} />
+                <ScopeOptions label="Location" rows={rows} />
               ) : (
                 <NoMatch>No location matches that.</NoMatch>
               )}
@@ -431,26 +436,6 @@ function BusinessScopeSheet({ open, onOpenChange }: SheetProps) {
 function wordsFor(entry: DirectoryEntry): ScopeRow["sub"] {
   const words = locationStatusWords(entry)
   return words ? { words } : undefined
-}
-
-/** The labelled back control of an in-sheet push: "‹ All clients". */
-function BackControl({ label, onBack }: { label: string; onBack: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onBack}
-      aria-label={`Back to ${label}`}
-      data-slot="scope-sheet-back"
-      className={cn(
-        "-ml-2 flex min-h-11 w-fit items-center gap-1 rounded-(--np-radius-pill) pr-3 pl-1 text-ui font-medium text-ink-secondary",
-        "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
-        "focus-halo focus-visible:outline-none"
-      )}
-    >
-      <ChevronLeft aria-hidden className="size-5 shrink-0" strokeWidth={1.75} />
-      {label}
-    </button>
-  )
 }
 
 /**
@@ -485,13 +470,6 @@ function NoMatch({ children }: { children: React.ReactNode }) {
   return <p className="py-6 text-center text-ui text-ink-muted">{children}</p>
 }
 
-/** The neutral 32px mark for "everything" (All clients, All locations). */
-function AllMark() {
-  return (
-    <AllClientsMark className="size-8 rounded-(--np-radius-control) text-ink-muted" />
-  )
-}
-
 /** The neutral 32px mark for one location: a pin, never a status colour. */
 function LocationMark({ className }: { className?: string }) {
   return (
@@ -512,6 +490,7 @@ type ScopeRow = {
   key: string | null
   name: string
   checked: boolean
+  /** The 20px leading icon (OptionRow's icon slot): avatar, pin or All. */
   mark: React.ReactNode
   /** Status in words (with an optional tone dot that only reinforces them). */
   sub?: { words: string; dot?: React.ReactNode }
@@ -520,19 +499,26 @@ type ScopeRow = {
   push?: { label: string; onPush: () => void }
 }
 
+const ROW_SELECTOR = '[data-slot="option-row"]:not(:disabled)'
+const PUSH_SELECTOR = '[data-slot="scope-sheet-push"]'
+
 /**
- * The sheet's list as a radio group: one choice, the checked one is the
- * scope. Arrow keys move between rows (one Tab stop for the whole group,
- * the roving-tabindex pattern), and Enter or Space chooses. Arrows only
- * move here rather than also choosing, as a plain radio group would,
- * because choosing navigates and closes the sheet; walking the list must
- * not switch the scope at every step.
+ * The sheet's list: `OptionRowGroup` in its apply-on-choose mode (a
+ * listbox of options, the current scope selected and ticked). Arrow keys
+ * only move between rows (one Tab stop for the whole list, roving
+ * tabindex), and Enter, Space or a tap chooses: choosing navigates and
+ * closes the sheet, so walking the list must not switch the scope at every
+ * step.
  *
- * A row's chevron (a client's locations) is a separate button after its
- * radio: Tab from a row reaches that row's chevron only, so a long list is
- * still two Tab stops, not one per client.
+ * A client's chevron (its locations) is a separate 44px button beside its
+ * row, never inside the option, and outside the listbox, which may only
+ * hold options: the listbox and the chevron column share one grid
+ * (subgrid rows), so each chevron sits level with its row. Only the
+ * focused row's chevron is in the Tab order, so Tab from a row reaches that
+ * row's chevron and a long list is still two Tab stops. Arrows from a
+ * chevron move on to the rows, as they do from a row.
  */
-function ScopeRadioGroup({
+function ScopeOptions({
   rows,
   label,
   labelledBy,
@@ -545,8 +531,6 @@ function ScopeRadioGroup({
   pushRef?: (key: string, node: HTMLButtonElement | null) => void
 }) {
   const keys = rows.map((row) => row.key)
-  // The Tab stop is the checked row, or the first row while the filter has
-  // hidden it (or nothing is checked).
   const checked = rows.find((row) => row.checked)
   const tabStop = checked ? checked.key : keys[0]
   const [active, setActive] = React.useState<string | null | undefined>(
@@ -556,7 +540,12 @@ function ScopeRadioGroup({
     active !== undefined && keys.includes(active) ? active : tabStop
   const hasPush = rows.some((row) => row.push)
 
+  /** Arrow keys on a chevron move to the rows, as the group's own do. */
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const from = (event.target as HTMLElement).closest<HTMLElement>(
+      PUSH_SELECTOR
+    )
+    if (!from) return
     const step =
       event.key === "ArrowDown" || event.key === "ArrowRight"
         ? 1
@@ -565,134 +554,94 @@ function ScopeRadioGroup({
           : 0
     const edge = event.key === "Home" ? 0 : event.key === "End" ? -1 : null
     if (!step && edge === null) return
-    const radios = Array.from(
-      event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+    const options = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(ROW_SELECTOR)
     )
-    if (!radios.length) return
+    if (!options.length) return
     event.preventDefault()
-    const row = (document.activeElement as HTMLElement | null)?.closest(
-      "[data-scope-row]"
-    )
-    const at = radios.findIndex(
-      (radio) => radio.closest("[data-scope-row]") === row
-    )
+    const at = Number(from.dataset.rowIndex ?? 0)
     const next =
       edge === 0
         ? 0
         : edge === -1
-          ? radios.length - 1
-          : (Math.max(at, 0) + step + radios.length) % radios.length
-    radios[next]?.focus()
+          ? options.length - 1
+          : (at + step + options.length) % options.length
+    options[next]?.focus()
   }
 
-  return (
-    <div
-      role="radiogroup"
-      aria-label={labelledBy ? undefined : label}
+  const group = (
+    <OptionRowGroup
+      applyOnChoose
+      label={labelledBy ? undefined : label}
       aria-labelledby={labelledBy}
-      onKeyDown={onKeyDown}
-      className="-mx-2 flex flex-col"
+      className={cn(
+        hasPush && "col-start-1 row-span-(--scope-rows) grid grid-rows-subgrid"
+      )}
+      style={
+        hasPush
+          ? ({ "--scope-rows": rows.length } as React.CSSProperties)
+          : undefined
+      }
     >
       {rows.map((row) => (
-        <ScopeRadio
+        <OptionRow
           key={row.key ?? "__all__"}
-          row={row}
-          tabbable={tabStop === row.key}
-          pushTabbable={focusRow === row.key}
-          reserveChevron={hasPush}
-          onFocusRow={() => setActive(row.key)}
-          pushRef={
-            pushRef && row.key !== null
-              ? (node) => pushRef(row.key!, node)
-              : undefined
+          indicator="check"
+          selected={row.checked}
+          icon={row.mark}
+          label={<span className="block truncate">{row.name}</span>}
+          description={
+            row.sub ? (
+              <span className="flex items-center gap-1.5">
+                {row.sub.dot}
+                <span>{row.sub.words}</span>
+              </span>
+            ) : undefined
           }
+          onClick={row.onChoose}
+          onFocus={() => setActive(row.key)}
         />
       ))}
-    </div>
+    </OptionRowGroup>
   )
-}
 
-/**
- * One row: mark, name, and the status in words with its tone dot beside
- * them (never the dot alone), then ✓ when it is the scope. The name is the
- * radio's accessible name and the words its description, so a screen
- * reader hears "Harbour Kitchen, radio button, checked, Action needed".
- */
-function ScopeRadio({
-  row,
-  tabbable,
-  pushTabbable,
-  reserveChevron,
-  onFocusRow,
-  pushRef,
-}: {
-  row: ScopeRow
-  tabbable: boolean
-  pushTabbable: boolean
-  reserveChevron: boolean
-  onFocusRow: () => void
-  pushRef?: (node: HTMLButtonElement | null) => void
-}) {
-  const nameId = React.useId()
-  const subId = React.useId()
-  const { checked, sub, push } = row
+  if (!hasPush) return group
+
   return (
-    <div data-scope-row="" className="flex min-w-0 items-center">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={checked}
-        aria-labelledby={nameId}
-        aria-describedby={sub ? subId : undefined}
-        tabIndex={tabbable ? 0 : -1}
-        onClick={row.onChoose}
-        onFocus={onFocusRow}
-        className={cn(
-          "flex min-h-14 w-full min-w-0 flex-1 items-center gap-3 rounded-(--np-radius-control) px-2 py-2 text-left",
-          "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
-          "focus-halo focus-visible:outline-none"
-        )}
-      >
-        {row.mark}
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span
-            id={nameId}
+    // The keydown handler only serves the chevrons; the group handles its
+    // own rows.
+    <div
+      onKeyDown={onKeyDown}
+      className="grid grid-cols-[1fr_auto] gap-x-1 gap-y-1"
+    >
+      {group}
+      {rows.map((row, index) =>
+        row.push ? (
+          <button
+            key={row.key ?? "__all__"}
+            ref={
+              pushRef && row.key !== null
+                ? (node) => pushRef(row.key!, node)
+                : undefined
+            }
+            type="button"
+            aria-label={row.push.label}
+            tabIndex={focusRow === row.key ? 0 : -1}
+            onClick={row.push.onPush}
+            onFocus={() => setActive(row.key)}
+            data-slot="scope-sheet-push"
+            data-row-index={index}
+            style={{ "--scope-row": index + 1 } as React.CSSProperties}
             className={cn(
-              "truncate text-body text-ink",
-              checked && "font-medium"
+              "col-start-2 row-start-(--scope-row) flex size-11 shrink-0 items-center justify-center self-center rounded-(--np-radius-pill) text-ink-muted",
+              "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
+              "focus-halo focus-visible:outline-none"
             )}
           >
-            {row.name}
-          </span>
-          {sub ? (
-            <span className="flex items-center gap-1.5 text-caption text-ink-muted">
-              {sub.dot}
-              <span id={subId}>{sub.words}</span>
-            </span>
-          ) : null}
-        </span>
-        <CurrentMark current={checked} />
-      </button>
-      {push ? (
-        <button
-          ref={pushRef}
-          type="button"
-          aria-label={push.label}
-          tabIndex={pushTabbable ? 0 : -1}
-          onClick={push.onPush}
-          onFocus={onFocusRow}
-          data-slot="scope-sheet-push"
-          className={cn(
-            "flex size-11 shrink-0 items-center justify-center rounded-(--np-radius-pill) text-ink-muted",
-            "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
-            "focus-halo focus-visible:outline-none"
-          )}
-        >
-          <ChevronRight aria-hidden className="size-5" strokeWidth={1.75} />
-        </button>
-      ) : reserveChevron ? (
-        <span aria-hidden className="w-11 shrink-0" />
-      ) : null}
+            <ChevronRight aria-hidden className="size-5" strokeWidth={1.75} />
+          </button>
+        ) : null
+      )}
     </div>
   )
 }
