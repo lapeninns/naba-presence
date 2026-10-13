@@ -515,6 +515,8 @@ describe("InboxView — next and previous review", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Sam Traveller" })
     ).toBeInTheDocument()
+    // The toolbar's "Inbox" is hidden with the list, and not a second h1.
+    expect(document.querySelectorAll("h1")).toHaveLength(1)
     expect(
       container.querySelector('[data-slot="review-position"]')
     ).toHaveTextContent("Review 1 of 3")
@@ -801,6 +803,15 @@ describe("InboxView — list and detail", () => {
     expect(
       screen.getByRole("region", { name: "Selected review" })
     ).toBeInTheDocument()
+    // From lg the head is hidden: "Inbox" is the one h1, and the head's
+    // title is plain text rather than a hidden second h1.
+    expect(document.querySelectorAll("h1")).toHaveLength(1)
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Inbox" })
+    ).toBeInTheDocument()
+    expect(container.querySelector('[data-slot="review-title"]')?.tagName).toBe(
+      "P"
+    )
   })
 
   it("renders the list view, with the review pane waiting, without ?selected=", () => {

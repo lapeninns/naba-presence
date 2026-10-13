@@ -346,12 +346,15 @@ function HeadFrame({
   back,
   nav,
   title,
+  titleIsHeading,
 }: {
   back?: ReviewDetailBack
   nav?: ReviewDetailNav
   title: string
+  titleIsHeading: boolean
 }) {
   if (!back) return null
+  const Title = titleIsHeading ? "h1" : "p"
   const { ref: backRef, label: backLabel, onBack } = back
   const total = `${nav?.total ?? 0}${nav?.more ? "+" : ""}`
   return (
@@ -371,12 +374,12 @@ function HeadFrame({
         <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
         {backLabel}
       </Button>
-      <h1
+      <Title
         data-slot="review-title"
         className="min-w-0 flex-1 truncate px-1 font-display text-title font-semibold text-ink"
       >
         {title}
-      </h1>
+      </Title>
       {nav ? (
         <>
           <p
@@ -922,6 +925,7 @@ function ReviewDetail({
   composer,
   actions,
   focusHeading = false,
+  titleIsHeading = true,
 }: {
   reviewId: string
   /** The phone head's return-to-list control (drawn below lg only). */
@@ -936,6 +940,11 @@ function ReviewDetail({
   actions?: ReactNode
   /** Move focus to the reviewer's name once it loads (after an advance). */
   focusHeading?: boolean
+  /**
+   * Whether the phone head's title is the page's h1. Not where the list is
+   * beside the review: the head is hidden there and "Inbox" is the h1.
+   */
+  titleIsHeading?: boolean
 }) {
   const query = useReviewDetail(reviewId)
   const paneRef = useRef<HTMLDivElement>(null)
@@ -964,7 +973,12 @@ function ReviewDetail({
       // rather than sitting under a skeleton and dropping when it fills in.
       className="group/pane @container/detail flex flex-1 flex-col max-lg:min-h-[calc(100svh-var(--np-appbar-h))] lg:min-h-0"
     >
-      <HeadFrame back={back} nav={nav} title={title} />
+      <HeadFrame
+        back={back}
+        nav={nav}
+        title={title}
+        titleIsHeading={titleIsHeading}
+      />
 
       {/* Inside the head, so a review that throws while rendering keeps the
           way back to the list. */}

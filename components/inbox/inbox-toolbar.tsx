@@ -37,6 +37,7 @@ function InboxToolbar({
   onFilterChange,
   onQueueChange,
   onClear,
+  titleIsHeading = true,
 }: {
   state: InboxState
   counts: ReviewCounts | undefined
@@ -54,8 +55,14 @@ function InboxToolbar({
   onFilterChange: (partial: Partial<InboxState>) => void
   onQueueChange: (queue: Queue) => void
   onClear: () => void
+  /**
+   * Whether "Inbox" is the page's h1. Not while the open review's head is
+   * the h1 instead (a phone showing a review); see InboxViewInner.
+   */
+  titleIsHeading?: boolean
 }) {
   const searchRef = useRef<HTMLInputElement>(null)
+  const Title = titleIsHeading ? "h1" : "p"
 
   // `/` from the hotkey layer puts the caret in the search.
   useEffect(() => {
@@ -73,9 +80,9 @@ function InboxToolbar({
     >
       <div className="flex min-w-0 items-center gap-3 max-md:contents">
         <div className="flex min-w-0 flex-1 items-baseline gap-3 max-md:col-start-1 max-md:row-start-1">
-          <h1 className="font-display text-section font-semibold text-ink md:text-page-title">
+          <Title className="font-display text-section font-semibold text-ink md:text-page-title">
             Inbox
-          </h1>
+          </Title>
           <p className="min-w-0 truncate text-ui text-ink-muted max-xl:hidden">
             Only verified replies reach Google.
           </p>

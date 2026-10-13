@@ -68,6 +68,7 @@ import type { ReviewRow } from "@/lib/api/reviews"
 import { flattenReviews, useReviews } from "@/lib/queries/use-reviews"
 import { useReviewCounts } from "@/lib/queries/use-review-counts"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
+import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -147,6 +148,18 @@ function InboxViewInner({
   const hydrated = useHydrated()
   const toolbarCounts = hydrated ? countsQuery.data : undefined
   const toolbarCountsPending = !hydrated || countsQuery.isPending
+
+  // One h1 per view. With a review open, a phone's h1 is the review head's
+  // title and the toolbar (hidden with the list) is not; from lg the head is
+  // hidden and "Inbox" is. CSS already hides the other one, but a hidden h1
+  // is still a second h1 in the document, so once the client knows its
+  // width the hidden one is drawn as plain text — same classes, so nothing
+  // moves. Until then (server, hydration) both stay headings: the CSS-only
+  // shape.
+  const splitView = useHydratedBreakpoint("lg")
+  const detailOpen = Boolean(state.selected)
+  const toolbarTitleIsHeading = !detailOpen || splitView !== false
+  const headTitleIsHeading = splitView !== true
   const clientsQuery = useClients()
   // Narrowed to the client in view when the inbox is filtered to one, so the
   // empty state describes the client the operator is looking at rather than
@@ -738,6 +751,7 @@ function InboxViewInner({
         }
         showLocationFilter={showLocationFilter}
         actions={actions}
+        titleIsHeading={toolbarTitleIsHeading}
         onFilterChange={onFilterChange}
         onQueueChange={onQueueChange}
         onClear={onClearFilters}
@@ -853,6 +867,7 @@ function InboxViewInner({
         focusHeading={advance?.reviewId === state.selected}
         back={back}
         nav={nav}
+        titleIsHeading={headTitleIsHeading}
         composer={<ReplyComposer reviewId={state.selected} />}
         // A viewer has nothing to press, so no publish bar is drawn for
         // them — not even its loading outline, which would dock and hide
