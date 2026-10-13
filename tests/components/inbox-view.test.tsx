@@ -591,6 +591,36 @@ describe("InboxView — history", () => {
     expect(replace).not.toHaveBeenCalled()
   })
 
+  it("leaves a dirty pushed review to the leave guard's one prompt", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const view = renderInbox()
+    await user.click(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-slot="review-row"]'
+      )!
+    )
+    currentParams = new URLSearchParams(
+      new URL(push.mock.calls[0][0], "http://x").search
+    )
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    await dirtyComposer(user)
+
+    // The step back lands on the leave guard's sentinel, whose prompt asks;
+    // the in-page gate does not ask first, or Discard would be asked twice.
+    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
   it("replaces when a row is chosen beside an open review", async () => {
     const user = userEvent.setup()
     const view = renderInbox()

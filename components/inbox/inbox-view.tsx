@@ -316,7 +316,17 @@ function InboxViewInner({
   // (as the OS back gesture would), so history stays list → review and no
   // list entry piles up on top of it. Every other open replaced, so this
   // replaces too.
+  //
+  // A pushed review with an unsaved reply is the exception: the leave guard
+  // keeps its sentinel entry on top of the history while the reply is dirty,
+  // so stepping back lands on it and the guard asks — once, and its
+  // "Discard" goes on back to the list. Asking here first put a second
+  // "Discard unsaved reply?" up after the first was answered.
   const onBackToList = useCallback(() => {
+    if (openedByPushRef.current && readIsDirty()) {
+      router.back()
+      return
+    }
     void (async () => {
       if (!(await dirtyGate())) return
       if (openedByPushRef.current) {
@@ -326,7 +336,7 @@ function InboxViewInner({
       }
       updateState({ selected: undefined }, "replace")
     })()
-  }, [dirtyGate, router, updateState])
+  }, [dirtyGate, readIsDirty, router, updateState])
 
   // Resolves to the review it moved to, or null when it did not move.
   const onAdjacentReview = useCallback(
