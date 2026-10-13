@@ -77,6 +77,7 @@ import { requestOptions } from "@/lib/queries/request-options"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 const DAYS = [
   "Sunday",
@@ -724,7 +725,9 @@ export function BulkCompose() {
       <FormErrorScope>
         <section
           aria-labelledby="bulk-change"
-          className="flex min-w-0 flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-4"
+          className={cardClassName({
+            className: "flex min-w-0 flex-col gap-4 p-4",
+          })}
         >
           <h2 id="bulk-change" className="text-title font-semibold text-ink">
             Change
@@ -1686,7 +1689,9 @@ export function BulkCompose() {
       </FormErrorScope>
       <section
         aria-labelledby="bulk-batch"
-        className="flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4"
+        className={cardClassName({
+          className: "flex min-w-0 flex-col gap-3 p-4",
+        })}
       >
         <h2 id="bulk-batch" className="text-title font-semibold text-ink">
           Changes in this batch
@@ -1802,7 +1807,7 @@ function TargetList({
       ) : (
         <details
           open={ids.length <= 3}
-          className="group rounded-(--np-radius-card) border border-line bg-surface"
+          className={cardClassName({ className: "group" })}
         >
           <summary
             className={cn(

@@ -14,6 +14,7 @@ import {
 } from "@/lib/billing/presentation"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useChangePlan, useStartCheckout } from "@/lib/queries/use-billing"
+import { cardClassName } from "@/components/ui/card"
 
 /** What a failed billing action says (a refused redirect names itself). */
 export function billingActionError(error: unknown): string {
@@ -141,7 +142,10 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
               key={plan.id}
               data-slot="plan-option"
               data-plan-code={plan.code}
-              className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3 sm:flex-row sm:items-center sm:justify-between"
+              className={cardClassName({
+                className:
+                  "flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between",
+              })}
             >
               <div className="flex min-w-0 flex-col gap-1">
                 <p className="m-0 flex flex-wrap items-center gap-2 text-body font-semibold text-ink">

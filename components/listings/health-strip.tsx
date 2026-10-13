@@ -19,6 +19,7 @@ import {
 import { listingHref } from "@/lib/listings/areas"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { cardClassName } from "@/components/ui/card"
 
 const GRID = "grid grid-cols-2 gap-2 @[640px]:gap-3 @[980px]:grid-cols-4"
 
@@ -44,7 +45,9 @@ function Tile({
     <div
       data-slot="health-tile"
       data-tile={id}
-      className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
+      className={cardClassName({
+        className: "flex min-w-0 flex-col gap-2 p-3 @[640px]:p-4",
+      })}
     >
       <p className="text-ui font-medium text-ink-muted">{label}</p>
       <div className="flex min-h-6.5 flex-wrap items-center gap-1.5">
@@ -120,7 +123,9 @@ function HealthStrip({
         {[0, 1, 2, 3].map((index) => (
           <div
             key={index}
-            className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
+            className={cardClassName({
+              className: "flex flex-col gap-2.5 p-3 @[640px]:p-4",
+            })}
           >
             <Skeleton className="h-3.5 w-1/2" />
             <Skeleton className="h-5.5 w-2/5" />

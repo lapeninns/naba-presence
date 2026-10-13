@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 /** Where the saved lodging and service work sits on the profile page. */
 export const PROFILE_SAVED_WORK_ID = "profile-saved-work"
@@ -35,7 +36,7 @@ export function ProfileUnreachable({ summary }: { summary: ListingSummary }) {
     <div
       data-slot="profile-unreachable"
       role="status"
-      className="rounded-(--np-radius-card) border border-line bg-surface"
+      className={cardClassName()}
     >
       <Empty
         icon={<Unplug aria-hidden />}

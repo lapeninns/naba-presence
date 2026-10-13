@@ -26,6 +26,7 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 const EMAIL_LABEL: Record<NotificationMode, string> = {
   immediate: "Immediately",
@@ -99,7 +100,7 @@ export function NotificationPreferences() {
         onRetry={() => void query.refetch()}
       >
         <ul
-          className="flex flex-col divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+          className={cardClassName({ className: "flex flex-col divide-y divide-line overflow-hidden" })}
           aria-label="Notification choices"
         >
           {rows.map((kind) => {

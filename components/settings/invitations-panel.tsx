@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, cardClassName } from "@/components/ui/card"
 import {
   Dialog,
   DialogBody,
@@ -646,7 +646,12 @@ function InviteForm({
 
   if (created) {
     return (
-      <div className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
+      <div
+        className={cardClassName({
+          pad: true,
+          className: "flex flex-col gap-4",
+        })}
+      >
         <CreatedInvite created={created} />
         <div className="flex justify-end">{inviteAnother}</div>
       </div>
@@ -669,7 +674,7 @@ function InviteForm({
     <form
       noValidate
       onSubmit={onSubmit}
-      className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
+      className={cardClassName({ pad: true, className: "flex flex-col gap-4" })}
     >
       {fields}
       <div className="flex justify-end">{submit}</div>

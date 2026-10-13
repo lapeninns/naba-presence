@@ -30,7 +30,7 @@ import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -309,7 +309,9 @@ function BookingLinks({
                 <section
                   key={type}
                   aria-labelledby={headingId}
-                  className="@container/group overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+                  className={cardClassName({
+                    className: "@container/group overflow-hidden",
+                  })}
                 >
                   <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
                     <div className="flex min-w-0 items-start gap-2.5">
@@ -570,7 +572,7 @@ function GoogleManagedLinks({
   return (
     <section
       aria-labelledby="booking-google-managed"
-      className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+      className={cardClassName({ className: "overflow-hidden" })}
     >
       <div className="flex flex-col gap-1 border-b border-line px-5 py-4">
         <h2
@@ -633,7 +635,7 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
       <h2 id={headingId} className="text-title font-semibold text-ink">
         How customers see it
       </h2>
-      <div className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
+      <div className={cardClassName({ className: "overflow-hidden" })}>
         <div className="flex flex-wrap gap-2 p-4">
           {types.length === 0 ? (
             <span className="text-caption text-ink-muted">
@@ -784,7 +786,7 @@ function AddLinkForm({
       noValidate
       onSubmit={submit}
       aria-labelledby={headingId}
-      className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-5"
+      className={cardClassName({ className: "flex flex-col gap-4 p-5" })}
     >
       <DraftNotices drafts={[editor]} noun="this action link" />
       <div className="flex flex-col gap-0.5">

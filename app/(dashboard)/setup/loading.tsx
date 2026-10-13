@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { cardClassName } from "@/components/ui/card"
 
 /**
  * The shape of setup while it loads: the title block, then the step rail
@@ -26,7 +27,12 @@ export default function Loading() {
             <Skeleton key={index} className="h-8" />
           ))}
         </div>
-        <div className="flex flex-col gap-3.5 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
+        <div
+          className={cardClassName({
+            pad: true,
+            className: "flex flex-col gap-3.5",
+          })}
+        >
           <Skeleton className="h-3.5 w-24" />
           <Skeleton className="h-6 w-64 max-w-full" />
           <Skeleton className="h-4 w-80 max-w-full" />
