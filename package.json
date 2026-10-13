@@ -34,6 +34,7 @@
     "test:watch": "vitest",
     "lint": "eslint --max-warnings 0",
     "check:contrast": "node scripts/check-contrast.mjs",
+    "check:design": "node scripts/check-design.mjs",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm typecheck && pnpm lint && pnpm test",
