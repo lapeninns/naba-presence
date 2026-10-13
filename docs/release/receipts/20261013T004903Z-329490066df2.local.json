@@ -1,0 +1,138 @@
+{
+  "kind": "naba-local-release-gate",
+  "version": 2,
+  "sha": "329490066df2b49ed2f2bdeadd902b073e8808b1",
+  "mode": "worktree",
+  "base": {
+    "ref": "4e876cd2d6d4eaa747ffd002f0b299a5f0019837",
+    "sha": "4e876cd2d6d4eaa747ffd002f0b299a5f0019837",
+    "mergeBase": "4e876cd2d6d4eaa747ffd002f0b299a5f0019837",
+    "source": "flag"
+  },
+  "gateSource": {
+    "clean": true,
+    "changed": []
+  },
+  "toolchain": {
+    "node": "v24.16.0",
+    "pnpm": "10.34.5",
+    "postgres": "psql (PostgreSQL) 17.11 (Homebrew)",
+    "gitleaks": "8.30.1",
+    "platform": "darwin-arm64"
+  },
+  "options": {
+    "skip": [],
+    "failFast": false
+  },
+  "ok": true,
+  "steps": [
+    {
+      "id": "frozen-install",
+      "title": "Frozen install (pnpm install --frozen-lockfile)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 4298
+    },
+    {
+      "id": "typecheck",
+      "title": "Typecheck (pnpm typecheck)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 13988
+    },
+    {
+      "id": "lint",
+      "title": "Lint, zero warnings (pnpm lint)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 16720
+    },
+    {
+      "id": "unit",
+      "title": "Unit tests (pnpm test)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 70017,
+      "summary": [
+        "Test Files 432 passed | 144 skipped (576)",
+        "Tests 5159 passed | 1255 skipped (6414)"
+      ]
+    },
+    {
+      "id": "build",
+      "title": "Standalone build (pnpm build, webpack)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 44847
+    },
+    {
+      "id": "migration-policy",
+      "title": "Migration policy against the base (append-only history)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 60
+    },
+    {
+      "id": "migrate-fresh",
+      "title": "Migrate from scratch, no-op re-run, runtime role, db:status",
+      "required": true,
+      "status": "passed",
+      "durationMs": 2031
+    },
+    {
+      "id": "migrate-upgrade",
+      "title": "Upgrade from the merge base matches from scratch",
+      "required": true,
+      "status": "passed",
+      "durationMs": 1060,
+      "note": "upgraded from 4e876cd2d6d4"
+    },
+    {
+      "id": "migrate-concurrent",
+      "title": "Concurrent migrate runs serialise on the lock",
+      "required": true,
+      "status": "passed",
+      "durationMs": 1315,
+      "note": "files=131 rows=131 distinct=131"
+    },
+    {
+      "id": "integration",
+      "title": "Integration tests (pnpm test:integration)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 2069662,
+      "summary": [
+        "Test Files 143 passed (143)",
+        "Tests 1254 passed (1254)"
+      ]
+    },
+    {
+      "id": "e2e",
+      "title": "Browser journeys (pnpm test:e2e --forbid-only)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 1020068,
+      "summary": [
+        "18 skipped",
+        "518 passed (17.0m)"
+      ],
+      "note": "port 3100"
+    },
+    {
+      "id": "audit",
+      "title": "Production dependency audit (pnpm audit --prod --audit-level high)",
+      "required": true,
+      "status": "passed",
+      "durationMs": 690
+    },
+    {
+      "id": "secret-scan",
+      "title": "Secret scan (gitleaks, full history)",
+      "required": false,
+      "status": "passed",
+      "durationMs": 898
+    }
+  ],
+  "startedAt": "2026-10-12T23:48:33.336Z",
+  "finishedAt": "2026-10-13T00:42:43.151Z"
+}
