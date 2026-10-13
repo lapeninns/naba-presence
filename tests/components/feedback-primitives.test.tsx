@@ -213,6 +213,22 @@ describe("TabNav", () => {
     expect(document.activeElement).toHaveAccessibleName("Billing")
   })
 
+  it("keeps a disabled item that is the current page as the current link", () => {
+    render(
+      <TabNav
+        aria-label="Listing areas"
+        items={[
+          { href: "/listings/a", label: "Overview" },
+          { href: "/listings/a/menu", label: "Menu", current: true, disabled: true },
+        ]}
+      />
+    )
+    const current = screen.getByRole("link", { name: "Menu" })
+    expect(current).toHaveAttribute("aria-current", "page")
+    expect(current).toHaveAttribute("href", "/listings/a/menu")
+    expect(current).not.toHaveAttribute("aria-disabled")
+  })
+
   it("keeps aria-current on the active link", () => {
     render(<TabNav aria-label="Settings sections" items={items} />)
     expect(screen.getByRole("link", { name: "Billing" })).toHaveAttribute(

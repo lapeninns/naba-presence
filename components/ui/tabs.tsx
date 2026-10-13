@@ -242,7 +242,10 @@ export type TabNavItem = {
    * The section cannot be opened at all (listings-content-07: the phone's
    * area list and the desk's tabs must agree). Rendered as a link with no
    * `href` and `aria-disabled="true"`: announced as a disabled link, not in
-   * the tab order, inert to a click or tap, and never marked current.
+   * the tab order, inert to a click or tap. Ignored on the current item:
+   * the reader is already on that page (reached by URL), so it stays a
+   * link with `aria-current` and the underline rather than leaving the row
+   * with no current tab. `aria-current` is never put on a disabled link.
    */
   disabled?: boolean
 }
@@ -263,7 +266,7 @@ function TabNav({
 }: Omit<React.ComponentProps<"nav">, "children"> & { items: TabNavItem[] }) {
   const rowRef = React.useRef<HTMLUListElement>(null)
   useScrollFade(rowRef)
-  const currentHref = items.find((item) => item.current && !item.disabled)?.href
+  const currentHref = items.find((item) => item.current)?.href
   useCurrentInView(rowRef, '[aria-current="page"]', currentHref)
   return (
     <nav data-slot="tab-nav" className={cn("min-w-0", className)} {...props}>
@@ -287,7 +290,7 @@ function TabNav({
           )
           return (
             <li key={item.href} className="flex shrink-0">
-              {item.disabled ? (
+              {item.disabled && !item.current ? (
                 // No href: not focusable, not followable. The explicit role
                 // keeps it announced as a (disabled) link among its siblings.
                 <a
