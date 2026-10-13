@@ -404,8 +404,11 @@ function NotificationRow({
             {copy.description}
           </p>
         </div>
+        {/* Keyed apart: reusing the question's DOM for the actions turned the
+            green "Yes, resolve" into "Mark unread" mid colour transition. */}
         {confirming ? (
           <div
+            key="confirm"
             role="group"
             aria-label={`Resolve ${copy.label}?`}
             className="flex shrink-0 flex-wrap items-center gap-2 md:max-w-80 md:justify-end"
@@ -435,7 +438,10 @@ function NotificationRow({
         ) : (
           // Ghost buttons pulled back by their own padding, so their words
           // line up with the text column on a phone.
-          <div className="-ml-2.5 flex shrink-0 flex-wrap gap-1 md:ml-0 md:justify-end">
+          <div
+            key="actions"
+            className="-ml-2.5 flex shrink-0 flex-wrap gap-1 md:ml-0 md:justify-end"
+          >
             {item.locationId ? (
               <Link
                 href={`/listings/${item.locationId}`}

@@ -213,6 +213,24 @@ describe("NotificationsView interactions", () => {
     expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false)
   })
 
+  it("draws the actions as new buttons after the question, never the question's", async () => {
+    stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 1 }))
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    const questionButtons = screen
+      .getByRole("group", { name: "Resolve Publishing failed?" })
+      .querySelectorAll("button")
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    // A reused node would carry the green confirm button's colour into a
+    // ghost action mid transition (axe caught it in e2e).
+    const actions = screen.getAllByRole("button")
+    for (const button of questionButtons) {
+      expect(actions).not.toContain(button)
+    }
+  })
+
   it("names the pending confirm by the words it shows", async () => {
     let release: () => void = () => {}
     vi.stubGlobal(
