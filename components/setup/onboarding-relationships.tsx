@@ -23,7 +23,7 @@ export function OnboardingRelationships({ value, onChange, onEntryChange }: Prop
   }, [parentDirty, childDirty, onEntryChange])
   return <div role="group" aria-label="Creation business relationships" className="flex min-w-0 flex-col gap-4 sm:col-span-2">
     <div className="space-y-1">
-      <h4 className="text-ui font-semibold">Related businesses</h4>
+      <h4 className="text-ui font-semibold text-ink">Related businesses</h4>
       <p className="text-caption text-ink-muted">Use exact Google place IDs. These are proposed relationships; Google validates them before approval.</p>
     </div>
     {value?.parentChain && <p className="text-caption text-ink-muted break-all">Proposed chain affiliation: {value.parentChain}. Parent and child edits preserve this affiliation.</p>}
@@ -54,10 +54,10 @@ function RelationshipEntry({ value, onChange, onEntryChange, parent }: Props & {
     reset()
   }
   return <div role="group" aria-label={parent ? "Proposed parent business" : "Proposed child businesses"} className="flex min-w-0 flex-col gap-3">
-    <h5 className="text-ui font-medium">{parent ? "Parent business" : "Child businesses"}</h5>
+    <h5 className="text-ui font-medium text-ink-muted">{parent ? "Parent business" : "Child businesses"}</h5>
     {related.length === 0 && <p className="text-caption text-ink-muted">No {parent ? "parent" : "child"} business in this proposal.</p>}
-    {related.map((item) => <div key={item.placeId} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
-      <div className="min-w-0"><p className="text-ui break-words">{relationshipLabels[item.relationType]}</p><p className="text-caption font-mono text-ink-muted break-all">{item.placeId}</p></div>
+    {related.map((item) => <div key={item.placeId} className="flex min-w-0 items-start justify-between gap-3 border-b border-line-subtle pb-3">
+      <div className="min-w-0"><p className="text-body break-words">{relationshipLabels[item.relationType]}</p><p className="text-caption font-mono text-ink-muted break-all">{item.placeId}</p></div>
       <Button type="button" variant="outline" aria-label={`Remove ${parent ? "parent" : "child"} from proposal ${item.placeId}`} onClick={() => { if (value) onChange(removeOnboardingRelationship(value, { parent, placeId: item.placeId })) }}>Remove</Button>
     </div>)}
     <Field error={error}>

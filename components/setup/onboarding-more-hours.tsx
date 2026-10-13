@@ -54,17 +54,17 @@ export function OnboardingMoreHours({ draft, value, contextSaved, onChange, onEn
     onChange(parsed.data); reset()
   }
   return <div role="group" aria-label="Creation additional service hours" className="flex min-w-0 flex-col gap-3 sm:col-span-2">
-    <h4 className="text-ui font-semibold">Additional service hours</h4>
+    <h4 className="text-ui font-semibold text-ink">Additional service hours</h4>
     <p className="text-caption text-ink-muted">Propose hours for services supported by the saved categories. Each service keeps its own schedule. Google validation and approval are separate from saving.</p>
-    {!hasCategory || !contextSaved ? <p role="status" className="text-ui text-ink-muted">Select and save the categories, language and country before loading hour types.</p> : metadata.isFetching ? <p role="status" className="text-ui text-ink-muted">Loading supported hour types…</p> : null}
+    {!hasCategory || !contextSaved ? <p role="status" className="text-body text-ink-muted">Select and save the categories, language and country before loading hour types.</p> : metadata.isFetching ? <p role="status" className="text-body text-ink-muted">Loading supported hour types…</p> : null}
     {metadata.error && <div className="flex flex-col gap-2"><FormError>{describeActionError(metadata.error)}</FormError><Button type="button" variant="outline" className="self-start" disabled={!contextSaved} onClick={() => void metadata.refetch()}>Retry hour types</Button></div>}
     {!value && <p className="text-caption text-ink-muted">No additional service hours in this proposal.</p>}
-    {value?.map((schedule) => <div key={schedule.hoursTypeId} role="group" aria-label={`Proposed service hours ${schedule.hoursTypeId}`} className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-control) border border-line p-3">
-      <h5 className="text-ui font-medium break-words">{label(schedule.hoursTypeId)}</h5>
+    {value?.map((schedule) => <div key={schedule.hoursTypeId} role="group" aria-label={`Proposed service hours ${schedule.hoursTypeId}`} className="flex min-w-0 flex-col gap-2 border-b border-line-subtle pb-3">
+      <h5 className="text-ui font-medium break-words text-ink-muted">{label(schedule.hoursTypeId)}</h5>
       <SupportDetails items={[schedule.hoursTypeId]} />
       {!choices.some((item) => item.hoursTypeId === schedule.hoursTypeId) && <p className="text-caption text-ink-muted">This saved type is retained. Its current support must be confirmed before creation.</p>}
       {schedule.periods.map((period, index) => <div key={googleHoursPeriodLabel(period)} className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
-        <p className="text-ui break-words">{googleHoursPeriodLabel(period)}</p>
+        <p className="text-body break-words tabular-nums">{googleHoursPeriodLabel(period)}</p>
         <Button type="button" variant="outline" aria-label={`Remove ${schedule.hoursTypeId} period ${index + 1}`} onClick={() => {
           const schedules = value.flatMap((item) => {
             if (item.hoursTypeId !== schedule.hoursTypeId) return [item]

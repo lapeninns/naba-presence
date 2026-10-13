@@ -38,9 +38,9 @@ export function OnboardingChain({ draft, value, onChange }: {
     else setSearched(query.trim())
   }
   return <div role="group" aria-label="Creation chain affiliation" className="flex min-w-0 flex-col gap-3 sm:col-span-2">
-    <h4 className="text-ui font-semibold">Chain affiliation</h4>
+    <h4 className="text-ui font-semibold text-ink">Chain affiliation</h4>
     <div className="flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row">
-      <div className="min-w-0"><p className="text-ui break-words">{selected?.label ?? (value?.parentChain ? "Proposed chain" : "No chain affiliation in this proposal.")}</p>{value?.parentChain && (selected
+      <div className="min-w-0"><p className="text-body break-words">{selected?.label ?? (value?.parentChain ? "Proposed chain" : "No chain affiliation in this proposal.")}</p>{value?.parentChain && (selected
         // A chain Google named in this session: its name leads and the
         // resource id is for support. A saved chain with no name loaded yet
         // is known only by its id, so the id stays in view.
@@ -57,9 +57,9 @@ export function OnboardingChain({ draft, value, onChange }: {
       <FieldDescription>Choose an exact chain returned by Google. Search results do not confirm affiliation; Google validates the saved proposal before approval.</FieldDescription>
     </Field>
     {searched && <div className="flex flex-col gap-3" aria-label="Creation chain search results">
-      {search.isFetching ? <p role="status" className="text-ui text-ink-muted">Searching Google chains...</p> : search.error ? <FormError>{describeActionError(search.error)} Search again to retry.</FormError> : ready && !choices.length ? <p role="status" className="text-ui text-ink-muted">No chains found for {searched}. Try another name.</p> : null}
-      {choices.map((choice) => <div key={choice.name} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
-        <div className="min-w-0"><p className="text-ui break-words">{choice.label}</p><SupportDetails items={[choice.name]} /></div>
+      {search.isFetching ? <p role="status" className="text-body text-ink-muted">Searching Google chains...</p> : search.error ? <FormError>{describeActionError(search.error)} Search again to retry.</FormError> : ready && !choices.length ? <p role="status" className="text-body text-ink-muted">No chains found for {searched}. Try another name.</p> : null}
+      {choices.map((choice) => <div key={choice.name} className="flex min-w-0 items-start justify-between gap-3 border-b border-line-subtle pb-3">
+        <div className="min-w-0"><p className="text-body break-words">{choice.label}</p><SupportDetails items={[choice.name]} /></div>
         <Button type="button" variant="outline" disabled={value?.parentChain === choice.name} aria-label={`Select chain ${choice.label}`} onClick={() => onChange({ ...value, parentChain: choice.name })}>{value?.parentChain === choice.name ? "Selected" : "Select"}</Button>
       </div>)}
     </div>}
