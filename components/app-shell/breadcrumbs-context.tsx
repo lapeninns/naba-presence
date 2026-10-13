@@ -65,7 +65,7 @@ function useShellBack(): BackTarget | null {
  */
 function ShellBreadcrumbs({ className }: { className?: string }) {
   const crumbs = useShellTrail()
-  const { count } = usePageChromeOverride()
+  const { count, countLabel } = usePageChromeOverride()
   const shownCount = count && count > 0 ? count : undefined
 
   if (crumbs.length === 0) return <div className={className} />
@@ -120,6 +120,8 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
                 <span
                   aria-hidden
                   data-slot="breadcrumb-count"
+                  // What the figure counts, on hover ("12 need a reply").
+                  title={countLabel ? `${shownCount} ${countLabel}` : undefined}
                   className="shrink-0 text-ink-muted tabular-nums"
                 >
                   {shownCount > 99 ? "99+" : shownCount}

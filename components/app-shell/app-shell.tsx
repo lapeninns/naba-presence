@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Suspense, useEffect, useRef, useState } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 
 import { MfaStepUpHost } from "@/components/auth/mfa-step-up-host"
 import { BrandMark } from "@/components/app-shell/brand-mark"
@@ -270,7 +270,10 @@ function AppShell({
   const role = liveSession?.role ?? session?.role ?? null
   const mode: WorkspaceMode =
     liveSession?.workspaceMode ?? session?.workspaceMode ?? "agency"
-  const context: NavigationContext = { role, mode, hideCalendar }
+  const context = useMemo<NavigationContext>(
+    () => ({ role, mode, hideCalendar }),
+    [role, mode, hideCalendar]
+  )
 
   return (
     // One provider for the whole shell so toolbar tooltips share a delay

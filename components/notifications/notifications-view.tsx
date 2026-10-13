@@ -347,7 +347,7 @@ function NotificationRow({
         // The inset hairline: from the text column (gutter + 36px glyph +
         // 12px gap; 32px glyph at the desk) to the right gutter, and none
         // under the last row.
-        "after:absolute after:right-5 after:bottom-0 after:left-17 after:h-px after:bg-line-subtle last:after:hidden md:after:right-4 desk:after:left-15"
+        "after:absolute after:right-5 after:bottom-0 after:left-17 after:h-px after:bg-line-subtle last:after:hidden md:after:right-4 md:after:left-16 desk:after:left-15"
       )}
     >
       <span

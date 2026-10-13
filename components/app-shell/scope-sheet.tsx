@@ -127,7 +127,8 @@ function AgencyScopeSheet({ open, onOpenChange }: SheetProps) {
       : "All clients"
     // The client is already in scope but narrowed to one of its locations:
     // widen back to the whole client.
-    if (clientId !== null && clientId === scoped && locations.current) {
+    // Likewise All clients while no client is in scope but a location is.
+    if (clientId === scoped && locations.current) {
       locations.clearLocation(() => announceSwitch(name))
       return
     }

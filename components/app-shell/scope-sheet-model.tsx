@@ -89,6 +89,16 @@ export function locationSwitchTarget(input: {
   return { href: listing, mode: "push" }
 }
 
+/** `href` without its location narrowing or selected review. */
+function withoutLocation(href: string): string {
+  const [path, query = ""] = href.split("?")
+  const params = new URLSearchParams(query)
+  params.delete("locationId")
+  params.delete("selected")
+  const rest = params.toString()
+  return rest ? `${path}?${rest}` : path!
+}
+
 /**
  * Widening a location scope back out (All locations, or All <client>
  * locations for the client already in scope): the same page without its
@@ -218,12 +228,20 @@ export function useClientSwitch({
         }
         return
       }
-      const target = clientSwitchTarget({
+      const switched = clientSwitchTarget({
         pathname,
         search: new URLSearchParams(searchParams.toString()),
         current,
         next,
       })
+      // All clients widens all the way: a location narrowing belongs to the
+      // client being left (clientSwitchTarget only drops it when another
+      // client is chosen), so it goes too, or the page would stay narrowed
+      // while the switcher says All clients.
+      const target =
+        switched && next === null && clientPageKind(pathname) === "scoped"
+          ? { ...switched, href: withoutLocation(switched.href) }
+          : switched
       if (!target) {
         setRemembered(next)
         done()
@@ -286,7 +304,11 @@ export function useLocationSwitch(mode: WorkspaceMode) {
         mode,
       })
       if (!target) return false
-      go(target, onSwitched)
+      // Narrowing the Inbox or Reports changes the scope, so the toast names
+      // it. Anywhere else this opens the location's listing, which is a page
+      // change rather than a scope change: the chip and the ticked row still
+      // show the scope, so a "Switched to" toast would contradict them.
+      go(target, target.mode === "replace" ? onSwitched : undefined)
       return true
     },
     [current, go, mode, pathname, searchParams]

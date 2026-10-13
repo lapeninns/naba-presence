@@ -336,7 +336,7 @@ function ClientScopeChip({
       data-slot="client-scope-chip"
       data-mode={mode}
       className={cn(
-        "flex min-h-11 max-w-[60vw] min-w-11 shrink-0 items-center justify-center gap-2 rounded-(--np-radius-pill) text-ui font-medium text-ink",
+        "flex min-h-11 max-w-[60vw] min-w-11 shrink items-center justify-center gap-2 rounded-(--np-radius-pill) text-ui font-medium text-ink",
         labelled ? "pr-2 pl-1.5" : "px-1.5",
         "transition-colors duration-(--np-duration-fast) hover:bg-fill active:bg-fill",
         "focus-halo focus-visible:outline-none",

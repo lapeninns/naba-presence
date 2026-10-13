@@ -231,7 +231,7 @@ function AppBar({
       className="sticky top-0 z-chrome bg-canvas pt-safe px-safe shadow-np-edge-bottom md:hidden print:hidden"
     >
       <div className="flex h-(--np-appbar-h) items-center gap-1 pr-1 pl-2">
-        <div className="flex max-w-1/2 min-w-0 shrink-0 items-center">
+        <div className="flex max-w-1/2 min-w-0 shrink items-center">
           {sessionReady ? (
             <React.Suspense fallback={null}>
               <AppBarLeading organisationName={organisationName} />
@@ -270,7 +270,9 @@ function AppBar({
         {sessionReady ? (
           <div
             data-slot="app-bar-actions"
-            className="flex shrink-0 items-center"
+            // Shrinks so a long scope name truncates rather than pushing the
+            // row past a 320px screen; each control keeps its 44px.
+            className="flex min-w-0 shrink items-center"
           >
             {ownSearch ? (
               <NotificationsLink />

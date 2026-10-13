@@ -243,7 +243,9 @@ describe("business mode", () => {
       within(sheet).getByRole("radio", { name: "The Bell" })
     )
     expect(push).toHaveBeenCalledWith("/listings/l1")
-    expect(toastTitles()).toEqual(["Switched to The Bell"])
+    // Opening a listing is a page change, not a scope change: the chip
+    // still says All locations, so no "Switched to" toast contradicts it.
+    expect(toastTitles()).toEqual([])
   })
 
   it("asks the leave guard first, and stays quiet when it declines", async () => {
@@ -389,6 +391,7 @@ describe("agency mode: a client's locations", () => {
     )
     await userEvent.click(within(sheet).getByRole("radio", { name: "Quay" }))
     expect(push).toHaveBeenCalledWith("/listings/l3")
+    expect(toastTitles()).toEqual([])
   })
 
   it("widens a narrowed Inbox back to the whole client", async () => {
@@ -475,6 +478,21 @@ describe("the switch toast", () => {
     await userEvent.click(
       within(sheet).getByRole("radio", { name: "All clients" })
     )
+    expect(toastTitles()).toEqual(["Switched to All clients"])
+  })
+
+  it("widens a location-narrowed page all the way for All clients", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    location.pathname = "/reports"
+    location.search = "tab=google&clientId=c1&locationId=l1"
+    renderScope({ directory: [place("l1", "The Bell", "c1")] })
+    const sheet = await openSheet("Client: Old Crown")
+    await userEvent.click(
+      within(sheet).getByRole("radio", { name: "All clients" })
+    )
+    expect(replace).toHaveBeenLastCalledWith("/reports?tab=google", {
+      scroll: false,
+    })
     expect(toastTitles()).toEqual(["Switched to All clients"])
   })
 
