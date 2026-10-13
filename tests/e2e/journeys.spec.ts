@@ -103,7 +103,9 @@ test.describe("inbox critical journeys", () => {
         exact: true,
       })
       .click()
-    await filters.getByRole("button", { name: "Show results" }).click()
+    await filters
+      .getByRole("button", { name: /^Show \d[\d,]*\+? reviews?$/ })
+      .click()
     await expect(filters).toBeHidden()
     await expect(
       list.getByText(state.approvalReview.text, { exact: true })

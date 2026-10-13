@@ -5,6 +5,7 @@ import * as React from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ListHeader } from "@/components/inbox/list-header"
+import { selectionHitAreaClassName } from "@/components/ui/checkbox"
 import {
   SelectionProvider,
   useSelection,
@@ -137,9 +138,7 @@ describe("ListHeader", () => {
     const box = screen.getByRole("checkbox", {
       name: "Select every review in this view",
     })
-    expect(box.className).toContain(
-      "after:inset-[calc((18px-var(--np-touch))/2)]"
-    )
+    expect(box).toHaveClass(...selectionHitAreaClassName.split(" "))
   })
 
   it("toggles select mode with Select and Done", async () => {
