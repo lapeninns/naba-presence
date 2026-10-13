@@ -84,25 +84,33 @@ export function TypedAttributeControl({
   const enumOptions = enumOptionsFor(metadata)
 
   const row = layout === "row"
-  const labelBlock = row ? (
-    <span className="flex min-w-0 grow basis-48 flex-col gap-0.5">
-      <span className="flex min-w-0 flex-wrap items-center gap-2">
-        <span id={labelId} className="text-body text-ink">
-          {label}
-        </span>
-        {changed ? <ChangedMark /> : null}
-      </span>
-      {description ? (
-        <span className="text-caption text-ink-muted">{description}</span>
-      ) : null}
+  const descriptionId = useId()
+  // The muted line describes the control (aria-describedby); it is never
+  // part of the label or legend, so the accessible name stays the label.
+  const describedBy = row && description ? descriptionId : undefined
+  const descriptionLine = describedBy ? (
+    <span id={descriptionId} className="text-caption text-ink-muted">
+      {description}
     </span>
-  ) : (
+  ) : null
+  const labelLine = (
     <span className="flex min-w-0 flex-wrap items-center gap-2">
-      <span id={labelId} className="text-ui font-semibold text-ink">
+      <span
+        id={labelId}
+        className={row ? "text-body text-ink" : "text-ui font-semibold text-ink"}
+      >
         {label}
       </span>
       {changed ? <ChangedMark /> : null}
     </span>
+  )
+  const labelBlock = row ? (
+    <span className="flex min-w-0 grow basis-48 flex-col gap-0.5">
+      {labelLine}
+      {descriptionLine}
+    </span>
+  ) : (
+    labelLine
   )
 
   const rowClass = row
@@ -112,8 +120,9 @@ export function TypedAttributeControl({
   if (!metadata.deprecated && metadata.valueType === "REPEATED_ENUM" && enumOptions.length > 0) {
     const selected = attribute?.repeatedEnumValue?.setValues ?? []
     const unselected = attribute?.repeatedEnumValue?.unsetValues ?? []
-    return <Fieldset disabled={disabled} className="w-full">
-      <FieldsetLegend className="mb-2">{labelBlock}</FieldsetLegend>
+    return <Fieldset disabled={disabled} className="w-full" aria-describedby={describedBy}>
+      <FieldsetLegend className="mb-2">{labelLine}</FieldsetLegend>
+      {descriptionLine}
       {enumOptions.map((option) => {
         const answer: Answer = selected.includes(option.value) ? true : unselected.includes(option.value) ? false : null
         return <div key={option.value} className={rowClass}>
@@ -147,6 +156,7 @@ export function TypedAttributeControl({
         {onClear ? (
           <TriState
             aria-labelledby={labelId}
+            aria-describedby={describedBy}
             className="w-full sm:w-auto"
             value={answer}
             disabled={disabled}
@@ -163,6 +173,7 @@ export function TypedAttributeControl({
           <SegmentedControl
             semantics="radio"
             aria-labelledby={labelId}
+            aria-describedby={describedBy}
             className="w-full sm:w-auto"
             value={answer === null ? "unset" : String(answer)}
             disabled={disabled}
@@ -201,7 +212,7 @@ export function TypedAttributeControl({
           }}
           disabled={disabled}
         >
-          <SelectTrigger aria-label={label} className="w-full sm:w-70">
+          <SelectTrigger aria-label={label} aria-describedby={describedBy} className="w-full sm:w-70">
             <SelectValue placeholder="Not set" />
           </SelectTrigger>
           <SelectContent>
@@ -220,8 +231,9 @@ export function TypedAttributeControl({
     if (metadata.repeatable || (attribute?.uriValues?.length ?? 0) > 1) {
       const uris = attribute?.uriValues ?? []
       const canAdd = metadata.repeatable === true && googleAttributeWriteSchema.safeParse({ name, uriValues: [{ uri: newUri }] }).success
-      return <Fieldset disabled={disabled} className="w-full">
-        <FieldsetLegend className="mb-2">{labelBlock}</FieldsetLegend>
+      return <Fieldset disabled={disabled} className="w-full" aria-describedby={describedBy}>
+        <FieldsetLegend className="mb-2">{labelLine}</FieldsetLegend>
+        {descriptionLine}
         {uris.map((entry, index) => <div key={index} className="flex items-center gap-2">
           <Input type="url" inputMode="url" value={entry.uri} aria-label={`${label} URL ${index + 1}`} disabled={disabled} onChange={(event) => onChange({ name, uriValues: uris.map((item, position) => position === index ? { ...item, uri: event.target.value } : item) })} />
           <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-label={`Remove ${label} URL ${index + 1}`} onClick={() => {
@@ -250,6 +262,7 @@ export function TypedAttributeControl({
           inputMode="url"
           placeholder="https://…"
           aria-label={label}
+          aria-describedby={describedBy}
           className="w-full sm:w-70"
           onChange={(event) => {
             if (!event.target.value && onClear) {

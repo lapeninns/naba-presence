@@ -205,6 +205,10 @@ describe("TypedAttributeControl", () => {
       // description is drawn under it.
       expect(answer("Wi-Fi", "No")).toBeChecked()
       expect(screen.getByText("Free for guests")).toBeVisible()
+      // It describes the control; it is not part of its name.
+      expect(screen.getByRole("radiogroup", { name: "Wi-Fi" })).toHaveAccessibleDescription(
+        "Free for guests"
+      )
       await userEvent.click(answer("Wi-Fi", "Yes"))
       expect(onChange).toHaveBeenCalledWith({ name: "attributes/wifi", values: [true] })
       await userEvent.click(answer("Wi-Fi", "Not set"))

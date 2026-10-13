@@ -19,8 +19,7 @@ import { ReviewedWriteSteps, type ReviewedWriteStage } from "./steps"
  * zone. The body scrolls; the footer never does.
  *
  * Calm, words-first: the title in `text-title`, the description muted, the
- * steps under them, and the body's sections divided by hairlines rather
- * than drawn as boxes.
+ * steps under them. The body's own sections draw their hairlines.
  */
 export function ReviewedWriteSheet({
   open,
@@ -55,9 +54,7 @@ export function ReviewedWriteSheet({
             />
           ) : null}
         </SheetHeader>
-        <SheetBody className="[&>*+*]:border-t [&>*+*]:border-line-subtle [&>*+*]:pt-4">
-          {children}
-        </SheetBody>
+        <SheetBody>{children}</SheetBody>
         <SheetFooter className="sm:items-center">{footer}</SheetFooter>
       </SheetContent>
     </Sheet>

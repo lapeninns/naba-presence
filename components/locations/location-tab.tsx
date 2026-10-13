@@ -202,7 +202,13 @@ export function LocationTab<T>({
         <Empty
           variant="forbidden"
           title={gatedTitle ?? GATED_SECTION_TITLE}
-          description="Your role can’t open this section. Ask an owner or admin if something here needs to change."
+          description={
+            // Only the canonical-edit gate is purely a role; a publish gate
+            // can also fail on a read-only or disconnected location.
+            requires === "canEditCanonical"
+              ? "Your role can’t open this section. Ask an owner or admin if something here needs to change."
+              : undefined
+          }
         />
       )
   }

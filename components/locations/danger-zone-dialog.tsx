@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import {
   AlertDialog,
@@ -33,6 +33,7 @@ export function DangerZoneDialog({
   confirmLabel,
   pending,
   onConfirm,
+  consequences,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -42,6 +43,11 @@ export function DangerZoneDialog({
   confirmLabel: string
   pending: boolean
   onConfirm: () => void
+  /**
+   * What happens once this goes through, one short sentence each, listed
+   * before the typed name so the cost is read before it is confirmed.
+   */
+  consequences?: readonly ReactNode[]
 }) {
   const [typed, setTyped] = useState("")
   // Defence-in-depth: an empty expectedName can never match, even against an
@@ -62,6 +68,18 @@ export function DangerZoneDialog({
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
+        {consequences && consequences.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-caption font-medium text-ink-muted">
+              What happens
+            </p>
+            <ul className="flex list-disc flex-col gap-1 ps-5 text-ui text-ink">
+              {consequences.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <TypedConfirmation
           expected={expectedName}
           value={typed}

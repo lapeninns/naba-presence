@@ -51,7 +51,7 @@ function ActivityList({
   locationId: string
   activity: ActivityPages
 }) {
-  if (activity.items.length === 0 && activity.total === 0) {
+  if (activity.items.length === 0) {
     // Nothing recorded at all: one calm empty state instead of a "0 recorded
     // changes" count over an empty list. The drawer's own SheetTitle is the
     // heading, so the title stays a `p`.
