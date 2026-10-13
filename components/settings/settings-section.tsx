@@ -28,6 +28,7 @@ function SettingsSection({
   contentClassName,
   headingLevel = "h2",
   variant = "card",
+  "data-slot": slot,
 }: {
   /** Heading id; the section is labelled by it. */
   id: string
@@ -40,13 +41,15 @@ function SettingsSection({
   contentClassName?: string
   headingLevel?: "h2" | "h3"
   variant?: "card" | "group"
+  /** Overrides the block's `data-slot` (tests and pages find it by this). */
+  "data-slot"?: string
 }) {
   if (variant === "group") {
     const Heading = headingLevel
     return (
       <section
         aria-labelledby={id}
-        data-slot="settings-section"
+        data-slot={slot ?? "settings-section"}
         data-variant="group"
         className={cn("flex min-w-0 flex-col gap-2", className)}
       >
@@ -73,7 +76,13 @@ function SettingsSection({
     )
   }
   return (
-    <Card role="region" aria-labelledby={id} className={className}>
+    <Card
+      role="region"
+      aria-labelledby={id}
+      // Only when given: otherwise the Card keeps its own `card` slot.
+      {...(slot ? { "data-slot": slot } : {})}
+      className={className}
+    >
       <CardHeader divided>
         <CardTitle as={headingLevel} id={id}>
           {title}
