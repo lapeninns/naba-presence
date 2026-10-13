@@ -17,6 +17,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import { SectionHeader } from "@/components/ui/section-header"
 import type { AdministrationState } from "@/lib/api/location-administration"
 import { asArray, asRecord } from "@/lib/locations/google-values"
@@ -75,9 +76,11 @@ function Sub({
   if (result.data == null) {
     return (
       empty ?? (
-        <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
-          No {title.toLowerCase()} set.
-        </p>
+        <Card size="sm">
+          <CardContent className="text-ui text-ink-muted">
+            No {title.toLowerCase()} set.
+          </CardContent>
+        </Card>
       )
     )
   }
@@ -316,9 +319,11 @@ function NoAccountAdmins() {
   const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
   if (rosterUpdating || rosterUnavailable) return <StaleRosterPlaceholder what="account admins" />
   return (
-    <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
-      No account-level admins.
-    </p>
+    <Card size="sm">
+      <CardContent className="text-ui text-ink-muted">
+        No account-level admins.
+      </CardContent>
+    </Card>
   )
 }
 

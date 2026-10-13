@@ -12,14 +12,12 @@ import {
   type SummaryRow,
 } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import {
+  confirmationMatches,
+  TypedConfirmation,
+} from "@/components/ui/typed-confirmation"
 import { useDeadline } from "@/lib/editors/use-deadline"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
-import {
-  IDENTIFIER_INPUT_PROPS,
-  typedNameMatches,
-} from "@/lib/locations/forms/administration"
 import type { LifecycleBlock, useLifecycle } from "./use-lifecycle"
 
 function roleText(role: string | null | undefined) {
@@ -87,7 +85,10 @@ export function LifecycleReview({
     expired ||
     workflow.unresolved
   const listingName = review.changeSet.locationName || locationName
-  const nameMatches = typedNameMatches(typedName, locationName)
+  // Exact (trimmed) match: for a lifecycle request the name is the evidence
+  // that the person is looking at the right listing. The send route takes only
+  // the saved payload hash; this is client-side friction.
+  const nameMatches = confirmationMatches(typedName, locationName, "exact")
   const rows: SummaryRow[] = [
     { label: "Location", value: listingName || "Name unavailable" },
     {
@@ -196,18 +197,14 @@ export function LifecycleReview({
           onCheckedChange={setConsent}
           disabled={blocked}
         >
-          <Field>
-            <FieldLabel htmlFor="lifecycle-typed-name">
-              Type the listing name: {locationName || "Name unavailable"}
-            </FieldLabel>
-            <Input
-              id="lifecycle-typed-name"
-              value={typedName}
-              onChange={(event) => setTypedName(event.target.value)}
-              disabled={blocked}
-              {...IDENTIFIER_INPUT_PROPS}
-            />
-          </Field>
+          <TypedConfirmation
+            match="exact"
+            expected={locationName}
+            label={`Type the listing name: ${locationName || "Name unavailable"}`}
+            value={typedName}
+            onValueChange={setTypedName}
+            disabled={blocked}
+          />
         </ConsentSlot>
       ) : null}
       {/* Stays mounted (disabled) while a send's answer is unknown, so the

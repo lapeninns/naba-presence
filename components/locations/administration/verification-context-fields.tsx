@@ -2,20 +2,18 @@
 
 import { useId, type HTMLAttributes } from "react"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import {
+  Fieldset,
+  FieldsetDescription,
+  FieldsetLegend,
+} from "@/components/ui/fieldset"
+import { Input, inputHints } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { VerificationOptionsInput } from "@/lib/contracts/google-verification-options"
 import {
   verificationLanguageName,
   verificationRegionName,
 } from "./verification-method"
-
-/** Keyboard hints for a typed code or identifier: no capitals, corrections or spellcheck. */
-export const CODE_INPUT_HINTS = {
-  autoCapitalize: "off",
-  autoCorrect: "off",
-  spellCheck: false,
-} as const
 
 export function VerificationTextField({
   label,
@@ -30,6 +28,7 @@ export function VerificationTextField({
   autoCorrect,
   spellCheck,
   enterKeyHint,
+  autoComplete = "off",
 }: {
   readonly label: string
   readonly value: string
@@ -43,6 +42,7 @@ export function VerificationTextField({
   readonly autoCorrect?: string
   readonly spellCheck?: boolean
   readonly enterKeyHint?: HTMLAttributes<HTMLInputElement>["enterKeyHint"]
+  readonly autoComplete?: string
 }) {
   const id = useId()
   return (
@@ -55,7 +55,7 @@ export function VerificationTextField({
         disabled={disabled}
         readOnly={readOnly}
         maxLength={maxLength}
-        autoComplete="off"
+        autoComplete={autoComplete}
         inputMode={inputMode}
         autoCapitalize={autoCapitalize}
         autoCorrect={autoCorrect}
@@ -91,14 +91,12 @@ export function VerificationContextFields({
   const country = verificationRegionName(value.regionCode),
     language = verificationLanguageName(value.languageCode)
   return (
-    <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-3">
-      <legend className="mb-2 text-ui font-semibold text-ink">
-        Private service-business address
-      </legend>
-      <p className="text-caption text-ink-muted">
+    <Fieldset disabled={disabled}>
+      <FieldsetLegend>Private service-business address</FieldsetLegend>
+      <FieldsetDescription>
         Use the real address Google requires to offer verification methods. This
         is verification context, not a public profile address change.
-      </p>
+      </FieldsetDescription>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field className="sm:col-span-2">
           <FieldLabel htmlFor={linesId}>Street address</FieldLabel>
@@ -156,7 +154,7 @@ export function VerificationContextFields({
           onChange={(regionCode) =>
             onChange({ ...value, regionCode: regionCode.toUpperCase() })
           }
-          {...CODE_INPUT_HINTS}
+          {...inputHints.identifier}
           autoCapitalize="characters"
           hint={
             country
@@ -170,7 +168,7 @@ export function VerificationContextFields({
           onChange={(languageCode) =>
             onChange({ ...value, languageCode: languageCode || undefined })
           }
-          {...CODE_INPUT_HINTS}
+          {...inputHints.identifier}
           hint={
             language
               ? `${language}. Optional language tag.`
@@ -184,9 +182,9 @@ export function VerificationContextFields({
             onChange({ ...value, sortingCode: sortingCode || undefined })
           }
           maxLength={40}
-          {...CODE_INPUT_HINTS}
+          {...inputHints.identifier}
         />
       </div>
-    </fieldset>
+    </Fieldset>
   )
 }

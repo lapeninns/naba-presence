@@ -11,15 +11,13 @@ import {
   type SummaryRow,
 } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import {
+  confirmationMatches,
+  TypedConfirmation,
+} from "@/components/ui/typed-confirmation"
 import type { AdministrationAccessReview } from "@/lib/contracts/google-administration-review"
 import { useDeadline } from "@/lib/editors/use-deadline"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
-import {
-  IDENTIFIER_INPUT_PROPS,
-  typedNameMatches,
-} from "@/lib/locations/forms/administration"
 import { accessTargetDescription } from "./access-target"
 
 export const ACCESS_OPERATION_LABELS = {
@@ -127,11 +125,13 @@ export function AccessReview({
   })
 
   // Removing someone's access is the destructive access request: its send
-  // step asks for the listing name as well as the consent (one rule for every
-  // destructive send, see typedNameMatches).
+  // step asks for the listing name as well as the consent, matched the same
+  // way as a lifecycle send (exact after trimming; one rule for every
+  // destructive send). The send route takes only the saved payload hash.
   const destructive = request.operation === "delete_admin"
   const expectedName = change.locationName || locationName
-  const nameMatches = !destructive || typedNameMatches(typedName, expectedName)
+  const nameMatches =
+    !destructive || confirmationMatches(typedName, expectedName, "exact")
   const sendLocked = busy || blocked || uncertain
   const sendStatus = uncertain
     ? "Read the saved outcome before sending again."
@@ -185,18 +185,14 @@ export function AccessReview({
             disabled={sendLocked}
           >
             {destructive ? (
-              <Field>
-                <FieldLabel htmlFor="access-typed-name">
-                  Type the listing name: {expectedName || "Name unavailable"}
-                </FieldLabel>
-                <Input
-                  id="access-typed-name"
-                  value={typedName}
-                  onChange={(event) => setTypedName(event.target.value)}
-                  disabled={sendLocked}
-                  {...IDENTIFIER_INPUT_PROPS}
-                />
-              </Field>
+              <TypedConfirmation
+                match="exact"
+                expected={expectedName}
+                label={`Type the listing name: ${expectedName || "Name unavailable"}`}
+                value={typedName}
+                onValueChange={setTypedName}
+                disabled={sendLocked}
+              />
             ) : null}
           </ConsentSlot>
           <SendBar label="Approved access request actions" status={sendStatus}>

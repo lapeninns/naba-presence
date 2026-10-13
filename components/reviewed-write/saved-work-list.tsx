@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { SectionHeader } from "@/components/ui/section-header"
 import { Instant } from "./instant"
 
@@ -76,10 +77,11 @@ export function SavedWorkList({
       ) : items.length === 0 ? (
         <p className="text-ui text-ink-muted">{emptyText}</p>
       ) : (
-        <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
+        <ul className="divide-y divide-line">
           {items.map((item) => (
             <li key={item.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2.5">
-              <div className="min-w-0 flex-[1_1_12rem]">
+              <div className="min-w-0 grow basis-48">
                 <p className="text-ui text-ink">{item.operation}</p>
                 <p className="text-caption text-ink-muted">
                   <Instant value={item.createdAt} /> · {item.stage}
@@ -91,6 +93,7 @@ export function SavedWorkList({
             </li>
           ))}
         </ul>
+        </Card>
       )}
       {failed && items.length > 0 ? (
         <p role="alert" className="text-ui text-danger-ink">{staleText ?? errorText}</p>

@@ -4,13 +4,15 @@ import { useId, useState } from "react"
 import { ConsentSlot, SendBar } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { verificationCompletionInputSchema } from "@/lib/contracts/google-verification-completion-review"
 
 /**
  * One visible PIN field. It is a text input (leading zeros survive) that asks
  * for the numeric keypad and offers the code Google just texted; the contract
  * still accepts any 1-128 character code, so non-digits are not rejected here.
+ * That variable length is why this is not an OtpField: per-character boxes
+ * need a length known up front, and Google does not tell us one.
  *
  * The PIN lives only in this component's state: it is cleared as soon as it
  * is handed to `onSubmit` and never reaches a query or mutation cache. At the
@@ -57,11 +59,7 @@ export function VerificationPinField({
       <Input
         id={id}
         type="text"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        autoCapitalize="off"
-        autoCorrect="off"
-        spellCheck={false}
+        {...inputHints.oneTimeCode}
         enterKeyHint={reentry ? "send" : "go"}
         maxLength={128}
         value={pin}

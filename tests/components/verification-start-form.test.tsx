@@ -65,7 +65,7 @@ describe("verification method-specific fields", () => {
     const language = screen.getByLabelText("Verification language")
     expect(screen.getByRole("checkbox", { name: "Provide a private service-business address" }).compareDocumentPosition(language) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText(/Google writes its message in British English/)).toBeInTheDocument()
-    expect(language).toHaveAttribute("autocapitalize", "off")
+    expect(language).toHaveAttribute("autocapitalize", "none")
     expect(language).toHaveAttribute("spellcheck", "false")
     await userEvent.click(screen.getByRole("checkbox", { name: "Provide a private service-business address" }))
     const street = screen.getByLabelText("Street address"), country = screen.getByLabelText("Country code")

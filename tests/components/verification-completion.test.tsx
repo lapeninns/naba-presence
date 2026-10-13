@@ -119,7 +119,7 @@ describe("reviewed PIN completion", () => {
       expect(pin).not.toHaveAttribute("type", "password")
       expect(pin).toHaveAttribute("inputmode", "numeric")
       expect(pin).toHaveAttribute("autocomplete", "one-time-code")
-      expect(pin).toHaveAttribute("autocapitalize", "off")
+      expect(pin).toHaveAttribute("autocapitalize", "none")
       expect(pin).toHaveAttribute("autocorrect", "off")
       expect(pin).toHaveAttribute("spellcheck", "false")
       expect(pin).toHaveAttribute("maxlength", "128")

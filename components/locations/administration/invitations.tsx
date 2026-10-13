@@ -5,6 +5,7 @@ import { useState } from "react"
 
 import { StatusPill } from "@/components/ui/status-pill"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogClose,
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/select"
 import { administrationAccessRequestSchema } from "@/lib/contracts/google-administration-review"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
-import { createAdminSchema, IDENTIFIER_INPUT_PROPS } from "@/lib/locations/forms/administration"
+import { createAdminSchema } from "@/lib/locations/forms/administration"
 import {
   asArray,
   asRecord,
@@ -50,14 +51,16 @@ export function InvitationsList({ data }: { data: unknown }) {
     return <StaleRosterPlaceholder what="pending invitations" />
   if (invitations.length === 0) {
     return (
-      <p className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-4 text-ui text-ink-muted">
-        No pending invitations.
-        <span>
-          {" "}
-          Invitations for this Google account appear here until they’re
-          accepted or declined.
-        </span>
-      </p>
+      <Card size="sm">
+        <CardContent className="text-ui text-ink-muted">
+          No pending invitations.
+          <span>
+            {" "}
+            Invitations for this Google account appear here until they’re
+            accepted or declined.
+          </span>
+        </CardContent>
+      </Card>
     )
   }
   return (
@@ -176,6 +179,9 @@ export function CreateAdminDialog() {
         setOpen(next)
         if (!next) setEmail("")
       }}
+      // A typed address is a draft: a stray scrim tap or Escape asks first.
+      dirty={email.trim().length > 0}
+      onDiscard={() => setEmail("")}
     >
       <DialogTrigger render={<Button disabled={writeBlocked || access.busy || Boolean(access.unresolved)} />}>
         <UserPlusIcon aria-hidden data-icon="inline-start" />
@@ -200,11 +206,11 @@ export function CreateAdminDialog() {
           <Field error={emailError}>
             <FieldLabel>Email address</FieldLabel>
             <Input
-              type="email"
-              inputMode="email"
+              {...inputHints.email}
+              // Someone else's address: don't offer the operator's own.
+              autoComplete="off"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              {...IDENTIFIER_INPUT_PROPS}
             />
             <FieldError />
           </Field>

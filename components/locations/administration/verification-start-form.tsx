@@ -5,6 +5,7 @@ import { Instant } from "@/components/reviewed-write"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ChoiceCard } from "@/components/ui/choice-card"
+import { inputHints } from "@/components/ui/input"
 import { RadioGroup } from "@/components/ui/radio-group"
 import { fetchGoogleVerificationOptions } from "@/lib/api/google-verification-options"
 import { verificationOptionsInputSchema, type VerificationOptionsInput, type VerificationOptionsResponse } from "@/lib/contracts/google-verification-options"
@@ -12,7 +13,7 @@ import type { VerificationReviewInput } from "@/lib/contracts/google-verificatio
 import { verificationChoiceDestination, verificationStartDraft } from "@/lib/locations/forms/verification"
 import { VerificationMethodCode, verificationLanguageName, verificationMethodName } from "./verification-method"
 import { cn } from "@/lib/utils"
-import { CODE_INPUT_HINTS, VerificationContextFields, VerificationTextField } from "./verification-context-fields"
+import { VerificationContextFields, VerificationTextField } from "./verification-context-fields"
 
 export function VerificationStartForm({ locationId, blocked, busy, onPreview }: {
   readonly locationId: string; readonly blocked: boolean; readonly busy: boolean
@@ -44,7 +45,7 @@ export function VerificationStartForm({ locationId, blocked, busy, onPreview }: 
     <p className="text-ui text-ink-muted">Check the methods Google currently offers, review the exact destination, then approve before sending a request.</p>
     <Checkbox label="Provide a private service-business address" checked={Boolean(input.context)} disabled={locked} onCheckedChange={(checked) => update({ ...input, context: checked ? { address: { regionCode: "GB", addressLines: [""] } } : undefined })} />
     {input.context && <VerificationContextFields value={input.context.address} disabled={locked} onChange={(address) => update({ ...input, context: { address } })} />}
-    <VerificationTextField label="Verification language" value={input.languageCode} disabled={locked} onChange={(languageCode) => update({ ...input, languageCode })} {...CODE_INPUT_HINTS}
+    <VerificationTextField label="Verification language" value={input.languageCode} disabled={locked} onChange={(languageCode) => update({ ...input, languageCode })} {...inputHints.identifier}
       hint={`${languageName ? `Google writes its message in ${languageName}. ` : ""}Change the language tag only if needed, for example en-GB or cy.`} />
     {!parsedInput.success && <p role="status" className="text-caption text-ink-muted">Enter a valid language and, if supplied, country and street address before checking methods.</p>}
     <Button variant="secondary" className="self-start" disabled={locked || !parsedInput.success} onClick={() => void discover()} pending={discovering} pendingLabel="Checking methods…">Check available methods</Button>
@@ -62,7 +63,7 @@ export function VerificationStartForm({ locationId, blocked, busy, onPreview }: 
           <VerificationMethodCode method={item.method} />
         </ChoiceCard>)}
       </RadioGroup>
-      {choice?.kind === "email" && <VerificationTextField label="Email username" value={choice.userNameEditable === true ? emailUser : choice.user} readOnly={choice.userNameEditable !== true} disabled={locked} onChange={setEmailUser} inputMode="email" {...CODE_INPUT_HINTS} hint={`Google fixes the domain to @${choice.domain}.${choice.userNameEditable === true ? " You may change the username." : " Google has not allowed username edits."}`} />}
+      {choice?.kind === "email" && <VerificationTextField label="Email username" value={choice.userNameEditable === true ? emailUser : choice.user} readOnly={choice.userNameEditable !== true} disabled={locked} onChange={setEmailUser} inputMode="email" {...inputHints.identifier} hint={`Google fixes the domain to @${choice.domain}.${choice.userNameEditable === true ? " You may change the username." : " Google has not allowed username edits."}`} />}
       {choice?.kind === "phone" && <VerificationTextField label="Eligible phone destination" value={choice.phoneNumber} readOnly hint="Use this exact Google-offered destination. Correct the business profile first if it is wrong." />}
       {choice?.kind === "address" && <>
         <VerificationTextField label="Postcard contact name" value={mailerContact} disabled={locked} maxLength={200} onChange={setMailerContact} autoCapitalize="words" hint="Who should receive Google's postcard at the displayed address?" />

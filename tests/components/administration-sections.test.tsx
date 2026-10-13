@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -337,6 +337,27 @@ describe("invitations", () => {
     expect(email).toHaveAttribute("autocapitalize", "none")
     expect(email).toHaveAttribute("autocorrect", "off")
     expect(email).toHaveAttribute("spellcheck", "false")
+  })
+
+  it("asks before a stray Escape throws a typed invitee away, and clears it on discard", async () => {
+    stubPatch()
+    renderSection(<CreateAdminDialog />)
+    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    await userEvent.type(screen.getByLabelText("Email address"), "new@camden.test")
+    await userEvent.keyboard("{Escape}")
+    const prompt = await screen.findByRole("alertdialog", { name: "Discard your changes?" })
+    await userEvent.click(within(prompt).getByRole("button", { name: "Keep editing" }))
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
+    expect(screen.getByLabelText("Email address")).toHaveValue("new@camden.test")
+    await userEvent.keyboard("{Escape}")
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    expect(screen.getByLabelText("Email address")).toHaveValue("")
   })
 
   it("hides the trigger behind the edit gate", () => {

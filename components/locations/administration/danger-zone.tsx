@@ -5,9 +5,9 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { googleAccountNameSchema } from "@/lib/contracts/google-administration-review"
-import { IDENTIFIER_INPUT_PROPS, normaliseAccountName } from "@/lib/locations/forms/administration"
+import { normaliseAccountName } from "@/lib/locations/forms/administration"
 import { SectionGateNote, useAdministrationSection } from "./context"
 import { LifecycleWorkspace, useLifecycleContext } from "./lifecycle-workspace"
 
@@ -41,9 +41,9 @@ function DangerZoneControls() {
       <li className="flex min-w-0 flex-col gap-2 px-4 py-4"><p className="text-body font-semibold text-ink">Remove from NabaPresence</p><p className="text-ui text-ink-muted">Unlink this app location under <Link href="/settings/connections" className="rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-3 focus-halo hover:underline">Connections</Link>. Unlinking does not request a change to the business on Google.</p></li>
       <li className="flex min-w-0 flex-col gap-2 px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-body font-semibold text-danger-ink">Request deletion on Google</p><p className="text-ui text-ink-muted">Request deletion of the managed Business Profile location. Search/Maps removal and customer-review deletion are not guaranteed.</p></div><Button variant="danger-outline" size="sm" disabled={blocked} onClick={() => setDeleting(true)}>Delete this location</Button></div><SectionGateNote /></li>
     </ul>
-    <Dialog open={collecting} onOpenChange={closeTransfer}><DialogContent><DialogHeader><DialogTitle>Transfer this location</DialogTitle><DialogDescription>Choose an exact destination account, then review current access and the frozen transfer. This step sends no provider write.</DialogDescription></DialogHeader>
+    <Dialog open={collecting} onOpenChange={closeTransfer} dirty={destination.trim().length > 0} onDiscard={() => setDestination("")}><DialogContent><DialogHeader><DialogTitle>Transfer this location</DialogTitle><DialogDescription>Choose an exact destination account, then review current access and the frozen transfer. This step sends no provider write.</DialogDescription></DialogHeader>
       <form className="flex min-w-0 flex-col gap-4" onSubmit={(event) => { event.preventDefault(); if (!blocked && parsed.success) void previewTransfer() }}>
-        <Field error={destination.trim().length > 0 && !parsed.success ? "Select an exact Google account resource, such as accounts/123." : undefined}><FieldLabel htmlFor="lifecycle-destination">Destination Google account</FieldLabel><Input id="lifecycle-destination" value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="accounts/…" disabled={workflow?.busy} {...IDENTIFIER_INPUT_PROPS} /><FieldError /></Field>
+        <Field error={destination.trim().length > 0 && !parsed.success ? "Select an exact Google account resource, such as accounts/123." : undefined}><FieldLabel htmlFor="lifecycle-destination">Destination Google account</FieldLabel><Input id="lifecycle-destination" value={destination} onChange={(event) => setDestination(event.target.value)} placeholder="accounts/…" disabled={workflow?.busy} {...inputHints.identifier} /><FieldError /></Field>
         {workflow?.error ? <p role="alert" className="text-ui text-danger-ink">{workflow.error}</p> : null}
         <DialogFooter><DialogClose render={<Button variant="ghost" disabled={workflow?.busy}>Cancel</Button>} /><Button type="submit" disabled={blocked || !parsed.success} pending={workflow?.busy}>Continue to transfer review</Button></DialogFooter>
       </form>
