@@ -377,20 +377,20 @@ function LoginLine({
         {rest.length > 0 ? ` and ${formatNumber(rest.length)} more` : ""}
       </span>
       {firstBroken ? (
-        <StatusPill tone="bad">
+        <StatusPill tone="at-risk">
           Needs reconnecting
           {first.lastRefreshAt
             ? ` · last refresh ${formatRelativeTime(first.lastRefreshAt)}`
             : ""}
         </StatusPill>
       ) : accessLost ? (
-        <StatusPill tone="warn">
+        <StatusPill tone="attention">
           {lost > 1
             ? `Connected · ${formatNumber(lost)} listings unreachable`
             : "Connected · a listing is unreachable"}
         </StatusPill>
       ) : (
-        <StatusPill tone="ok">
+        <StatusPill tone="healthy">
           Connected
           {first.lastRefreshAt
             ? ` · refreshed ${formatRelativeTime(first.lastRefreshAt)}`
@@ -544,13 +544,13 @@ function ListingsSection({
               cell: (listing) =>
                 listing.linkId ? (
                   listing.accessLost ? (
-                    <StatusPill tone="bad">
+                    <StatusPill tone="at-risk">
                       Linked · no manager access
                     </StatusPill>
                   ) : loginBroken ? (
-                    <StatusPill tone="bad">Linked · paused</StatusPill>
+                    <StatusPill tone="at-risk">Linked · paused</StatusPill>
                   ) : (
-                    <StatusPill tone="ok">Linked</StatusPill>
+                    <StatusPill tone="healthy">Linked</StatusPill>
                   )
                 ) : (
                   <StatusPill tone="neutral" dashed>
@@ -569,9 +569,9 @@ function ListingsSection({
                     —
                   </span>
                 ) : listing.verified ? (
-                  <StatusPill tone="ok">Verified</StatusPill>
+                  <StatusPill tone="healthy">Verified</StatusPill>
                 ) : (
-                  <StatusPill tone="warn">Not verified</StatusPill>
+                  <StatusPill tone="attention">Not verified</StatusPill>
                 ),
             },
             {
@@ -666,13 +666,13 @@ function ImportCard({
           ) : (
             <ul className="flex flex-col gap-2 text-ui">
               {running > 0 ? (
-                <ImportRow tone="info" label="Importing" count={running} />
+                <ImportRow tone="pending" label="Importing" count={running} />
               ) : null}
               {failed > 0 ? (
-                <ImportRow tone="bad" label="Stopped" count={failed} />
+                <ImportRow tone="at-risk" label="Stopped" count={failed} />
               ) : null}
               {succeeded > 0 ? (
-                <ImportRow tone="ok" label="Complete" count={succeeded} />
+                <ImportRow tone="healthy" label="Complete" count={succeeded} />
               ) : null}
               {notStarted > 0 ? (
                 <ImportRow
@@ -705,7 +705,7 @@ function ImportRow({
   label,
   count,
 }: {
-  tone: "info" | "bad" | "ok" | "neutral"
+  tone: "pending" | "at-risk" | "healthy" | "neutral"
   label: string
   count: number
 }) {

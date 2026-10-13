@@ -685,7 +685,7 @@ function OpenWork({ client }: { client: ClientSummary }) {
         </span>
       ) : null}
       {failed > 0 ? (
-        <StatusPill tone="bad">{formatNumber(failed)} failed</StatusPill>
+        <StatusPill tone="at-risk">{formatNumber(failed)} failed</StatusPill>
       ) : null}
     </span>
   )

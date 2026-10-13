@@ -447,7 +447,7 @@ function SettingsBody({
                     priority: "trailing",
                     cell: (l) =>
                       l.linked ? (
-                        <StatusPill tone="ok">Linked</StatusPill>
+                        <StatusPill tone="healthy">Linked</StatusPill>
                       ) : (
                         <StatusPill tone="neutral" dashed>
                           Not linked
@@ -565,7 +565,7 @@ function SettingsBody({
                           priority: "trailing",
                           cell: (l) =>
                             l.linked ? (
-                              <StatusPill tone="ok">Linked</StatusPill>
+                              <StatusPill tone="healthy">Linked</StatusPill>
                             ) : (
                               <StatusPill tone="neutral" dashed>
                                 Not linked
