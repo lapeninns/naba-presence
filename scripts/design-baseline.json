@@ -4,7 +4,7 @@
     "R1": 16,
     "R2": 9,
     "R3": 82,
-    "R4": 16,
+    "R4": 15,
     "R5": 2,
     "R6": 2,
     "R7": 16
@@ -32,12 +32,6 @@
         "patterns": {
           "grid-cols-[2.25rem_minmax(0,1fr)_auto]": 1,
           "grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[10px]": 1
         }
       }
     },

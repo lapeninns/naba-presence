@@ -149,10 +149,16 @@ describe("overview area actions", () => {
     // listings-content-18: the whole card is the target (Card interactive),
     // its one link the stretched CardLink.
     expect(hours).toHaveAttribute("data-interactive")
-    expect(within(hours).getByRole("link")).toHaveAttribute(
-      "data-slot",
-      "card-link"
-    )
+    const link = within(hours).getByRole("link")
+    expect(link).toHaveAttribute("data-slot", "card-link")
+    // The stretch covers the whole card at every width: the small button's
+    // touch overhang (after:inset-y-…, desk:after:hidden) must not win the
+    // class merge and shrink it to a band.
+    const classes = link.className.split(/\s+/)
+    expect(classes).toContain("after:inset-0")
+    expect(classes).toContain("desk:after:block")
+    expect(classes.filter((c) => /^after:inset-[xy]-/.test(c))).toEqual([])
+    expect(classes).not.toContain("desk:after:hidden")
     // A blocked area has no way in, so it is not drawn as a target.
     const menu = screen
       .getByRole("heading", { name: "Food menu" })
