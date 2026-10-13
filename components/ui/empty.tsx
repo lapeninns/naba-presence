@@ -28,8 +28,14 @@ import { cn } from "@/lib/utils"
  * state that sits inside a card or panel already. `size="sm"` is the
  * compact drawing for a panel or a list section.
  *
- * Drawing (reference `.empty`): a 44px rounded mark holding the glyph, a
- * title, one muted sentence and the actions, centred. The title is a `p`
+ * Drawing (reference `.empty`, NM "All caught up!"): a 44px rounded mark
+ * holding the glyph, or, in its place, an `illustration` (a 112px line
+ * drawing in the ink at a 1.5 stroke, `EmptyIllustration`); a title in
+ * `text-title` 500; one `text-caption` muted sentence that says why it is
+ * empty and what happens next; at most one action; centred.
+ * `placement="page"` is for a state that IS the page (inbox zero, a search
+ * with no results): it fills the space and sits at about 35% of its height,
+ * not dead centre. The title is a `p`
  * unless `titleAs` asks for a heading, so an empty state never disturbs the
  * page outline by accident. Pass `role="alert"` (or `"status"`) only when
  * the state replaces content because something just happened; QueryStates
@@ -67,6 +73,8 @@ function Empty({
   tone,
   framed = false,
   size = "default",
+  illustration,
+  placement = "inline",
   titleAs: Title = "p",
   className,
   children,
@@ -86,6 +94,14 @@ function Empty({
   /** `sm`: less padding, for a panel or a list section. */
   size?: "default" | "sm"
   titleAs?: "p" | "h2" | "h3"
+  /**
+   * A line drawing in place of the glyph mark (`<EmptyIllustration
+   * name="inbox-zero" />`, or any SVG drawn with `currentColor`). Decorative:
+   * hidden from assistive tech, the title carries the meaning.
+   */
+  illustration?: React.ReactNode
+  /** `page`: the state fills the page, centred at about 35% of the height. */
+  placement?: "inline" | "page"
 }) {
   const defaults = VARIANT_DEFAULTS[variant]
   const resolvedTone = tone ?? defaults.tone
@@ -95,16 +111,29 @@ function Empty({
       data-slot="empty"
       data-variant={variant}
       data-tone={resolvedTone}
+      data-placement={placement}
       className={cn(
         "flex flex-col items-center justify-center gap-2.5 px-5 text-center",
         size === "sm" ? "py-6" : "py-8 sm:py-12 lg:py-16",
+        // Two weighted spacers (35 : 65) put the content's centre at about
+        // 35% of the page's height rather than its middle.
+        placement === "page" &&
+          "min-h-[60dvh] flex-1 justify-start before:grow-35 before:content-[''] after:grow-65 after:content-['']",
         framed &&
           "rounded-(--np-radius-card) border border-line bg-surface",
         className
       )}
       {...props}
     >
-      {glyph ? (
+      {illustration ? (
+        <span
+          aria-hidden
+          data-slot="empty-illustration"
+          className="mb-2 grid size-28 place-items-center text-ink [&_svg]:size-full"
+        >
+          {illustration}
+        </span>
+      ) : glyph ? (
         <span
           aria-hidden
           className={cn(
@@ -116,11 +145,11 @@ function Empty({
         </span>
       ) : null}
       {children}
-      <Title className="text-title font-semibold text-balance text-ink">
+      <Title className="text-title font-medium text-balance text-ink">
         {title}
       </Title>
       {description ? (
-        <div className="max-w-sm text-ui text-pretty text-ink-muted">
+        <div className="max-w-sm text-caption text-pretty text-ink-muted">
           {description}
         </div>
       ) : null}
@@ -133,4 +162,72 @@ function Empty({
   )
 }
 
-export { Empty }
+export type EmptyIllustrationName = "inbox-zero" | "search"
+
+/**
+ * The line drawings an empty state can carry. Strokes only, in
+ * `currentColor` (the ink), 1.5 wide at any drawn size; no fills, no
+ * literal colours, so they follow the theme.
+ */
+function EmptyIllustration({
+  name,
+  className,
+  ...props
+}: Omit<React.ComponentProps<"svg">, "children"> & {
+  name: EmptyIllustrationName
+}) {
+  return (
+    <svg
+      data-slot="empty-illustration-svg"
+      data-name={name}
+      viewBox="0 0 112 112"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      focusable="false"
+      className={cn("size-28", className)}
+      {...props}
+    >
+      {name === "inbox-zero" ? <InboxZeroDrawing /> : <SearchDrawing />}
+    </svg>
+  )
+}
+
+/** An open tray with a tick resting in it and two small sparks: all clear. */
+function InboxZeroDrawing() {
+  return (
+    <g>
+      <path
+        vectorEffect="non-scaling-stroke"
+        d="M22 62 L32 36 H80 L90 62 V82 A6 6 0 0 1 84 88 H28 A6 6 0 0 1 22 82 Z"
+      />
+      <path
+        vectorEffect="non-scaling-stroke"
+        d="M22 62 H42 A14 8 0 0 0 70 62 H90"
+      />
+      <path vectorEffect="non-scaling-stroke" d="M46 50 L53 57 L67 43" />
+      <path vectorEffect="non-scaling-stroke" d="M86 18 V26 M82 22 H90" />
+      <path vectorEffect="non-scaling-stroke" d="M24 20 V26 M21 23 H27" />
+      <path vectorEffect="non-scaling-stroke" d="M96 38 V42 M94 40 H98" />
+    </g>
+  )
+}
+
+/** A magnifier over three faint result lines: nothing matched. */
+function SearchDrawing() {
+  return (
+    <g>
+      <path vectorEffect="non-scaling-stroke" d="M18 30 H62" />
+      <path vectorEffect="non-scaling-stroke" d="M18 44 H48" />
+      <path vectorEffect="non-scaling-stroke" d="M18 58 H40" />
+      <circle vectorEffect="non-scaling-stroke" cx="66" cy="62" r="20" />
+      <path vectorEffect="non-scaling-stroke" d="M80 76 L94 90" />
+      <path vectorEffect="non-scaling-stroke" d="M59 62 H73" />
+    </g>
+  )
+}
+
+export { Empty, EmptyIllustration }

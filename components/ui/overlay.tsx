@@ -312,6 +312,23 @@ export const overlayPopupClassName = {
     "[transform:translateX(var(--drawer-swipe-movement-x,0px))]",
     "data-ending-style:[transform:translateX(-100%)] data-starting-style:[transform:translateX(-100%)]"
   ),
+  /**
+   * The inset sheet (Notion Mail's short choice sheet): a card floating
+   * `--np-sheet-inset` from the side edges and that gap above the dock edge
+   * (`--np-dock-bottom`: the keyboard or the home indicator), rounded on
+   * every corner. It is already clear of the dock, so a footer inside adds
+   * no dock padding of its own (`--overlay-dock: 0`). It swipes down like the
+   * bottom sheet, travelling its own height plus the gap so it leaves the
+   * screen; reduced motion collapses the duration in globals.css, so it
+   * appears and goes instantly.
+   */
+  inset: cn(
+    drawerPopupBaseClassName,
+    "[--overlay-dock:0px]",
+    "mx-auto mt-auto mb-[calc(var(--np-dock-bottom)+var(--np-sheet-inset))] max-h-[calc(100dvh-var(--np-safe-top)-var(--np-dock-bottom)-3*var(--np-sheet-inset))] w-[calc(100%-2*var(--np-sheet-inset))] max-w-(--np-sheet-max-w) rounded-sheet-inset shadow-(--np-shadow-float)",
+    "[transform:translateY(calc(var(--drawer-snap-point-offset,0px)+var(--drawer-swipe-movement-y,0px)))]",
+    "data-ending-style:[transform:translateY(calc(100%+var(--np-dock-bottom)+var(--np-sheet-inset)))] data-starting-style:[transform:translateY(calc(100%+var(--np-dock-bottom)+var(--np-sheet-inset)))]"
+  ),
   /** A sheet dropping from the top edge (kept for `side="top"`). */
   top: cn(
     drawerPopupBaseClassName,

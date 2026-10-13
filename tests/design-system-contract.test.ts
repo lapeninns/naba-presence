@@ -329,11 +329,16 @@ describe("type roles", () => {
     }
   })
 
-  it("keeps the serif for titles and the customer's words only", () => {
-    // The interface is the platform sans; the serif is a second voice for
-    // page titles and review text, reached through display/reading.
+  it("sets titles and the customer's words in the sans (D1, amendment 2026-10-13)", () => {
+    // One voice: display, heading and reading resolve to the platform sans.
+    // Reverting the --font-display line to the serif stack is the whole
+    // rollback, so the pin is on that one declaration.
     expect(globals).toMatch(/--font-sans:\s*-apple-system/)
-    expect(globals).toMatch(/--font-display:\s*"Iowan Old Style"/)
+    expect(globals).toMatch(/--font-display:\s*var\(--font-sans\);/)
+    expect(globals).not.toMatch(/--font-display:\s*"Iowan Old Style"/)
+    expect(globals).not.toMatch(
+      /--font-(display|heading|reading):[^;]*(?<!sans-)serif\s*;/
+    )
     expect(globals).toContain("--font-heading: var(--font-display)")
     expect(globals).toContain("--font-reading: var(--font-display)")
   })
