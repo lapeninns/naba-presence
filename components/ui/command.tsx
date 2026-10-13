@@ -4,13 +4,16 @@ import { Command as CommandPrimitive } from "cmdk"
 import { SearchIcon } from "lucide-react"
 import * as React from "react"
 
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
+import { OverlayGrabber, useOverlayPresentation } from "@/components/ui/overlay"
 import { cn } from "@/lib/utils"
 
 /**
@@ -20,7 +23,8 @@ import { cn } from "@/lib/utils"
  * focus; this file supplies the chrome (reference `.palette`): a 620px
  * panel 12vh from the top, a borderless title-size search row over a
  * hairline, mono uppercase group labels, rows that take the accent tint when
- * selected, and an optional footer of key hints (`footer` / `CommandFooter`). The dialog keeps a real title and description,
+ * selected, and an optional footer of key hints (`footer` / `CommandFooter`).
+ * On a phone it is a full-height sheet instead. The dialog keeps a real title and description,
  * visually hidden — a dialog with no accessible name is announced as an
  * unnamed region, which is precisely the state a keyboard user lands in when
  * they hit the shortcut.
@@ -41,9 +45,47 @@ function CommandDialog({
   footer?: React.ReactNode
   children: React.ReactNode
 }) {
+  const presentation = useOverlayPresentation("auto", open)
+  if (presentation === "sheet") {
+    // On a phone the palette is a full-height sheet: the search row pinned
+    // under the drag handle, the results scrolling between it and the
+    // keyboard (the list's bottom padding is the keyboard's height). Cancel
+    // is the button alternative to the swipe; key hints have no keys here.
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          presentation="sheet"
+          showCloseButton={false}
+          className="flex h-[calc(100dvh-var(--np-safe-top)-0.75rem)] flex-col gap-0 overflow-hidden p-0"
+        >
+          <DialogTitle className="sr-only">{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {description}
+          </DialogDescription>
+          <div className="relative flex h-11 shrink-0 items-start">
+            <OverlayGrabber />
+            <DialogClose
+              render={
+                <Button
+                  variant="link"
+                  className="absolute top-1.5 right-4 h-8! text-ui no-underline"
+                />
+              }
+            >
+              Cancel
+            </DialogClose>
+          </div>
+          <Command className="min-h-0 flex-1 bg-surface [&_[data-slot=command-list]]:max-h-none [&_[data-slot=command-list]]:min-h-0 [&_[data-slot=command-list]]:flex-1 [&_[data-slot=command-list]]:pb-[calc(--spacing(2)+var(--overlay-dock,0px))]">
+            {children}
+          </Command>
+        </DialogContent>
+      </Dialog>
+    )
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        presentation="dialog"
         showCloseButton={false}
         className="top-[12vh] block w-[min(620px,calc(100vw-24px))] max-w-none translate-y-0 gap-0 overflow-hidden p-0 data-starting-style:translate-y-2 sm:max-w-none"
       >
@@ -87,7 +129,10 @@ function CommandInput({
         data-slot="command-input"
         className={cn(
           "h-14 w-full min-w-0 bg-transparent text-title text-ink outline-none placeholder:text-ink-muted",
-          className
+          className,
+          // iOS zooms the page into a focused field under 16px; no caller
+          // className may take a touch search field below that.
+          "pointer-coarse:text-base!"
         )}
         {...props}
       />
@@ -131,7 +176,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "overflow-hidden text-ink [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[11.5px] [&_[cmdk-group-heading]]:tracking-[0.04em] [&_[cmdk-group-heading]]:text-ink-muted [&_[cmdk-group-heading]]:uppercase",
+        "overflow-hidden text-ink [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:tracking-[0.04em] [&_[cmdk-group-heading]]:text-ink-muted [&_[cmdk-group-heading]]:uppercase",
         className
       )}
       {...props}

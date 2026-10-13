@@ -1,4 +1,4 @@
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { ListingOverview } from "@/components/listings/listing-overview"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"
@@ -14,7 +14,7 @@ export function generateMetadata({
   return listingPageMetadata(params)
 }
 
-/** One listing's home: its state, its areas, its recent activity. */
+/** One listing’s home: its state, its areas and its health. */
 export default async function ListingPage({
   params,
 }: {

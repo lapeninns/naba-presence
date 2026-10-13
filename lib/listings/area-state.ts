@@ -8,7 +8,7 @@ import type {
   ListingSummary,
   SyncedArea,
 } from "@/lib/contracts/location-summary"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import type { ListingArea, ListingAreaKey } from "@/lib/listings/areas"
 import {
   googleUnreachable,
@@ -25,6 +25,13 @@ export type AreaState = {
   label: string
   /** One line of substance, or null when there is nothing to add. */
   line: string | null
+  /**
+   * When the line ends with how long ago something happened ("Checked
+   * against Google 4 minutes ago"), the instant, said as a relative time
+   * after `line` by the component that renders it: a gap computed here,
+   * during render, would differ between the server and the browser.
+   */
+  since?: string
 }
 
 /** Pending suggested updates across both inbound resources. */
@@ -37,7 +44,10 @@ export function suggestionCount(summary: ListingSummary | undefined): number {
  * Canonical areas never compared with Google ("unknown"), by name. While any
  * remain, "matches what customers see" is a claim nothing backs.
  */
-export function uncheckedAreas(summary: ListingSummary): string[] {
+export function uncheckedAreas(
+  summary: ListingSummary,
+  now?: number
+): string[] {
   return [
     { name: "business profile", area: summary.profile },
     { name: "opening hours", area: summary.hours },
@@ -45,17 +55,15 @@ export function uncheckedAreas(summary: ListingSummary): string[] {
       ? []
       : [{ name: "food menu", area: summary.menu }]),
   ]
-    .filter(({ area }) => comparisonCheck(area) !== "checked")
+    .filter(({ area }) => comparisonCheck(area, now) !== "checked")
     .map(({ name }) => name)
 }
 
-/** "Just now" / "2 h ago" / "5 Sep", readable mid-sentence. */
-function when(iso: string): string {
-  const text = formatRelativeTime(iso)
-  return text === "Just now" ? "just now" : text
-}
-
-function syncedState(area: SyncedArea, unreachable = false): AreaState {
+function syncedState(
+  area: SyncedArea,
+  unreachable = false,
+  now?: number
+): AreaState {
   const dirty = area.status === "core_dirty" || area.status === "conflict"
   // With Google out of reach, only what is known locally can be said: edits
   // saved here are still not on Google, but "in sync", "changed on Google"
@@ -64,11 +72,11 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
     return {
       tone: "neutral",
       label: UNREACHABLE_LABEL,
-      line: area.observedAt
-        ? `Last compared with Google ${when(area.observedAt)}`
-        : "Not compared with Google yet",
+      ...(area.observedAt
+        ? { line: "Last compared with Google", since: area.observedAt }
+        : { line: "Not compared with Google yet" }),
     }
-  const check = comparisonCheck(area)
+  const check = comparisonCheck(area, now)
   if (!dirty && check !== "checked")
     return {
       tone: check === "failed" ? "attention" : "neutral",
@@ -78,20 +86,21 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
           : check === "stale"
             ? "Check overdue"
             : "Not checked yet",
-      line: area.observedAt
-        ? `Last compared with Google ${when(area.observedAt)}`
-        : "Not compared with Google yet",
+      ...(area.observedAt
+        ? { line: "Last compared with Google", since: area.observedAt }
+        : { line: "Not compared with Google yet" }),
     }
+  const since = !dirty && area.observedAt ? area.observedAt : undefined
   const line = dirty
     ? area.dirtyCount > 1
       ? `${formatNumber(area.dirtyCount)} fields not yet on Google`
       : "Edited here, not yet on Google"
     : area.status === "google_dirty"
-      ? area.observedAt
-        ? `Changed on Google · checked ${when(area.observedAt)}`
+      ? since
+        ? "Changed on Google · checked"
         : "Changed on Google"
-      : area.observedAt
-        ? `Checked against Google ${when(area.observedAt)}`
+      : since
+        ? "Checked against Google"
         : area.status === "unknown"
           ? "Not compared with Google yet"
           : null
@@ -104,6 +113,7 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
           ? "In sync"
           : syncStatusLabel(area.status),
     line,
+    ...(since ? { since } : {}),
   }
 }
 
@@ -111,15 +121,20 @@ function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many.replace("#", formatNumber(count))
 }
 
+/**
+ * `now` decides whether a comparison is overdue (an hour old). Pass `useNow()`
+ * from a component so the server and the hydrating browser agree.
+ */
 export function areaState(
   key: ListingAreaKey,
-  summary: ListingSummary
+  summary: ListingSummary,
+  now?: number
 ): AreaState {
   switch (key) {
     case "profile":
-      return syncedState(summary.profile, googleUnreachable(summary))
+      return syncedState(summary.profile, googleUnreachable(summary), now)
     case "hours":
-      return syncedState(summary.hours, googleUnreachable(summary))
+      return syncedState(summary.hours, googleUnreachable(summary), now)
     case "menu":
       if (summary.menu.eligible === false)
         return {
@@ -127,7 +142,7 @@ export function areaState(
           label: "Not offered",
           line: "Google does not show a menu for this kind of business",
         }
-      return syncedState(summary.menu, googleUnreachable(summary))
+      return syncedState(summary.menu, googleUnreachable(summary), now)
     case "booking":
       return {
         tone: "neutral",
@@ -195,7 +210,10 @@ export function areaState(
       if (summary.lifecycleEnded)
         return {
           tone: "attention",
-          label: summary.lifecycleEnded === "delete_location" ? "Deleted from Google" : "Moved to another account",
+          label:
+            summary.lifecycleEnded === "delete_location"
+              ? "Deleted from Google"
+              : "Moved to another account",
           line: "This account no longer manages the listing on Google",
         }
       return {
@@ -236,7 +254,8 @@ export function areaState(
 /** Convenience for callers that hold the registry entry. */
 export function areaStateFor(
   area: ListingArea,
-  summary: ListingSummary
+  summary: ListingSummary,
+  now?: number
 ): AreaState {
-  return areaState(area.key, summary)
+  return areaState(area.key, summary, now)
 }

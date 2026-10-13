@@ -2,9 +2,10 @@ import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { UseQueryResult } from "@tanstack/react-query"
-import type { ReactElement } from "react"
+import { createRef, type ReactElement } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import * as detailHook from "@/lib/queries/use-review-detail"
@@ -700,7 +701,11 @@ describe("ReviewDetail", () => {
     expect(
       screen.queryByRole("button", { name: "Publish reply" })
     ).not.toBeInTheDocument()
-    expect(container.querySelector("footer")).not.toBeNull()
+    // Docked from the first paint, as the loaded bar will be, so the tab bar
+    // does not show and then step aside.
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).toHaveAttribute("data-docked", "bottom")
+    expect(footer).toHaveAttribute("aria-hidden", "true")
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
@@ -763,5 +768,248 @@ describe("ReviewDetail", () => {
     expect(
       screen.getByText("A rating with no written review.")
     ).toBeInTheDocument()
+  })
+})
+
+// Below lg the review has replaced the list, so its head is the screen's app
+// bar: the way back, whose review it is, where it sits and a step either way.
+describe("ReviewDetail — phone head", () => {
+  function head(
+    overrides: {
+      nav?: Parameters<typeof ReviewDetail>[0]["nav"]
+      onBack?: () => void
+    } = {}
+  ) {
+    return {
+      back: {
+        label: "Inbox",
+        onBack: overrides.onBack ?? vi.fn(),
+        ref: createRef<HTMLButtonElement>(),
+      },
+      nav: overrides.nav,
+    }
+  }
+
+  it("names the reviewer in the h1 and labels the way back", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const onBack = vi.fn()
+    const { container } = renderPane(
+      <ReviewDetail reviewId="rev-1" {...head({ onBack })} />
+    )
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sam Traveller" })
+    ).toHaveAttribute("data-slot", "review-title")
+    const back = screen.getByRole("button", { name: "Back to Inbox" })
+    expect(back).toHaveTextContent("Inbox")
+    back.click()
+    expect(onBack).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('[data-slot="review-head"]')).not.toBeNull()
+  })
+
+  it("leaves the way back to the app bar when it draws one, keeping the head", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const props = head({
+      nav: { position: 2, total: 5, more: false, onPrevious: vi.fn() },
+    })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        {...props}
+        back={{ ...props.back, inAppBar: true }}
+      />
+    )
+    // One back control on the screen: the shell's "‹ Inbox", not this one.
+    expect(
+      screen.queryByRole("button", { name: "Back to Inbox" })
+    ).not.toBeInTheDocument()
+    const headRow = container.querySelector<HTMLElement>(
+      '[data-slot="review-head"]'
+    )
+    expect(headRow).not.toBeNull()
+    expect(
+      within(headRow!).getByRole("heading", { level: 1, name: "Sam Traveller" })
+    ).toBeInTheDocument()
+    expect(headRow).toHaveTextContent("2 of 5")
+    expect(
+      within(headRow!).getByRole("button", { name: "Previous review" })
+    ).toBeEnabled()
+    expect(
+      within(headRow!).getByRole("button", { name: "Next review" })
+    ).toBeDisabled()
+  })
+
+  it("keeps the same back control from loading to loaded", () => {
+    fakeDetail({ isPending: true, isError: false })
+    const props = head()
+    const client = new QueryClient()
+    const view = render(
+      <QueryClientProvider client={client}>
+        <ReviewDetail reviewId="rev-1" heading="Sam T." {...props} />
+      </QueryClientProvider>
+    )
+    const before = screen.getByRole("button", { name: "Back to Inbox" })
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sam T." })
+    ).toBeInTheDocument()
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ReviewDetail reviewId="rev-1" heading="Sam T." {...props} />
+      </QueryClientProvider>
+    )
+    // The same node, so focus placed on it when the review opened survives
+    // the review arriving.
+    expect(screen.getByRole("button", { name: "Back to Inbox" })).toBe(before)
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sam Traveller" })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps the way back when the review fails to load", () => {
+    fakeDetail({
+      isPending: false,
+      isError: true,
+      error: new Error("boom"),
+      refetch: vi.fn(),
+    } as Partial<UseQueryResult<ReviewDetailData>>)
+    renderPane(<ReviewDetail reviewId="rev-1" {...head()} />)
+    expect(
+      screen.getByRole("button", { name: "Back to Inbox" })
+    ).toBeInTheDocument()
+  })
+
+  it("says where the review sits and steps either way", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const onPrevious = vi.fn()
+    const onNext = vi.fn()
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        {...head({
+          nav: { position: 2, total: 7, more: false, onPrevious, onNext },
+        })}
+      />
+    )
+    const position = container.querySelector('[data-slot="review-position"]')
+    expect(position).toHaveTextContent("Review 2 of 7")
+    screen.getByRole("button", { name: "Previous review" }).click()
+    screen.getByRole("button", { name: "Next review" }).click()
+    expect(onPrevious).toHaveBeenCalledTimes(1)
+    expect(onNext).toHaveBeenCalledTimes(1)
+  })
+
+  it("turns the steps off at the ends and says 50+ when more follow", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        {...head({ nav: { position: 1, total: 50, more: true } })}
+      />
+    )
+    expect(
+      container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("1 of 50+")
+    expect(
+      screen.getByRole("button", { name: "Previous review" })
+    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Next review" })).toBeDisabled()
+  })
+
+  it("draws no head without a back control (the desk)", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument()
+  })
+})
+
+describe("ReviewDetail — publish bar", () => {
+  it("docks the bar to the bottom when it carries actions", () => {
+    fakeDetail({ isPending: false, isError: false, data: readyToPublish })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        actions={<button type="button">Publish reply</button>}
+      />
+    )
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).toHaveAttribute("data-docked", "bottom")
+    expect(
+      within(footer as HTMLElement).getByRole("button", {
+        name: "Publish reply",
+      })
+    ).toBeInTheDocument()
+    // The shared ActionBar's dock: a named region, fixed on a phone, with
+    // an in-flow spacer that keeps the reply reachable above it.
+    expect(footer).toHaveAttribute("role", "region")
+    expect(footer).toHaveAccessibleName("Reply actions")
+    expect(footer?.className).toMatch(/max-md:fixed/)
+    expect(
+      container.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+  })
+
+  it("keeps the bar undocked when it has no actions", () => {
+    fakeDetail({ isPending: false, isError: false, data: readyToPublish })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).not.toBeNull()
+    expect(footer).not.toHaveAttribute("data-docked")
+    expect(
+      container.querySelector('[data-slot="action-bar-spacer"]')
+    ).toBeNull()
+  })
+
+  it("gives a viewer no bar, the status inline and a note", () => {
+    fakeDetail({
+      isPending: false,
+      isError: false,
+      data: reviewWith({
+        capabilities: {
+          canPublish: false,
+          canEdit: false,
+          canRequestApproval: false,
+        },
+      }),
+    })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        actions={<button type="button">Publish reply</button>}
+      />
+    )
+    expect(container.querySelector('[data-slot="composer-footer"]')).toBeNull()
+    expect(container.querySelector('[data-docked="bottom"]')).toBeNull()
+    expect(
+      screen.queryByRole("button", { name: "Publish reply" })
+    ).not.toBeInTheDocument()
+    const reply = screen.getByRole("region", { name: "Your reply" })
+    expect(within(reply).getByRole("status")).toBeInTheDocument()
+    expect(reply).toHaveTextContent(
+      "View-only access. You can read reviews and replies; an owner or admin can reply."
+    )
+  })
+})
+
+describe("DetailErrorBoundary", () => {
+  function Boom(): never {
+    throw new Error("render failed")
+  }
+
+  it("offers Try again and, given a way back, Back to Inbox", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const onBack = vi.fn()
+    render(
+      <DetailErrorBoundary onBack={onBack}>
+        <Boom />
+      </DetailErrorBoundary>
+    )
+    expect(
+      screen.getByText("This review could not be shown.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Try again" })
+    ).toBeInTheDocument()
+    screen.getByRole("button", { name: "Back to Inbox" }).click()
+    expect(onBack).toHaveBeenCalledTimes(1)
   })
 })

@@ -82,7 +82,9 @@ function RefreshGoogleControl({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1 max-sm:w-full max-sm:items-stretch">
+    // Beside the tab's caption line at every width; the failure reads under
+    // the button, never as a second full-width row of chrome.
+    <div className="flex flex-col items-end gap-1 print:hidden">
       <Button
         variant="secondary"
         onClick={() => void run()}
@@ -95,7 +97,7 @@ function RefreshGoogleControl({
       {error ? (
         <span
           role="alert"
-          className="max-w-72 text-caption text-danger-ink sm:text-right"
+          className="max-w-72 text-right text-caption text-danger-ink"
         >
           {error}
         </span>

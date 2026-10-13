@@ -13,7 +13,8 @@ import {
   confirmIndustryManagement,
 } from "@/lib/server/industry-management"
 import { route } from "@/lib/server/route"
-import { lodgingPreviewRequestSchema, approveGbpChangeSetRequestSchema } from "@/lib/contracts/gbp-change-set"
+import { approveGbpChangeSetRequestSchema } from "@/lib/contracts/gbp-change-set"
+import { lodgingPreviewRequestSchema } from "@/lib/contracts/lodging-preview"
 import { previewLodgingChange, approveLodgingChange } from "@/lib/server/gbp-change-sets"
 import { readLodgingAttempt } from "@/lib/server/lodging-attempt"
 import { lodgingWorkflowsQuerySchema } from "@/lib/contracts/lodging-workflows"

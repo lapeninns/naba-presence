@@ -68,9 +68,13 @@ suite("legacy verification credential cleanup", () => {
     const tables = await admin`select relrowsecurity, relforcerowsecurity from pg_class where relname in ('gbp_management_mutation', 'gbp_resource_snapshot', 'audit_log', 'gbp_change_set')`
     expect(tables).toHaveLength(4)
     expect(tables.every((table) => table.relrowsecurity && table.relforcerowsecurity)).toBe(true)
-    await expect(admin.begin(async (transaction) => {
+    // The runtime login, as the app connects: the admin here need not be a
+    // superuser (Supabase's postgres is not), so it may not SET ROLE to the
+    // runtime role it created.
+    const runtime = postgres(process.env.TEST_RUNTIME_DATABASE_URL!, { max: 1 })
+    await expect(runtime.begin(async (transaction) => {
       await transaction`set local role naba_app_runtime`
       await transaction`alter table audit_log disable trigger audit_log_no_update`
-    })).rejects.toThrow("must be owner")
+    })).rejects.toThrow("must be owner").finally(() => runtime.end())
   })
 })

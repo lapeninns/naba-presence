@@ -7,8 +7,10 @@ import { useEffect, useState } from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { OperationReceiptNotice } from "@/components/locations/operation-outcome"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { FormError } from "@/components/ui/field"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
 import {
@@ -40,6 +42,7 @@ import {
   serverClockOffset,
 } from "@/lib/domain/bulk-repreview"
 import { formatDateTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSessionRole } from "@/lib/queries/use-session"
@@ -266,6 +269,84 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
       (child) => child.status === "failed" || child.status === "ambiguous"
     ).length ?? 0
 
+  const approveDisabled =
+    !op?.canApprove || previewClosed || (skipped > 0 && !acknowledged)
+  const canRepreview = Boolean(
+    op && repreview?.items.length && !isBulkReviewOperation(op.operation)
+  )
+  // The quiet actions first and the one primary last (nearest the thumb on
+  // a phone): approving while the window is open, starting once approved,
+  // or the new preview once Google must be read again.
+  const buttons =
+    manager && op
+      ? [
+          op.status === "running" ||
+          op.status === "approved" ||
+          op.status === "previewed" ? (
+            <Button
+              key="cancel"
+              variant="ghost-dark"
+              disabled={mutate.isPending}
+              onClick={() => mutate.mutate("cancel")}
+            >
+              Cancel remaining listings
+            </Button>
+          ) : null,
+          retryable &&
+          ["running", "completed_with_failures"].includes(op.status) ? (
+            <Button
+              key="retry"
+              variant="ghost-dark"
+              disabled={mutate.isPending}
+              onClick={() => mutate.mutate("retry")}
+            >
+              Retry {retryable} unsettled {unit(retryable)}
+            </Button>
+          ) : null,
+          canRepreview && repreview ? (
+            <Button
+              key="repreview"
+              variant={
+                previewClosed || op.status === "expired"
+                  ? "default"
+                  : "ghost-dark"
+              }
+              pending={prepare.isPending}
+              pendingLabel="Reading each listing…"
+              onClick={() => {
+                setFailure(null)
+                prepare.mutate()
+              }}
+            >
+              New preview for {repreview.locationIds.length}{" "}
+              {repreview.locationIds.length === 1 ? "listing" : "listings"} not
+              sent
+            </Button>
+          ) : null,
+          op.status === "previewed" ? (
+            <Button
+              key="approve"
+              variant={previewClosed ? "ghost-dark" : "default"}
+              disabled={approveDisabled}
+              pending={mutate.isPending}
+              onClick={() => mutate.mutate("approve")}
+            >
+              Approve this exact change
+            </Button>
+          ) : null,
+          op.status === "approved" ? (
+            <Button
+              key="start"
+              pending={mutate.isPending}
+              onClick={() => mutate.mutate("start")}
+            >
+              Start bulk change
+            </Button>
+          ) : null,
+        ].filter(Boolean)
+      : []
+  const actions = buttons.length ? <>{buttons}</> : null
+
   return (
     <>
       <PageHeader
@@ -291,7 +372,14 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
         onRetry={() => void query.refetch()}
       >
         {op ? (
-          <div className="flex flex-col gap-4">
+          <div
+            className={cn(
+              "flex min-w-0 flex-col gap-4",
+              // Room under the last outcome for the docked phone bar.
+              actions &&
+                "max-md:pb-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))]"
+            )}
+          >
             <p className="text-ui text-ink" role="status">
               {op.status === "previewed"
                 ? "Waiting for approval."
@@ -314,94 +402,36 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 .join(" · ")}
             </p>
             <Deadline operation={op} now={now} offset={offset} />
-            {failure ? (
-              <p role="alert" className="text-ui text-danger-ink">
-                {failure}
-              </p>
-            ) : null}
-            {manager ? (
-              <div className="flex flex-wrap items-center gap-3">
-                {op.status === "previewed" ? (
-                  <>
-                    {skipped ? (
-                      <Checkbox
-                        label={`I understand ${skipped} ${unit(skipped)} ${skipped === 1 ? "is" : "are"} skipped and will not be sent`}
-                        checked={acknowledged}
-                        onCheckedChange={(checked) =>
-                          setAcknowledged(checked === true)
-                        }
-                      />
-                    ) : null}
-                    <Button
-                      disabled={
-                        !op.canApprove ||
-                        previewClosed ||
-                        (skipped > 0 && !acknowledged)
-                      }
-                      pending={mutate.isPending}
-                      onClick={() => mutate.mutate("approve")}
-                    >
-                      Approve this exact change
-                    </Button>
-                    {!op.canApprove ? (
-                      <span className="text-caption text-ink-muted">
-                        A different owner or administrator must approve.
-                      </span>
-                    ) : null}
-                  </>
-                ) : null}
-                {op.status === "approved" ? (
-                  <Button
-                    pending={mutate.isPending}
-                    onClick={() => mutate.mutate("start")}
-                  >
-                    Start bulk change
-                  </Button>
-                ) : null}
-                {op.status === "running" ||
-                op.status === "approved" ||
-                op.status === "previewed" ? (
-                  <Button
-                    variant="secondary"
-                    disabled={mutate.isPending}
-                    onClick={() => mutate.mutate("cancel")}
-                  >
-                    Cancel remaining listings
-                  </Button>
-                ) : null}
-                {retryable &&
-                ["running", "completed_with_failures"].includes(op.status) ? (
-                  <Button
-                    variant="secondary"
-                    disabled={mutate.isPending}
-                    onClick={() => mutate.mutate("retry")}
-                  >
-                    Retry {retryable} unsettled {unit(retryable)}
-                  </Button>
-                ) : null}
-                {repreview?.items.length &&
-                !isBulkReviewOperation(op.operation) ? (
-                  <Button
-                    variant={
-                      previewClosed || op.status === "expired"
-                        ? "default"
-                        : "secondary"
+            <FormError>{failure}</FormError>
+            {manager && op.status === "previewed" ? (
+              <div className="flex flex-col gap-1">
+                {skipped ? (
+                  <Checkbox
+                    label={`I understand ${skipped} ${unit(skipped)} ${skipped === 1 ? "is" : "are"} skipped and will not be sent`}
+                    checked={acknowledged}
+                    onCheckedChange={(checked) =>
+                      setAcknowledged(checked === true)
                     }
-                    pending={prepare.isPending}
-                    pendingLabel="Reading each listing…"
-                    onClick={() => {
-                      setFailure(null)
-                      prepare.mutate()
-                    }}
-                  >
-                    New preview for {repreview.locationIds.length}{" "}
-                    {repreview.locationIds.length === 1
-                      ? "listing"
-                      : "listings"}{" "}
-                    not sent
-                  </Button>
+                  />
+                ) : null}
+                {!op.canApprove ? (
+                  <p className="text-caption text-ink-muted">
+                    A different owner or administrator must approve.
+                  </p>
                 ) : null}
               </div>
+            ) : null}
+            {actions ? (
+              // One bar of actions with one primary: docked to the bottom
+              // of a phone (the tab bar steps aside), inline on a desk.
+              <ActionBar
+                data-docked="bottom"
+                label="Bulk change actions"
+                safeArea={false}
+                sticky={false}
+                className="max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:rounded-none max-md:pb-[max(--spacing(3),var(--np-dock-bottom))]"
+                actions={actions}
+              />
             ) : null}
             {manager && repreview?.omitted.length ? (
               <p className="text-caption text-ink-muted" role="note">
@@ -440,7 +470,7 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                     <TableCell label="Listing">
                       <Link
                         href={`/listings/${child.locationId}`}
-                        className="font-semibold break-words text-ink underline-offset-4 hover:underline"
+                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
                       >
                         {child.locationName}
                       </Link>

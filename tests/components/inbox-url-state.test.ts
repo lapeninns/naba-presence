@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   autoSelectId,
-  mobilePaneFor,
+  DESKTOP_MEDIA_QUERY,
   parseInboxState,
   scopeInboxState,
   serializeInboxState,
@@ -10,6 +10,7 @@ import {
   hasActiveFilters,
   type InboxState,
 } from "@/lib/inbox/url-state"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 
 describe("inbox url state", () => {
   it("round-trips the written-review filter and ignores unknown values", () => {
@@ -247,9 +248,9 @@ describe("inbox url state", () => {
     expect(filters.dateTo).toBeUndefined()
   })
 
-  it("shows the detail pane on mobile only when a review is selected", () => {
-    expect(mobilePaneFor(undefined)).toBe("list")
-    expect(mobilePaneFor("rev-1")).toBe("detail")
+  it("splits the list and the review side by side from lg, not md", () => {
+    expect(DESKTOP_MEDIA_QUERY).toBe(mediaQuery("lg"))
+    expect(DESKTOP_MEDIA_QUERY).toBe("(min-width: 64rem)")
   })
 
   it("auto-selects the first row only on desktop, unselected, and clean", () => {

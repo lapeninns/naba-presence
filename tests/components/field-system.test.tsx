@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -152,5 +152,36 @@ describe("Field wiring for a pop-up trigger", () => {
     const label = document.querySelector("label")
     const input = screen.getByRole("textbox", { name: "Business name" })
     expect(label).toHaveAttribute("for", input.id)
+  })
+})
+
+describe("SearchInput tap target", () => {
+  it("focuses the input from a press anywhere on the 44px field", () => {
+    // The input itself is 2px short of the field (its border); the field's
+    // border, padding and icon must not be dead space.
+    render(<Input type="search" aria-label="Filter clients by name" />)
+    const input = screen.getByRole("searchbox", {
+      name: "Filter clients by name",
+    })
+    const field = input.closest('[data-slot="input-search"]') as HTMLElement
+    expect(document.activeElement).not.toBe(input)
+    fireEvent.mouseDown(field)
+    expect(document.activeElement).toBe(input)
+  })
+
+  it("leaves a press on the input itself to the browser", () => {
+    render(<Input type="search" aria-label="Search" />)
+    const input = screen.getByRole("searchbox", { name: "Search" })
+    // Not prevented: the caret lands where the person pressed.
+    expect(fireEvent.mouseDown(input)).toBe(true)
+  })
+
+  it("does nothing while disabled", () => {
+    render(<Input type="search" aria-label="Search" disabled />)
+    const input = screen.getByRole("searchbox", { name: "Search" })
+    fireEvent.mouseDown(
+      input.closest('[data-slot="input-search"]') as HTMLElement
+    )
+    expect(document.activeElement).not.toBe(input)
   })
 })

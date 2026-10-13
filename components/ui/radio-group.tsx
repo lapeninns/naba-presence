@@ -4,6 +4,10 @@ import { Radio as RadioPrimitive } from "@base-ui/react/radio"
 import { RadioGroup as RadioGroupPrimitive } from "@base-ui/react/radio-group"
 import * as React from "react"
 
+import {
+  selectionHitAreaClassName,
+  selectionRowClassName,
+} from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 
 /**
@@ -23,9 +27,13 @@ function RadioGroup<Value>({
   )
 }
 
-/** The 18px ring (reference `.radio`): selected, the ring thickens to 5px accent. */
+/**
+ * The 18px ring (reference `.radio`): selected, the ring thickens to 5px
+ * accent. Positioned, so a caller can hang a hit area on it; the bare ring
+ * has none (ChoiceCard and labelled radios are targets already).
+ */
 export const radioClassName = cn(
-  "relative flex size-[18px] shrink-0 items-center justify-center rounded-(--np-radius-pill) border-[1.5px] border-line-strong bg-(--np-field-bg) focus-halo",
+  "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-(--np-radius-pill) border-[1.5px] border-line-strong bg-(--np-field-bg) focus-halo",
   "transition-[border-color,border-width] duration-(--np-duration-fast) ease-spring-snappy",
   "data-checked:border-[5px] data-checked:border-primary",
   "data-disabled:cursor-not-allowed data-disabled:opacity-50",
@@ -55,7 +63,15 @@ function RadioGroupItem<Value>({
       // A `span role="radio"` is not named by its wrapping <label>.
       aria-labelledby={hasLabel ? `${id}-label` : undefined}
       aria-describedby={description ? `${id}-desc` : undefined}
-      className={cn(radioClassName, className)}
+      className={cn(
+        radioClassName,
+        // An unlabelled radio gets the same 44px-on-touch hit area as an
+        // unlabelled checkbox; a labelled one is reached through its row.
+        hasLabel
+          ? "after:absolute after:inset-[calc((100%-var(--np-touch-min))/2)] after:content-['']"
+          : selectionHitAreaClassName,
+        className
+      )}
       {...props}
     />
   )
@@ -66,7 +82,8 @@ function RadioGroupItem<Value>({
     <label
       data-slot="radio-label"
       className={cn(
-        "flex min-h-6 cursor-pointer items-start gap-2.5 text-body text-ink select-none has-[[data-disabled]]:cursor-not-allowed has-[[data-disabled]]:opacity-60 [&>[data-slot=radio]]:mt-0.5",
+        selectionRowClassName,
+        "[&>[data-slot=radio]]:mt-(--np-selection-offset)",
         labelClassName
       )}
     >

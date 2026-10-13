@@ -5,7 +5,10 @@ import { cn } from "@/lib/utils"
 /**
  * A section heading row (reference `.section-head`): the heading and a
  * muted one-line description on the left, actions on the right, baseline
- * aligned and wrapping under each other on a narrow container.
+ * aligned. The title block claims at least 20rem before the actions may sit
+ * beside it, so on a phone (or a narrow panel) the actions wrap onto their
+ * own line below the title instead of squeezing it into a column of
+ * one-word lines.
  *
  * Props: `title`, `description`, `actions`, `as` (heading level, default
  * h2, sized as the section role; h3 is sized as the title role), `id` (put
@@ -34,7 +37,7 @@ function SectionHeader({
         className
       )}
     >
-      <div className="flex min-w-0 flex-[1_1_20rem] flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+      <div className="flex min-w-0 grow basis-80 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <Heading
           id={id}
           className={cn(

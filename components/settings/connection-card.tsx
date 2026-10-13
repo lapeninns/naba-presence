@@ -6,7 +6,6 @@ import {
   Globe,
   Info,
   Link2,
-  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
@@ -14,7 +13,6 @@ import { useEffect, useRef, useState } from "react"
 
 import {
   Alert,
-  AlertActions,
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
@@ -40,6 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Empty } from "@/components/ui/empty"
+import { QueryError } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
 import {
@@ -263,15 +262,17 @@ function DisconnectDialog({
           Reviews and publishing stop immediately
           {names ? ` for ${names}` : ""}.
         </AlertDialogDescription>
-        <ol className="flex flex-col gap-2 text-ui text-ink">
-          <li className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2.5">
+        {/* One grid for both rows (subgrid), so the "when" column is as wide
+            as its longest label and the words line up. */}
+        <ol className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-2 text-ui text-ink">
+          <li className="col-span-2 grid grid-cols-subgrid">
             <span className="font-mono text-caption text-ink-muted">Now</span>
             <span>
               Linked locations and notifications are deactivated. Nothing can
               publish through this login.
             </span>
           </li>
-          <li className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2.5">
+          <li className="col-span-2 grid grid-cols-subgrid">
             <span className="font-mono text-caption text-ink-muted">
               After 7 days
             </span>
@@ -369,19 +370,11 @@ export function ConnectionCard({
   }
   if (query.isError) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>We couldn’t load your connections</AlertTitle>
-        <AlertDescription>
-          {describeActionError(query.error)} Syncing carries on in the
-          background; nothing was changed.
-        </AlertDescription>
-        <AlertActions>
-          <Button variant="secondary" size="sm" onClick={() => query.refetch()}>
-            <RefreshCw aria-hidden />
-            Try again
-          </Button>
-        </AlertActions>
-      </Alert>
+      <QueryError
+        title="We couldn’t load your connections"
+        description={`${describeActionError(query.error)} Syncing carries on in the background; nothing was changed.`}
+        onRetry={() => void query.refetch()}
+      />
     )
   }
 
@@ -449,11 +442,6 @@ export function ConnectionCard({
               <TableRow
                 key={connection.id}
                 data-selected={isFocused || undefined}
-                className={
-                  isFocused
-                    ? "[&>td:first-child]:shadow-[inset_3px_0_0_var(--np-accent)]"
-                    : undefined
-                }
               >
                 <TableCell label="Google login">
                   <span className="flex min-w-0 items-center gap-2.5">
@@ -474,12 +462,12 @@ export function ConnectionCard({
                 {clientsByConnection ? (
                   <TableCell label="Clients it serves" span>
                     {served && served.length > 0 ? (
-                      <span className="flex flex-wrap gap-1">
+                      <span className="flex flex-wrap gap-2">
                         {served.map((client) => (
                           <Link
                             key={client.id}
                             href={`/clients/${client.id}`}
-                            className="inline-flex h-6 items-center rounded-(--np-radius-pill) border border-line px-2 text-caption whitespace-nowrap text-ink no-underline focus-halo hover:border-line-strong hover:bg-surface-alt pointer-coarse:h-8"
+                            className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-pill) border border-line px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo hover:border-line-strong hover:bg-surface-alt"
                           >
                             {client.name}
                           </Link>
@@ -509,8 +497,8 @@ export function ConnectionCard({
                     </StatusPill>
                   )}
                 </TableCell>
-                <TableCell data-actions="" className="text-right">
-                  <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
+                <TableCell actions className="text-right">
+                  <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-3xl/table:justify-start">
                     {connection.reconnectRequired ? (
                       <Button
                         size="sm"

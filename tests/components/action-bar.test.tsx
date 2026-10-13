@@ -558,11 +558,50 @@ describe("ActionBar", () => {
     )
   })
 
+  // Below md the bar has room for one button beside the status words, so
+  // Reject moves into the ⋯ menu (the trigger shows only there) and opens the
+  // same confirm; from md up it is the grey button beside Approve.
+  it("puts Reject in the ⋯ menu on phones, behind the same confirm", async () => {
+    const user = userEvent.setup()
+    const approval = mutation(
+      vi.fn().mockResolvedValue({ status: "returned_to_draft" })
+    )
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
+    renderActionBar()
+    const inline = screen.getByRole("button", { name: "Reject reply" })
+    expect(inline).toHaveClass("max-md:hidden")
+    const more = screen.getByRole("button", { name: "Review actions" })
+    expect(more).toHaveClass("md:hidden")
+    await user.click(more)
+    await user.click(await screen.findByRole("menuitem", { name: "Reject reply" }))
+    expect(
+      await screen.findByRole("alertdialog", { name: "Reject this reply?" })
+    ).toBeInTheDocument()
+    expect(approval.mutateAsync).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Confirm reject" }))
+    await waitFor(() =>
+      expect(approval.mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ decision: "reject" })
+      )
+    )
+  })
+
+  // One primary at the control height, sized to its words: never a
+  // full-width slab, so the docked bar stays one row.
+  it("draws one auto-width primary, with the key hint on desk only", () => {
+    stubHooks(detailWith({}))
+    renderActionBar(true, oneStepSave())
+    const publish = screen.getByRole("button", { name: /Publish reply/ })
+    expect(publish.className).not.toMatch(/flex-1|w-full|h-12/)
+    const hint = publish.querySelector("kbd")
+    expect(hint).toHaveClass("hidden", "desk:inline-flex")
+  })
+
   // Fix-round-1 IMPORTANT #4: the Delete affordance's copy ("removes your
   // reply from Google") is only true once the reply is actually live on
   // Google (`publishStatus === "published"`) — not merely present, and not
   // during e.g. `awaiting_approval`.
-  it("does not offer to delete a reply that isn't actually published yet", () => {
+  it("does not offer to delete a reply that isn't actually published yet", async () => {
     stubHooks(
       detailWith({
         workflowStatus: "awaiting_approval",
@@ -577,8 +616,15 @@ describe("ActionBar", () => {
       })
     )
     renderActionBar()
+    // The ⋯ menu is there for the phone's Reject, but holds no Delete.
+    await userEvent.setup().click(
+      screen.getByRole("button", { name: "Review actions" })
+    )
     expect(
-      screen.queryByRole("button", { name: "Review actions" })
+      await screen.findByRole("menuitem", { name: "Reject reply" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Delete published reply" })
     ).not.toBeInTheDocument()
   })
 

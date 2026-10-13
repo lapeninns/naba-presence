@@ -14,7 +14,17 @@ import {
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
-const toast = ToastPrimitive.createToastManager()
+const baseToastManager = ToastPrimitive.createToastManager()
+
+/**
+ * The app's toast manager. Its `add` applies the same defaults as
+ * `useToastManager` (see `withToastDefaults`), so module-level callers that
+ * import `toast` directly get them too.
+ */
+const toast: typeof baseToastManager = {
+  ...baseToastManager,
+  add: (options) => baseToastManager.add(withToastDefaults(options)),
+}
 
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
   return <ToastPrimitive.Provider {...props} />
@@ -24,15 +34,6 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
   return <ToastPrimitive.Portal data-slot="toast-portal" {...props} />
 }
 
-/**
- * Reference `.toasts`: bottom-right, 16px in, min(380px, 100vw - 32px) wide,
- * stacking upward. Below 640px it spans the width at the TOP, under the
- * safe area, stacking downward: a phone's bottom edge belongs to sticky
- * action bars and bottom sheets (the review sheet's "Try again", the
- * editor's Publish), and a bottom toast covered exactly those. From 640px
- * an open sheet or dialog footer lifts the stack above it (see
- * `modalFooterClearance`).
- */
 /** The toast column's widest extent from the right edge: 380px + 16px inset. */
 const TOAST_COLUMN = 396
 
@@ -92,6 +93,38 @@ function useModalFooterClearance() {
   return clearance
 }
 
+/**
+ * Where the stack sits (spec: "Toasts dock to the bottom on a phone, above
+ * whichever bar owns the edge"). Always the bottom edge, stacking upward:
+ * an Undo belongs under the thumb, not over the app bar (prim-03).
+ *
+ * `--toast-edge` is the height of whatever owns the bottom edge, decided in
+ * CSS from the CHROME CONTRACT attributes (globals.css), so no JS measures
+ * the shell:
+ *   phone, docked ActionBar (`data-docked="bottom"`)   the bar's measured
+ *                                                      height (`--np-dock-bar-h`,
+ *                                                      two rows when it wraps),
+ *                                                      else the action bar plus
+ *                                                      `--np-dock-bottom`
+ *   phone, tab bar showing (`data-slot="tab-bar"`, no  the tab bar plus the
+ *     docked bar, keyboard closed)                     home indicator
+ *   phone otherwise (no bar, or the keyboard is up)    `--np-dock-bottom`
+ *   from `md`                                          the safe-area inset
+ * An open sheet or dialog footer lifts the stack further (see
+ * `modalFooterClearance`); the larger of the two wins. Full width less 16px
+ * gutters on a phone; a 380px column at the right from `sm`. Above every
+ * overlay (`z-toast`), so a result is never hidden by the sheet that caused
+ * it.
+ */
+const VIEWPORT_CLASS = cn(
+  "pointer-events-none fixed right-4 bottom-(--toast-bottom) left-4 z-toast w-auto outline-none sm:left-auto sm:w-95",
+  "[--toast-gap:--spacing(2)] md:[--toast-gap:--spacing(4)]",
+  "[--toast-edge:var(--np-dock-bottom)] md:[--toast-edge:var(--np-safe-bottom)]",
+  "max-md:[html:not([data-keyboard=open])_body:has([data-slot=tab-bar]):not(:has([data-docked=bottom]))_&]:[--toast-edge:calc(var(--np-tabbar-h)+var(--np-safe-bottom))]",
+  "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))]",
+  "[--toast-bottom:calc(max(var(--toast-edge),var(--toast-footer-clearance))+var(--toast-gap))]"
+)
+
 function ToastViewport({
   className,
   style,
@@ -102,10 +135,7 @@ function ToastViewport({
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       data-footer-clearance={clearance > 0 ? clearance : undefined}
-      className={cn(
-        "pointer-events-none fixed top-[max(16px,env(safe-area-inset-top))] right-4 left-4 z-[120] w-auto outline-none sm:top-auto sm:bottom-[calc(max(16px,env(safe-area-inset-bottom))+var(--toast-footer-clearance,0px))] sm:left-auto sm:w-[min(380px,calc(100vw-32px))]",
-        className
-      )}
+      className={cn(VIEWPORT_CLASS, className)}
       style={(state) => ({
         ...(typeof style === "function" ? style(state) : style),
         ["--toast-footer-clearance" as string]: `${clearance}px`,
@@ -116,21 +146,23 @@ function ToastViewport({
 }
 
 function Toast({ className, ...props }: ToastPrimitive.Root.Props) {
-  // `--dir` is the stacking direction: -1 stacks upward from the bottom edge
-  // (640px and up), +1 stacks downward from the top edge (phones). Every offset
-  // below is multiplied by it so one set of transforms serves both anchors.
-  // Enter and exit slide along the same axis on the spring.
+  // `--dir` is the stacking direction: -1 stacks upward from the bottom edge,
+  // which is where the stack now sits at every width. Every offset below is
+  // multiplied by it so the transforms read as one set. Enter and exit
+  // slide along the same axis on the spring.
   return (
     <ToastPrimitive.Root
       data-slot="toast"
       className={cn(
-        "group/toast pointer-events-auto [[data-base-ui-inert]_&]:pointer-events-none absolute top-0 right-0 z-[calc(1000-var(--toast-index))] w-full origin-top sm:top-auto sm:bottom-0 sm:origin-bottom rounded-(--np-radius-card) bg-charcoal text-ink-on-charcoal shadow-np-pop will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
-        "[--dir:1] [--gap:0.5rem] [--peek:0.75rem] [--height:var(--toast-frontmost-height,var(--toast-height))] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))] sm:[--dir:-1]",
+        "group/toast pointer-events-auto [[data-base-ui-inert]_&]:pointer-events-none absolute right-0 bottom-0 w-full origin-bottom rounded-(--np-radius-card) bg-charcoal text-ink-on-charcoal shadow-np-pop will-change-transform outline-none select-none focus-visible:[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]",
+        // design-exempt R4: per-toast order inside the toast layer, from Base UI's --toast-index
+        "z-[calc(1000-var(--toast-index))]",
+        "[--dir:-1] [--gap:--spacing(2)] [--peek:--spacing(3)] [--height:var(--toast-frontmost-height,var(--toast-height))] [--scale:calc(max(0,1-(var(--toast-index)*0.1)))] [--shrink:calc(1-var(--scale))] [--offset-y:calc(var(--dir)*(var(--toast-offset-y)+var(--toast-index)*var(--gap))+var(--toast-swipe-movement-y))]",
         "h-(--height) [transform:translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-swipe-movement-y)+var(--dir)*(var(--toast-index)*var(--peek)+var(--shrink)*var(--height))))_scale(var(--scale))] [transition:transform_var(--np-duration-overlay)_var(--np-ease-spring),opacity_var(--np-duration-standard)_var(--np-ease-standard),height_var(--np-duration-fast)_var(--np-ease-standard)]",
-        // A hover bridge across the gap to the next toast, on whichever side
-        // the next toast sits, so an expanded stack does not collapse while
-        // the pointer crosses between rows.
-        "after:absolute after:top-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-[''] sm:after:top-auto sm:after:bottom-full",
+        // A hover bridge across the gap to the next toast (above this one),
+        // so an expanded stack does not collapse while the pointer crosses
+        // between rows.
+        "after:absolute after:bottom-full after:left-0 after:h-[calc(var(--gap)+1px)] after:w-full after:content-['']",
         "data-expanded:h-(--toast-height) data-expanded:[transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]",
         "data-limited:opacity-0 data-starting-style:[transform:translateY(calc(var(--dir)*-150%))]",
         "[&[data-ending-style]:not([data-limited]):not([data-swipe-direction])]:[transform:translateY(calc(var(--dir)*-150%))]",
@@ -188,6 +220,9 @@ function ToastDescription({
 /**
  * An underlined text action in the on-charcoal ink (reference `.toast
  * button`). One action per toast: a toast that needs a menu is a dialog.
+ * Its hit area overhangs the words to 44px tall (the toast's own padding
+ * holds the overhang, so the content's `overflow-hidden` does not clip it):
+ * an Undo is the one thing in a toast a thumb must not miss.
  */
 function ToastAction({
   className,
@@ -199,7 +234,7 @@ function ToastAction({
       data-slot="toast-action"
       render={render}
       className={cn(
-        "relative shrink-0 self-center rounded-(--np-radius-tag) text-ui font-semibold text-ink-on-charcoal underline underline-offset-3 after:absolute after:-inset-2 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-on-charcoal",
+        "relative shrink-0 self-center rounded-(--np-radius-tag) text-ui font-semibold text-ink-on-charcoal underline underline-offset-3 after:absolute after:-inset-x-2 after:-inset-y-3 after:content-[''] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-on-charcoal",
         className
       )}
       {...props}
@@ -207,6 +242,11 @@ function ToastAction({
   )
 }
 
+/**
+ * The visible dismiss, always drawn: swiping is never the only way to close
+ * a toast (WCAG 2.5.7). 28px drawn, 44px to the touch (the `::after`
+ * overhang), the drawn size under `desk`.
+ */
 function ToastClose({
   className,
   children,
@@ -219,7 +259,7 @@ function ToastClose({
       aria-label="Close toast"
       render={render}
       className={cn(
-        "relative -my-1 -mr-1.5 size-7 shrink-0 text-ink-muted-on-charcoal after:absolute after:-inset-2 after:content-[''] hover:bg-ink-on-charcoal/10 hover:text-ink-on-charcoal focus-visible:shadow-none focus-visible:outline-2 focus-visible:outline-ink-on-charcoal pointer-coarse:size-7 [&_svg]:[stroke-width:1.75]",
+        "relative -my-1 -mr-1.5 size-7 shrink-0 text-ink-muted-on-charcoal after:absolute after:-inset-2 after:content-[''] hover:bg-ink-on-charcoal/10 hover:text-ink-on-charcoal focus-visible:shadow-none focus-visible:outline-2 focus-visible:outline-ink-on-charcoal desk:after:inset-0 [&_svg]:[stroke-width:1.75]",
         className
       )}
       {...props}
@@ -277,11 +317,12 @@ function ToastList() {
   const { toasts } = ToastPrimitive.useToastManager()
 
   return toasts.map((toastItem) => (
-    // Up dismisses a phone's top toast, down a desktop's bottom one.
+    // The stack sits on the bottom edge: swipe it down or sideways off the
+    // screen. The close button is the non-gesture alternative.
     <Toast
       key={toastItem.id}
       toast={toastItem}
-      swipeDirection={["up", "down", "right"]}
+      swipeDirection={["down", "right", "left"]}
     >
       <ToastContent>
         <ToastIcon type={toastItem.type} />
@@ -336,7 +377,31 @@ export function withActionTimeout<T extends AddOptions>(
 }
 
 /**
- * The toast manager, with `add` giving action toasts the longer timeout.
+ * How long an error toast stays up when the caller does not say. Five
+ * seconds is too short to read what failed and decide what to do. It keeps
+ * the default (polite) priority: Base UI's "high" priority mirrors the text
+ * into a second, assertive region, which doubles every error. Not
+ * "until dismissed": a stack of stale errors over the bottom edge would
+ * cover the very bar the operator needs to retry from. The durable record
+ * of a failure belongs inline beside the item (OperationOutcomeNotice).
+ */
+export const ERROR_TOAST_TIMEOUT = 20_000
+
+/**
+ * Every default the app applies to a new toast: the longer timeout for an
+ * action toast (`withActionTimeout`), and for an error the longer
+ * `ERROR_TOAST_TIMEOUT`. A caller's own `timeout` always wins.
+ */
+export function withToastDefaults<T extends AddOptions>(
+  options: T
+): T & { timeout?: number } {
+  const withAction = withActionTimeout(options)
+  if (options.type !== "error") return withAction
+  return { ...withAction, timeout: withAction.timeout ?? ERROR_TOAST_TIMEOUT }
+}
+
+/**
+ * The toast manager, with `add` applying `withToastDefaults`.
  * Every in-app caller reads toasts through this, so the rule holds without
  * each one remembering it.
  */
@@ -344,7 +409,7 @@ function useToastManager() {
   const manager = ToastPrimitive.useToastManager()
   const { add } = manager
   const wrappedAdd = React.useCallback<typeof add>(
-    (options) => add(withActionTimeout(options)),
+    (options) => add(withToastDefaults(options)),
     [add]
   )
   return React.useMemo(

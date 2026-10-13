@@ -13,8 +13,12 @@ vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
 }))
 const connectMutate = vi.fn()
+const useConnectionWorkspace = vi.fn()
+// OAuthReturn mounts on every dashboard page: it takes only the connect
+// mutation, never the polled connections query (settings-setup-auth-21).
 vi.mock("@/lib/queries/use-connection-workspace", () => ({
-  useConnectionWorkspace: () => ({ connect: { mutate: connectMutate, isPending: false } }),
+  useStartGoogleConnect: () => ({ mutate: connectMutate, isPending: false }),
+  useConnectionWorkspace: () => useConnectionWorkspace(),
 }))
 
 afterEach(() => {
@@ -54,7 +58,8 @@ describe("OAuthReturn", () => {
     render(<Toaster><OAuthReturn connectInput={input} /></Toaster>)
     expect(replace).toHaveBeenCalledWith("/setup?client=c1&step=account")
     screen.getByRole("button", { name: "Try again" }).click()
-    expect(connectMutate).toHaveBeenCalledWith(input)
+    expect(connectMutate).toHaveBeenCalledWith(input, expect.objectContaining({ onError: expect.any(Function) }))
+    expect(useConnectionWorkspace).not.toHaveBeenCalled()
   })
 })
 

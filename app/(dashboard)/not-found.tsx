@@ -1,137 +1,111 @@
 "use client"
 
-import {
-  ArrowLeft,
-  BarChart3,
-  Building2,
-  ChevronRight,
-  Inbox,
-  Search,
-  Settings,
-  Store,
-  Users,
-} from "lucide-react"
+import { ArrowLeft, ChevronRight, Search } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import {
+  BOUNDARY_EYEBROW_CLASS,
+  BOUNDARY_TITLE_CLASS,
+  BoundaryCode,
+  BoundaryFrame,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
+import {
   openCommandPalette,
   useShortcutHint,
 } from "@/components/app-shell/command-palette"
-import { PageEmptyState, PageFrame } from "@/components/app-shell/page-frame"
-import { Code } from "@/components/app-shell/system-page"
-import { Button, buttonVariants } from "@/components/ui/button"
-import { Kbd } from "@/components/ui/kbd"
+import { visibleDestinations } from "@/lib/navigation/destinations"
 import { useSessionRole } from "@/lib/queries/use-session"
-import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
-
-const DESTINATIONS = [
-  {
-    href: "/inbox",
-    label: "Inbox",
-    description: "Reviews that need a reply, an approval or a retry",
-    icon: Inbox,
-  },
-  {
-    href: "/listings",
-    label: "Listings",
-    description: "Every Google Business Profile, health first",
-    icon: Store,
-  },
-  {
-    href: "/clients",
-    label: "Clients",
-    description: "The businesses you look after and their Google connections",
-    icon: Building2,
-  },
-  {
-    href: "/reports",
-    label: "Reports",
-    description: "Ratings, reply times and profile views by client",
-    icon: BarChart3,
-  },
-  {
-    href: "/team",
-    label: "Team",
-    description: "People and what each can reach",
-    icon: Users,
-    managersOnly: true,
-  },
-  {
-    href: "/settings",
-    label: "Settings",
-    description: "Reply policy, Google connections and notifications",
-    icon: Settings,
-  },
-] as const
 
 /**
  * Inside the shell, not the bare root 404: someone who follows a stale link to
  * a deleted client should still have their navigation, and a list of where
  * they can go instead. Team is offered only to the roles that can open it.
+ *
+ * Plain markup and the light helpers in components/app-shell/boundary.tsx
+ * only (the palette module is the shell's own, already loaded): this file is
+ * bundled into every dashboard segment's not-found chunk.
  */
 export default function DashboardNotFound() {
   const pathname = usePathname()
   const role = useSessionRole()
   const shortcut = useShortcutHint()
-  const manager = role === "owner" || role === "admin"
-  const business = useWorkspaceMode() === "business"
-  const destinations = DESTINATIONS.filter(
-    (destination) =>
-      (!("managersOnly" in destination) || manager) &&
-      // A business has no Clients layer to go back to.
-      !(business && destination.href === "/clients")
-  ).map((destination) =>
-    business && destination.href === "/reports"
-      ? {
-          ...destination,
-          description: "Ratings, reply times and profile views by location",
-        }
-      : destination
+  const mode = useWorkspaceMode()
+  const business = mode === "business"
+  // The shell's own destination list (lib/navigation/destinations.ts), so
+  // this page offers exactly what the navigation does for this role and
+  // mode. Calendar is offered whenever the role may see it: the 404 cannot
+  // read the scheduling flag, and the Calendar page explains itself when
+  // scheduling is off.
+  const destinations = visibleDestinations({ role, mode }).map(
+    (destination) => ({
+      ...destination,
+      description: destination.description[mode],
+    })
   )
 
   return (
-    <PageFrame>
-      <PageEmptyState
-        icon={<Search strokeWidth={1.75} />}
-        eyebrow="Page not found · 404"
-        title="This page doesn’t exist"
-        description={
-          business
-            ? "The listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
-            : "The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
-        }
-        action={
-          <>
-            <Link
-              href="/inbox"
-              className={cn(buttonVariants(), "pointer-coarse:min-h-11")}
-            >
-              <ArrowLeft strokeWidth={1.75} aria-hidden />
-              Back to Inbox
-            </Link>
-            <Button
-              type="button"
-              variant="outline"
-              className="pointer-coarse:min-h-11"
-              onClick={openCommandPalette}
-            >
-              <Search strokeWidth={1.75} aria-hidden />
-              {business ? "Search listings" : "Search clients and listings"}
-              <Kbd aria-hidden className="ml-1 max-md:hidden">
-                {shortcut}
-              </Kbd>
-            </Button>
-          </>
-        }
+    <BoundaryFrame>
+      <div
+        data-slot="page-empty-state"
+        className="flex flex-wrap items-end justify-between gap-4"
       >
-        {pathname ? (
-          <p className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-ui text-ink-muted">
-            You asked for <Code>{pathname}</Code>
+        <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1.5">
+          <span
+            aria-hidden
+            className="mb-1.5 flex size-11 items-center justify-center rounded-lg bg-fill text-ink-secondary"
+          >
+            <Search className="size-5" strokeWidth={1.75} />
+          </span>
+          <p className={BOUNDARY_EYEBROW_CLASS}>Page not found · 404</p>
+          <h1 tabIndex={-1} className={BOUNDARY_TITLE_CLASS}>
+            This page doesn’t exist
+          </h1>
+          <p className="max-w-prose text-body text-pretty text-ink-muted">
+            {business
+              ? "The listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."
+              : "The client, listing or page you followed may have been removed, or the link may be wrong. Nothing was changed."}
           </p>
-        ) : null}
-      </PageEmptyState>
+          {pathname ? (
+            <p className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-ui text-ink-muted">
+              You asked for <BoundaryCode>{pathname}</BoundaryCode>
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 @max-md:w-full @max-md:*:flex-1">
+          <Link
+            href="/inbox"
+            className={boundaryButtonClass(
+              "primary",
+              "default",
+              "pointer-coarse:min-h-11"
+            )}
+          >
+            <ArrowLeft strokeWidth={1.75} aria-hidden />
+            Back to Inbox
+          </Link>
+          <button
+            type="button"
+            className={boundaryButtonClass(
+              "outline",
+              "default",
+              "pointer-coarse:min-h-11"
+            )}
+            onClick={openCommandPalette}
+          >
+            <Search strokeWidth={1.75} aria-hidden />
+            {business ? "Search listings" : "Search clients and listings"}
+            <kbd
+              aria-hidden
+              className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-b-2 border-line bg-surface px-1 font-mono text-caption text-ink-muted tabular-nums max-md:hidden"
+            >
+              {shortcut}
+            </kbd>
+          </button>
+        </div>
+      </div>
 
       <section aria-labelledby="where-to-go" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -151,7 +125,7 @@ export default function DashboardNotFound() {
               >
                 <span
                   aria-hidden
-                  className="grid size-9 place-items-center rounded-[10px] bg-surface-alt text-ink-secondary"
+                  className="grid size-9 place-items-center rounded-lg bg-surface-alt text-ink-secondary"
                 >
                   <destination.icon className="size-4" strokeWidth={1.75} />
                 </span>
@@ -187,6 +161,6 @@ export default function DashboardNotFound() {
             : "Ask them to open it again. If it still fails, the client or listing was probably removed. If you can’t see a client they can, an owner or admin can give you access from the Team page."}
         </p>
       </section>
-    </PageFrame>
+    </BoundaryFrame>
   )
 }

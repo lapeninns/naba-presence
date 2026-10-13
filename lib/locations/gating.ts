@@ -128,6 +128,16 @@ export type LocationGate = "canEditCanonical" | "canPublish"
 export const GATED_SECTION_TITLE = "This section is available to owners and admins"
 
 /**
+ * The pending line for a tab reading `label` ("opening hours") from Google.
+ * One wording for LocationTab's skeleton and the streamed pages' Suspense
+ * fallback (components/listings/streamed-tab.tsx), so the fallback the
+ * server sends and the state the editor would show are the same.
+ */
+export function tabPendingLabel(label: string | undefined): string | undefined {
+  return label ? `Reading the ${label} from Google…` : undefined
+}
+
+/**
  * True only when the capability is known AND set. `caps` is undefined while
  * the capabilities query is pending (or failed), which reads as "not satisfied"
  * — never a false positive — so an owner/admin-only GET is never fired before

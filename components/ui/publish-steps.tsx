@@ -112,7 +112,7 @@ function PublishSteps({
           <li
             key={step.id}
             data-state={step.state}
-            className="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[20px_minmax(0,1fr)_auto]"
+            className="grid grid-cols-[--spacing(5)_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 px-4 py-3 sm:grid-cols-[--spacing(5)_minmax(0,1fr)_auto]"
           >
             <span
               aria-hidden

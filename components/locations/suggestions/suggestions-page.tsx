@@ -8,6 +8,7 @@ import { LocationTab } from "@/components/locations/location-tab"
 import { SuggestionList } from "@/components/locations/suggestions/suggestion-list"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card, cardClassName } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToastManager } from "@/components/ui/toast"
@@ -54,11 +55,11 @@ function SuggestionsSkeleton() {
       {[0, 1].map((index) => (
         <div
           key={index}
-          className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4"
+          className={cardClassName({ className: "flex flex-col gap-2.5 p-4" })}
         >
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-[30px] w-40" />
+          <Skeleton className="h-(--np-control-h-sm) w-40" />
         </div>
       ))}
     </div>
@@ -106,7 +107,7 @@ function SuggestionsView({
   const failed = [profileReview, menuReview].find((query) => query.isError)
   if (failed) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <Card flush>
         <Empty
           tone="bad"
           icon={<CircleAlertIcon />}
@@ -126,7 +127,7 @@ function SuggestionsView({
             </Button>
           }
         />
-      </div>
+      </Card>
     )
   }
 
@@ -155,7 +156,7 @@ function SuggestionsView({
 
   if (!enabled) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <Card flush>
         <Empty
           icon={<CircleCheckIcon />}
           titleAs="h2"
@@ -178,7 +179,7 @@ function SuggestionsView({
             </>
           }
         />
-      </div>
+      </Card>
     )
   }
 
@@ -186,7 +187,7 @@ function SuggestionsView({
     return (
       <div className="flex flex-col gap-4">
         {gate}
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
           <Empty
             tone="ok"
             icon={<CircleCheckIcon />}
@@ -205,7 +206,7 @@ function SuggestionsView({
               </Button>
             }
           />
-        </div>
+        </Card>
       </div>
     )
   }
@@ -215,10 +216,12 @@ function SuggestionsView({
       {gate}
       <div
         data-slot="suggestions-summary"
-        className="flex flex-wrap items-center gap-3 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3"
+        className={cardClassName({
+          className: "flex flex-wrap items-center gap-3 px-4 py-3",
+        })}
       >
-        <p className="min-w-0 flex-[1_1_12rem] text-ui text-ink">
-          <span className="mr-2 align-[-3px] font-mono text-[22px] leading-[26px] font-semibold tabular-nums">
+        <p className="min-w-0 grow basis-48 text-ui text-ink">
+          <span className="mr-2 align-middle font-mono text-section font-semibold tabular-nums">
             {formatNumber(total)}
           </span>
           {total === 1 ? "suggestion" : "suggestions"} waiting ·{" "}

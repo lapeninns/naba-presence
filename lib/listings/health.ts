@@ -30,6 +30,11 @@ export type ListingHealthInput = {
   linked: boolean
   verified?: boolean | null
   summary?: ListingSummary | null
+  /**
+   * Decides whether a comparison is overdue. Pass `useNow()` from a
+   * component, so the server and the hydrating browser agree.
+   */
+  now?: number
 }
 
 export const COMPARISON_FRESHNESS_MS = 60 * 60 * 1000
@@ -137,7 +142,7 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
     summary.lastPublish?.status === "failed" ||
     summary.lastPublish?.status === "ambiguous" ||
     canonicalAreas(summary).some(
-      (area) => comparisonCheck(area) === "failed"
+      (area) => comparisonCheck(area, input.now) === "failed"
     ) ||
     summary.posts.failed > 0 ||
     hasConflict(summary) ||
@@ -148,7 +153,9 @@ export function listingHealth(input: ListingHealthInput): ListingHealth {
   if (unpublishedCount(summary) > 0 || summary.posts.awaitingApproval > 0) {
     return "unpublished"
   }
-  const checks = canonicalAreas(summary).map((area) => comparisonCheck(area))
+  const checks = canonicalAreas(summary).map((area) =>
+    comparisonCheck(area, input.now)
+  )
   if (
     summary.freshness?.state === "data_delayed" ||
     checks.some((check) => check !== "checked")

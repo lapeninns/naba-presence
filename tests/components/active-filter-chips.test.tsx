@@ -33,9 +33,11 @@ describe("ActiveFilterChips", () => {
         onClear={() => {}}
       />
     )
-    expect(screen.getByText("Rating only")).toBeInTheDocument()
+    expect(screen.getByText("Written review: Rating only")).toBeInTheDocument()
     await user.click(
-      screen.getByRole("button", { name: "Remove written-review filter" })
+      screen.getByRole("button", {
+        name: "Remove filter: Written review: Rating only",
+      })
     )
     expect(onChange).toHaveBeenCalledWith({ written: undefined })
   })
@@ -51,17 +53,19 @@ describe("ActiveFilterChips", () => {
         onClear={() => {}}
       />
     )
-    expect(screen.getByText("Location: Riverside")).toBeInTheDocument()
+    // Each chip names its filter as the Filters sheet heads it ("Venue",
+    // not "Location"), and the whole chip is the remove control.
+    expect(screen.getByText("Venue: Riverside")).toBeInTheDocument()
     expect(screen.getByText("Rating: 5 stars")).toBeInTheDocument()
     expect(screen.getByText('Search: "slow"')).toBeInTheDocument()
     await user.click(
-      screen.getByRole("button", { name: "Remove location filter" })
+      screen.getByRole("button", { name: "Remove filter: Venue: Riverside" })
     )
     expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 
   it("humanizes a multi-value rating chip", () => {
-    render(
+    const { rerender } = render(
       <ActiveFilterChips
         state={{ ...state, locationIds: [], ratings: [1, 2], search: "" }}
         locations={[]}
@@ -69,7 +73,36 @@ describe("ActiveFilterChips", () => {
         onClear={() => {}}
       />
     )
-    expect(screen.getByText("Rating: 1, 2 stars")).toBeInTheDocument()
+    // A run reads as a range, anything else as a list.
+    expect(screen.getByText("Rating: 1–2 stars")).toBeInTheDocument()
+    rerender(
+      <ActiveFilterChips
+        state={{ ...state, locationIds: [], ratings: [5, 1, 3], search: "" }}
+        locations={[]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(screen.getByText("Rating: 1, 3, 5 stars")).toBeInTheDocument()
+  })
+
+  it("keeps the chip that clears a venue a single-location org cannot choose", async () => {
+    // A stale `?locationId=` from a deep link must stay removable even when
+    // the sheet hides the venue control.
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <ActiveFilterChips
+        state={{ ...state, ratings: [], search: "" }}
+        locations={[]}
+        onChange={onChange}
+        onClear={() => {}}
+      />
+    )
+    await user.click(
+      screen.getByRole("button", { name: "Remove filter: Venue: selected" })
+    )
+    expect(onChange).toHaveBeenCalledWith({ locationIds: [] })
   })
 
   it("offers Clear all when any filter is active", async () => {
@@ -116,7 +149,7 @@ describe("ActiveFilterChips", () => {
         onClear={() => {}}
       />
     )
-    expect(screen.getByText("Date: 9 Jul – 15 Jul")).toBeInTheDocument()
+    expect(screen.getByText("Date range: 9 Jul – 15 Jul")).toBeInTheDocument()
     expect(screen.getByText("Sort: Lowest rated")).toBeInTheDocument()
   })
 })

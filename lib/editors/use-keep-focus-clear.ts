@@ -22,6 +22,25 @@ function scrollParent(element: HTMLElement): HTMLElement | null {
 }
 
 /**
+ * The top of the bar the footer draws: the footer slot itself while it sits
+ * in the flow (sticky on a desk), or the docked bar inside it on a phone,
+ * where the slot collapses to nothing and the bar is fixed to the screen's
+ * bottom edge. A bar that isn't drawn (a clean editor on a phone) is no
+ * boundary at all.
+ */
+function barTop(footer: HTMLElement | null): number {
+  if (!footer) return Number.POSITIVE_INFINITY
+  const tops = [
+    footer,
+    ...footer.querySelectorAll<HTMLElement>("[data-docked=bottom]"),
+  ]
+    .map((element) => element.getBoundingClientRect())
+    .filter((rect) => rect.height > 0)
+    .map((rect) => rect.top)
+  return tops.length > 0 ? Math.min(...tops) : Number.POSITIVE_INFINITY
+}
+
+/**
  * Keyboard safety for an editor with a pinned footer bar.
  *
  * A browser only scrolls a focused field into view when it is off screen;
@@ -59,16 +78,13 @@ export function useKeepFocusClear(
       const viewportBottom = viewport
         ? viewport.offsetTop + viewport.height
         : window.innerHeight
-      const barTop = footer
-        ? footer.getBoundingClientRect().top
-        : Number.POSITIVE_INFINITY
       const scroller = scrollParent(target)
       const scrollBottom = scroller
         ? scroller.getBoundingClientRect().top +
           scroller.clientTop +
           scroller.clientHeight
         : Number.POSITIVE_INFINITY
-      const limit = Math.min(barTop, viewportBottom, scrollBottom) - GAP
+      const limit = Math.min(barTop(footer), viewportBottom, scrollBottom) - GAP
       let delta = 0
       if (rect.bottom > limit) delta = rect.bottom - limit
       else if (rect.top < TOP_CLEARANCE) delta = rect.top - TOP_CLEARANCE
@@ -81,15 +97,74 @@ export function useKeepFocusClear(
       // After the browser's own focus scroll has settled.
       requestAnimationFrame(() => keepClear(event.target as Element))
     }
+    // Two frames on: the keyboard's resize reaches ViewportInsets too, which
+    // writes --np-keyboard-inset on its next frame, and only then does a
+    // docked bar grow by the keyboard's height (its padding rides on top of
+    // it). Measured at once, the bar's top was still the closed-keyboard
+    // one and a field could be left under the risen bar. Whichever of the
+    // two listeners subscribed first, the second frame follows the write.
+    let frame = 0
     function onViewportResize() {
-      keepClear(document.activeElement)
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => keepClear(document.activeElement))
+      })
     }
+
+    // The bar itself moving: a docked bar arrives with the first change (it
+    // slides up from the bottom edge) and grows when its status wraps or a
+    // reason row appears, all while a field keeps focus, often with the
+    // keyboard already up. Nothing re-focuses then, so watch for it: a docked
+    // bar in the footer appearing (mutations; the footer itself may be
+    // swapped, as the inbox's loading bar is for the loaded one), resizing
+    // (ResizeObserver) and finishing its slide (transitionend) each re-check
+    // the focused field.
+    let barFrame = 0
+    function onBarChange() {
+      cancelAnimationFrame(barFrame)
+      barFrame = requestAnimationFrame(() => keepClear(document.activeElement))
+    }
+    const dockedBars = `${footerSelector}[data-docked=bottom], ${footerSelector} [data-docked=bottom]`
+    const resize =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(onBarChange)
+    const watched = new Set<Element>()
+    function watchBars() {
+      let added = false
+      for (const bar of container!.querySelectorAll(dockedBars)) {
+        if (watched.has(bar)) continue
+        watched.add(bar)
+        resize?.observe(bar)
+        added = true
+      }
+      return added
+    }
+    const mutations = new MutationObserver(() => {
+      if (watchBars()) onBarChange()
+    })
+    mutations.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-docked"],
+    })
+    function onTransitionEnd(event: TransitionEvent) {
+      if ((event.target as Element).matches?.(dockedBars)) onBarChange()
+    }
+    container.addEventListener("transitionend", onTransitionEnd)
+    watchBars()
 
     container.addEventListener("focusin", onFocusIn)
     window.visualViewport?.addEventListener("resize", onViewportResize)
     return () => {
       container.removeEventListener("focusin", onFocusIn)
       window.visualViewport?.removeEventListener("resize", onViewportResize)
+      container.removeEventListener("transitionend", onTransitionEnd)
+      mutations.disconnect()
+      resize?.disconnect()
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(barFrame)
     }
   }, [root, footerSelector])
 }

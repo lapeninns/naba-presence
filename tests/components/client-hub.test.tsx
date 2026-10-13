@@ -80,10 +80,13 @@ describe("ClientHub", () => {
     expect(screen.getByText("Needs reply")).toBeInTheDocument()
     expect(screen.getByText("5")).toBeInTheDocument()
     // Each work tile opens the inbox already filtered to this client.
-    expect(screen.getByRole("link", { name: /Needs reply/ })).toHaveAttribute(
-      "href",
-      "/inbox?clientId=c1&queue=needs_reply"
-    )
+    // The name starts with the visible label. (jsdom joins the tile's
+    // block-styled spans without a space; a browser puts one between them.)
+    const tile = screen.getByRole("link", { name: /^Needs reply\s*5/ })
+    expect(tile).toHaveAttribute("href", "/inbox?clientId=c1&queue=needs_reply")
+    // The shared KpiTile is itself the link: one tab stop per tile.
+    expect(tile).toHaveAttribute("data-slot", "kpi-tile")
+    expect(tile.querySelectorAll("a, button")).toHaveLength(0)
   })
 
   it("links each location straight into its sections", async () => {
@@ -98,9 +101,11 @@ describe("ClientHub", () => {
     // The overview is the listing's name, already a link; a "Listing" section
     // link beside it was a second stop to the same page.
     expect(sections.querySelector('a[href="/listings/l1"]')).toBeNull()
-    expect(
-      screen.getByRole("link", { name: "Old Crown Girton" })
-    ).toHaveAttribute("href", "/listings/l1")
+    const name = screen.getByRole("link", { name: "Old Crown Girton" })
+    expect(name).toHaveAttribute("href", "/listings/l1")
+    // The record card's way in is a 44px row on touch, a text link at the
+    // desk (the name alone was two 18px lines on a phone).
+    expect(name).toHaveClass("min-h-(--np-touch)", "desk:min-h-0")
     // On a narrow row the same sections sit behind one menu.
     expect(
       screen.getByRole("button", { name: "More for Old Crown Girton" })

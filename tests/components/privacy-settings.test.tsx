@@ -742,3 +742,126 @@ describe("SettingsNav privacy area", () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe("privacy overlays (mobile-first)", () => {
+  it("asks before a stray dismissal throws away a half-logged request", async () => {
+    const user = userEvent.setup()
+    stubFetch({ "GET /api/privacy/requests": () => json({ requests: [] }) })
+    renderWithProviders(<PrivacyRequestsPanel gating={OWNER} />)
+    await screen.findByText("No privacy requests")
+    await user.click(screen.getByRole("button", { name: "Log a request" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.type(
+      within(dialog).getByLabelText("Subject reference"),
+      "Jane Reviewer"
+    )
+    await user.keyboard("{Escape}")
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "Discard this request?",
+    })
+    await user.click(
+      within(prompt).getByRole("button", { name: "Keep editing" })
+    )
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    expect(screen.getByLabelText("Subject reference")).toHaveValue(
+      "Jane Reviewer"
+    )
+
+    await user.keyboard("{Escape}")
+    await user.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Discard changes",
+      })
+    )
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await user.click(screen.getByRole("button", { name: "Log a request" }))
+    expect(
+      within(await screen.findByRole("dialog")).getByLabelText(
+        "Subject reference"
+      )
+    ).toHaveValue("")
+  })
+
+  it("closes a clean request dialog on Escape without asking", async () => {
+    const user = userEvent.setup()
+    stubFetch({ "GET /api/privacy/requests": () => json({ requests: [] }) })
+    renderWithProviders(<PrivacyRequestsPanel gating={OWNER} />)
+    await screen.findByText("No privacy requests")
+    await user.click(screen.getByRole("button", { name: "Log a request" }))
+    await screen.findByRole("dialog")
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+  })
+
+  it("keeps the release confirmation open with the failure beside its buttons", async () => {
+    const user = userEvent.setup()
+    stubFetch({
+      "GET /api/legal-holds": () =>
+        json({
+          holds: [
+            {
+              id: "h-active",
+              reviewId: "00000000-0000-4000-8000-0000000000bb",
+              reason: "Litigation pending",
+              approvedBy: "u1",
+              releasedBy: null,
+              releasedAt: null,
+              createdAt: "2099-01-01T00:00:00.000Z",
+            },
+          ],
+        }),
+      "DELETE /api/legal-holds": () =>
+        json(
+          { error: { code: "internal_error", message: "Server error" } },
+          500
+        ),
+    })
+    renderWithProviders(<LegalHoldsPanel gating={OWNER} />)
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Release hold on review 00000000-0000-4000-8000-0000000000bb",
+      })
+    )
+    const confirm = await screen.findByRole("alertdialog")
+    // The consequence stays spelled out on the destructive confirmation.
+    expect(
+      within(confirm).getByText(/next daily retention run may redact/)
+    ).toBeInTheDocument()
+    await user.click(
+      within(confirm).getByRole("button", { name: "Release hold" })
+    )
+    expect(
+      await within(confirm).findByText(/The hold wasn’t released/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+  })
+
+  it("draws each privacy area as a titled settings section", async () => {
+    stubFetch({
+      "GET /api/privacy/requests": () => json({ requests: [] }),
+      "GET /api/legal-holds": () => json({ holds: [] }),
+      "GET /api/privacy/retention-status": () =>
+        json({
+          lastCompletedCycle: null,
+          currentCycle: null,
+          rawContentRetentionDays: 1,
+          deletesEnabled: true,
+          heldReviews: 0,
+          heldLocations: 0,
+        }),
+    })
+    renderWithProviders(<PrivacySettings access="manage" />)
+    for (const name of [
+      "Privacy requests",
+      "Export a subject’s records",
+      "Legal holds",
+      "Retention",
+    ]) {
+      expect(screen.getByRole("region", { name })).toBeInTheDocument()
+    }
+    // Retention facts are a description list (label, then value).
+    expect(await screen.findByText("1 day")).toBeInTheDocument()
+    expect(screen.getByText("Raw review content kept for").tagName).toBe("DT")
+  })
+})

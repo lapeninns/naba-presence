@@ -1,7 +1,7 @@
 "use client"
 
 import { ServicesSection, type ServiceActions, type ServiceEditorStatus } from "./sections/services-section"
-import { SavedListingReviews } from "./sections/saved-listing-reviews"
+import { SAVED_LISTING_REVIEWS_ID, SavedListingReviews } from "./sections/saved-listing-reviews"
 import { AdditionalPhonesSection } from "./sections/additional-phones-section"
 import { ServiceAreaSection } from "./sections/service-area-section"
 import { ChainSection } from "./sections/chain-section"
@@ -9,14 +9,17 @@ import { RelatedBusinessesSection } from "./sections/related-businesses-section"
 import { AdvertisingSection } from "./sections/advertising-section"
 import { advertisingBaselineSupported } from "@/lib/domain/google-advertising"
 import { serviceAreaTransitionError } from "@/lib/domain/google-service-area"
-import { SavedAttributeReviews } from "./sections/saved-attribute-reviews"
+import { SAVED_ATTRIBUTE_REVIEWS_ID, SavedAttributeReviews } from "./sections/saved-attribute-reviews"
+import { PROFILE_PAGE_SLOT, SectionNav, type SectionNavEntry } from "./section-nav"
+import { SectionCard } from "./section-card"
 
-import { useCallback, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { EditorFooter } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { useReportEditorStatus, type EditorStatusReport } from "@/components/editors/editor-status"
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { industryCapability } from "@/lib/locations/industry-capability"
 import { Spinner } from "@/components/ui/spinner"
@@ -36,19 +39,11 @@ import {
   IdentitySection,
   PROFILE_FIELD_IDS,
 } from "@/components/locations/profile/sections/identity-section"
-import { Field, FieldLabel } from "@/components/ui/field"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { ValidationSummary } from "@/components/ui/validation-summary"
-import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
-import { LodgingWorkspaceProvider, SavedLodgingWorkspace, useLodgingWorkspace } from "@/components/locations/profile/sections/lodging-workspace"
-import { ServiceWorkspaceProvider, SavedServiceWorkspace } from "@/components/locations/profile/sections/service-workspace"
-import { ProductCatalogueHandoff } from "@/components/locations/profile/sections/product-catalogue-handoff"
+import { INDUSTRY_LODGING_ID, IndustrySections } from "@/components/locations/profile/sections/industry-sections"
+import { LodgingWorkspaceProvider, SAVED_LODGING_ID, SavedLodgingWorkspace, useLodgingWorkspace } from "@/components/locations/profile/sections/lodging-workspace"
+import { SAVED_SERVICES_ID, ServiceWorkspaceProvider, SavedServiceWorkspace } from "@/components/locations/profile/sections/service-workspace"
+import { PRODUCT_CATALOGUE_ID, ProductCatalogueHandoff } from "@/components/locations/profile/sections/product-catalogue-handoff"
 import { PROFILE_SAVED_WORK_ID, ProfileUnreachable } from "@/components/locations/profile/profile-unreachable"
 import { googleUnreachable } from "@/lib/listings/health"
 import { useListingSummary } from "@/lib/queries/use-listing-summary"
@@ -61,6 +56,7 @@ import {
   approveBusinessInformation,
   previewBusinessAttributes,
   approveBusinessAttributes,
+  type AttributeMetadata,
   type GoogleAttribute,
 } from "@/lib/api/location-business-information"
 import {
@@ -167,6 +163,14 @@ function canonicalValues(profile: ProfileState): ProfileFormValues {
   }
 }
 
+/** What the saved profile and attribute reviews need from the loaded editor. */
+type SavedReviewsGate = {
+  enabled: boolean
+  metadata: readonly AttributeMetadata[]
+  publishReason: string | null
+}
+const NO_METADATA: readonly AttributeMetadata[] = []
+
 export function ProfileTab({ locationId }: { locationId: string }) {
   // Reading the profile compares against Google's live copy, so while the
   // listing's Google login is broken that read can't finish. Say so instead
@@ -177,9 +181,13 @@ export function ProfileTab({ locationId }: { locationId: string }) {
     summary.data && googleUnreachable(summary.data) && !profile.data
       ? summary.data
       : null
+  // The saved profile and attribute reviews live with the other saved work,
+  // after the editor; the editor says whether they may load.
+  const [savedReviews, setSavedReviews] = useState<SavedReviewsGate | null>(null)
   return (
     <LodgingWorkspaceProvider key={locationId} locationId={locationId}>
     <ServiceWorkspaceProvider locationId={locationId}>
+    <div data-slot={PROFILE_PAGE_SLOT} className="flex min-w-0 flex-col gap-(--np-gap-section)">
     {unreachable ? <ProfileUnreachable summary={unreachable} /> : <LocationTab
       locationId={locationId}
       loadingLabel="business profile"
@@ -200,17 +208,30 @@ export function ProfileTab({ locationId }: { locationId: string }) {
           disabled={!caps || editReason !== null}
           editReason={editReason}
           publishReason={editReason ?? publishReason}
+          onSavedReviews={setSavedReviews}
         />
       </>)}
     </LocationTab>}
-    <div id={PROFILE_SAVED_WORK_ID} className="flex min-w-0 scroll-mt-4 flex-col gap-[inherit]">
+    {/* All saved work in one place, after the editor it belongs to. */}
+    <div id={PROFILE_SAVED_WORK_ID} className="flex min-w-0 scroll-mt-18 flex-col gap-(--np-gap-section) desk:scroll-mt-4">
+    {savedReviews ? <>
+      <SavedListingReviews locationId={locationId} enabled={savedReviews.enabled} publishReason={savedReviews.publishReason} />
+      <SavedAttributeReviews locationId={locationId} enabled={savedReviews.enabled} metadata={savedReviews.metadata} publishReason={savedReviews.publishReason} />
+    </> : null}
     <SavedLodgingWorkspace locationId={locationId} />
     <SavedServiceWorkspace locationId={locationId} />
     </div>
     <ProductCatalogueHandoff locationId={locationId} />
+    </div>
     </ServiceWorkspaceProvider>
     </LodgingWorkspaceProvider>
   )
+}
+
+/** Reports a clean editor's state to the area header while no footer is drawn. */
+function QuietEditorStatus({ report }: { report: EditorStatusReport }) {
+  useReportEditorStatus(report)
+  return null
 }
 
 function ProfileEditor({
@@ -220,6 +241,7 @@ function ProfileEditor({
   disabled: originalDisabled,
   editReason,
   publishReason: originalPublishReason,
+  onSavedReviews,
 }: {
   locationId: string
   state: ProfileEditorState
@@ -227,6 +249,7 @@ function ProfileEditor({
   disabled: boolean
   editReason: string | null
   publishReason: string | null
+  onSavedReviews?: (gate: SavedReviewsGate | null) => void
 }) {
   const lodgingWork = useLodgingWorkspace()
   const lodgingBlocked = Boolean(lodgingWork?.busy || lodgingWork?.unresolved)
@@ -381,7 +404,15 @@ function ProfileEditor({
   const [attributeReview, setAttributeReview] = useState<GbpChangeSet | null>(null)
   const [reviewFingerprint, setReviewFingerprint] = useState<string | null>(null)
   const [reviewRows, setReviewRows] = useState<ChangeRow[]>([])
-  const fingerprint = JSON.stringify({ values, listing, attributes, revision, googleHash: profile.googleHash, locationHash: business?.locationHash, attributesHash: business?.attributesHash })
+  // One string for "the draft and the baselines the review was made from",
+  // rebuilt only when one of them changes rather than on every render.
+  const googleHash = profile.googleHash
+  const locationHash = business?.locationHash
+  const attributesHash = business?.attributesHash
+  const fingerprint = useMemo(
+    () => JSON.stringify({ values, listing, attributes, revision, googleHash, locationHash, attributesHash }),
+    [values, listing, attributes, revision, googleHash, locationHash, attributesHash]
+  )
   const saved = useRef<ProfileState | null>(null)
 
   const buildSteps = useCallback(() => {
@@ -622,6 +653,15 @@ function ProfileEditor({
     },
   })
 
+  // Saved profile and attribute reviews render with the other saved work
+  // (ProfileTab); tell it whether they may load and what they need.
+  const savedReviewsEnabled = Boolean(business?.canPublish) && !editReason
+  const attributeMetadata = business?.attributeMetadata ?? NO_METADATA
+  useEffect(() => {
+    onSavedReviews?.({ enabled: savedReviewsEnabled, metadata: attributeMetadata, publishReason })
+  }, [onSavedReviews, savedReviewsEnabled, attributeMetadata, publishReason])
+  useEffect(() => () => onSavedReviews?.(null), [onSavedReviews])
+
   const lodgingDirty = lodgingWork?.draftStatus.dirty ?? false
   const lodgingOnly = lodgingDirty && rows.length === 0 && !serviceStatus.dirty
   const isDirty = valuesDirty || listingDirty || attributesDirty || serviceStatus.dirty || lodgingDirty
@@ -691,61 +731,170 @@ function ProfileEditor({
     opening: googleReady && (listing.openStatus !== initialListing.openStatus || differs(listing.openingDate ?? null, initialListing.openingDate ?? null)),
     attributes: attributesUpdate.attributeMask.length > 0,
   }
-  const sections = [
-    {
-      id: "section-identity",
-      label: "Identity",
-      changed: changed.name || changed.storeCode || changed.labels,
-      show: true,
-    },
-    {
-      id: "section-categories",
-      label: "Categories",
-      changed: changed.primary || changed.additional,
-      show: googleReady,
-    },
-    { id: "section-chain", label: "Chain affiliation", changed: listing.relationshipData?.parentChain !== initialListing.relationshipData?.parentChain, show: googleReady },
-    { id: "section-advertising", label: "Google Ads phone", changed: listingUpdate.updateMask.includes("adWordsLocationExtensions"), show: googleReady },
-    { id: "section-related-businesses", label: "Related businesses", changed: listingUpdate.updateMask.some((mask) => mask === "relationshipData.parentLocation" || mask === "relationshipData.childrenLocations"), show: googleReady },
-    {
-      id: "section-contact",
-      label: "Contact",
-      changed: changed.phone || changed.website,
-      show: true,
-    },
-    {
-      id: "section-additional-phones",
-      label: "Additional phones",
-      changed: JSON.stringify(listing.additionalPhones ?? []) !== JSON.stringify(initialListing.additionalPhones ?? []),
-      show: googleReady,
-    },
-    { id: "section-service-area", label: "Service area", changed: differs(listing.serviceArea, initialListing.serviceArea) || Boolean(listing.clearStorefrontAddress), show: googleReady },
-    {
-      id: "section-address",
-      label: "Address",
-      changed: changed.lines || changed.locality || changed.postalCode || changed.administrativeArea || changed.sublocality || changed.addressDetails || Boolean(listing.clearStorefrontAddress),
-      show: googleReady,
-    },
-    {
-      id: "section-description",
-      label: "Description",
-      changed: changed.description,
-      show: true,
-    },
-    {
-      id: "section-opening",
-      label: "Opening state",
-      changed: changed.opening,
-      show: googleReady,
-    },
-    {
-      id: "section-attributes",
-      label: "Attributes",
-      changed: changed.attributes,
-      show: (business?.attributeMetadata.length ?? 0) > 0,
-    },
-    { id: "section-services", label: "Services", changed: serviceStatus.dirty, show: business?.capabilityDetails?.fields.serviceItems?.eligibility === "eligible" },
-  ].filter((section) => section.show)
+  const additionalPhonesChanged = differs(listing.additionalPhones ?? [], initialListing.additionalPhones ?? [])
+  const chainChanged = listing.relationshipData?.parentChain !== initialListing.relationshipData?.parentChain
+  const adPhoneChanged = listingUpdate.updateMask.includes("adWordsLocationExtensions")
+  const relatedChanged = listingUpdate.updateMask.some((mask) => mask === "relationshipData.parentLocation" || mask === "relationshipData.childrenLocations")
+  const serviceAreaChanged = differs(listing.serviceArea, initialListing.serviceArea) || Boolean(listing.clearStorefrontAddress)
+  const servicesEligible = business?.capabilityDetails?.fields.serviceItems?.eligibility === "eligible"
+
+  /**
+   * The page, in order. The section navigation is built from this same list
+   * (plus the saved work and catalogue handoff after the editor), so the two
+   * can never disagree about order. Blocks without a label are not sections.
+   */
+  const blocks: { id: string; label?: string; changed?: boolean; show: boolean; render: () => React.ReactNode }[] = [
+    { id: "section-identity", label: "Identity", changed: changed.name || changed.storeCode || changed.labels, show: true, render: () => (
+      <IdentitySection
+        values={values}
+        setValues={setValues}
+        draft={listing}
+        setDraft={setListing}
+        errors={errors}
+        disabled={disabled}
+        googleReady={googleReady}
+        changed={changed}
+      />
+    ) },
+    { id: "section-categories", label: "Categories", changed: changed.primary || changed.additional, show: googleReady, render: () => (
+      <CategoriesSection
+        locationId={locationId}
+        draft={listing}
+        setDraft={setListing}
+        disabled={disabled}
+        changed={changed}
+      />
+    ) },
+    { id: "section-advertising", label: "Google Ads phone", changed: adPhoneChanged, show: googleReady, render: () => (
+      <AdvertisingSection location={business?.location} draft={listing} setDraft={setListing} disabled={disabled}
+        changed={adPhoneChanged} error={listingIssues.adPhone} />
+    ) },
+    { id: "section-chain", label: "Chain affiliation", changed: chainChanged, show: googleReady, render: () => (
+      <ChainSection locationId={locationId} location={business?.location} draft={listing} setDraft={setListing} disabled={disabled}
+        changed={chainChanged} error={listingIssues.relationshipData} />
+    ) },
+    { id: "section-related-businesses", label: "Related businesses", changed: relatedChanged, show: googleReady, render: () => (
+      <RelatedBusinessesSection draft={listing} setDraft={setListing} location={business?.location} disabled={disabled}
+        changed={relatedChanged} error={listingIssues.relationshipData} />
+    ) },
+    { id: "section-contact", label: "Contact", changed: changed.phone || changed.website, show: true, render: () => (
+      <ContactSection
+        values={values}
+        setValues={setValues}
+        errors={errors}
+        disabled={disabled}
+        changed={changed}
+      />
+    ) },
+    { id: "section-additional-phones", label: "Additional phones", changed: additionalPhonesChanged, show: googleReady, render: () => (
+      <AdditionalPhonesSection draft={listing} setDraft={setListing} disabled={disabled}
+        changed={additionalPhonesChanged}
+        error={listingIssues.additionalPhones} />
+    ) },
+    { id: "section-service-area", label: "Service area", changed: serviceAreaChanged, show: googleReady, render: () => (
+      <ServiceAreaSection draft={listing} setDraft={setListing} location={business?.location} disabled={disabled}
+        changed={serviceAreaChanged} error={listingIssues.serviceArea} />
+    ) },
+    { id: "section-address", label: "Address", changed: changed.lines || changed.locality || changed.postalCode || changed.administrativeArea || changed.sublocality || changed.addressDetails || Boolean(listing.clearStorefrontAddress), show: googleReady, render: () => (
+      <AddressSection
+        location={business?.location}
+        draft={listing}
+        setDraft={setListing}
+        issues={listingIssues}
+        disabled={disabled || listing.serviceArea?.businessType === "CUSTOMER_LOCATION_ONLY"}
+        changed={changed}
+      />
+    ) },
+    { id: "section-description", label: "Description", changed: changed.description, show: true, render: () => (
+      <DescriptionSection
+        values={values}
+        setValues={setValues}
+        errors={errors}
+        disabled={disabled}
+        changed={changed.description}
+      />
+    ) },
+    { id: "profile-business-pending", show: state.businessPending, render: () => (
+      // Named, not just "loading": the sections below are about to
+      // appear and push the footer down the page, so the operator
+      // should know that is coming rather than watch the page move.
+      <p
+        role="status"
+        className="flex items-center gap-2 text-ui text-ink-muted"
+      >
+        <Spinner decorative size="sm" className="shrink-0" />
+        Reading categories, address and attributes from Google…
+      </p>
+    ) },
+    { id: "profile-business-error", show: Boolean(state.businessError), render: () => (
+      <CapabilityBanner
+        tone="info"
+        title="We couldn't read this listing from Google"
+        description="The name, description, phone and website above are what NabaPresence holds, and you can still edit them. Categories, address and attributes need Google, so they're hidden until it answers."
+      />
+    ) },
+    { id: "section-opening", label: "Opening state", changed: changed.opening, show: googleReady, render: () => (
+      <OpeningSection
+        locationId={locationId}
+        draft={listing}
+        setDraft={setListing}
+        issues={listingIssues}
+        disabled={disabled}
+        changed={changed.opening}
+        statusChanged={listing.openStatus !== initialListing.openStatus}
+      />
+    ) },
+    { id: "section-attributes", label: "Attributes", changed: changed.attributes, show: (business?.attributeMetadata.length ?? 0) > 0, render: () => (
+      <AttributesSection
+        metadata={business?.attributeMetadata ?? []}
+        draft={attributes}
+        initial={initialAttributes}
+        onChange={(next) =>
+          setAttributes((prev) => ({ ...prev, [next.name]: next }))
+        }
+        onClear={(name) =>
+          setAttributes((prev) => {
+            const next = { ...prev }
+            delete next[name]
+            return next
+          })
+        }
+        disabled={disabled}
+      />
+    ) },
+    // Renders itself only for a lodging listing whose details have loaded.
+    { id: INDUSTRY_LODGING_ID, label: "Lodging", changed: lodgingDirty, show: industry.any, render: () => (
+      <IndustrySections locationId={locationId} enabled={googleReady} />
+    ) },
+    { id: "section-services", label: "Services", changed: serviceStatus.dirty, show: servicesEligible, render: () => (
+      <ServicesSection key={locationId} locationId={locationId} business={business!} actions={serviceActions} onStatus={setServiceStatus} readOnly={disabled} />
+    ) },
+    { id: "section-other-google-details", label: "Other Google details", show: unsupported.length > 0, render: () => (
+      <SectionCard
+        id="section-other-google-details"
+        title="Other Google details"
+        description={<>Google holds more on this listing than NabaPresence can edit yet: {unsupported.map(({ label }) => label).join(", ")}. Change those in Google directly.</>}
+        className="bg-surface-alt"
+      >
+        {business?.capabilityDetails?.fields.serviceItems?.reasonCode ? (
+          <p className="text-ui text-ink-muted">
+            Services: {reasonCodeMessage(business.capabilityDetails.fields.serviceItems.reasonCode)}
+          </p>
+        ) : null}
+      </SectionCard>
+    ) },
+  ]
+  // The section navigation: the page's blocks, then the saved work and the
+  // catalogue handoff ProfileTab renders after the editor. Blocks that are
+  // not on the page (nothing saved, no catalogue) are left out by the nav.
+  const navEntries: SectionNavEntry[] = [
+    ...blocks.filter((block) => block.show && block.label).map((block) => ({ id: block.id, label: block.label!, changed: block.changed })),
+    { id: SAVED_LISTING_REVIEWS_ID, label: "Saved profile reviews" },
+    { id: SAVED_ATTRIBUTE_REVIEWS_ID, label: "Saved attribute reviews" },
+    { id: SAVED_LODGING_ID, label: "Saved lodging work" },
+    { id: SAVED_SERVICES_ID, label: "Saved service work" },
+    { id: PRODUCT_CATALOGUE_ID, label: "Product catalogue" },
+  ]
 
   const saveReason =
     editReason ??
@@ -753,42 +902,53 @@ function ProfileEditor({
       ? "Additional phones, categories, related businesses, address, service areas, opening state and attributes go to Google when you publish. Only the name, description, primary phone and website are saved here."
       : null)
 
+  // No bar when there is nothing to save, publish or discard and nothing it
+  // must keep saying (a conflict with Google, view-only access): on a phone
+  // the bar covered the first field to say that all was well.
+  const footerDirty = rows.length > 0 || serviceStatus.dirty || lodgingDirty
+  const footerStatus = settled ? "in_sync" : needsAck ? "conflict" : "edited"
+  const quiet = !editReason && !needsAck && !footerDirty && !isDirty
+
   return (
     <EditorFrame
       title="Business profile"
       titleHidden
-      // The frame is a container so the footer can follow the same 900px
-      // switch as the section index below: from there the dark bar starts
-      // at the form column (12.5rem index + gap-6), as in the reference.
-      className="@container/profile-frame"
       footer={
-        <EditorFooter
-          className="@[900px]/profile-frame:ml-[calc(12.5rem+1.5rem)]"
-          status={settled ? "in_sync" : needsAck ? "conflict" : "edited"}
-          isDirty={rows.length > 0 || serviceStatus.dirty || lodgingDirty}
-          canDiscard={isDirty}
-          changeCount={rows.length + (serviceStatus.dirty ? 1 : 0) + (lodgingDirty ? 1 : 0)}
-          onReview={lodgingOnly ? () => lodgingWork?.reviewDraft() : rows.length === 0 && serviceStatus.dirty ? () => serviceActions.current?.review() : review}
-          reviewLabel={lodgingOnly ? "Review lodging draft" : serviceStatus.dirty || lodgingDirty ? rows.length === 0 ? "Review services" : "Review profile fields" : "Review changes"}
-          onDiscard={() => setDiscardOpen(true)}
-          onSave={() => {
-            if (checkValues()) save.mutate()
-          }}
-          saving={save.isPending}
-          saveDisabledReason={(serviceStatus.dirty || lodgingDirty) && !valuesDirty ? "Services and lodging are saved through their own review." : saveReason}
-          saveDescription="Save here keeps only the name, description, phone and website. Other profile edits are reviewed and approved, then sent to Google."
-          disabledReason={lodgingOnly ? lodgingWork?.draftStatus.blocked : rows.length === 0 && serviceStatus.dirty ? serviceStatus.blocked : blocked}
-          // A role that can't edit gets the one view-only bar, not a row
-          // of disabled buttons.
-          readOnlyReason={editReason}
-          hint={
-            googleReady
-              ? "Profile fields match Google. Specialist details use their own review."
-              : "Nothing to publish yet."
-          }
-        />
+        quiet ? undefined : (
+          <EditorFooter
+            // The bar starts at the form column: the desk rail's width plus
+            // the grid's gap-x-6 below.
+            className="desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]"
+            status={footerStatus}
+            isDirty={footerDirty}
+            canDiscard={isDirty}
+            changeCount={rows.length + (serviceStatus.dirty ? 1 : 0) + (lodgingDirty ? 1 : 0)}
+            onReview={lodgingOnly ? () => lodgingWork?.reviewDraft() : rows.length === 0 && serviceStatus.dirty ? () => serviceActions.current?.review() : review}
+            reviewLabel={lodgingOnly ? "Review lodging draft" : serviceStatus.dirty || lodgingDirty ? rows.length === 0 ? "Review services" : "Review profile fields" : "Review changes"}
+            onDiscard={() => setDiscardOpen(true)}
+            onSave={() => {
+              if (checkValues()) save.mutate()
+            }}
+            saving={save.isPending}
+            saveDisabledReason={(serviceStatus.dirty || lodgingDirty) && !valuesDirty ? "Services and lodging are saved through their own review." : saveReason}
+            disabledReason={lodgingOnly ? lodgingWork?.draftStatus.blocked : rows.length === 0 && serviceStatus.dirty ? serviceStatus.blocked : blocked}
+            // A role that can't edit gets the one view-only bar, not a row
+            // of disabled buttons.
+            readOnlyReason={editReason}
+            hint={
+              googleReady
+                ? "Profile fields match Google. Specialist details use their own review."
+                : "Nothing to publish yet."
+            }
+          />
+        )
       }
     >
+      {quiet ? (
+        <QuietEditorStatus
+          report={{ status: footerStatus, isDirty: false, localEdits: false, savesHere: true, changeCount: 0 }}
+        />
+      ) : null}
       {gate ? (
         <CapabilityBanner
           tone={gate.tone}
@@ -811,160 +971,16 @@ function ProfileEditor({
         />
       ) : null}
 
-      <div className="@container/profile">
-        <div className="grid grid-cols-1 items-start gap-6 @[900px]/profile:grid-cols-[12.5rem_minmax(0,1fr)]">
-          <SectionIndex sections={sections} />
+      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 desk:grid-cols-[var(--np-form-rail-w)_minmax(0,1fr)]">
+        <SectionNav entries={navEntries} />
 
-          <div className="@container/profile-body flex min-w-0 flex-col gap-5">
-            <SectionJump sections={sections} />
+        <div className="@container/profile-body flex min-w-0 flex-col gap-5">
+          <ValidationSummary
+            errors={attempts > 0 ? issues.list : []}
+            focusKey={attempts}
+          />
 
-            <ValidationSummary
-              errors={attempts > 0 ? issues.list : []}
-              focusKey={attempts}
-            />
-
-            <IdentitySection
-              values={values}
-              setValues={setValues}
-              draft={listing}
-              setDraft={setListing}
-              errors={errors}
-              disabled={disabled}
-              googleReady={googleReady}
-              changed={changed}
-            />
-
-            {googleReady ? (
-              <CategoriesSection
-                locationId={locationId}
-                draft={listing}
-                setDraft={setListing}
-                disabled={disabled}
-                changed={changed}
-              />
-            ) : null}
-
-            {googleReady ? <AdvertisingSection location={business?.location} draft={listing} setDraft={setListing} disabled={disabled}
-              changed={listingUpdate.updateMask.includes("adWordsLocationExtensions")} error={listingIssues.adPhone} /> : null}
-            {googleReady ? <ChainSection locationId={locationId} location={business?.location} draft={listing} setDraft={setListing} disabled={disabled}
-              changed={listing.relationshipData?.parentChain !== initialListing.relationshipData?.parentChain} error={listingIssues.relationshipData} /> : null}
-            {googleReady ? <RelatedBusinessesSection draft={listing} setDraft={setListing} location={business?.location} disabled={disabled}
-              changed={listingUpdate.updateMask.some((mask) => mask === "relationshipData.parentLocation" || mask === "relationshipData.childrenLocations")} error={listingIssues.relationshipData} /> : null}
-
-            <ContactSection
-              values={values}
-              setValues={setValues}
-              errors={errors}
-              disabled={disabled}
-              changed={changed}
-            />
-
-            {googleReady ? (
-              <AdditionalPhonesSection draft={listing} setDraft={setListing} disabled={disabled}
-                changed={JSON.stringify(listing.additionalPhones ?? []) !== JSON.stringify(initialListing.additionalPhones ?? [])}
-                error={listingIssues.additionalPhones} />
-            ) : null}
-
-            {googleReady ? <ServiceAreaSection draft={listing} setDraft={setListing} location={business?.location} disabled={disabled}
-              changed={differs(listing.serviceArea, initialListing.serviceArea) || Boolean(listing.clearStorefrontAddress)} error={listingIssues.serviceArea} /> : null}
-
-            {googleReady ? (
-              <AddressSection
-                location={business?.location}
-                draft={listing}
-                setDraft={setListing}
-                issues={listingIssues}
-                disabled={disabled || listing.serviceArea?.businessType === "CUSTOMER_LOCATION_ONLY"}
-                changed={changed}
-              />
-            ) : null}
-
-            <DescriptionSection
-              values={values}
-              setValues={setValues}
-              errors={errors}
-              disabled={disabled}
-              changed={changed.description}
-            />
-
-            {state.businessPending ? (
-              // Named, not just "loading": the sections below are about to
-              // appear and push the footer down the page, so the operator
-              // should know that is coming rather than watch the page move.
-              <p
-                role="status"
-                className="flex items-center gap-2 text-ui text-ink-muted"
-              >
-                <Spinner decorative size="sm" className="shrink-0" />
-                Reading categories, address and attributes from Google…
-              </p>
-            ) : null}
-
-            {state.businessError ? (
-              <CapabilityBanner
-                tone="info"
-                title="We couldn't read this listing from Google"
-                description="The name, description, phone and website above are what NabaPresence holds, and you can still edit them. Categories, address and attributes need Google, so they're hidden until it answers."
-              />
-            ) : null}
-
-            {googleReady ? (
-              <OpeningSection
-                locationId={locationId}
-                draft={listing}
-                setDraft={setListing}
-                issues={listingIssues}
-                disabled={disabled}
-                changed={changed.opening}
-                statusChanged={listing.openStatus !== initialListing.openStatus}
-              />
-            ) : null}
-
-            <SavedListingReviews locationId={locationId} enabled={Boolean(business?.canPublish) && !editReason} publishReason={publishReason} />
-            <SavedAttributeReviews locationId={locationId} enabled={Boolean(business?.canPublish) && !editReason} metadata={business?.attributeMetadata ?? []} publishReason={publishReason} />
-            <AttributesSection
-              metadata={business?.attributeMetadata ?? []}
-              draft={attributes}
-              initial={initialAttributes}
-              onChange={(next) =>
-                setAttributes((prev) => ({ ...prev, [next.name]: next }))
-              }
-              onClear={(name) =>
-                setAttributes((prev) => {
-                  const next = { ...prev }
-                  delete next[name]
-                  return next
-                })
-              }
-              disabled={disabled}
-            />
-
-            {industry.any ? (
-              <IndustrySections locationId={locationId} enabled={googleReady} />
-            ) : null}
-
-            {business?.capabilityDetails?.fields.serviceItems?.eligibility === "eligible" ? (
-              <ServicesSection key={locationId} locationId={locationId} business={business} actions={serviceActions} onStatus={setServiceStatus} readOnly={disabled} />
-            ) : null}
-
-            {unsupported.length > 0 ? (
-              <section className="flex flex-col gap-1 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
-                <h3 className="text-ui font-semibold text-ink">
-                  Other Google details
-                </h3>
-                <p className="text-ui text-ink-muted">
-                  Google holds more on this listing than NabaPresence can edit
-                  yet: {unsupported.map(({ label }) => label).join(", ")}.
-                  Change those in Google directly.
-                </p>
-                {business?.capabilityDetails?.fields.serviceItems?.reasonCode ? (
-                  <p className="text-ui text-ink-muted">
-                    Services: {reasonCodeMessage(business.capabilityDetails.fields.serviceItems.reasonCode)}
-                  </p>
-                ) : null}
-              </section>
-            ) : null}
-          </div>
+          {blocks.map((block) => block.show ? <Fragment key={block.id}>{block.render()}</Fragment> : null)}
         </div>
       </div>
 
@@ -999,92 +1015,5 @@ function ProfileEditor({
         publishDisabledReason={publishReason ?? (reviewFingerprint !== fingerprint ? "The draft or Google baseline changed. Close this review and review again." : [listingReview, attributeReview].some((review) => review?.requiresSecondApprover && !review.approvedBy && !review.canApprove) ? "A different authorised user must approve this saved review." : null)}
       />
     </EditorFrame>
-  )
-}
-
-type IndexSection = { id: string; label: string; changed: boolean }
-
-function jumpTo(id: string) {
-  const section = document.getElementById(id)
-  if (!section) return
-  section.scrollIntoView({ block: "start" })
-  document.getElementById(`${id}-heading`)?.focus({ preventScroll: true })
-}
-
-/** The sticky section index beside the form on a wide container. */
-function SectionIndex({ sections }: { sections: IndexSection[] }) {
-  const [current, setCurrent] = useState<string | null>(null)
-  return (
-    <nav
-      aria-label="Profile sections"
-      className="sticky top-0 hidden @[900px]/profile:block"
-    >
-      <ol className="flex flex-col gap-0.5">
-        {sections.map((section) => (
-          <li key={section.id}>
-            <a
-              href={`#${section.id}`}
-              aria-current={current === section.id ? "true" : undefined}
-              onClick={(event) => {
-                event.preventDefault()
-                setCurrent(section.id)
-                jumpTo(section.id)
-              }}
-              className="relative flex min-h-8 items-center gap-2 rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill hover:text-ink aria-[current=true]:bg-accent-tint aria-[current=true]:font-semibold aria-[current=true]:text-accent-ink"
-            >
-              {section.label}
-              {section.changed ? (
-                <>
-                  <span
-                    aria-hidden
-                    className="ml-auto size-1.5 rounded-full bg-info-solid"
-                  />
-                  <span className="sr-only"> (changed)</span>
-                </>
-              ) : null}
-            </a>
-          </li>
-        ))}
-      </ol>
-    </nav>
-  )
-}
-
-/** "Jump to section" on a narrow container, where the index would crowd the form. */
-function SectionJump({ sections }: { sections: IndexSection[] }) {
-  // Jump once the list has closed: closing hands focus back to the trigger,
-  // which scrolled the page straight back up to this select and left focus
-  // on it instead of on the section's heading.
-  const pending = useRef<string | null>(null)
-  return (
-    <div className="@[900px]/profile:hidden">
-      <Field>
-        <FieldLabel>Jump to section</FieldLabel>
-        <Select
-          value={null}
-          onValueChange={(value: string | null) => {
-            pending.current = value
-          }}
-          onOpenChangeComplete={(open) => {
-            if (open || !pending.current) return
-            const id = pending.current
-            pending.current = null
-            jumpTo(id)
-          }}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Choose a section" />
-          </SelectTrigger>
-          <SelectContent>
-            {sections.map((section) => (
-              <SelectItem key={section.id} value={section.id}>
-                {section.label}
-                {section.changed ? " · changed" : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-    </div>
   )
 }

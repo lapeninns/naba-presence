@@ -26,11 +26,13 @@ function renderToolbar(
     onClear?: () => void
     showLocationFilter?: boolean
     clients?: { id: string; name: string }[]
+    resultLabel?: string
   } = {}
 ) {
   return render(
     <FilterToolbar
       state={{ ...baseState, ...overrides }}
+      resultLabel={handlers.resultLabel ?? "12 reviews"}
       locations={LOCATIONS}
       clients={handlers.clients ?? []}
       showLocationFilter={handlers.showLocationFilter ?? true}
@@ -88,7 +90,7 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
       expect(within(sheet).getByRole("combobox", { name })).toBeInTheDocument()
     }
     expect(
-      within(sheet).getByRole("radiogroup", { name: "Reply state" })
+      within(sheet).getByRole("radiogroup", { name: "Reply status" })
     ).toBeInTheDocument()
     expect(within(sheet).getByLabelText("From date")).toBeInTheDocument()
   })
@@ -126,7 +128,9 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
     const onChange = vi.fn()
     renderToolbar({ ratings: [1, 2] }, { onChange })
     const sheet = await openSheet(user)
-    expect(within(sheet).getByRole("checkbox", { name: "1 star" })).toBeChecked()
+    expect(
+      within(sheet).getByRole("checkbox", { name: "1 star" })
+    ).toBeChecked()
     expect(
       within(sheet).getByRole("checkbox", { name: "2 stars" })
     ).toBeChecked()
@@ -296,7 +300,7 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
   it("groups its controls under headings, without the retired pipeline filters", async () => {
     await openPanel()
     expect(
-      screen.getByRole("radiogroup", { name: "Reply state" })
+      screen.getByRole("radiogroup", { name: "Reply status" })
     ).toBeInTheDocument()
     expect(screen.getByLabelText("From date")).toBeInTheDocument()
     expect(screen.getByLabelText("To date")).toBeInTheDocument()
@@ -311,6 +315,17 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     ]) {
       expect(screen.getByRole("heading", { name: title })).toBeInTheDocument()
     }
+    // Each filter keeps a group name without a landmark per section: a group
+    // named by its heading, or (Rating, Written review, Reply status) the
+    // control's own named group, never both.
+    const sheet = screen.getByRole("dialog", { name: "Filters" })
+    for (const title of ["Venue", "Assigned to", "Age", "Date range", "Sort"]) {
+      expect(within(sheet).getByRole("group", { name: title })).toBeVisible()
+    }
+    expect(
+      within(sheet).getAllByRole("group", { name: "Rating" })
+    ).toHaveLength(1)
+    expect(within(sheet).queryAllByRole("region")).toHaveLength(0)
     // The pipeline-state checkboxes and the saved presets stay gone: the
     // first filtered on a record's place in the publish pipeline, the second
     // duplicated controls already on the toolbar.
@@ -368,12 +383,66 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
   it("clears every filter and closes from the panel footer", async () => {
     const onClear = vi.fn()
     const user = await openPanel({ replyState: "unreplied" }, { onClear })
-    await user.click(screen.getByRole("button", { name: "Clear filters" }))
+    await user.click(screen.getByRole("button", { name: "Clear all filters" }))
     expect(onClear).toHaveBeenCalled()
-    await user.click(screen.getByRole("button", { name: "Show results" }))
+    await user.click(screen.getByRole("button", { name: "Show 12 reviews" }))
     expect(screen.getByRole("button", { name: /^Filters/ })).toHaveAttribute(
       "aria-expanded",
       "false"
     )
+  })
+
+  it("says the live result count on its closing button and aloud", async () => {
+    // The count comes from the list itself (InboxToolbar's `resultLabel`),
+    // so the sheet follows each change as the query settles.
+    const user = userEvent.setup()
+    const { rerender } = renderToolbar({}, { resultLabel: "Loading reviews…" })
+    const sheet = await openSheet(user)
+    expect(
+      within(sheet).getByRole("button", { name: "Loading reviews…" })
+    ).toBeInTheDocument()
+    // The loading state is shown, not announced after every tap.
+    expect(within(sheet).getByRole("status")).toHaveTextContent(/^$/)
+
+    rerender(
+      <FilterToolbar
+        state={baseState}
+        resultLabel="50 reviews so far"
+        locations={LOCATIONS}
+        clients={[]}
+        showLocationFilter
+        onChange={() => {}}
+        onQueueChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    expect(
+      within(sheet).getByRole("button", { name: "Show 50+ reviews" })
+    ).toBeInTheDocument()
+    expect(within(sheet).getByRole("status")).toHaveTextContent(
+      "50 reviews so far"
+    )
+  })
+
+  it("chooses a reply status as one radio group, with Any as unset", async () => {
+    const onChange = vi.fn()
+    const user = await openPanel({ replyState: "unreplied" }, { onChange })
+    const group = screen.getByRole("radiogroup", { name: "Reply status" })
+    expect(
+      within(group).getByRole("radio", { name: "Unreplied" })
+    ).toBeChecked()
+    await user.click(within(group).getByRole("radio", { name: "Replied" }))
+    expect(onChange).toHaveBeenCalledWith({ replyState: "replied" })
+    await user.click(within(group).getByRole("radio", { name: "Any" }))
+    expect(onChange).toHaveBeenCalledWith({ replyState: undefined })
+  })
+
+  it("narrows to rating-only reviews from the written-review group", async () => {
+    const onChange = vi.fn()
+    const user = await openPanel({}, { onChange })
+    const group = screen.getByRole("radiogroup", { name: "Written review" })
+    expect(within(group).getByRole("radio", { name: "Any" })).toBeChecked()
+    await user.click(within(group).getByRole("radio", { name: "Rating only" }))
+    expect(onChange).toHaveBeenCalledWith({ written: "rating_only" })
   })
 })

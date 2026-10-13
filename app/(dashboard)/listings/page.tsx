@@ -1,12 +1,8 @@
-import { PlusIcon } from "lucide-react"
-import Link from "next/link"
-
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
-import { ListingsBoard } from "@/components/listings/listings-board"
-import { buttonVariants } from "@/components/ui/button"
+import { AddListingsLink } from "@/components/listings/add-listings-link"
+import { ListingsBoard } from "@/components/listings/listings-board-entry"
 import { bulkActionsEnabled } from "@/lib/server/bulk-listings"
 import { getSession } from "@/lib/server/session"
-import { cn } from "@/lib/utils"
 
 export const metadata = { title: "Listings · NabaPresence" }
 
@@ -25,14 +21,7 @@ export default async function ListingsPage() {
       <PageHeader
         title="Listings"
         description="Every Google Business Profile you look after, and what each one is waiting on."
-        actions={
-          canManage ? (
-            <Link href="/setup" className={cn(buttonVariants())}>
-              <PlusIcon aria-hidden strokeWidth={1.75} />
-              Add listings from Google
-            </Link>
-          ) : null
-        }
+        actions={canManage ? <AddListingsLink /> : null}
       />
       <ListingsBoard role={session?.role ?? null} bulkEnabled={bulkEnabled} />
     </PageFrame>

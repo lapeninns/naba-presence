@@ -3,12 +3,10 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import {
-  isPatchableMediaCategory,
-  PhotosTab,
-} from "@/components/locations/photos-tab"
+import { PhotosTab } from "@/components/locations/photos-tab"
 import { Toaster } from "@/components/ui/toast"
 import type { MediaState } from "@/lib/api/location-media"
+import { isPatchableMediaCategory } from "@/lib/locations/media-labels"
 import type { ListPaging } from "@/lib/queries/paged-list"
 
 const useMediaMock = vi.fn()
@@ -39,14 +37,18 @@ vi.mock("@/lib/api/location-media", async () => {
     ...actual,
     updateMediaCategory: (...args: unknown[]) =>
       updateMediaCategoryMock(...args),
-    resolveMediaCreate: (...args: unknown[]) =>
-      resolveMediaCreateMock(...args),
+    resolveMediaCreate: (...args: unknown[]) => resolveMediaCreateMock(...args),
     fetchMedia: vi.fn(),
   }
 })
 
 type MediaView = MediaState & { paging: ListPaging }
-const noMore: ListPaging = { hasMore: false, loadingMore: false, loadMoreFailed: false, loadMore: () => {} }
+const noMore: ListPaging = {
+  hasMore: false,
+  loadingMore: false,
+  loadMoreFailed: false,
+  loadMore: () => {},
+}
 
 function makeMedia(overrides: Partial<MediaView> = {}): MediaView {
   const items = overrides.items ?? [
@@ -201,12 +203,31 @@ describe("PhotosTab", () => {
       data: { canEditCanonical: true, canPublish: true },
     })
     renderTab()
-    expect(screen.getByText("Photo library")).toBeInTheDocument()
+    // The area header above owns the visible title, status and model note;
+    // the frame keeps its heading for the outline only and repeats no pill.
+    expect(screen.getByRole("heading", { name: "Photo library" })).toHaveClass(
+      "sr-only"
+    )
+    expect(screen.queryByText(/on Google$/)).toBeNull()
+    expect(screen.queryByText(/There is no draft step/)).toBeNull()
     await user.click(screen.getByRole("button", { name: "Add photos" }))
     expect(
       screen.getByRole("heading", { name: "Add media" })
     ).toBeInTheDocument()
+    // Two explicit ways in on a phone: the camera and the library.
+    expect(
+      screen.getByRole("button", { name: "Take photo" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Choose from library" })
+    ).toBeInTheDocument()
     expect(screen.getByLabelText("Direct file upload")).toBeInTheDocument()
+    expect(
+      screen.getByLabelText("Take a photo with the camera")
+    ).toHaveAttribute("capture", "environment")
+    expect(
+      screen.getByText(/JPEG or PNG only \(not HEIC\)/)
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Review file upload" })
     ).toBeDisabled()
@@ -339,18 +360,53 @@ describe("PhotosTab", () => {
       screen.getByText("0 sent, 1 ready, 1 can’t upload.")
     ).toBeInTheDocument()
 
+    // The upload confirmation is a second step of the same dialog, never a
+    // dialog stacked on top of it.
     await user.click(screen.getByRole("button", { name: "Review file upload" }))
-    const confirm = await screen.findByRole("alertdialog")
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+    const confirm = screen.getByRole("dialog", {
+      name: "Upload this file to Google?",
+    })
     expect(within(confirm).getByText(/under “Additional”/)).toBeInTheDocument()
     expect(
       within(confirm).getByRole("img", { name: "bar.jpg" })
     ).toBeInTheDocument()
-    await user.click(within(confirm).getByRole("button", { name: "Cancel" }))
+    expect(
+      within(confirm).getByRole("button", { name: "Upload 1 photo" })
+    ).toBeInTheDocument()
+    await user.click(within(confirm).getByRole("button", { name: "Back" }))
 
     await user.click(screen.getByRole("button", { name: "Remove bar.jpg" }))
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-1")
     Reflect.deleteProperty(URL, "createObjectURL")
     Reflect.deleteProperty(URL, "revokeObjectURL")
+  })
+
+  it("names HEIC as unsupported and asks before a stray dismissal drops chosen files", async () => {
+    const user = userEvent.setup({ applyAccept: false })
+    loaded(makeMedia())
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "Add photos" }))
+    const heic = new File([new Uint8Array(20 * 1024)], "IMG_0001.HEIC", {
+      type: "image/heic",
+    })
+    const photo = new File([new Uint8Array(20 * 1024)], "bar.jpg", {
+      type: "image/jpeg",
+    })
+    await user.upload(screen.getByLabelText("Direct file upload"), [
+      heic,
+      photo,
+    ])
+    expect(screen.getByText(/HEIC photos aren’t supported/)).toBeInTheDocument()
+
+    await user.keyboard("{Escape}")
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "Discard these photos?",
+    })
+    await user.click(
+      within(prompt).getByRole("button", { name: "Keep editing" })
+    )
+    expect(screen.getByText("bar.jpg")).toBeInTheDocument()
   })
 
   it("shows a page of media and loads more on request, announcing the count", async () => {
@@ -414,14 +470,17 @@ describe("PhotosTab", () => {
       data: { canEditCanonical: true, canPublish: true },
     })
     renderTab()
+    // Three options choosing one value: radio semantics, not a tablist
+    // without panels.
+    const ownership = screen.getByRole("radiogroup", {
+      name: "Photo ownership",
+    })
+    expect(screen.queryByRole("tablist")).toBeNull()
     expect(
-      screen.getByRole("group", { name: "Photo ownership" })
+      within(ownership).getByRole("radio", { name: "Your photos" })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: "Your photos" })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Customer photos" })
+      within(ownership).getByRole("radio", { name: "Customer photos" })
     ).toBeInTheDocument()
     expect(screen.getByLabelText("Filter by category")).toBeInTheDocument()
   })
@@ -490,7 +549,7 @@ describe("PhotosTab", () => {
     loaded(makeMedia({ items: manyItems(12), total: 15 }))
     renderTab()
 
-    await user.click(screen.getByRole("button", { name: "Customer photos" }))
+    await user.click(screen.getByRole("radio", { name: "Customer photos" }))
     expect(replace).toHaveBeenCalledWith(
       "/locations/loc-1/photos?ownership=customer",
       { scroll: false }
@@ -504,13 +563,8 @@ describe("PhotosTab", () => {
     )
     loaded(makeMedia({ items: [], total: 0 }))
     renderTab()
-    expect(
-      screen.getByRole("button", { name: "Customer photos" })
-    ).toHaveAttribute("aria-pressed", "true")
-    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute(
-      "aria-pressed",
-      "false"
-    )
+    expect(screen.getByRole("radio", { name: "Customer photos" })).toBeChecked()
+    expect(screen.getByRole("radio", { name: "All" })).not.toBeChecked()
     expect(screen.getByText("No matching photos")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Clear filters" }))

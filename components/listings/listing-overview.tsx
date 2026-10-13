@@ -1,19 +1,14 @@
 "use client"
 
-import { ExternalLinkIcon, RefreshCwIcon } from "lucide-react"
+import { RefreshCwIcon } from "lucide-react"
 import Link from "next/link"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
-import { ActivityDrawer } from "@/components/editors/activity-drawer"
-import {
-  ListingAreaHeader,
-  ReviewPublishLink,
-} from "@/components/listings/area-frame"
+import { ListingAreaHeader } from "@/components/listings/area-frame"
 import { AreaCards } from "@/components/listings/area-cards"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import { HealthStrip } from "@/components/listings/health-strip"
 import { ListingGate } from "@/components/listings/listing-gate"
-import { RecentActivity } from "@/components/listings/recent-activity"
 import {
   Alert,
   AlertActions,
@@ -21,10 +16,10 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { SectionHeader } from "@/components/ui/section-header"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { formatRelativeTime } from "@/lib/format"
 import {
   listingHealth,
   listingHealthDescription,
@@ -38,6 +33,7 @@ import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { useNow } from "@/lib/time/server-now"
 
 /**
  * The notes that decide what to do before anything else: a listing with no
@@ -129,7 +125,7 @@ function OverviewAlerts({
             : "The last"}{" "}
           {failedArea ? failedArea.label.toLowerCase() : failed.area}{" "}
           {failed.status === "ambiguous" ? "publish" : "publish failed"} ·{" "}
-          {formatRelativeTime(failed.at)}
+          <RelativeTime iso={failed.at} />
         </AlertTitle>
         <AlertDescription>
           Some changes may already be on Google. The saved copy here is kept.
@@ -186,6 +182,7 @@ function ListingOverview({
   locationId: string
   role: string | null
 }) {
+  const now = useNow()
   const canManageConsoles = role === "owner" || role === "admin"
   const summary = useListingSummary(locationId)
   const caps = useLocationCapabilities(locationId)
@@ -197,6 +194,7 @@ function ListingOverview({
           linked: entry.linked,
           verified: entry.verified ?? summary.data?.verified,
           summary: summary.data,
+          now,
         })
         const address = formatAddressLine(entry.address)
         const summaryFailed = summary.isError && !summary.data
@@ -226,28 +224,12 @@ function ListingOverview({
                   {address ? ` ${address}.` : ""}
                 </>
               }
-              actions={
-                <>
-                  <ReviewPublishLink
-                    locationId={locationId}
-                    summary={summary.data}
-                  />
-                  <ActivityDrawer locationId={locationId} />
-                  {/* Only when Google has given us the listing's Maps link;
-                      a button that can never be pressed says nothing. */}
-                  {mapsUrl ? (
-                    <a
-                      href={mapsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={cn(buttonVariants({ variant: "secondary" }))}
-                    >
-                      <ExternalLinkIcon aria-hidden />
-                      Open on Google
-                      <span className="sr-only"> (opens in a new tab)</span>
-                    </a>
-                  ) : null}
-                </>
+              // Only when Google has given us the listing's Maps link; a
+              // button that can never be pressed says nothing.
+              links={
+                mapsUrl
+                  ? [{ label: "Open on Google", href: mapsUrl, external: true }]
+                  : []
               }
             />
 
@@ -300,20 +282,6 @@ function ListingOverview({
                 summaryFailed={summaryFailed}
                 canManageConsoles={canManageConsoles}
               />
-            </section>
-
-            <section
-              aria-labelledby="listing-activity"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                id="listing-activity"
-                title="Recent activity"
-                description="The last five things sent to Google from here, newest first."
-              />
-              <div className="rounded-(--np-radius-card) border border-line bg-surface px-4 py-3">
-                <RecentActivity locationId={locationId} />
-              </div>
             </section>
           </PageFrame>
         )

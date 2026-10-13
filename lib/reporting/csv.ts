@@ -41,7 +41,40 @@ export function downloadCsv(
   document.body.append(link)
   link.click()
   link.remove()
-  // Revoked on the next task: some browsers start the download after the
-  // click handler returns.
-  setTimeout(() => URL.revokeObjectURL(url), 0)
+  keepUntilFetched(url)
+}
+
+/**
+ * How long a download's object URL outlives the click. iOS Safari reads the
+ * blob asynchronously, well after the click handler (it may first show its
+ * own download prompt), so revoking on the next task can leave it with an
+ * empty or failed file. A minute covers that; the page leaving frees any
+ * still held.
+ */
+export const CSV_URL_LIFETIME_MS = 60_000
+
+const heldUrls = new Map<string, ReturnType<typeof setTimeout>>()
+
+function revokeHeld(url: string) {
+  const timer = heldUrls.get(url)
+  if (timer !== undefined) clearTimeout(timer)
+  heldUrls.delete(url)
+  URL.revokeObjectURL(url)
+  if (heldUrls.size === 0 && typeof window !== "undefined") {
+    window.removeEventListener("pagehide", revokeAllHeld)
+  }
+}
+
+function revokeAllHeld() {
+  for (const url of [...heldUrls.keys()]) revokeHeld(url)
+}
+
+function keepUntilFetched(url: string) {
+  if (heldUrls.size === 0 && typeof window !== "undefined") {
+    window.addEventListener("pagehide", revokeAllHeld)
+  }
+  heldUrls.set(
+    url,
+    setTimeout(() => revokeHeld(url), CSV_URL_LIFETIME_MS)
+  )
 }

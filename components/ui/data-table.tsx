@@ -10,6 +10,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSelectAllLabel,
+  type TableCellPriority,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
@@ -22,12 +24,22 @@ export type DataTableColumn<Row> = {
   /** Right-aligned with tabular figures: counts, ratings, money. */
   numeric?: boolean
   /**
-   * The column name shown above each value in responsive labelled rows.
-   * Defaults to `header` when that is a string. Pass `""` for none.
+   * The column name shown with each value in a responsive record card.
+   * Defaults to `header` when that is a string. Pass `""` for none. The
+   * primary column is never labelled, whatever this says.
    */
   label?: string
-  /** Take the whole row in responsive labelled rows. */
+  /** Take the whole width of a record card's detail grid. */
   span?: boolean
+  /**
+   * Where the column goes in a responsive record card: `primary` (the
+   * headline, usually the sort column), `secondary` (a subtitle),
+   * `trailing` (the status or figure), `actions`, `meta` (joined into one
+   * muted line), `detail` (a labelled pair; the default), `desk-only`
+   * (dropped). Without any priorities the first column is the title and
+   * the rest are details. See `TableCellPriority` in table.tsx.
+   */
+  priority?: Exclude<TableCellPriority, "select">
 }
 
 type DataTableProps<Row> = {
@@ -54,8 +66,11 @@ type DataTableProps<Row> = {
    */
   surface?: boolean
   /**
-   * Become labelled rows below 720px of the table's own width (reference
-   * `.table.responsive`). See `Table`.
+   * Become record cards below 48rem of the table's own width: a title line,
+   * a subtitle, one meta line and labelled details, placed by each column's
+   * `priority`. With `selection`, the checkbox moves to the card's leading
+   * slot and the select-all checkbox stays above the cards as a bar with
+   * the selected count. See `Table`.
    */
   responsive?: boolean
   className?: string
@@ -68,6 +83,15 @@ type DataTableProps<Row> = {
  * product's tables are a directory, a people list and a location list, all of
  * which need selection and a caption and none of which need column resizing,
  * grouping or virtualised rows.
+ *
+ * On a phone (`responsive`), each row is a record card; the column
+ * `priority` decides what leads it. A typical people list:
+ *
+ *   { id: "name", header: "Member", priority: "primary", cell: … }
+ *   { id: "email", header: "Email", priority: "secondary", cell: … }
+ *   { id: "role", header: "Role", priority: "meta", cell: … }
+ *   { id: "status", header: "Publishing", priority: "trailing", cell: … }
+ *   { id: "menu", header: "", priority: "actions", cell: … }
  *
  * The caption is mandatory and visually hidden. A page with three tables gives
  * a screen-reader user three identical "table" landmarks otherwise, and the
@@ -134,6 +158,18 @@ function DataTable<Row>({
                       : `Select all ${rows.length} rows`
                   }
                 />
+                {/* Record cards hide the column names, so the bar the
+                    checkbox becomes says what it does and how many are
+                    chosen. The words start with the checkbox's own name
+                    (WCAG 2.5.3 label in name), so "Select all 5 rows"
+                    spoken to voice control finds it. */}
+                <TableSelectAllLabel>
+                  {allSelected
+                    ? `Clear the selection · ${selectedCount} selected`
+                    : selectedCount > 0
+                      ? `Select all ${rows.length} rows · ${selectedCount} selected`
+                      : `Select all ${rows.length} rows`}
+                </TableSelectAllLabel>
               </TableHead>
             ) : null}
             {columns.map((column) => (
@@ -165,6 +201,7 @@ function DataTable<Row>({
               >
                 {selection ? (
                   <TableCell
+                    priority="select"
                     className="w-11 pr-0"
                     // Stops a checkbox click from also triggering the row's
                     // own navigation.
@@ -188,6 +225,7 @@ function DataTable<Row>({
                         : undefined)
                     }
                     span={column.span}
+                    priority={column.priority}
                     className={column.className}
                   >
                     {column.cell(row)}

@@ -103,7 +103,9 @@ test.describe("inbox critical journeys", () => {
         exact: true,
       })
       .click()
-    await filters.getByRole("button", { name: "Show results" }).click()
+    await filters
+      .getByRole("button", { name: /^Show \d[\d,]*\+? reviews?$/ })
+      .click()
     await expect(filters).toBeHidden()
     await expect(
       list.getByText(state.approvalReview.text, { exact: true })
@@ -249,18 +251,52 @@ test.describe("inbox critical journeys", () => {
     // replied to, so the viewer meets the control in its "Publish reply"
     // state whichever order these tests run in.
     await openReview(page, state.approvalReview.text)
-    const publish = page.getByRole("button", { name: "Publish reply" })
-    await expect(publish).toBeDisabled()
-    // The composer is READ-ONLY, not disabled: a viewer is meant to be able to
-    // read and copy the reply (reply-composer.tsx sets `readOnly`, keeping the
-    // text selectable) and is told why in words, by the exception above the
-    // review (detail/reply-exception.tsx). `not.toBeEditable()` is what
-    // actually holds a viewer out of the box — `toBeDisabled()` is false for a
-    // readonly control, so it was asserting nothing about this composer.
+    // Before inbox-08 a viewer met a disabled "Publish reply" and a read-only
+    // composer. Now neither is drawn: no publish control of any kind, no
+    // docked bar, no reply box to type in, and the review says in words that
+    // the access is view-only (detail/reply-exception.tsx and the reply row).
+    // "Not there" is stronger than "there but off": nothing to tab to, press
+    // or misread as a broken button.
+    const pane = page.getByRole("region", { name: "Selected review" })
     await expect(
-      page.getByRole("textbox", { name: "Your reply" })
-    ).not.toBeEditable()
-    await expect(page.getByText("View-only access")).toBeVisible()
+      pane.getByText(state.approvalReview.text, { exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByText(
+        "View-only access. You can read reviews and replies; an owner or admin can reply."
+      )
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", {
+        name: /^(Publish reply|Submit for approval|Update reply)$/,
+      })
+    ).toHaveCount(0)
+    await expect(page.locator('[data-slot="composer-footer"]')).toHaveCount(0)
+    // No editable reply box: none at all, or (should one return) not editable.
+    const replyBoxes = page.getByRole("textbox", { name: "Your reply" })
+    for (const box of await replyBoxes.all()) {
+      await expect(box).not.toBeEditable()
+    }
+    // The UI follows the server: the viewer's own session reads the review
+    // with every reply capability off (a read, nothing is sent).
+    const detail = await page.request.get(
+      `/api/reviews/${state.approvalReview.id}`
+    )
+    expect(detail.status()).toBe(200)
+    const { review } = (await detail.json()) as {
+      review: {
+        capabilities: {
+          canEdit: boolean
+          canPublish: boolean
+          canRequestApproval: boolean
+        }
+      }
+    }
+    expect(review.capabilities).toMatchObject({
+      canEdit: false,
+      canPublish: false,
+      canRequestApproval: false,
+    })
   })
 
   test("dirty draft: switching reviews confirms before discarding edits", async ({
@@ -298,4 +334,178 @@ test.describe("inbox critical journeys", () => {
       "Unsaved edit in progress"
     )
   })
+})
+
+/**
+ * Counts how many times "Discard unsaved reply?" OPENS from here on (a
+ * transition from no open dialog to one), so a second question is caught even
+ * when it replaces the first between two polls.
+ */
+async function countDiscardPrompts(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as { __discardOpens: number }
+    w.__discardOpens = 0
+    let wasOpen = false
+    const check = () => {
+      const open = [...document.querySelectorAll("[role=alertdialog]")].some(
+        (dialog) =>
+          dialog.getAttribute("aria-label") === "Discard unsaved reply?" &&
+          !dialog.hasAttribute("data-ending-style") &&
+          !dialog.hasAttribute("data-closed")
+      )
+      if (open && !wasOpen) w.__discardOpens++
+      wasOpen = open
+    }
+    new MutationObserver(check).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-ending-style", "data-closed", "data-open"],
+    })
+    check()
+  })
+  return () =>
+    page.evaluate(
+      () => (window as unknown as { __discardOpens: number }).__discardOpens
+    )
+}
+
+/** The open prompt has finished arriving: no enter state, nothing animating. */
+async function settled(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const sheet = document.querySelector(
+          '[data-slot="alert-dialog-content"]'
+        )
+        if (!sheet || sheet.hasAttribute("data-starting-style")) return false
+        return document
+          .getAnimations()
+          .every((animation) => animation.playState !== "running")
+      })
+    )
+    .toBe(true)
+}
+
+// One question per way out (64f2c80f): a confirmed Discard leaves the review
+// at once. With an unsaved reply, "Back to Inbox" (the app bar link on a
+// phone) used to ask, then ask again: Discard only marked the edits for the
+// unmount, so the back it re-ran still saw a dirty reply, and the leave
+// guard's sentinel (a review pushed from the list) or the in-page gate (a
+// deep link) put the same question up a second time.
+test.describe("dirty draft: one question per way out", () => {
+  const UNSAVED = "Unsaved edit, never sent"
+
+  for (const variant of ["pushed from the list", "a deep link"] as const) {
+    test(`Back to Inbox asks once, then lands on the list (390, ${variant})`, async ({
+      baseURL,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      const state = await readJourneyState()
+      await useCookie(page, baseURL, state.cookie)
+      if (variant === "pushed from the list") {
+        await page.goto("/inbox?queue=all")
+        await openReview(page, state.approvalReview.text)
+      } else {
+        await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
+      }
+      await expect(page).toHaveURL(/[?&]selected=/)
+      await (await replyBox(page)).fill(UNSAVED)
+      const opens = await countDiscardPrompts(page)
+
+      await page
+        .getByRole("banner")
+        .getByRole("link", { name: "Back to Inbox" })
+        .click()
+      const prompt = page.getByRole("alertdialog", {
+        name: "Discard unsaved reply?",
+      })
+      await expect(prompt).toBeVisible()
+      await settled(page)
+      await prompt.getByRole("button", { name: "Discard", exact: true }).click()
+
+      // The list, with no review selected and no prompt left or reopened.
+      await expect(page).not.toHaveURL(/[?&]selected=/)
+      await expect(page.locator('[data-slot="inbox"]')).toHaveAttribute(
+        "data-view",
+        "list"
+      )
+      await expect(prompt).toHaveCount(0)
+      // Long enough for a second question to have opened.
+      await page.waitForTimeout(1500)
+      await expect(prompt).toHaveCount(0)
+      expect(await opens()).toBe(1)
+    })
+  }
+
+  test("Keep editing stays on the review with the reply intact (390, pushed)", async ({
+    baseURL,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const state = await readJourneyState()
+    await useCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox?queue=all")
+    await openReview(page, state.approvalReview.text)
+    await (await replyBox(page)).fill(UNSAVED)
+    const back = page
+      .getByRole("banner")
+      .getByRole("link", { name: "Back to Inbox" })
+    await back.click()
+    const prompt = page.getByRole("alertdialog", {
+      name: "Discard unsaved reply?",
+    })
+    await expect(prompt).toBeVisible()
+    await settled(page)
+    await prompt.getByRole("button", { name: "Keep editing" }).click()
+    await expect(prompt).toHaveCount(0)
+    await expect(page).toHaveURL(/[?&]selected=/)
+    await expect(page.getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      UNSAVED
+    )
+    // Still guarded: going back again asks again.
+    await back.click()
+    await expect(prompt).toBeVisible()
+  })
+
+  // On a desk the list is beside the review, so there is no Back to Inbox;
+  // the way out of an unsaved reply is the shell's navigation, which asks
+  // once and then goes, however the review was opened.
+  for (const variant of ["pushed from the list", "a deep link"] as const) {
+    test(`a shell link asks once, then leaves (1280, ${variant})`, async ({
+      baseURL,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 860 })
+      const state = await readJourneyState()
+      await useCookie(page, baseURL, state.cookie)
+      if (variant === "pushed from the list") {
+        await page.goto("/inbox?queue=all")
+        await openReview(page, state.approvalReview.text)
+      } else {
+        await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
+      }
+      await expect(page).toHaveURL(/[?&]selected=/)
+      await expect(
+        page.getByRole("link", { name: "Back to Inbox" })
+      ).toHaveCount(0)
+      await (await replyBox(page)).fill(UNSAVED)
+      const opens = await countDiscardPrompts(page)
+
+      await page
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Listings" })
+        .click()
+      const prompt = page.getByRole("alertdialog", {
+        name: "Discard unsaved reply?",
+      })
+      await expect(prompt).toBeVisible()
+      await settled(page)
+      await prompt.getByRole("button", { name: "Discard", exact: true }).click()
+      await expect(page).toHaveURL(/\/listings/)
+      await page.waitForTimeout(1500)
+      expect(await opens()).toBe(1)
+    })
+  }
 })

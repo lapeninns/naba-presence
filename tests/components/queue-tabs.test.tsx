@@ -195,4 +195,63 @@ describe("QueueTabs", () => {
       "The list below also applies your filters, so it can show fewer."
     )
   })
+  it("sets every count in the count role, never a sub-13px figure", () => {
+    renderTabs()
+    for (const queue of VISIBLE_QUEUES) {
+      const figure = tab(queue).querySelector("[aria-hidden]")
+      expect(figure).toHaveClass("text-count")
+      expect(figure?.className).not.toMatch(/text-\[/)
+    }
+  })
+
+  it("scrolls the strip, not the page, to the current queue on arrival", () => {
+    // A link to ?queue=failed on a 360px phone lands with Failed off the end
+    // of the strip unless the strip itself is moved; scrollIntoView would
+    // drag the page to the toolbar as well.
+    const order = [...VISIBLE_QUEUES] as string[]
+    const scrollIntoView = vi.fn()
+    const restore = [
+      stub("offsetLeft", function (this: HTMLElement) {
+        const index = order.indexOf(this.dataset.queue ?? "")
+        return index < 0 ? 0 : index * 100
+      }),
+      stub("offsetWidth", () => 100),
+      stub("scrollWidth", function (this: HTMLElement) {
+        return this.dataset.slot === "queue-strip" ? 500 : 0
+      }),
+      stub("clientWidth", function (this: HTMLElement) {
+        return this.dataset.slot === "queue-strip" ? 200 : 0
+      }),
+    ]
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      renderTabs({ queue: "failed" })
+      const strip = nav().querySelector<HTMLElement>(
+        '[data-slot="queue-strip"]'
+      )!
+      // Failed spans 300–400; it is kept 24px clear of the fading edge.
+      expect(strip.scrollLeft).toBe(400 + 24 - 200)
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      restore.forEach((undo) => undo())
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
 })
+
+/** Overrides a layout getter jsdom always answers with 0; returns the undo. */
+function stub(
+  name: "offsetLeft" | "offsetWidth" | "scrollWidth" | "clientWidth",
+  get: (this: HTMLElement) => number
+) {
+  const proto =
+    name === "scrollWidth" || name === "clientWidth"
+      ? Element.prototype
+      : HTMLElement.prototype
+  const original = Object.getOwnPropertyDescriptor(proto, name)
+  Object.defineProperty(proto, name, { configurable: true, get })
+  return () => {
+    if (original) Object.defineProperty(proto, name, original)
+  }
+}

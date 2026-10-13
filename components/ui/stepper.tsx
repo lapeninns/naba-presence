@@ -28,6 +28,11 @@ export type Step = {
  * `vertical` is the setup rail; `horizontal` a compact row that scrolls
  * sideways inside itself when it does not fit. For a reply's five-stage
  * record use `Lifecycle` instead.
+ *
+ * On a phone (below 48rem) a horizontal stepper keeps every ring but only
+ * the CURRENT step's words: four labels side by side at 360px each
+ * truncated to "Con…", which said less than the numbers. The other labels
+ * stay in the accessibility tree, so the list still reads in full.
  */
 function Stepper({
   steps,
@@ -58,7 +63,7 @@ function Stepper({
           <span
             aria-hidden
             className={cn(
-              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-[11px] tabular-nums",
+              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-count leading-none tabular-nums",
               step.state === "done" &&
                 "border-success-ink bg-success-tint text-success-ink",
               step.state === "current" &&
@@ -76,7 +81,12 @@ function Stepper({
         const body = (
           <>
             {ring}
-            <span className="flex min-w-0 flex-col">
+            <span
+              className={cn(
+                "flex min-w-0 flex-col",
+                !vertical && step.state !== "current" && "max-md:sr-only"
+              )}
+            >
               <span className="truncate">{step.label}</span>
               {step.meta ? (
                 <span className="truncate text-caption font-normal text-ink-muted">
@@ -85,7 +95,13 @@ function Stepper({
               ) : null}
             </span>
             {step.note ? (
-              <span className="ml-auto shrink-0 text-[11.5px] font-normal text-ink-muted">
+              <span
+                className={cn(
+                  "ml-auto shrink-0",
+                  !vertical && step.state !== "current" && "max-md:sr-only",
+                  "text-caption font-normal text-ink-muted"
+                )}
+              >
                 {step.note}
               </span>
             ) : null}
@@ -94,11 +110,13 @@ function Stepper({
         const rowClass = cn(
           "flex min-w-0 items-center gap-2.5 rounded-(--np-radius-control) px-2.5 py-2 text-ui text-ink-secondary no-underline",
           step.state === "current" && "font-semibold",
+          // Ring-only steps on a phone need no side padding of their own.
+          !vertical && step.state !== "current" && "max-md:px-1",
           vertical &&
             step.state === "current" &&
             "bg-accent-tint text-accent-ink",
           step.href &&
-            "focus-halo transition-colors duration-(--np-duration-fast) hover:bg-fill",
+            "min-h-(--np-touch) focus-halo transition-colors duration-(--np-duration-fast) hover:bg-fill desk:min-h-0",
           step.href &&
             vertical &&
             step.state === "current" &&
@@ -112,7 +130,11 @@ function Stepper({
             className={cn(
               "min-w-0",
               !vertical && "flex shrink-0 items-center",
-              !vertical && !isLast && "flex-1"
+              // A step takes its own width and only the rules between steps
+              // grow: equal shares truncated "Connect Google" at the desk and
+              // left the current step ~40px for its words on a phone. When
+              // the row cannot fit, it scrolls rather than clipping words.
+              !vertical && !isLast && "flex-[1_0_auto]"
             )}
           >
             {step.href ? (
@@ -126,7 +148,7 @@ function Stepper({
               <span
                 aria-hidden
                 className={cn(
-                  "mx-1 h-0.5 min-w-4 flex-1 rounded-full",
+                  "mx-1 h-0.5 min-w-4 flex-1 rounded-full max-md:min-w-2",
                   step.state === "done" ? "bg-success-solid" : "bg-line"
                 )}
               />

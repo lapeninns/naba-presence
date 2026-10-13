@@ -528,3 +528,63 @@ export function freshnessSentence(freshness: ClientFreshness): string {
       return "Review checks are up to date."
   }
 }
+
+/** The one non-"all" filter bucket a health state belongs to. */
+export type HealthBucket = Exclude<HealthFilter, "all">
+
+/**
+ * The single `?health=` bucket a client falls into. The buckets do not
+ * overlap, so this is the one function the Clients list counts with and
+ * filters with: a chip's count is exactly the cards it shows, and a card can
+ * never sit under a count that left it out. Importing clients count as
+ * In sync (their checks succeed; the pill says Importing).
+ */
+export function healthBucket(health: ClientHealth): HealthBucket {
+  return health === "syncing" ? "healthy" : health
+}
+
+/**
+ * How urgently a health state needs a person, lower first: a broken login,
+ * then a delayed or changed listing, then work that is waiting to be checked
+ * or published, then setup that was never finished, then the calm states.
+ */
+const HEALTH_SEVERITY: Record<ClientHealth, number> = {
+  disconnected: 0,
+  attention: 1,
+  unpublished: 2,
+  partially_checked: 2,
+  unchecked: 2,
+  not_connected: 3,
+  syncing: 4,
+  healthy: 4,
+}
+
+export function healthSeverity(health: ClientHealth): number {
+  return HEALTH_SEVERITY[health]
+}
+
+/**
+ * The Clients list order ("needing work first"): health severity, then open
+ * review work (needs reply + awaiting approval), most first, then name.
+ * A client with a broken login and no open reviews still comes before a
+ * healthy client with ten, because nothing new arrives until it is fixed.
+ */
+export function compareClientsByNeed(
+  a: {
+    name: string
+    health: ClientHealth
+    openWork: { needsReply: number; awaitingApproval: number }
+  },
+  b: {
+    name: string
+    health: ClientHealth
+    openWork: { needsReply: number; awaitingApproval: number }
+  }
+): number {
+  const severity = healthSeverity(a.health) - healthSeverity(b.health)
+  if (severity !== 0) return severity
+  const workA = a.openWork.needsReply + a.openWork.awaitingApproval
+  const workB = b.openWork.needsReply + b.openWork.awaitingApproval
+  if (workA !== workB) return workB - workA
+  return a.name.localeCompare(b.name)
+}

@@ -1,4 +1,4 @@
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { AreaFrame } from "@/components/listings/area-frame"
 import { ProfileTab } from "@/components/locations/profile/profile-editor"

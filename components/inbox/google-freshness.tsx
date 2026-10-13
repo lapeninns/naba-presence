@@ -1,7 +1,7 @@
 "use client"
 
 import { useClientScope } from "@/components/app-shell/client-context"
-import { formatRelativeTime } from "@/lib/format"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
 
@@ -10,7 +10,9 @@ import { cn } from "@/lib/utils"
  * least recently checked listing in scope, from successful checks only.
  * "Refreshed" beside it says when this page last fetched from NabaPresence;
  * this says when NabaPresence last heard from Google, which is what decides
- * whether a new review could be missing.
+ * whether a new review could be missing. The words say so on their own
+ * ("Google checked 5 min ago"); there is no hover title to explain them,
+ * which a touch screen could never show.
  */
 export function GoogleFreshness({
   clientId: filterClientId,
@@ -38,17 +40,18 @@ export function GoogleFreshness({
   return (
     <span
       className={cn(
-        "font-mono text-[11.5px] tabular-nums",
+        "font-mono text-caption tabular-nums",
         delayed ? "text-warning-ink" : "text-ink-muted",
         // A delay is a warning, so it shows wherever the caller would have
         // folded the routine "checked 5 minutes ago" away.
         !delayed && className
       )}
-      title="When NabaPresence last successfully checked these listings' reviews with Google."
     >
-      {oldest
-        ? `Google checked ${formatRelativeTime(oldest)}`
-        : "Google not checked yet"}
+      {oldest ? (
+        <RelativeTime iso={oldest} prefix="Google checked " />
+      ) : (
+        "Google not checked yet"
+      )}
       {delayed ? " · delayed, retrying" : ""}
     </span>
   )

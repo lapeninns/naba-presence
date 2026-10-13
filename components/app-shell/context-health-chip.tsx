@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import * as React from "react"
 
 import { healthLabel, healthTone } from "@/lib/clients/health"
@@ -10,6 +9,7 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { cn } from "@/lib/utils"
 
 import { useClientScope } from "./client-context"
+import { ShellLink } from "./shell-link"
 
 /**
  * Connection health for whatever the page is about.
@@ -20,10 +20,10 @@ import { useClientScope } from "./client-context"
  * connected or disconnected, which meant one client's broken login was
  * invisible while another client's login still worked.
  *
- * A bordered white pill with a status dot and the words. Below 768px it is a
- * 44px circle with the dot alone; the words stay the link's accessible name.
+ * Shared by the desk toolbar's chip and the phone More sheet's row, so the
+ * two never word the same state differently.
  */
-function ContextHealthChip() {
+function useContextHealth() {
   const business = useWorkspaceMode() === "business"
   // A business has no client layer to scope by: the chip reports the whole
   // business and links to Listings.
@@ -52,53 +52,71 @@ function ContextHealthChip() {
     : scoped
       ? healthLabel(scoped.health)
       : org.label
-  const isPending = clients.isPending
+  const href = business
+    ? "/listings"
+    : clientId
+      ? `/clients/${clientId}`
+      : "/clients"
 
+  return {
+    tone,
+    label,
+    href,
+    /** The scoped client's name, while its health is current. */
+    scopedName: scoped && !stale ? scoped.name : null,
+    isPending: clients.isPending,
+  }
+}
+
+/**
+ * The desk toolbar's health chip: a bordered white pill with a status dot
+ * and the words, always both (the colour never carries the meaning alone).
+ * Phones show the same words as a row in the More sheet instead.
+ */
+function ContextHealthChip() {
+  const { tone, label, href, scopedName, isPending } = useContextHealth()
+
+  if (isPending) return null
   return (
-    <>
-      <HealthAnnouncer label={isPending ? null : label} />
-      {isPending ? null : (
-        <Link
-          href={
-            business
-              ? "/listings"
-              : clientId
-                ? `/clients/${clientId}`
-                : "/clients"
-          }
-          data-slot="health-chip"
-          data-tone={tone}
-          className={cn(
-            "inline-flex h-[34px] max-w-[min(22rem,34vw)] min-w-0 shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink",
-            "transition-colors duration-(--np-duration-fast) hover:border-line-strong",
-            "focus-halo focus-visible:outline-none",
-            "max-md:size-11 max-md:justify-center max-md:px-0"
-          )}
-        >
-          <span
-            aria-hidden
-            className={cn(
-              "size-2 shrink-0 rounded-full",
-              TONE_CLASSES[tone].dot
-            )}
-          />
-          {/* One element, not a visible copy plus a screen-reader copy: two
-              nodes carrying the same text make the chip ambiguous to "next
-              item" navigation and to getByText. On phones the dot alone
-              shows and the words stay in the accessibility tree. */}
-          <span className="min-w-0 truncate max-md:sr-only">
-            {scoped && !stale ? (
-              <>
-                <span className="max-lg:sr-only">{scoped.name}:</span> {label}
-              </>
-            ) : (
-              label
-            )}
-          </span>
-        </Link>
+    <ShellLink
+      href={href}
+      data-slot="health-chip"
+      data-tone={tone}
+      className={cn(
+        "inline-flex h-[34px] max-w-[min(22rem,34vw)] min-w-0 shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 text-ui font-medium whitespace-nowrap text-ink",
+        "transition-colors duration-(--np-duration-fast) hover:border-line-strong",
+        "focus-halo focus-visible:outline-none pointer-coarse:h-11"
       )}
-    </>
+    >
+      <span
+        aria-hidden
+        className={cn("size-2 shrink-0 rounded-full", TONE_CLASSES[tone].dot)}
+      />
+      {/* One element, not a visible copy plus a screen-reader copy: two
+          nodes carrying the same text make the chip ambiguous to "next item"
+          navigation and to getByText. Below 1024px the client's name folds
+          away; the words always show. */}
+      <span className="min-w-0 truncate">
+        {scopedName ? (
+          <>
+            <span className="max-lg:sr-only">{scopedName}:</span> {label}
+          </>
+        ) : (
+          label
+        )}
+      </span>
+    </ShellLink>
   )
+}
+
+/**
+ * The health announcer, mounted once by the shell rather than inside a
+ * chip: the chip only exists on the desk toolbar, and a live region inside
+ * a `display: none` bar never speaks.
+ */
+function ShellHealthAnnouncer() {
+  const { label, isPending } = useContextHealth()
+  return <HealthAnnouncer label={isPending ? null : label} />
 }
 
 /**
@@ -126,4 +144,4 @@ function HealthAnnouncer({ label }: { label: string | null }) {
   )
 }
 
-export { ContextHealthChip }
+export { ContextHealthChip, ShellHealthAnnouncer, useContextHealth }

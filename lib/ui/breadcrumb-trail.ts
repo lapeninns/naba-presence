@@ -1,9 +1,15 @@
 import type { Crumb } from "@/components/ui/breadcrumb"
+import { SETTINGS_SECTION_LABELS } from "@/lib/settings/areas"
 
 export type TrailInput = {
   pathname: string
   clients: { id: string; name: string }[]
-  locations: { id: string; name: string; clientId?: string | null; clientName?: string | null }[]
+  locations: {
+    id: string
+    name: string
+    clientId?: string | null
+    clientName?: string | null
+  }[]
   /** Business mode has no client layer: no client crumbs, no /clients trail. */
   mode?: "business" | "agency"
 }
@@ -25,15 +31,19 @@ const TOP_LEVEL: Record<string, string> = {
   inbox: "Inbox",
   listings: "Listings",
   clients: "Clients",
+  calendar: "Calendar",
   reports: "Reports",
+  notifications: "Notifications",
   team: "Team",
   settings: "Settings",
   setup: "Setup",
 }
 
-const SETTINGS_SECTIONS: Record<string, string> = {
-  connections: "Google connections",
-}
+// The section names the Settings tabs use, read from the one settings area
+// list (lib/settings/areas.ts), so the trail and the phone back control name
+// every /settings/<section> page the way its tab and h1 do, with no second
+// copy to fall out of step. /settings itself is just "Settings".
+const SETTINGS_SECTIONS = SETTINGS_SECTION_LABELS
 
 /**
  * The breadcrumb trail for a path.
@@ -57,6 +67,12 @@ export function breadcrumbTrail({
   if (segments.length === 0) return []
   const [first, second, third] = segments
 
+  // Composing a bulk change and following one are both "Bulk change", and
+  // both go back up to Listings, where a bulk change starts.
+  if (first === "listings" && second === "bulk") {
+    return [{ label: "Listings", href: "/listings" }, { label: "Bulk change" }]
+  }
+
   if (first === "listings" && second) {
     const location = locations.find((entry) => entry.id === second)
     if (!location) return [{ label: "Listings", href: "/listings" }]
@@ -66,7 +82,12 @@ export function breadcrumbTrail({
       ...(business
         ? []
         : location.clientId && location.clientName
-          ? [{ label: location.clientName, href: `/clients/${location.clientId}` }]
+          ? [
+              {
+                label: location.clientName,
+                href: `/clients/${location.clientId}`,
+              },
+            ]
           : // A listing nobody has filed yet says so, which is what the operator
             // needs to know when they arrive here from a search.
             [{ label: "Unfiled", href: "/listings" }]),
@@ -95,7 +116,12 @@ export function breadcrumbTrail({
   }
 
   if (first === "settings") {
-    const section = second ? SETTINGS_SECTIONS[second] : undefined
+    // An own key only, so a stray /settings/constructor isn't "named" by
+    // the object prototype.
+    const section =
+      second && Object.hasOwn(SETTINGS_SECTIONS, second)
+        ? SETTINGS_SECTIONS[second]
+        : undefined
     return [
       { label: "Settings", href: section ? "/settings" : undefined },
       ...(section ? [{ label: section }] : []),

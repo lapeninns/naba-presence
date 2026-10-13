@@ -1,11 +1,9 @@
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 
-// Deliberately a plain `div`, not `PageFrame` — this file renders INSIDE the
-// dashboard layout while the segment below it streams in, alongside
-// AppShell's chrome. Reusing PageFrame here would render a second `<main>`
-// for the instant before the real page (which owns the one true `<main>`)
-// finishes streaming. Same paddings as PageFrame so nothing shifts on swap.
+// Renders INSIDE AppShell's `<main id="main">` while the segment below it
+// streams in, so the skip link has its target throughout; this file adds no
+// landmark of its own. Same paddings as PageFrame so nothing shifts on swap.
 //
 // The sentence is not decoration. Every Skeleton is aria-hidden and aria-busy
 // on a div announces nothing, so without it this state is silent to a screen

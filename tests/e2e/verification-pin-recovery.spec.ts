@@ -39,7 +39,7 @@ for (const width of [375, 768, 1280]) {
       const panel = await approvePin(page)
       backend.google.respond({ method: "POST", pathEndsWith: `${fixture.name}:complete` }, () => ({ status: 400, json: { error: { status: "INVALID_ARGUMENT", message: reviewedPin, details: [{ pin: reviewedPin }] } } }))
       await sendPin(page)
-      await expect(panel.getByText("Google rejected the request", { exact: true })).toBeVisible()
+      await expect(panel.getByText("Rejected by Google", { exact: true })).toBeVisible()
       await capturePin(page, info, "rejected")
       await panel.getByRole("button", { name: "Refresh saved outcome" }).click()
       expect(fixture.completionWrites()).toHaveLength(1)

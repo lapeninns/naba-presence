@@ -105,6 +105,7 @@ import {
   GATED_SECTION_TITLE,
   gateSatisfied,
   tabGateReasons,
+  tabPendingLabel,
   type LocationCapabilities,
   type LocationGate,
   type TabGateReasons,
@@ -175,9 +176,7 @@ export function LocationTab<T>({
   loadingLabel,
   children,
 }: LocationTabProps<T>) {
-  const pendingLabel = loadingLabel
-    ? `Reading the ${loadingLabel} from Google…`
-    : undefined
+  const pendingLabel = tabPendingLabel(loadingLabel)
   const capsQuery = useLocationCapabilities(locationId)
 
   // A failed capabilities query is an honest retry for every tab: without the

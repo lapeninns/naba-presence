@@ -1,20 +1,30 @@
 "use client"
 
+import { XIcon } from "lucide-react"
+
 import { Button } from "@/components/ui/button"
-import { RemovableChip } from "@/components/ui/chip"
+import { chipClassName } from "@/components/ui/chip"
 import {
+  ASSIGNEE_LABELS,
+  CLEAR_FILTERS_LABEL,
+  FILTER_NAMES,
+  REPLY_STATE_LABELS,
+  WRITTEN_LABELS,
   formatDateRangeChip,
   formatRatingsChip,
   formatSortChip,
+  removeFilterLabel,
 } from "@/lib/inbox/filter-labels"
+import { REVIEW_AGE_LABELS } from "@/lib/inbox/review-age"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
+import { cn } from "@/lib/utils"
 
 // Structural, not the wire schema's LocationEntry: the filter UI reads a name
 // off an id and nothing else, so tying it to the API payload would make every
 // added field a breaking change for this component and its fixtures.
 export type LocationOption = { id: string; name: string }
 
-type Chip = { label: string; removeLabel: string; clear: Partial<InboxState> }
+type Chip = { key: string; label: string; clear: Partial<InboxState> }
 
 function buildChips(
   state: InboxState,
@@ -24,78 +34,80 @@ function buildChips(
   const chips: Chip[] = []
   if (state.clientId) {
     chips.push({
-      label: `Client: ${clientName ?? "selected"}`,
-      removeLabel: "Remove client filter",
+      key: "client",
+      label: `${FILTER_NAMES.client}: ${clientName ?? "selected"}`,
       clear: { clientId: undefined },
     })
   }
   if (state.locationIds.length === 1) {
     const name =
-      locations.find((location) => location.id === state.locationIds[0])?.name ??
-      "location"
+      locations.find((location) => location.id === state.locationIds[0])
+        ?.name ?? "selected"
     chips.push({
-      label: `Location: ${name}`,
-      removeLabel: "Remove location filter",
+      key: "venue",
+      label: `${FILTER_NAMES.venue}: ${name}`,
       clear: { locationIds: [] },
     })
   } else if (state.locationIds.length > 1) {
     chips.push({
-      label: `${state.locationIds.length} locations`,
-      removeLabel: "Remove location filter",
+      key: "venue",
+      label: `${FILTER_NAMES.venue}: ${state.locationIds.length} venues`,
       clear: { locationIds: [] },
     })
   }
   if (state.assignee) {
     chips.push({
-      label:
-        state.assignee === "me"
-          ? "Assigned to me"
-          : state.assignee === "unassigned"
-            ? "Unassigned"
-            : "Assigned",
-      removeLabel: "Remove assignee filter",
+      key: "assignee",
+      label: `${FILTER_NAMES.assignee}: ${ASSIGNEE_LABELS[state.assignee] ?? "someone"}`,
       clear: { assignee: undefined },
     })
   }
   if (state.ratings.length) {
     chips.push({
+      key: "rating",
       label: formatRatingsChip(state.ratings),
-      removeLabel: "Remove rating filter",
       clear: { ratings: [] },
     })
   }
   if (state.written) {
     chips.push({
-      label: state.written === "rating_only" ? "Rating only" : "With text",
-      removeLabel: "Remove written-review filter",
+      key: "written",
+      label: `${FILTER_NAMES.written}: ${WRITTEN_LABELS[state.written]}`,
       clear: { written: undefined },
     })
   }
   if (state.search) {
     chips.push({
-      label: `Search: "${state.search}"`,
-      removeLabel: "Remove search filter",
+      key: "search",
+      label: `${FILTER_NAMES.search}: "${state.search}"`,
       clear: { search: "" },
     })
   }
   if (state.replyState) {
     chips.push({
-      label: `Reply: ${state.replyState === "replied" ? "Replied" : "Unreplied"}`,
-      removeLabel: "Remove reply-state filter",
+      key: "reply",
+      label: `${FILTER_NAMES.replyState}: ${REPLY_STATE_LABELS[state.replyState]}`,
       clear: { replyState: undefined },
+    })
+  }
+  if (state.age) {
+    chips.push({
+      key: "age",
+      label: `${FILTER_NAMES.age}: ${REVIEW_AGE_LABELS[state.age]}`,
+      clear: { age: undefined },
     })
   }
   if (state.dateFrom || state.dateTo) {
     chips.push({
+      key: "dates",
       label: formatDateRangeChip(state.dateFrom, state.dateTo),
-      removeLabel: "Remove date filter",
       clear: { dateFrom: undefined, dateTo: undefined },
     })
   }
   if (state.sort && state.sort !== "updated_desc") {
     chips.push({
+      key: "sort",
       label: formatSortChip(state.sort),
-      removeLabel: "Remove sort",
       clear: { sort: "updated_desc" },
     })
   }
@@ -103,8 +115,13 @@ function buildChips(
 }
 
 /**
- * The filters in force, as tinted removable capsules, so the reason a list is
- * short is always on screen next to it.
+ * The filters in force, as removable capsules, so the reason a list is short
+ * is always on screen next to it.
+ *
+ * The whole capsule is the remove control rather than a 20px cross inside
+ * it: on a phone the cross was the only target and too small to hit, and a
+ * capsule that only shows a filter has nothing else to do when pressed. Its
+ * name says what pressing it does ("Remove filter: Rating: 1–2 stars").
  */
 function ActiveFilterChips({
   state,
@@ -123,18 +140,34 @@ function ActiveFilterChips({
   if (!hasActiveFilters(state)) return null
   const chips = buildChips(state, locations, clientName)
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div
+      data-slot="active-filter-chips"
+      className="flex flex-wrap items-center gap-2"
+    >
       {chips.map((chip) => (
-        <RemovableChip
-          key={chip.removeLabel}
-          removeLabel={chip.removeLabel}
-          onRemove={() => onChange(chip.clear)}
+        <button
+          key={chip.key}
+          type="button"
+          data-slot="chip"
+          aria-label={removeFilterLabel(chip.label)}
+          onClick={() => onChange(chip.clear)}
+          className={chipClassName({
+            className: cn(
+              "max-w-full pr-2 pointer-coarse:h-(--np-touch)",
+              "[&_svg]:text-ink-muted hover:[&_svg]:text-ink"
+            ),
+          })}
         >
-          {chip.label}
-        </RemovableChip>
+          <span className="min-w-0 truncate">{chip.label}</span>
+          <XIcon aria-hidden strokeWidth={1.75} />
+        </button>
       ))}
-      <Button variant="link" size="sm" onClick={onClear}>
-        Clear all filters
+      <Button
+        variant="link"
+        onClick={onClear}
+        className="min-h-(--np-touch) desk:min-h-0"
+      >
+        {CLEAR_FILTERS_LABEL}
       </Button>
     </div>
   )

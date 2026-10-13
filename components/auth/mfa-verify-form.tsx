@@ -1,11 +1,18 @@
 "use client"
 
-import { useEffect, useState, useTransition, type FormEvent } from "react"
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { Button } from "@/components/ui/button"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { OtpField } from "@/components/ui/otp-field"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { ApiClientError } from "@/lib/api/client"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
@@ -36,6 +43,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
   const [codeError, setCodeError] = useState<string | undefined>()
   const [message, setMessage] = useState<AuthMessage | null>(null)
   const [pending, startTransition] = useTransition()
+  const codeRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -100,12 +108,19 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
               : `That code did not match. ${remaining} ${remaining === 1 ? "attempt" : "attempts"} left.`
           )
           setCode("")
+          focusFirstCodeBox(codeRef.current)
           return
         }
         setMessage(authErrorMessage(error))
       }
     })
   }
+
+  // The only field on the screen, so it takes focus (and on a phone, the
+  // keyboard) as soon as it is there.
+  useEffect(() => {
+    if (!expired) focusFirstCodeBox(codeRef.current)
+  }, [expired])
 
   function startOver() {
     startTransition(async () => {
@@ -161,14 +176,16 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
       ) : null}
       <Field error={codeError}>
         <FieldLabel>6-digit code</FieldLabel>
-        <Input
+        {/* No auto-submit: attempts are limited, so a mistyped sixth digit
+            must not spend one before the person can see and fix it, and
+            with two apps the right one may still need choosing. Pasted or
+            typed spaces ("123 456") are dropped by the field. */}
+        <OtpField
+          ref={codeRef}
           name="code"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          maxLength={7}
-          autoFocus
+          length={6}
           value={code}
-          onChange={(event) => setCode(event.target.value)}
+          onValueChange={setCode}
         />
         <FieldError>{codeError}</FieldError>
       </Field>

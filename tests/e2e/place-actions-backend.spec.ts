@@ -66,8 +66,10 @@ for (const width of [375, 768, 1280])
         "#section-action-links"
       )
       const dialog = await prepare(page)
+      // The raw Google resource name sits behind "Details for support".
+      await dialog.getByText("Details for support", { exact: true }).click()
       await expect(
-        dialog.getByText("Exact Google target:", { exact: false })
+        dialog.getByText("Google target:", { exact: false })
       ).toBeVisible()
       await capture(page, info, "review")
       expect(f.writes()).toHaveLength(0)
@@ -444,11 +446,18 @@ for (const width of [375, 768, 1280])
           })
         ).toHaveCount(0)
       }
+      // The one link that is not yet preferred offers "Make preferred" in
+      // its row's overflow menu.
       await page
+        .getByRole("listitem")
+        .filter({ hasNot: page.getByText("Preferred", { exact: true }) })
         .getByRole("button", {
-          name: "Make this the preferred Shop online link",
+          name: "More actions for the Shop online link",
           exact: true,
         })
+        .click()
+      await page
+        .getByRole("menuitem", { name: "Make preferred", exact: true })
         .click()
       await page
         .getByRole("button", {
@@ -493,10 +502,13 @@ for (const width of [375, 768, 1280])
         .click()
       await page
         .getByRole("button", {
-          name: "Remove the Shop online link",
+          name: "More actions for the Shop online link",
           exact: true,
         })
         .last()
+        .click()
+      await page
+        .getByRole("menuitem", { name: "Remove link", exact: true })
         .click()
       await page
         .getByRole("button", { name: "Prepare removal review", exact: true })
@@ -537,14 +549,17 @@ for (const width of [375, 768, 1280])
         isPreferred: false,
       })
       await f.open()
-      const removeButton = page.getByRole("button", {
-        name: "Remove the Shop online link",
+      const moreActions = page.getByRole("button", {
+        name: "More actions for the Shop online link",
         exact: true,
       })
-      await expect(removeButton).toBeEnabled()
+      await expect(moreActions).toBeEnabled()
       // Google drops the link after the page has read it.
       f.state.links = []
-      await removeButton.click()
+      await moreActions.click()
+      await page
+        .getByRole("menuitem", { name: "Remove link", exact: true })
+        .click()
       await page
         .getByRole("button", { name: "Prepare removal review", exact: true })
         .click()

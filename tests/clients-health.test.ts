@@ -2,15 +2,19 @@ import { describe, expect, it } from "vitest"
 
 import {
   clientFreshness,
+  CLIENT_HEALTH,
   clientHealth,
+  compareClientsByNeed,
   connectionNeedsReconnect,
   diagnoseClient,
   HEALTH_FILTERS,
   healthFilterMatches,
   FRESHNESS_WINDOW_MS,
   freshnessSentence,
+  healthBucket,
   healthDescription,
   healthLabel,
+  healthSeverity,
   healthTone,
   summariseHealth,
   type ClientHealth,
@@ -310,7 +314,9 @@ describe("health filters", () => {
 
   it("does not promise automatic recovery for canonical comparison problems", () => {
     expect(healthLabel("attention")).toBe("Needs attention")
-    expect(healthDescription("attention")).not.toMatch(/nothing for you to do|retry on our own/i)
+    expect(healthDescription("attention")).not.toMatch(
+      /nothing for you to do|retry on our own/i
+    )
   })
 })
 
@@ -384,5 +390,76 @@ describe("diagnoseClient", () => {
     expect(
       connectionNeedsReconnect(connection({ reconnectRequired: true }))
     ).toBe(true)
+  })
+})
+
+describe("healthBucket", () => {
+  it("puts every health state in the one filter bucket that matches it", () => {
+    const buckets = HEALTH_FILTERS.filter((filter) => filter.value !== "all")
+    for (const state of CLIENT_HEALTH) {
+      const matching = buckets.filter((filter) =>
+        healthFilterMatches(filter.value, state)
+      )
+      expect(matching.map((filter) => filter.value)).toEqual([
+        healthBucket(state),
+      ])
+    }
+  })
+
+  it("counts an importing client as In sync", () => {
+    expect(healthBucket("syncing")).toBe("healthy")
+  })
+})
+
+describe("compareClientsByNeed", () => {
+  const client = (
+    name: string,
+    state: ClientHealth,
+    needsReply = 0,
+    awaitingApproval = 0
+  ) => ({ name, health: state, openWork: { needsReply, awaitingApproval } })
+
+  it("orders by health severity, then open work, then name", () => {
+    const sorted = [
+      client("Healthy busy", "healthy", 9, 1),
+      client("Importing", "syncing"),
+      client("Not set up", "not_connected"),
+      client("Unchecked", "unchecked", 1),
+      client("Partial", "partially_checked", 4),
+      client("Unpublished", "unpublished"),
+      client("Attention", "attention"),
+      client("Broken quiet", "disconnected"),
+      client("Broken busy", "disconnected", 1, 2),
+      client("Healthy a", "healthy", 2),
+      client("Healthy b", "healthy", 0, 2),
+    ].sort(compareClientsByNeed)
+    expect(sorted.map((entry) => entry.name)).toEqual([
+      "Broken busy",
+      "Broken quiet",
+      "Attention",
+      "Partial",
+      "Unchecked",
+      "Unpublished",
+      "Not set up",
+      "Healthy busy",
+      "Healthy a",
+      "Healthy b",
+      "Importing",
+    ])
+  })
+
+  it("ranks a broken login above any amount of open work on a healthy client", () => {
+    expect(
+      compareClientsByNeed(
+        client("Broken", "disconnected"),
+        client("Busy", "healthy", 40)
+      )
+    ).toBeLessThan(0)
+    expect(healthSeverity("disconnected")).toBeLessThan(
+      healthSeverity("attention")
+    )
+    expect(healthSeverity("not_connected")).toBeGreaterThan(
+      healthSeverity("unchecked")
+    )
   })
 })

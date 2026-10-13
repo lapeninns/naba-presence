@@ -3,13 +3,13 @@ import { z } from "zod"
 import {
   publishHoursBodySchema,
   saveHoursBodySchema,
-  type HoursResponse,
   type PublishHoursResponse,
   type SaveHoursResponse,
 } from "@/lib/contracts/location-hours"
-import { getHoursState, saveCanonicalHours } from "@/lib/server/hours"
+import { saveCanonicalHours } from "@/lib/server/hours"
 import { submitListingChange } from "@/lib/server/listing-change-registry"
 import { invalidatePendingListingChanges } from "@/lib/server/listing-changes"
+import { readHoursResponse } from "@/lib/server/listing-reads"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -19,12 +19,11 @@ export const maxDuration = 60
 
 const paramsSchema = z.object({ id: z.uuid() })
 
+// The read lives in lib/server/listing-reads.ts so the hours page's streamed
+// server prefetch produces exactly what this route answers.
 export const GET = route({
   params: paramsSchema,
-  handler: async ({ session, params }) =>
-    ({
-      hours: await getHoursState(session, params.id),
-    }) satisfies HoursResponse,
+  handler: ({ session, params }) => readHoursResponse(session, params.id),
 })
 
 export const PUT = route({

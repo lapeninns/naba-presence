@@ -31,7 +31,7 @@ function GroupedList({
   return (
     <div data-slot="grouped-list" className={cn("flex flex-col gap-1.5", className)}>
       {header ? (
-        <p id={headerId} className="px-1 font-mono text-[11.5px] font-medium tracking-[0.06em] text-ink-muted uppercase">
+        <p id={headerId} className="px-1 font-mono text-caption font-medium tracking-[0.06em] text-ink-muted uppercase">
           {header}
         </p>
       ) : null}
@@ -90,6 +90,10 @@ type GroupedListItemProps = GroupedListItemBase & {
  *
  * The focus halo is drawn inset: the group clips its corners, so an outer
  * halo would be cut off at the card's edge.
+ *
+ * A row is `--np-row-h` tall at least (52px on touch, 44px on a desk), so
+ * every row clears the 44px touch floor. The label wraps rather than
+ * truncating: at 320px a truncated setting name is a guess.
  */
 function GroupedListItem({
   icon,
@@ -123,7 +127,7 @@ function GroupedListItem({
       <span className="flex min-w-0 flex-1 flex-col max-sm:basis-40">
         <span
           className={cn(
-            "truncate text-body",
+            "text-body [overflow-wrap:anywhere]",
             tone === "danger" ? "text-danger-ink" : "text-ink"
           )}
         >
@@ -154,7 +158,7 @@ function GroupedListItem({
   const rowClass = cn(
     "flex w-full min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
     interactive &&
-      "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:bg-surface-alt active:bg-fill focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]",
+      "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover-fine:hover:bg-surface-alt active:bg-fill focus-visible:outline-none focus-visible:[box-shadow:inset_var(--np-focus-halo)]",
     disabled && "pointer-events-none opacity-50",
     className
   )

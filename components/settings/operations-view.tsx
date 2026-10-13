@@ -3,9 +3,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import {
+  SettingsFacts,
+  SettingsSection,
+} from "@/components/settings/settings-section"
 import { Button } from "@/components/ui/button"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
+import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
 import {
   fetchOperationsHealth,
@@ -17,7 +23,7 @@ import type {
   OperationsHealth,
   SchedulerTick,
 } from "@/lib/contracts/operations"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatDateTime, formatNumber } from "@/lib/format"
 import {
   describeSchedule,
   isTickStale,
@@ -48,52 +54,28 @@ const STATE_LABEL: Record<string, string> = {
   unknown: "Outcome unknown",
 }
 
-function ago(iso: string | null | undefined) {
-  return iso ? formatRelativeTime(iso) : "None"
+function ago(iso: string | null | undefined, prefix?: string) {
+  return iso ? <RelativeTime iso={iso} prefix={prefix} /> : "None"
 }
 
-function Section({
-  id,
-  title,
-  description,
-  children,
+/** Label/value figures, numbers formatted, values in tabular mono. */
+function Figures({
+  rows,
 }: {
-  id: string
-  title: string
-  description: string
-  children: React.ReactNode
+  rows: Array<[string, React.ReactNode | number]>
 }) {
   return (
-    <section
-      aria-labelledby={id}
-      className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4"
-    >
-      <div>
-        <h2 id={id} className="text-title font-semibold text-ink">
-          {title}
-        </h2>
-        <p className="text-caption text-ink-muted">{description}</p>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function Figures({ rows }: { rows: Array<[string, string | number]> }) {
-  return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
-      {rows.map(([label, value]) => (
-        <div
-          key={label}
-          className="flex min-w-0 items-baseline justify-between gap-3 border-b border-line pb-1"
-        >
-          <dt className="text-ui text-ink-secondary">{label}</dt>
-          <dd className="font-mono text-ui text-ink tabular-nums">
-            {typeof value === "number" ? formatNumber(value) : value}
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <SettingsFacts
+      columns={3}
+      numeric
+      facts={rows.map(
+        ([label, value]) =>
+          [
+            label,
+            typeof value === "number" ? formatNumber(value) : value,
+          ] as const
+      )}
+    />
   )
 }
 
@@ -102,11 +84,17 @@ function Figures({ rows }: { rows: Array<[string, string | number]> }) {
  * queued work, unresolved Google writes and notification delivery evidence.
  * Every action here goes through a guarded server path; nothing resends a
  * write whose Google outcome is unknown.
+ *
+ * An action's success is a toast; a failure is said beside the button that
+ * was pressed (the row's Replay, or Retry under Notification email), not at
+ * the top of the page where a phone would never see it.
  */
 export function OperationsView() {
   const client = useQueryClient()
-  const [message, setMessage] = useState<{
-    tone: "ok" | "error"
+  const toast = useToastManager()
+  const [retryError, setRetryError] = useState<string | null>(null)
+  const [replayError, setReplayError] = useState<{
+    id: string
     text: string
   } | null>(null)
   const health = useQuery({
@@ -121,51 +109,40 @@ export function OperationsView() {
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["operations"] })
   }
-  const failed = (error: unknown) =>
-    setMessage({
-      tone: "error",
-      text:
-        error instanceof ApiClientError
-          ? error.message
-          : "That action could not be completed.",
-    })
+  const failure = (error: unknown) =>
+    error instanceof ApiClientError
+      ? error.message
+      : "That action could not be completed."
   const retry = useMutation({
     mutationFn: retryNotificationDeliveries,
+    onMutate: () => setRetryError(null),
     onSuccess: (data) => {
-      setMessage({
-        tone: "ok",
-        text: `${data.requeued} ${data.requeued === 1 ? "email" : "emails"} queued again.`,
+      toast.add({
+        title: `${data.requeued} ${data.requeued === 1 ? "email" : "emails"} queued again.`,
+        type: "success",
       })
       refresh()
     },
-    onError: failed,
+    onError: (error) => setRetryError(failure(error)),
   })
   const replay = useMutation({
     mutationFn: replayWebhookEvent,
+    onMutate: () => setReplayError(null),
     onSuccess: () => {
-      setMessage({ tone: "ok", text: "Event queued for the next sync run." })
+      toast.add({
+        title: "Event queued for the next sync run.",
+        type: "success",
+      })
       refresh()
     },
-    onError: failed,
+    onError: (error, id) => setReplayError({ id, text: failure(error) }),
   })
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
-      {message ? (
-        <p
-          role={message.tone === "error" ? "alert" : "status"}
-          className={
-            message.tone === "error"
-              ? "text-ui text-danger-ink"
-              : "text-ui text-success-ink"
-          }
-        >
-          {message.text}
-        </p>
-      ) : null}
       <QueryStates
         status={queryStatus(health)}
-        pendingLabel="operations health"
+        pendingLabel="Loading operations health"
         error="Operations health could not be loaded"
         onRetry={() => void health.refetch()}
       >
@@ -173,11 +150,12 @@ export function OperationsView() {
           <HealthSections
             data={health.data!}
             retrying={retry.isPending}
+            retryError={retryError}
             onRetry={() => retry.mutate()}
           />
         )}
       </QueryStates>
-      <Section
+      <SettingsSection
         id="ops-webhooks"
         title="Review notification failures"
         description="Google review events that failed to process. Replaying queues one for the next sync run; it does not reply to anything."
@@ -186,10 +164,10 @@ export function OperationsView() {
           status={queryStatus(failures, {
             isEmpty: (failures.data?.items.length ?? 0) === 0,
           })}
-          pendingLabel="failed events"
+          pendingLabel="Loading failed events"
           error="Failed events could not be loaded"
           onRetry={() => void failures.refetch()}
-          empty={<p className="text-ui text-ink-muted">No failed events.</p>}
+          empty={<p className="text-body text-ink-muted">No failed events.</p>}
         >
           <ul className="flex flex-col divide-y divide-line">
             {failures.data?.items.map((item) => (
@@ -206,16 +184,23 @@ export function OperationsView() {
                   size="sm"
                   variant="secondary"
                   disabled={replay.isPending}
+                  pending={replay.isPending && replay.variables === item.id}
                   onClick={() => replay.mutate(item.id)}
-                  aria-label={`Replay ${item.eventType} received ${ago(item.receivedAt)}`}
+                  aria-label={`Replay ${item.eventType} received ${formatDateTime(item.receivedAt, "Europe/London")}`}
                 >
                   Replay
                 </Button>
+                <p
+                  aria-live="polite"
+                  className="w-full text-ui text-danger-ink empty:sr-only"
+                >
+                  {replayError?.id === item.id ? replayError.text : null}
+                </p>
               </li>
             ))}
           </ul>
         </QueryStates>
-      </Section>
+      </SettingsSection>
     </div>
   )
 }
@@ -236,7 +221,7 @@ function SchedulerTicks({ ticks }: { ticks: SchedulerTick[] }) {
         const info = scheduledJobInfo(tick.name)
         const stale = isTickStale(tick, now)
         const last = tick.lastCompletedAt
-          ? `Last run ${ago(tick.lastCompletedAt)}`
+          ? ago(tick.lastCompletedAt, "Last run ")
           : "Never completed"
         return (
           <li
@@ -271,17 +256,19 @@ function SchedulerTicks({ ticks }: { ticks: SchedulerTick[] }) {
 function HealthSections({
   data,
   retrying,
+  retryError,
   onRetry,
 }: {
   data: OperationsHealth
   retrying: boolean
+  retryError: string | null
   onRetry: () => void
 }) {
   const stale = data.schedulerHeartbeatStale
   const deliveries = data.notificationDeliveries
   return (
     <>
-      <Section
+      <SettingsSection
         id="ops-scheduler"
         title="Scheduler"
         description="Background ticks that sync, publish and send notifications."
@@ -297,8 +284,8 @@ function HealthSections({
         {data.schedulerTicks.length ? (
           <SchedulerTicks ticks={data.schedulerTicks} />
         ) : null}
-      </Section>
-      <Section
+      </SettingsSection>
+      <SettingsSection
         id="ops-sync"
         title="Sync freshness"
         description="How current our copy of Google data is."
@@ -321,8 +308,8 @@ function HealthSections({
             ["Tokens expiring soon", data.refreshTokensExpiringSoon],
           ]}
         />
-      </Section>
-      <Section
+      </SettingsSection>
+      <SettingsSection
         id="ops-queue"
         title="Queued work"
         description="Due items by the tick that owns them."
@@ -336,8 +323,8 @@ function HealthSections({
             ["Reply publishing", data.duePublishBacklog],
           ]}
         />
-      </Section>
-      <Section
+      </SettingsSection>
+      <SettingsSection
         id="ops-unresolved"
         title="Unresolved Google writes"
         description="Changes sent to Google whose result is not confirmed. They are never resent automatically: open the listing and read the saved outcome."
@@ -346,16 +333,18 @@ function HealthSections({
           <Figures
             rows={data.unresolvedWrites.map((row) => [
               FAMILY_LABEL[row.family] ?? row.family.replaceAll("_", " "),
-              `${formatNumber(row.count)} · oldest ${ago(row.oldestAt)}`,
+              <>
+                {formatNumber(row.count)} · oldest {ago(row.oldestAt)}
+              </>,
             ])}
           />
         ) : (
-          <p className="text-ui text-ink-muted">
+          <p className="text-body text-ink-muted">
             Every recorded write has a settled outcome.
           </p>
         )}
-      </Section>
-      <Section
+      </SettingsSection>
+      <SettingsSection
         id="ops-email"
         title="Notification email"
         description="Accepted means the provider took the message; delivered means a mail server accepted it. Neither means it was read."
@@ -378,6 +367,7 @@ function HealthSections({
             variant="secondary"
             size="sm"
             disabled={retrying || deliveries.retryable === 0}
+            pending={retrying}
             onClick={onRetry}
           >
             Retry{" "}
@@ -388,8 +378,14 @@ function HealthSections({
             Unknown outcomes older than 23 hours are not retried, to avoid a
             duplicate.
           </p>
+          <p
+            aria-live="polite"
+            className="w-full text-ui text-danger-ink empty:sr-only"
+          >
+            {retryError}
+          </p>
         </div>
-      </Section>
+      </SettingsSection>
     </>
   )
 }

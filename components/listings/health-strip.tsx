@@ -1,12 +1,14 @@
 "use client"
 
-import Link from "next/link"
+import { Fragment } from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { uncheckedAreas } from "@/lib/listings/area-state"
 import {
   googleChangedCount,
@@ -19,6 +21,8 @@ import {
 import { listingHref } from "@/lib/listings/areas"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { cardClassName } from "@/components/ui/card"
+import { useNow } from "@/lib/time/server-now"
 
 const GRID = "grid grid-cols-2 gap-2 @[640px]:gap-3 @[980px]:grid-cols-4"
 
@@ -44,20 +48,18 @@ function Tile({
     <div
       data-slot="health-tile"
       data-tile={id}
-      className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
+      className={cardClassName({
+        className: "flex min-w-0 flex-col gap-2 p-3 @[640px]:p-4",
+      })}
     >
       <p className="text-ui font-medium text-ink-muted">{label}</p>
-      <div className="flex min-h-[26px] flex-wrap items-center gap-1.5">
+      <div className="flex min-h-6.5 flex-wrap items-center gap-1.5">
         {value}
       </div>
       <p className="text-caption break-words text-ink-muted">{detail}</p>
       {action ? <div className="mt-auto pt-1">{action}</div> : null}
     </div>
   )
-}
-
-function capitalise(text: string): string {
-  return text ? text[0]!.toUpperCase() + text.slice(1) : text
 }
 
 const ACTION = cn(
@@ -88,6 +90,7 @@ function HealthStrip({
   summaryFailed?: boolean
   canManageConsoles: boolean
 }) {
+  const now = useNow()
   const business = useWorkspaceMode() === "business"
   if (!summary && summaryFailed) {
     return (
@@ -120,10 +123,12 @@ function HealthStrip({
         {[0, 1, 2, 3].map((index) => (
           <div
             key={index}
-            className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
+            className={cardClassName({
+              className: "flex flex-col gap-2.5 p-3 @[640px]:p-4",
+            })}
           >
             <Skeleton className="h-3.5 w-1/2" />
-            <Skeleton className="h-[22px] w-2/5" />
+            <Skeleton className="h-5.5 w-2/5" />
             <Skeleton className="h-3.5 w-4/5" />
           </div>
         ))}
@@ -141,8 +146,8 @@ function HealthStrip({
   const unpublished = unpublishedCount(summary)
   const changed = googleChangedCount(summary)
   const last = summary.lastPublish
-  const unchecked = uncheckedAreas(summary)
-  const health = listingHealth({ linked, summary })
+  const unchecked = uncheckedAreas(summary, now)
+  const health = listingHealth({ linked, summary, now })
   // Without a working login for this listing nothing here was checked
   // recently, whatever the last comparison said.
   const unreachable = linked && (connectionBroken || accessLost)
@@ -175,23 +180,33 @@ function HealthStrip({
                     : business
                       ? "Link it from setup"
                       : "Link it from the client’s setup"),
-                linked && summary.freshness
-                  ? summary.freshness.lastCheckedAt
-                    ? `reviews checked ${formatRelativeTime(summary.freshness.lastCheckedAt)}`
-                    : "reviews not checked yet"
-                  : null,
+                linked && summary.freshness ? (
+                  summary.freshness.lastCheckedAt ? (
+                    <RelativeTime
+                      iso={summary.freshness.lastCheckedAt}
+                      prefix="reviews checked "
+                    />
+                  ) : (
+                    "reviews not checked yet"
+                  )
+                ) : null,
               ]
                 .filter(Boolean)
-                .join(" · ")
+                .map((part, index) => (
+                  <Fragment key={index}>
+                    {index > 0 ? " · " : null}
+                    {part}
+                  </Fragment>
+                ))
         }
         action={
           linked && connectionBroken && clientId && canManageConsoles ? (
-            <Link
+            <ShellLink
               href={`/setup?client=${clientId}&step=connect`}
               className={ACTION}
             >
               Reconnect Google
-            </Link>
+            </ShellLink>
           ) : undefined
         }
       />
@@ -216,12 +231,12 @@ function HealthStrip({
         }
         action={
           linked && !summary.verified && canManageConsoles ? (
-            <Link
+            <ShellLink
               href={listingHref(locationId, "verification")}
               className={ACTION}
             >
               Verify
-            </Link>
+            </ShellLink>
           ) : undefined
         }
       />
@@ -271,16 +286,19 @@ function HealthStrip({
         }
         action={
           unpublished > 0 ? (
-            <Link href={listingHref(locationId, "changes")} className={ACTION}>
+            <ShellLink
+              href={listingHref(locationId, "changes")}
+              className={ACTION}
+            >
               Review &amp; publish
-            </Link>
+            </ShellLink>
           ) : changed > 0 ? (
-            <Link
+            <ShellLink
               href={listingHref(locationId, "suggestions")}
               className={ACTION}
             >
               Review
-            </Link>
+            </ShellLink>
           ) : undefined
         }
       />
@@ -291,7 +309,7 @@ function HealthStrip({
           last ? (
             <>
               <span className="font-mono text-[17px] leading-6 font-semibold text-ink tabular-nums">
-                {capitalise(formatRelativeTime(last.at))}
+                <RelativeTime iso={last.at} casing="sentence" />
               </span>
               {last.status === "failed" ? (
                 <StatusPill tone="at-risk">Failed</StatusPill>

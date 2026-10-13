@@ -1,66 +1,88 @@
 "use client"
 
 import * as React from "react"
-import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
-import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 import {
-  overlayCloseButtonClassName,
+  DialogPrimitive,
+  DrawerPrimitive,
+  OverlayChrome,
+  OverlayRoot,
   overlayFooterClassName,
-} from "@/components/ui/dialog"
+  overlayFooterDockClassName,
+  overlayPopupClassName,
+  overlayScrimClassName,
+  overlayScrollPaddingClassName,
+  overlayViewportClassName,
+  markOverlayHeader,
+  useOverlayChrome,
+  useOverlayHeader,
+  usePhoneOverlay,
+  useOverlayRoot,
+  useReportSwipeDirection,
+  type OverlayRootProps,
+} from "@/components/ui/overlay"
 
-function Sheet({ ...props }: SheetPrimitive.Root.Props) {
-  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+/**
+ * A sheet: an overlay that comes in from an edge and can be swiped back to
+ * it. Built on Base UI's Drawer, so the handle is real: the sheet follows
+ * the finger, a fast or long enough drag dismisses it, and `snapPoints`
+ * (on the root) can rest it part-way up. `dirty` asks before an accidental
+ * dismissal (scrim, Escape, swipe, ✕) throws edits away.
+ *
+ *   <Sheet open={open} onOpenChange={setOpen} dirty={edited}>
+ *     <SheetContent side="right">
+ *       <SheetHeader><SheetTitle>Filters</SheetTitle></SheetHeader>
+ *       <SheetBody>…</SheetBody>
+ *       <SheetFooter><Button onClick={apply}>Show results</Button></SheetFooter>
+ *     </SheetContent>
+ *   </Sheet>
+ */
+function Sheet(props: OverlayRootProps) {
+  return <OverlayRoot data-slot="sheet" {...props} />
 }
 
-function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
-  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
+function SheetTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
+  return <DialogPrimitive.Trigger data-slot="sheet-trigger" {...props} />
 }
 
-function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
-  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />
-}
-
-function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
-  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
-}
-
-function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
-  return (
-    <SheetPrimitive.Backdrop
-      data-slot="sheet-overlay"
-      className={cn(
-        "fixed inset-0 z-50 bg-scrim transition-opacity duration-(--np-duration-standard) ease-standard data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-starting-style:opacity-0",
-        className
-      )}
-      {...props}
-    />
-  )
+function SheetClose({ ...props }: DialogPrimitive.Close.Props) {
+  return <DialogPrimitive.Close data-slot="sheet-close" {...props} />
 }
 
 type SheetSide = "top" | "right" | "bottom" | "left"
+type SheetPresentation = "sheet" | "panel" | "drawer" | "top"
 
 /**
- * Reference `dialog.sheet`.
+ * Reference `dialog.sheet`, by side:
  *
- * `right` (the default) is a full-height panel from the right edge,
- * min(560px, 100vw) wide (`size="wide"`: 880px). At 640px and below it
- * becomes a bottom sheet 92dvh tall with 20px top corners and a grabber.
- * `left` stays a left panel at every width (a navigation drawer).
- * `bottom` is always a bottom sheet (centred, at most 672px wide from `sm`);
- * `top` drops from the top edge. Enter slides 24px and fades.
+ *   right   (the default) a bottom sheet on a phone, a full-height panel
+ *           from the right edge from `sm`, min(560px, 100vw) wide
+ *           (`size="wide"`: 880px)
+ *   left    the navigation drawer at every width, min(300px, 86vw)
+ *   bottom  a bottom sheet at every width (centred, at most 40rem wide)
+ *   top     drops from the top edge
  */
-const sheetSideClassName: Record<SheetSide, string> = {
-  right: cn(
-    "inset-x-0 bottom-0 h-[92dvh] rounded-t-(--np-radius-sheet) data-ending-style:translate-y-6 data-starting-style:translate-y-6",
-    "sm:inset-x-auto sm:inset-y-0 sm:right-0 sm:h-dvh sm:max-h-dvh sm:w-[min(560px,100vw)] sm:rounded-none sm:data-ending-style:translate-x-6 sm:data-ending-style:translate-y-0 sm:data-starting-style:translate-x-6 sm:data-starting-style:translate-y-0 sm:data-[size=wide]:w-[min(880px,100vw)]"
-  ),
-  left: "inset-y-0 left-0 h-dvh w-[min(300px,86vw)] data-ending-style:-translate-x-full data-starting-style:-translate-x-full",
-  top: "inset-x-0 top-0 max-h-[92dvh] rounded-b-(--np-radius-sheet) data-ending-style:-translate-y-full data-starting-style:-translate-y-full",
-  bottom:
-    "inset-x-0 bottom-0 mx-auto max-h-[calc(100dvh-1.5rem)] w-full rounded-t-(--np-radius-sheet) data-ending-style:translate-y-full data-starting-style:translate-y-full sm:max-w-2xl",
+function presentationFor(side: SheetSide, phone: boolean): SheetPresentation {
+  if (side === "left") return "drawer"
+  if (side === "top") return "top"
+  if (side === "bottom") return "sheet"
+  return phone ? "sheet" : "panel"
+}
+
+const swipeDirectionFor = {
+  sheet: "down",
+  panel: "right",
+  drawer: "left",
+  top: "up",
+} as const
+
+/** How each presentation sits in the full-viewport layer. */
+const viewportAlignClassName: Record<SheetPresentation, string> = {
+  sheet: "items-end",
+  panel: "justify-end",
+  drawer: "justify-start",
+  top: "items-start",
 }
 
 function SheetContent({
@@ -69,68 +91,95 @@ function SheetContent({
   side = "right",
   size = "default",
   showCloseButton = true,
+  overlayClassName,
   ...props
-}: SheetPrimitive.Popup.Props & {
+}: DrawerPrimitive.Popup.Props & {
   side?: SheetSide
   size?: "default" | "wide"
   showCloseButton?: boolean
+  /** Extra classes for the scrim (e.g. `md:hidden` for a phone-only drawer). */
+  overlayClassName?: string
 }) {
+  const root = useOverlayRoot()
+  // Held while open, like Dialog: a tablet rotated under an open sheet
+  // keeps its drawing until it closes.
+  const phone = usePhoneOverlay()
+  const live = presentationFor(side, phone)
+  const [held, setHeld] = React.useState(live)
+  if (!root?.open && held !== live) setHeld(live)
+  const presentation = root?.open ? held : live
+  useReportSwipeDirection(swipeDirectionFor[presentation])
+
   return (
-    <SheetPortal>
-      <SheetOverlay />
-      <SheetPrimitive.Popup
-        data-slot="sheet-content"
-        data-side={side}
-        data-size={size}
-        className={cn(
-          "fixed z-50 flex flex-col overflow-y-auto overscroll-contain bg-surface text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px]",
-          "transition-[translate,opacity] duration-(--np-duration-standard) ease-spring data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:opacity-0",
-          sheetSideClassName[side],
-          className
-        )}
-        {...props}
-      >
-        {side === "right" || side === "bottom" ? (
-          <span
-            aria-hidden="true"
-            data-slot="sheet-grabber"
+    <DrawerPrimitive.VirtualKeyboardProvider>
+      <DrawerPrimitive.Portal data-slot="sheet-portal">
+        <DrawerPrimitive.Backdrop
+          data-slot="sheet-overlay"
+          className={cn(overlayScrimClassName, overlayClassName)}
+        />
+        <DrawerPrimitive.Viewport
+          className={cn(
+            overlayViewportClassName,
+            viewportAlignClassName[presentation]
+          )}
+        >
+          <DrawerPrimitive.Popup
+            data-slot="sheet-content"
+            data-side={side}
+            data-size={size}
+            data-presentation={presentation}
             className={cn(
-              "mx-auto mt-2 h-[5px] w-9 shrink-0 rounded-(--np-radius-pill) bg-line-strong",
-              side === "right" && "sm:hidden"
+              overlayPopupClassName[presentation],
+              overlayScrollPaddingClassName,
+              className,
+              // A phone's sheet spans the screen whatever the panel width.
+              presentation === "sheet" &&
+                "w-full! max-w-[min(100%,var(--np-sheet-max-w))]!"
             )}
-          />
-        ) : null}
-        {children}
-        {showCloseButton && (
-          <SheetPrimitive.Close
-            data-slot="sheet-close"
-            render={
-              <Button
-                variant="ghost"
-                className={overlayCloseButtonClassName}
-                size="icon"
-                aria-label="Close"
-              />
-            }
+            {...props}
           >
-            <XIcon aria-hidden="true" />
-            <span className="sr-only">Close</span>
-          </SheetPrimitive.Close>
-        )}
-      </SheetPrimitive.Popup>
-    </SheetPortal>
+            <OverlayChrome
+              presentation={presentation}
+              showCloseButton={showCloseButton}
+            >
+              {children}
+            </OverlayChrome>
+          </DrawerPrimitive.Popup>
+        </DrawerPrimitive.Viewport>
+      </DrawerPrimitive.Portal>
+    </DrawerPrimitive.VirtualKeyboardProvider>
   )
 }
 
-function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+/**
+ * The title block, pinned to the top of the sheet with the close button in
+ * its corner and, on a bottom sheet, the drag handle above the title.
+ */
+const SheetHeader = markOverlayHeader(function SheetHeader({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<"div">) {
+  const hidden = /(^|\s)sr-only(\s|$)/.test(className ?? "")
+  const { presentation, closeButton, grabber } = useOverlayHeader(hidden)
   return (
     <div
       data-slot="sheet-header"
-      className={cn("flex shrink-0 flex-col gap-1 p-5 pr-14 pb-3", className)}
+      className={cn(
+        "flex shrink-0 flex-col gap-1 p-5 pb-3",
+        !hidden && "sticky top-0 z-10 bg-surface",
+        presentation === "sheet" && !hidden && "pt-0",
+        closeButton && "pr-14",
+        className
+      )}
       {...props}
-    />
+    >
+      {grabber}
+      {children}
+      {closeButton}
+    </div>
   )
-}
+})
 
 /** The scrolling middle of a sheet (reference `.dialog-body`). */
 function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
@@ -138,7 +187,8 @@ function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="sheet-body"
       className={cn(
-        "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 pt-2 pb-5",
+        "flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-5 pt-2 pb-5",
+        overlayScrollPaddingClassName,
         className
       )}
       {...props}
@@ -148,25 +198,30 @@ function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
 
 /**
  * The sheet's action row: the dialog's bar (sunken surface, hairline above)
- * pinned to the sheet's bottom, with safe-area padding on a phone.
+ * pinned to the sheet's bottom and padded clear of the keyboard and the
+ * home indicator. On a bottom sheet the buttons stack full width with the
+ * primary (last) nearest the thumb; on a panel they sit right-aligned.
  */
 function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+  const presentation = useOverlayChrome()?.presentation ?? "panel"
   return (
     <div
       data-slot="sheet-footer"
+      data-docked=""
       className={cn(
-        "sticky bottom-0 mt-auto shrink-0 border-t border-line bg-surface-alt px-5 py-3 pb-[max(12px,env(safe-area-inset-bottom))]",
-        overlayFooterClassName,
-        className
+        "sticky bottom-0 z-10 mt-auto shrink-0 border-t border-line bg-surface-alt px-5 pt-3",
+        overlayFooterClassName[presentation === "sheet" ? "sheet" : "dialog"],
+        className,
+        overlayFooterDockClassName
       )}
       {...props}
     />
   )
 }
 
-function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
-    <SheetPrimitive.Title
+    <DialogPrimitive.Title
       data-slot="sheet-title"
       className={cn("text-section font-semibold text-ink", className)}
       {...props}
@@ -177,9 +232,9 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
 function SheetDescription({
   className,
   ...props
-}: SheetPrimitive.Description.Props) {
+}: DialogPrimitive.Description.Props) {
   return (
-    <SheetPrimitive.Description
+    <DialogPrimitive.Description
       data-slot="sheet-description"
       className={cn("text-ui text-ink-muted", className)}
       {...props}

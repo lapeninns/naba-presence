@@ -2,15 +2,18 @@
 
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Button } from "@/components/ui/button"
+import { SavedWorkList } from "@/components/reviewed-write"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
-import { SectionCard } from "../section-card"
+import { savedChangeItem } from "./saved-change-work"
 import { approveBusinessAttributes, fetchBusinessAttributeReviews, publishBusinessAttributes, type AttributeMetadata } from "@/lib/api/location-business-information"
 import { businessInformationAttributeUpdateSchema } from "@/lib/contracts/location-business-information"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { attributesFromState, describeAttributeValue } from "@/lib/locations/google-values"
 import { usePublishFlow } from "@/lib/editors/use-publish-flow"
 import { queryKeys } from "@/lib/queries/keys"
+
+/** The jump target for saved attribute reviews. */
+export const SAVED_ATTRIBUTE_REVIEWS_ID = "section-saved-attribute-reviews"
 
 export function SavedAttributeReviews({ locationId, enabled, metadata, publishReason }: { locationId: string; enabled: boolean; metadata: readonly AttributeMetadata[]; publishReason?: string | null }) {
   const [selected, setSelected] = useState<GbpChangeSet | null>(null)
@@ -35,11 +38,30 @@ export function SavedAttributeReviews({ locationId, enabled, metadata, publishRe
     onSuccess: () => setSelected(null),
   })
   if (!enabled || (!saved.data?.length && !saved.isError)) return null
-  return <SectionCard id="section-saved-attribute-reviews" model="google" title="Saved attribute reviews" description="Review the exact attribute changes saved by your team.">
-    {saved.isError && <p role="alert" className="text-ui text-danger-ink">Saved attribute reviews could not be loaded.</p>}
-    {(saved.data ?? []).map((review) => <Button key={review.id} type="button" variant="outline" onClick={() => { flow.reset(); setSelected(review) }}>Review {review.updateMask.length} saved {review.updateMask.length === 1 ? "attribute" : "attributes"}{review.approvedBy ? " (approved)" : ""}</Button>)}
+  return <div id={SAVED_ATTRIBUTE_REVIEWS_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
+    <SavedWorkList
+      id={`${SAVED_ATTRIBUTE_REVIEWS_ID}-heading`}
+      headingLevel="h3"
+      title="Saved attribute reviews"
+      description="Review the exact attribute changes saved by your team."
+      items={(saved.data ?? []).map((review) => savedChangeItem({
+        change: review, recorded: false,
+        operation: review.updateMask.map((name) => metadata.find((item) => item.parent === name)?.displayName ?? name).join(", "),
+        actionLabel: `Review ${review.updateMask.length} saved ${review.updateMask.length === 1 ? "attribute" : "attributes"}${review.approvedBy ? " (approved)" : ""}`,
+        onOpen: () => { flow.reset(); setSelected(review) },
+        disabled: false,
+      }))}
+      pending={saved.isPending}
+      failed={saved.isError}
+      loadingText="Loading saved attribute reviews…"
+      errorText="Saved attribute reviews could not be loaded."
+      emptyText="No saved attribute reviews."
+      reloadLabel="Reload saved attribute reviews"
+      reloading={saved.isFetching}
+      onReload={() => void saved.refetch()}
+    />
     <ReviewChangesSheet open={Boolean(selected)} onOpenChange={(open) => { if (!open) setSelected(null) }} rows={rows} locationName={selected?.locationName ?? "this location"}
       onPublish={() => { void flow.publish() }} publishing={flow.isPublishing} results={flow.results} error={flow.error}
       publishDisabledReason={publishReason ?? (!parsed?.success || !displayable ? "This saved review cannot be displayed safely. Refresh metadata or create a new review." : selected?.requiresSecondApprover && !selected.approvedBy && !selected.canApprove ? "A different authorised user must approve this saved review." : null)} />
-  </SectionCard>
+  </div>
 }

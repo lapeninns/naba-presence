@@ -1,0 +1,626 @@
+{
+  "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
+  "totals": {
+    "R1": 16,
+    "R2": 9,
+    "R3": 82,
+    "R4": 15,
+    "R5": 2,
+    "R6": 2,
+    "R7": 16
+  },
+  "files": {
+    "app/(auth)/layout.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[minmax(0,1fr)_minmax(22.5rem,32.5rem)]": 1
+        }
+      }
+    },
+    "app/(dashboard)/error.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[minmax(0,1fr)_20rem]": 1
+        }
+      }
+    },
+    "app/(dashboard)/not-found.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "grid-cols-[2.25rem_minmax(0,1fr)_auto]": 1,
+          "grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]": 1
+        }
+      }
+    },
+    "app/(dashboard)/setup/loading.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[13.75rem_minmax(0,1fr)]": 1
+        }
+      }
+    },
+    "app/(dashboard)/setup/page.tsx": {
+      "R3": {
+        "total": 3,
+        "patterns": {
+          "flex-[1_1_12rem]": 2,
+          "flex-[1_1_18rem]": 1
+        }
+      }
+    },
+    "app/design-system/page.tsx": {
+      "R1": {
+        "total": 5,
+        "patterns": {
+          "text-[11.5px]": 2,
+          "text-[11px]": 3
+        }
+      },
+      "R3": {
+        "total": 6,
+        "patterns": {
+          "flex-[1_1_360px]": 1,
+          "gap-[3px]": 1,
+          "grid-cols-[56px_48px_minmax(0,1fr)]": 1,
+          "grid-cols-[minmax(120px,180px)_minmax(0,1fr)]": 1,
+          "max-w-[1080px]": 1,
+          "max-w-[70ch]": 1
+        }
+      },
+      "R4": {
+        "total": 3,
+        "patterns": {
+          "rounded-[2px]": 1,
+          "rounded-t-[3px]": 1,
+          "z-10": 1
+        }
+      }
+    },
+    "app/design-system/spring-demo.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "grid-cols-[12rem_1fr]": 2
+        }
+      },
+      "R6": {
+        "total": 2,
+        "patterns": {
+          "style={{…}}": 2
+        }
+      }
+    },
+    "app/global-error.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "text-[12px]": 1
+        }
+      },
+      "R3": {
+        "total": 3,
+        "patterns": {
+          "max-w-[460px]": 2,
+          "p-[clamp(20px,5vw,32px)]": 1
+        }
+      }
+    },
+    "app/not-found.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "max-w-[460px]": 1,
+          "p-[clamp(20px,5vw,32px)]": 1
+        }
+      }
+    },
+    "components/app-shell/account-menu.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "w-[min(18rem,calc(100vw-2rem))]": 1
+        }
+      }
+    },
+    "components/app-shell/app-shell.tsx": {
+      "R2": {
+        "total": 1,
+        "patterns": {
+          "bg-white": 1
+        }
+      },
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "scroll-pt-[calc(var(--np-toolbar-h)+8px)]": 1,
+          "top-[-60px]": 1
+        }
+      },
+      "R7": {
+        "total": 1,
+        "patterns": {
+          "[@media(min-height:620px)]:": 1
+        }
+      }
+    },
+    "components/app-shell/brand-mark.tsx": {
+      "R1": {
+        "total": 2,
+        "patterns": {
+          "leading-[18px]": 1,
+          "text-[17px]": 1
+        }
+      },
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "size-[30px]": 1
+        }
+      }
+    },
+    "components/app-shell/breadcrumbs-context.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "max-w-[16rem]": 1
+        }
+      }
+    },
+    "components/app-shell/client-switcher.tsx": {
+      "R3": {
+        "total": 4,
+        "patterns": {
+          "h-[34px]": 1,
+          "max-w-[min(16rem,32vw)]": 1,
+          "pb-[max(20px,var(--np-safe-bottom))]": 1,
+          "w-[min(320px,calc(100vw-24px))]": 1
+        }
+      }
+    },
+    "components/app-shell/command-palette.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "h-[34px]": 1
+        }
+      }
+    },
+    "components/app-shell/context-health-chip.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "h-[34px]": 1,
+          "max-w-[min(22rem,34vw)]": 1
+        }
+      }
+    },
+    "components/app-shell/impersonation-banner.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "flex-[1_1_12rem]": 1
+        }
+      }
+    },
+    "components/app-shell/nav.tsx": {
+      "R3": {
+        "total": 4,
+        "patterns": {
+          "inset-y-[7px]": 1,
+          "min-h-[30px]": 1,
+          "min-h-[34px]": 1,
+          "w-[3px]": 1
+        }
+      }
+    },
+    "components/app-shell/page-frame.tsx": {
+      "R3": {
+        "total": 5,
+        "patterns": {
+          "flex-[1_1_22.5rem]": 2,
+          "max-w-[70ch]": 2,
+          "pb-[calc(var(--np-page-pad-y)+24px)]": 1
+        }
+      },
+      "R7": {
+        "total": 1,
+        "patterns": {
+          "[@media(min-height:620px)]:": 1
+        }
+      }
+    },
+    "components/app-shell/reconnect-banner.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "flex-[1_1_12rem]": 1,
+          "max-w-[28rem]": 1
+        }
+      }
+    },
+    "components/app-shell/system-page.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "text-[12px]": 1
+        }
+      },
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[minmax(7.5rem,34%)_1fr]": 1
+        }
+      }
+    },
+    "components/auth/auth-card.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "max-w-[20ch]": 1,
+          "max-w-[44ch]": 1
+        }
+      }
+    },
+    "components/auth/invitation-view.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[2rem_minmax(0,1fr)]": 1
+        }
+      }
+    },
+    "components/editors/editor-frame.tsx": {
+      "R7": {
+        "total": 2,
+        "patterns": {
+          "[@media(min-height:620px)]:": 2
+        }
+      }
+    },
+    "components/inbox/inbox-view.tsx": {
+      "R7": {
+        "total": 6,
+        "patterns": {
+          "[@media(min-height:620px)]:": 6
+        }
+      }
+    },
+    "components/inbox/review-detail.tsx": {
+      "R2": {
+        "total": 1,
+        "patterns": {
+          "bg-black": 1
+        }
+      },
+      "R7": {
+        "total": 2,
+        "patterns": {
+          "[@media(min-height:620px)]:": 2
+        }
+      }
+    },
+    "components/inbox/review-list.tsx": {
+      "R7": {
+        "total": 1,
+        "patterns": {
+          "[@media(min-height:620px)]:": 1
+        }
+      }
+    },
+    "components/listings/area-frame.tsx": {
+      "R7": {
+        "total": 3,
+        "patterns": {
+          "[@media(min-height:620px)]:": 3
+        }
+      }
+    },
+    "components/locations/menu-editor.tsx": {
+      "R5": {
+        "total": 1,
+        "patterns": {
+          "<select>": 1
+        }
+      }
+    },
+    "components/locations/photos/photo-preview.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "max-h-[min(58dvh,40rem)]": 1
+        }
+      }
+    },
+    "components/locations/photos/photos-grid.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[repeat(auto-fill,minmax(min(100%,10rem),1fr))]": 1
+        }
+      }
+    },
+    "components/locations/posts/post-card.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[112px_minmax(0,1fr)]": 1
+        }
+      }
+    },
+    "components/locations/posts/post-composer-sheet.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "grid-cols-[minmax(0,1fr)_300px]": 1
+        }
+      }
+    },
+    "components/settings/two-step-verification-card.tsx": {
+      "R2": {
+        "total": 1,
+        "patterns": {
+          "bg-white": 1
+        }
+      }
+    },
+    "components/setup/setup-wizard.tsx": {
+      "R3": {
+        "total": 4,
+        "patterns": {
+          "grid-cols-[13.75rem_minmax(0,1fr)]": 2,
+          "max-w-[64ch]": 1,
+          "top-[calc(var(--np-toolbar-h)+16px)]": 1
+        }
+      }
+    },
+    "components/setup/step-agency.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "max-w-[27.5rem]": 1
+        }
+      }
+    },
+    "components/setup/step-connect.tsx": {
+      "R1": {
+        "total": 2,
+        "patterns": {
+          "leading-4": 1,
+          "text-[0.71875rem]": 1
+        }
+      },
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "flex-[1_1_12rem]": 1
+        }
+      }
+    },
+    "components/setup/step-done.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "grid-cols-[minmax(0,14rem)_minmax(0,1fr)]": 1,
+          "max-w-[56ch]": 1
+        }
+      }
+    },
+    "components/ui/chart.tsx": {
+      "R4": {
+        "total": 1,
+        "patterns": {
+          "rounded-[3px]": 1
+        }
+      }
+    },
+    "components/ui/checkbox.tsx": {
+      "R4": {
+        "total": 1,
+        "patterns": {
+          "rounded-[5px]": 1
+        }
+      }
+    },
+    "components/ui/choice-card.tsx": {
+      "R4": {
+        "total": 1,
+        "patterns": {
+          "shadow-[inset_0_0_0_1px_var(--np-accent)]": 1
+        }
+      }
+    },
+    "components/ui/combobox.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "max-h-[min(20rem,calc(var(--available-height)-var(--np-keyboard-inset)))]": 1
+        }
+      }
+    },
+    "components/ui/command.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "text-base": 1
+        }
+      },
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "px-[18px]": 1,
+          "w-[min(620px,calc(100vw-24px))]": 1
+        }
+      }
+    },
+    "components/ui/dialog.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "pr-[calc(var(--dlg-pad)+2.25rem)]": 1
+        }
+      },
+      "R4": {
+        "total": 1,
+        "patterns": {
+          "z-10": 1
+        }
+      }
+    },
+    "components/ui/dropdown-menu.tsx": {
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "max-h-[min(var(--available-height),32rem)]": 1,
+          "min-w-[200px]": 1
+        }
+      },
+      "R4": {
+        "total": 1,
+        "patterns": {
+          "rounded-[10px]": 1
+        }
+      }
+    },
+    "components/ui/field.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "leading-5": 1
+        }
+      }
+    },
+    "components/ui/input.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "pl-[11px]": 1
+        }
+      }
+    },
+    "components/ui/popover.tsx": {
+      "R3": {
+        "total": 5,
+        "patterns": {
+          "bottom-[-9px]": 1,
+          "left-[-14px]": 1,
+          "right-[-14px]": 1,
+          "top-[-9px]": 1,
+          "w-[min(360px,calc(100vw-24px))]": 1
+        }
+      }
+    },
+    "components/ui/segmented-control.tsx": {
+      "R4": {
+        "total": 4,
+        "patterns": {
+          "rounded-[10px]": 1,
+          "rounded-[7px]": 2,
+          "z-10": 1
+        }
+      }
+    },
+    "components/ui/select.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "text-base": 1
+        }
+      },
+      "R3": {
+        "total": 2,
+        "patterns": {
+          "max-h-[min(24rem,var(--available-height))]": 1,
+          "pl-[11px]": 1
+        }
+      }
+    },
+    "components/ui/sheet.tsx": {
+      "R4": {
+        "total": 2,
+        "patterns": {
+          "z-10": 2
+        }
+      }
+    },
+    "components/ui/stepper.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "size-[22px]": 1
+        }
+      }
+    },
+    "components/ui/switch.tsx": {
+      "R3": {
+        "total": 4,
+        "patterns": {
+          "h-[31px]": 1,
+          "size-[27px]": 1,
+          "translate-x-[20px]": 1,
+          "w-[51px]": 1
+        }
+      }
+    },
+    "components/ui/tag-input.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "text-base": 1
+        }
+      },
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "min-w-[8ch]": 1
+        }
+      }
+    },
+    "components/ui/textarea.tsx": {
+      "R1": {
+        "total": 1,
+        "patterns": {
+          "leading-[22px]": 1
+        }
+      }
+    },
+    "components/ui/toast.tsx": {
+      "R3": {
+        "total": 1,
+        "patterns": {
+          "h-[calc(var(--gap)+1px)]": 1
+        }
+      },
+      "R4": {
+        "total": 1,
+        "patterns": {
+          "[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]": 1
+        }
+      }
+    },
+    "lib/clients/colours.ts": {
+      "R2": {
+        "total": 6,
+        "patterns": {
+          "#3E5B70": 1,
+          "#3F5E52": 1,
+          "#4A4C7A": 1,
+          "#6B4A6B": 1,
+          "#6E5A2E": 1,
+          "#7A4E3B": 1
+        }
+      }
+    },
+    "lib/hooks/use-dirty-guard.ts": {
+      "R5": {
+        "total": 1,
+        "patterns": {
+          "window.confirm()": 1
+        }
+      }
+    }
+  }
+}

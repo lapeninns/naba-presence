@@ -25,10 +25,17 @@ import { cn } from "@/lib/utils"
  * Keyboard safety: a field that takes focus under the pinned bar (or under
  * a phone keyboard) is scrolled clear of it — see `useKeepFocusClear`.
  *
- * On screens at least 620px tall, the footer sticks 12px above the bottom of the nearest
- * scrolling pane, as a floating dark bar. The frame leaves room under the
- * last field so the bar never covers it at the end of the scroll. Short
- * screens use normal document flow so the action bar cannot cover the form.
+ * Inside an area, `titleHidden` also drops the editor's own status pill:
+ * the header's pill is the one status on the page (the footer reports to
+ * it), so two pills can never disagree.
+ *
+ * The footer. On a phone (under 48rem) the EditorFooter docks itself to the
+ * bottom edge once there is something to save. The docked ActionBar leaves a
+ * spacer its measured height in the flow (two rows on a phone: status over
+ * its buttons), so the bar never covers the last field. From 48rem on
+ * screens at least 620px tall it sticks 12px above
+ * the bottom of the scrolling pane as a floating dark bar; shorter screens
+ * use normal document flow so the bar cannot cover the form.
  */
 function EditorFrame({
   title,
@@ -68,29 +75,27 @@ function EditorFrame({
 }) {
   const ref = useRef<HTMLElement>(null)
   useKeepFocusClear(ref)
-  const showHead =
-    !titleHidden || Boolean(statusLabel || description || actions)
+  // Inside an area the header carries the title and the one status pill.
+  const pill = titleHidden ? null : statusLabel
+  const showHead = !titleHidden || Boolean(description || actions)
   return (
     <section
       ref={ref}
       data-slot="editor-frame"
-      className={cn("flex flex-col gap-5", className)}
+      className={cn(
+        "flex flex-col gap-5",
+        className
+      )}
     >
       {titleHidden ? <h2 className="sr-only">{title}</h2> : null}
       {showHead ? (
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="flex min-w-0 flex-col gap-1">
-            {!titleHidden || statusLabel ? (
+            {!titleHidden ? (
               <div className="flex flex-wrap items-center gap-2.5">
-                {titleHidden ? null : (
-                  <h2 className="text-section font-semibold text-ink">
-                    {title}
-                  </h2>
-                )}
-                {statusLabel ? (
-                  <StatusPill tone={tone ?? "neutral"}>
-                    {statusLabel}
-                  </StatusPill>
+                <h2 className="text-section font-semibold text-ink">{title}</h2>
+                {pill ? (
+                  <StatusPill tone={tone ?? "neutral"}>{pill}</StatusPill>
                 ) : null}
               </div>
             ) : null}
@@ -120,7 +125,7 @@ function EditorFrame({
       {footer ? (
         <div
           data-slot="editor-frame-footer"
-          className="mt-auto [@media(min-height:620px)]:sticky [@media(min-height:620px)]:bottom-3 [@media(min-height:620px)]:z-20"
+          className="z-chrome mt-auto md:[@media(min-height:620px)]:sticky md:[@media(min-height:620px)]:bottom-3"
         >
           {footer}
         </div>

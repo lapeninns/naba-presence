@@ -1,66 +1,38 @@
 import { PageHeader } from "@/components/app-shell/page-frame"
-import { AgencyNameForm } from "@/components/settings/agency-name-form"
-import { PolicyForm } from "@/components/settings/policy-form"
-import { SettingsNav } from "@/components/settings/settings-nav"
-import { UsageCard } from "@/components/settings/usage-card"
-import { WorkspaceModeCard } from "@/components/settings/workspace-mode-card"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { withTenant } from "@/lib/server/db"
-import { getServerEnv } from "@/lib/server/env"
-import { isOrgFeatureEnabled } from "@/lib/server/org-features"
+import { SettingsHome } from "@/components/settings/settings-home"
+import { SettingsIndex } from "@/components/settings/settings-index"
 import { getSession } from "@/lib/server/session"
-import { workspaceTerms } from "@/lib/workspace/terms"
 
-export const metadata = { title: "Reply policy · NabaPresence" }
+import { ReplyPolicyContent } from "./reply-policy-content"
 
-export default async function SettingsPolicyPage() {
+export const metadata = { title: "Settings · NabaPresence" }
+
+/**
+ * The settings home. Below md it is an index of the areas this person may
+ * open, grouped You / Workspace (settings-setup-auth-03), so a member or
+ * viewer never lands inside a form they can't change. From md it is Reply
+ * policy under the persistent settings tab row, which already shows every
+ * area, so a desk keeps its one-click landing (and /settings deep links keep
+ * working at every width). The first paint chooses in CSS, so nothing
+ * flashes on hydration; once the client knows its width SettingsHome drops
+ * the hidden face, so the document has exactly one h1 at any width. A
+ * hidden policy form can't be edited, so before then it never shows its
+ * save bar or arms its leave guard.
+ */
+export default async function SettingsHomePage() {
   const session = await getSession()
-  const role = session?.role ?? null
-  const terms = workspaceTerms(session?.workspaceMode ?? "agency")
-  // Owner-only and dark until the organisation's workspace_mode_change
-  // feature is on; PATCH /api/organisations checks both again.
-  const modeChangeAvailable =
-    session?.role === "owner"
-      ? await withTenant(session.organisationId, (sql) =>
-          isOrgFeatureEnabled(
-            sql,
-            session.organisationId,
-            "workspace_mode_change"
-          )
-        )
-      : false
   return (
-    <>
-      <PageHeader
-        title="Reply policy"
-        description={`Your ${terms.orgLower}’s name, how replies are approved, how long raw review content is kept, and the defaults new work starts from.`}
-        tabs={<SettingsNav role={role} />}
-      />
-      <div className="flex flex-col gap-(--np-gap-section)">
-        {/* Saved on its own: the name is not part of the policy the save
-            bar below submits. */}
-        <Card flush>
-          <CardHeader divided>
-            <CardTitle as="h2">{terms.org}</CardTitle>
-            <CardDescription>
-              The name your team and invited people see.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="py-(--np-card-pad)">
-            <AgencyNameForm />
-          </CardContent>
-        </Card>
-        {modeChangeAvailable ? <WorkspaceModeCard /> : null}
-        {/* With billing on, credits live on the shared Usage screen. */}
-        {getServerEnv().BILLING_ENABLED ? null : <UsageCard />}
-        <PolicyForm role={role} />
-      </div>
-    </>
+    <SettingsHome
+      index={
+        <>
+          <PageHeader
+            title="Settings"
+            description="Your own preferences, and how the workspace runs."
+          />
+          <SettingsIndex role={session?.role ?? null} />
+        </>
+      }
+      policy={<ReplyPolicyContent session={session} />}
+    />
   )
 }

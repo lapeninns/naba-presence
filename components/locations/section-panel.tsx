@@ -2,6 +2,7 @@
 
 import { Alert, AlertDescription, AlertActions } from "@/components/ui/alert"
 import { Empty } from "@/components/ui/empty"
+import { cardClassName } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 /**
@@ -35,10 +36,7 @@ export function SectionPanel({
   if (result.data == null) {
     return (
       <Empty
-        className={cn(
-          "rounded-(--np-radius-card) border border-line bg-surface",
-          className
-        )}
+        className={cardClassName({ className })}
         title={`No ${title.toLowerCase()} set`}
         description="There is nothing to manage here yet."
       />
@@ -47,10 +45,9 @@ export function SectionPanel({
   return (
     <div
       data-slot="section-panel"
-      className={cn(
-        "flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface",
-        className
-      )}
+      className={cardClassName({
+        className: cn("flex min-w-0 flex-col", className),
+      })}
     >
       {heading ? (
         <h3 className="border-b border-line px-(--np-card-pad) py-3 text-title font-semibold text-ink">
@@ -76,7 +73,7 @@ export function SectionLoadError({
   className?: string
 }) {
   return (
-    <Alert variant="warning" className={className}>
+    <Alert variant="warning" live className={className}>
       <AlertDescription>
         {description ??
           `We couldn't load ${title.toLowerCase()} from Google right now. Try refreshing in a moment.`}

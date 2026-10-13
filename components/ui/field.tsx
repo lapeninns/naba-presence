@@ -3,9 +3,13 @@
 import { CircleAlert } from "lucide-react"
 import {
   createContext,
+  useCallback,
   useContext,
+  useEffect,
   useId,
   useLayoutEffect,
+  useMemo,
+  useRef,
   useState,
 } from "react"
 
@@ -21,6 +25,12 @@ type FieldContextValue = {
   error?: string
   hasDescription: boolean
   registerDescription: (present: boolean) => void
+  /**
+   * True while a `FieldError` with its own children is mounted. Lets a
+   * conditionally rendered `<FieldError>Reason</FieldError>` mark the control
+   * invalid and describe it, exactly as `<Field error>` does.
+   */
+  registerError: (present: boolean) => void
   /**
    * False once a control that `<label for>` cannot reach (a pop-up button, a
    * segmented track) has claimed the Field. See `useFieldTriggerProps`.
@@ -51,6 +61,8 @@ function Field({
   const id = useId()
   const [hasDescription, setHasDescription] = useState(false)
   const [controlLabelable, setControlLabelable] = useState(true)
+  const [hasChildError, setHasChildError] = useState(false)
+  const invalid = Boolean(error) || hasChildError
   return (
     <FieldContext.Provider
       value={{
@@ -58,17 +70,18 @@ function Field({
         labelId: `${id}-label`,
         errorId: `${id}-error`,
         descriptionId: `${id}-description`,
-        invalid: Boolean(error),
+        invalid,
         error,
         hasDescription,
         registerDescription: setHasDescription,
+        registerError: setHasChildError,
         controlLabelable,
         registerControl: setControlLabelable,
       }}
     >
       <div
         data-slot="field"
-        data-invalid={error ? "" : undefined}
+        data-invalid={invalid ? "" : undefined}
         className={cn("flex min-w-0 flex-col gap-1.5", className)}
         {...props}
       >
@@ -156,17 +169,187 @@ function FieldDescription({
 }
 
 /**
- * The error beneath a field (reference `.error-text`): danger ink, a leading
- * alert glyph, and the reason in words. Announced as an alert.
+ * How a form's errors reach a screen reader.
+ *
+ * Every FieldError used to be its own `role="alert"`, so a failed submit that
+ * marked five fields fired five alerts over each other (and over the
+ * ValidationSummary, itself an alert that also takes focus). Wrapping the
+ * form in `FormErrorScope` makes the errors inside it quiet text — still
+ * wired to their controls by `aria-describedby`, so they are read when the
+ * person lands on the field — and gives the scope ONE polite live region:
+ *
+ *   - With a `ValidationSummary` mounted inside the scope, the summary is the
+ *     announcement (it is the alert and takes focus); the region stays empty.
+ *   - Without one, the region says the first error and how many there are
+ *     ("Enter a business name. 2 more fields need attention."), once per
+ *     change, so an inline blur check still speaks without stacking.
+ *
+ * Outside any scope a FieldError keeps `role="alert"`, so forms that have not
+ * adopted the scope behave exactly as before. `announce` on a FieldError
+ * overrides either default.
  */
-function FieldError({ className, ...props }: React.ComponentProps<"p">) {
+type FormErrorScopeValue = {
+  report: (key: string, message: string | null) => void
+  registerSummary: (present: boolean) => void
+}
+
+const FormErrorScopeContext = createContext<FormErrorScopeValue | null>(null)
+
+export function useFormErrorScope() {
+  return useContext(FormErrorScopeContext)
+}
+
+function FormErrorScope({ children }: { children: React.ReactNode }) {
+  // Insertion-ordered, so "the first error" is the first field that failed
+  // in document order on a submit (fields mount their errors top-down).
+  const errorsRef = useRef(new Map<string, string>())
+  const [summaryCount, setSummaryCount] = useState(0)
+  const [announcement, setAnnouncement] = useState("")
+  const [version, setVersion] = useState(0)
+
+  const report = useCallback((key: string, message: string | null) => {
+    const errors = errorsRef.current
+    if (message === null) {
+      if (!errors.delete(key)) return
+    } else {
+      if (errors.get(key) === message) return
+      errors.set(key, message)
+    }
+    setVersion((value) => value + 1)
+  }, [])
+
+  const registerSummary = useCallback((present: boolean) => {
+    setSummaryCount((count) => Math.max(0, count + (present ? 1 : -1)))
+  }, [])
+
+  // Batched to one update per render pass: five errors mounting together
+  // produce one sentence, not five rewrites of the region.
+  useEffect(() => {
+    const errors = [...errorsRef.current.values()]
+    if (summaryCount > 0 || errors.length === 0) {
+      setAnnouncement("")
+      return
+    }
+    const more = errors.length - 1
+    setAnnouncement(
+      more > 0
+        ? `${errors[0]} ${more} more ${more === 1 ? "field needs" : "fields need"} attention.`
+        : errors[0]
+    )
+  }, [version, summaryCount])
+
+  const value = useMemo(
+    () => ({ report, registerSummary }),
+    [report, registerSummary]
+  )
+
+  return (
+    <FormErrorScopeContext.Provider value={value}>
+      {children}
+      <span
+        data-slot="form-error-announcer"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {announcement}
+      </span>
+    </FormErrorScopeContext.Provider>
+  )
+}
+
+type ErrorAnnounce = "alert" | "polite" | "off"
+
+function announceProps(announce: ErrorAnnounce) {
+  if (announce === "alert") return { role: "alert" as const }
+  if (announce === "polite") return { "aria-live": "polite" as const }
+  return {}
+}
+
+/**
+ * The error beneath a field (reference `.error-text`): danger ink, a leading
+ * alert glyph, and the reason in words.
+ *
+ * The reason is the children when given, otherwise the Field's `error`. A
+ * `<FieldError>` with children inside a `<Field>` with no `error` used to
+ * render nothing at all (the danger-zone destination check was silently
+ * invisible); now it renders and marks the control invalid, so a
+ * conditionally mounted `{bad ? <FieldError>Why</FieldError> : null}` is a
+ * complete error on its own. Renders nothing when there is no reason.
+ */
+function FieldError({
+  className,
+  children,
+  announce,
+  ...props
+}: React.ComponentProps<"p"> & {
+  /** Overrides the scope default; see `FormErrorScope`. */
+  announce?: ErrorAnnounce
+}) {
   const field = useFieldContext()
-  if (!field?.error) return null
+  const hasChildren =
+    children !== undefined &&
+    children !== null &&
+    children !== false &&
+    children !== ""
+  const content = hasChildren ? children : field?.error
+  if (!content) return null
+  return (
+    <FieldErrorMessage
+      className={className}
+      announce={announce}
+      ownsError={hasChildren}
+      text={typeof content === "string" ? content : undefined}
+      {...props}
+    >
+      {content}
+    </FieldErrorMessage>
+  )
+}
+
+function FieldErrorMessage({
+  className,
+  children,
+  announce,
+  ownsError,
+  text,
+  ...props
+}: React.ComponentProps<"p"> & {
+  announce?: ErrorAnnounce
+  ownsError: boolean
+  text?: string
+}) {
+  const field = useFieldContext()
+  const scope = useFormErrorScope()
+  const ref = useRef<HTMLParagraphElement>(null)
+  const key = useId()
+  const registerError = field?.registerError
+  const report = scope?.report
+
+  // Same layout-effect reasoning as FieldDescription: the control picks up
+  // aria-invalid and the error id before the browser paints.
+  useLayoutEffect(() => {
+    if (!ownsError) return
+    registerError?.(true)
+    return () => registerError?.(false)
+  }, [ownsError, registerError])
+
+  // The scope reads the words, not the node: `text` when the reason is a
+  // string, otherwise whatever the rendered paragraph says.
+  useLayoutEffect(() => {
+    if (!report) return
+    report(key, text ?? ref.current?.textContent ?? "")
+    return () => report(key, null)
+  }, [report, key, text])
+
+  const mode: ErrorAnnounce = announce ?? (scope ? "off" : "alert")
+
   return (
     <p
-      id={field.errorId}
-      role="alert"
+      ref={ref}
+      id={field?.errorId}
       data-slot="field-error"
+      {...announceProps(mode)}
       className={cn(
         "flex items-start gap-1.5 text-caption font-medium text-danger-ink",
         className
@@ -178,8 +361,49 @@ function FieldError({ className, ...props }: React.ComponentProps<"p">) {
         strokeWidth={1.75}
         className="mt-px size-3.5 shrink-0"
       />
-      <span className="min-w-0">{field.error}</span>
+      <span className="min-w-0">{children}</span>
     </p>
+  )
+}
+
+/**
+ * An error that belongs to the whole form or workflow, not one field: the
+ * save failed, Google refused the request, the session expired. Same ink and
+ * glyph as FieldError at the body size, announced as an alert (one at a
+ * time — a workflow has one current failure). Replaces the hand-rolled
+ * `<p role="alert" className="text-ui text-danger-ink">` paragraphs. Renders
+ * nothing without children, so `<FormError>{error}</FormError>` is safe.
+ */
+function FormError({
+  className,
+  children,
+  announce = "alert",
+  ...props
+}: React.ComponentProps<"div"> & { announce?: ErrorAnnounce }) {
+  if (
+    children === undefined ||
+    children === null ||
+    children === false ||
+    children === ""
+  )
+    return null
+  return (
+    <div
+      data-slot="form-error"
+      {...announceProps(announce)}
+      className={cn(
+        "flex items-start gap-2 text-ui font-medium text-danger-ink",
+        className
+      )}
+      {...props}
+    >
+      <CircleAlert
+        aria-hidden
+        strokeWidth={1.75}
+        className="mt-0.5 size-4 shrink-0"
+      />
+      <div className="min-w-0">{children}</div>
+    </div>
   )
 }
 
@@ -191,10 +415,10 @@ function FieldError({ className, ...props }: React.ComponentProps<"p">) {
  * axe rule can still flag it, and it's simply wrong. So `descriptionId` is
  * included only when a `FieldDescription` has registered its presence via
  * `registerDescription` (see `FieldDescription`'s layout effect) — NOT
- * unconditionally from context. `errorId` is included whenever `error` is
- * set, since `FieldError` renders synchronously (no registration needed:
- * it's conditioned on `field.error` in the same render, not a mounted
- * child announcing itself later). When both are present, the error id is
+ * unconditionally from context. `errorId` is included whenever the Field is
+ * invalid: from `error`, which `FieldError` renders in the same pass, or
+ * from a FieldError with its own children, which registers itself the same
+ * way a description does. When both are present, the error id is
  * ordered first, so screen readers announce the error before the hint.
  * Field's own tests assert `toHaveAccessibleDescription` and exact
  * `aria-describedby` values to catch violations of this contract; each
@@ -203,7 +427,7 @@ function FieldError({ className, ...props }: React.ComponentProps<"p">) {
 export function fieldControlProps(field: FieldContextValue | null) {
   if (!field) return {}
   const describedBy = [
-    field.error ? field.errorId : null,
+    field.invalid ? field.errorId : null,
     field.hasDescription ? field.descriptionId : null,
   ].filter(Boolean)
   return {
@@ -249,7 +473,9 @@ export function useFieldTriggerProps({
  * field radius, a 1px `line-strong` edge (the control boundary at 3:1) that
  * darkens on hover, an accent edge plus a 3px accent-tint halo on focus, the
  * danger edge plus danger-tint halo when invalid, and the sunken surface
- * when disabled or read-only. 16px text on coarse pointers stops iOS zoom.
+ * when disabled or read-only. `text-body` is 16px everywhere but the desk
+ * (fine pointer and a wide window), which is what stops iOS zooming into a
+ * focused field — no separate coarse-pointer patch is needed.
  * Exported so a control outside this file (a date input, a number field)
  * can look like an Input without copying the recipe.
  */
@@ -257,10 +483,9 @@ export const fieldChromeClassName = cn(
   "min-w-0 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) text-body text-ink outline-none",
   "transition-[border-color,box-shadow,background-color] duration-(--np-duration-fast) ease-spring-snappy",
   "placeholder:text-ink-muted hover:border-ink-muted",
-  "focus:border-primary focus:shadow-[0_0_0_3px_var(--np-accent-tint)] focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--np-accent-tint)]",
-  "aria-invalid:border-danger-ink aria-invalid:shadow-[0_0_0_3px_var(--np-danger-tint)]",
-  "read-only:bg-surface-alt read-only:text-ink-muted disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted",
-  "pointer-coarse:text-base"
+  "focus:border-primary focus:shadow-(--np-field-ring) focus-visible:border-primary focus-visible:shadow-(--np-field-ring)",
+  "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
+  "read-only:bg-surface-alt read-only:text-ink-muted disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted"
 )
 
 /**
@@ -304,7 +529,7 @@ function FieldCounter({
       data-near={isNear || undefined}
       aria-live={isOver || isNear ? "polite" : "off"}
       className={cn(
-        "font-mono text-[11.5px] text-ink-muted tabular-nums",
+        "font-mono text-count text-ink-muted tabular-nums",
         isOver && "font-semibold text-danger-ink",
         className
       )}
@@ -313,4 +538,12 @@ function FieldCounter({
   )
 }
 
-export { Field, FieldCounter, FieldDescription, FieldError, FieldLabel }
+export {
+  Field,
+  FieldCounter,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FormError,
+  FormErrorScope,
+}

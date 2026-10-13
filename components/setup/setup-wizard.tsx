@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
@@ -19,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Stepper } from "@/components/ui/stepper"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import type { SetupStep } from "@/lib/contracts/clients"
+import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useClient, useClientSetup } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
@@ -68,10 +70,11 @@ function focusTargetFor(step: SetupStep): string {
  * furthest reachable one instead, with a note saying why.
  *
  * Layout (reference `setup.html`): a sticky 220px step rail beside one card
- * from 720px of room; below that the rail folds into "Step N of 6" with a
+ * from 48rem of room; below that the rail folds into "Step N of 6" with a
  * progress bar and an "All steps" disclosure. The card's footer (Back, the
- * reason Continue is blocked, Continue) sticks to the bottom of the screen so
- * it is always reachable on a phone.
+ * reason Continue is blocked, Continue) is a docked ActionBar: fixed to the
+ * bottom of the screen on a phone so it is always reachable, sticky at the
+ * foot of the card from md.
  */
 function SetupWizard({ clientId }: { clientId: string }) {
   const router = useRouter()
@@ -94,6 +97,19 @@ function SetupWizard({ clientId }: { clientId: string }) {
   } | null>(null)
   const [stepsOpen, setStepsOpen] = React.useState(false)
   const titleRef = React.useRef<HTMLHeadingElement>(null)
+  // Keyboard safety for the docked step bar, as the editors have it: a
+  // focused field (or one under a just-opened phone keyboard) is scrolled
+  // clear of the bar's measured top, which is two rows when a blocked
+  // step's reason sits over Back and Continue. The section mounts after the
+  // loading states, so the hook follows it through a callback ref.
+  const [stepSection, setStepSection] = React.useState<HTMLElement | null>(
+    null
+  )
+  const stepSectionRef = React.useMemo(
+    () => ({ current: stepSection }),
+    [stepSection]
+  )
+  useKeepFocusClear(stepSectionRef, "[data-slot=setup-footer]")
 
   const clientName = clientQuery.data?.client.name
   const setup = setupQuery.data?.setup
@@ -126,7 +142,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
   }
   const goTo = (step: SetupStep) => {
     if (current === "locations" && onboardingDirty) {
-      setAttempt({ step: current, message: "Save your business draft before changing setup steps, or use Saved drafts to discard your edits.", key: Date.now() })
+      setAttempt({
+        step: current,
+        message:
+          "Save your business draft before changing setup steps, or use Saved drafts to discard your edits.",
+        key: Date.now(),
+      })
       return
     }
     setAttempt(null)
@@ -209,7 +230,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
 
   const advance = async () => {
     if (current === "locations" && onboardingDirty) {
-      setAttempt({ step: current, message: "Save your business draft before continuing, or use Saved drafts to discard your edits.", key: Date.now() })
+      setAttempt({
+        step: current,
+        message:
+          "Save your business draft before continuing, or use Saved drafts to discard your edits.",
+        key: Date.now(),
+      })
       return
     }
     setChecking(true)
@@ -262,10 +288,10 @@ function SetupWizard({ clientId }: { clientId: string }) {
       />
 
       <div className="@container/setup">
-        <div className="grid items-start gap-6 @min-[720px]/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
+        <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
           <nav
             aria-label="Setup progress"
-            className="sticky top-[calc(var(--np-toolbar-h)+16px)] hidden flex-col gap-3 @min-[720px]/setup:flex"
+            className="sticky top-[calc(var(--np-toolbar-h)+16px)] hidden flex-col gap-3 @3xl/setup:flex"
           >
             <Stepper
               orientation="vertical"
@@ -278,12 +304,13 @@ function SetupWizard({ clientId }: { clientId: string }) {
           </nav>
 
           <section
+            ref={setStepSection}
             aria-labelledby="setup-step-title"
             data-step={current}
             className="@container/wiz flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface"
           >
             <div className="flex flex-col gap-1 border-b border-line px-(--np-card-pad) pt-(--np-card-pad) pb-4">
-              <div className="mb-2 flex flex-col gap-2 @min-[720px]/setup:hidden">
+              <div className="mb-2 flex flex-col gap-2 @3xl/setup:hidden">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-caption font-semibold text-ink">
                     {numbered
@@ -329,7 +356,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 </div>
               </div>
               {isDone ? null : (
-                <p className="hidden text-caption font-semibold text-ink-secondary @min-[720px]/setup:block">
+                <p className="hidden text-caption font-semibold text-ink-secondary @3xl/setup:block">
                   {numbered
                     ? `Step ${numbered.number} of ${numbered.total}`
                     : "Before you start"}
@@ -391,53 +418,72 @@ function SetupWizard({ clientId }: { clientId: string }) {
               </div>
             </div>
 
-            {isDone ? null : (
-              <div
-                data-slot="setup-footer"
-                className="sticky bottom-0 z-10 mt-auto flex flex-wrap items-center gap-2 rounded-b-(--np-radius-card) border-t border-line bg-surface-alt px-(--np-card-pad) pt-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+            {/* The step's actions: the shared ActionBar, docked. On a phone
+                it is fixed to the bottom edge (the tab bar steps aside, the
+                page's scroll padding follows it, and it rides the on-screen
+                keyboard); from md it sticks to the foot of the card. The
+                surface tone: these move between steps, nothing here reaches
+                Google. Laid out as the card's last row (its gutter, its
+                corners), the buttons in one row; a blocked step's reason
+                takes a row of its own above them on a narrow card.
+
+                Except on a short phone (under 640px tall): there two rows
+                with the app bar took over a quarter of the screen, so the
+                bar keeps the ActionBar's docked one-line shape instead.
+                Back shrinks to its arrow (still named "Back", still 44px)
+                and the reason, whole and readable, sits between it and
+                Continue; the gaps and the reason's weight ease so the
+                longest reason fits in five lines at 320px. */}
+            <ActionBar
+              data-slot="setup-footer"
+              label="Step actions"
+              tone="surface"
+              dock
+              visible={!isDone}
+              className="mt-auto gap-2 rounded-none rounded-b-(--np-radius-card) border-x-0 border-b-0 bg-surface-alt px-(--np-card-pad) pt-3 shadow-none max-md:flex-wrap max-md:short:gap-1.5"
+            >
+              {/* One row of buttons. The reason line shows only when it
+                    says why Continue is blocked; otherwise it stays for
+                    assistive tech (Continue's description, and the live
+                    region that announces a blocker), since the rail and the
+                    step header already say the step can be revisited. */}
+              <p
+                id="setup-continue-reason"
+                aria-live="polite"
+                className={cn(
+                  blocker
+                    ? "order-first w-full text-caption font-semibold text-warning-ink @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right max-md:short:order-none max-md:short:w-auto max-md:short:min-w-0 max-md:short:flex-1 max-md:short:leading-tight max-md:short:font-medium"
+                    : "sr-only"
+                )}
               >
-                <p
-                  id="setup-continue-reason"
-                  aria-live="polite"
-                  className={cn(
-                    "order-first w-full text-caption @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right",
-                    blocker
-                      ? "font-semibold text-warning-ink"
-                      : "text-ink-muted"
-                  )}
-                >
-                  {footerHint}
-                </p>
-                <Button
-                  variant="ghost"
-                  onClick={() => goTo(flow[index - 1])}
-                  disabled={index === 0}
-                  className="@min-[560px]/wiz:order-first"
-                >
-                  <ArrowLeftIcon aria-hidden />
-                  Back
-                </Button>
-                <div className="ml-auto flex items-center gap-2">
-                  {definition.optional ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => goTo(flow[index + 1])}
-                    >
-                      Skip for now
-                    </Button>
-                  ) : null}
-                  <Button
-                    onClick={() => void advance()}
-                    pending={checking}
-                    pendingLabel="Checking…"
-                    aria-describedby="setup-continue-reason"
-                    data-blocked={blocker ? "" : undefined}
-                  >
-                    {importing ? "Continue while it runs" : "Continue"}
+                {footerHint}
+              </p>
+              <Button
+                variant="ghost"
+                onClick={() => goTo(flow[index - 1])}
+                disabled={index === 0}
+                className="@min-[560px]/wiz:order-first max-md:short:order-first max-md:short:min-w-11 max-md:short:px-0"
+              >
+                <ArrowLeftIcon aria-hidden />
+                <span className="max-md:short:sr-only">Back</span>
+              </Button>
+              <div className="ml-auto flex items-center gap-2 max-md:short:gap-1.5">
+                {definition.optional ? (
+                  <Button variant="ghost" onClick={() => goTo(flow[index + 1])}>
+                    Skip for now
                   </Button>
-                </div>
+                ) : null}
+                <Button
+                  onClick={() => void advance()}
+                  pending={checking}
+                  pendingLabel="Checking…"
+                  aria-describedby="setup-continue-reason"
+                  data-blocked={blocker ? "" : undefined}
+                >
+                  {importing ? "Continue while it runs" : "Continue"}
+                </Button>
               </div>
-            )}
+            </ActionBar>
           </section>
         </div>
       </div>
@@ -459,10 +505,16 @@ function WizardHeader({
       title={business ? "Setup" : "Client setup"}
       eyebrow={clientName ? `Setting up ${clientName}` : "Setting up"}
       description="Each step is worked out from what already exists, so you can leave and pick this up later."
-      actions={
+      // "Finish later" sits on the title row, compact, rather than in
+      // `actions`, which a phone stretches to a full-width row of its own
+      // above the step.
+      meta={
         <Link
           href={business ? "/listings" : `/clients/${clientId}`}
-          className={cn(buttonVariants({ variant: "ghost" }))}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "-mr-2 ml-auto"
+          )}
         >
           Finish later
         </Link>
@@ -483,8 +535,8 @@ function WizardSkeleton({
       <span className="sr-only">
         {business ? "Loading your setup" : "Loading this client’s setup"}
       </span>
-      <div className="grid items-start gap-6 @min-[720px]/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
-        <div className="hidden flex-col gap-2 @min-[720px]/setup:flex">
+      <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
+        <div className="hidden flex-col gap-2 @3xl/setup:flex">
           {flow.map((step) => (
             <Skeleton key={step} className="h-8" />
           ))}

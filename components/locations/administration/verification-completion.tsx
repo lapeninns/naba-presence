@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Instant, ReviewedWritePanel, reviewedWriteStage } from "@/components/reviewed-write"
+import { Card, CardContent } from "@/components/ui/card"
 import { StatusPill } from "@/components/ui/status-pill"
 import { ApiClientError } from "@/lib/api/client"
 import { previewGoogleVerificationCompletion, fetchGoogleVerificationCompletionReview, approveGoogleVerificationCompletion } from "@/lib/api/google-verification-completion-reviews"
@@ -48,10 +50,16 @@ export function ReviewedCompletionVerification({ verifications }: { readonly ver
   function reset() { setReview(null); setAttempt(null); setFreshReviewRequired(false); setUncertain(false); clearError() }
   const pending = (current.data?.verifications ?? verifications).filter((item) => item.phase === "pending")
   function checkState() { void run(async () => { const result = await current.refetch(); if (result.error) throw result.error }) }
-  return <div className="flex min-w-0 flex-col gap-4">
-    <Button variant="secondary" className="self-start" disabled={busy} onClick={checkState}>Check current Google verification state</Button>
-    {current.data && <p className="font-mono text-caption text-ink-muted">Current requests last checked {new Date(current.data.checkedAt).toLocaleString("en-GB")}.</p>}
+  const errorNote = error && <p role="alert" className="text-ui text-danger-ink">{error}</p>
+  const stateCheck = <div className="flex min-w-0 flex-col gap-2">
+    <Button variant="secondary" className="h-auto min-h-(--np-control-h) max-w-full self-start py-2 text-left leading-snug whitespace-normal" disabled={busy} onClick={checkState}>Check current Google verification state</Button>
+    {current.data && <p className="text-caption text-ink-muted">Current requests last checked <Instant value={current.data.checkedAt} />.</p>}
     {current.isError && <p role="status" className="text-ui text-ink-secondary">Current Google state could not be refreshed. Any request details still shown are earlier observations.</p>}
+  </div>
+  return <div className="flex min-w-0 flex-col gap-4">
+    {attempt || review ? <ReviewedWritePanel id="verification-pin-review" headingLevel="h3" title={attempt ? "PIN completion outcome" : "Review PIN completion"}
+      stage={reviewedWriteStage({ approved: Boolean(review?.changeSet.approvedBy), recorded: Boolean(attempt) })} secondApprover={review?.changeSet.requiresSecondApprover}
+      focusKey={attempt ? `attempt:${attempt.id}` : review ? `review:${review.changeSet.id}` : null}>
     {attempt ? <>
       <VerificationAttemptStatus attempt={attempt} busy={busy} onRefresh={() => void run(async () => { setAttempt(await refreshGoogleVerificationCompletionAttempt(locationId, attempt.reviewId)); invalidate() })} onState={checkState} />
       {(attempt.error === "completion_rejected" || attempt.verification?.phase === "failed") && <Button variant="ghost" className="h-auto min-h-(--np-control-h) max-w-full self-start py-2 text-left leading-snug whitespace-normal" disabled={busy} onClick={reset}>Check Google, then review a corrected PIN</Button>}
@@ -80,25 +88,29 @@ export function ReviewedCompletionVerification({ verifications }: { readonly ver
       })}
       onRefresh={() => void runReview(async () => { setReview(await fetchGoogleVerificationCompletionReview(locationId, review.changeSet.id)); setReviewVersion((version) => version + 1) })}
       onReset={reset}
-    /> : <>
+    /> : null}
+    {errorNote}
+    </ReviewedWritePanel> : <>
       {!pending.length && <p className="text-ui text-ink-muted">No independently known pending request is available for PIN entry. Check current Google state or inspect saved completions below.</p>}
       <ul aria-label="Pending verification requests" className="flex list-none flex-col gap-3">
         {pending.map((item) => {
           const supported = verificationCompletionPayloadSchema.shape.method.safeParse(item.method).success && verificationCompletionInputSchema.shape.name.safeParse(item.name).success
-          return <li key={item.name} className="flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4">
+          return <li key={item.name}><Card size="sm"><CardContent className="flex min-w-0 flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2"><span className="text-body font-semibold">{verificationMethodName(item.method)}</span><StatusPill tone="pending">Pending with Google</StatusPill></div>
-            <VerificationMethodCode method={item.method} />
             <p className="text-ui text-ink-secondary">{verificationRequestDescription(item.method, item.createTime)}</p>
-            <VerificationRequestReference name={item.name} />
+            <VerificationMethodCode method={item.method} />
             {supported ? <VerificationPinField name={item.name} blocked={writeBlocked} busy={busy} onSubmit={(pin) => void run(async () => {
               setReview(await previewGoogleVerificationCompletion(locationId, { name: item.name, pin })); activate(); setFreshReviewRequired(false); setUncertain(false); invalidate()
             })} /> : <p className="text-ui text-ink-secondary">This pending method cannot accept a PIN here. Follow the instructions in Google, then refresh its state.</p>}
-          </li>
+            <VerificationRequestReference name={item.name} />
+          </CardContent></Card></li>
         })}
       </ul>
+      {errorNote}
+      {stateCheck}
       <a href="https://business.google.com/" target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline" }), "self-start")}>Continue verification in Google</a>
     </>}
-    {error && <p role="alert" className="text-ui text-danger-ink">{error}</p>}
+    {attempt || review ? stateCheck : null}
     <SectionGateNote />
     <SavedVerificationWorkflows locationId={locationId} operation="complete" busy={busy} expiredReviewIds={expiredIds} lostSendReviewIds={lostSendIds} invalidReviewIds={invalidIds} onSelect={(item) => void runReview(async () => {
       if (item.attempt) { const saved = await fetchGoogleVerificationCompletionAttempt(locationId, item.reviewId); setAttempt(saved); setReview(null); settleSend(item.reviewId) }

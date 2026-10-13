@@ -2,6 +2,7 @@ import { ArchiveIcon } from "lucide-react"
 import Link from "next/link"
 import { headers } from "next/headers"
 import { notFound } from "next/navigation"
+import { cache } from "react"
 
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
 import { PageEmptyState, PageFrame } from "@/components/app-shell/page-frame"
@@ -13,6 +14,50 @@ import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { REQUEST_PATH_HEADER } from "@/lib/api/next-path"
 import { getSession } from "@/lib/server/session"
 import { redirectOutOfClientLayer } from "@/lib/server/workspace-redirect"
+
+type VisibleClient = { id: string; name: string; archived: boolean }
+
+/**
+ * The client this session may see, or undefined. Cached per request, so
+ * the document title and the layout share one read.
+ */
+const readVisibleClient = cache(
+  async (clientId: string): Promise<VisibleClient | undefined> => {
+    const session = await getSession()
+    if (!session) return undefined
+    if (!clientIdParamsSchema.safeParse({ clientId }).success) return undefined
+    const [client] = await withTenant(
+      session.organisationId,
+      (sql) =>
+        sql<VisibleClient[]>`
+        select
+          c.id::text as id,
+          c.name,
+          c.archived_at is not null as archived
+        from client c
+        where c.id = ${clientId}
+          and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
+      `
+    )
+    return client
+  }
+)
+
+/**
+ * The client hub's document title names the client, so a tab, the history
+ * list and the route announcer say which client this is. Pages beneath
+ * (client settings) set their own. A client the session cannot see gets the
+ * generic title: the name must not leak through the tab either.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ clientId: string }>
+}) {
+  const { clientId } = await params
+  const client = await readVisibleClient(clientId).catch(() => undefined)
+  return client ? { title: `${client.name} · NabaPresence` } : {}
+}
 
 /**
  * Declares the client scope for the shell, so the topbar's health chip and the
@@ -45,19 +90,7 @@ export default async function ClientLayout({
   if (!clientIdParamsSchema.safeParse({ clientId }).success) notFound()
 
   if (session) {
-    const [client] = await withTenant(
-      session.organisationId,
-      (sql) =>
-        sql<{ id: string; name: string; archived: boolean }[]>`
-        select
-          c.id::text as id,
-          c.name,
-          c.archived_at is not null as archived
-        from client c
-        where c.id = ${clientId}
-          and ${clientVisibilityPredicate(sql, session, sql`c.id`)}
-      `
-    )
+    const client = await readVisibleClient(clientId)
     // A client the session cannot see reads exactly like one that does not
     // exist, so probing ids tells an outsider nothing.
     if (!client) notFound()

@@ -9,6 +9,7 @@ import {
 
 import { peekStashedDraft } from "@/lib/api/draft-stash"
 import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 
 import { draftKeyOwner, type DraftScope } from "./draft-key"
 import { useDraftKey } from "./use-draft-key"
@@ -150,9 +151,15 @@ export function useEditorDraft<T>({
   })
 
   // A draft stashed by an earlier visit, read once on mount without
-  // consuming it (the editors render on the client only: their data is never
-  // prefetched), and offered only when it differs from the server copy.
+  // consuming it, and offered only when it differs from the server copy.
   // Restoring or dismissing it is what clears it.
+  //
+  // An editor whose data was streamed from the server (hours, photos, posts)
+  // is hydrated, not mounted fresh: its first browser render must match the
+  // server's, which had no stash. So the read waits for the render after
+  // hydration (`useHydrated`: false only in the server render and while
+  // hydrating) and the offer appears then; an editor mounted in the browser
+  // reads on its first render, as before.
   //
   // Read per key: when the key changes (the session's identity became known
   // or changed) the stash read under the old key is dropped, never offered
@@ -169,11 +176,15 @@ export function useEditorDraft<T>({
       return null
     }
   }
-  const [stashState, setStashState] = useState(() => ({
-    key,
-    stash: readStash(key),
-  }))
-  if (stashState.key !== key) setStashState({ key, stash: readStash(key) })
+  const canReadStash = useHydrated()
+  const [stashState, setStashState] = useState<{
+    key: string | null
+    stash: { value: T } | null
+  }>(() =>
+    canReadStash ? { key, stash: readStash(key) } : { key: null, stash: null }
+  )
+  if (canReadStash && stashState.key !== key)
+    setStashState({ key, stash: readStash(key) })
   const stash = stashState.key === key ? stashState.stash : null
   const setStash = useCallback(
     (next: null) => setStashState({ key, stash: next }),

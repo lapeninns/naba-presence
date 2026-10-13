@@ -22,6 +22,28 @@ export default defineConfig({
     trace: "retain-on-failure",
     ...(process.env.CI ? {} : { channel: "chrome" as const }),
   },
+  projects: [
+    // The existing suites, unchanged: unnamed, so titles, output folders and
+    // every spec's own viewport are exactly what they were before projects.
+    // It is first because the global setup reads projects[0]'s baseURL.
+    { testIgnore: /touch-critical\.spec\.ts$/ },
+    // The critical journeys on a phone held in the hand (spec
+    // docs/specs/2026-10-13-mobile-first-design-system.md, Verification):
+    // touch events, mobile viewport meta and a 3x screen. Only its own spec
+    // runs here, and only here, so `pnpm test:e2e` runs it once alongside
+    // the rest and `pnpm test:e2e:touch` runs it alone.
+    {
+      name: "touch-390",
+      testMatch: /touch-critical\.spec\.ts$/,
+      use: {
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+        deviceScaleFactor: 3,
+        browserName: "chromium",
+      },
+    },
+  ],
   webServer: {
     command: `PORT=${port} pnpm start`,
     url: baseURL,

@@ -27,7 +27,7 @@ function AuthErrorAlert({
             // message; the underline is what marks it as a route out.
             <Link
               href="/forgot-password"
-              className="inline-flex min-h-6 items-center rounded-(--np-radius-tag) font-medium underline underline-offset-4 focus-halo"
+              className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-medium underline underline-offset-4 focus-halo desk:min-h-6"
             >
               Request another link
             </Link>

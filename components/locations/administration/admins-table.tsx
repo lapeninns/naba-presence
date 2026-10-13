@@ -35,16 +35,14 @@ function initials(person: string): string {
  * The people who may edit this listing on Google (reference people table):
  * an initials avatar and the Google account, the role as a mono tag, whether
  * they have access yet, and the row's actions at the trailing edge. Below
- * 720px of width each row becomes a labelled card.
+ * 48rem of the table's own width each row becomes a record card.
  */
 export function AdminsTable({
   admins,
-  invitations,
   renderActions,
   caption = "People with access on Google",
 }: {
   admins: AdminRow[]
-  invitations: Array<{ name?: string; role?: string; targetType?: string }>
   renderActions?: (admin: AdminRow) => React.ReactNode
   caption?: string
 }) {
@@ -90,10 +88,10 @@ export function AdminsTable({
               </TableCell>
               {renderActions ? (
                 <TableCell
-                  data-actions
-                  className="text-right @max-[720px]/table:text-left"
+                  actions
+                  className="text-right @max-3xl/table:text-left"
                 >
-                  <span className="flex flex-wrap items-center justify-end gap-2 @max-[720px]/table:justify-start">
+                  <span className="flex flex-wrap items-center justify-end gap-2 @max-3xl/table:justify-start">
                     {renderActions(admin)}
                   </span>
                 </TableCell>
@@ -101,33 +99,6 @@ export function AdminsTable({
             </TableRow>
           )
         })}
-        {invitations.map((invitation, index) => (
-          <TableRow key={invitation.name ?? `inv-${index}`}>
-            <TableCell label="Person" className="font-medium text-ink">
-              <span className="flex min-w-0 items-center gap-2.5">
-                <Avatar size="sm">
-                  <AvatarFallback>
-                    {initials(invitation.name ?? "?")}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="min-w-0 break-all">
-                  {invitation.name ?? "—"}
-                </span>
-              </span>
-            </TableCell>
-            <TableCell label="Role">
-              {invitation.role ? (
-                <Badge variant="role">{adminRoleLabel(invitation.role)}</Badge>
-              ) : (
-                "—"
-              )}
-            </TableCell>
-            <TableCell label="Status">
-              <StatusPill tone="pending">Invited</StatusPill>
-            </TableCell>
-            {renderActions ? <TableCell /> : null}
-          </TableRow>
-        ))}
       </TableBody>
     </Table>
   )

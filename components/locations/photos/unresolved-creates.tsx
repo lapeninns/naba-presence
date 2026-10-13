@@ -7,12 +7,12 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import {
   resolveMediaCreate,
   type MediaResolution,
   type MediaUnresolvedCreate,
 } from "@/lib/api/location-media"
-import { formatRelativeTime } from "@/lib/format"
 import { humaniseCategory } from "@/lib/locations/media-labels"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
@@ -57,7 +57,7 @@ export function UnresolvedCreates({
             <AlertTitle>Google did not confirm an upload</AlertTitle>
             <AlertDescription>
               {describeCreate(create)} was sent{" "}
-              {formatRelativeTime(create.startedAt)}, but Google did not say
+              <RelativeTime iso={create.startedAt} />, but Google did not say
               whether it was added and it is not among the listing’s photos yet.
               Check the listing on Google, then record what you find. Adding it
               again is blocked until then.

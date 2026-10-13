@@ -1,18 +1,15 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { RefreshCw } from "lucide-react"
-import { useId, useMemo, useState } from "react"
+import { useState } from "react"
 
 import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+  AccessScopeForm,
+  firstName,
+  type AccessScopeItem,
+} from "@/components/settings/access-scope-form"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
   DialogBody,
@@ -23,10 +20,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { RadioGroup } from "@/components/ui/radio-group"
+import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { useToastManager } from "@/components/ui/toast"
 import { updateClientAccess, type Member } from "@/lib/api/members"
 import type {
@@ -42,13 +37,6 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms } from "@/lib/workspace/terms"
 
 import { LocationAccessForm } from "./location-access-form"
-
-/** Above this many clients the checklist gets a search box. */
-const SEARCH_THRESHOLD = 8
-
-function firstName(name: string): string {
-  return name.trim().split(/\s+/)[0] || name
-}
 
 function listings(count: number) {
   return `${count} ${count === 1 ? "listing" : "listings"}`
@@ -68,6 +56,8 @@ type ClientPick = { listings: "all" | "unchanged"; canPublish?: boolean }
  * warning when the change widens or narrows what they see. Saved as
  * location_member rows by PUT /api/members/[userId]/client-access; the
  * server refuses the one change that would silently mean "everything".
+ * A bottom sheet on a phone; an accidental dismissal with unsaved changes
+ * asks before throwing them away.
  */
 export function ClientAccessDialog({
   open,
@@ -80,8 +70,23 @@ export function ClientAccessDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const terms = workspaceTerms(useWorkspaceMode())
+  // Unsaved picks guard an accidental dismissal; cleared whenever it closes.
+  const [dirty, setDirty] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (!open) setDirty(false)
+  }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      dirty={dirty}
+      discardPrompt={{
+        description:
+          "These changes haven’t been saved. Their access stays as it was.",
+      }}
+    >
       <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>{terms.access}</DialogTitle>
@@ -95,6 +100,7 @@ export function ClientAccessDialog({
           <ClientAccessLoader
             key={member.userId}
             member={member}
+            onDirtyChange={setDirty}
             onDone={() => onOpenChange(false)}
           />
         ) : null}
@@ -105,51 +111,52 @@ export function ClientAccessDialog({
 
 function ClientAccessLoader({
   member,
+  onDirtyChange,
   onDone,
 }: {
   member: Member
+  onDirtyChange: (dirty: boolean) => void
   onDone: () => void
 }) {
   const query = useClientAccess(member.userId)
   const business = useWorkspaceMode() === "business"
-  if (query.isPending) {
-    return (
-      <DialogBody aria-busy="true">
-        <span className="sr-only" role="status">
-          {business ? "Loading location access" : "Loading client access"}
-        </span>
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-16 w-full" />
-        <Skeleton className="h-24 w-full" />
-      </DialogBody>
-    )
-  }
-  if (query.isError) {
-    return (
-      <DialogBody>
-        <Alert variant="destructive">
-          <AlertTitle>We couldn’t load their access</AlertTitle>
-          <AlertDescription>
-            {describeActionError(query.error)} Nothing was changed.
-          </AlertDescription>
-          <AlertActions>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => query.refetch()}
-            >
-              <RefreshCw aria-hidden />
-              Try again
-            </Button>
-          </AlertActions>
-        </Alert>
-      </DialogBody>
-    )
-  }
-  return business ? (
-    <LocationAccessForm member={member} access={query.data} onDone={onDone} />
-  ) : (
-    <ClientAccessForm member={member} access={query.data} onDone={onDone} />
+  return (
+    <QueryStates
+      status={queryStatus(query)}
+      pending={
+        <DialogBody aria-busy="true">
+          <span className="sr-only" role="status">
+            {business ? "Loading location access" : "Loading client access"}
+          </span>
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </DialogBody>
+      }
+      error={{
+        title: "We couldn’t load their access",
+        description: `${describeActionError(query.error)} Nothing was changed.`,
+      }}
+      onRetry={() => void query.refetch()}
+    >
+      {() =>
+        business ? (
+          <LocationAccessForm
+            member={member}
+            access={query.data!}
+            onDirtyChange={onDirtyChange}
+            onDone={onDone}
+          />
+        ) : (
+          <ClientAccessForm
+            member={member}
+            access={query.data!}
+            onDirtyChange={onDirtyChange}
+            onDone={onDone}
+          />
+        )
+      }
+    </QueryStates>
   )
 }
 
@@ -172,23 +179,27 @@ function publishChecked(row: ClientAccessRow, pick: ClientPick): boolean {
 export function ClientAccessForm({
   member,
   access,
+  onDirtyChange,
   onDone,
 }: {
   member: Member
   access: ClientAccessResponse
+  onDirtyChange?: (dirty: boolean) => void
   onDone: () => void
 }) {
-  const ids = useId()
   const client = useQueryClient()
   const toast = useToastManager()
   const [mode, setMode] = useState<"all" | "some">(
     access.allClients ? "all" : "some"
   )
   const [picks, setPicks] = useState(() => initialPicks(access))
-  const [dirty, setDirty] = useState(false)
-  const [search, setSearch] = useState("")
+  const [dirty, setDirtyState] = useState(false)
   const name = firstName(member.displayName)
   const isMember = access.role === "member"
+  const markDirty = () => {
+    if (!dirty) onDirtyChange?.(true)
+    setDirtyState(true)
+  }
 
   const save = useMutation({
     mutationFn: (input: ClientAccessUpdateInput) =>
@@ -210,12 +221,6 @@ export function ClientAccessForm({
   })
 
   const rows = access.clients
-  const visibleRows = useMemo(() => {
-    const needle = search.trim().toLowerCase()
-    if (!needle) return rows
-    return rows.filter((row) => row.name.toLowerCase().includes(needle))
-  }, [rows, search])
-
   const selected = rows
     .filter((row) => picks.has(row.clientId))
     .map((row) => ({
@@ -236,7 +241,7 @@ export function ClientAccessForm({
       next(copy)
       return copy
     })
-    setDirty(true)
+    markDirty()
   }
 
   const onSave = () => {
@@ -255,154 +260,104 @@ export function ClientAccessForm({
     })
   }
 
-  const modeLabelId = `${ids}-mode`
-  const listLabelId = `${ids}-list`
+  const items: AccessScopeItem[] = rows.map((row) => {
+    const pick = picks.get(row.clientId)
+    const partial =
+      pick?.listings === "unchanged" &&
+      row.granted > 0 &&
+      row.granted < row.total
+    const empty = row.total === 0 && row.granted === 0
+    return {
+      id: row.clientId,
+      name: row.name,
+      label: row.archived ? `${row.name} (archived)` : row.name,
+      description: empty
+        ? "No listings yet, so ticking it gives nothing"
+        : partial
+          ? `Some listings: ${row.granted} of ${row.total}, kept as they are`
+          : listings(row.total),
+      checked: Boolean(pick),
+      indeterminate: partial,
+      disabled: empty && !pick,
+      action: partial ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={save.isPending}
+          onClick={() =>
+            update((current) =>
+              current.set(row.clientId, {
+                listings: "all",
+                canPublish: pick?.canPublish,
+              })
+            )
+          }
+        >
+          Give all {row.total}
+        </Button>
+      ) : undefined,
+      publish:
+        isMember && pick
+          ? {
+              checked: publishChecked(row, pick),
+              label:
+                pick.canPublish === undefined && row.publishing === "some"
+                  ? "Publishes to some"
+                  : "Can publish",
+            }
+          : undefined,
+    }
+  })
 
   return (
     <>
       <DialogBody>
-        <span id={modeLabelId} className="sr-only">
-          Which clients {name} can see
-        </span>
-        <RadioGroup
-          value={mode}
-          onValueChange={(next) => {
-            setMode(next as "all" | "some")
-            setDirty(true)
+        <AccessScopeForm
+          noun={{ one: "client", many: "clients" }}
+          legend={`Which clients ${name} can see`}
+          mode={mode}
+          onModeChange={(next) => {
+            setMode(next)
+            markDirty()
           }}
-          aria-labelledby={modeLabelId}
+          allOption={{
+            title: "All clients, including ones added later",
+            description: `${name} sees every client’s reviews and listings, now and in future.`,
+          }}
+          someOption={{
+            title: "Only these clients",
+            description:
+              "They see only the clients you tick. New clients stay hidden until you add them here.",
+          }}
+          items={items}
+          emptyMessage={`There are no clients yet. Add a client and its listings first, or leave ${name} on All clients.`}
+          onToggle={(clientId, checked) =>
+            update((current) => {
+              const row = rows.find((entry) => entry.clientId === clientId)
+              if (checked && row) {
+                current.set(clientId, {
+                  listings: row.granted > 0 ? "unchanged" : "all",
+                })
+              } else {
+                current.delete(clientId)
+              }
+            })
+          }
+          onPublishChange={(clientId, value) =>
+            update((current) => {
+              const pick = current.get(clientId)
+              if (pick) current.set(clientId, { ...pick, canPublish: value })
+            })
+          }
           disabled={save.isPending}
-          className="grid grid-cols-1 gap-2"
-        >
-          <ChoiceCard
-            value="all"
-            title="All clients, including ones added later"
-            description={`${name} sees every client’s reviews and listings, now and in future.`}
-          />
-          <ChoiceCard
-            value="some"
-            title="Only these clients"
-            description="They see only the clients you tick. New clients stay hidden until you add them here."
-          />
-        </RadioGroup>
-
-        {mode === "some" ? (
-          <div className="flex min-w-0 flex-col gap-2">
-            <span id={listLabelId} className="text-ui font-semibold text-ink">
-              Clients
-            </span>
-            {rows.length > SEARCH_THRESHOLD ? (
-              <Input
-                type="search"
-                aria-label="Search clients"
-                placeholder="Search clients"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                onClear={() => setSearch("")}
-              />
-            ) : null}
-            {rows.length === 0 ? (
-              <p className="text-caption text-ink-muted">
-                There are no clients yet. Add a client and its listings first,
-                or leave {name} on All clients.
-              </p>
-            ) : null}
-            <ul
-              aria-labelledby={listLabelId}
-              className="flex flex-col divide-y divide-line rounded-(--np-radius-card) border border-line"
-            >
-              {visibleRows.map((row) => {
-                const pick = picks.get(row.clientId)
-                const partial =
-                  pick?.listings === "unchanged" &&
-                  row.granted > 0 &&
-                  row.granted < row.total
-                const empty = row.total === 0 && row.granted === 0
-                const description = empty
-                  ? "No listings yet, so ticking it gives nothing"
-                  : partial
-                    ? `Some listings: ${row.granted} of ${row.total}, kept as they are`
-                    : listings(row.total)
-                return (
-                  <li
-                    key={row.clientId}
-                    className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2.5"
-                  >
-                    <Checkbox
-                      checked={Boolean(pick)}
-                      indeterminate={partial}
-                      disabled={save.isPending || (empty && !pick)}
-                      label={row.archived ? `${row.name} (archived)` : row.name}
-                      description={description}
-                      onCheckedChange={(checked) =>
-                        update((current) => {
-                          if (checked) {
-                            current.set(row.clientId, {
-                              listings: row.granted > 0 ? "unchanged" : "all",
-                            })
-                          } else {
-                            current.delete(row.clientId)
-                          }
-                        })
-                      }
-                    />
-                    <span className="flex items-center gap-3">
-                      {partial ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={save.isPending}
-                          onClick={() =>
-                            update((current) =>
-                              current.set(row.clientId, {
-                                listings: "all",
-                                canPublish: pick?.canPublish,
-                              })
-                            )
-                          }
-                        >
-                          Give all {row.total}
-                        </Button>
-                      ) : null}
-                      {isMember && pick ? (
-                        <span className="flex items-center gap-2 text-caption text-ink-muted">
-                          {pick.canPublish === undefined &&
-                          row.publishing === "some"
-                            ? "Publishes to some"
-                            : "Can publish"}
-                          <Switch
-                            checked={publishChecked(row, pick)}
-                            disabled={save.isPending}
-                            aria-label={`Can publish to ${row.name}`}
-                            onCheckedChange={(value) =>
-                              update((current) =>
-                                current.set(row.clientId, {
-                                  ...pick,
-                                  canPublish: value,
-                                })
-                              )
-                            }
-                          />
-                        </span>
-                      ) : null}
-                    </span>
-                  </li>
-                )
-              })}
-              {visibleRows.length === 0 && rows.length > 0 ? (
-                <li className="px-3 py-2.5 text-caption text-ink-muted">
-                  No clients match “{search}”.
-                </li>
-              ) : null}
-            </ul>
-            {!isMember ? (
-              <p className="text-caption text-ink-muted">
-                Viewers can’t publish, whichever clients they see.
-              </p>
-            ) : null}
-          </div>
-        ) : isMember ? (
-          <p className="text-caption text-ink-muted">
+          note={
+            isMember
+              ? undefined
+              : "Viewers can’t publish, whichever clients they see."
+          }
+        />
+        {mode === "all" && isMember ? (
+          <p className="text-ui text-ink-muted">
             Publishing follows {name}’s Publishing setting on the team list.
           </p>
         ) : null}

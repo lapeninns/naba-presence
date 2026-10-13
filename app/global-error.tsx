@@ -4,9 +4,7 @@ import { TriangleAlert } from "lucide-react"
 import * as React from "react"
 
 import "./globals.css"
-import { BrandMark } from "@/components/app-shell/brand-mark"
-import { Button, buttonVariants } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import { boundaryButtonClass } from "@/components/app-shell/boundary"
 
 /**
  * The root boundary: the root layout itself failed, so this file draws its
@@ -16,6 +14,10 @@ import { cn } from "@/lib/utils"
  *
  * The digest, when Next.js forwards one, is the only identifier shown; the
  * error's message may carry details the viewer should not see.
+ *
+ * Plain markup and the light helpers in components/app-shell/boundary.tsx
+ * only: no primitives, no class merging, nothing that could itself be what
+ * failed to load.
  */
 export default function GlobalError({
   error,
@@ -36,7 +38,25 @@ export default function GlobalError({
           tabIndex={-1}
           className="flex min-h-svh flex-col items-center justify-center gap-6 px-4 py-10 outline-none"
         >
-          <BrandMark size="lg" />
+          {/* BrandMark (size lg), drawn inline. */}
+          <span
+            data-slot="brand-mark"
+            className="flex min-w-0 items-center gap-2.5"
+          >
+            <span
+              aria-hidden
+              translate="no"
+              className="grid size-8 shrink-0 place-items-center rounded-md bg-ink font-display text-title leading-none font-bold text-canvas"
+            >
+              N
+            </span>
+            <span
+              className="truncate text-title font-semibold tracking-[-0.005em] text-ink"
+              translate="no"
+            >
+              NabaPresence
+            </span>
+          </span>
           <section
             aria-labelledby="global-error-title"
             className="flex w-full max-w-[460px] flex-col gap-4 rounded-2xl border border-line bg-surface p-[clamp(20px,5vw,32px)]"
@@ -68,10 +88,9 @@ export default function GlobalError({
               </p>
             ) : null}
             <div className="flex flex-col gap-2">
-              <Button
+              <button
                 type="button"
-                size="lg"
-                className="w-full"
+                className={boundaryButtonClass("primary", "lg", "w-full")}
                 disabled={pending}
                 aria-busy={pending || undefined}
                 onClick={() =>
@@ -81,15 +100,12 @@ export default function GlobalError({
                 }
               >
                 {pending ? "Trying again…" : "Try again"}
-              </Button>
+              </button>
               {/* A plain anchor, not next/link: the router may be what
                   failed, and a full navigation starts clean. */}
               <a
                 href="/inbox"
-                className={cn(
-                  buttonVariants({ variant: "ghost", size: "lg" }),
-                  "w-full"
-                )}
+                className={boundaryButtonClass("ghost", "lg", "w-full")}
               >
                 Go to Inbox
               </a>

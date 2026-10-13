@@ -10,10 +10,10 @@ import { PostCard } from "@/components/locations/posts/post-card"
 import { LegacyPostSchedules } from "@/components/locations/posts/legacy-post-schedules"
 import { PostComposerSheet } from "@/components/locations/posts/post-composer-sheet"
 import { PostSchedules } from "@/components/locations/posts/post-schedules"
-import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
@@ -105,8 +105,7 @@ function lifecycle(post: Post): LifecycleStage[] {
       label: describeOutcome("confirmed_applied").label,
       // Done only on the outcome that may say live: Google reports the post
       // LIVE (lib/domain/post-outcome.ts).
-      state:
-        localPostOutcome(post) === "confirmed_applied" ? "done" : "todo",
+      state: localPostOutcome(post) === "confirmed_applied" ? "done" : "todo",
     },
   ]
 }
@@ -232,44 +231,48 @@ function PostsList({
     return map
   }, [schedules.data])
   const composeReason = composeDisabledReason(writesEnabled)
-  const live = counts.live
-  const attention = counts.attention
   const switching = loadedFilter !== filter
   // The server already filtered and ordered the view; the filter here only
   // hides the previous view's rows while a switch loads.
-  const shown = posts.filter((post) => matchesPostFilter(post, filter)).sort((a, b) => {
-    const aTime = postContentTimestamp(a)
-    const bTime = postContentTimestamp(b)
-    return (bTime ? Date.parse(bTime) : -Infinity) - (aTime ? Date.parse(aTime) : -Infinity) || a.id.localeCompare(b.id)
-  })
+  const shown = posts
+    .filter((post) => matchesPostFilter(post, filter))
+    .sort((a, b) => {
+      const aTime = postContentTimestamp(a)
+      const bTime = postContentTimestamp(b)
+      return (
+        (bTime ? Date.parse(bTime) : -Infinity) -
+          (aTime ? Date.parse(aTime) : -Infinity) || a.id.localeCompare(b.id)
+      )
+    })
 
-  const summary =
-    attention > 0
-      ? { label: `${attention} need attention`, tone: "attention" as const }
-      : live > 0
-        ? { label: `${live} live on Google`, tone: "healthy" as const }
-        : counts.all > 0
-          ? { label: "Nothing live", tone: "neutral" as const }
-          : undefined
+  const editReason = contentEditDisabledReason(caps)
 
+  // Inside the listing area the header above already carries the "Posts"
+  // h1, the status and the model note ("Each post is drafted, approved if
+  // your policy asks, then published."), so the frame keeps its title for
+  // the outline only; the status counts live on the filter chips below.
   return (
     <EditorFrame
       title="Posts"
-      statusLabel={summary?.label}
-      tone={summary?.tone}
-      description="Updates, events and offers that appear on the listing. Drafts stay here until you publish them, or until an approved schedule publishes them."
+      titleHidden
       // Every post write 503s while paused, so the banner is also the reason
-      // for the disabled Delete (and Publish) on each post below.
+      // for the disabled Delete (and Publish) on each post below. A role that
+      // may only look gets the same banner, which is the reason New post is
+      // off.
       gateReason={
         composeReason
           ? `${composeReason} Publishing and deleting posts also wait until it’s back.`
-          : null
+          : editReason
       }
-      gateTitle="Posts are paused"
+      gateTitle={
+        composeReason
+          ? "Posts are paused"
+          : "You can look, but not change these posts"
+      }
       actions={
         <PostComposerSheet
           locationId={locationId}
-          disabledReason={composeReason ?? contentEditDisabledReason(caps)}
+          disabledReason={composeReason ?? editReason}
           timezone={timezone}
         />
       }
@@ -285,14 +288,14 @@ function PostsList({
       ) : null}
 
       {counts.all === 0 ? (
-        <div className="rounded-lg border border-line bg-surface">
+        <Card flush>
           <Empty
             icon={<Megaphone aria-hidden />}
             titleAs="h3"
             title="No posts yet"
             description="A post is a short update, event or offer that shows on the listing for a week or so. Use New post above to write the first one."
           />
-        </div>
+        </Card>
       ) : (
         <div className="flex flex-col gap-3">
           <ChipRow role="group" aria-label="Filter posts by status">
@@ -317,7 +320,7 @@ function PostsList({
           </ChipRow>
 
           {shown.length === 0 && !switching ? (
-            <div className="rounded-lg border border-line bg-surface">
+            <Card flush>
               <Empty
                 icon={<FilterIcon aria-hidden />}
                 titleAs="h3"
@@ -333,9 +336,12 @@ function PostsList({
                   </Button>
                 }
               />
-            </div>
+            </Card>
           ) : (
-            <ul className="flex flex-col gap-3" aria-busy={switching || undefined}>
+            <ul
+              className="flex flex-col gap-3"
+              aria-busy={switching || undefined}
+            >
               {shown.map((post) => {
                 const status = postStatus(post)
                 const changedAt = postContentTimestamp(post)
@@ -349,7 +355,9 @@ function PostsList({
                   postActionLabel(post)
                     ? `${postActionLabel(post)} button`
                     : "",
-                  changedAt ? `Changed ${formatPostTimestamp(changedAt)}` : "Date unavailable",
+                  changedAt
+                    ? `Changed ${formatPostTimestamp(changedAt, timezone)}`
+                    : "Date unavailable",
                 ]
                   .filter(Boolean)
                   .join(" · ")
@@ -372,39 +380,39 @@ function PostsList({
                       problem={problem(post)}
                       lifecycle={lifecycle(post)}
                       actions={
-                        <div className="flex flex-wrap items-center gap-1">
-                          <PostsActionBar
-                            locationId={locationId}
-                            post={post}
-                            caps={caps}
-                            writesEnabled={writesEnabled}
-                            timezone={timezone}
-                            scheduling={
-                              scheduling
-                                ? {
-                                    scheduledFor: scheduled
-                                      ? describeScheduleRule(
-                                          scheduled.rule,
-                                          scheduled.timezone,
-                                          scheduled.offsetMinutes
-                                        )
-                                      : null,
-                                  }
-                                : undefined
-                            }
-                          />
-                          {caps?.canEditCanonical &&
-                          scheduling &&
-                          schedulable(post) &&
-                          !scheduled ? (
-                            <SchedulePostSheet
-                              locationId={locationId}
-                              post={post}
-                              timezone={timezone}
-                              recurring={caps.postSchedulingRecurring === true}
-                            />
-                          ) : null}
-                        </div>
+                        <PostsActionBar
+                          locationId={locationId}
+                          post={post}
+                          // Updates share the headline "Update", so the
+                          // menu is named by the post's own words.
+                          label={
+                            postEventTitle(post) ||
+                            post.summary.slice(0, 60) ||
+                            headline(post)
+                          }
+                          caps={caps}
+                          writesEnabled={writesEnabled}
+                          timezone={timezone}
+                          scheduling={
+                            scheduling
+                              ? {
+                                  scheduledFor: scheduled
+                                    ? describeScheduleRule(
+                                        scheduled.rule,
+                                        scheduled.timezone,
+                                        scheduled.offsetMinutes
+                                      )
+                                    : null,
+                                  canSchedule:
+                                    caps?.canEditCanonical === true &&
+                                    schedulable(post) &&
+                                    !scheduled,
+                                  recurring:
+                                    caps?.postSchedulingRecurring === true,
+                                }
+                              : undefined
+                          }
+                        />
                       }
                     />
                   </li>

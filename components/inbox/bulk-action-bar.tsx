@@ -1,6 +1,13 @@
 "use client"
 
-import { Check, MessageSquareText, UserPlus, X } from "lucide-react"
+import {
+  Check,
+  CircleSlash,
+  MessageSquareText,
+  Ellipsis,
+  UserPlus,
+  X,
+} from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
 
@@ -14,14 +21,21 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useMenuSheet } from "@/components/ui/menu-surface"
 import { useToastManager } from "@/components/ui/toast"
 import type {
   BulkReviewActionInput,
@@ -38,9 +52,12 @@ import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
 
 /**
- * Actions over a selection, floating over the workspace as a capsule on the
- * popover material — the way a Mac shows a selection's tools without moving
- * the rows underneath.
+ * Actions over a selection: the list's charcoal bar, pinned under the rows
+ * and docked to the bottom of a phone while anything is ticked. One row —
+ * how many are selected, an overflow (⋯) for the rarer actions, and one
+ * primary — so it is a single thumb-height line on a phone. A desk adds a
+ * quick ✕ to clear; on touch, Clear is in the overflow (and the list
+ * header's Done clears too).
  *
  * Reports eligibility BEFORE acting — "3 of 5 can be approved" — because the
  * alternative is an operator pressing Approve on five rows and being told
@@ -55,11 +72,15 @@ function BulkActionBar({
   /** Approve and template replies run as a bulk batch (the job runner sends them). */
   bulkEngine?: boolean
 }) {
-  const { selected, clear, replace } = useSelection()
+  const { selected, clear, replace, setSelectMode } = useSelection()
   const bulk = useBulkReviewAction()
   const toast = useToastManager()
+  // On a phone the overflow is a bottom action sheet, where a flyout
+  // submenu has nowhere to fly to; the assignees are listed in the sheet.
+  const menuIsSheet = useMenuSheet()
   const [outcome, setOutcome] = React.useState<BulkReviewResult | null>(null)
   const [confirmApprove, setConfirmApprove] = React.useState(false)
+  const [confirmReviewed, setConfirmReviewed] = React.useState(false)
   // The selection as it was when the template batch opened. Replies that
   // publish leave the list (and so the selection's visible rows) while the
   // dialog is still showing its summary, so it works from this copy and is
@@ -148,7 +169,9 @@ function BulkActionBar({
         description: summary.description,
         type: summary.tone,
       })
-      if (summary.allOk) clear()
+      // Every row done: the batch is over, so select mode ends with it
+      // (which also clears). Anything left over stays ticked to retry.
+      if (summary.allOk) setSelectMode(false)
     } catch (error) {
       toast.add({
         title: "That batch did not run",
@@ -170,146 +193,227 @@ function BulkActionBar({
   }
 
   const partial = approvable.length < chosen.length && approvable.length > 0
+  const ratingOnly = chosen.some(isRatingOnly)
   const failures = outcome
     ? outcome.results.filter(
         (row) => row.status !== "ok" && row.status !== "queued"
       )
     : []
+  // One primary, whatever is most likely next: approving what is waiting,
+  // else answering the rating-only reviews, else clearing them as needing
+  // nothing. Everything else lives in the overflow menu.
+  const primary: "approve" | "template" | "mark_reviewed" =
+    approvable.length > 0
+      ? "approve"
+      : ratingOnly
+        ? "template"
+        : "mark_reviewed"
+  const assigneeItems = (
+    <>
+      {assignees.map((member) => (
+        <DropdownMenuItem
+          key={member.userId}
+          onClick={() => void run("assign", member.userId)}
+        >
+          {member.displayName ?? member.email}
+        </DropdownMenuItem>
+      ))}
+      {assignees.length > 0 ? <DropdownMenuSeparator /> : null}
+      <DropdownMenuItem onClick={() => void run("assign", null)}>
+        Unassign
+      </DropdownMenuItem>
+    </>
+  )
+  const plural = (count: number) => (count === 1 ? "review" : "reviews")
+
+  const primaryButton =
+    primary === "approve" ? (
+      <Button
+        variant="on-dark"
+        disabled={bulk.isPending}
+        onClick={() => setConfirmApprove(true)}
+      >
+        <Check aria-hidden data-icon="inline-start" />
+        {approvable.length === chosen.length
+          ? `Approve ${approvable.length}`
+          : `Approve ${approvable.length} of ${chosen.length}`}
+      </Button>
+    ) : primary === "template" ? (
+      <Button
+        variant="on-dark"
+        disabled={bulk.isPending}
+        onClick={() => setTemplateRows(chosen)}
+      >
+        <MessageSquareText aria-hidden data-icon="inline-start" />
+        Reply with template
+      </Button>
+    ) : (
+      <Button
+        variant="on-dark"
+        disabled={bulk.isPending}
+        onClick={() => setConfirmReviewed(true)}
+      >
+        No reply needed
+      </Button>
+    )
 
   return (
-    <div
-      role="region"
-      aria-label="Selected reviews"
-      data-slot="bulk-action-bar"
-      // Reference `.bulkbar`: the list's own charcoal bar, pinned under the
-      // rows — sticky at the foot of the screen where the page scrolls.
-      className="sticky bottom-0 z-20 flex shrink-0 flex-col gap-2 rounded-b-[calc(var(--np-radius-card)-1px)] on-charcoal px-3 pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] [&_:focus-visible]:outline-ink-on-charcoal md:[@media(min-height:620px)]:pb-2.5"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <strong className="mr-auto text-ui font-semibold text-ink-on-charcoal tabular-nums">
-          {chosen.length} selected
-        </strong>
+    <>
+      {/* The shared ActionBar, docked: the one bar that owns the bottom edge
+          while rows are ticked. On a phone it is fixed to the bottom of the
+          screen (the chrome contract in globals.css steps the tab bar aside for
+          it, and it rides the keyboard); from md it sticks to the foot of the
+          list. Only on the page while something is ticked (the early return
+          above). The bar's own padding is dropped for this one's two stacked
+          parts, notes over a single row; the dock edge stays under them. */}
+      <ActionBar
+        data-slot="bulk-action-bar"
+        label="Selected reviews"
+        dock
+        safeArea={false}
+        className="shrink-0 flex-col flex-nowrap items-stretch gap-0 rounded-none p-0 pb-[var(--np-dock-bottom)] shadow-none max-md:p-0 max-md:pb-[var(--np-dock-bottom)] md:rounded-b-(--np-radius-card)"
+      >
+        {/* Results and notes sit above the row, so the row itself stays one
+          line (64px at most) and the buttons never move under a thumb. */}
+        {partial || outcome?.operationId || failures.length > 0 ? (
+          <div className="flex flex-col gap-1 px-3 pt-2.5">
+            {partial ? (
+              <p className="text-caption text-ink-muted-on-charcoal">
+                {chosen.length - approvable.length} of these are not ready for
+                your approval, so Approve will skip them.
+              </p>
+            ) : null}
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                size="sm"
-                variant="ghost-dark"
-                disabled={bulk.isPending}
-              />
-            }
-          >
-            <UserPlus aria-hidden data-icon="inline-start" />
-            Assign
-          </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align="center">
-            {assignees.map((member) => (
-              <DropdownMenuItem
-                key={member.userId}
-                onClick={() => void run("assign", member.userId)}
+            {outcome?.operationId ? (
+              <p
+                className="text-caption text-ink-on-charcoal"
+                aria-live="polite"
               >
-                {member.displayName ?? member.email}
-              </DropdownMenuItem>
-            ))}
-            {assignees.length > 0 ? <DropdownMenuSeparator /> : null}
-            <DropdownMenuItem onClick={() => void run("assign", null)}>
-              Unassign
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                The approved replies are sent in the background.{" "}
+                <Link
+                  href={`/listings/bulk/${outcome.operationId}`}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  Follow this batch
+                </Link>
+              </p>
+            ) : null}
 
-        {/* Triage, not a reply: it clears the reviews from Needs reply and
-            sends nothing to Google. "Mark reviewed" read as though it might
-            do either. */}
-        <Button
-          size="sm"
-          variant="ghost-dark"
-          disabled={bulk.isPending}
-          title="Clears these from Needs reply. Nothing is posted to Google."
-          onClick={() => void run("mark_reviewed")}
-        >
-          No reply needed
-        </Button>
-
-        {/* Stars with no words: one standard reply each, checked and then
-            published (or submitted) as a batch. Offered only when the
-            selection has some. */}
-        {chosen.some(isRatingOnly) ? (
-          <Button
-            size="sm"
-            variant="ghost-dark"
-            disabled={bulk.isPending}
-            onClick={() => setTemplateRows(chosen)}
-          >
-            <MessageSquareText aria-hidden data-icon="inline-start" />
-            Reply with template
-          </Button>
+            {failures.length > 0 ? (
+              <ul
+                className="flex max-h-32 flex-col gap-1 overflow-y-auto"
+                aria-live="polite"
+              >
+                {failures.map((row) => (
+                  <li
+                    key={row.reviewId}
+                    className="flex flex-wrap items-baseline gap-x-2 text-caption text-ink-on-charcoal"
+                  >
+                    <span className="font-semibold">
+                      {BULK_ROW_STATUS_LABEL[row.status]}
+                    </span>
+                    <span className="min-w-0 truncate">
+                      {describeRow(row.reviewId)}
+                    </span>
+                    <span className="text-ink-muted-on-charcoal">
+                      {row.code
+                        ? describeErrorCode(row.code)
+                        : "No reason given."}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
         ) : null}
 
-        {/* Approving publishes: each approved reply goes to Google at once.
-            A batch of that is confirmed, like every other publish. */}
-        <Button
-          size="sm"
-          variant="on-dark"
-          disabled={approvable.length === 0 || bulk.isPending}
-          onClick={() => setConfirmApprove(true)}
-        >
-          <Check aria-hidden data-icon="inline-start" />
-          {approvable.length === chosen.length
-            ? "Approve"
-            : `Approve ${approvable.length} of ${chosen.length}`}
-        </Button>
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <strong className="min-w-0 flex-1 truncate text-ui font-semibold text-ink-on-charcoal tabular-nums">
+            {chosen.length} selected
+          </strong>
 
-        <Button
-          size="icon-sm"
-          variant="ghost-dark"
-          aria-label="Clear selection"
-          onClick={clear}
-        >
-          <X aria-hidden />
-        </Button>
-      </div>
-
-      {partial ? (
-        <p className="text-caption text-ink-muted-on-charcoal">
-          {chosen.length - approvable.length} of these are not ready for your
-          approval, so Approve will skip them.
-        </p>
-      ) : null}
-
-      {outcome?.operationId ? (
-        <p className="text-caption text-ink-on-charcoal" aria-live="polite">
-          The approved replies are sent in the background.{" "}
-          <Link
-            href={`/listings/bulk/${outcome.operationId}`}
-            className="font-semibold underline underline-offset-2"
+          <Button
+            size="icon"
+            variant="ghost-dark"
+            aria-label="Clear selection"
+            // Desk only: on touch the row keeps to count, ⋯ and one primary,
+            // and Clear is an overflow item.
+            className="hidden desk:inline-flex"
+            onClick={clear}
           >
-            Follow this batch
-          </Link>
-        </p>
-      ) : null}
+            <X aria-hidden />
+          </Button>
 
-      {failures.length > 0 ? (
-        <ul className="flex flex-col gap-1" aria-live="polite">
-          {failures.map((row) => (
-            <li
-              key={row.reviewId}
-              className="flex items-center gap-2 text-caption text-ink-on-charcoal"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="ghost-dark"
+                  aria-label="More actions"
+                  disabled={bulk.isPending}
+                />
+              }
             >
-              <span className="font-semibold">
-                {BULK_ROW_STATUS_LABEL[row.status]}
-              </span>
-              <span className="min-w-0 truncate">
-                {describeRow(row.reviewId)}
-              </span>
-              <span className="text-ink-muted-on-charcoal">
-                {row.code ? describeErrorCode(row.code) : "No reason given."}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+              <Ellipsis aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              title={`${chosen.length} selected`}
+            >
+              {menuIsSheet ? null : (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <UserPlus aria-hidden />
+                    Assign…
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {assigneeItems}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              {/* Triage, not a reply: it clears the reviews from Needs reply
+                and sends nothing to Google. "Mark reviewed" read as though it
+                might do either. Confirmed, because there is no way back. */}
+              {primary !== "mark_reviewed" ? (
+                <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
+                  <CircleSlash aria-hidden />
+                  No reply needed
+                </DropdownMenuItem>
+              ) : null}
+              {/* Stars with no words: one standard reply each, checked and then
+                published (or submitted) as a batch. Offered only when the
+                selection has some. */}
+              {ratingOnly && primary !== "template" ? (
+                <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
+                  <MessageSquareText aria-hidden />
+                  Reply with template
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem className="desk:hidden" onClick={clear}>
+                <X aria-hidden />
+                Clear selection
+              </DropdownMenuItem>
+              {/* The people come last in the sheet: a long team would
+                otherwise push the actions out of reach. */}
+              {menuIsSheet ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                    {assigneeItems}
+                  </DropdownMenuGroup>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Approving publishes: each approved reply goes to Google at once.
+            A batch of that is confirmed, like every other publish. */}
+          {primaryButton}
+        </div>
+      </ActionBar>
 
       <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
         <AlertDialogContent
@@ -343,8 +447,37 @@ function BulkActionBar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* There is no API to put a review back in Needs reply, so this asks
+          first rather than offering an Undo it could not keep. */}
+      <AlertDialog open={confirmReviewed} onOpenChange={setConfirmReviewed}>
+        <AlertDialogContent
+          aria-label={`Mark ${chosen.length} ${plural(chosen.length)} as no reply needed?`}
+        >
+          <AlertDialogTitle>
+            Mark {chosen.length} {plural(chosen.length)} as no reply needed?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            They leave Needs reply. Nothing is posted to Google.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogClose render={<Button variant="secondary" />}>
+              Cancel
+            </AlertDialogClose>
+            <Button
+              disabled={bulk.isPending}
+              onClick={() => {
+                setConfirmReviewed(false)
+                void run("mark_reviewed")
+              }}
+            >
+              Mark {chosen.length} {plural(chosen.length)}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {templateDialog}
-    </div>
+    </>
   )
 }
 

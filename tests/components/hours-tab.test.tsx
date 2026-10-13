@@ -70,6 +70,46 @@ afterEach(() => {
 })
 
 describe("HoursTab", () => {
+  it("folds the hours notes into one notice instead of stacked banners", () => {
+    useHoursMock.mockReturnValue({
+      data: makeHours({
+        reconciliationRequired: true,
+        warnings: [
+          "Some saved periods have no confirmed closing day or date. Compare them with Google and explicitly save their end boundaries before publishing.",
+          "Google service-type metadata could not be loaded. Existing services are preserved; adding services is unavailable until the lookup succeeds.",
+        ],
+      }),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    const { container } = renderTab()
+    // Alert announces a destructive note as role="alert" and every other tone
+    // as role="status" (components/ui/alert.tsx), so find the notices by the
+    // Alert slot and require each one to be a live region of either kind.
+    const notices = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="alert"]')
+    )
+    expect(notices).toHaveLength(1)
+    const notice = notices[0]!
+    expect(["alert", "status"]).toContain(notice.getAttribute("role"))
+    // Google is empty, the boundaries need confirming, and the metadata
+    // lookup failed: three notes, one panel. The server's boundary warning
+    // repeats the "Confirm saved closing days" note, so it is not listed.
+    expect(notice).toHaveTextContent("3 things to know about these hours")
+    expect(within(notice).getAllByRole("listitem")).toHaveLength(3)
+    expect(notice).not.toHaveTextContent("no confirmed closing day")
+    expect(
+      within(notice).getByRole("button", {
+        name: "Match Google closing boundaries",
+      })
+    ).toBeEnabled()
+  })
+
   it("renders each weekday and one primary action for an owner", () => {
     useHoursMock.mockReturnValue({
       data: makeHours(),
@@ -370,8 +410,10 @@ describe("HoursTab reviewed snapshots", () => {
     ).toEqual(state.canonical.moreHours)
     expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("08:00")
     expect(
-      screen.getByLabelText("UNKNOWN Sunday period 1 closing day")
-    ).toHaveValue("1")
+      screen.getByRole("combobox", {
+        name: "UNKNOWN Sunday period 1 closing day",
+      })
+    ).toHaveTextContent("Next day (Monday)")
     fetchSpy.mockRestore()
   })
   it("cleans a dirty draft after its verified save and successful publish", async () => {

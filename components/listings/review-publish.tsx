@@ -21,7 +21,6 @@ import {
 
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { ChangeDiff, type ChangeRow } from "@/components/editors/change-diff"
-import { ActivityDrawer } from "@/components/editors/activity-drawer"
 import { ListingAreaHeader } from "@/components/listings/area-frame"
 import { ListingGate } from "@/components/listings/listing-gate"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
@@ -32,6 +31,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card, cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
 import {
@@ -348,7 +348,7 @@ function AreaSection({
       aria-labelledby={headingId}
       data-slot="review-area"
       data-area={area}
-      className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+      className={cardClassName({ className: "flex flex-col overflow-hidden" })}
     >
       <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -358,8 +358,7 @@ function AreaSection({
           {review ? (
             review.blockedReason ? (
               <StatusPill tone="attention">Needs review</StatusPill>
-            ) : review.rows.length === 0 && review.blockedReason ? null : review
-                .rows.length === 0 ? (
+            ) : review.rows.length === 0 ? (
               <StatusPill tone="healthy">In sync with Google</StatusPill>
             ) : conflict ? (
               <StatusPill tone="attention">Google changed too</StatusPill>
@@ -408,7 +407,7 @@ function AreaSection({
         ) : null}
         {error ? (
           <div role="alert" className="flex flex-wrap items-center gap-3">
-            <p className="min-w-0 flex-[1_1_16rem] text-ui text-ink">
+            <p className="min-w-0 grow basis-64 text-ui text-ink">
               <CircleAlertIcon
                 className="mr-1.5 inline size-4 align-[-3px] text-danger-ink"
                 aria-hidden
@@ -535,9 +534,9 @@ function ReviewSkeleton() {
       {[0, 1].map((index) => (
         <div
           key={index}
-          className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4"
+          className={cardClassName({ className: "flex flex-col gap-3 p-4" })}
         >
-          <Skeleton className="h-[18px] w-1/3" />
+          <Skeleton className="h-4.5 w-1/3" />
           <Skeleton className="h-3.5 w-3/5" />
           <Skeleton className="h-20 w-full" />
         </div>
@@ -708,11 +707,10 @@ function ReviewPublish({
                       ? "Nothing is waiting to go to Google."
                       : `${areas.length === 1 ? "1 area has" : `${areas.length} areas have`} changes saved here that are not yet on Google. Each area is read from Google so you can compare before publishing.`
             }
-            actions={<ActivityDrawer locationId={locationId} />}
           />
 
           {summary.isError && !summary.data ? (
-            <div className="rounded-(--np-radius-card) border border-line bg-surface">
+            <Card flush>
               <Empty
                 tone="bad"
                 icon={<CircleAlertIcon />}
@@ -729,7 +727,7 @@ function ReviewPublish({
                   </Button>
                 }
               />
-            </div>
+            </Card>
           ) : summary.isPending ? (
             <ReviewSkeleton />
           ) : areas.length === 0 || done ? (
@@ -740,7 +738,7 @@ function ReviewPublish({
                   steps={toStepRows(flow.results, null)}
                 />
               ) : null}
-              <div className="rounded-(--np-radius-card) border border-line bg-surface">
+              <Card flush>
                 <Empty
                   tone="ok"
                   icon={<CheckIcon />}
@@ -774,10 +772,12 @@ function ReviewPublish({
                     </Link>
                   }
                 />
-              </div>
+              </Card>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
+            // A phone's publish bar is docked to the bottom edge, outside
+            // the flow; this keeps the last section clear of it.
+            <div className="flex flex-col gap-4 max-md:pb-[calc(var(--np-actionbar-h)+var(--np-control-h)+var(--np-dock-bottom))]">
               {paused ? (
                 <Alert variant="destructive" icon={<UnplugIcon aria-hidden />}>
                   <AlertTitle>Publishing is paused for {entry.name}</AlertTitle>
@@ -914,8 +914,15 @@ function ReviewPublish({
                 </Alert>
               ) : null}
 
+              {/* The same bar policy as an editor's footer: docked to the
+                  bottom edge on a phone (the tab bar steps aside), sticky on
+                  a desk only where the window is tall enough for it to leave
+                  the content room, inline on short screens. */}
               <ActionBar
-                offset="bottom-3"
+                data-docked="bottom"
+                sticky={false}
+                safeArea={false}
+                className="max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:rounded-none max-md:px-3 max-md:pb-[calc(--spacing(3)+var(--np-dock-bottom))] controls:sticky controls:bottom-3"
                 label="Publish to Google"
                 status={
                   <>

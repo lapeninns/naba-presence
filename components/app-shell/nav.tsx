@@ -1,97 +1,40 @@
 "use client"
 
-import { CalendarDays,
-  BarChart3,
-  Building2,
-  ChevronDown,
-  ChevronRight,
-  Inbox,
-  Settings,
-  Store,
-  Users,
-} from "lucide-react"
-import Link from "next/link"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { healthLabel, healthTone } from "@/lib/clients/health"
-import { withClientScope } from "@/lib/clients/scope"
-import { settingsGatingFromRole } from "@/lib/settings/gating"
 import type { ClientHealth } from "@/lib/clients/health"
+import {
+  DESTINATIONS,
+  destinationHref,
+  isActivePath,
+  sidebarDestinations,
+  type Destination,
+} from "@/lib/navigation/destinations"
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
-/**
- * The places an operator works, in the order they are visited. Calendar
- * holds scheduled post publications across every visible listing.
- *
- * Home is gone: it was a page of numbers whose every link led to the Inbox,
- * so the Inbox is the landing page and the numbers live in its Today strip.
- * Listings is the Google Business Profiles themselves, health first; Clients
- * is who they belong to.
- */
-const NAV_ITEMS = [
-  { href: "/inbox", label: "Inbox", icon: Inbox },
-  { href: "/listings", label: "Listings", icon: Store },
-  { href: "/clients", label: "Clients", icon: Building2 },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-] as const
+import { CountBadge } from "./count-badge"
+import { ShellLink } from "./shell-link"
 
 /**
- * The primary destinations for a workspace mode. A business has one home
- * client behind the scenes, so the Clients destination does not exist for
- * it; agency mode shows the full list.
+ * The primary destinations for a workspace mode, as the desk sidebar lists
+ * them (lib/navigation/destinations.ts holds the one registry; this is its
+ * sidebar view, kept under the name the shell's tests import).
  */
 export function navItemsFor(mode: WorkspaceMode, hideCalendar = false) {
-  return NAV_ITEMS.filter(
-    (item) =>
-      !(mode === "business" && item.href === "/clients") &&
-      !(hideCalendar && item.href === "/calendar")
-  )
+  return sidebarDestinations({ role: "owner", mode, hideCalendar }).primary
 }
 
-/**
- * Team and Settings are organisation admin, visited to change who may do
- * what rather than to do it. They sit behind one disclosure row so the
- * primary list stays four items long, and the disclosure opens itself
- * whenever one of them is the current page.
- */
-const MORE_ITEMS: readonly {
-  href: string
-  label: string
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
-  /** Owners and admins only; see `Nav`'s `role`. */
-  adminOnly?: boolean
-}[] = [
-  { href: "/team", label: "Team", icon: Users, adminOnly: true },
-  { href: "/settings", label: "Settings", icon: Settings },
-]
-
-/** Recent clients shown beneath the Clients item. */
+/** Recent clients shown beneath Clients in the full sidebar. */
 const MAX_PINNED_CLIENTS = 6
 
 const MORE_STORAGE_KEY = "np.nav.more"
 
 export type NavClient = { id: string; name: string; health: ClientHealth }
-
-/**
- * `responsive` is the persistent column: a 240px sidebar above 1180px and a
- * 64px icon rail from 768 to 1180, drawn by the same markup so the two never
- * disagree. `full` always shows labels; the mobile sheet uses it.
- */
-type NavLayout = "full" | "responsive"
-
-function isActivePath(pathname: string | null, href: string) {
-  if (!pathname) return false
-  return pathname === href || pathname.startsWith(`${href}/`)
-}
 
 /** `Clients` is the client pages only; a listing belongs to Listings. */
 function isClientsActive(pathname: string | null) {
@@ -99,35 +42,34 @@ function isClientsActive(pathname: string | null) {
 }
 
 function isMoreActive(pathname: string | null) {
-  return MORE_ITEMS.some((item) => isActivePath(pathname, item.href))
-}
-
-/**
- * The sidebar row: an accent tint and a 3px accent bar when current (so the
- * current page reads in greyscale and forced colours too), a grey fill on
- * hover. Shared by the destinations and the More disclosure so they never
- * drift apart in shape. 34px where a cursor drives it, 44px on touch and in
- * the phone sheet.
- */
-function rowClass(layout: NavLayout) {
-  return cn(
-    "relative flex min-h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui font-medium text-ink",
-    "transition-colors duration-(--np-duration-fast) ease-out-strong hover:bg-fill",
-    "focus-halo focus-visible:outline-none",
-    "max-md:min-h-11 pointer-coarse:min-h-11",
-    "aria-[current=page]:bg-accent-tint aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink",
-    "aria-[current=page]:before:absolute aria-[current=page]:before:inset-y-[7px] aria-[current=page]:before:left-0 aria-[current=page]:before:w-[3px] aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-primary aria-[current=page]:before:content-['']",
-    // The icon rail band (768-1180px), written out in full so Tailwind's
-    // scanner sees every class.
-    layout === "responsive" &&
-      "md:max-[1181px]:min-h-10 md:max-[1181px]:justify-center md:max-[1181px]:px-0 md:max-[1181px]:aria-[current=page]:before:-left-2"
+  return DESTINATIONS.some(
+    (destination) =>
+      destination.group === "more" && isActivePath(pathname, destination.href)
   )
 }
 
-/** A label that the rail hides visually but keeps as the accessible name. */
-function railLabel(layout: NavLayout) {
-  return cn("truncate", layout === "responsive" && "md:max-[1181px]:sr-only")
-}
+/**
+ * The persistent column's row, drawn by one markup at two widths:
+ *
+ * - from 1180px (`wide`), a 240px sidebar row: icon, label and count in a
+ *   line, 34px where a cursor drives it, 44px on touch;
+ * - from 768 to 1180, a rail tile: the icon above a visible label (an
+ *   iPad cannot hover, so a tooltip was no label at all), at least 56px
+ *   tall.
+ *
+ * An accent tint and a 3px accent bar mark the current page, so it reads
+ * in greyscale and forced colours too.
+ */
+const ROW_CLASS = cn(
+  "relative flex min-h-[34px] w-full items-center gap-2.5 rounded-md px-2.5 text-left text-ui font-medium text-ink",
+  "transition-colors duration-(--np-duration-fast) ease-out-strong hover:bg-fill",
+  "focus-halo focus-visible:outline-none pointer-coarse:min-h-11",
+  "aria-[current=page]:bg-accent-tint aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink",
+  "aria-[current=page]:before:absolute aria-[current=page]:before:inset-y-[7px] aria-[current=page]:before:left-0 aria-[current=page]:before:w-[3px] aria-[current=page]:before:rounded-full aria-[current=page]:before:bg-primary aria-[current=page]:before:content-['']",
+  "md:max-wide:min-h-14 md:max-wide:flex-col md:max-wide:justify-center md:max-wide:gap-1 md:max-wide:px-0.5 md:max-wide:py-1.5 md:max-wide:text-center md:max-wide:text-caption md:max-wide:aria-[current=page]:before:-left-1"
+)
+
+const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full"
 
 /**
  * The operator's last choice for the More disclosure, kept for the session.
@@ -192,31 +134,6 @@ function useMoreOpen(pathname: string | null) {
   return { open, toggle, currentInside: active && !open }
 }
 
-/**
- * In the icon rail the label is only an accessible name, so a sighted
- * pointer user gets it back as a tooltip to the right of the icon. Outside
- * the rail the element renders as it is.
- */
-function RailTip({
-  rail,
-  label,
-  children,
-}: {
-  rail: boolean
-  label: string
-  children: React.ReactElement
-}) {
-  if (!rail) return children
-  return (
-    <Tooltip>
-      <TooltipTrigger render={children} />
-      <TooltipContent side="right" sideOffset={10}>
-        {label}
-      </TooltipContent>
-    </Tooltip>
-  )
-}
-
 function NavRow({
   href,
   label,
@@ -225,69 +142,62 @@ function NavRow({
   onNavigate,
   count,
   countLabel,
-  layout,
-  rail,
 }: {
   href: string
   label: string
-  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  icon: Destination["icon"]
   active: boolean
   onNavigate?: () => void
   count?: number
   countLabel?: string
-  layout: NavLayout
-  rail: boolean
 }) {
   const countId = React.useId()
   const showCount = typeof count === "number" && count > 0
   return (
     <>
-      <RailTip rail={rail} label={label}>
-        <Link
-          href={href}
-          prefetch
-          aria-current={active ? "page" : undefined}
-          // The count describes the row rather than naming it, so "Inbox"
-          // stays the link's name for every locator and screen-reader list.
-          // The description lives outside the link for the same reason.
-          aria-describedby={showCount ? countId : undefined}
-          onClick={onNavigate}
-          className={rowClass(layout)}
-        >
+      <ShellLink
+        href={href}
+        intentPrefetch
+        aria-current={active ? "page" : undefined}
+        // The count describes the row rather than naming it, so "Inbox"
+        // stays the link's name for every locator and screen-reader list.
+        // The description lives outside the link for the same reason.
+        aria-describedby={showCount ? countId : undefined}
+        onClick={onNavigate}
+        className={ROW_CLASS}
+      >
+        <span className="relative flex shrink-0">
           <Icon
             className={cn(
-              "size-4 shrink-0",
+              "size-4 shrink-0 md:max-wide:size-5",
               active ? "text-accent-ink" : "text-ink-muted"
             )}
             strokeWidth={1.75}
             aria-hidden
           />
-          <span className={railLabel(layout)}>{label}</span>
           {showCount ? (
-            <span
-              aria-hidden
-              className={cn(
-                "ml-auto font-mono text-[0.71875rem] tabular-nums",
-                active ? "text-accent-ink" : "text-ink-muted",
-                layout === "responsive" && "md:max-[1181px]:hidden"
-              )}
-            >
-              {count}
-            </span>
+            // The rail has no count column, so the number rides on the
+            // icon as a badge there instead of disappearing.
+            <CountBadge
+              count={count}
+              slot="rail-count"
+              className="absolute -top-2 left-3 hidden md:max-wide:inline-flex"
+            />
           ) : null}
-          {showCount && layout === "responsive" ? (
-            // The icon rail hides the count column, so the number rides on
-            // the icon as a badge there instead of disappearing.
-            <span
-              aria-hidden
-              data-slot="rail-count"
-              className="absolute top-0.5 left-1/2 ml-0.5 hidden h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none text-primary-foreground tabular-nums md:max-[1181px]:inline-flex"
-            >
-              {count > 99 ? "99+" : count}
-            </span>
-          ) : null}
-        </Link>
-      </RailTip>
+        </span>
+        <span className={LABEL_CLASS}>{label}</span>
+        {showCount ? (
+          <span
+            aria-hidden
+            className={cn(
+              "ml-auto font-mono text-count tabular-nums md:max-wide:hidden",
+              active ? "text-accent-ink" : "text-ink-muted"
+            )}
+          >
+            {count}
+          </span>
+        ) : null}
+      </ShellLink>
       {showCount ? (
         <span id={countId} hidden>
           {countLabel ?? `${count}`}
@@ -297,12 +207,19 @@ function NavRow({
   )
 }
 
+/**
+ * The persistent navigation column: the tablet rail (768-1180) and the desk
+ * sidebar (from 1180). Phones use the bottom tab bar and the More sheet
+ * instead (tab-bar.tsx, more-sheet.tsx); all of them read one registry.
+ *
+ * In the rail every destination shows as a labelled tile; in the sidebar
+ * Team and Settings sit behind the More disclosure, so the daily list stays
+ * short and the disclosure opens itself on one of their pages.
+ */
 function Nav({
   onNavigate,
   clients = [],
   needsReply,
-  layout = "full",
-  rail = false,
   role,
   scopeClientId = null,
   mode = "agency",
@@ -311,20 +228,17 @@ function Nav({
   onNavigate?: () => void
   clients?: NavClient[]
   /**
-   * The client the top-bar switcher has in scope. Inbox, Listings and
-   * Reports link to it (`?clientId=`), so moving between them keeps the
-   * scope; null links to every client.
+   * The client the switcher has in scope. Inbox, Listings and Reports link
+   * to it (`?clientId=`), so moving between them keeps the scope; null
+   * links to every client.
    */
   scopeClientId?: string | null
   /** The Inbox's needs-reply count, when the app has it. */
   needsReply?: number
-  layout?: NavLayout
-  /** True while the responsive nav is drawn as the icon rail. */
-  rail?: boolean
   /**
    * The session's role. Team is for owners and admins (the page answers
-   * everyone else with Access denied), so it is left out for the rest, the
-   * same rule the settings tabs apply. Undefined while unknown shows all.
+   * everyone else with Access denied), so it is left out for the rest, and
+   * while the role is unknown.
    */
   role?: string | null
   /** `business` leaves out Clients, the pinned clients and `?clientId=`. */
@@ -341,62 +255,52 @@ function Nav({
   const more = useMoreOpen(pathname)
   const moreListId = React.useId()
   const moreCurrentId = React.useId()
-  const moreItems = MORE_ITEMS.filter(
-    (item) =>
-      role === undefined ||
-      item.adminOnly !== true ||
-      settingsGatingFromRole(role).canManageTeam
-  )
+  const groups = sidebarDestinations({
+    role: role ?? null,
+    mode,
+    hideCalendar,
+  })
   const MoreIcon = more.open ? ChevronDown : ChevronRight
 
   return (
     <nav aria-label="Primary" className="flex flex-col">
       <ul className="flex flex-col gap-0.5">
-        {navItemsFor(mode, hideCalendar).map((item) => {
+        {groups.primary.map((item) => {
           const active =
-            item.href === "/clients"
+            item.id === "clients"
               ? isClientsActive(pathname)
               : isActivePath(pathname, item.href)
           return (
             <React.Fragment key={item.href}>
               <li>
                 <NavRow
-                  href={
-                    business
-                      ? item.href
-                      : withClientScope(item.href, scopeClientId)
-                  }
+                  href={destinationHref(item, mode, scopeClientId)}
                   label={item.label}
                   icon={item.icon}
                   active={active}
                   onNavigate={onNavigate}
-                  layout={layout}
-                  rail={rail}
-                  count={item.href === "/inbox" ? needsReply : undefined}
+                  count={item.id === "inbox" ? needsReply : undefined}
                   countLabel={
-                    item.href === "/inbox" && needsReply
+                    item.id === "inbox" && needsReply
                       ? `${needsReply} ${needsReply === 1 ? "review needs" : "reviews need"} a reply`
                       : undefined
                   }
                 />
               </li>
-              {item.href === "/clients" && pinned.length > 0
+              {item.id === "clients" && pinned.length > 0
                 ? pinned.map((client) => {
                     const href = `/clients/${client.id}`
                     const clientActive = pathname === href
                     return (
-                      <li
-                        key={client.id}
-                        className={cn(
-                          layout === "responsive" && "md:max-[1181px]:hidden"
-                        )}
-                      >
-                        <Link
+                      // Recent clients need the sidebar's width; the rail
+                      // keeps to the destinations.
+                      <li key={client.id} className="max-wide:hidden">
+                        <ShellLink
                           href={href}
                           aria-current={clientActive ? "page" : undefined}
                           onClick={onNavigate}
                           className={cn(
-                            rowClass("full"),
+                            ROW_CLASS,
                             "min-h-[30px] gap-2 pl-9 font-normal text-ink-secondary"
                           )}
                         >
@@ -411,7 +315,7 @@ function Nav({
                           <span className="sr-only">
                             , {healthLabel(client.health)}
                           </span>
-                        </Link>
+                        </ShellLink>
                       </li>
                     )
                   })
@@ -420,8 +324,10 @@ function Nav({
           )
         })}
 
-        <li>
-          <RailTip rail={rail} label="More">
+        {groups.more.length > 0 ? (
+          <li className="flex flex-col">
+            {/* The disclosure is a sidebar affordance; the rail lists its
+                items as tiles, so it hides there and its list always shows. */}
             <button
               type="button"
               aria-expanded={more.open}
@@ -429,7 +335,8 @@ function Nav({
               aria-describedby={more.currentInside ? moreCurrentId : undefined}
               onClick={more.toggle}
               className={cn(
-                rowClass(layout),
+                ROW_CLASS,
+                "max-wide:hidden",
                 more.currentInside && "text-accent-ink"
               )}
             >
@@ -441,44 +348,37 @@ function Nav({
                 strokeWidth={1.75}
                 aria-hidden
               />
-              <span className={railLabel(layout)}>More</span>
+              <span className={LABEL_CLASS}>More</span>
             </button>
-          </RailTip>
-          {more.currentInside ? (
-            <span id={moreCurrentId} hidden>
-              Contains the current page
-            </span>
-          ) : null}
-          <ul
-            id={moreListId}
-            hidden={!more.open}
-            className="mt-0.5 flex flex-col gap-0.5"
-          >
-            {moreItems.map((item) => (
-              <li key={item.href}>
-                <NavRow
-                  href={item.href}
-                  label={item.label}
-                  icon={item.icon}
-                  active={isActivePath(pathname, item.href)}
-                  onNavigate={onNavigate}
-                  layout={layout}
-                  rail={rail}
-                />
-              </li>
-            ))}
-          </ul>
-        </li>
+            {more.currentInside ? (
+              <span id={moreCurrentId} hidden>
+                Contains the current page
+              </span>
+            ) : null}
+            <ul
+              id={moreListId}
+              className={cn(
+                "mt-0.5 flex flex-col gap-0.5",
+                !more.open && "wide:hidden"
+              )}
+            >
+              {groups.more.map((item) => (
+                <li key={item.href}>
+                  <NavRow
+                    href={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    active={isActivePath(pathname, item.href)}
+                    onNavigate={onNavigate}
+                  />
+                </li>
+              ))}
+            </ul>
+          </li>
+        ) : null}
       </ul>
     </nav>
   )
 }
 
-export {
-  Nav,
-  NAV_ITEMS,
-  MORE_ITEMS,
-  MAX_PINNED_CLIENTS,
-  isClientsActive,
-  isMoreActive,
-}
+export { Nav, MAX_PINNED_CLIENTS, isClientsActive, isMoreActive }

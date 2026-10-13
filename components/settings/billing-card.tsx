@@ -6,6 +6,10 @@ import {
   PlanPicker,
   billingActionError,
 } from "@/components/settings/plan-picker"
+import {
+  SettingsFacts,
+  SettingsSection,
+} from "@/components/settings/settings-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -17,14 +21,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { QueryError } from "@/components/ui/query-states"
+import { Card, CardContent } from "@/components/ui/card"
+import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { BillingOverview } from "@/lib/api/billing"
@@ -44,15 +42,6 @@ import {
   useOpenBillingPortal,
 } from "@/lib/queries/use-billing"
 
-function Fact({ term, children }: { term: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-caption text-ink-muted">{term}</dt>
-      <dd className="m-0 text-body text-ink">{children}</dd>
-    </div>
-  )
-}
-
 /**
  * The owner Billing screen (plan P07-S6): the plan and its state, effective
  * dates, limits, a scheduled change, invoices and payment details through
@@ -62,27 +51,31 @@ function Fact({ term, children }: { term: string; children: React.ReactNode }) {
  */
 export function BillingCard() {
   const billing = useBilling()
-
-  if (billing.isPending) {
-    return (
-      <Card flush data-slot="billing-card">
-        <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
-          <Skeleton className="h-6 w-40" />
-          <Skeleton className="h-16 w-full" />
-        </CardContent>
-      </Card>
-    )
-  }
-  if (!billing.data) {
-    return (
-      <QueryError
-        title="Billing could not be loaded"
-        description={describeActionError(billing.error)}
-        onRetry={() => void billing.refetch()}
-      />
-    )
-  }
-  return <BillingDetails overview={billing.data} />
+  return (
+    <QueryStates
+      // Overview already on screen stays there through a failed background
+      // refetch; only a first load that failed shows the error.
+      status={billing.data ? "ready" : queryStatus(billing)}
+      pending={
+        <Card flush aria-busy="true">
+          <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
+            <span className="sr-only" role="status">
+              Loading billing
+            </span>
+            <Skeleton className="h-6 w-40" />
+            <Skeleton className="h-16 w-full" />
+          </CardContent>
+        </Card>
+      }
+      error={{
+        title: "Billing could not be loaded",
+        description: describeActionError(billing.error),
+      }}
+      onRetry={() => void billing.refetch()}
+    >
+      {() => <BillingDetails overview={billing.data!} />}
+    </QueryStates>
+  )
 }
 
 export function BillingDetails({ overview }: { overview: BillingOverview }) {
@@ -120,21 +113,31 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
         </Alert>
       ) : null}
 
-      <Card flush data-slot="billing-card">
-        <CardHeader divided>
-          <CardTitle as="h2">Subscription</CardTitle>
-          <CardDescription>{describeBilling(overview)}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4 py-(--np-card-pad)">
-          <dl className="m-0 grid gap-4 sm:grid-cols-2">
-            <Fact term="Status">
-              <StatusPill tone={status.tone} data-slot="billing-status">
+      <SettingsSection
+        id="billing-subscription"
+        title="Subscription"
+        description={describeBilling(overview)}
+      >
+        <SettingsFacts
+          columns={2}
+          facts={[
+            [
+              "Status",
+              <StatusPill
+                key="status"
+                tone={status.tone}
+                data-slot="billing-status"
+              >
                 {status.label}
-              </StatusPill>
-            </Fact>
-            <Fact term="Plan">
-              {overview.plan ? (
-                <span className="inline-flex flex-wrap items-center gap-2">
+              </StatusPill>,
+            ],
+            [
+              "Plan",
+              overview.plan ? (
+                <span
+                  key="plan"
+                  className="inline-flex flex-wrap items-center gap-2"
+                >
                   {overview.plan.name}
                   {overview.plan.isTestOffer ? (
                     <Badge variant="warning">Test offer</Badge>
@@ -144,29 +147,26 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
                 "Pilot"
               ) : (
                 "No plan"
-              )}
-            </Fact>
-            {overview.state === "trialing" && overview.trialEndsAt ? (
-              <Fact
-                term={overview.cancelAtPeriodEnd ? "Access ends" : "Trial ends"}
-              >
-                {formatBillingDate(overview.trialEndsAt)}
-              </Fact>
-            ) : null}
-            {overview.state === "active" && overview.currentPeriodEnd ? (
-              <Fact
-                term={overview.cancelAtPeriodEnd ? "Access ends" : "Renews on"}
-              >
-                {formatBillingDate(overview.currentPeriodEnd)}
-              </Fact>
-            ) : null}
-            {overview.access.mode === "grace" && overview.access.endsAt ? (
-              <Fact term="Grace ends">
-                {formatBillingDate(overview.access.endsAt)}
-              </Fact>
-            ) : null}
-            <Fact term="Locations">{describeLocationUsage(overview)}</Fact>
-          </dl>
+              ),
+            ],
+            overview.state === "trialing" && overview.trialEndsAt
+              ? [
+                  overview.cancelAtPeriodEnd ? "Access ends" : "Trial ends",
+                  formatBillingDate(overview.trialEndsAt),
+                ]
+              : null,
+            overview.state === "active" && overview.currentPeriodEnd
+              ? [
+                  overview.cancelAtPeriodEnd ? "Access ends" : "Renews on",
+                  formatBillingDate(overview.currentPeriodEnd),
+                ]
+              : null,
+            overview.access.mode === "grace" && overview.access.endsAt
+              ? ["Grace ends", formatBillingDate(overview.access.endsAt)]
+              : null,
+            ["Locations", describeLocationUsage(overview)],
+          ]}
+        />
 
           {overview.pendingPlan && overview.pendingEffectiveAt ? (
             <div
@@ -235,25 +235,19 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
             ) : null}
           </div>
           {actionError && !confirmCancel ? (
-            <p role="alert" className="m-0 text-caption text-danger-ink">
+            <p role="alert" className="m-0 text-ui text-danger-ink">
               {billingActionError(actionError)}
             </p>
           ) : null}
-        </CardContent>
-      </Card>
+      </SettingsSection>
 
-      <Card flush data-slot="plans-card">
-        <CardHeader divided>
-          <CardTitle as="h2">Plans</CardTitle>
-          <CardDescription>
-            Limits apply to linked Google locations, including disconnected
-            ones. Linked locations are never removed automatically.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="py-(--np-card-pad)">
-          <PlanPicker overview={overview} />
-        </CardContent>
-      </Card>
+      <SettingsSection
+        id="billing-plans"
+        title="Plans"
+        description="Limits apply to linked Google locations, including disconnected ones. Linked locations are never removed automatically."
+      >
+        <PlanPicker overview={overview} />
+      </SettingsSection>
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">

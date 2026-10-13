@@ -170,7 +170,13 @@ test.describe("listings", () => {
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
     await page.getByRole("button", { name: "Add photos" }).click()
     await expect(page.getByRole("heading", { name: "Add media" })).toBeVisible()
-    await expect(page.getByLabel("Direct file upload")).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Choose from library" })
+    ).toBeVisible()
+    await expect(page.getByLabel("Direct file upload")).toHaveAttribute(
+      "accept",
+      "image/jpeg,image/png"
+    )
     await expect(
       page.getByRole("button", { name: "Review file upload" })
     ).toBeDisabled()
@@ -198,13 +204,14 @@ test.describe("listings", () => {
         "Only owners and admins can edit this location."
       )
       if (canEdit) {
-        // Review is enabled once there is something to publish; what matters
-        // here is that nothing tells an owner they may not edit.
-        await expect(review).toBeVisible()
+        // Nothing tells an owner they may not edit. A clean editor draws no
+        // footer bar; the owner's first edit brings "Review changes" in.
         await expect(gate).toHaveCount(0)
-        await expect(
-          page.getByRole("textbox", { name: "Business name" })
-        ).toBeEnabled()
+        const name = page.getByRole("textbox", { name: "Business name" })
+        await expect(name).toBeEnabled()
+        await expect(review).toHaveCount(0)
+        await name.fill(`${await name.inputValue()} edited`)
+        await expect(review).toBeVisible()
       } else {
         // A role that can't edit gets the one view-only bar: it says why and
         // offers no actions, rather than a row of disabled buttons.
@@ -544,9 +551,7 @@ test.describe("listings", () => {
     ).toBeVisible()
     // Starting verification is reviewed, approved, then sent separately.
     const panel = page.locator('section[aria-labelledby="verification-start"]')
-    await panel
-      .getByRole("button", { name: "Check available methods" })
-      .click()
+    await panel.getByRole("button", { name: "Check available methods" }).click()
     await panel.getByRole("radio").check()
     await panel.getByLabel("Email username").fill("operations")
     await panel

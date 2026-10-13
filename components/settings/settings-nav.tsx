@@ -1,68 +1,46 @@
 "use client"
 
-import { QueryClientContext } from "@tanstack/react-query"
+import { ChevronLeft } from "lucide-react"
+import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useContext } from "react"
+import * as React from "react"
 
-import { useBillingScreensEnabled } from "@/components/settings/billing-screens"
-import { useSettingsFeatures } from "@/components/settings/settings-features"
-import { TabNav } from "@/components/ui/tabs"
-import { useSettingsCapabilities } from "@/lib/queries/use-settings-capabilities"
 import {
-  privacyGating,
-  settingsGatingFromRole,
-  type PrivacyAccess,
-} from "@/lib/settings/gating"
-
-// Team is now a primary destination, not a settings tab: for an agency, who
-// can act on which client is daily work. Listing is gone entirely — it
-// administered a location from a page nowhere near it, and that now lives in
-// the location's own Access section.
-//
-// The old Compliance console is gone. Data and privacy (plan P04-7) is its
-// owner-facing successor: requests, legal holds, subject export and retention
-// status, shown once the organisation's `privacy_settings` feature is on
-// (settings capabilities `privacy`). Operations returned for owners and
-// admins as the operational recovery view (scheduler, sync freshness, queued
-// work, unresolved writes, email delivery) the GBP operations brief requires.
-const AREAS: {
-  href: string
-  label: string
-  capability:
-    | "always"
-    | "canManageConnections"
-    | "canViewPrivacy"
-    | "mfa"
-    | "owner"
-  /** Shown only while billing is switched on (BillingScreensProvider). */
-  billing?: true
-}[] = [
-  { href: "/settings", label: "Policy", capability: "always" },
-  { href: "/settings/notifications", label: "Notifications", capability: "always" },
-  // Two-step verification is per person, so every role sees it once the
-  // MFA_ENABLED flag is on (P02-S8).
-  { href: "/settings/security", label: "Sign-in security", capability: "mfa" },
-  {
-    href: "/settings/connections",
-    label: "Google connections",
-    capability: "canManageConnections",
-  },
-  {
-    href: "/settings/operations",
-    label: "Operations",
-    capability: "canManageConnections",
-  },
-  {
-    href: "/settings/privacy",
-    label: "Data and privacy",
-    capability: "canViewPrivacy",
-  },
-  // Plan P07-S6: the shared Usage screen and the owner-only Billing screen.
-  { href: "/settings/usage", label: "Usage", capability: "always", billing: true },
-  { href: "/settings/billing", label: "Billing", capability: "owner", billing: true },
-]
+  isSettingsAreaCurrent,
+  useVisibleSettingsAreas,
+  WithPrivacyAccess,
+} from "@/components/settings/settings-areas"
+import { TabNav } from "@/components/ui/tabs"
+import type { PrivacyAccess } from "@/lib/settings/gating"
+import { cn } from "@/lib/utils"
 
 type SettingsNavProps = { role: string | null; className?: string }
+
+/**
+ * Brings the current tab into view in the sideways-scrolling tab row. Each
+ * settings page mounts its own nav, so without this a narrow row always
+ * opened on its first tabs and never showed where you are
+ * (settings-setup-auth-02). `inline: "nearest"` moves the row only as far
+ * as it must, `block: "nearest"` leaves the page alone when the row is
+ * already on screen, and "instant" keeps the first paint still. The Tabs
+ * primitive doesn't do this yet; when it does, this hook goes.
+ */
+function useCurrentTabInView(
+  ref: React.RefObject<HTMLElement | null>,
+  pathname: string | null
+) {
+  React.useLayoutEffect(() => {
+    const link = ref.current?.querySelector<HTMLElement>(
+      "[aria-current='page']"
+    )
+    // jsdom has no scrollIntoView; a real browser always does.
+    link?.scrollIntoView?.({
+      behavior: "instant",
+      block: "nearest",
+      inline: "nearest",
+    })
+  }, [ref, pathname])
+}
 
 function SettingsNavTabs({
   role,
@@ -70,62 +48,51 @@ function SettingsNavTabs({
   privacy,
 }: SettingsNavProps & { privacy: PrivacyAccess }) {
   const pathname = usePathname()
-  const caps = { ...settingsGatingFromRole(role), ...privacyGating(privacy) }
-  const features = useSettingsFeatures()
-  const billing = useBillingScreensEnabled()
-  const items = AREAS.filter(
-    (area) =>
-      (!area.billing || billing) &&
-      (area.capability === "always"
-        ? true
-        : area.capability === "mfa"
-          ? features.mfa
-          : area.capability === "owner"
-            ? role === "owner"
-            : caps[area.capability])
-  ).map((area) => ({
-    href: area.href,
-    label: area.label,
-    current:
-      area.href === "/settings"
-        ? pathname === "/settings"
-        : pathname === area.href || pathname.startsWith(`${area.href}/`),
-  }))
+  const ref = React.useRef<HTMLDivElement>(null)
+  useCurrentTabInView(ref, pathname)
+  const items = useVisibleSettingsAreas(role, privacy)
+    .filter((area) => !area.indexOnly)
+    .map((area) => ({
+      href: area.href,
+      label: area.label,
+      current: isSettingsAreaCurrent(area, pathname),
+    }))
 
   return (
-    <TabNav
-      aria-label="Settings sections"
-      items={items}
-      className={className}
-    />
-  )
-}
-
-/** Reads the `privacy` settings capability the settings layout hydrates. */
-function SettingsNavWithCapabilities(props: SettingsNavProps) {
-  const managerial = props.role === "owner" || props.role === "admin"
-  const caps = useSettingsCapabilities({ enabled: managerial })
-  return (
-    <SettingsNavTabs
-      {...props}
-      privacy={managerial ? (caps.data?.privacy ?? "none") : "none"}
-    />
+    <div ref={ref} className={cn("flex min-w-0 flex-col gap-2", className)}>
+      {/* Below md the settings home is an index of areas
+          (settings-index.tsx), so an area page leads back to it instead of
+          carrying a tab row that can't fit. From md the tab row is the way
+          round, on every settings page. */}
+      <Link
+        href="/settings"
+        className="-ml-1 inline-flex min-h-(--np-touch) items-center gap-1 self-start rounded-(--np-radius-control) pr-2 text-ui font-medium text-ink-secondary no-underline focus-halo hover-fine:text-ink md:hidden"
+      >
+        <ChevronLeft aria-hidden className="size-4" strokeWidth={1.75} />
+        All settings
+      </Link>
+      <TabNav
+        aria-label="Settings sections"
+        items={items}
+        className="max-md:hidden"
+      />
+    </div>
   )
 }
 
 /**
- * The settings sub-navigation (reference `settings-subnav`): link tabs under
- * each settings page's header, the current one underlined in ink. A member
- * or viewer sees Policy and Notifications; Google connections and Operations
- * are for owners and admins, and Data and privacy for owners and admins of
- * an organisation with the area switched on. Outside a query client (a bare
- * render) the privacy area is simply not offered.
+ * The settings sub-navigation (reference `settings-subnav`): from md, link
+ * tabs under each settings page's header, the current one underlined in ink
+ * and kept in view; below md, a way back to the settings index. A member or viewer sees Reply policy and Notifications; Google
+ * connections and Operations are for owners and admins, and Data and privacy
+ * for owners and admins of an organisation with the area switched on. The
+ * areas and their rules live in settings-areas.tsx, shared with the phone's
+ * settings index.
  */
 export function SettingsNav(props: SettingsNavProps) {
-  const client = useContext(QueryClientContext)
-  return client ? (
-    <SettingsNavWithCapabilities {...props} />
-  ) : (
-    <SettingsNavTabs {...props} privacy="none" />
+  return (
+    <WithPrivacyAccess role={props.role}>
+      {(privacy) => <SettingsNavTabs {...props} privacy={privacy} />}
+    </WithPrivacyAccess>
   )
 }

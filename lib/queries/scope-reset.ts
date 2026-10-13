@@ -1,6 +1,10 @@
 "use client"
 
-import type { QueryClient, QueryKey } from "@tanstack/react-query"
+import {
+  notifyManager,
+  type QueryClient,
+  type QueryKey,
+} from "@tanstack/react-query"
 import * as React from "react"
 
 import { setAccessLostHandler, type AccessLost } from "@/lib/api/client"
@@ -94,7 +98,10 @@ export function dropResourceQueries(
   if (prefixes.length === 0) return
   // One session refetch however many answers arrive together.
   void client
-    .invalidateQueries({ queryKey: queryKeys.session }, { cancelRefetch: false })
+    .invalidateQueries(
+      { queryKey: queryKeys.session },
+      { cancelRefetch: false }
+    )
     .catch(() => undefined)
   const refusedAction = lost.status === 403 && lost.method !== "GET"
   for (const queryKey of prefixes) {
@@ -147,8 +154,13 @@ export function dropResourceQueries(
  * editor stashes on that switch is already in storage when the purge runs.
  */
 export function useScopeReset(client: QueryClient): void {
+  // The cache notifies synchronously, including while another component
+  // renders and builds a new query; batching defers the check to after that
+  // render (as TanStack's own useIsFetching does), so the provider is never
+  // updated mid-render of a child.
   const subscribe = React.useCallback(
-    (onChange: () => void) => client.getQueryCache().subscribe(onChange),
+    (onChange: () => void) =>
+      client.getQueryCache().subscribe(notifyManager.batchCalls(onChange)),
     [client]
   )
   const read = React.useCallback(

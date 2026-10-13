@@ -1,9 +1,11 @@
 "use client"
 
 import { EyeIcon, PencilIcon } from "lucide-react"
-import Link from "next/link"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
+import { Card, cardClassName, cardLinkClassName } from "@/components/ui/card"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
@@ -19,16 +21,17 @@ import {
   type LocationCapabilities,
 } from "@/lib/locations/gating"
 import { cn } from "@/lib/utils"
+import { useNow } from "@/lib/time/server-now"
 
 const GRID =
   "grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]"
 
 function AreaCardSkeleton() {
   return (
-    <div className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4">
+    <div className={cardClassName({ className: "flex flex-col gap-2.5 p-4" })}>
       <Skeleton className="h-4 w-2/5" />
       <Skeleton className="h-3.5 w-4/5" />
-      <Skeleton className="ml-auto h-[30px] w-20" />
+      <Skeleton className="ml-auto h-8 w-20" />
     </div>
   )
 }
@@ -38,6 +41,11 @@ function AreaCardSkeleton() {
  * status pill at the top edge, and the one line of substance with the way in
  * at the foot. A blocked area is drawn sunken and says why instead of
  * offering the way in.
+ *
+ * An interactive `Card` (listings-content-18): the way in is the card's
+ * `CardLink`, drawn as the small verb button, and its hit area is the whole
+ * card, so a thumb can tap anywhere on it while the card draws the hover,
+ * pressed and focus states. Its name keeps the verb ("Check Opening hours").
  */
 function AreaCard({
   area,
@@ -55,17 +63,20 @@ function AreaCard({
   emphasis?: boolean
 }) {
   return (
-    <article
+    <Card
+      as="article"
+      size="sm"
+      interactive={Boolean(action)}
+      surface={blocked ? "sunken" : "default"}
       data-slot="area-card"
       data-area={area.key}
       className={cn(
-        "flex min-w-0 flex-col gap-2.5 rounded-(--np-radius-card) border bg-surface p-4",
-        blocked ? "border-line bg-surface-alt" : "border-line",
+        "gap-2.5 px-(--card-spacing)",
         emphasis && "border-warning-solid"
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
-        <div className="flex min-w-0 flex-[1_1_9rem] flex-col gap-0.5">
+        <div className="flex min-w-0 grow basis-36 flex-col gap-0.5">
           <h3 className="text-title font-semibold text-ink">{area.label}</h3>
           <p className="text-caption text-ink-muted">{area.description}</p>
         </div>
@@ -82,7 +93,7 @@ function AreaCard({
         </p>
         {action}
       </div>
-    </article>
+    </Card>
   )
 }
 
@@ -109,6 +120,7 @@ function AreaCards({
   caps: LocationCapabilities | undefined
   canManageConsoles: boolean
 }) {
+  const now = useNow()
   const waiting = suggestionCount(summary)
   const areas = visibleListingAreas(canManageConsoles)
     .filter((area) => (area.key === "suggestions" ? waiting > 0 : true))
@@ -116,7 +128,7 @@ function AreaCards({
       const priority = (area: ListingArea) => {
         if (area.key === "suggestions") return 0
         if (!summary) return 4
-        const tone = areaState(area.key, summary).tone
+        const tone = areaState(area.key, summary, now).tone
         return tone === "at-risk"
           ? 1
           : tone === "attention"
@@ -191,14 +203,26 @@ function AreaCards({
               (area.key === "menu" && summary?.menu.eligible === false)
             ? "View"
             : !summary ||
-                (synced && comparisonCheck(synced) !== "checked") ||
+                (synced && comparisonCheck(synced, now) !== "checked") ||
                 ["photos", "posts", "people", "verification"].includes(area.key)
               ? "Check"
               : "Edit"
         const action = (
-          <Link
+          // The card's link, drawn as a button. `static` undoes the button's
+          // `relative` so the stretched hit area reaches the card's edges;
+          // the button keeps its own focus halo and drops the link's hover
+          // underline. A ShellLink, so it prefetches on intent, not on view.
+          // The small button's own touch overhang (`after:inset-y-…`) would
+          // win the merge and shrink the stretch to a band across the card's
+          // middle, so the full-card `after:inset-0` is restated last.
+          <ShellLink
+            data-slot="card-link"
             href={listingHref(locationId, area.segment)}
-            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+            className={cn(
+              cardLinkClassName,
+              buttonVariants({ variant: "secondary", size: "sm" }),
+              "static after:inset-0 hover-fine:hover:no-underline desk:after:block"
+            )}
             aria-label={`${verb} ${area.label}`}
           >
             {verb === "Edit" ? (
@@ -207,7 +231,7 @@ function AreaCards({
               <EyeIcon aria-hidden strokeWidth={1.75} />
             ) : null}
             {verb}
-          </Link>
+          </ShellLink>
         )
 
         if (!summary) {
@@ -233,7 +257,7 @@ function AreaCards({
           )
         }
 
-        const state = areaState(area.key, summary)
+        const state = areaState(area.key, summary, now)
         return (
           <AreaCard
             key={area.key}
@@ -242,8 +266,16 @@ function AreaCards({
             pill={<StatusPill tone={state.tone}>{state.label}</StatusPill>}
             line={
               <>
-                {state.line ?? (
-                  <span className="text-ink-muted">Nothing to add</span>
+                {state.line && state.since ? (
+                  <RelativeTime
+                    iso={state.since}
+                    prefix={`${state.line} `}
+                    casing="mid-sentence"
+                  />
+                ) : (
+                  (state.line ?? (
+                    <span className="text-ink-muted">Nothing to add</span>
+                  ))
                 )}
                 {area.key === "photos" ? (
                   <span className="mt-1 block text-caption text-ink-muted">

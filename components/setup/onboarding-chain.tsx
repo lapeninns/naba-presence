@@ -3,7 +3,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { SupportDetails } from "@/components/editors/support-details"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { fetchOnboardingChains } from "@/lib/api/google-onboarding-chains"
 import type { GoogleOnboardingDraft } from "@/lib/contracts/google-onboarding"
@@ -39,21 +40,26 @@ export function OnboardingChain({ draft, value, onChange }: {
   return <div role="group" aria-label="Creation chain affiliation" className="flex min-w-0 flex-col gap-3 sm:col-span-2">
     <h4 className="text-ui font-semibold">Chain affiliation</h4>
     <div className="flex min-w-0 flex-col items-start justify-between gap-3 sm:flex-row">
-      <div className="min-w-0"><p className="text-ui">{selected?.label ?? (value?.parentChain ? "Proposed chain" : "No chain affiliation in this proposal.")}</p>{value?.parentChain && <p className="text-caption font-mono text-ink-muted break-all">{value.parentChain}</p>}</div>
+      <div className="min-w-0"><p className="text-ui break-words">{selected?.label ?? (value?.parentChain ? "Proposed chain" : "No chain affiliation in this proposal.")}</p>{value?.parentChain && (selected
+        // A chain Google named in this session: its name leads and the
+        // resource id is for support. A saved chain with no name loaded yet
+        // is known only by its id, so the id stays in view.
+        ? <SupportDetails items={[value.parentChain]} />
+        : <p className="text-caption text-ink-muted break-all">{value.parentChain}</p>)}</div>
       {value?.parentChain && <Button type="button" variant="outline" onClick={() => onChange(removeOnboardingChain(value))}>Remove chain from proposal</Button>}
     </div>
     <Field>
       <FieldLabel htmlFor="onboarding-chain-search">Search Google chains</FieldLabel>
-      <div className="flex items-center gap-3">
-        <Input className="min-w-0 flex-1" id="onboarding-chain-search" value={query} maxLength={100} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runSearch() } }} />
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <Input className="min-w-0 flex-1 basis-48" id="onboarding-chain-search" value={query} maxLength={100} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runSearch() } }} />
         <Button type="button" variant="outline" disabled={!query.trim() || pendingRepeat} onClick={runSearch}>Search chains</Button>
       </div>
       <FieldDescription>Choose an exact chain returned by Google. Search results do not confirm affiliation; Google validates the saved proposal before approval.</FieldDescription>
     </Field>
     {searched && <div className="flex flex-col gap-3" aria-label="Creation chain search results">
-      {search.isFetching ? <p role="status" className="text-ui text-ink-muted">Searching Google chains...</p> : search.error ? <p role="alert" className="text-ui text-danger-ink">{describeActionError(search.error)} Search again to retry.</p> : ready && !choices.length ? <p role="status" className="text-ui text-ink-muted">No chains found for {searched}. Try another name.</p> : null}
+      {search.isFetching ? <p role="status" className="text-ui text-ink-muted">Searching Google chains...</p> : search.error ? <FormError>{describeActionError(search.error)} Search again to retry.</FormError> : ready && !choices.length ? <p role="status" className="text-ui text-ink-muted">No chains found for {searched}. Try another name.</p> : null}
       {choices.map((choice) => <div key={choice.name} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
-        <div className="min-w-0"><p className="text-ui break-words">{choice.label}</p><p className="text-caption font-mono text-ink-muted break-all">{choice.name}</p></div>
+        <div className="min-w-0"><p className="text-ui break-words">{choice.label}</p><SupportDetails items={[choice.name]} /></div>
         <Button type="button" variant="outline" disabled={value?.parentChain === choice.name} aria-label={`Select chain ${choice.label}`} onClick={() => onChange({ ...value, parentChain: choice.name })}>{value?.parentChain === choice.name ? "Selected" : "Select"}</Button>
       </div>)}
     </div>}

@@ -13,7 +13,6 @@ import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { PresenceFigures } from "@/components/performance/presence-figures"
-import { RangeSelect } from "@/components/performance/range-select"
 import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useAnalyticsPresence } from "@/lib/queries/use-analytics-presence"
@@ -21,7 +20,6 @@ import {
   DEFAULT_RANGES,
   formatPeriod,
   isValidPeriod,
-  PRESENCE_RANGES,
   resolvedPeriod,
   type PresenceRangeId,
 } from "@/lib/reporting/ranges"
@@ -29,6 +27,11 @@ import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session" // client session hook (Task 1, REV-1)
 import { cn } from "@/lib/utils"
 
+/**
+ * Google performance for the page's scope and period. The period is chosen
+ * in the page's ReportToolbar (`?range=`); `onRangeChange` is still used for
+ * the "Show the last 12 months" shortcut on an empty window.
+ */
 export function GooglePerformanceTab({
   clientId,
   range,
@@ -67,21 +70,15 @@ export function GooglePerformanceTab({
         )
       }
       controls={
-        <>
-          <RangeSelect
-            value={rangeId}
-            onChange={setRangeId}
-            options={PRESENCE_RANGES}
-            period={period}
-          />
-          {/* Owners and admins only (lib/reporting/sync-permission); for
-              everyone else the button is not rendered at all. */}
+        // Owners and admins only (lib/reporting/sync-permission); for
+        // everyone else the button is not rendered at all.
+        canTriggerSync(role) ? (
           <RefreshGoogleButton
             kind="performance"
-            canTrigger={canTriggerSync(role)}
+            canTrigger
             onDone={() => void presence.refetch()}
           />
-        </>
+        ) : null
       }
     />
   )
@@ -115,6 +112,7 @@ export function GooglePerformanceTab({
     return frame(
       <ReportingPanel
         framed
+        titleAs="h3"
         variant="off"
         title="Google performance is not switched on"
         description="Ask an admin to turn this on for your organisation."
@@ -124,6 +122,7 @@ export function GooglePerformanceTab({
     return frame(
       <ReportingPanel
         framed
+        titleAs="h3"
         variant="empty"
         icon={<Link2OffIcon />}
         title="No linked location"
@@ -147,7 +146,7 @@ export function GooglePerformanceTab({
       <>
         {/* No figures yet: still name each location and why. */}
         <PartialCoverageAlert completeness={data.completeness} />
-        <ReportingPanel framed variant="collecting" />
+        <ReportingPanel framed titleAs="h3" variant="collecting" />
       </>
     )
   if (data.state === "unavailable")
@@ -169,6 +168,7 @@ export function GooglePerformanceTab({
         />
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           icon={<Link2OffIcon />}
           title="No Google figures for this window"
@@ -182,6 +182,7 @@ export function GooglePerformanceTab({
         <PartialCoverageAlert completeness={data.completeness} />
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           title="No activity yet"
           description={`Google has not reported any visibility data for ${period}.`}

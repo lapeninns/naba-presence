@@ -167,8 +167,10 @@ export const mfaStepUpResponseSchema = z.object({
 export type MfaStepUpResponse = z.infer<typeof mfaStepUpResponseSchema>
 
 /** 403 codes a sensitive action answers when two-step verification is due. */
-export const MFA_STEP_UP_REQUIRED = "mfa_step_up_required"
-export const MFA_ENROLLMENT_REQUIRED = "mfa_enrollment_required"
+export {
+  MFA_ENROLLMENT_REQUIRED,
+  MFA_STEP_UP_REQUIRED,
+} from "@/lib/contracts/wire-codes"
 
 /** POST `/api/auth/mfa/enroll` response: what the authenticator app needs. */
 export const mfaEnrollResponseSchema = z.object({

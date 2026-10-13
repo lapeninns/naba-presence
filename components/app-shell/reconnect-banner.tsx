@@ -7,7 +7,7 @@ import * as React from "react"
 
 import { ReconnectDialogView } from "@/components/settings/connection-card"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { formatRelativeTime } from "@/lib/format"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { useClients } from "@/lib/queries/use-clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import {
@@ -19,11 +19,14 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { useClientScope } from "./client-context"
+import {
+  CONNECTIONS_PATH,
+  hidesReconnectBanner,
+  lostListingAccess,
+  needsReconnect,
+} from "./reconnect-banner-rules"
 
 const CAN_RECONNECT = new Set(["owner", "admin"])
-
-/** The page that lists every connection with its own Reconnect. */
-const CONNECTIONS_PATH = "/settings/connections"
 
 const DISMISS_KEY = "np.reconnect-banner.dismissed"
 
@@ -92,10 +95,7 @@ export function ReconnectBanner({ className }: { className?: string }) {
     () => null
   )
 
-  const broken = (query.data?.connections ?? []).filter(
-    (connection) =>
-      connection.reconnectRequired && connection.status !== "disconnected"
-  )
+  const broken = (query.data?.connections ?? []).filter(needsReconnect)
   const scoped = clientId
     ? clients.data?.items.find((entry) => entry.id === clientId)
     : undefined
@@ -104,15 +104,10 @@ export function ReconnectBanner({ className }: { className?: string }) {
     .sort()
     .join(",")
 
-  if (
-    pathname === CONNECTIONS_PATH ||
-    pathname?.startsWith(`${CONNECTIONS_PATH}/`)
-  ) {
-    return null
-  }
+  if (hidesReconnectBanner(pathname)) return null
 
   if (broken.length === 0) {
-    if (scoped?.freshness?.reason !== "listing_access_lost") return null
+    if (!scoped || !lostListingAccess(scoped)) return null
     const lost = scoped.checks?.accessLost ?? 0
     return (
       <Banner
@@ -165,9 +160,16 @@ export function ReconnectBanner({ className }: { className?: string }) {
               {superseded
                 ? "A different Google account was used last time, so this login is still paused. Reconnect it, or disconnect it in Settings."
                 : "Reviews and profile changes it covers are paused until it is reconnected."}
-              {lastChecked
-                ? ` Last successful check ${formatRelativeTime(lastChecked)}.`
-                : ""}
+              {lastChecked ? (
+                <>
+                  {" "}
+                  <RelativeTime
+                    iso={lastChecked}
+                    prefix="Last successful check "
+                    suffix="."
+                  />
+                </>
+              ) : null}
               {others > 0
                 ? ` ${others} other Google ${others === 1 ? "login needs" : "logins need"} reconnecting too.`
                 : ""}

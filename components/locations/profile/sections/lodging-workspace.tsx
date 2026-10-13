@@ -1,15 +1,25 @@
 "use client"
 
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react"
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
+import dynamic from "next/dynamic"
 import { useInfiniteQuery } from "@tanstack/react-query"
-import { ApprovalExpiry } from "@/components/editors/change-diff"
-import { Button } from "@/components/ui/button"
+import { SavedWorkList } from "@/components/reviewed-write"
 import { fetchLodgingWorkflows } from "@/lib/api/location-industry"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { resourceDisabledReason } from "@/lib/locations/gating"
-import { LodgingApprovalSheet } from "./lodging-approval-sheet"
+import { savedChangeItem } from "./saved-change-work"
 import { useLodgingReview } from "./use-lodging-review"
+
+// The approval sheet's diff labels come from the Google lodging discovery
+// schema (about 100 KB), which most listings never need. The sheet is closed
+// (renders nothing) until a lodging review exists, so it loads then; once a
+// listing has saved lodging work its chunk is fetched ahead of the first open.
+const loadLodgingApprovalSheet = () => import("./lodging-approval-sheet")
+const LodgingApprovalSheet = dynamic(
+  () => loadLodgingApprovalSheet().then((m) => m.LodgingApprovalSheet),
+  { loading: () => null }
+)
 
 type DraftStatus = { dirty: boolean; blocked: string | null }
 type DraftActions = { review: () => void; discard: () => void }
@@ -34,6 +44,9 @@ export function LodgingWorkspaceProvider({ locationId, children }: { readonly lo
 }
 export const useLodgingWorkspace = () => useContext(Context)
 
+/** The jump target for saved lodging work on the profile page. */
+export const SAVED_LODGING_ID = "section-saved-lodging"
+
 export function SavedLodgingWorkspace({ locationId }: { readonly locationId: string }) {
   const caps = useLocationCapabilities(locationId).data
   return <SavedLodgingWork locationId={locationId} enabled={Boolean(caps?.canEditCanonical)} disabled={!caps?.canPublish || Boolean(resourceDisabledReason(caps, "industry", true))} />
@@ -46,18 +59,38 @@ export function SavedLodgingWork({ locationId, enabled, disabled }: { readonly l
     queryFn: ({ pageParam }) => fetchLodgingWorkflows(locationId, pageParam || undefined),
     getNextPageParam: (page) => page.nextCursor ?? undefined, enabled,
   })
+  const hasSavedWork = Boolean(query.data?.pages.some((page) => page.items.length > 0))
+  useEffect(() => {
+    if (hasSavedWork) void loadLodgingApprovalSheet()
+  }, [hasSavedWork])
   if (!enabled || !workflow) return null
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
-  return <section aria-label="Saved lodging work" className="flex min-w-0 flex-col gap-3">
-    <h3 className="text-title font-semibold text-ink">Saved lodging work</h3>
-    <p className="text-ui text-ink-muted">Saved requests remain available when Google cannot be read. Expired approvals cannot be sent again; recorded outcomes can still be checked.</p>
-    {query.isPending ? <p role="status">Loading saved lodging work…</p> : query.isError ? <p role="alert">Saved lodging work could not be loaded. <Button size="sm" variant="secondary" onClick={() => void query.refetch()}>Retry saved work</Button></p> : items.length === 0 ? <p className="text-ui text-ink-muted">No saved lodging requests.</p> : items.map((item) => <div key={item.changeSet.id} className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3">
-      <p className="text-ui font-semibold text-ink">Lodging details for {item.changeSet.locationName}</p>
-      {item.changeSet.targetResourceName ? <p className="break-all text-caption text-ink-muted">Google target: {item.changeSet.targetResourceName}</p> : null}
-      <p className="text-caption text-ink-muted">{item.attemptId ? "Request outcome recorded" : <>{item.changeSet.approvedBy ? "Approved request" : "Awaiting approval"} · <ApprovalExpiry expiresAt={item.changeSet.expiresAt} /></>}</p>
-      <Button size="sm" variant="secondary" disabled={workflow.busy || workflow.unresolved && workflow.review?.id !== item.changeSet.id} onClick={() => workflow.restore(item.changeSet)}>{item.attemptId ? "Open lodging outcome" : "Open lodging review"}</Button>
-    </div>)}
-    {query.hasNextPage ? <Button variant="secondary" disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>Load more lodging work</Button> : null}
-    <LodgingApprovalSheet workflow={workflow} disabled={disabled} />
-  </section>
+  return <div id={SAVED_LODGING_ID} className="flex min-w-0 scroll-mt-18 flex-col desk:scroll-mt-4">
+    <SavedWorkList
+      id={`${SAVED_LODGING_ID}-heading`}
+      headingLevel="h3"
+      title="Saved lodging work"
+      description="Saved requests remain available when Google cannot be read. Expired approvals cannot be sent again; recorded outcomes can still be checked."
+      items={items.map((item) => savedChangeItem({
+        change: item.changeSet, recorded: Boolean(item.attemptId),
+        operation: `Lodging details for ${item.changeSet.locationName}`,
+        actionLabel: item.attemptId ? "Open lodging outcome" : "Open lodging review",
+        onOpen: () => workflow.restore(item.changeSet),
+        disabled: workflow.busy || workflow.unresolved && workflow.review?.id !== item.changeSet.id,
+      }))}
+      pending={query.isPending}
+      failed={query.isError}
+      loadingText="Loading saved lodging work…"
+      errorText="Saved lodging work could not be loaded."
+      emptyText="No saved lodging requests."
+      reloadLabel="Reload saved lodging work"
+      reloading={query.isFetching}
+      onReload={() => void query.refetch()}
+      loadMoreLabel="Load more lodging work"
+      hasMore={query.hasNextPage}
+      loadingMore={query.isFetchingNextPage}
+      onLoadMore={() => void query.fetchNextPage()}
+    />
+    {workflow.review ? <LodgingApprovalSheet workflow={workflow} disabled={disabled} /> : null}
+  </div>
 }

@@ -4,10 +4,25 @@ import {
   dehydrate,
   QueryClient,
   type DehydratedState,
+  type InfiniteData,
   type QueryKey,
 } from "@tanstack/react-query"
-import type { ZodType } from "zod"
+import { z, type ZodType } from "zod"
 
+import {
+  hoursResponseSchema,
+  type HoursState,
+} from "@/lib/contracts/location-hours"
+import {
+  mediaListQuerySchema,
+  mediaListResponseSchema,
+  type MediaState,
+} from "@/lib/contracts/location-media"
+import {
+  postsListQuerySchema,
+  postsListResponseSchema,
+  type PostsListResponse,
+} from "@/lib/contracts/location-posts"
 import {
   listingSummarySchema,
   type ListingSummary,
@@ -20,7 +35,25 @@ import {
   type SettingsCapabilities,
   type SettingsCapabilitiesResponse,
 } from "@/lib/contracts/location-capabilities"
-import { reviewCountsSchema, type ReviewCounts } from "@/lib/contracts/reviews"
+import {
+  decodeReviewsQuery,
+  encodeReviewsQuery,
+  reviewCountsQuerySchema,
+  reviewCountsSchema,
+  reviewDetailSchema,
+  reviewIdParamsSchema,
+  reviewsPageSchema,
+  type ReviewCounts,
+  type ReviewDetail,
+  type ReviewsFilters,
+  type ReviewsPage,
+} from "@/lib/contracts/reviews"
+import { parseInboxState, toReviewsFilters } from "@/lib/inbox/url-state"
+import {
+  parsePhotosState,
+  toMediaQuery,
+} from "@/lib/locations/photos-url-state"
+import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
@@ -31,10 +64,22 @@ import {
   settingsFeaturesApply,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
+import {
+  readHoursResponse,
+  readMediaListResponse,
+  readPostsListResponse,
+} from "@/lib/server/listing-reads"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
 import { loadPauseSnapshot } from "@/lib/server/pause-controls"
-import { readReviewCounts as loadReviewCounts } from "@/lib/server/review-counts"
+import {
+  readReviewCounts as loadReviewCounts,
+  type ReviewCountsScope,
+} from "@/lib/server/review-counts"
+import {
+  readReviewDetail as loadReviewDetail,
+  readReviewsPage as loadReviewsPage,
+} from "@/lib/server/review-reads"
 import type { Session } from "@/lib/server/session"
 
 /**
@@ -119,21 +164,55 @@ export async function prefetch(
 // ---------------------------------------------------------------------------
 
 /**
- * What `useReviewCounts(locationId)` fetches.
+ * What `useReviewCounts(scope)` (and the shell's `useNeedsReplyCount`)
+ * fetches.
  *
  * Delegates to `lib/server/review-counts.ts`, the one implementation the
  * route also calls: the counts hydrated into the cache on first paint and the
  * counts a later refetch returns must be produced the same way, or the rail
- * flickers between two different truths.
+ * flickers between two different truths. The scope goes through the route's
+ * own query schema, so an id the route would refuse is refused here too.
  */
 export async function readReviewCounts(
   session: Session,
-  locationId?: string
+  scope: ReviewCountsScope = {}
 ): Promise<ReviewCounts> {
+  const parsed = reviewCountsQuerySchema.parse(scope)
   const counts = await withTenant(session.organisationId, (sql) =>
-    loadReviewCounts(sql, session, locationId ? { locationId } : {})
+    loadReviewCounts(sql, session, parsed)
   )
   return throughWire(reviewCountsSchema, counts)
+}
+
+/**
+ * What `useReviews(filters)` holds after its first page: the infinite-query
+ * shape (`initialPageParam` null) around what `GET /api/reviews` answers for
+ * `filters`. The filters take the browser's path to the route, encoded to
+ * the wire and decoded by the route's codec, so defaults (sort, page size)
+ * and narrowing match the request `fetchReviews` would have sent.
+ */
+export async function readReviewsFirstPage(
+  session: Session,
+  filters: ReviewsFilters
+): Promise<InfiniteData<ReviewsPage, string | null>> {
+  const query = decodeReviewsQuery(
+    encodeReviewsQuery({ ...filters, cursor: null })
+  )
+  const page = await withTenant(session.organisationId, (sql) =>
+    loadReviewsPage(sql, session, query)
+  )
+  return { pages: [throughWire(reviewsPageSchema, page)], pageParams: [null] }
+}
+
+/** What `useReviewDetail(id)` fetches: `GET /api/reviews/{id}`. */
+export async function readReviewDetail(
+  session: Session,
+  id: string
+): Promise<ReviewDetail> {
+  const review = await withTenant(session.organisationId, (sql) =>
+    loadReviewDetail(sql, session, id)
+  )
+  return throughWire(reviewDetailSchema, { review })
 }
 
 /** What `useLocationCapabilities(id)` fetches. */
@@ -181,6 +260,59 @@ export async function readSettingsCapabilities(
   return throughWire(settingsCapabilitiesResponseSchema, payload).capabilities
 }
 
+/** What `useHours(id)` fetches: `GET /api/locations/{id}/hours`. */
+export async function readHours(
+  session: Session,
+  locationId: string
+): Promise<HoursState> {
+  const payload = await readHoursResponse(session, locationId)
+  return throughWire(hoursResponseSchema, payload).hours
+}
+
+/** The photos filters the URL carries, as `useMedia` keys them. */
+export type MediaFilters = ReturnType<typeof toMediaQuery>
+
+/**
+ * What `useMedia(id, filters)` holds after its first page: the
+ * infinite-query shape around what `GET /api/locations/{id}/media` answers.
+ * The query takes the browser's path to the route: the parameters
+ * `fetchMedia` sends (the photos tab's page size and the URL's filters),
+ * parsed by the route's own query schema.
+ */
+export async function readMediaFirstPage(
+  session: Session,
+  locationId: string,
+  filters: MediaFilters
+): Promise<InfiniteData<MediaState, string | null>> {
+  const query = mediaListQuerySchema.parse({
+    pageSize: String(DEFAULT_MEDIA_PAGE_SIZE),
+    ...(filters.category ? { category: filters.category } : {}),
+    ...(filters.ownership ? { ownership: filters.ownership } : {}),
+  })
+  const payload = await readMediaListResponse(session, locationId, query)
+  return {
+    pages: [throughWire(mediaListResponseSchema, payload).media],
+    pageParams: [null],
+  }
+}
+
+/**
+ * What `usePosts(id)` holds after its first page of the default "all" view
+ * (the posts tab's initial filter): `GET /api/locations/{id}/posts` with no
+ * query string, exactly the request `fetchPosts` sends for it.
+ */
+export async function readPostsFirstPage(
+  session: Session,
+  locationId: string
+): Promise<InfiniteData<PostsListResponse, string | null>> {
+  const query = postsListQuerySchema.parse({})
+  const payload = await readPostsListResponse(session, locationId, query)
+  return {
+    pages: [throughWire(postsListResponseSchema, payload)],
+    pageParams: [null],
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Page composers
 // ---------------------------------------------------------------------------
@@ -188,8 +320,10 @@ export async function readSettingsCapabilities(
 /**
  * A listing page: its capabilities and its DB-only summary. Both are pure
  * SQL, so the overview's health strip and cards, and an area page's status
- * pill, paint on the first render. The editors' own resources are NOT
- * prefetched: they read Google live (see `locationTabPrefetch`).
+ * pill, paint on the first render. The editors' own resources read Google
+ * live, so they are never part of this (blocking) prefetch: the hours,
+ * photos and posts pages stream theirs behind a Suspense boundary instead
+ * (`hoursTabPrefetch`, `photosTabPrefetch`, `postsTabPrefetch`).
  */
 export function listingPagePrefetch(
   locationId: string
@@ -204,29 +338,67 @@ export function listingPagePrefetch(
 }
 
 /**
- * /inbox: the queue badges' organisation-wide counts, under the key
- * `useReviewCounts({ clientId: undefined })` reads. A client-filtered inbox
- * reads a client-scoped key the page cannot know without the query string,
- * so that one is fetched in the browser.
+ * /inbox: what the inbox's own hooks read on their first render for the
+ * URL's query string, so the list (and an open `?selected=` review) is in
+ * the first HTML instead of waiting for the client bundle.
+ *
+ * - the first page of `useReviews(filters)`, under the key built from the
+ *   same `parseInboxState` → `toReviewsFilters` the view runs. A business
+ *   has no client scope, so its `clientId` is dropped as the view drops it.
+ *   An `age` preset is skipped: its window is relative to the hour it is
+ *   read in, and a server and browser either side of the hour would key
+ *   differently, rendering rows on one side and a skeleton on the other.
+ * - the client-scoped counts `useReviewCounts({ clientId })` reads while
+ *   the inbox is filtered to one client. The unscoped counts are hydrated
+ *   by the dashboard layout for the shell's badges, which is the same key.
+ * - the open review, under `useReviewDetail(selected)`'s key. A malformed
+ *   id is left to the client, whose request the route refuses.
  */
-export function inboxPrefetch(): (session: Session) => PrefetchEntry[] {
-  return (session) => [
-    {
-      queryKey: queryKeys.reviewCounts("organisation"),
-      load: () => readReviewCounts(session),
-    },
-  ]
+export function inboxPrefetch(
+  search: URLSearchParams
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    const parsed = parseInboxState(search)
+    const state =
+      session.workspaceMode === "business"
+        ? { ...parsed, clientId: undefined }
+        : parsed
+    const entries: PrefetchEntry[] = []
+    if (!state.age || state.dateFrom || state.dateTo) {
+      const filters = toReviewsFilters(state)
+      entries.push({
+        queryKey: queryKeys.reviews("organisation", filters),
+        load: () => readReviewsFirstPage(session, filters),
+      })
+    }
+    if (state.clientId) {
+      const clientId = state.clientId
+      entries.push({
+        queryKey: queryKeys.reviewCounts(`organisation:${clientId}`),
+        load: () => readReviewCounts(session, { clientId }),
+      })
+    }
+    const selected = reviewIdParamsSchema.safeParse({ id: state.selected })
+    if (selected.success) {
+      const id = selected.data.id
+      entries.push({
+        queryKey: queryKeys.reviewDetail(id),
+        load: () => readReviewDetail(session, id),
+      })
+    }
+    return entries
+  }
 }
 
 /**
  * One per-location tab: its capabilities only. Every tab reads them and the
  * LocationTab shell waits on them before mounting the resource hook, so this
- * removes that waterfall. Tab state itself is NOT prefetched: hours, profile,
- * photos, booking, menu, business profile, industry and administration
- * read Google live, and posts reconciles against Google on every list
- * (lib/server/posts.ts), so any of them inside the RSC render would gate first
- * paint (and every <Link prefetch> to the page) on Google for seconds. `search` is the page's URL
- * query, for tabs whose key depends on it (photos).
+ * removes that waterfall. Tab state itself is NOT part of this prefetch:
+ * hours, profile, photos, booking, menu, business profile, industry and
+ * administration read Google live, and posts reconciles against Google on
+ * every list (lib/server/posts.ts), so any of them awaited by the page would
+ * gate first paint on Google for seconds. The hours, photos and posts pages
+ * stream theirs instead (see `hoursTabPrefetch` below).
  */
 export function locationTabPrefetch(
   locationId: string | null
@@ -251,4 +423,91 @@ export function settingsPrefetch(): (session: Session) => PrefetchEntry[] {
       load: () => readSettingsCapabilities(session),
     },
   ]
+}
+
+// ---------------------------------------------------------------------------
+// Streamed editor prefetch (components/listings/streamed-tab.tsx)
+// ---------------------------------------------------------------------------
+//
+// The hours, photos and posts editors' first reads reach Google, so a page
+// never awaits them: it renders its shell (header, tabs, the tab's pending
+// state) at once and awaits these inside a Suspense boundary that streams
+// the editor, with its own <HydrationBoundary>, when the read lands. A read
+// that fails is left out (`prefetch` never throws), and the editor fetches
+// and shows its error exactly as it did before.
+//
+// Every route here parses the location id itself and refuses a bad one; the
+// prefetch is skipped for anything but a UUID (the listing pages' ids), so
+// it never asks a reader for something the client would not have sent.
+
+const locationIdSchema = z.uuid()
+
+function streamable(locationId: string): boolean {
+  return locationIdSchema.safeParse(locationId).success
+}
+
+/**
+ * /listings/{id}/hours: what `useHours(id)` reads on its first render.
+ *
+ * The hours read refreshes what the listing summary holds (Google's hours,
+ * the reconcile time), which is why `useHours` invalidates the summary after
+ * every fetch. The summary is re-read once the hours read has settled and
+ * hydrated after it, so the header's status pill follows the hours read as
+ * it did when the browser fetched it. (An existing query hydrates only from
+ * newer data, so it never moves the pill backwards.)
+ */
+export function hoursTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    let hours: Promise<HoursState> | undefined
+    const loadHours = () => (hours ??= readHours(session, locationId))
+    return [
+      { queryKey: queryKeys.locationHours(locationId), load: loadHours },
+      {
+        queryKey: queryKeys.listingSummary(locationId),
+        load: async () => {
+          await loadHours().catch(() => undefined)
+          return readListingSummary(session, locationId)
+        },
+      },
+    ]
+  }
+}
+
+/**
+ * /listings/{id}/photos: the first page of `useMedia(id, filters)` for the
+ * filters in the request's query string, read with `parsePhotosState` →
+ * `toMediaQuery` as the photos tab reads its URL.
+ */
+export function photosTabPrefetch(
+  locationId: string,
+  search: URLSearchParams
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    const filters = toMediaQuery(parsePhotosState(search))
+    return [
+      {
+        queryKey: queryKeys.locationMedia(locationId, filters),
+        load: () => readMediaFirstPage(session, locationId, filters),
+      },
+    ]
+  }
+}
+
+/** /listings/{id}/posts: the first page of the "all" view `usePosts(id)` opens on. */
+export function postsTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    return [
+      {
+        queryKey: queryKeys.locationPostsView(locationId, "all"),
+        load: () => readPostsFirstPage(session, locationId),
+      },
+    ]
+  }
 }

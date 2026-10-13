@@ -7,13 +7,14 @@ import * as React from "react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
 import { startGoogleConnect } from "@/lib/api/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatRelativeTime } from "@/lib/format"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
+import { cardClassName } from "@/components/ui/card"
 
 /**
  * Choose the Google login that manages this client's Business Profile.
@@ -144,7 +145,12 @@ function StepConnect({
             </Alert>
           ) : null}
 
-          <div className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3.5 @min-[520px]/wiz:flex-row @min-[520px]/wiz:items-center">
+          <div
+            className={cardClassName({
+              className:
+                "flex flex-col gap-3 p-3.5 @min-[520px]/wiz:flex-row @min-[520px]/wiz:items-center",
+            })}
+          >
             <span
               aria-hidden
               className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ink-secondary [&_svg]:size-4"
@@ -204,7 +210,10 @@ function StepConnect({
                   return (
                     <li
                       key={connection.id}
-                      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-(--np-radius-card) border border-line bg-surface p-3.5"
+                      className={cardClassName({
+                        className:
+                          "flex flex-wrap items-start gap-x-3 gap-y-1.5 p-3.5",
+                      })}
                     >
                       <span
                         aria-hidden
@@ -217,9 +226,14 @@ function StepConnect({
                           {connection.googleEmail ?? "Google account"}
                         </span>
                         <span className="text-caption text-ink-muted">
-                          {connection.lastRefreshAt
-                            ? `Refreshed ${formatRelativeTime(connection.lastRefreshAt)}`
-                            : "Not refreshed yet"}
+                          {connection.lastRefreshAt ? (
+                            <RelativeTime
+                              iso={connection.lastRefreshAt}
+                              prefix="Refreshed "
+                            />
+                          ) : (
+                            "Not refreshed yet"
+                          )}
                         </span>
                         {broken ? (
                           <span className="text-caption text-ink-muted">

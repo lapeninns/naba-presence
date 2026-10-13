@@ -22,11 +22,22 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }))
+const historyMounted = vi.hoisted(() => vi.fn())
+vi.mock("@/components/locations/activity-panel", () => ({
+  LocationActivityPanel: () => {
+    historyMounted()
+    return <p>history</p>
+  },
+}))
 vi.mock("@/lib/queries/use-locations", () => ({
   useLocationDirectory: () => ({ data: [] }),
 }))
 
 import { ListingAreaHeader } from "@/components/listings/area-frame"
+import {
+  emptyListingSummary,
+  type ListingSummary,
+} from "@/lib/contracts/location-summary"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import type { DirectoryEntry } from "@/lib/queries/use-locations"
 
@@ -40,11 +51,13 @@ function Header({
   current = "profile",
   dirty = false,
   publishBlocked = false,
+  summary,
 }: {
   role?: string
   current?: "profile" | "hours"
   dirty?: boolean
   publishBlocked?: boolean
+  summary?: ListingSummary
 }) {
   const leave = useLeaveGuard({ when: dirty })
   return (
@@ -54,7 +67,7 @@ function Header({
         role={role}
         locationId="l1"
         current={current}
-        summary={undefined}
+        summary={summary}
         caps={{
           canEditCanonical: true,
           canPublish: true,
@@ -117,10 +130,65 @@ describe("mobile listing area navigation", () => {
     expect(
       screen.queryByRole("menuitem", { name: /Verification/ })
     ).not.toBeInTheDocument()
-    expect(
-      await screen.findByRole("menuitem", { name: /Food menu/ })
-    ).toHaveAttribute("aria-disabled", "true")
+    // Muted with its reason, the same as the desk's tab row, and still a
+    // link: a read-only look is allowed.
+    const menu = await screen.findByRole("menuitem", { name: /Food menu/ })
+    expect(menu).not.toHaveAttribute("aria-disabled", "true")
+    expect(menu).toHaveAttribute("data-unavailable", "true")
+    expect(menu).toHaveTextContent(/Unavailable/)
+    expect(menu).toHaveAttribute("href", "/listings/l1/menu")
   })
+  it("lists the same pages, in the same order, as the desk's tab row, Review & publish last", async () => {
+    render(<Header />)
+    const tabs = screen.getByRole("navigation", { name: "Listing areas" })
+    const tabHrefs = Array.from(tabs.querySelectorAll("a")).map((link) =>
+      link.getAttribute("href")
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Listing area: Business profile" })
+    )
+    await screen.findByRole("menuitem", { name: "Opening hours" })
+    const menuHrefs = screen
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("href"))
+    expect(menuHrefs).toEqual(tabHrefs)
+    expect(menuHrefs.at(-1)).toBe("/listings/l1/changes")
+    expect(
+      tabs.querySelector('[href="/listings/l1/menu"]')
+    ).toHaveAttribute("data-unavailable", "true")
+  })
+  // The desk's strip is the TabNav primitive, nothing hand-rolled on top:
+  // the route's area is the one current link, an unavailable area stays a
+  // followable link (not `disabled`), and counts are count badges.
+  it("draws the desk's tab row with TabNav: one current link, counts in the count role", () => {
+    const summary = {
+      ...emptyListingSummary({ locationId: "l1", linked: true, verified: true }),
+      menu: { status: "core_dirty", dirtyCount: 2, eligible: true },
+    } as ListingSummary
+    const view = render(<Header summary={summary} />)
+    const tabs = screen.getByRole("navigation", { name: "Listing areas" })
+    expect(tabs).toHaveAttribute("data-slot", "listing-area-tabs")
+    const current = tabs.querySelectorAll('[aria-current="page"]')
+    expect(current).toHaveLength(1)
+    expect(current[0]).toHaveAttribute("href", "/listings/l1/profile")
+    const menu = tabs.querySelector('[href="/listings/l1/menu"]')!
+    expect(menu).not.toHaveAttribute("aria-disabled")
+    expect(menu).toHaveAttribute("data-unavailable", "true")
+    const publish = tabs.querySelector('[href="/listings/l1/changes"]')!
+    expect(publish).toHaveTextContent("Review & publish")
+    expect(publish).toHaveTextContent("2, 2 to publish")
+    // The badge around the visible figure is a `count` badge.
+    const figure = publish.querySelector("span[aria-hidden]")!
+    expect(figure).toHaveTextContent(/^2$/)
+    expect(figure.parentElement).toHaveClass("text-count")
+    expect(figure.parentElement!.className).not.toMatch(/text-caption/)
+    view.rerender(<Header summary={summary} current="hours" />)
+    expect(tabs.querySelector('[aria-current="page"]')).toHaveAttribute(
+      "href",
+      "/listings/l1/hours"
+    )
+  })
+
   it("keeps the existing dirty guard on menu links, including cancel and confirm", async () => {
     render(<Header dirty />)
     await userEvent.click(
@@ -149,5 +217,29 @@ describe("mobile listing area navigation", () => {
     expect(item).not.toHaveAttribute("aria-disabled", "true")
     await userEvent.click(item)
     expect(followed).toHaveBeenCalledExactlyOnceWith("/listings/l1/hours")
+  })
+  it("opens Activity from the phone's overflow menu, fetching history only then", async () => {
+    render(<Header />)
+    expect(historyMounted).not.toHaveBeenCalled()
+    await userEvent.click(
+      screen.getByRole("button", { name: "More listing actions" })
+    )
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Activity" })
+    )
+    expect(
+      await screen.findByRole("dialog", { name: "Recent activity" })
+    ).toBeInTheDocument()
+    expect(historyMounted).toHaveBeenCalled()
+  })
+  it("keeps the model note reachable on an area behind an info button", async () => {
+    render(<Header current="hours" />)
+    await userEvent.click(
+      screen.getByRole("button", { name: "Where changes go" })
+    )
+    expect(
+      (await screen.findAllByText(/nothing reaches Google until you review/))
+        .length
+    ).toBeGreaterThan(1)
   })
 })

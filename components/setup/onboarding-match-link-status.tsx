@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { SupportDetails } from "@/components/editors/support-details"
+import { Button, buttonVariants } from "@/components/ui/button"
 import type { OnboardingMatchLinkOperation } from "@/lib/contracts/google-onboarding-match-link"
 
 export function OnboardingMatchLinkStatus({ value, refreshing, onRefresh, onReview }: {
@@ -23,11 +24,11 @@ export function OnboardingMatchLinkStatus({ value, refreshing, onRefresh, onRevi
         ? "The saved operation is still pending. Refresh its status before taking another action. An interrupted operation can be recovered after its pending claim expires."
         : "The mapping transaction did not complete. Restore its review to retry the same intent, or resolve conflicts and generate a fresh review. No new public Google listing was created by this operation."}</p>
     {value.errorCode === "location_limit_reached" && <p className="text-ui text-ink-muted">This workspace has reached its plan&apos;s location limit. Unlink a location or change plan, then link again.</p>}
-    {value.errorCode && <p className="font-mono text-caption break-all text-ink-muted">Recovery reason: {value.errorCode}</p>}
+    {value.errorCode && <SupportDetails items={[`Recovery reason: ${value.errorCode}`]} />}
     <div className="flex flex-wrap gap-2">
       <Button variant="secondary" pending={refreshing} pendingLabel="Refreshing link status…" onClick={onRefresh}>Refresh link status</Button>
       {value.state === "failed" && <Button variant="secondary" disabled={refreshing} onClick={() => onReview(value.reviewId)}>Restore link review</Button>}
-      {value.state === "linked" && value.locationId && <Link href={`/listings/${value.locationId}`} className="inline-flex items-center text-ui underline underline-offset-4">Open linked listing</Link>}
+      {value.state === "linked" && value.locationId && <Link href={`/listings/${value.locationId}`} className={buttonVariants({ variant: "secondary" })}>Open linked listing</Link>}
     </div>
   </section>
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react"
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 
+import { ActionBar } from "@/components/ui/action-bar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
@@ -31,9 +32,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
 import { ActivityTimeline } from "@/components/inbox/activity-timeline"
+import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReplyException } from "@/components/inbox/detail/reply-exception"
 import { ReplyStatusLine } from "@/components/inbox/detail/reply-status-line"
 import { ReviewMetadata } from "@/components/inbox/detail/review-metadata"
@@ -41,7 +44,7 @@ import { wasEdited } from "@/components/inbox/review-list"
 import { SITUATION_TONE_ICON } from "@/components/inbox/situation-tone"
 import { TYPING_COLLAPSE_CLASS } from "@/components/inbox/typing-collapse"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
-import { formatDateTime, formatRelativeTime } from "@/lib/format"
+import { formatDateTime } from "@/lib/format"
 import type { ReviewDetail as ReviewDetailData } from "@/lib/api/reviews"
 import {
   derivePrimaryAction,
@@ -56,6 +59,7 @@ import {
   replyWork,
 } from "@/lib/inbox/review-situation"
 import { parseReviewText } from "@/lib/inbox/review-text"
+import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
 import { useReplyPending } from "@/lib/queries/use-reply-pending"
 import { cn } from "@/lib/utils"
@@ -122,9 +126,10 @@ function initialsOf(name: string): string {
 }
 
 // The thread's rail: a 44px avatar column (32px in a narrow pane) beside the
-// words, so the review and the reply read as one conversation.
+// words, so the review and the reply read as one conversation. The columns
+// are the avatar's own sizes on the spacing scale (size-11, size-8).
 const THREAD_ITEM_CLASS =
-  "grid grid-cols-[44px_minmax(0,1fr)] gap-x-3.5 @max-[480px]/detail:grid-cols-[32px_minmax(0,1fr)] @max-[480px]/detail:gap-x-3"
+  "grid grid-cols-[--spacing(11)_minmax(0,1fr)] gap-x-3.5 @max-[480px]/detail:grid-cols-[--spacing(8)_minmax(0,1fr)] @max-[480px]/detail:gap-x-3"
 const THREAD_AVATAR_CLASS =
   "@max-[480px]/detail:size-8 @max-[480px]/detail:text-caption"
 
@@ -184,13 +189,13 @@ function ReviewerIdentity({
         ref={headingRef}
         tabIndex={-1}
         data-slot="review-heading"
-        className="line-clamp-2 min-w-0 font-display text-[17px] leading-snug font-semibold break-words text-ink focus-visible:outline-none"
+        className="line-clamp-2 min-w-0 font-display text-title font-semibold break-words text-ink focus-visible:outline-none"
       >
         {displayName}
       </h2>
       <p
         data-slot="review-meta"
-        className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[13px] leading-5 text-ink-muted"
+        className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-caption text-ink-muted"
       >
         {review.rating !== null ? (
           <>
@@ -202,21 +207,18 @@ function ReviewerIdentity({
             <span aria-hidden>·</span>
           </>
         ) : null}
-        <time
-          dateTime={review.createTime}
-          title={formatDateTime(review.createTime, review.timezone)}
+        <RelativeTime
+          iso={review.createTime}
+          timeZone={review.timezone}
           className="tabular-nums"
-        >
-          {formatRelativeTime(review.createTime)}
-        </time>
+        />
         {wasEdited(review.createTime, review.updateTime) ? (
-          <time
-            dateTime={review.updateTime}
-            title={formatDateTime(review.updateTime, review.timezone)}
+          <RelativeTime
+            iso={review.updateTime}
+            timeZone={review.timezone}
+            prefix="· edited "
             className="tabular-nums"
-          >
-            · edited {formatRelativeTime(review.updateTime)}
-          </time>
+          />
         ) : null}
         <span aria-hidden>·</span>
         <span>Google review</span>
@@ -292,12 +294,12 @@ function ReviewMenu({ review }: { review: Review }) {
               Everything that has happened to this review and its reply.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[min(60vh,32rem)] overflow-y-auto">
-            <ActivityTimeline
-              timeline={review.timeline}
-              timezone={review.timezone}
-            />
-          </div>
+          {/* The dialog is its own scroller (a sheet on a phone), so the
+              timeline is not boxed into a second one inside it. */}
+          <ActivityTimeline
+            timeline={review.timeline}
+            timezone={review.timezone}
+          />
         </DialogContent>
       </Dialog>
       <ReviewMetadata
@@ -310,24 +312,118 @@ function ReviewMenu({ review }: { review: Review }) {
   )
 }
 
+/** The return-to-list control of the phone head (below lg). */
+export type ReviewDetailBack = {
+  /** Where it goes, drawn beside the chevron: "Inbox". */
+  label: string
+  onBack: () => void
+  ref: Ref<HTMLButtonElement>
+  /**
+   * The shell's app bar already draws this way back ("‹ Inbox", the
+   * inbox's `<PageChrome back>` on a pushed review), so the head leaves its
+   * own button out: one back control on the screen. The title, position
+   * and steps stay.
+   */
+  inAppBar?: boolean
+}
+
+/** Where this review sits in the loaded list, and the steps either side. */
+export type ReviewDetailNav = {
+  /** 1-based. */
+  position: number
+  total: number
+  /** Another page follows, so the total is a floor: "2 of 50+". */
+  more: boolean
+  /** Undefined at that end of the list: the button is drawn but off. */
+  onPrevious?: () => void
+  onNext?: () => void
+}
+
 /**
- * The head's frame, shared by the loading, error and loaded pane so the
- * return-to-list control is the SAME element throughout: it takes focus
- * when a review opens on a phone, and a control that was swapped for a new
- * one when the review arrived would drop that focus. It holds nothing else —
- * who wrote the review is at the head of the thread — so it is a phone-only
- * row.
+ * The phone head (below lg): back to the list (unless the app bar already
+ * draws it, `back.inAppBar`), whose review this is, where
+ * it sits in the queue and a step either way. Shared by the loading, error
+ * and loaded pane so the back control is the SAME element throughout: it
+ * takes focus when a review opens from the list, and a control swapped for
+ * a new one when the review arrived would drop that focus. From lg the list
+ * is beside the review, so the row (and its h1) is not drawn there; the
+ * toolbar's "Inbox" is the page's h1 instead.
  */
-function HeadFrame({ leading }: { leading?: ReactNode }) {
-  if (!leading) return null
+function HeadFrame({
+  back,
+  nav,
+  title,
+  titleIsHeading,
+}: {
+  back?: ReviewDetailBack
+  nav?: ReviewDetailNav
+  title: string
+  titleIsHeading: boolean
+}) {
+  if (!back) return null
+  const Title = titleIsHeading ? "h1" : "p"
+  const { ref: backRef, label: backLabel, onBack, inAppBar = false } = back
+  const total = `${nav?.total ?? 0}${nav?.more ? "+" : ""}`
   return (
-    <div className="shrink-0 border-b border-line md:hidden">
-      <div
-        data-slot="review-head"
-        className="flex min-w-0 items-center gap-1.5 px-2 py-2"
+    <div
+      data-slot="review-head"
+      className={cn(
+        "flex min-w-0 shrink-0 items-center gap-1 border-b border-line px-1 py-1 lg:hidden",
+        // Without the back button the title starts at the page gutter.
+        inAppBar && "pl-3"
+      )}
+    >
+      {/* The visible word is part of the name ("Back to Inbox" contains
+          "Inbox"), so a voice user can say what they see. */}
+      {inAppBar ? null : (
+        <Button
+          ref={backRef}
+          variant="ghost"
+          aria-label={`Back to ${backLabel}`}
+          onClick={onBack}
+          className="h-11 shrink-0 gap-0.5 pr-2.5 pl-1.5 text-ui"
+        >
+          <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
+          {backLabel}
+        </Button>
+      )}
+      <Title
+        data-slot="review-title"
+        className="min-w-0 flex-1 truncate px-1 font-display text-title font-semibold text-ink"
       >
-        <div className="shrink-0">{leading}</div>
-      </div>
+        {title}
+      </Title>
+      {nav ? (
+        <>
+          <p
+            data-slot="review-position"
+            className="shrink-0 px-1 text-caption whitespace-nowrap text-ink-muted tabular-nums"
+          >
+            <span className="sr-only">Review </span>
+            {nav.position} of {total}
+          </p>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            aria-label="Previous review"
+            data-nav="previous"
+            disabled={!nav.onPrevious}
+            onClick={nav.onPrevious}
+          >
+            <ChevronLeftIcon aria-hidden strokeWidth={1.75} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            aria-label="Next review"
+            data-nav="next"
+            disabled={!nav.onNext}
+            onClick={nav.onNext}
+          >
+            <ChevronRightIcon aria-hidden strokeWidth={1.75} />
+          </Button>
+        </>
+      ) : null}
     </div>
   )
 }
@@ -343,7 +439,7 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="font-reading text-[17px] leading-normal text-ink-secondary italic">
+      <p className="font-reading text-reading text-ink-secondary italic">
         A rating with no written review.
       </p>
     )
@@ -433,7 +529,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
     <section
       aria-label={`${items.length} attached ${items.length === 1 ? "photo or video" : "photos and videos"}`}
     >
-      <ul className="grid grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))] gap-2">
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(--spacing(18),1fr))] gap-2">
         {items.map((item, index) => {
           const label =
             item.thumbnailLabel ??
@@ -488,7 +584,7 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
         }}
       >
         <DialogContent
-          className="max-w-[min(42rem,calc(100%-2rem))] gap-3 p-3 sm:max-w-2xl"
+          className="gap-3 p-3 sm:max-w-2xl"
           aria-label={activeLabel}
           onKeyDown={(event) => {
             if (!hasMultiple) return
@@ -515,14 +611,14 @@ function ReviewMedia({ media }: { media: Review["media"] }) {
                 autoPlay
                 playsInline
                 poster={active.thumbnailUrl ?? undefined}
-                className="max-h-[min(70vh,36rem)] w-full rounded-(--np-radius-control) bg-black"
+                className="max-h-[70svh] w-full rounded-(--np-radius-control) bg-black"
               />
             ) : active?.thumbnailUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={active.thumbnailUrl}
                 alt={activeLabel}
-                className="max-h-[min(70vh,36rem)] w-full rounded-(--np-radius-control) object-contain"
+                className="max-h-[70svh] w-full rounded-(--np-radius-control) object-contain"
               />
             ) : null}
             {hasMultiple ? (
@@ -584,7 +680,7 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
           type="button"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill focus-visible:outline-none"
+          className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-(--np-radius-control) px-3 py-2 text-left text-caption focus-halo transition duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill focus-visible:outline-none pointer-coarse:min-h-(--np-touch)"
         >
           <ChevronRightIcon
             aria-hidden
@@ -693,16 +789,17 @@ function ReplyStatusStrip({ review }: { review: Review }) {
         pulse && "px-2 ring-2 ring-success-solid ring-inset"
       )}
     >
-      <ReplyStatusLine status={status} variant="bar" />
+      <ReplyStatusLine status={status} />
     </div>
   )
 }
 
 function ActionFooterSkeleton() {
   return (
-    <div className="flex flex-1 justify-end gap-2" aria-hidden>
-      <Skeleton className="h-(--np-control-h) w-40 max-md:w-full" />
-    </div>
+    <>
+      <Skeleton aria-hidden className="h-4 min-w-0 flex-1" />
+      <Skeleton aria-hidden className="h-(--np-control-h) w-32 shrink-0" />
+    </>
   )
 }
 
@@ -730,10 +827,12 @@ function ReviewThread({
   review,
   composer,
   focusHeading,
+  viewOnly = false,
 }: {
   review: Review
   composer?: ReactNode
   focusHeading?: boolean
+  viewOnly?: boolean
 }) {
   const displayName = reviewerName(review)
 
@@ -749,7 +848,7 @@ function ReviewThread({
           <span
             aria-hidden
             data-slot="thread-rail"
-            className="absolute top-[52px] bottom-2 left-1/2 w-px -translate-x-1/2 bg-line @max-[480px]/detail:top-10"
+            className="absolute top-13 bottom-2 left-1/2 w-px -translate-x-1/2 bg-line @max-[480px]/detail:top-10"
           />
         </div>
         <div className="flex min-w-0 flex-col gap-3">
@@ -781,14 +880,25 @@ function ReviewThread({
           <div className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 @max-[480px]/detail:min-h-8">
             <h3
               data-slot="reply-heading"
-              className="min-w-0 text-[15px] leading-snug font-semibold break-words text-ink"
+              className="min-w-0 text-ui font-semibold break-words text-ink"
             >
               Reply as {review.locationName}
             </h3>
-            <p className="text-[13px] leading-5 text-ink-muted">
+            <p className="text-caption text-ink-muted">
               {replyVisibility(review)}
             </p>
           </div>
+          {viewOnly ? (
+            // No publish bar for a viewer (nothing in it could be pressed),
+            // so the status it would carry is said here instead.
+            <div className="flex flex-col gap-1.5" data-slot="view-only">
+              <ReplyStatusStrip review={review} />
+              <p className="text-caption text-ink-muted">
+                View-only access. You can read reviews and replies; an owner or
+                admin can reply.
+              </p>
+            </div>
+          ) : null}
           <LiveReplyDisclosure review={review} />
           {composer}
         </div>
@@ -797,114 +907,180 @@ function ReviewThread({
   )
 }
 
-// The publish bar (reference `.publish`) is sticky at the foot of the screen
-// on a phone or a short window, and a static last row of the pane where the
-// workspace is locked. A raised band rather than a dark one, so the accent
-// Publish button is the one strong thing in it.
-const FOOTER_CLASS =
-  "sticky bottom-0 z-20 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-b-[calc(var(--np-radius-card)-1px)] border-t border-line bg-surface-alt px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))] max-md:rounded-none md:[@media(min-height:620px)]:static md:[@media(min-height:620px)]:pb-3"
+// The publish bar (reference `.publish`): the shared ActionBar, docked.
+// Below md it is fixed to the foot of the screen, riding the keyboard, and
+// its `data-docked` tells the shell's tab bar to step aside so one bar owns
+// the edge (the CHROME CONTRACT in globals.css); from md to lg, where the
+// review is still the whole page, it sticks to the foot of the pane; from lg,
+// where the workspace is locked to the window, it is a static last row of
+// the pane. A raised band (the surface tone on the alternate surface) rather
+// than a dark one, so the accent Publish button is the one strong thing in
+// it. One row at every width: the status words take what the actions leave.
+// The padding and edges here restyle the bar as the pane's last row; the
+// docking itself (position, spacer, keyboard edge) is the primitive's.
+const FOOTER_CLASS = cn(
+  "shrink-0 flex-nowrap rounded-none rounded-b-(--np-radius-card) border-x-0 border-t border-b-0 border-line bg-surface-alt shadow-none max-md:rounded-none lg:[@media(min-height:620px)]:static",
+  // At least the action-bar height in flow; on a phone the dock adds the
+  // keyboard or home-indicator edge under it.
+  "min-h-(--np-actionbar-h) py-2.5 md:pb-[max(--spacing(2.5),var(--np-dock-bottom))]",
+  // The actions keep their width and one line; the status words give way.
+  "[&>[data-slot=action-bar-actions]]:shrink-0 [&>[data-slot=action-bar-actions]]:flex-nowrap"
+)
 
-// Only this middle row scrolls. The thread keeps a reading measure and
-// centres in a wide pane.
+// Only this middle row scrolls where the workspace is locked; everywhere
+// else the page does. The thread keeps a reading measure and centres in a
+// wide pane.
 const SCROLL_CLASS =
-  "flex min-h-0 flex-1 flex-col px-5 pt-6 pb-8 @max-[480px]/detail:px-3.5 @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 md:[@media(min-height:620px)]:overflow-y-auto"
+  "flex min-h-0 flex-1 flex-col px-5 pt-6 pb-8 @max-[480px]/detail:px-3.5 @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 lg:[@media(min-height:620px)]:overflow-y-auto"
 
-const COLUMN_CLASS = "mx-auto flex w-full max-w-[760px] flex-col gap-5"
+const COLUMN_CLASS =
+  "mx-auto flex w-full max-w-(--np-page-narrow-width) flex-col gap-5"
 
 function ReviewDetail({
   reviewId,
-  leading,
+  back,
+  nav,
+  heading,
   composer,
   actions,
   focusHeading = false,
+  titleIsHeading = true,
 }: {
   reviewId: string
-  /** Accepted for compatibility; the pane no longer names the client. */
-  clientName?: string | null
-  /** Accepted for compatibility. */
-  clientId?: string | null
-  /** Accepted for compatibility; the pane no longer draws an avatar for it. */
-  organisationName?: string
-  /** Slot at the head of the pane (the narrow-screen return-to-list control). */
-  leading?: ReactNode
+  /** The phone head's return-to-list control (drawn below lg only). */
+  back?: ReviewDetailBack
+  /** The phone head's position and previous / next steps. */
+  nav?: ReviewDetailNav
+  /** The reviewer's name as the list knows it, for the head until it loads. */
+  heading?: string
   /** The reply workspace — preview or composer — inside the reading column. */
   composer?: ReactNode
   /** The applicable primary action, pinned at the foot so it never scrolls away. */
   actions?: ReactNode
   /** Move focus to the reviewer's name once it loads (after an advance). */
   focusHeading?: boolean
+  /**
+   * Whether the phone head's title is the page's h1. Not where the list is
+   * beside the review: the head is hidden there and "Inbox" is the h1.
+   */
+  titleIsHeading?: boolean
 }) {
   const query = useReviewDetail(reviewId)
+  const paneRef = useRef<HTMLDivElement>(null)
+  // A focused field (the reply, above all) is never left under the docked
+  // bar or the on-screen keyboard.
+  useKeepFocusClear(paneRef, "[data-slot=composer-footer]")
 
   const review = query.data?.review
   const pending = query.isPending
   const failed = !pending && (query.isError || !review)
+  // Someone who can neither edit, publish nor ask for approval has nothing
+  // to press: no publish bar (so no docked bar either; the tab bar stays).
+  const caps = review?.capabilities
+  const viewOnly = Boolean(
+    caps && !caps.canEdit && !caps.canPublish && !caps.canRequestApproval
+  )
+  const title = review ? reviewerName(review) : (heading ?? "Review")
 
   return (
     <div
+      ref={paneRef}
       aria-busy={pending || undefined}
-      className="group/pane @container/detail flex min-h-0 flex-1 flex-col"
+      // Below lg the review is the whole screen, at least as tall as the
+      // window under the app bar, so the publish bar is pinned to the foot
+      // of the screen from the first paint — loading, short review or long —
+      // rather than sitting under a skeleton and dropping when it fills in.
+      className="group/pane @container/detail flex flex-1 flex-col max-lg:min-h-[calc(100svh-var(--np-appbar-h))] lg:min-h-0"
     >
-      <HeadFrame leading={leading} />
+      <HeadFrame
+        back={back}
+        nav={nav}
+        title={title}
+        titleIsHeading={titleIsHeading}
+      />
 
-      {/* One reading order, one scroll region: what is in the way, then the
-          customer's words and the reply — with the publish bar pinned
-          beneath. */}
-      {review ? (
-        <div className={SCROLL_CLASS} data-slot="inbox-detail-scroll">
-          <div className={COLUMN_CLASS}>
-            <ReplyExceptionSlot review={review} />
-            <ReviewThread
-              review={review}
-              composer={composer}
-              focusHeading={focusHeading}
-            />
+      {/* Inside the head, so a review that throws while rendering keeps the
+          way back to the list. */}
+      <DetailErrorBoundary onBack={back?.onBack}>
+        {/* One reading order, one scroll region: what is in the way, then
+            the customer's words and the reply — with the publish bar pinned
+            beneath. */}
+        {review ? (
+          <div className={SCROLL_CLASS} data-slot="inbox-detail-scroll">
+            <div className={COLUMN_CLASS}>
+              <ReplyExceptionSlot review={review} />
+              <ReviewThread
+                review={review}
+                composer={composer}
+                focusHeading={focusHeading}
+                viewOnly={viewOnly}
+              />
+            </div>
           </div>
-        </div>
-      ) : failed ? (
-        <QueryError
-          title="We could not load this review."
-          cause={query.error}
-          onRetry={() => void query.refetch()}
-          className="p-(--np-card-pad)"
-        />
-      ) : (
-        <div className={SCROLL_CLASS}>
-          <div className={COLUMN_CLASS}>
-            <div className={THREAD_ITEM_CLASS}>
-              <Skeleton className="size-11 rounded-(--np-radius-pill) @max-[480px]/detail:size-8" />
-              <div className="flex flex-col gap-1.5 pt-1">
-                <Skeleton className="h-5 w-40" />
-                <Skeleton className="h-3 w-56 max-w-full" />
+        ) : failed ? (
+          <QueryError
+            title="We could not load this review."
+            cause={query.error}
+            onRetry={() => void query.refetch()}
+            className="p-(--np-card-pad)"
+          />
+        ) : (
+          <div className={SCROLL_CLASS}>
+            <div className={COLUMN_CLASS}>
+              <div className={THREAD_ITEM_CLASS}>
+                <Skeleton className="size-11 rounded-(--np-radius-pill) @max-[480px]/detail:size-8" />
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <Skeleton className="h-5 w-40" />
+                  <Skeleton className="h-3 w-56 max-w-full" />
+                </div>
               </div>
+              <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
+              <Skeleton className="h-44 w-full rounded-(--np-radius-card)" />
             </div>
-            <Skeleton className="h-28 w-full rounded-(--np-radius-card)" />
-            <Skeleton className="h-44 w-full rounded-(--np-radius-card)" />
           </div>
-        </div>
-      )}
+        )}
 
-      {review ? (
-        <footer data-slot="composer-footer" className={FOOTER_CLASS}>
-          <div
-            className={cn(
-              "flex min-w-0 items-center empty:hidden",
-              TYPING_COLLAPSE_CLASS
-            )}
+        {review && !viewOnly ? (
+          <ActionBar
+            // The pane's own hook (journeys, useKeepFocusClear above).
+            data-slot="composer-footer"
+            label="Reply actions"
+            tone="surface"
+            dock={Boolean(actions)}
+            safeArea={false}
+            className={FOOTER_CLASS}
+            actions={actions ?? undefined}
           >
-            <ReplyStatusStrip review={review} />
-          </div>
-          {actions ? (
-            <div className="ml-auto flex max-w-full min-w-0 flex-[0_1_auto] flex-wrap items-center justify-end max-md:w-full max-md:flex-[1_1_100%]">
-              {actions}
+            {/* The strip is its own `role="status"`, so it goes in as
+                content rather than the bar's live status slot (one
+                announcement, not two). Folds away while the reply is typed
+                on a touch screen, so the keyboard leaves the words being
+                written in view. */}
+            <div
+              className={cn(
+                "line-clamp-2 min-w-0 flex-1 text-caption",
+                TYPING_COLLAPSE_CLASS
+              )}
+            >
+              <ReplyStatusStrip review={review} />
             </div>
-          ) : null}
-        </footer>
-      ) : pending && actions ? (
-        <footer className={FOOTER_CLASS}>
-          <ActionFooterSkeleton />
-        </footer>
-      ) : null}
+          </ActionBar>
+        ) : pending && actions ? (
+          // Docked already, as the loaded bar will be: the tab bar does not
+          // show for a moment and then step aside.
+          <ActionBar
+            aria-hidden
+            data-slot="composer-footer"
+            label="Reply actions"
+            tone="surface"
+            dock
+            safeArea={false}
+            className={FOOTER_CLASS}
+          >
+            <ActionFooterSkeleton />
+          </ActionBar>
+        ) : null}
+      </DetailErrorBoundary>
     </div>
   )
 }

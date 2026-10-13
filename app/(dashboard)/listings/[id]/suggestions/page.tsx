@@ -1,4 +1,4 @@
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { AreaFrame } from "@/components/listings/area-frame"
 import { SuggestionsTab } from "@/components/locations/suggestions/suggestions-page"
@@ -24,7 +24,11 @@ export default async function ListingSuggestionsPage({
   const state = await prefetch(session, listingPagePrefetch(id))
   return (
     <HydrationBoundary state={state}>
-      <AreaFrame locationId={id} role={session?.role ?? null} area="suggestions">
+      <AreaFrame
+        locationId={id}
+        role={session?.role ?? null}
+        area="suggestions"
+      >
         <SuggestionsTab locationId={id} />
       </AreaFrame>
     </HydrationBoundary>

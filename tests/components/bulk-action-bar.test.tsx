@@ -9,6 +9,7 @@ import {
   SelectionProvider,
   useSelection,
 } from "@/components/inbox/selection-context"
+import { PHONE_OVERLAY_QUERY } from "@/components/ui/overlay"
 import { Toaster } from "@/components/ui/toast"
 import type { BulkReviewResult, ReviewRow } from "@/lib/contracts/reviews"
 import * as bulkHook from "@/lib/queries/use-bulk-review-action"
@@ -61,8 +62,20 @@ function stub() {
   vi.spyOn(membersHook, "useMembers").mockReturnValue({
     data: {
       members: [
-        { userId: "u1", displayName: "Priya", email: "p@example.test", role: "member", locations: [] },
-        { userId: "u2", displayName: "Vic", email: "v@example.test", role: "viewer", locations: [] },
+        {
+          userId: "u1",
+          displayName: "Priya",
+          email: "p@example.test",
+          role: "member",
+          locations: [],
+        },
+        {
+          userId: "u2",
+          displayName: "Vic",
+          email: "v@example.test",
+          role: "viewer",
+          locations: [],
+        },
         {
           userId: "u3",
           displayName: "Sol",
@@ -96,7 +109,7 @@ function Harness({ rows, select }: { rows: ReviewRow[]; select: string[] }) {
 
 function renderBar(rows: ReviewRow[], select: string[]) {
   stub()
-  render(
+  return render(
     <QueryClientProvider client={new QueryClient()}>
       <Toaster>
         <SelectionProvider>
@@ -107,15 +120,78 @@ function renderBar(rows: ReviewRow[], select: string[]) {
   )
 }
 
+async function openAssign(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: "More actions" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Assign…" }))
+}
+
+/** A portrait phone: overlays and menus present as bottom sheets. */
+function asPhone() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query === PHONE_OVERLAY_QUERY || query === "(pointer: coarse)",
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
+    dispatchEvent: () => false,
+  }))
+}
+
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
   mutateAsync.mockClear()
 })
 
 describe("BulkActionBar", () => {
   it("stays out of the way until something is selected", () => {
-    renderBar([row("a")], [])
+    const { container } = renderBar([row("a")], [])
     expect(screen.queryByText(/selected/)).not.toBeInTheDocument()
+    // Not docked either: the phone's tab bar keeps the bottom edge.
+    expect(container.querySelector('[data-docked="bottom"]')).toBeNull()
+  })
+
+  it("docks to the bottom edge only while rows are ticked", async () => {
+    renderBar([row("a")], ["a"])
+    const bar = await screen.findByRole("region", { name: "Selected reviews" })
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar).toHaveAttribute("data-slot", "bulk-action-bar")
+    // The shared ActionBar's dock: fixed on a phone, sticky from md, riding
+    // the keyboard, with a spacer keeping the last row reachable above it.
+    expect(bar).toHaveClass("sticky", "z-chrome", "max-md:fixed")
+    expect(bar.className).toContain("pb-[var(--np-dock-bottom)]")
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+  })
+
+  it("keeps one primary and puts the rest in the overflow menu", async () => {
+    const user = userEvent.setup()
+    renderBar(
+      [
+        row("a"),
+        row("b", { text: null, workflowStatus: "new", draftId: null }),
+      ],
+      ["a", "b"]
+    )
+    expect(
+      await screen.findByRole("button", { name: "Approve 1 of 2" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "No reply needed" })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    expect(
+      await screen.findByRole("menuitem", { name: "Assign…" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("menuitem", { name: "No reply needed" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("menuitem", { name: "Reply with template" })
+    ).toBeInTheDocument()
   })
 
   it("says how many rows an action will actually touch", async () => {
@@ -168,8 +244,12 @@ describe("BulkActionBar", () => {
   it("assigns to a named colleague", async () => {
     const user = userEvent.setup()
     renderBar([row("a")], ["a"])
-    await user.click(await screen.findByRole("button", { name: /Assign/ }))
-    await user.click(await screen.findByRole("menuitem", { name: "Priya" }))
+    await openAssign(user)
+    const priya = await screen.findByRole("menuitem", { name: "Priya" })
+    // By keyboard: jsdom has no layout, so Base UI's submenu ignores a
+    // synthetic pointer that never "travelled" into it.
+    priya.focus()
+    await user.keyboard("{Enter}")
     expect(mutateAsync).toHaveBeenCalledWith({
       action: "assign",
       reviewIds: ["a"],
@@ -180,20 +260,26 @@ describe("BulkActionBar", () => {
   it("offers only assignees the server would accept for the chosen rows", async () => {
     const user = userEvent.setup()
     renderBar([row("a")], ["a"])
-    await user.click(await screen.findByRole("button", { name: /Assign/ }))
-    expect(await screen.findByRole("menuitem", { name: "Priya" })).toBeInTheDocument()
+    await openAssign(user)
+    expect(
+      await screen.findByRole("menuitem", { name: "Priya" })
+    ).toBeInTheDocument()
     expect(screen.getByRole("menuitem", { name: "Lin" })).toBeInTheDocument()
     // A viewer, and a member scoped to another location, would be skipped
     // as assignee_not_eligible on every row.
-    expect(screen.queryByRole("menuitem", { name: "Vic" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("menuitem", { name: "Sol" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Vic" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Sol" })
+    ).not.toBeInTheDocument()
   })
 
   // Approving publishes, so a batch of it is confirmed like any publish.
   it("confirms before approving and publishing, and Cancel sends nothing", async () => {
     const user = userEvent.setup()
     renderBar([row("a"), row("b")], ["a", "b"])
-    await user.click(await screen.findByRole("button", { name: "Approve" }))
+    await user.click(await screen.findByRole("button", { name: "Approve 2" }))
     expect(
       screen.getByRole("alertdialog", {
         name: "Approve and publish 2 replies to Google?",
@@ -203,18 +289,41 @@ describe("BulkActionBar", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("marks reviews as needing nothing", async () => {
+  it("marks reviews as needing nothing, once confirmed", async () => {
     // A five-star review with no text needs no reply; before triage the only
-    // way to clear it from the queue was to publish something.
+    // way to clear it from the queue was to publish something. There is no
+    // way to put it back, so it asks first.
     const user = userEvent.setup()
-    renderBar([row("a")], ["a"])
+    renderBar([row("a"), row("b")], ["a", "b"])
+    await user.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "No reply needed" })
+    )
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Mark 2 reviews as no reply needed?",
+    })
+    expect(dialog).toHaveTextContent(
+      "They leave Needs reply. Nothing is posted to Google."
+    )
+    expect(mutateAsync).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Mark 2 reviews" }))
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "mark_reviewed",
+      reviewIds: ["a", "b"],
+    })
+  })
+
+  it("sends nothing when No reply needed is cancelled", async () => {
+    // Nothing approvable: No reply needed is the primary itself.
+    const user = userEvent.setup()
+    renderBar([row("a", { workflowStatus: "new", draftId: null })], ["a"])
     await user.click(
       await screen.findByRole("button", { name: "No reply needed" })
     )
-    expect(mutateAsync).toHaveBeenCalledWith({
-      action: "mark_reviewed",
-      reviewIds: ["a"],
-    })
+    await user.click(await screen.findByRole("button", { name: "Cancel" }))
+    expect(mutateAsync).not.toHaveBeenCalled()
   })
 
   it("reports per-row outcomes instead of failing the batch", async () => {
@@ -240,20 +349,39 @@ describe("BulkActionBar", () => {
   it("names approved-but-unpublished and uncertain rows for what they are", async () => {
     mutateAsync.mockResolvedValueOnce({
       results: [
-        { reviewId: "a", status: "approved_not_published", code: "review_changed" },
-        { reviewId: "b", status: "uncertain", code: "google_mutation_ambiguous" },
+        {
+          reviewId: "a",
+          status: "approved_not_published",
+          code: "review_changed",
+        },
+        {
+          reviewId: "b",
+          status: "uncertain",
+          code: "google_mutation_ambiguous",
+        },
       ],
     })
     const user = userEvent.setup()
     renderBar(
-      [row("a"), row("b", { reviewer: { displayName: "Ana", isAnonymous: false, profilePhotoUrl: null } })],
+      [
+        row("a"),
+        row("b", {
+          reviewer: {
+            displayName: "Ana",
+            isAnonymous: false,
+            profilePhotoUrl: null,
+          },
+        }),
+      ],
       ["a", "b"]
     )
     await user.click(await screen.findByRole("button", { name: /^Approve/ }))
     await user.click(
       screen.getByRole("button", { name: "Approve and publish 2" })
     )
-    expect(await screen.findByText("Approved, not published")).toBeInTheDocument()
+    expect(
+      await screen.findByText("Approved, not published")
+    ).toBeInTheDocument()
     expect(screen.getByText("Check on Google")).toBeInTheDocument()
     expect(screen.queryByText("Skipped")).not.toBeInTheDocument()
     expect(
@@ -264,8 +392,15 @@ describe("BulkActionBar", () => {
   })
 
   it("offers the rating template only when the selection has rating-only reviews", async () => {
+    const user = userEvent.setup()
     renderBar([row("a")], ["a"])
-    await screen.findByRole("button", { name: "No reply needed" })
+    await user.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
+    await screen.findByRole("menuitem", { name: "No reply needed" })
+    expect(
+      screen.queryByRole("menuitem", { name: "Reply with template" })
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Reply with template" })
     ).not.toBeInTheDocument()
@@ -285,5 +420,36 @@ describe("BulkActionBar", () => {
         name: "Reply with the rating template",
       })
     ).toBeInTheDocument()
+  })
+
+  it("keeps the touch row to the count, the overflow and one primary", async () => {
+    renderBar([row("a")], ["a"])
+    // The quick clear is a desk extra; on touch it is an overflow item.
+    expect(
+      await screen.findByRole("button", { name: "Clear selection" })
+    ).toHaveClass("hidden", "desk:inline-flex")
+  })
+
+  it("lists the assignees in the phone's action sheet instead of a flyout", async () => {
+    asPhone()
+    const user = userEvent.setup()
+    renderBar([row("a")], ["a"])
+    await user.click(
+      await screen.findByRole("button", { name: "More actions" })
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: "Clear selection" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("menuitem", { name: "Assign…" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("group", { name: "Assign to" })).toBeInTheDocument()
+    screen.getByRole("menuitem", { name: "Priya" }).focus()
+    await user.keyboard("{Enter}")
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "assign",
+      reviewIds: ["a"],
+      assigneeId: "u1",
+    })
   })
 })

@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "next/navigation"
 import * as React from "react"
 
+import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -18,21 +19,48 @@ import {
   ORGANISATION_NAME_MAX,
   organisationRenameSchema,
 } from "@/lib/contracts/session"
+import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
 import { useSession } from "@/lib/queries/use-session"
-import { workspaceTerms } from "@/lib/workspace/terms"
+import { workspaceTerms, type WorkspaceTerms } from "@/lib/workspace/terms"
+
+/**
+ * Why `value` can't be saved as the account's name, in the workspace's own
+ * words, or null when it can. The contract's messages say "agency"; a
+ * business hears its own word. Shared with the Reply policy page, which
+ * saves the name from its save bar (policy-form.tsx).
+ */
+export function organisationNameProblem(
+  value: string,
+  terms: WorkspaceTerms
+): string | null {
+  const parsed = organisationRenameSchema.safeParse({ name: value })
+  if (parsed.success) return null
+  if (terms.org === "Agency") {
+    return parsed.error.issues[0]?.message ?? "Enter your agency’s name."
+  }
+  return value.trim().length === 0
+    ? "Enter your business’s name."
+    : `Keep the name to ${ORGANISATION_NAME_MAX} characters or fewer.`
+}
 
 /**
  * The account's name ("Business name" in business mode, "Agency name" in
  * agency mode), editable by an owner and read-only for everyone else.
  * Sign-up stores a placeholder ("<name>'s organisation"), so this is where
  * an agency gets its real name. Shared by Settings and the setup wizard's
- * agency step.
+ * agency step. (Settings saves the name with the Reply policy instead, on
+ * the page's one save bar: policy-form.tsx.)
  *
  * A save writes the new name into the cached session (the sidebar reads it
  * from there) and refreshes server components, whose session still holds the
  * old one.
+ *
+ * In the wizard the name is its own record, so it saves with its own button:
+ * the button at the trailing edge, "Unsaved change" or the error just before
+ * it, and a leave guard so an unsaved name is never dropped by following a
+ * link.
  */
 export function AgencyNameForm() {
   const session = useSession()
@@ -48,6 +76,7 @@ export function AgencyNameForm() {
 
   const value = draft ?? saved
   const dirty = draft !== null && draft.trim() !== saved
+  const leave = useLeaveGuard({ when: isOwner && dirty })
 
   const rename = useMutation({
     mutationFn: (name: string) => renameOrganisation(name),
@@ -71,19 +100,12 @@ export function AgencyNameForm() {
   const onSubmit = (event: React.FormEvent) => {
     event.preventDefault()
     if (!dirty) return
-    const parsed = organisationRenameSchema.safeParse({ name: value })
-    if (!parsed.success) {
-      // The contract's own messages say "agency"; a business hears its own word.
-      setError(
-        terms.org === "Agency"
-          ? (parsed.error.issues[0]?.message ?? "Enter your agency’s name.")
-          : value.trim().length === 0
-            ? "Enter your business’s name."
-            : `Keep the name to ${ORGANISATION_NAME_MAX} characters or fewer.`
-      )
+    const problem = organisationNameProblem(value, terms)
+    if (problem) {
+      setError(problem)
       return
     }
-    rename.mutate(parsed.data.name)
+    rename.mutate(value.trim())
   }
 
   return (
@@ -113,7 +135,10 @@ export function AgencyNameForm() {
         <FieldError>{error}</FieldError>
       </Field>
       {isOwner ? (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <span className="text-ui text-ink-muted" role="status">
+            {dirty && !rename.isPending ? "Unsaved change" : ""}
+          </span>
           <Button
             type="submit"
             variant="secondary"
@@ -123,13 +148,15 @@ export function AgencyNameForm() {
           >
             Save name
           </Button>
-          {dirty ? (
-            <span className="text-caption text-ink-muted" role="status">
-              Unsaved change
-            </span>
-          ) : null}
         </div>
       ) : null}
+      <DiscardDialog
+        {...leave}
+        title="Leave without saving the name?"
+        confirmLabel="Leave and discard"
+        announce={false}
+        description={`The new ${terms.orgName.toLowerCase()} isn’t saved. Leaving throws it away; the current name stays.`}
+      />
     </form>
   )
 }

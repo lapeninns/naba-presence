@@ -8,13 +8,20 @@ test.beforeAll(async () => { backend = await startAdministrationBackend() })
 test.afterAll(async () => { await backend.stop() })
 test.beforeEach(async ({ context }) => { await context.route("**/*", (route) => new URL(route.request().url()).origin === backend.server.baseUrl ? route.continue() : route.abort("blockedbyclient")) })
 const panel = (page: Page) => page.locator('section[aria-labelledby="access-review-workspace"]')
-async function approveAndSend(page: Page, info: TestInfo) {
+/** The exact Google resource name, under the review's collapsed "Technical details". */
+async function technicalReference(page: Page, pattern: RegExp) {
+  await panel(page).getByText("Technical details", { exact: true }).click()
+  await expect(panel(page).locator("details dd").filter({ hasText: pattern })).toBeVisible()
+}
+async function approveAndSend(page: Page, info: TestInfo, typedName?: string) {
   const review = panel(page)
   await expect(review.getByRole("button", { name: "Approve access request" })).toBeEnabled()
   await captureVerificationSection(page, info, { name: "review", section: "access-review-workspace" })
   await review.getByRole("button", { name: "Approve access request" }).click()
   await expect(review.getByRole("button", { name: "Send approved access request" })).toBeDisabled()
   await captureVerificationSection(page, info, { name: "approved", section: "access-review-workspace" })
+  // A removal's send step asks for the listing name as well as the consent.
+  if (typedName !== undefined) { await review.getByLabel("Type the listing name:", { exact: false }).fill(typedName); await expect(review.getByRole("button", { name: "Send approved access request" })).toBeDisabled() }
   await review.getByRole("checkbox").focus(); await page.keyboard.press("Space")
   await review.getByRole("button", { name: "Send approved access request" }).focus()
   await captureVerificationSection(page, info, { name: "keyboard-ready", section: "access-review-workspace" })
@@ -52,26 +59,25 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
   test("reviews the current and proposed role before changing the exact administrator", async ({ page }, info) => {
     const fixture = await backend.accessFixture(page); await fixture.open()
     await page.getByRole("combobox", { name: "Role for manager@example.test", exact: true }).click()
+    // Choosing the role saves the review: one action.
     await page.getByRole("option", { name: "Owner", exact: true }).click()
-    await page.getByRole("button", { name: "Review role change", exact: true }).click()
+    await expect(panel(page).getByRole("heading", { name: "Review access request" })).toBeFocused()
     await expect(panel(page).locator("dl > div").filter({ has: page.getByText("Current role", { exact: true }) }).locator("dd")).toHaveText("Manager")
     await expect(panel(page).getByText("Administrator manager@example.test on this listing", { exact: true })).toBeVisible()
-    await expect(panel(page).getByText(/^Google reference: locations\/.+\/admins\/manager$/)).toBeVisible()
+    await technicalReference(page, /^locations\/.+\/admins\/manager$/)
     await expect(page.getByRole("combobox", { name: "Role for manager@example.test", exact: true })).toHaveText("Manager")
     await approveAndSend(page, info)
     expect(fixture.writes()).toHaveLength(1)
     expect(fixture.state.locationAdmins[1].role).toBe("OWNER")
     await expect(page.getByRole("combobox", { name: "Role for manager@example.test", exact: true })).toHaveText("Owner")
   })
-  test("reviews administrator removal after the typed listing confirmation", async ({ page }, info) => {
+  test("reviews administrator removal and asks for the typed listing name at the send step", async ({ page }, info) => {
     const fixture = await backend.accessFixture(page); await fixture.open()
     await page.getByRole("button", { name: "Remove manager@example.test", exact: true }).click()
-    const confirm = page.getByRole("button", { name: "Review administrator removal", exact: true })
-    await expect(confirm).toBeDisabled()
+    await expect(panel(page).getByRole("heading", { name: "Review access request" })).toBeFocused()
+    expect(fixture.writes()).toHaveLength(0)
     const [listing] = await backend.admin`select name from location where id = ${fixture.linked.locationId}`
-    await page.getByLabel(/Type the location's name/i).fill(String(listing.name))
-    await confirm.click(); expect(fixture.writes()).toHaveLength(0)
-    await approveAndSend(page, info)
+    await approveAndSend(page, info, String(listing.name))
     await expect(panel(page).getByText("Reviewed administrator no longer listed", { exact: true })).toBeVisible()
     expect(fixture.writes()).toHaveLength(1)
   })
@@ -80,7 +86,7 @@ for (const width of [375, 768, 1280]) test.describe(`Reviewed access at ${width}
     await page.getByRole("button", { name: action === "accept" ? "Review acceptance" : "Review decline", exact: true }).click()
     expect(fixture.writes()).toHaveLength(0)
     await expect(panel(page).getByText("Pending invitation for the connected Google account", { exact: true })).toBeVisible()
-    await expect(panel(page).getByText(/^Google reference: accounts\/.+\/invitations\/pending$/)).toBeVisible()
+    await technicalReference(page, /^accounts\/.+\/invitations\/pending$/)
     await expect(panel(page).getByText("Invited role", { exact: true })).toBeVisible()
     await expect(panel(page).getByText("Current role", { exact: true })).toHaveCount(0)
     await approveAndSend(page, info)

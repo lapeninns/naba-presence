@@ -1,11 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
 import { Toaster } from "@/components/ui/toast"
+
+// The lodging editor is loaded on demand (next/dynamic). Transforming its
+// module graph the first time can take longer than a query's wait on a
+// loaded machine, so it is imported once up front: the tests then wait only
+// for what the UI does.
+beforeAll(async () => {
+  await import("@/components/locations/profile/sections/industry-editor")
+})
+
+/** The checked answer of the Yes / No / Not recorded choice named `name`. */
+function answerIn(container: HTMLElement, name: string) {
+  return within(within(container).getByRole("radiogroup", { name })).getByRole("radio", { checked: true })
+}
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
@@ -68,10 +81,10 @@ describe("IndustrySections", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply suggested free wi-fi to draft" }))
     await userEvent.click(screen.getByRole("searchbox"))
     await userEvent.paste("Pets allowed")
-    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+    expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Pets allowed")).toHaveAccessibleName("Yes")
     await userEvent.clear(screen.getByRole("searchbox"))
     await userEvent.paste("Free wifi")
-    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Free Wi-Fi" })).toHaveTextContent("Yes")
+    expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Free Wi-Fi")).toHaveAccessibleName("Yes")
   })
 
   it("keeps unsaved lodging edits when a refetch brings a newer version, and offers it", async () => {
@@ -89,7 +102,7 @@ describe("IndustrySections", () => {
     const details = screen.getByRole("region", { name: "Lodging details" })
     await userEvent.click(screen.getByRole("searchbox"))
     await userEvent.paste("Pets allowed")
-    expect(within(details).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+    expect(answerIn(details, "Pets allowed")).toHaveAccessibleName("Yes")
 
     // Someone else changed the lodging in Google: a new hash and new content.
     current = { industry: { ...INDUSTRY.industry, lodgingHash: "b".repeat(64), lodging: available({
@@ -99,11 +112,11 @@ describe("IndustrySections", () => {
     await act(() => client.invalidateQueries())
 
     expect(await screen.findByText("Someone else saved these lodging details while you were editing")).toBeInTheDocument()
-    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+    expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Pets allowed")).toHaveAccessibleName("Yes")
 
     // Loading theirs replaces the edits with the newer version.
     await userEvent.click(screen.getByRole("button", { name: "Load theirs" }))
-    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("No")
+    expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Pets allowed")).toHaveAccessibleName("No")
   })
 
   it("follows a refetch silently while the lodging draft is clean", async () => {
@@ -121,7 +134,7 @@ describe("IndustrySections", () => {
     await act(() => client.invalidateQueries())
     await userEvent.click(screen.getByRole("searchbox"))
     await userEvent.paste("Pets allowed")
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes"))
+    await waitFor(() => expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Pets allowed")).toHaveAccessibleName("Yes"))
     expect(screen.queryByText(/Someone else saved/)).not.toBeInTheDocument()
   })
 
@@ -140,7 +153,7 @@ describe("IndustrySections", () => {
     await userEvent.click(screen.getByRole("button", { name: "Apply suggested pets allowed to draft" }))
     await userEvent.click(screen.getByRole("searchbox"))
     await userEvent.paste("Pets allowed")
-    expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes")
+    expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Pets allowed")).toHaveAccessibleName("Yes")
 
     // Google confirmed the publish: the readback carries a new hash and the
     // backend's new updateTime, with exactly the values this draft sent.
@@ -151,7 +164,7 @@ describe("IndustrySections", () => {
     }) } }
     await act(() => client.invalidateQueries())
 
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" })).toHaveTextContent("Yes"))
+    await waitFor(() => expect(answerIn(screen.getByRole("region", { name: "Lodging details" }), "Pets allowed")).toHaveAccessibleName("Yes"))
     expect(screen.queryByText(/Someone else saved/)).not.toBeInTheDocument()
   })
 
@@ -160,6 +173,7 @@ describe("IndustrySections", () => {
     renderWithProviders(<IndustrySections locationId="loc-1" />)
     expect(await screen.findByRole("region", { name: "Suggested lodging changes" })).toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: "Calls" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("radiogroup", { name: "Calls" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /save calls/i })).not.toBeInTheDocument()
     expect(screen.queryByText("Provider attributes", { exact: true })).not.toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
@@ -177,8 +191,7 @@ describe("IndustrySections", () => {
     vi.stubGlobal("fetch", fetchMock)
     renderWithProviders(<IndustrySections locationId="loc-1" />)
     await userEvent.type(await screen.findByRole("searchbox"), "Pets allowed")
-    await userEvent.click(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("combobox", { name: "Pets allowed" }))
-    await userEvent.click(await screen.findByRole("option", { name: "Yes" }))
+    await userEvent.click(within(within(screen.getByRole("region", { name: "Lodging details" })).getByRole("radiogroup", { name: "Pets allowed" })).getByRole("radio", { name: "Yes" }))
     await userEvent.click(screen.getByRole("button", { name: "Review lodging changes" }))
     expect(await screen.findByRole("dialog", { name: "Review changes" })).toBeInTheDocument()
     const dialog = within(screen.getByRole("dialog", { name: "Review changes" }))
@@ -208,6 +221,7 @@ describe("IndustrySections", () => {
     renderWithProviders(<IndustrySections locationId="loc-1" />)
     expect(await screen.findByRole("region", { name: "Lodging details" })).toBeInTheDocument()
     expect(screen.queryByRole("combobox", { name: "Calls" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("radiogroup", { name: "Calls" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /save calls/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /save lodging/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/business calls/i)).not.toBeInTheDocument()

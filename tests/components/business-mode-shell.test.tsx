@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("next/navigation", () => ({
   usePathname: () => "/inbox",
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }))
 
 vi.mock("next/link", () => ({
@@ -24,6 +25,7 @@ vi.mock("next/link", () => ({
 
 import { Toaster } from "@/components/ui/toast"
 import { AgencyNameForm } from "@/components/settings/agency-name-form"
+import { MoreSheet } from "@/components/app-shell/more-sheet"
 import { Nav, navItemsFor, type NavClient } from "@/components/app-shell/nav"
 import {
   PALETTE_ACTIONS,
@@ -216,5 +218,39 @@ describe("the name form", () => {
     expect(
       screen.getByRole("textbox", { name: "Agency name" })
     ).toBeInTheDocument()
+  })
+})
+
+describe("the phone More sheet in business mode", () => {
+  function renderSheet(mode: WorkspaceMode) {
+    const { wrapper } = wrapperWith(mode)
+    render(
+      <Toaster>
+        <MoreSheet
+          open
+          onOpenChange={() => {}}
+          context={{ role: "owner", mode }}
+          session={null}
+          onOpenPalette={() => {}}
+          onOpenClientScope={() => {}}
+        />
+      </Toaster>,
+      { wrapper }
+    )
+    return screen.getByRole("dialog", { name: "More" })
+  }
+
+  it("describes itself without client or agency words to a screen reader", () => {
+    const sheet = renderSheet("business")
+    expect(sheet).toHaveAccessibleDescription(
+      "Search, the rest of NabaPresence and your account."
+    )
+    expect(sheet.textContent).not.toMatch(/client|agency/i)
+  })
+
+  it("keeps the client in an agency's description", () => {
+    expect(renderSheet("agency")).toHaveAccessibleDescription(
+      "Search, the client you are working on, the rest of NabaPresence and your account."
+    )
   })
 })

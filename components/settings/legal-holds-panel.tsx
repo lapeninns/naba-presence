@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, ShieldCheck } from "lucide-react"
 import { useRef, useState } from "react"
 
+import { SettingsSection } from "@/components/settings/settings-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -14,7 +15,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import {
   Dialog,
   DialogBody,
@@ -31,6 +31,7 @@ import {
   FieldDescription,
   FieldError,
   FieldLabel,
+  FormError,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
@@ -122,11 +123,23 @@ function ApplyHoldDialog({
     apply.mutate(parsed.data)
   }
 
+  const dirty = reviewId.trim() !== "" || reason.trim() !== ""
+
   return (
     <Dialog
       open={open}
+      dirty={dirty && !apply.isPending}
+      onDiscard={reset}
+      discardPrompt={{
+        title: "Discard this hold?",
+        description:
+          "No hold is applied, and the details you entered are lost.",
+      }}
       onOpenChange={(next) => {
-        if (!next) reset()
+        if (!next) {
+          if (apply.isPending) return
+          reset()
+        }
         onOpenChange(next)
       }}
     >
@@ -146,6 +159,9 @@ function ApplyHoldDialog({
               <Input
                 ref={reviewRef}
                 autoComplete="off"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className="font-mono"
                 value={reviewId}
                 placeholder="00000000-0000-0000-0000-000000000000"
@@ -167,6 +183,7 @@ function ApplyHoldDialog({
             <Field error={errors.reason}>
               <FieldLabel>Reason</FieldLabel>
               <Textarea
+                autoSize
                 value={reason}
                 maxLength={1000}
                 onChange={(event) => {
@@ -210,6 +227,7 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
   const toast = useToastManager()
   const [applying, setApplying] = useState(false)
   const [releaseTarget, setReleaseTarget] = useState<LegalHold | null>(null)
+  const [releaseError, setReleaseError] = useState<string | null>(null)
   const holds = query.data ? sortHolds(query.data.holds) : []
 
   const release = useMutation({
@@ -217,47 +235,52 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: queryKeys.privacyAll })
       toast.add({ title: "Legal hold released", type: "success" })
+      setReleaseTarget(null)
     },
-    onError: (error) =>
-      toast.add({ title: describeActionError(error), type: "error" }),
+    // The confirmation stays open with the reason beside its buttons, so
+    // the failure is read where the owner is looking and can be retried.
+    onError: (error) => setReleaseError(describeActionError(error)),
   })
 
+  const closeRelease = () => {
+    setReleaseTarget(null)
+    setReleaseError(null)
+    release.reset()
+  }
+
   return (
-    <section aria-labelledby="legal-holds" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id="legal-holds" className="text-title font-semibold text-ink">
-            Legal holds
-          </h2>
-          <p className="text-caption text-ink-muted">
-            Reviews kept out of retention and erasure while a legal matter is
-            open.
-          </p>
-        </div>
-        {gating.canManagePrivacy ? (
-          <Button variant="secondary" onClick={() => setApplying(true)}>
+    <SettingsSection
+      id="legal-holds"
+      title="Legal holds"
+      description="Reviews kept out of retention and erasure while a legal matter is open."
+      action={
+        gating.canManagePrivacy ? (
+          <Button
+            variant="secondary"
+            className="w-full sm:w-auto"
+            onClick={() => setApplying(true)}
+          >
             <Plus aria-hidden />
             Apply a hold
           </Button>
-        ) : null}
-      </div>
+        ) : null
+      }
+    >
       <QueryStates
         status={queryStatus(query, { isEmpty: holds.length === 0 })}
         pendingLabel="Loading legal holds"
         error={{ title: "We couldn’t load legal holds", cause: query.error }}
         onRetry={() => void query.refetch()}
         empty={
-          <Card flush>
-            <Empty
-              icon={<ShieldCheck />}
-              title="No legal holds"
-              description="Nothing is being kept back from retention or erasure."
-            />
-          </Card>
+          <Empty
+            icon={<ShieldCheck />}
+            title="No legal holds"
+            description="Nothing is being kept back from retention or erasure."
+          />
         }
       >
         {() => (
-          <Table surface responsive aria-label="Legal holds">
+          <Table responsive aria-label="Legal holds">
             <TableHeader>
               <TableRow>
                 <TableHead>Review</TableHead>
@@ -278,7 +301,7 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
                         {hold.reviewId}
                       </span>
                     </TableCell>
-                    <TableCell label="Reason">
+                    <TableCell label="Reason" span>
                       <span className="[overflow-wrap:anywhere]">
                         {hold.reason}
                       </span>
@@ -299,11 +322,12 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
                         </span>
                       </span>
                     </TableCell>
-                    <TableCell data-actions="" className="text-right">
+                    <TableCell actions className="text-right">
                       {active && gating.canManagePrivacy ? (
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="w-full @3xl/table:w-auto"
                           disabled={release.isPending}
                           aria-label={`Release hold on review ${hold.reviewId}`}
                           onClick={() => setReleaseTarget(hold)}
@@ -325,7 +349,7 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
           <AlertDialog
             open={releaseTarget !== null}
             onOpenChange={(open) => {
-              if (!open) setReleaseTarget(null)
+              if (!open && !release.isPending) closeRelease()
             }}
           >
             <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
@@ -335,6 +359,11 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
                 next daily retention run may redact or delete it. An erasure
                 request that matches it can then be fulfilled.
               </AlertDialogDescription>
+              <FormError>
+                {releaseError
+                  ? `The hold wasn’t released. ${releaseError}`
+                  : null}
+              </FormError>
               <AlertDialogFooter>
                 <AlertDialogClose
                   render={<Button variant="ghost">Keep the hold</Button>}
@@ -345,9 +374,8 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
                   pendingLabel="Releasing…"
                   onClick={() => {
                     if (!releaseTarget) return
-                    release.mutate(releaseTarget.reviewId, {
-                      onSettled: () => setReleaseTarget(null),
-                    })
+                    setReleaseError(null)
+                    release.mutate(releaseTarget.reviewId)
                   }}
                 >
                   Release hold
@@ -357,6 +385,6 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
           </AlertDialog>
         </>
       ) : null}
-    </section>
+    </SettingsSection>
   )
 }

@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
 
+import { LISTING_HEALTH, listingHealthLabel } from "@/lib/listings/health"
+
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // Several authenticated surfaces below are gated server-side by the REAL
@@ -101,11 +103,11 @@ async function mockReviewWorkspace(
   page: Page,
   options: { disconnected?: boolean } = {}
 ) {
-  // `useConnectionHealth` (components/app-shell/status-chip.tsx) is what
-  // actually derives "stale" — a *subsequent* failed refetch of
-  // `/api/google/connections` after an earlier success — not a failed
-  // `/api/reviews/counts`, so the "stale" toggle lives on the connections
-  // route.
+  // `useContextHealth` (components/app-shell/context-health-chip.tsx) is
+  // what actually derives "stale" for the chip and the More sheet's row: a
+  // *subsequent* failed refetch of the client list after an earlier success,
+  // not a failed `/api/reviews/counts`. `failClients()` drives it;
+  // `/api/google/connections` keeps its own toggle for the inbox.
   let connectionsShouldFail = false
   let clientsShouldFail = false
   // Registered FIRST so it is the LAST resort: Playwright matches route
@@ -434,19 +436,34 @@ for (const theme of themes) {
         // is its own defect and not something to mask here.
         await page.emulateMedia({ reducedMotion: "reduce" })
         await page.goto("/inbox")
+        // components/app-shell/app-shell.tsx: from 768px the persistent
+        // `aside[aria-label="Sidebar"]` holds the Primary nav; below it the
+        // fixed bottom tab bar is the Primary nav and More opens a bottom
+        // sheet with the rest, which is measured open.
+        const primary = page.getByRole("navigation", { name: "Primary" })
         if (viewport.name === "desktop") {
-          // No `data-variant="floating"` attribute exists on the current
-          // shell; the persistent desktop sidebar is the `<aside>` element
-          // (components/app-shell/app-shell.tsx).
-          await expect(page.locator("aside")).toBeVisible()
+          await expect(
+            page.locator('aside[aria-label="Sidebar"]')
+          ).toBeVisible()
+          await expect(
+            page
+              .locator('aside[aria-label="Sidebar"]')
+              .getByRole("navigation", {
+                name: "Primary",
+              })
+          ).toBeVisible()
+          await expect(primary).toHaveCount(1)
         } else {
-          await page.getByRole("button", { name: "Open navigation" }).click()
-          await expect(page.getByRole("dialog")).toBeVisible()
+          await expect(page.locator('aside[aria-label="Sidebar"]')).toBeHidden()
+          await expect(primary).toHaveAttribute("data-slot", "tab-bar")
+          await expect(primary).toBeVisible()
+          await primary
+            .getByRole("button", { name: "More", exact: true })
+            .click()
+          await expect(page.getByRole("dialog", { name: "More" })).toBeVisible()
         }
-        await expect(
-          page.getByRole("navigation", { name: "Primary" })
-        ).toBeVisible()
         if (viewport.name === "mobile") {
+          // The sheet's rise settles before axe samples its colours.
           await page.waitForTimeout(350)
         }
         // The review list carries `opacity-80` behind a `transition-opacity`
@@ -590,15 +607,34 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
         // The board's table is responsive (components/ui/table.tsx): below
-        // 720px of container width the header row hides and each cell is
-        // labelled with its column name instead.
+        // 720px of container width the header row hides and each listing
+        // becomes a compact record card led by its name (no per-cell
+        // labels: the name, health pill and waiting count speak for
+        // themselves).
+        const header = page.getByRole("columnheader", {
+          name: "Listing",
+          exact: true,
+        })
         if (viewport.name === "desktop") {
-          await expect(
-            page.getByRole("columnheader", { name: "Listing", exact: true })
-          ).toBeVisible()
+          await expect(header).toBeVisible()
         } else {
+          await expect(header).toBeHidden()
+          // A card per listing, identified by it: the row holding the
+          // journey listing carries its name as the link and its health as
+          // a word (one of the board's labels), not as colour alone.
+          const card = page
+            .locator("tbody > tr")
+            .filter({ hasText: state.directReview.locationName })
+          await expect(card).toHaveCount(1)
           await expect(
-            page.locator('td[data-label="Listing"]').first()
+            card.getByRole("link", { name: state.directReview.locationName })
+          ).toBeVisible()
+          await expect(
+            card.getByText(
+              new RegExp(
+                `^(${LISTING_HEALTH.map(listingHealthLabel).join("|")})$`
+              )
+            )
           ).toBeVisible()
         }
         await expect(
@@ -978,8 +1014,15 @@ for (const theme of themes) {
         await expect(
           filtersSheet.getByRole("checkbox", { name: "5 stars" })
         ).toBeVisible()
+        // Every filter keeps an accessible group name. The sheet's sections
+        // were named regions (a dozen landmarks); they are now groups named
+        // by their headings, and where the control is itself the named group
+        // (Reply status is a radio group) that control carries the name.
         await expect(
-          filtersSheet.getByRole("region", { name: "Reply status" })
+          filtersSheet.getByRole("radiogroup", { name: "Reply status" })
+        ).toBeVisible()
+        await expect(
+          filtersSheet.getByRole("group", { name: "Date range" })
         ).toBeVisible()
         await expectAccessible(
           page,
@@ -1013,9 +1056,10 @@ for (const theme of themes) {
               .locator('section[aria-label="Review list"] button')
               .filter({ hasText: "Jordan Lee" })
           ).toHaveAttribute("aria-current", "true")
-          // Renamed from "Back to review list" (components/inbox/inbox-view.tsx).
-          const backButton = page.getByRole("button", {
-            name: "Back to reviews",
+          // The pushed review's one labelled way back: the app bar's
+          // "‹ Inbox" link (PageChrome back); the review head draws none.
+          const backButton = page.getByRole("link", {
+            name: "Back to Inbox",
           })
           await expect(backButton).toBeVisible()
           await expect(backButton).toBeFocused()
@@ -1122,7 +1166,7 @@ for (const theme of themes) {
         await expect(history).toBeHidden()
         await expect(more).toBeFocused()
         if (viewport.name === "mobile") {
-          await page.getByRole("button", { name: "Back to reviews" }).click()
+          await page.getByRole("link", { name: "Back to Inbox" }).click()
           await expect(reviewList).toBeVisible()
           await expect(selectedReview).toBeHidden()
           await expect(
@@ -1147,13 +1191,27 @@ for (const theme of themes) {
         await page.clock.install()
         const controls = await mockReviewWorkspace(page)
         await page.goto("/inbox")
+        // From 768px the words are the toolbar's health chip. A phone's bar
+        // has no chip: the same words (one hook, useContextHealth in
+        // components/app-shell/context-health-chip.tsx) are the More sheet's
+        // Connections row, so the sheet stays open across the refetch.
+        let health = page.locator('[data-slot="health-chip"]')
+        if (viewport.name === "mobile") {
+          await page
+            .getByRole("navigation", { name: "Primary" })
+            .getByRole("button", { name: "More", exact: true })
+            .click()
+          health = page
+            .getByRole("dialog", { name: "More" })
+            .locator('[data-slot="health-row"]')
+        }
         await expect(
-          page.getByText("All clients in sync", { exact: true })
+          health.getByText("All clients in sync", { exact: true })
         ).toBeVisible()
         controls.failClients()
         await page.clock.fastForward("00:01:05")
         await expect(
-          page.getByText("Data may be stale", { exact: true })
+          health.getByText("Data may be stale", { exact: true })
         ).toBeVisible()
         await expectAccessible(
           page,
@@ -1495,9 +1553,20 @@ for (const theme of themes) {
             },
           })
         })
+        // On phones /settings is the grouped settings index and Reply policy
+        // is its own page; from md /settings still lands on Reply policy.
+        // Scan both pages at every width.
         await page.goto("/settings")
         await expect(
-          page.getByRole("heading", { name: "Reply policy" })
+          page.getByRole("heading", {
+            name: viewport.name === "mobile" ? "Settings" : "Reply policy",
+            level: 1,
+          })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} settings home`)
+        await page.goto("/settings/policy")
+        await expect(
+          page.getByRole("heading", { name: "Reply policy", level: 1 })
         ).toBeVisible()
         await expectAccessible(
           page,

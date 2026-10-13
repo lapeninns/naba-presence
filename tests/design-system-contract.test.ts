@@ -25,6 +25,7 @@ const primitiveNames = [
   "input",
   "label",
   "dialog",
+  "overlay",
   "sheet",
   "toast",
 ]
@@ -243,24 +244,65 @@ describe("NabaPresence design tokens", () => {
 })
 
 describe("type roles", () => {
-  it("defines the seven named roles at their agreed sizes", () => {
+  it("reads every named role from the touch-first type scale", () => {
     for (const role of [
-      "--text-caption: 0.75rem", // 12px
-      "--text-ui: 0.8125rem", // 13px
-      "--text-body: 0.875rem", // 14px
-      "--text-title: 1rem", // 16px
-      "--text-section: 1.125rem", // 18px
-      "--text-page-title: clamp(1.375rem", // 22px → 28px, fluid
-      "--text-display: clamp(1.75rem", // 28px → 36px, fluid
-      "--text-reading: 1.0625rem", // 17px, the customer's words
+      "caption",
+      "count",
+      "ui",
+      "body",
+      "title",
+      "section",
+      "page-title",
+      "display",
+      "reading",
     ]) {
-      expect(globals).toContain(role)
+      expect(globals).toContain(`--text-${role}: var(--np-text-${role})`)
+    }
+  })
+
+  it("defines the touch scale as the default and the desk scale under desk", () => {
+    const desk = globals.slice(
+      globals.indexOf("@media (min-width: 48rem) and (pointer: fine) {")
+    )
+    const touch = globals.slice(0, globals.indexOf("/* DESK."))
+    for (const [token, touchValue, deskValue] of [
+      ["--np-text-caption", "0.8125rem", "0.75rem"], // 13px → 12px
+      ["--np-text-count", "0.8125rem", "0.75rem"], // 13px → 12px
+      ["--np-text-count-lh", "1rem", "1rem"], // 16px line at both sizes
+      ["--np-text-ui", "0.9375rem", "0.8125rem"], // 15px → 13px
+      ["--np-text-body", "1rem", "0.875rem"], // 16px → 14px
+      ["--np-text-title", "1.0625rem", "1rem"], // 17px → 16px
+      ["--np-text-section", "1.25rem", "1.125rem"], // 20px → 18px
+      ["--np-text-page-title", "1.625rem", "clamp(1.375rem"], // 26px → 22-28px
+      ["--np-text-display", "2rem", "clamp(1.75rem"], // 32px → 28-36px
+    ]) {
+      expect(touch).toContain(`${token}: ${touchValue}`)
+      expect(desk).toContain(`${token}: ${deskValue}`)
+    }
+    // The customer's words are 17/28 at every size.
+    expect(touch).toContain("--np-text-reading: 1.0625rem")
+    expect(desk).not.toContain("--np-text-reading:")
+  })
+
+  it("keeps running text at 16px on touch so fields never trigger iOS zoom", () => {
+    expect(globals).toMatch(/--np-text-body: 1rem;/)
+  })
+
+  it("defaults every control to the 44px touch floor", () => {
+    const touch = globals.slice(0, globals.indexOf("/* DESK."))
+    for (const token of [
+      "--np-control-h",
+      "--np-field-h",
+      "--np-menu-item-h",
+    ]) {
+      expect(touch).toMatch(new RegExp(`${token}: 44px`))
     }
   })
 
   it("gives every type role a line height", () => {
     for (const role of [
       "caption",
+      "count",
       "ui",
       "body",
       "title",
@@ -275,6 +317,7 @@ describe("type roles", () => {
   it("gives every type role a tracking value", () => {
     for (const role of [
       "caption",
+      "count",
       "ui",
       "body",
       "title",
@@ -354,9 +397,12 @@ describe("primitives read tokens, not literals", () => {
     expect(pageFrame).toContain(
       'width === "narrow" && "max-w-(--np-page-narrow-width)"'
     )
+    // The workspace frame takes the height the shell's column has left
+    // (flex), never a viewport calculation a notice could push past.
     expect(pageFrame).toContain(
-      "md:[@media(min-height:620px)]:h-[calc(100svh-var(--np-toolbar-h))]"
+      'width === "workspace" && "min-h-0 max-w-none flex-1'
     )
+    expect(pageFrame).not.toContain("100svh")
     expect(pageFrame).toContain("@container")
   })
 })

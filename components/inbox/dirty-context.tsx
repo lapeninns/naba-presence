@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import type { Verification } from "@/lib/contracts/reviews"
+import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 
 type ConfirmDiscardFn = () => Promise<boolean>
 
@@ -49,12 +50,19 @@ export type ComposerSave = {
 type Gate = {
   isDirty: boolean
   confirmDiscard: ConfirmDiscardFn
+  /**
+   * The operator agreed to leave the page (the leave prompt): forget the
+   * edits the way a confirmed discard does, so the unmount that follows
+   * does not stash them.
+   */
+  discard: () => void
   save: ComposerSave | null
 }
 
 const CLEAN_GATE: Gate = {
   isDirty: false,
   confirmDiscard: async () => true,
+  discard: () => {},
   save: null,
 }
 
@@ -70,6 +78,15 @@ class DirtyStore {
   getIsDirty = () => this.gate.isDirty
   getSave = () => this.gate.save
   confirmDiscard = () => this.gate.confirmDiscard()
+  // The operator agreed to leave (the leave prompt): the edits are given up,
+  // so the reply stops counting as dirty at once. Whatever the confirmed
+  // navigation runs next (Back to Inbox's back, the in-page gate) must not
+  // find unsaved edits and ask a second time. The composer re-registers if
+  // it is still there and edited again.
+  discard = () => {
+    this.gate.discard()
+    if (this.gate.isDirty) this.set({ ...this.gate, isDirty: false })
+  }
   set = (gate: Gate) => {
     this.gate = gate
     this.listeners.forEach((listener) => listener())
@@ -79,6 +96,7 @@ class DirtyStore {
 const DirtyStoreContext = createContext<DirtyStore | null>(null)
 const AskDiscardContext = createContext<(() => Promise<boolean>) | null>(null)
 const NOOP_SUBSCRIBE = () => () => {}
+const NOOP = () => {}
 
 function DirtyGuardProvider({ children }: { children: ReactNode }) {
   // Lazy `useState` initializer, not a ref: it creates the store exactly once
@@ -86,6 +104,16 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
   // touching a ref's `.current` during render.
   const [store] = useState(() => new DirtyStore())
   const [open, setOpen] = useState(false)
+  // Leaving the inbox (the OS back gesture, a shell link, a guarded
+  // programmatic navigation) asks through the same dialog as the in-page
+  // gate. The inbox's own query-string changes are `router.replace` calls,
+  // which the leave guard never sees, so they stay with the gate.
+  const isDirty = useSyncExternalStore(
+    store.subscribe,
+    store.getIsDirty,
+    () => false
+  )
+  const leave = useLeaveGuard({ when: isDirty, onLeave: store.discard })
   const resolverRef = useRef<((value: boolean) => void) | null>(null)
 
   const settle = useCallback((value: boolean) => {
@@ -113,9 +141,11 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
       <AskDiscardContext.Provider value={askDiscard}>
         {children}
         <AlertDialog
-          open={open}
+          open={open || leave.open}
           onOpenChange={(next) => {
-            if (!next) settle(false)
+            if (next) return
+            if (leave.open) leave.onOpenChange(false)
+            if (open) settle(false)
           }}
         >
           <AlertDialogContent aria-label="Discard unsaved reply?">
@@ -127,7 +157,18 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
               <AlertDialogClose render={<Button variant="secondary" />}>
                 Keep editing
               </AlertDialogClose>
-              <Button variant="destructive" onClick={() => settle(true)}>
+              {/* The filled red, as on every confirm whose consequence is
+                  the loss: "Keep editing" is first and takes focus. */}
+              <Button
+                variant="danger"
+                onClick={() => {
+                  if (leave.open) {
+                    leave.onConfirm()
+                    leave.onOpenChange(false)
+                  }
+                  if (open) settle(true)
+                }}
+              >
                 Discard
               </Button>
             </AlertDialogFooter>
@@ -138,25 +179,25 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
   )
 }
 
-/** Opens the discard AlertDialog. Falls back to `window.confirm` outside the provider. */
-function useAskDiscardConfirm(): () => Promise<boolean> {
-  const ask = useContext(AskDiscardContext)
-  return useCallback(() => {
-    if (ask) return ask()
-    return Promise.resolve(
-      window.confirm("You have unsaved changes to this reply. Discard them?")
-    )
-  }, [ask])
+/**
+ * Opens the discard AlertDialog. Undefined outside the provider, where
+ * `useDirtyGuard` falls back to its own browser confirm.
+ */
+function useAskDiscardConfirm(): (() => Promise<boolean>) | undefined {
+  return useContext(AskDiscardContext) ?? undefined
 }
 
 // The composer publishes its live dirtiness + confirm into the shared store,
 // and — while the text on screen is not yet a checked draft — the save the
 // publish bar runs before it publishes.
 // `save.save` must be referentially stable, or every render re-registers.
+// `discard` (useDirtyGuard's `markDiscarded`) runs when the operator agrees
+// to leave the page from the leave prompt.
 function useRegisterDirtyGuard(
   isDirty: boolean,
   confirmDiscard: ConfirmDiscardFn,
-  save?: ComposerSave
+  save?: ComposerSave,
+  discard: () => void = NOOP
 ) {
   const store = useContext(DirtyStoreContext)
   const run = save?.save
@@ -166,10 +207,11 @@ function useRegisterDirtyGuard(
     store?.set({
       isDirty,
       confirmDiscard,
+      discard,
       save: run ? { save: run, blockedReason, saving } : null,
     })
     return () => store?.set(CLEAN_GATE)
-  }, [store, isDirty, confirmDiscard, run, blockedReason, saving])
+  }, [store, isDirty, confirmDiscard, discard, run, blockedReason, saving])
 }
 
 // The list uses this before a selection change: true if it is safe to navigate

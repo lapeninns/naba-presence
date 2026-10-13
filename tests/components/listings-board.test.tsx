@@ -205,7 +205,7 @@ describe("ListingsBoard", () => {
     await userEvent.click(
       screen.getByRole("button", { name: /Harbour Kitchen/ })
     )
-    await userEvent.click(screen.getByRole("tab", { name: /^To publish/ }))
+    await userEvent.click(screen.getByRole("button", { name: /^To publish/ }))
     expect(
       screen.getByRole("link", { name: "Old Crown Girton" })
     ).toBeInTheDocument()
@@ -240,7 +240,7 @@ describe("ListingsBoard", () => {
     // Harbour View needs attention; Pier Cafe is unverified; Old Crown is fine.
     expect(names()).toEqual(["Harbour View", "Pier Cafe", "Old Crown Girton"])
 
-    await userEvent.click(screen.getByRole("tab", { name: "By client" }))
+    await userEvent.click(screen.getByRole("button", { name: "By client" }))
     expect(names()).toEqual(["Pier Cafe", "Harbour View", "Old Crown Girton"])
     expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
       scroll: false,
@@ -296,10 +296,109 @@ describe("ListingsBoard", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Harbour View" })).toBeNull()
 
-    await userEvent.click(screen.getByRole("tab", { name: /^All/ }))
+    await userEvent.click(
+      within(screen.getByRole("group", { name: "Filter by health" })).getByRole(
+        "button",
+        { name: /^All/ }
+      )
+    )
     expect(replace).toHaveBeenLastCalledWith("/listings?clientId=c1&q=crown", {
       scroll: false,
     })
+  })
+
+  it("filters with pressed buttons, so arrowing through them never rewrites the URL", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="owner" />)
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument()
+    const order = screen.getByRole("group", { name: "Order listings" })
+    const worst = within(order).getByRole("button", { name: "Worst first" })
+    expect(worst).toHaveAttribute("aria-pressed", "true")
+    worst.focus()
+    await user.keyboard("{ArrowRight}")
+    expect(
+      within(order).getByRole("button", { name: "By client" })
+    ).toHaveFocus()
+    expect(replace).not.toHaveBeenCalled()
+    await user.keyboard("{Enter}")
+    expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
+      scroll: false,
+    })
+    const health = screen.getByRole("group", { name: "Filter by health" })
+    for (const label of [
+      "All",
+      "Needs attention",
+      "To publish",
+      "Not linked",
+      "In sync",
+    ])
+      expect(
+        within(health).getByRole("button", { name: new RegExp(`^${label}`) })
+      ).toBeInTheDocument()
+  })
+
+  it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
+    stub({
+      entries,
+      summaries: entries.map((entry) => summary({ locationId: entry.id })),
+    })
+    const user = userEvent.setup()
+    render(<ListingsBoard role="owner" bulkEnabled />)
+    expect(
+      screen.queryByRole("region", { name: "Bulk change selection" })
+    ).not.toBeInTheDocument()
+    // In the header's selection column, so record cards keep it as the
+    // select-all bar above them (TableSelectAllLabel), named by its words.
+    const all = within(screen.getByRole("table")).getByRole("checkbox", {
+      name: "Select all shown (3)",
+    })
+    expect(all.closest("thead")).not.toBeNull()
+    const words = document.querySelector('[data-slot="table-select-all-label"]')
+    expect(words).toHaveTextContent(/^Select all shown \(3\)$/)
+    expect(words).toHaveAttribute("aria-hidden")
+    await user.click(all)
+    const bar = screen.getByRole("region", { name: "Bulk change selection" })
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+    expect(bar).toHaveTextContent("3 selected")
+    expect(words).toHaveTextContent("Select all shown (3) · 3 selected")
+    const link = within(bar).getByRole("link", { name: "Prepare bulk change" })
+    expect(link.getAttribute("href")).toMatch(/^\/listings\/bulk\?ids=/)
+    expect(
+      new Set(link.getAttribute("href")!.split("=")[1]!.split(","))
+    ).toEqual(new Set(["l1", "l2", "l3"]))
+    await user.click(
+      within(bar).getByRole("button", { name: "Clear selection" })
+    )
+    expect(
+      screen.queryByRole("region", { name: "Bulk change selection" })
+    ).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
+  })
+
+  it("refuses to select all shown past 50 listings instead of trimming", () => {
+    const many = Array.from({ length: 51 }, (_, index) => ({
+      id: `m${index}`,
+      name: `Listing ${index}`,
+      linked: true,
+      verified: true,
+      clientId: "c1",
+      clientName: "Old Crown Group",
+    }))
+    stub({ entries: many, summaries: [] })
+    render(<ListingsBoard role="owner" bulkEnabled />)
+    const all = screen.getByRole("checkbox", { name: "Select all shown (51)" })
+    expect(all).toHaveAttribute("aria-disabled", "true")
+    expect(all).toHaveAccessibleDescription(/at most 50 listings/)
+    // The reason is on screen too, not only in the description.
+    expect(screen.getByText(/at most 50 listings/)).toBeVisible()
   })
 
   it("says reviews were checked, not the whole listing", () => {

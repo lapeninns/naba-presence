@@ -3,7 +3,10 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { InvitationsPanel } from "@/components/settings/invitations-panel"
+import {
+  InvitationsPanel,
+  InviteDialog,
+} from "@/components/settings/invitations-panel"
 import { Toaster } from "@/components/ui/toast"
 import * as invitationsApi from "@/lib/api/invitations"
 import type { Invitation } from "@/lib/api/invitations"
@@ -11,9 +14,7 @@ import { ApiClientError } from "@/lib/api/client"
 
 const useInvitationsMock = vi.fn()
 vi.mock("@/lib/queries/use-invitations", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@/lib/queries/use-invitations")
-  >()),
+  ...(await importOriginal<typeof import("@/lib/queries/use-invitations")>()),
   useInvitations: () => useInvitationsMock(),
 }))
 const useClientsMock = vi.fn()
@@ -62,10 +63,18 @@ function renderPanel(
   )
 }
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  // jsdom has no share sheet; a test that adds one takes it away again.
+  Reflect.deleteProperty(navigator, "share")
+  Reflect.deleteProperty(navigator, "canShare")
+})
 
 describe("InvitationsPanel", () => {
-  it("badges an expired invitation and offers copy + revoke", () => {
+  it("badges an expired invitation and offers copy + revoke", async () => {
+    const user = userEvent.setup()
     renderPanel([
       {
         id: "i1",
@@ -81,9 +90,14 @@ describe("InvitationsPanel", () => {
     expect(screen.getByText("Expired")).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Copy invite link for chef@test" })
-    ).toBeInTheDocument()
+    ).toHaveAttribute("aria-disabled", "true")
+    await user.click(
+      screen.getByRole("button", { name: "More actions for chef@test" })
+    )
     expect(
-      screen.getByRole("button", { name: "Revoke invitation for chef@test" })
+      await screen.findByRole("menuitem", {
+        name: "Revoke invitation for chef@test",
+      })
     ).toBeInTheDocument()
   })
 
@@ -201,7 +215,12 @@ describe("InvitationsPanel", () => {
       },
     ])
     await user.click(
-      screen.getByRole("button", { name: "Revoke invitation for chef@test" })
+      screen.getByRole("button", { name: "More actions for chef@test" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", {
+        name: "Revoke invitation for chef@test",
+      })
     )
     expect(revoke).not.toHaveBeenCalled()
     await user.click(
@@ -289,6 +308,203 @@ describe("InvitationsPanel", () => {
     expect(screen.getByText("Old Crown")).toBeInTheDocument()
   })
 
+  it("offers the share sheet for a new link where the browser has one", async () => {
+    const user = userEvent.setup()
+    const share = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { share, canShare: () => true })
+    vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue({
+      invitation: {
+        id: "i5",
+        email: "chef@test.com",
+        role: "member",
+        canPublish: false,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      inviteUrl: "https://app.test/invite/share",
+    })
+    renderPanel([])
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "chef@test.com"
+    )
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    await user.click(await screen.findByRole("button", { name: "Share…" }))
+    // Exactly the accept link and fixed wording: not the page URL, and not
+    // the invitee's address.
+    expect(share).toHaveBeenCalledTimes(1)
+    expect(share).toHaveBeenCalledWith({
+      url: "https://app.test/invite/share",
+      title: "Join our team on NabaPresence",
+      text: "Your invitation to join. The link works once and expires after 7 days.",
+    })
+    expect(JSON.stringify(share.mock.calls)).not.toContain("chef@test.com")
+    // The link stays on screen whatever the share sheet did.
+    expect(screen.getByRole("textbox", { name: "Invite link" })).toHaveValue(
+      "https://app.test/invite/share"
+    )
+  })
+
+  it("has no Share button without a share sheet", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(invitationsApi, "createInvitation").mockResolvedValue({
+      invitation: {
+        id: "i6",
+        email: "chef@test.com",
+        role: "member",
+        canPublish: false,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      inviteUrl: "https://app.test/invite/plain",
+    })
+    renderPanel([])
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "chef@test.com"
+    )
+    await user.click(screen.getByRole("button", { name: "Create invite link" }))
+    await screen.findByRole("textbox", { name: "Invite link" })
+    expect(
+      screen.queryByRole("button", { name: "Share…" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Copy" })).toBeInTheDocument()
+  })
+
+  it("shares a pending invitation's link from the row menu", async () => {
+    const user = userEvent.setup()
+    const share = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { share, canShare: () => true })
+    renderPanel([
+      {
+        id: "i7",
+        email: "chef@test",
+        role: "member",
+        canPublish: false,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        inviteUrl: "https://app.test/invite/row",
+      },
+    ])
+    await user.click(
+      screen.getByRole("button", { name: "More actions for chef@test" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Share invite link/ })
+    )
+    await waitFor(() =>
+      expect(share).toHaveBeenCalledWith({
+        url: "https://app.test/invite/row",
+        title: "Join our team on NabaPresence",
+        text: "Your invitation to join. The link works once and expires after 7 days.",
+      })
+    )
+  })
+
+  it("copies only the invite link when the share sheet refuses", async () => {
+    const user = userEvent.setup()
+    const share = vi
+      .fn()
+      .mockRejectedValue(new DOMException("blocked", "NotAllowedError"))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { share, canShare: () => true })
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(writeText)
+    renderPanel([
+      {
+        id: "i8",
+        email: "chef@test",
+        role: "member",
+        canPublish: false,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        inviteUrl: "https://app.test/invite/fallback",
+      },
+    ])
+    await user.click(
+      screen.getByRole("button", { name: "More actions for chef@test" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Share invite link/ })
+    )
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("https://app.test/invite/fallback")
+    )
+    expect(writeText).toHaveBeenCalledTimes(1)
+    expect(await screen.findByText("Invite link copied")).toBeInTheDocument()
+  })
+
+  it("does nothing more when the share sheet is closed", async () => {
+    const user = userEvent.setup()
+    const share = vi
+      .fn()
+      .mockRejectedValue(new DOMException("closed", "AbortError"))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { share, canShare: () => true })
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(writeText)
+    renderPanel([
+      {
+        id: "i9",
+        email: "chef@test",
+        role: "member",
+        canPublish: false,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        acceptedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        inviteUrl: "https://app.test/invite/closed",
+      },
+    ])
+    await user.click(
+      screen.getByRole("button", { name: "More actions for chef@test" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Share invite link/ })
+    )
+    await waitFor(() => expect(share).toHaveBeenCalledTimes(1))
+    expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it("asks before an accidental dismissal throws a typed invitation away", async () => {
+    const user = userEvent.setup()
+    useInvitationsMock.mockReturnValue({
+      data: { items: [] },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    })
+    const onOpenChange = vi.fn()
+    const client = new QueryClient()
+    render(
+      <QueryClientProvider client={client}>
+        <Toaster>
+          <InviteDialog actorRole="owner" open onOpenChange={onOpenChange} />
+        </Toaster>
+      </QueryClientProvider>
+    )
+    await user.type(
+      screen.getByRole("textbox", { name: "Email address" }),
+      "half@test.com"
+    )
+    await user.keyboard("{Escape}")
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Discard this invitation?",
+      })
+    ).toBeInTheDocument()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false, expect.anything())
+  })
+
+  it("lists every client in the sheet's own scroll, with no inner scroll box", async () => {
+    const user = userEvent.setup()
+    renderPanel([])
+    await user.click(screen.getByRole("radio", { name: /^Only these clients/ }))
+    const list = screen.getByRole("list", { name: "Clients" })
+    expect(list.className).not.toMatch(/overflow-y-auto|max-h-/)
+  })
+
   describe("with invitation email on", () => {
     const pending = {
       role: "member" as const,
@@ -348,7 +564,9 @@ describe("InvitationsPanel", () => {
         { emailDelivery: true }
       )
 
-      expect(screen.getByRole("columnheader", { name: "Email" })).toBeInTheDocument()
+      expect(
+        screen.getByRole("columnheader", { name: "Email" })
+      ).toBeInTheDocument()
       expect(screen.getByText("Email sent")).toBeInTheDocument()
       expect(screen.getByText("Sending")).toBeInTheDocument()
       expect(screen.getByText("Not sent")).toBeInTheDocument()

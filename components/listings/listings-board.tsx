@@ -11,8 +11,10 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { ClientAvatar } from "@/components/clients/client-avatar"
 import { FileUnderClient } from "@/components/listings/file-under-client"
+import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ChipCount, ChipRow, ToggleChip } from "@/components/ui/chip"
@@ -22,6 +24,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
@@ -31,9 +34,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSelectAllLabel,
 } from "@/components/ui/table"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import {
   googleChangedCount,
   listingHealth,
@@ -54,6 +58,7 @@ import {
   type DirectoryEntry,
 } from "@/lib/queries/use-locations"
 import { cn } from "@/lib/utils"
+import { useNow } from "@/lib/time/server-now"
 
 const HEALTH_FILTERS = [
   { value: "all", label: "All" },
@@ -123,9 +128,11 @@ const HEALTH_ORDER: Record<ListingHealth, number> = {
 function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
   const freshness = summary?.freshness
   if (!freshness) return null
-  const checked = freshness.lastCheckedAt
-    ? `Reviews checked ${formatRelativeTime(freshness.lastCheckedAt)}`
-    : "Reviews not checked yet"
+  const checked = freshness.lastCheckedAt ? (
+    <RelativeTime iso={freshness.lastCheckedAt} prefix="Reviews checked " />
+  ) : (
+    "Reviews not checked yet"
+  )
   return (
     <span
       className={cn(
@@ -135,9 +142,48 @@ function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
           : "text-ink-muted"
       )}
     >
-      {freshness.state === "data_delayed"
-        ? `${checked} · delayed, retrying`
-        : checked}
+      {checked}
+      {freshness.state === "data_delayed" ? " · delayed, retrying" : null}
+    </span>
+  )
+}
+
+/**
+ * How many things wait on a listing, as one figure: the phone row's compact
+ * stand-in for the Waiting column's pills.
+ */
+function waitingCount(summary: ListingSummary): number {
+  return (
+    unpublishedCount(summary) +
+    googleChangedCount(summary) +
+    summary.posts.awaitingApproval
+  )
+}
+
+/** No summary, or nothing waiting and no failed publish. */
+function quietRow(summary: ListingSummary | undefined) {
+  if (!summary) return true
+  const failed =
+    summary.lastPublish?.status === "failed" || summary.posts.failed > 0
+  return !failed && waitingCount(summary) === 0
+}
+
+/** The phone row's one-line Waiting figure (the pills show from 48rem). */
+function WaitingFigure({ summary }: { summary: ListingSummary | undefined }) {
+  if (!summary) return <span className="text-ink-muted">—</span>
+  const failed =
+    summary.lastPublish?.status === "failed" || summary.posts.failed > 0
+  const count = waitingCount(summary)
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-secondary">
+      {count > 0 ? (
+        <span className="font-mono tabular-nums">
+          {formatNumber(count)} waiting
+        </span>
+      ) : failed ? null : (
+        <span className="text-ink-muted">Nothing waiting</span>
+      )}
+      {failed ? <StatusPill tone="at-risk">Failed publish</StatusPill> : null}
     </span>
   )
 }
@@ -217,16 +263,47 @@ function columnsFor(business: boolean) {
   return business ? COLUMNS.filter((column) => column !== "Client") : COLUMNS
 }
 
+/*
+ * The phone row (the table's container under 48rem): a compact record, not
+ * a stack of labelled cells. The listing name is the headline with a
+ * chevron, and one line under it carries the health pill and the waiting
+ * figure; the client, verification and last-published columns step aside
+ * (they are one tap away on the listing). The responsive table's own rules
+ * select on `tbody > tr > td`, so these overrides are marked important.
+ */
+const PHONE = {
+  rowSelectable:
+    "@max-3xl/table:grid-cols-[auto_auto_minmax(0,1fr)]! @max-3xl/table:gap-y-1!",
+  rowPlain: "@max-3xl/table:grid-cols-[auto_minmax(0,1fr)]!",
+  select:
+    "@max-3xl/table:col-span-1! @max-3xl/table:row-span-2 @max-3xl/table:self-center",
+  /** The name spans every column right of the checkbox. */
+  nameSelectable: "@max-3xl/table:col-span-2!",
+  hidden: "@max-3xl/table:hidden!",
+  /** Shown only on the phone row. */
+  only: "hidden @max-3xl/table:inline-flex",
+  /** Shown only from 48rem. */
+  wide: "@max-3xl/table:hidden",
+} as const
+
 /** The table's frame, shared by the loaded board and its skeleton. */
 function BoardTable({
   children,
   busy = false,
-  selection,
+  selectable = false,
+  selectAll,
 }: {
   children: React.ReactNode
   busy?: boolean
   /** Owners and admins select listings for a bulk change. */
-  selection?: React.ReactNode
+  selectable?: boolean
+  /**
+   * The select-all checkbox and its TableSelectAllLabel, for the header's
+   * selection column. As record cards (a phone) the header row hides but a
+   * cell holding a checkbox survives as a bar above the cards, so one
+   * control serves every width.
+   */
+  selectAll?: React.ReactNode
 }) {
   const business = useWorkspaceMode() === "business"
   return (
@@ -236,7 +313,11 @@ function BoardTable({
       </caption>
       <TableHeader>
         <TableRow>
-          {selection ? <TableHead className="w-10">{selection}</TableHead> : null}
+          {selectable ? (
+            <TableHead className="w-10">
+              {selectAll ?? <span className="sr-only">Select</span>}
+            </TableHead>
+          ) : null}
           {columnsFor(business).map((column) => (
             <TableHead key={column}>{column}</TableHead>
           ))}
@@ -251,10 +332,10 @@ function BoardSkeleton() {
   const business = useWorkspaceMode() === "business"
   return (
     <div className="flex flex-col gap-3" aria-busy="true">
-      <Skeleton className="h-8 w-full max-w-[560px] rounded-(--np-radius-pill)" />
+      <Skeleton className="h-8 w-full max-w-140 rounded-(--np-radius-pill)" />
       <div className="flex flex-wrap gap-3">
         <Skeleton className="h-(--np-control-h) w-full max-w-80" />
-        <Skeleton className="h-9 w-full max-w-96 rounded-[10px]" />
+        <Skeleton className="h-(--np-control-h) w-full max-w-96 rounded-(--np-radius-control)" />
       </div>
       <Skeleton className="h-3.5 w-72 max-w-full" />
       <BoardTable busy>
@@ -269,13 +350,13 @@ function BoardSkeleton() {
               </TableCell>
             )}
             <TableCell>
-              <Skeleton className="h-[22px] w-24" />
+              <Skeleton className="h-5.5 w-24" />
             </TableCell>
             <TableCell>
-              <Skeleton className="h-[22px] w-32" />
+              <Skeleton className="h-5.5 w-32" />
             </TableCell>
             <TableCell>
-              <Skeleton className="h-[22px] w-20" />
+              <Skeleton className="h-5.5 w-20" />
             </TableCell>
             <TableCell>
               <Skeleton className="h-3.5 w-20" />
@@ -297,9 +378,11 @@ function BoardSkeleton() {
  * health, client and order choices live in the URL (`q`, `health`,
  * `clientId`, `order`), so a filtered board can be shared or reloaded. The
  * Waiting column reads the DB-only summary, so the board answers "what is
- * waiting on which listing" without a single Google call. Below 720px of
- * width each row becomes a labelled card that keeps its health, its counts
- * and the listing link that opens it.
+ * waiting on which listing" without a single Google call. Below 48rem of
+ * width each row becomes a compact record (name, health, one waiting
+ * figure, chevron) that is one tap target, and the filters are pressed
+ * buttons throughout (client chips, health chips, order), so moving through
+ * them by keyboard never re-filters the board.
  */
 function ListingsBoard({
   role,
@@ -309,6 +392,7 @@ function ListingsBoard({
   /** The organisation's `bulk_actions` feature; off hides bulk selection. */
   bulkEnabled?: boolean
 }) {
+  const now = useNow()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -316,13 +400,17 @@ function ListingsBoard({
   const canSelect = canManage && bulkEnabled
   // Explicit listing ids for a bulk change. Filters only change what is shown;
   // the bulk preview freezes exactly these ids.
-  const [selected, setSelected] = React.useState<ReadonlySet<string>>(() => new Set())
-  const toggle = (id: string, on: boolean) => setSelected((current) => {
-    const next = new Set(current)
-    if (on && next.size < BULK_MAX_TARGETS) next.add(id)
-    if (!on) next.delete(id)
-    return next
-  })
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const selectAllReasonId = React.useId()
+  const toggle = (id: string, on: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current)
+      if (on && next.size < BULK_MAX_TARGETS) next.add(id)
+      if (!on) next.delete(id)
+      return next
+    })
   const directory = useLocationDirectory(role)
   const clients = useClients()
   const summaries = useListingSummaries()
@@ -441,6 +529,7 @@ function ListingsBoard({
         linked: entry.linked,
         verified: entry.verified ?? summary?.verified,
         summary,
+        now,
       }),
       clientId: entry.clientId ?? UNFILED,
       clientName: entry.clientName ?? "Not filed under a client",
@@ -535,52 +624,99 @@ function ListingsBoard({
     writeUrl({ q: "", health: "all", clientId: null })
   }
 
+  // "Select all shown" adds the shown listings to the selection (and clearing
+  // it removes only them), so a filter never silently drops a listing picked
+  // under another filter. It is offered only while the result stays within
+  // the cap: the selection is explicit ids and is never trimmed to fit.
+  const visibleIds = visible.map((row) => row.entry.id)
+  const shownSelected = visibleIds.filter((id) => selected.has(id)).length
+  const unionSize = selected.size + visibleIds.length - shownSelected
+  const allShownSelected =
+    visibleIds.length > 0 && shownSelected === visibleIds.length
+  const selectAllBlocked = !allShownSelected && unionSize > BULK_MAX_TARGETS
+  const selectAllName = `Select all shown (${formatNumber(visible.length)})`
+  const setAllShown = (on: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const id of visibleIds) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return on && next.size > BULK_MAX_TARGETS ? current : next
+    })
+
   const renderRow = (row: BoardRow) => {
     const address = formatAddressLine(row.entry.address)
+    const filing = row.clientId === UNFILED && canManage
     return (
       <TableRow
         key={row.entry.id}
         interactive
-        onClick={() => router.push(listingHref(row.entry.id))}
+        className={cn(
+          "relative",
+          canSelect ? PHONE.rowSelectable : PHONE.rowPlain
+        )}
       >
         {canSelect ? (
-          <TableCell label="Select" onClick={(event) => event.stopPropagation()}>
-            <Checkbox
-              checked={selected.has(row.entry.id)}
-              disabled={!selected.has(row.entry.id) && selected.size >= BULK_MAX_TARGETS}
-              onCheckedChange={(checked) => toggle(row.entry.id, checked === true)}
-              aria-label={`Select ${row.entry.name} for a bulk change`}
-            />
+          <TableCell className={PHONE.select}>
+            {/* Above the row's stretched link, so a tap here selects. */}
+            <span className="relative z-raised flex">
+              <Checkbox
+                checked={selected.has(row.entry.id)}
+                disabled={
+                  !selected.has(row.entry.id) &&
+                  selected.size >= BULK_MAX_TARGETS
+                }
+                onCheckedChange={(checked) =>
+                  toggle(row.entry.id, checked === true)
+                }
+                aria-label={`Select ${row.entry.name} for a bulk change`}
+              />
+            </span>
           </TableCell>
         ) : null}
-        <TableCell label="Listing">
-          <span className="flex min-w-0 flex-col">
-            <Link
-              href={listingHref(row.entry.id)}
-              className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {row.entry.name}
-            </Link>
-            {address ? (
-              <span className="text-caption break-words text-ink-muted">
-                {address}
-              </span>
-            ) : null}
+        <TableCell
+          className={cn(
+            canSelect ? PHONE.nameSelectable : "@max-3xl/table:col-span-full!"
+          )}
+        >
+          <span className="flex min-w-0 items-start gap-2">
+            <span className="flex min-w-0 flex-1 flex-col">
+              {/* The whole row is this link's target: its ::after stretches
+                  over the row (positioned), so a phone row is one tap and
+                  never a 24px line of text. */}
+              <ShellLink
+                href={listingHref(row.entry.id)}
+                className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-3xl/table:text-body"
+              >
+                {row.entry.name}
+              </ShellLink>
+              {address ? (
+                <span className="text-caption break-words text-ink-muted">
+                  {address}
+                </span>
+              ) : null}
+            </span>
+            {/* No chevron of its own: the row is `interactive`, so the
+                Table's record card already draws one on a phone. */}
           </span>
         </TableCell>
         {business ? null : (
           <TableCell
-            label="Client"
-            span={row.clientId === UNFILED && canManage}
-            onClick={(event) => event.stopPropagation()}
+            label={filing ? "Client" : undefined}
+            span={filing}
+            className={cn(
+              filing ? "@max-3xl/table:col-span-full!" : PHONE.hidden
+            )}
           >
             {row.clientId === UNFILED ? (
               canManage ? (
-                <FileUnderClient
-                  locationId={row.entry.id}
-                  locationName={row.entry.name}
-                />
+                <span className="relative z-raised inline-flex max-w-full">
+                  <FileUnderClient
+                    locationId={row.entry.id}
+                    locationName={row.entry.name}
+                  />
+                </span>
               ) : (
                 <span className="text-ink-muted">Not filed</span>
               )
@@ -592,41 +728,61 @@ function ListingsBoard({
             )}
           </TableCell>
         )}
-        <TableCell label="Health">
+        <TableCell className="@max-3xl/table:self-center">
           <span className="flex flex-col items-start gap-1">
             <StatusPill tone={listingHealthTone(row.health)}>
               {listingHealthLabel(row.health)}
             </StatusPill>
-            <FreshnessLine summary={row.summary} />
+            <span className={PHONE.wide}>
+              <FreshnessLine summary={row.summary} />
+            </span>
           </span>
         </TableCell>
-        <TableCell label="Waiting" span>
+        <TableCell className="@max-3xl/table:self-center">
           {summaries.isPending ? (
-            <Skeleton className="h-[22px] w-32" />
+            <Skeleton className="h-5.5 w-32" />
+          ) : quietRow(row.summary) ? (
+            // One node at every width: a quiet row says so once, not once
+            // per layout (the phone figure and the pills would repeat it).
+            <span className="text-caption text-ink-muted @3xl/table:text-ui">
+              {row.summary ? "Nothing waiting" : "—"}
+            </span>
           ) : (
-            <PendingChips summary={row.summary} />
+            <>
+              <span className={PHONE.wide}>
+                <PendingChips summary={row.summary} />
+              </span>
+              <span className={PHONE.only}>
+                <WaitingFigure summary={row.summary} />
+              </span>
+            </>
           )}
         </TableCell>
-        <TableCell label="Verification">
+        <TableCell className={PHONE.hidden}>
           <VerificationCell row={row} />
         </TableCell>
-        <TableCell label="Last published">
+        <TableCell className={PHONE.hidden}>
           {summaries.isPending ? (
             <Skeleton className="h-3.5 w-20" />
           ) : (
             <span className="font-mono text-caption text-ink-muted tabular-nums">
               {/* No summary means we don't know, not that it never happened. */}
-              {!row.summary
-                ? "—"
-                : row.summary.lastPublish
-                  ? formatRelativeTime(row.summary.lastPublish.at)
-                  : "Never"}
+              {!row.summary ? (
+                "—"
+              ) : row.summary.lastPublish ? (
+                <RelativeTime iso={row.summary.lastPublish.at} />
+              ) : (
+                "Never"
+              )}
             </span>
           )}
         </TableCell>
       </TableRow>
     )
   }
+
+  const healthCount = (filter: HealthFilter) =>
+    inScope.filter((row) => matchesHealth(row.health, filter)).length
 
   return (
     <div className="flex flex-col gap-4">
@@ -655,7 +811,7 @@ function ListingsBoard({
                   {chip.id === UNFILED ? (
                     <CircleAlertIcon aria-hidden strokeWidth={1.75} />
                   ) : null}
-                  <span className="max-w-[16rem] truncate">{chip.name}</span>
+                  <span className="max-w-64 truncate">{chip.name}</span>
                   <ChipCount>{formatNumber(chip.count)}</ChipCount>
                 </ToggleChip>
               )
@@ -677,33 +833,14 @@ function ListingsBoard({
               setSearch(event.target.value)
             }
             onClear={() => setSearch("")}
-            className="w-full min-w-0 sm:w-auto sm:max-w-80 sm:flex-[1_1_220px]"
+            className="w-full min-w-0 sm:w-auto sm:max-w-80 sm:shrink sm:grow sm:basis-55"
           />
-          <SegmentedControl
-            aria-label="Filter by health"
-            className="max-w-full min-w-0"
-            value={health}
-            onValueChange={(next) => setHealth(next as HealthFilter)}
-          >
-            {HEALTH_FILTERS.map((filter) => (
-              <SegmentedControlItem
-                key={filter.value}
-                value={filter.value}
-                className="flex-none"
-              >
-                {filter.label}
-                <ChipCount>
-                  {formatNumber(
-                    inScope.filter((row) =>
-                      matchesHealth(row.health, filter.value)
-                    ).length
-                  )}
-                </ChipCount>
-              </SegmentedControlItem>
-            ))}
-          </SegmentedControl>
           {business ? null : (
+            // Pressed buttons, like the client chips: arrows move focus and
+            // Enter/Space choose, so moving through the options never
+            // re-filters the board or rewrites the address.
             <SegmentedControl
+              semantics="toggle"
               aria-label="Order listings"
               className="max-w-full min-w-0"
               value={order}
@@ -717,6 +854,25 @@ function ListingsBoard({
               </SegmentedControlItem>
             </SegmentedControl>
           )}
+        </div>
+        {/* Health is one more set of filter chips: five options never fit a
+            phone's segmented track, so they wrap rather than hide behind a
+            scroll, and every label and count stays visible. */}
+        <div
+          role="group"
+          aria-label="Filter by health"
+          className="flex min-w-0 flex-wrap gap-2"
+        >
+          {HEALTH_FILTERS.map((filter) => (
+            <ToggleChip
+              key={filter.value}
+              pressed={health === filter.value}
+              onClick={() => setHealth(filter.value)}
+              count={formatNumber(healthCount(filter.value))}
+            >
+              {filter.label}
+            </ToggleChip>
+          ))}
         </div>
         <p className="text-caption text-ink-muted" aria-live="polite">
           {summaries.isPending ? (
@@ -762,46 +918,104 @@ function ListingsBoard({
           />
         </div>
       ) : (
-        <BoardTable
-          selection={canSelect ? (
-            <Checkbox
-              checked={visible.length > 0 && visible.every((row) => selected.has(row.entry.id))}
-              disabled={visible.length > BULK_MAX_TARGETS}
-              onCheckedChange={(checked) => setSelected(checked === true ? new Set(visible.slice(0, BULK_MAX_TARGETS).map((row) => row.entry.id)) : new Set())}
-              aria-label={visible.length > BULK_MAX_TARGETS ? `Select up to ${BULK_MAX_TARGETS} listings individually` : "Select every listing shown"}
-            />
-          ) : undefined}
-        >
-          {!business && unfiled.length > 0 ? (
-            <TableRow group>
-              <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
-                Not filed under a client · {formatNumber(unfiled.length)}
-              </TableCell>
-            </TableRow>
+        <div className="flex flex-col gap-2">
+          {selectAllBlocked ? (
+            // Why select-all is off, in words at every width: the header
+            // cell is a narrow column on a desk, so the reason sits above
+            // the table and describes the checkbox.
+            <p
+              id={selectAllReasonId}
+              className="px-1 text-caption text-ink-muted"
+            >
+              One bulk change covers at most {BULK_MAX_TARGETS} listings. Narrow
+              the board or select listings one by one.
+            </p>
           ) : null}
-          {unfiled.map(renderRow)}
-          {!business && unfiled.length > 0 && filed.length > 0 ? (
-            <TableRow group>
-              <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
-                Filed under a client · {formatNumber(filed.length)}
-              </TableCell>
-            </TableRow>
-          ) : null}
-          {filed.map(renderRow)}
-        </BoardTable>
-      )}
-      {canSelect && selected.size > 0 ? (
-        <div role="region" aria-label="Bulk change selection" className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-(--np-radius-card) border border-line bg-surface p-3 shadow-np-pop">
-          <p className="text-ui text-ink" aria-live="polite">
-            <span className="font-semibold tabular-nums">{formatNumber(selected.size)}</span> selected
-            {selected.size >= BULK_MAX_TARGETS ? ` (the most one change can cover)` : ""}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>Clear selection</Button>
-            <Link href={`/listings/bulk?ids=${[...selected].join(",")}`} className={buttonVariants({ size: "sm" })}>Prepare bulk change</Link>
-          </div>
+          <BoardTable
+            selectable={canSelect}
+            selectAll={
+              canSelect ? (
+                <>
+                  <Checkbox
+                    aria-label={selectAllName}
+                    aria-describedby={
+                      selectAllBlocked ? selectAllReasonId : undefined
+                    }
+                    checked={allShownSelected}
+                    indeterminate={!allShownSelected && shownSelected > 0}
+                    disabled={selectAllBlocked}
+                    onCheckedChange={(checked) => setAllShown(checked === true)}
+                  />
+                  {/* The record cards' select-all bar: the words start with
+                      the checkbox's own name (WCAG 2.5.3 label in name). */}
+                  <TableSelectAllLabel>
+                    {selected.size > 0
+                      ? `${selectAllName} · ${formatNumber(selected.size)} selected`
+                      : selectAllName}
+                  </TableSelectAllLabel>
+                </>
+              ) : undefined
+            }
+          >
+            {!business && unfiled.length > 0 ? (
+              <TableRow group>
+                <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
+                  Not filed under a client · {formatNumber(unfiled.length)}
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {unfiled.map(renderRow)}
+            {!business && unfiled.length > 0 && filed.length > 0 ? (
+              <TableRow group>
+                <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
+                  Filed under a client · {formatNumber(filed.length)}
+                </TableCell>
+              </TableRow>
+            ) : null}
+            {filed.map(renderRow)}
+          </BoardTable>
         </div>
-      ) : null}
+      )}
+      {/* Docked to the bottom of a phone (the tab bar steps aside for it,
+          see the chrome contract in globals.css), riding the keyboard, with
+          a spacer that keeps the last listing reachable above it; sticky
+          under the board on a desk. Only there while something is
+          selected, so there is one bottom bar at a time. */}
+      <ActionBar
+        dock
+        visible={canSelect && selected.size > 0}
+        label="Bulk change selection"
+        offset="bottom-3"
+        safeArea={false}
+        status={
+          <span>
+            <span className="font-semibold tabular-nums">
+              {formatNumber(selected.size)}
+            </span>{" "}
+            selected
+            {selected.size >= BULK_MAX_TARGETS ? (
+              <ActionBarMuted> (the most one change can cover)</ActionBarMuted>
+            ) : null}
+          </span>
+        }
+        actions={
+          <>
+            <Button
+              variant="ghost-dark"
+              size="sm"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear selection
+            </Button>
+            <Link
+              href={`/listings/bulk?ids=${[...selected].join(",")}`}
+              className={buttonVariants({ size: "sm" })}
+            >
+              Prepare bulk change
+            </Link>
+          </>
+        }
+      />
     </div>
   )
 }

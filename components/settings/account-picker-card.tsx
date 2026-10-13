@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
+import { FormError } from "@/components/ui/field"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToastManager } from "@/components/ui/toast"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
@@ -186,36 +187,28 @@ function AccountPickerTable({
         className="divide-y divide-line-subtle overflow-hidden rounded-(--np-radius-card) bg-surface"
       >
         {rows.map((account) => (
-          <li
-            key={account.id}
-            className="flex min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2"
-          >
+          // The whole row is the checkbox's label (the primitive's own
+          // 44px selection row), so tapping the account name ticks it, not
+          // only the 18px box. The role is the description.
+          <li key={account.id} className="px-(--np-card-pad)">
             <Checkbox
               checked={checked.has(account.id)}
-              aria-label={`Use ${account.accountName}`}
               onCheckedChange={() => toggle(account.id)}
+              label={account.accountName}
+              description={account.role ?? "—"}
+              labelClassName="w-full break-words py-3 desk:py-2"
             />
-            <span className="min-w-0 flex-1 truncate text-body text-ink">
-              {account.accountName}
-            </span>
-            <span className="shrink-0 text-caption text-ink-muted">
-              {account.role ?? "—"}
-            </span>
           </li>
         ))}
       </ul>
       {save.isError ? (
-        <p
-          id={errorId}
-          role="alert"
-          className="text-ui font-medium text-danger-ink"
-        >
+        <FormError id={errorId}>
           Your account choice wasn’t saved. {describeActionError(save.error)}
-        </p>
+        </FormError>
       ) : null}
       <div className="flex items-center justify-end gap-3">
         {dirty && saveBeforeContinueRef ? (
-          <span className="text-caption text-ink-muted" role="status">
+          <span className="text-ui text-ink-muted" role="status">
             Continue saves your choice.
           </span>
         ) : null}

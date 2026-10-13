@@ -1,4 +1,10 @@
-import { createEvent, fireEvent, render, screen } from "@testing-library/react"
+import {
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -16,6 +22,31 @@ describe("AuthCard", () => {
       screen.getByRole("heading", { level: 1, name: "Sign in" })
     ).toBeInTheDocument()
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+  })
+
+  it("starts with a skip link to the card's main", () => {
+    const { container } = render(<AuthCard title="Sign in">body</AuthCard>)
+    const skip = screen.getByRole("link", { name: "Skip to content" })
+    expect(skip).toHaveAttribute("href", "#main")
+    // The first focusable thing on the page, ahead of the panel's links.
+    expect(container.querySelector("a, button, input")).toBe(skip)
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main")
+  })
+
+  it("keeps the legal links, each a 44px target off the desk", () => {
+    render(<AuthCard title="Sign in">body</AuthCard>)
+    const legal = screen.getByRole("navigation", { name: "Legal" })
+    for (const name of ["Privacy policy", "Terms of service"]) {
+      const link = within(legal).getByRole("link", { name })
+      expect(link.className).toContain("min-h-(--np-touch)")
+      expect(link.className).toContain("desk:min-h-6")
+    }
+  })
+
+  it("lays out on the token breakpoints, not pixel ones", () => {
+    const { container } = render(<AuthCard title="Sign in">body</AuthCard>)
+    expect(container.innerHTML).not.toMatch(/(?:max|min)-\[\d+px\]:/)
+    expect(screen.getByRole("main").className).toMatch(/\bpt-safe\b/)
   })
 })
 

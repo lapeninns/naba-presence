@@ -4,13 +4,15 @@ import { useEffect, useRef } from "react"
 import { GlobeIcon, ImageIcon } from "lucide-react"
 
 import { Checkbox } from "@/components/ui/checkbox"
+import { RelativeTime } from "@/components/ui/relative-time"
+import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { replyStatusPill } from "@/components/inbox/situation-tone"
-import { StarRating } from "@/components/inbox/star-rating"
-import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
+import { formatDate, formatDateTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -44,10 +46,45 @@ export function wasEdited(createTime: string, updateTime: string): boolean {
  * anything older, and the year only once it is not this year — so a backlog
  * from 2024 still says so instead of "2 years ago".
  */
-function listTime(iso: string, timezone: string): string {
-  const age = Date.now() - new Date(iso).getTime()
-  if (age >= 0 && age < ONE_DAY_MS) return formatRelativeTime(iso)
-  return formatDate(iso, timezone)
+function ListTime({
+  iso,
+  timezone,
+  edited,
+}: {
+  iso: string
+  timezone: string
+  edited: boolean
+}) {
+  return (
+    <RelativeTime
+      as="span"
+      aria-hidden
+      iso={iso}
+      within={{ ms: ONE_DAY_MS, otherwise: formatDate(iso, timezone) }}
+      suffix={edited ? " · edited" : ""}
+    />
+  )
+}
+
+/** The rating as the row names it: "4 stars", "1 star". */
+function ratingLabel(rating: number): string {
+  return `${rating} star${rating === 1 ? "" : "s"}`
+}
+
+/**
+ * Whether a tap on a row should tick it rather than open it: only while
+ * select mode is on, and only where select mode is a touch gesture — a
+ * coarse pointer, or a viewport too narrow for the split view. Read when the
+ * row is tapped, never subscribed to, because nothing about the drawing
+ * depends on it.
+ */
+function tapTogglesSelection(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function")
+    return false
+  return (
+    window.matchMedia("(pointer: coarse)").matches ||
+    !window.matchMedia(mediaQuery("lg")).matches
+  )
 }
 
 function ReviewList({
@@ -88,6 +125,12 @@ function ReviewList({
     selected: ReadonlySet<string>
     toggle: (id: string) => void
     extendTo: (id: string) => void
+    /**
+     * Touch select mode (components/inbox/selection-context.tsx). A desk
+     * always shows the tick boxes; touch shows them only while this is on,
+     * and then a tap on a row ticks it instead of opening it.
+     */
+    selectMode: boolean
   }
   /** Called when the end of the loaded rows scrolls into view. */
   onReachEnd?: () => void
@@ -104,12 +147,12 @@ function ReviewList({
     buttons?.[index]?.focus()
   }
 
-  // On a phone, "Back to reviews" (components/inbox/inbox-view.tsx) clears
-  // the selection and closes the review; this list never unmounts, so
-  // restoring focus here — to the row that was just deselected, or the
-  // roving tab-stop if it's no longer in the list — mirrors that button
-  // taking focus on the way into the sheet, rather than silently dropping
-  // focus on the way back.
+  // Below the split view, the detail's back control
+  // (components/inbox/inbox-view.tsx) clears the selection and closes the
+  // review; this list never unmounts, so restoring focus here — to the row
+  // that was just deselected, or the roving tab-stop if it's no longer in
+  // the list — mirrors the back control taking focus on the way into the
+  // review, rather than silently dropping focus on the way back.
   const previouslySelectedId = useRef(selectedId)
   useEffect(() => {
     if (previouslySelectedId.current && !selectedId) {
@@ -193,15 +236,16 @@ function ReviewList({
       aria-busy={isRefreshing || undefined}
       className={cn(
         // The rows scroll inside the card only where the workspace is locked
-        // to the window; on a phone or a short window the page scrolls.
-        "relative flex min-h-0 flex-1 flex-col transition-opacity duration-(--np-duration-fast) md:[@media(min-height:620px)]:overflow-y-auto",
+        // to the window (the split view, on a window tall enough for it); on
+        // a phone, a tablet or a short window the page scrolls.
+        "relative flex min-h-0 flex-1 flex-col transition-opacity duration-(--np-duration-fast) lg:[@media(min-height:620px)]:overflow-y-auto",
         isRefreshing && "opacity-80"
       )}
     >
       {isRefreshing ? (
         <div
           aria-hidden
-          className="pointer-events-none sticky inset-x-0 top-0 z-10 h-0.5 shrink-0 overflow-hidden bg-line"
+          className="pointer-events-none sticky inset-x-0 top-0 z-sticky h-0.5 shrink-0 overflow-hidden bg-line"
         >
           <div className="h-full w-1/3 animate-pulse bg-primary" />
         </div>
@@ -229,6 +273,9 @@ function ReviewList({
             review.text,
             review.detectedLanguageCode
           )
+          const exactTime = edited
+            ? `Written ${formatDateTime(review.createTime, timezone)}, edited ${formatDateTime(review.updateTime, timezone)}`
+            : `Written ${formatDateTime(review.createTime, timezone)}`
           const venue =
             review.location.clientName && !business
               ? `${review.location.clientName} · ${review.location.name}`
@@ -244,18 +291,29 @@ function ReviewList({
                 // edge (reference `.q-item[aria-selected]`): the accent stays
                 // reserved for the one action that publishes.
                 selected &&
-                  "before:absolute before:inset-y-2 before:left-0 before:z-10 before:w-[3px] before:rounded-r-[3px] before:bg-ink before:content-['']"
+                  "before:absolute before:inset-y-2 before:left-0 before:z-raised before:w-0.75 before:rounded-r-full before:bg-ink before:content-['']"
               )}
             >
               {selection ? (
-                // Always visible, never hover-only: a touch screen has no
-                // hover, and a keyboard user needs to see what they tick. Its
-                // own column, not laid over the row, so the box and the row
-                // are two targets with room between them.
-                <span className="flex w-11 shrink-0 justify-center pt-3.5">
+                // Never hover-only: a touch screen has no hover, and a
+                // keyboard user needs to see what they tick. Always there on
+                // a desk; on touch only in select mode, so the row keeps its
+                // width until the operator asks to batch. Its own 44px
+                // column, not laid over the row, so the box and the row are
+                // two targets — and the whole column is the box's target:
+                // the box is `static` and its hit-area pseudo-element fills
+                // the column, so a tap anywhere in it is a tap on the box.
+                <span
+                  data-slot="review-row-select"
+                  className={cn(
+                    "relative w-11 shrink-0 justify-center pt-3.5",
+                    selection.selectMode ? "flex" : "hidden desk:flex"
+                  )}
+                >
                   <Checkbox
                     checked={selection.selected.has(review.id)}
                     aria-label={`Select the review from ${displayName}`}
+                    className="static after:inset-0"
                     onClick={(event) => {
                       if ((event as React.MouseEvent).shiftKey) {
                         selection.extendTo(review.id)
@@ -272,35 +330,52 @@ function ReviewList({
                 aria-current={selected ? "true" : undefined}
                 tabIndex={isTabStop ? 0 : -1}
                 onClick={() => {
+                  if (selection?.selectMode && tapTogglesSelection()) {
+                    selection.toggle(review.id)
+                    return
+                  }
                   void onSelect(review.id)
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
                 className={cn(
                   "relative block min-w-0 flex-1 py-3 pr-3.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                  selection ? "pl-0" : "pl-4",
+                  !selection
+                    ? "pl-4"
+                    : selection.selectMode
+                      ? "pl-0"
+                      : "pl-4 desk:pl-0",
                   selected ? "bg-fill" : "active:bg-surface-alt"
                 )}
               >
                 <span className="flex min-w-0 flex-col">
                   <span className="flex min-w-0 items-center gap-2">
-                    <StarRating rating={review.rating} size="md" />
+                    <Stars
+                      value={review.rating}
+                      label={
+                        review.rating === null
+                          ? undefined
+                          : ratingLabel(review.rating)
+                      }
+                    />
                     <span className="min-w-0 truncate text-ui font-semibold text-ink">
                       {displayName}
                     </span>
                     {/* When it was written, as the detail pane says — the two
                         used to disagree, one showing the edit and the other
-                        the original. An edit is noted beside it. */}
+                        the original. An edit is noted beside it. The exact
+                        times are spoken, not left to a hover title a touch
+                        screen never shows; the title stays for a mouse. */}
                     <time
                       dateTime={review.createTime}
-                      title={
-                        edited
-                          ? `Written ${formatDateTime(review.createTime, timezone)} · edited ${formatDateTime(review.updateTime, timezone)}`
-                          : formatDateTime(review.createTime, timezone)
-                      }
-                      className="ml-auto shrink-0 font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums"
+                      title={exactTime}
+                      className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
                     >
-                      {listTime(review.createTime, timezone)}
-                      {edited ? " · edited" : ""}
+                      <ListTime
+                        iso={review.createTime}
+                        timezone={timezone}
+                        edited={edited}
+                      />
+                      <span className="sr-only">{exactTime}</span>
                     </time>
                   </span>
 
@@ -311,14 +386,14 @@ function ReviewList({
                     // the full words are a glance away; two on a phone, where
                     // the row is all there is.
                     className={cn(
-                      "mt-[3px] line-clamp-2 text-[13px] leading-5 md:line-clamp-1",
+                      "mt-0.5 line-clamp-2 text-ui lg:line-clamp-1",
                       parsed ? "text-ink-secondary" : "text-ink-muted italic"
                     )}
                   >
                     {parsed?.body ?? "A rating with no written review."}
                   </span>
 
-                  <span className="mt-[7px] flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                     {/* Client first: in an agency inbox the location name
                         alone ("High Street") does not say whose business this
                         is, and replying in the wrong voice is the mistake this
