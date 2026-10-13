@@ -69,7 +69,7 @@ function focusTargetFor(step: SetupStep): string {
  * furthest reachable one instead, with a note saying why.
  *
  * Layout (reference `setup.html`): a sticky 220px step rail beside one card
- * from 720px of room; below that the rail folds into "Step N of 6" with a
+ * from 48rem of room; below that the rail folds into "Step N of 6" with a
  * progress bar and an "All steps" disclosure. The card's footer (Back, the
  * reason Continue is blocked, Continue) is a docked ActionBar: fixed to the
  * bottom of the screen on a phone so it is always reachable, sticky at the
@@ -274,10 +274,10 @@ function SetupWizard({ clientId }: { clientId: string }) {
       />
 
       <div className="@container/setup">
-        <div className="grid items-start gap-6 @min-[720px]/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
+        <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
           <nav
             aria-label="Setup progress"
-            className="sticky top-[calc(var(--np-toolbar-h)+16px)] hidden flex-col gap-3 @min-[720px]/setup:flex"
+            className="sticky top-[calc(var(--np-toolbar-h)+16px)] hidden flex-col gap-3 @3xl/setup:flex"
           >
             <Stepper
               orientation="vertical"
@@ -295,7 +295,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
             className="@container/wiz flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface"
           >
             <div className="flex flex-col gap-1 border-b border-line px-(--np-card-pad) pt-(--np-card-pad) pb-4">
-              <div className="mb-2 flex flex-col gap-2 @min-[720px]/setup:hidden">
+              <div className="mb-2 flex flex-col gap-2 @3xl/setup:hidden">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-caption font-semibold text-ink">
                     {numbered
@@ -341,7 +341,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 </div>
               </div>
               {isDone ? null : (
-                <p className="hidden text-caption font-semibold text-ink-secondary @min-[720px]/setup:block">
+                <p className="hidden text-caption font-semibold text-ink-secondary @3xl/setup:block">
                   {numbered
                     ? `Step ${numbered.number} of ${numbered.total}`
                     : "Before you start"}
@@ -519,8 +519,8 @@ function WizardSkeleton({
       <span className="sr-only">
         {business ? "Loading your setup" : "Loading this client’s setup"}
       </span>
-      <div className="grid items-start gap-6 @min-[720px]/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
-        <div className="hidden flex-col gap-2 @min-[720px]/setup:flex">
+      <div className="grid items-start gap-6 @3xl/setup:grid-cols-[13.75rem_minmax(0,1fr)]">
+        <div className="hidden flex-col gap-2 @3xl/setup:flex">
           {flow.map((step) => (
             <Skeleton key={step} className="h-8" />
           ))}

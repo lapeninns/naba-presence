@@ -165,7 +165,7 @@ function quietRow(summary: ListingSummary | undefined) {
   return !failed && waitingCount(summary) === 0
 }
 
-/** The phone row's one-line Waiting figure (the pills show from 720px). */
+/** The phone row's one-line Waiting figure (the pills show from 48rem). */
 function WaitingFigure({ summary }: { summary: ListingSummary | undefined }) {
   if (!summary) return <span className="text-ink-muted">—</span>
   const failed =
@@ -261,7 +261,7 @@ function columnsFor(business: boolean) {
 }
 
 /*
- * The phone row (the table's container under 720px): a compact record, not
+ * The phone row (the table's container under 48rem): a compact record, not
  * a stack of labelled cells. The listing name is the headline with a
  * chevron, and one line under it carries the health pill and the waiting
  * figure; the client, verification and last-published columns step aside
@@ -270,17 +270,17 @@ function columnsFor(business: boolean) {
  */
 const PHONE = {
   rowSelectable:
-    "@max-[720px]/table:grid-cols-[auto_auto_minmax(0,1fr)]! @max-[720px]/table:gap-y-1!",
-  rowPlain: "@max-[720px]/table:grid-cols-[auto_minmax(0,1fr)]!",
+    "@max-3xl/table:grid-cols-[auto_auto_minmax(0,1fr)]! @max-3xl/table:gap-y-1!",
+  rowPlain: "@max-3xl/table:grid-cols-[auto_minmax(0,1fr)]!",
   select:
-    "@max-[720px]/table:col-span-1! @max-[720px]/table:row-span-2 @max-[720px]/table:self-center",
+    "@max-3xl/table:col-span-1! @max-3xl/table:row-span-2 @max-3xl/table:self-center",
   /** The name spans every column right of the checkbox. */
-  nameSelectable: "@max-[720px]/table:col-span-2!",
-  hidden: "@max-[720px]/table:hidden!",
+  nameSelectable: "@max-3xl/table:col-span-2!",
+  hidden: "@max-3xl/table:hidden!",
   /** Shown only on the phone row. */
-  only: "hidden @max-[720px]/table:inline-flex",
-  /** Shown only from 720px. */
-  wide: "@max-[720px]/table:hidden",
+  only: "hidden @max-3xl/table:inline-flex",
+  /** Shown only from 48rem. */
+  wide: "@max-3xl/table:hidden",
 } as const
 
 /** The table's frame, shared by the loaded board and its skeleton. */
@@ -375,7 +375,7 @@ function BoardSkeleton() {
  * health, client and order choices live in the URL (`q`, `health`,
  * `clientId`, `order`), so a filtered board can be shared or reloaded. The
  * Waiting column reads the DB-only summary, so the board answers "what is
- * waiting on which listing" without a single Google call. Below 720px of
+ * waiting on which listing" without a single Google call. Below 48rem of
  * width each row becomes a compact record (name, health, one waiting
  * figure, chevron) that is one tap target, and the filters are pressed
  * buttons throughout (client chips, health chips, order), so moving through
@@ -672,9 +672,7 @@ function ListingsBoard({
         ) : null}
         <TableCell
           className={cn(
-            canSelect
-              ? PHONE.nameSelectable
-              : "@max-[720px]/table:col-span-full!"
+            canSelect ? PHONE.nameSelectable : "@max-3xl/table:col-span-full!"
           )}
         >
           <span className="flex min-w-0 items-start gap-2">
@@ -684,7 +682,7 @@ function ListingsBoard({
                   never a 24px line of text. */}
               <Link
                 href={listingHref(row.entry.id)}
-                className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-[720px]/table:text-body"
+                className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-3xl/table:text-body"
               >
                 {row.entry.name}
               </Link>
@@ -709,7 +707,7 @@ function ListingsBoard({
             label={filing ? "Client" : undefined}
             span={filing}
             className={cn(
-              filing ? "@max-[720px]/table:col-span-full!" : PHONE.hidden
+              filing ? "@max-3xl/table:col-span-full!" : PHONE.hidden
             )}
           >
             {row.clientId === UNFILED ? (
@@ -731,7 +729,7 @@ function ListingsBoard({
             )}
           </TableCell>
         )}
-        <TableCell className="@max-[720px]/table:self-center">
+        <TableCell className="@max-3xl/table:self-center">
           <span className="flex flex-col items-start gap-1">
             <StatusPill tone={listingHealthTone(row.health)}>
               {listingHealthLabel(row.health)}
@@ -741,13 +739,13 @@ function ListingsBoard({
             </span>
           </span>
         </TableCell>
-        <TableCell className="@max-[720px]/table:self-center">
+        <TableCell className="@max-3xl/table:self-center">
           {summaries.isPending ? (
             <Skeleton className="h-5.5 w-32" />
           ) : quietRow(row.summary) ? (
             // One node at every width: a quiet row says so once, not once
             // per layout (the phone figure and the pills would repeat it).
-            <span className="text-caption text-ink-muted @min-[720px]/table:text-ui">
+            <span className="text-caption text-ink-muted @3xl/table:text-ui">
               {row.summary ? "Nothing waiting" : "—"}
             </span>
           ) : (
