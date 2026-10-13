@@ -429,6 +429,7 @@ const OFFENDER_KINDS = {
     })),
   overflow: (page) => page.overflow?.offenders ?? [],
   clippedText: (page) => page.clipped ?? [],
+  smallText: (page) => page.smallText ?? [],
 }
 
 export function topOffenders(pages, kind, limit = 15) {
@@ -460,7 +461,9 @@ export function topOffenders(pages, kind, limit = 15) {
       size:
         group.example.w !== undefined
           ? `${group.example.w}x${group.example.h}`
-          : undefined,
+          : group.example.fontSize !== undefined
+            ? `${group.example.fontSize}px`
+            : undefined,
       by: group.example.by,
     }))
 }
@@ -618,6 +621,7 @@ export function renderMarkdown(report) {
   offenderSection("focus obscured (2.4.11)", "focusObscured")
   offenderSection("horizontal overflow", "overflow")
   offenderSection("clipped text without full value", "clippedText")
+  offenderSection("text under 12px", "smallText")
   const axeRules = topAxeRules(pages)
   if (axeRules.length) {
     out.push("## Top axe rules")

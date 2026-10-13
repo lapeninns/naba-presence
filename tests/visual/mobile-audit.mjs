@@ -399,6 +399,9 @@ function collectPage({ touch }) {
 
   // 4. Typography histogram of visible text nodes by computed font size.
   const histogram = {}
+  // Elements rendering sub-12px text, for attributing small type to components.
+  const smallText = []
+  const smallSeen = new Set()
   {
     const walker = document.createTreeWalker(
       document.body,
@@ -425,6 +428,10 @@ function collectPage({ touch }) {
         continue
       const size = Math.round(parseFloat(styleOf(parent).fontSize) * 2) / 2
       histogram[size] = (histogram[size] ?? 0) + 1
+      if (size < 12 && smallText.length < 60 && !smallSeen.has(parent)) {
+        smallSeen.add(parent)
+        smallText.push({ ...describe(parent), fontSize: size })
+      }
     }
   }
 
@@ -476,6 +483,7 @@ function collectPage({ touch }) {
     targets,
     iosZoom,
     histogram,
+    smallText,
     chromeLoad,
     landmarks,
   }
@@ -673,6 +681,7 @@ async function auditPage(context, route, combo) {
       (input) => input.fontSize < IOS_ZOOM_MIN_FONT
     )
     record.text = { ...textStats(data.histogram), histogram: data.histogram }
+    record.smallText = data.smallText
     const scrolled = await page.evaluate(pinnedAfterScroll)
     record.chrome = {
       load: chromeBudget(data.chromeLoad, data.viewport.h),
