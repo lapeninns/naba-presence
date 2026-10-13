@@ -152,7 +152,12 @@ it is 16px on touch and iOS never zooms on focus.
   view.
 - **Navigation strips** (tabs, segmented controls, chips): scroll
   horizontally with fade edges, keep the current item in view, never
-  truncate a label, carry counts. Settings is an index list on a phone.
+  truncate a label, carry counts. Settings is an index list on a phone:
+  below md `/settings` is the grouped settings index (its one h1 is
+  "Settings"); from md it opens Reply policy (its one h1 is "Reply
+  policy"). Once Reply policy has been shown it stays the page through a
+  rotation or resize, so unsaved input and its save bar survive; the
+  document never holds both faces after hydration.
 - **Tables.** On a phone a row is a record card led by its headline value
   (the sort column), a subtitle, one meta line and a trailing status;
   selection keeps a select-all bar.
