@@ -6,14 +6,14 @@
 > updated on 2026-10-09 for Vercel (no container images, no Compose stack, no
 > separate scheduler process).
 
-Release candidate: ____________________
+Release candidate: PR #66 integration release (`329490066df2`)
 
-Git SHA (receipt `sha`): ____________________
+Git SHA (receipt `sha`): `329490066df2b49ed2f2bdeadd902b073e8808b1`
 
-Vercel deployment ID (receipt `deploymentId`): ____________________
+Vercel deployment ID (receipt `deploymentId`): `dpl_4buEsP8zUxBHzyR2VNXnZMKQXLzN`
 
 Release receipt (`docs/release/receipts/…json`, written by
-`pnpm release:promote`): ____________________
+`pnpm release:promote`): `docs/release/receipts/20261013T004903Z-329490066df2.json`
 
 Decision date: ____________________
 
