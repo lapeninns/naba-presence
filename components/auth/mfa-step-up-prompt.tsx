@@ -25,7 +25,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { OtpField } from "@/components/ui/otp-field"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
 import {
@@ -216,7 +221,7 @@ function MfaStepUpPrompt({
                 authenticator app.
               </DialogDescription>
             </DialogHeader>
-            <DialogBody className="flex flex-col gap-4">
+            <DialogBody className="flex flex-col gap-5">
               {message ? <AuthErrorAlert message={message} /> : null}
               {/* Which account the password belongs to, for password
                   managers: they pair a current-password field with the
@@ -249,6 +254,9 @@ function MfaStepUpPrompt({
                   value={code}
                   onValueChange={setCode}
                 />
+                <FieldDescription>
+                  From your authenticator app. Codes refresh every 30 seconds.
+                </FieldDescription>
                 <FieldError>{codeError}</FieldError>
               </Field>
               <Checkbox
