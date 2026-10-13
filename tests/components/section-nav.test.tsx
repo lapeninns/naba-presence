@@ -11,6 +11,8 @@ import {
 // by hand and the observer's callback is fired by the test.
 let fire: () => void = () => {}
 const tops: Record<string, number> = {}
+// The nav's box: a phone chip row by default (wide and short).
+let navBox = { top: 52, width: 390, height: 48 }
 
 class FakeIntersectionObserver {
   constructor(callback: () => void) {
@@ -44,6 +46,20 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
     function (this: Element) {
+      if (this.getAttribute("data-slot") === "section-nav") {
+        const { top, width, height } = navBox
+        return {
+          top,
+          bottom: top + height,
+          left: 0,
+          right: width,
+          width,
+          height,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        } as DOMRect
+      }
       const top = tops[this.id] ?? 0
       return {
         top,
@@ -60,6 +76,8 @@ beforeEach(() => {
   )
 })
 afterEach(() => {
+  navBox = { top: 52, width: 390, height: 48 }
+  for (const id of Object.keys(tops)) delete tops[id]
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -80,7 +98,7 @@ describe("SectionNav", () => {
     // passed the line. The spy must not move the mark back to Identity.
     Object.assign(tops, {
       "section-a": -400,
-      "section-b": 120,
+      "section-b": 160,
       "section-c": 600,
     })
     act(() => fire())
@@ -103,7 +121,9 @@ describe("SectionNav", () => {
   it("keeps a tapped section in place while blocks load above it, until the person scrolls", async () => {
     const { container } = render(<Page />)
     const scrolled = vi.mocked(Element.prototype.scrollIntoView)
-    await userEvent.click(await screen.findByRole("link", { name: "Description" }))
+    await userEvent.click(
+      await screen.findByRole("link", { name: "Description" })
+    )
     expect(scrolled.mock.contexts.at(-1)).toHaveAttribute("id", "section-c")
     scrolled.mockClear()
 
@@ -125,5 +145,24 @@ describe("SectionNav", () => {
     await new Promise((resolve) => requestAnimationFrame(resolve))
     await new Promise((resolve) => requestAnimationFrame(resolve))
     expect(scrolled).not.toHaveBeenCalled()
+  })
+
+  it("draws the spy line under a chip row but level with the top of a desk rail", async () => {
+    render(<Page />)
+    const identity = await screen.findByRole("link", { name: "Identity" })
+    Object.assign(tops, { "section-a": 40, "section-b": 110, "section-c": 700 })
+
+    // Phone chip row (52-100): Contact has passed the line under it.
+    act(() => fire())
+    expect(screen.getByRole("link", { name: "Contact" })).toHaveAttribute(
+      "aria-current",
+      "location"
+    )
+
+    // Desk rail from 0 to 500 beside the sections: its bottom is no line;
+    // only Identity has reached its top.
+    navBox = { top: 0, width: 200, height: 500 }
+    act(() => fire())
+    expect(identity).toHaveAttribute("aria-current", "location")
   })
 })

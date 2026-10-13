@@ -132,7 +132,12 @@ export function SectionNav({
       .filter((element): element is HTMLElement => element !== null)
     const update = () => {
       if (pinned.current) return
-      const line = (navRef.current?.getBoundingClientRect().bottom ?? 0) + 16
+      // The line sits just under a chip row, or level with the top of a
+      // rail (a rail runs down beside the sections, so its bottom would put
+      // the line most of the way down the screen).
+      const nav = navRef.current?.getBoundingClientRect()
+      const rail = nav ? nav.height > nav.width : false
+      const line = (nav ? (rail ? nav.top : nav.bottom) : 0) + 24
       let next: string | null = sections[0]?.id ?? null
       for (const section of sections)
         if (section.getBoundingClientRect().top <= line) next = section.id
@@ -179,9 +184,11 @@ export function SectionNav({
       data-slot="section-nav"
       className={cn(
         // Phone: a sticky chip row under the app bar (the same offset the
-        // document's scroll padding uses). Desk: a sticky rail.
-        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky -mx-1 bg-canvas px-1 py-2 md:top-(--np-toolbar-h)",
-        "desk:top-[calc(var(--np-toolbar-h)+--spacing(4))] desk:mx-0 desk:bg-transparent desk:p-0",
+        // page's scroll padding uses). From md the editor scrolls in its own
+        // pane below the area header, so the row, and the desk rail, stick
+        // to the top of that pane.
+        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky -mx-1 bg-canvas px-1 py-2 md:top-0",
+        "desk:mx-0 desk:bg-transparent desk:p-0",
         className
       )}
     >
