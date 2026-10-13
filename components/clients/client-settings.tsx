@@ -14,6 +14,7 @@ import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
 import { ClientColourField } from "@/components/clients/client-colour-field"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -26,6 +27,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Card,
+  CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
@@ -128,7 +130,7 @@ function ClientSettings({ clientId }: { clientId: string }) {
     return (
       <>
         <SettingsHeader clientId={clientId} name={null} />
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
           <Empty
             tone="bad"
             titleAs="h2"
@@ -147,7 +149,7 @@ function ClientSettings({ clientId }: { clientId: string }) {
               </Button>
             }
           />
-        </div>
+        </Card>
       </>
     )
   }
@@ -330,23 +332,23 @@ function SettingsBody({
   return (
     <>
       <SettingsHeader clientId={clientId} name={client.name} />
-      <div className="grid items-start gap-6 @min-[760px]:grid-cols-[minmax(11rem,13.75rem)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start">
         <nav
           aria-label="Client settings sections"
-          className="flex flex-wrap gap-1 @min-[760px]:sticky @min-[760px]:top-[calc(var(--np-toolbar-h)+16px)] @min-[760px]:flex-col @min-[760px]:gap-0.5"
+          className="flex flex-wrap gap-1 @3xl:sticky @3xl:top-(--np-toolbar-h) @3xl:w-52 @3xl:shrink-0 @3xl:flex-col @3xl:gap-0.5 @3xl:pt-4"
         >
           {SECTIONS.map((section) => (
             <a
               key={section.id}
               href={`#${section.id}`}
-              className="flex min-h-[34px] items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill pointer-coarse:min-h-(--np-touch)"
+              className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill"
             >
               {section.label}
             </a>
           ))}
         </nav>
 
-        <div className="flex min-w-0 flex-col gap-6">
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
           <ClientDetailsForm
             client={client}
             onSave={async (input) => {
@@ -440,6 +442,7 @@ function SettingsBody({
                   {
                     id: "linked",
                     header: "Google",
+                    label: "",
                     cell: (l) =>
                       l.linked ? (
                         <StatusPill tone="ok">Linked</StatusPill>
@@ -481,14 +484,14 @@ function SettingsBody({
                 ]}
               />
             ) : (
-              <div className="rounded-(--np-radius-card) border border-line bg-surface">
+              <Card flush>
                 <Empty
                   titleAs="h3"
                   icon={<MapPinIcon />}
                   title="No listings filed here"
                   description="Add one from the unfiled list below, or bring new ones in from Google."
                 />
-              </div>
+              </Card>
             )}
 
             {unassigned.length > 0 ? (
@@ -497,9 +500,9 @@ function SettingsBody({
                   Unfiled listings
                 </h3>
                 <p className="text-caption text-ink-muted">
-                  Imported from Google but not filed under any client. Teammates
-                  who already see every other listing of {client.name} get
-                  access to the ones you add.
+                  Imported from Google but not filed under any client. Select
+                  the ones to file here. Teammates who already see every other
+                  listing of {client.name} get access to the ones you add.
                 </p>
                 <div role="search" className="w-full min-w-0 sm:w-80">
                   <SearchInput
@@ -509,12 +512,17 @@ function SettingsBody({
                     aria-label="Filter unfiled listings by name or address"
                   />
                 </div>
-                <div className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
+                <Card flush>
                   {unfiledShown.length === 0 ? (
                     <p className="px-3.5 py-4 text-ui text-ink-muted">
                       No unfiled listing matches “{unfiledQuery.trim()}”.
                     </p>
                   ) : (
+                    // Below 720px of its own width each row is a record
+                    // card: the name as the headline, the address as its
+                    // one meta line (two branches of one chain share a
+                    // name; the address tells them apart) and the Google
+                    // state as an unlabelled status word.
                     <DataTable
                       caption="Listings with no client, available to add"
                       rows={unfiledShown}
@@ -529,26 +537,22 @@ function SettingsBody({
                         {
                           id: "name",
                           header: "Listing",
+                          label: "",
                           cell: (l) => (
-                            <span className="font-semibold break-words text-ink">
-                              {l.name}
-                            </span>
-                          ),
-                        },
-                        {
-                          // Two branches of one chain share a name; the
-                          // address is how they are told apart.
-                          id: "address",
-                          header: "Address",
-                          cell: (l) => (
-                            <span className="text-ui break-words text-ink-muted">
-                              {formatAddressLine(l.address) ?? "—"}
+                            <span className="flex min-w-0 flex-col">
+                              <span className="font-semibold break-words text-ink">
+                                {l.name}
+                              </span>
+                              <span className="text-caption break-words text-ink-muted">
+                                {formatAddressLine(l.address) ?? "No address"}
+                              </span>
                             </span>
                           ),
                         },
                         {
                           id: "linked",
                           header: "Google",
+                          label: "",
                           cell: (l) =>
                             l.linked ? (
                               <StatusPill tone="ok">Linked</StatusPill>
@@ -561,35 +565,44 @@ function SettingsBody({
                       ]}
                     />
                   )}
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface-alt px-3.5 py-2.5">
-                    <span
-                      className="text-caption text-ink-muted"
-                      aria-live="polite"
-                    >
-                      {selected.size > 0
-                        ? `${formatNumber(selected.size)} selected`
-                        : "Select listings to file under this client"}
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={selected.size === 0}
-                      pending={assignLocations.isPending}
-                      pendingLabel="Adding…"
-                      onClick={() => {
-                        if (selected.size > BULK_FILE_CONFIRM_THRESHOLD) {
-                          setConfirmBulk(true)
-                        } else {
-                          void assign()
-                        }
-                      }}
-                    >
-                      {selected.size === 0
-                        ? "Add to this client"
-                        : `Add ${formatNumber(selected.size)} to this client`}
-                    </Button>
-                  </div>
-                </div>
+                </Card>
+                {selected.size > 0 ? (
+                  // Docked to the bottom of a phone while the unfiled list is
+                  // on screen (the tab bar steps aside for it); inline under
+                  // the list on a desk. Only there while something is picked.
+                  <ActionBar
+                    data-docked="bottom"
+                    label="Unfiled listing actions"
+                    className="desk:static"
+                    status={`${formatNumber(selected.size)} selected`}
+                    actions={
+                      <>
+                        <Button
+                          variant="ghost-dark"
+                          size="sm"
+                          disabled={assignLocations.isPending}
+                          onClick={() => setSelected(new Set())}
+                        >
+                          Clear
+                        </Button>
+                        <Button
+                          size="sm"
+                          pending={assignLocations.isPending}
+                          pendingLabel="Adding…"
+                          onClick={() => {
+                            if (selected.size > BULK_FILE_CONFIRM_THRESHOLD) {
+                              setConfirmBulk(true)
+                            } else {
+                              void assign()
+                            }
+                          }}
+                        >
+                          Add {formatNumber(selected.size)} to this client
+                        </Button>
+                      </>
+                    }
+                  />
+                ) : null}
                 <AlertDialog open={confirmBulk} onOpenChange={setConfirmBulk}>
                   <AlertDialogContent>
                     <AlertDialogTitle className="[overflow-wrap:anywhere]">
@@ -749,7 +762,7 @@ function MoveToClient({
       }}
     >
       <SelectTrigger
-        className="h-[30px] w-36 text-[12.5px] pointer-coarse:min-h-(--np-touch)"
+        className="h-(--np-control-h-sm) w-36 text-ui pointer-coarse:min-h-(--np-touch)"
         aria-label={`Move ${location.name} to another client`}
       >
         <SelectValue>{() => "Move to…"}</SelectValue>
@@ -790,54 +803,58 @@ function ArchiveSection({
     <section
       id="archive"
       aria-labelledby="client-archive"
-      className="flex scroll-mt-20 flex-col gap-3 rounded-(--np-radius-card) border border-danger-ink bg-surface p-(--np-card-pad)"
+      className="scroll-mt-20"
     >
-      <div className="flex flex-col gap-1">
-        <h2 id="client-archive" className="text-title font-semibold text-ink">
-          Archive
-        </h2>
-        <p className="text-ui text-ink-muted">
-          Archiving hides the client from lists and filters. Its listings’
-          review history is kept, and you can restore it from Clients ›
-          Archived.
-        </p>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p
-          id="client-archive-reason"
-          className="min-w-0 flex-[1_1_16rem] text-ui"
-        >
-          {loading ? (
-            <span className="text-ink-muted">Checking attached listings…</span>
-          ) : count > 0 ? (
-            <span className="text-ink-muted">
-              {client.name} still has {listingsPhrase}. Archiving unfiles{" "}
-              {count === 1 ? "it" : "them"}, so no listing is left under a
-              hidden client.
-            </span>
-          ) : (
-            <span className="text-ink-muted">
-              No listings are attached, so {client.name} can be archived.
-            </span>
-          )}
-        </p>
-        <Button
-          variant="danger-outline"
-          // A long client name wraps instead of pushing the card wider.
-          className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left leading-5 [overflow-wrap:anywhere] whitespace-normal"
-          disabled={loading}
-          focusableWhenDisabled={loading}
-          aria-describedby="client-archive-reason"
-          onClick={() => {
-            setAcknowledged(false)
-            setError(null)
-            setOpen(true)
-          }}
-        >
-          <ArchiveIcon aria-hidden />
-          Archive {client.name}
-        </Button>
-      </div>
+      <Card className="border-danger-ink">
+        <CardHeader>
+          <CardTitle as="h2" id="client-archive">
+            Archive
+          </CardTitle>
+          <CardDescription>
+            Archiving hides the client from lists and filters. Its listings’
+            review history is kept, and you can restore it from Clients ›
+            Archived.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p
+            id="client-archive-reason"
+            className="min-w-0 grow basis-64 text-ui"
+          >
+            {loading ? (
+              <span className="text-ink-muted">
+                Checking attached listings…
+              </span>
+            ) : count > 0 ? (
+              <span className="text-ink-muted">
+                {client.name} still has {listingsPhrase}. Archiving unfiles{" "}
+                {count === 1 ? "it" : "them"}, so no listing is left under a
+                hidden client.
+              </span>
+            ) : (
+              <span className="text-ink-muted">
+                No listings are attached, so {client.name} can be archived.
+              </span>
+            )}
+          </p>
+          <Button
+            variant="danger-outline"
+            // A long client name wraps instead of pushing the card wider.
+            className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left [overflow-wrap:anywhere] whitespace-normal"
+            disabled={loading}
+            focusableWhenDisabled={loading}
+            aria-describedby="client-archive-reason"
+            onClick={() => {
+              setAcknowledged(false)
+              setError(null)
+              setOpen(true)
+            }}
+          >
+            <ArchiveIcon aria-hidden />
+            Archive {client.name}
+          </Button>
+        </CardContent>
+      </Card>
 
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
@@ -877,7 +894,7 @@ function ArchiveSection({
             />
             <Button
               variant="danger"
-              className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left leading-5 [overflow-wrap:anywhere] whitespace-normal"
+              className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left [overflow-wrap:anywhere] whitespace-normal"
               disabled={!acknowledged}
               pending={pending}
               pendingLabel="Archiving…"
@@ -1064,16 +1081,20 @@ function SettingsSkeleton() {
       <p role="status" className="text-ui text-ink-muted">
         Loading this client’s settings…
       </p>
-      <div className="flex flex-col gap-3.5 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
-        <Skeleton className="h-4 w-1/4" />
-        <Skeleton className="h-9" />
-        <Skeleton className="h-24" />
-      </div>
-      <div className="flex flex-col gap-3.5 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-5" />
-        <Skeleton className="h-5" />
-      </div>
+      <Card>
+        <CardContent className="flex flex-col gap-3.5">
+          <Skeleton className="h-4 w-1/4" />
+          <Skeleton className="h-9" />
+          <Skeleton className="h-24" />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="flex flex-col gap-3.5">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-5" />
+          <Skeleton className="h-5" />
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -19,7 +19,6 @@ import {
   keywordsCsv,
   KeywordsTable,
 } from "@/components/performance/keywords-table"
-import { RangeSelect } from "@/components/performance/range-select"
 import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
 import { Input } from "@/components/ui/input"
 import { ApiClientError } from "@/lib/api/client"
@@ -28,31 +27,26 @@ import { useAnalyticsKeywords } from "@/lib/queries/use-analytics-keywords"
 import { csvFilename } from "@/lib/reporting/csv"
 import {
   DEFAULT_RANGES,
-  formatPeriod,
-  isValidPeriod,
   KEYWORD_RANGES,
-  resolvedPeriod,
   type KeywordRangeId,
 } from "@/lib/reporting/ranges"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { cn } from "@/lib/utils"
 
+/**
+ * Search keywords for the page's scope and period. The period is chosen in
+ * the page's ReportToolbar (`?range=`).
+ */
 export function KeywordsTab({
   clientId,
   range,
-  onRangeChange,
 }: {
   clientId?: string
-  /** The period, when the page keeps it (in `?range=`); else kept here. */
+  /** The period (from `?range=`); the keywords default when absent. */
   range?: KeywordRangeId
-  onRangeChange?: (range: KeywordRangeId) => void
 }) {
-  const [ownRange, setOwnRange] = useState<KeywordRangeId>(
-    DEFAULT_RANGES.keywords
-  )
-  const rangeId = range ?? ownRange
-  const setRangeId = onRangeChange ?? setOwnRange
+  const rangeId = range ?? DEFAULT_RANGES.keywords
   const [query, setQuery] = useState("")
   const role = useSessionRole()
   const keywords = useAnalyticsKeywords({ range: rangeId, clientId })
@@ -60,16 +54,6 @@ export function KeywordsTab({
     keywords.isError &&
     keywords.error instanceof ApiClientError &&
     keywords.error.code === "keywords_paused"
-  const resolved = resolvedPeriod("keywords", rangeId)
-  const answered = keywords.data
-    ? { from: keywords.data.from, to: resolved.to }
-    : null
-  const period = formatPeriod(
-    keywords.data?.range === rangeId && isValidPeriod(answered)
-      ? answered
-      : resolved,
-    "UTC"
-  )
   const rangeLabel =
     KEYWORD_RANGES.find((option) => option.id === rangeId)?.label ?? ""
 
@@ -85,20 +69,15 @@ export function KeywordsTab({
         )
       }
       controls={
-        <>
-          <RangeSelect
-            value={rangeId}
-            onChange={setRangeId}
-            options={KEYWORD_RANGES}
-            period={period}
-          />
-          {/* Paused is switched off on purpose: a refresh cannot help. */}
+        // Owners and admins only; and not while paused, which is switched
+        // off on purpose, so a refresh cannot help.
+        canTriggerSync(role) && !paused ? (
           <RefreshGoogleButton
             kind="keywords"
-            canTrigger={canTriggerSync(role) && !paused}
+            canTrigger
             onDone={() => void keywords.refetch()}
           />
-        </>
+        ) : null
       }
     />
   )
@@ -235,7 +214,7 @@ export function KeywordsTab({
         completeness={data.completeness}
         refreshFailedShownElsewhere={failureExplained}
       />
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Input
           type="search"
           value={query}
@@ -243,7 +222,7 @@ export function KeywordsTab({
           onClear={() => setQuery("")}
           placeholder="Filter search terms"
           aria-label="Filter search terms"
-          className="w-full max-w-80 flex-[1_1_14rem]"
+          className="w-full sm:w-80"
         />
         <p
           aria-live="polite"
@@ -252,10 +231,10 @@ export function KeywordsTab({
           {formatNumber(shown.length)} of {formatNumber(data.keywords.length)}{" "}
           terms
         </p>
-        <span className="sm:ml-auto">
+        <span className="ml-auto print:hidden">
           <CsvDownloadButton
             filename={csvFilename("search keywords", rangeLabel)}
-            accessibleLabel="Download the search terms shown as CSV"
+            subject="the search terms shown"
             rows={() => keywordsCsv(shown)}
           />
         </span>

@@ -1,6 +1,7 @@
 "use client"
 
 import { CheckIcon } from "lucide-react"
+import type * as React from "react"
 
 import { CLIENT_COLOURS } from "@/lib/clients/colours"
 import { cn } from "@/lib/utils"
@@ -25,7 +26,7 @@ function ClientColourField({
   const current = value?.toLowerCase() ?? null
   return (
     <fieldset className="flex flex-col gap-1.5">
-      <legend className="text-ui leading-5 font-semibold text-ink">
+      <legend className="text-ui font-semibold text-ink">
         Colour <span className="font-normal text-ink-muted">(optional)</span>
       </legend>
       <p className="text-caption text-ink-muted">{description}</p>
@@ -39,9 +40,9 @@ function ClientColourField({
               onClick={() => onChange(selected ? null : option.value)}
               aria-pressed={selected}
               aria-label={`${option.name} (${option.value})`}
-              style={{ backgroundColor: option.value }}
+              style={{ "--swatch": option.value } as React.CSSProperties}
               className={cn(
-                "flex size-8 items-center justify-center rounded-(--np-radius-control) border border-line text-primary-foreground focus-halo transition-transform duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96] pointer-coarse:size-11",
+                "flex size-8 items-center justify-center rounded-(--np-radius-control) border border-line bg-(--swatch) text-primary-foreground focus-halo transition-transform duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96] pointer-coarse:size-11",
                 selected && "outline-2 outline-offset-2 outline-primary"
               )}
             >

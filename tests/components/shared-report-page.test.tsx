@@ -266,6 +266,8 @@ describe("SharedClientReportView", () => {
     render(<SharedClientReportView report={REPORT} />)
     const links = screen.getAllByRole("link")
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      // The skip link stays on the page.
+      "#main",
       "?period=28d",
       "?period=90d",
       "?period=12m",
@@ -367,5 +369,68 @@ describe("SharedClientReportView", () => {
       />
     )
     expect(screen.getByText("No reviews in this period")).toBeInTheDocument()
+  })
+
+  it("has landmarks, a skip link and the figures' main region", () => {
+    render(<SharedClientReportView report={REPORT} />)
+    expect(screen.getByRole("banner")).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveAttribute("id", "main")
+    expect(screen.getByRole("contentinfo")).toBeInTheDocument()
+    expect(
+      screen.getByRole("link", { name: "Skip to the figures" })
+    ).toHaveAttribute("href", "#main")
+  })
+
+  it("writes the generated time in the organisation's zone, named", () => {
+    const { container } = render(
+      <SharedClientReportView
+        report={{ ...REPORT, timezone: "Pacific/Auckland" }}
+      />
+    )
+    const time = container.querySelector(
+      'time[datetime="2026-09-20T12:00:00.000Z"]'
+    )
+    // Noon UTC on 20 Sep is midnight on the 21st in Auckland (NZST).
+    expect(time?.textContent).toMatch(/21 Sept( 2026)?, 00:00 GMT\+12/)
+  })
+
+  it("warns in the client's words when the figures may be incomplete", () => {
+    render(
+      <SharedClientReportView
+        report={{ ...REPORT, replies: { ...REPORT.replies, incomplete: true } }}
+      />
+    )
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /may not be counted yet/
+    )
+    expect(screen.getAllByText("These figures may be incomplete")).toHaveLength(
+      1
+    )
+  })
+
+  it("never says no reviews beside tiles that count some", () => {
+    render(
+      <SharedClientReportView
+        report={{
+          ...REPORT,
+          replies: {
+            ...REPORT.replies,
+            series: REPORT.replies.series.map((point) => ({
+              ...point,
+              reviewCount: 0,
+              replies: 0,
+              averageRating: null,
+            })),
+          },
+        }}
+      />
+    )
+    expect(screen.getByText("12")).toBeInTheDocument()
+    expect(
+      screen.queryByText("No reviews in this period")
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getAllByText("Chart unavailable for this period")
+    ).toHaveLength(2)
   })
 })

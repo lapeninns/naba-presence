@@ -3,10 +3,34 @@
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 
+import {
+  MenuCloseProvider,
+  MenuSheetCancel,
+  MenuSheetTitle,
+  menuSheetPopupClassName,
+  menuSheetPositionerClassName,
+  menuSheetScrimClassName,
+  useMenuActions,
+  useMenuSheet,
+} from "@/components/ui/menu-surface"
 import { cn } from "@/lib/utils"
 
-function Popover(props: PopoverPrimitive.Root.Props) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+/**
+ * A panel anchored to its trigger on the desk; on a phone the same content
+ * rises as a bottom sheet with a Close under it (see menu-surface), since
+ * a 360px panel beside a 44px trigger leaves a phone nowhere to put it.
+ */
+function Popover({ actionsRef, ...props }: PopoverPrimitive.Root.Props) {
+  const { actions, close } = useMenuActions(actionsRef)
+  return (
+    <MenuCloseProvider close={close}>
+      <PopoverPrimitive.Root
+        data-slot="popover"
+        actionsRef={actions}
+        {...props}
+      />
+    </MenuCloseProvider>
+  )
 }
 
 function PopoverTrigger(props: PopoverPrimitive.Trigger.Props) {
@@ -64,12 +88,48 @@ function PopoverContent({
   alignOffset,
   anchor,
   showArrow = false,
+  title,
   ...props
 }: PopoverPrimitive.Popup.Props &
   PositionProps & {
     /** Draw an arrow pointing at the anchor. Off by default (reference `.popover` has none). */
     showArrow?: boolean
+    /** A heading for the phone's sheet. */
+    title?: React.ReactNode
   }) {
+  const sheet = useMenuSheet()
+  if (sheet) {
+    // The content keeps its own layout (a search field and list, a short
+    // form); the sheet adds the scrim, the bottom edge and a way out. The
+    // caller's className reaches the scrolling body, where its padding
+    // means what it meant in the panel; its desk width does not apply.
+    return (
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Backdrop className={menuSheetScrimClassName} />
+        <PopoverPrimitive.Positioner className={menuSheetPositionerClassName}>
+          <PopoverPrimitive.Popup
+            data-slot="popover-content"
+            data-presentation="sheet"
+            className={menuSheetPopupClassName}
+            {...props}
+          >
+            {title ? <MenuSheetTitle>{title}</MenuSheetTitle> : null}
+            <div
+              data-slot="popover-sheet-body"
+              className={cn(
+                "flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 text-ui text-ink",
+                className,
+                "w-full! max-w-none! min-w-0!"
+              )}
+            >
+              {children}
+            </div>
+            <MenuSheetCancel label="Close" />
+          </PopoverPrimitive.Popup>
+        </PopoverPrimitive.Positioner>
+      </PopoverPrimitive.Portal>
+    )
+  }
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Positioner
@@ -78,10 +138,11 @@ function PopoverContent({
         sideOffset={sideOffset}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-50 outline-none"
+        className="z-popover outline-none"
       >
         <PopoverPrimitive.Popup
           data-slot="popover-content"
+          data-presentation="popover"
           className={cn(
             // Reference `.popover`: surface, hairline edge, card radius, pop
             // shadow, 16px inside, min(360px, 100vw - 24px) wide.

@@ -15,6 +15,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
@@ -149,11 +150,7 @@ export function ReportingPanel({
     />
   )
   if (!framed) return empty
-  return (
-    <div className="rounded-(--np-radius-card) border border-line bg-surface">
-      {empty}
-    </div>
-  )
+  return <Card flush>{empty}</Card>
 }
 
 // Honest-null helper: a missing metric is "—" flagged isNull (so tables can

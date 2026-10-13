@@ -37,8 +37,10 @@ export function keywordsCsv(keywords: KeywordRow[]): CsvCell[][] {
 /**
  * Search terms by impressions (reference `keywords-table`): rank, the term
  * as the customer typed it, and the honest "N+" for thresholded volumes.
- * Labelled rows on a narrow container: the term on top, rank and
- * impressions side by side beneath it.
+ *
+ * Under 720px of its own width each row is a record card: the term as the
+ * headline, the impressions figure trailing it, and one meta line with the
+ * position. Wider, it is the three-column table.
  */
 export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
   return (
@@ -47,7 +49,9 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
         <TableRow>
           <TableHead numeric className="w-12">
             <span aria-hidden>#</span>
-            <span className="sr-only">Position by impressions, not a search ranking</span>
+            <span className="sr-only">
+              Position by impressions, not a search ranking
+            </span>
           </TableHead>
           <TableHead>Search term</TableHead>
           <TableHead numeric>Impressions</TableHead>
@@ -56,17 +60,17 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
       <TableBody>
         {keywords.map((keyword) => (
           <TableRow key={`${keyword.rank}-${keyword.keyword}`}>
+            {/* The meta line on a card: "No. 3 by impressions". */}
             <TableCell
               numeric
-              label="Position"
-              className="text-ink-muted @max-[720px]/table:col-span-1! @max-[720px]/table:row-start-2!"
+              className="text-ink-muted @max-[720px]/table:col-span-full! @max-[720px]/table:row-start-2! @max-[720px]/table:text-caption"
             >
+              <span className="@min-[720px]/table:hidden">No. </span>
               {keyword.rank}
+              <span className="@min-[720px]/table:hidden"> by impressions</span>
             </TableCell>
             <TableCell
-              span
-              label="Search term"
-              className="font-medium break-words text-ink @max-[720px]/table:row-start-1!"
+              className="font-medium break-words text-ink @max-[720px]/table:col-start-1! @max-[720px]/table:row-start-1! @max-[720px]/table:text-body"
               lang="und"
               dir="auto"
             >
@@ -74,10 +78,13 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
             </TableCell>
             <TableCell
               numeric
-              label="Impressions"
-              className="@max-[720px]/table:col-start-2! @max-[720px]/table:row-start-2!"
+              className="@max-[720px]/table:col-start-2! @max-[720px]/table:row-start-1! @max-[720px]/table:text-right! @max-[720px]/table:text-body @max-[720px]/table:font-semibold"
             >
-              {formatKeywordImpressions(keyword)}
+              <span>{formatKeywordImpressions(keyword)}</span>
+              <span className="sr-only @min-[720px]/table:hidden">
+                {" "}
+                impressions
+              </span>
             </TableCell>
           </TableRow>
         ))}

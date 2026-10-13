@@ -1,37 +1,27 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { DeltaBadge } from "@/components/reporting/delta-badge"
+import { kpiDelta } from "@/components/reporting/delta-badge"
 import { FetchedAtCaption } from "@/components/reporting/fetched-at-caption"
 import { nullableCell, ReportingPanel } from "@/components/reporting/reporting-states"
-import { StatTile } from "@/components/reporting/stat-tile"
 
-describe("StatTile", () => {
-  it("renders label, value, and an optional hint", () => {
-    render(<StatTile label="Average rating" value="4.4" hint="Across 42 reviews" />)
-    expect(screen.getByText("Average rating")).toBeInTheDocument()
-    expect(screen.getByText("4.4")).toBeInTheDocument()
-    expect(screen.getByText("Across 42 reviews")).toBeInTheDocument()
+describe("kpiDelta", () => {
+  it("shapes a signed movement with its direction and a success tone for a rise", () => {
+    expect(kpiDelta(120, 100, "count")).toMatchObject({
+      value: expect.stringMatching(/\+20/),
+      direction: "up",
+      tone: "success",
+    })
   })
-})
-
-describe("DeltaBadge (non-colour cue)", () => {
-  it("shows a signed magnitude with a direction glyph, and an accessible label", () => {
-    render(<DeltaBadge current={120} previous={100} unit="count" />)
-    const badge = screen.getByText(/\+20/)
-    expect(badge).toBeInTheDocument()
-    // Direction is conveyed by an arrow glyph in the text, not colour alone.
-    expect(badge.textContent).toMatch(/[▲▼]|↑|↓/)
-    expect(screen.getByLabelText(/up|increase|higher/i)).toBeInTheDocument()
+  it("reads a shorter duration as faster, never raw seconds", () => {
+    const delta = kpiDelta(5400, 6600, "duration")
+    expect(delta).toMatchObject({ direction: "down", tone: "success" })
+    expect(String(delta?.value)).toMatch(/−20m/)
+    expect(String(delta?.label)).toMatch(/faster/)
   })
-  it("renders a duration delta as faster/slower, never raw seconds", () => {
-    render(<DeltaBadge current={5400} previous={6600} unit="duration" />)
-    expect(screen.getByText(/−20m/)).toBeInTheDocument()
-    expect(screen.getByLabelText(/faster/i)).toBeInTheDocument()
-  })
-  it("renders nothing when the comparison is undefined", () => {
-    const { container } = render(<DeltaBadge current={5} previous={null} />)
-    expect(container).toBeEmptyDOMElement()
+  it("is undefined when either window is missing", () => {
+    expect(kpiDelta(5, null)).toBeUndefined()
+    expect(kpiDelta(null, 5)).toBeUndefined()
   })
 })
 

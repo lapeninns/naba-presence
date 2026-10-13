@@ -4,6 +4,7 @@ import {
   binDailySeries,
   binUnitFor,
   daysInWindow,
+  formatBinLabel,
 } from "@/lib/reporting/series-bins"
 
 const KEYS = { calls: ["CALL_CLICKS"] } as const
@@ -49,5 +50,28 @@ describe("binDailySeries", () => {
     )
     expect(binUnitFor(90)).toBe("week")
     expect(binUnitFor(365)).toBe("month")
+  })
+})
+
+describe("formatBinLabel", () => {
+  it("reads a bare date as a calendar day, whatever the zone", () => {
+    // UTC midnight on 5 Oct is still 4 Oct in Los Angeles.
+    expect(formatBinLabel("2026-10-05", "day", "America/Los_Angeles")).toBe(
+      "5 Oct"
+    )
+    expect(formatBinLabel("2026-07-01", "month", "America/New_York")).toBe(
+      "Jul 2026"
+    )
+  })
+
+  it("formats a bucket instant on the organisation's clock", () => {
+    // Midnight on 5 Oct in Auckland (NZDT) is 11:00 UTC on 4 Oct.
+    expect(
+      formatBinLabel("2026-10-04T11:00:00.000Z", "day", "Pacific/Auckland")
+    ).toBe("5 Oct")
+    // Midnight on 1 Jul in London (BST) is 23:00 UTC on 30 Jun.
+    expect(
+      formatBinLabel("2026-06-30T23:00:00.000Z", "month", "Europe/London")
+    ).toBe("Jul 2026")
   })
 })

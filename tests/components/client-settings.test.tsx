@@ -252,9 +252,16 @@ describe("ClientSettings", () => {
       }),
       { target: { value: "" } }
     )
+    // The docked bulk bar is only there while something is selected.
+    expect(
+      screen.queryByRole("region", { name: "Unfiled listing actions" })
+    ).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole("checkbox", { name: /Select all/ }))
+    const bar = screen.getByRole("region", { name: "Unfiled listing actions" })
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(within(bar).getByText("6 selected")).toBeInTheDocument()
     fireEvent.click(
-      screen.getByRole("button", { name: "Add 6 to this client" })
+      within(bar).getByRole("button", { name: "Add 6 to this client" })
     )
     const dialog = await screen.findByRole("alertdialog")
     expect(
@@ -263,6 +270,20 @@ describe("ClientSettings", () => {
     expect(
       fetchMock.mock.calls.some(([, init]) => init?.method === "POST")
     ).toBe(false)
+  })
+
+  it("clears the selection from the bulk bar, which then goes away", async () => {
+    stub({ attached: false })
+    renderSettings()
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: "Add Old Crown Girton" })
+    )
+    const bar = screen.getByRole("region", { name: "Unfiled listing actions" })
+    expect(within(bar).getByText("1 selected")).toBeInTheDocument()
+    fireEvent.click(within(bar).getByRole("button", { name: "Clear" }))
+    expect(
+      screen.queryByRole("region", { name: "Unfiled listing actions" })
+    ).not.toBeInTheDocument()
   })
 
   it("asks for an acknowledgement before archiving an empty client", async () => {
