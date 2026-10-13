@@ -67,10 +67,13 @@ export function SummaryList({
 export function TechnicalDetails({
   children,
   summary = "Technical details",
+  list = true,
   className,
 }: {
   readonly children: ReactNode
   readonly summary?: string
+  /** Children are `ResourceRef` rows (a `dl`); false for free content. */
+  readonly list?: boolean
   readonly className?: string
 }) {
   return (
@@ -84,7 +87,11 @@ export function TechnicalDetails({
         </span>
         {summary}
       </summary>
-      <dl className="flex min-w-0 flex-col gap-2 border-t border-line px-3 py-2.5">{children}</dl>
+      {list ? (
+        <dl className="flex min-w-0 flex-col gap-2 border-t border-line px-3 py-2.5">{children}</dl>
+      ) : (
+        <div className="flex min-w-0 flex-col gap-2 border-t border-line px-3 py-2.5 text-ui text-ink-secondary">{children}</div>
+      )}
     </details>
   )
 }

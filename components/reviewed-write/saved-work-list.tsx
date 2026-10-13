@@ -32,6 +32,7 @@ export function SavedWorkList({
   failed,
   loadingText,
   errorText,
+  staleText,
   emptyText,
   reloadLabel,
   reloading,
@@ -50,6 +51,11 @@ export function SavedWorkList({
   readonly failed: boolean
   readonly loadingText: string
   readonly errorText: string
+  /**
+   * Shown under the earlier list when a reload fails after a good read (the
+   * list stays, marked as possibly out of date). Defaults to `errorText`.
+   */
+  readonly staleText?: string
   readonly emptyText: string
   readonly reloadLabel: string
   readonly reloading: boolean
@@ -65,7 +71,7 @@ export function SavedWorkList({
       <SectionHeader id={id} as={headingLevel} title={title} description={description} />
       {pending ? (
         <p role="status" className="text-ui text-ink-muted">{loadingText}</p>
-      ) : failed ? (
+      ) : failed && items.length === 0 ? (
         <p role="alert" className="text-ui text-danger-ink">{errorText}</p>
       ) : items.length === 0 ? (
         <p className="text-ui text-ink-muted">{emptyText}</p>
@@ -86,6 +92,9 @@ export function SavedWorkList({
           ))}
         </ul>
       )}
+      {failed && items.length > 0 ? (
+        <p role="alert" className="text-ui text-danger-ink">{staleText ?? errorText}</p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button variant="ghost" size="sm" disabled={reloading} onClick={onReload}>{reloadLabel}</Button>
         {hasMore && onLoadMore && loadMoreLabel ? (

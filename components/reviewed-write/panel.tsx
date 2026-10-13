@@ -68,6 +68,7 @@ export function ReviewedWritePanel({
   stage,
   secondApprover,
   tone = "default",
+  headingLevel: Heading = "h2",
   focusKey,
   children,
   className,
@@ -81,6 +82,8 @@ export function ReviewedWritePanel({
   readonly secondApprover?: boolean
   /** `danger` draws the edge in the danger ink, for irreversible requests. */
   readonly tone?: "default" | "danger"
+  /** The heading level, for a panel inside a section that has its own h2. */
+  readonly headingLevel?: "h2" | "h3"
   /** Focus moves to the heading each time this changes to a new value. */
   readonly focusKey?: string | null
   readonly children: ReactNode
@@ -99,14 +102,14 @@ export function ReviewedWritePanel({
       )}
     >
       <header className="flex min-w-0 flex-col gap-2">
-        <h2
+        <Heading
           id={id}
           ref={heading}
           tabIndex={-1}
           className="text-title font-semibold text-ink outline-none focus-visible:focus-halo"
         >
           {title}
-        </h2>
+        </Heading>
         {description ? <p className="text-ui text-ink-secondary">{description}</p> : null}
         {stage ? <ReviewedWriteSteps stage={stage} secondApprover={secondApprover} /> : null}
       </header>

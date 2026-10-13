@@ -56,6 +56,7 @@ export function attemptOutcome(
  * was actually observed.
  */
 export function OutcomeSummary({
+  outcome: outcomeOverride,
   execution,
   confirmation,
   observedAt,
@@ -66,6 +67,12 @@ export function OutcomeSummary({
   children,
   "aria-label": ariaLabel = "Recorded outcome",
 }: {
+  /**
+   * Overrides the outcome derived from the two states, for a flow with a
+   * third fact that can contradict them (a verification request Google
+   * reports failed while its standing reads as confirmed).
+   */
+  readonly outcome?: OperationOutcome
   readonly execution: ExecutionState
   readonly confirmation: ConfirmationState
   readonly observedAt?: string | null
@@ -76,13 +83,13 @@ export function OutcomeSummary({
   readonly children?: ReactNode
   readonly "aria-label"?: string
 }) {
-  const outcome = attemptOutcome(execution, confirmation)
+  const outcome = outcomeOverride ?? attemptOutcome(execution, confirmation)
   const presentation = describeOutcome(outcome)
   return (
     <div data-slot="outcome-summary" aria-label={ariaLabel} role="group" className="flex min-w-0 flex-col gap-3">
       <OperationOutcomeNotice
         outcome={outcome}
-        title={titles?.[outcome] ?? presentation.label}
+        title={titles?.[outcome] ?? presentation.title}
         description={effect ?? presentation.description}
       />
       <SummaryList

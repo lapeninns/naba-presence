@@ -69,7 +69,7 @@ describe("SummaryList", () => {
 describe("OutcomeSummary", () => {
   it("uses the shared outcome words and the one recorded-state vocabulary", () => {
     render(<OutcomeSummary execution="accepted" confirmation="unresolved" observedAt={null} />)
-    expect(screen.getByRole("status")).toHaveTextContent("Not confirmed")
+    expect(screen.getByRole("status")).toHaveTextContent("Couldn’t confirm with Google")
     expect(screen.getByText("Accepted by Google")).toBeInTheDocument()
     expect(screen.getByText("Independent confirmation unresolved")).toBeInTheDocument()
     expect(screen.getByText("No dated observation recorded")).toBeInTheDocument()
