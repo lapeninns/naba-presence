@@ -4,7 +4,7 @@
     "R1": 47,
     "R2": 9,
     "R3": 145,
-    "R4": 29,
+    "R4": 27,
     "R5": 4,
     "R6": 3,
     "R7": 31
@@ -175,15 +175,11 @@
           "top-[-60px]": 1
         }
       },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_-1px_0_0_var(--np-line)]": 1
-        }
-      },
       "R7": {
         "total": 1,
-        "patterns": {}
+        "patterns": {
+          "[@media(min-height:620px)]:": 1
+        }
       }
     },
     "components/app-shell/brand-mark.tsx": {
@@ -217,6 +213,7 @@
         "patterns": {
           "h-[34px]": 1,
           "max-w-[min(16rem,32vw)]": 1,
+          "pb-[max(20px,var(--np-safe-bottom))]": 1,
           "w-[min(320px,calc(100vw-24px))]": 1
         }
       }
@@ -316,14 +313,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[minmax(7.5rem,34%)_1fr]": 1
-        }
-      }
-    },
-    "components/app-shell/topbar.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_0_-1px_0_var(--np-line)]": 1
         }
       }
     },

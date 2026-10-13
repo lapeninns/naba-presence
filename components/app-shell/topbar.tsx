@@ -63,7 +63,7 @@ function Toolbar({
     <header
       data-slot="toolbar"
       className={cn(
-        "hidden h-(--np-toolbar-h) shrink-0 items-center gap-3 bg-canvas px-(--np-page-pad-x) shadow-[inset_0_-1px_0_var(--np-line)] md:flex",
+        "hidden h-(--np-toolbar-h) shrink-0 items-center gap-3 bg-canvas px-(--np-page-pad-x) shadow-np-edge-bottom md:flex",
         className
       )}
     >

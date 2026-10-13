@@ -67,7 +67,7 @@ const ROW_CLASS = cn(
   "md:max-wide:min-h-14 md:max-wide:flex-col md:max-wide:justify-center md:max-wide:gap-1 md:max-wide:px-0.5 md:max-wide:py-1.5 md:max-wide:text-center md:max-wide:text-caption md:max-wide:aria-[current=page]:before:-left-1"
 )
 
-const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full md:max-wide:leading-4"
+const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full"
 
 /**
  * The operator's last choice for the More disclosure, kept for the session.

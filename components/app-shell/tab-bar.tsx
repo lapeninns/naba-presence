@@ -34,12 +34,17 @@ const TAB_CLASS = cn(
   "data-[current=true]:font-semibold data-[current=true]:text-accent-ink"
 )
 
+/**
+ * The count on a tab's icon. It is set in the caption role, the smallest
+ * size the type scale allows on touch (13px), so the pill is 20px tall to
+ * hold it; it starts 4px right of the 24px icon's centre (`left-4`).
+ */
 function CountBadge({ count }: { count: number }) {
   return (
     <span
       aria-hidden
       data-slot="tab-count"
-      className="absolute -top-1 left-[calc(50%+4px)] inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none font-semibold text-primary-foreground tabular-nums"
+      className="absolute -top-1.5 left-4 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 font-mono text-caption leading-none font-semibold text-primary-foreground tabular-nums"
     >
       {count > 99 ? "99+" : count}
     </span>
@@ -106,7 +111,7 @@ function TabBar({
     <nav
       aria-label="Primary"
       data-slot="tab-bar"
-      className="fixed inset-x-0 bottom-0 z-chrome bg-canvas px-safe pb-safe shadow-[inset_0_1px_0_var(--np-line)] md:hidden print:hidden"
+      className="fixed inset-x-0 bottom-0 z-chrome bg-canvas px-safe pb-safe shadow-np-edge-top md:hidden print:hidden"
     >
       <ul className="grid h-(--np-tabbar-h) grid-cols-5 items-stretch px-1">
         {tabs.map((destination) => {
