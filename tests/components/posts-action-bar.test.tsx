@@ -67,6 +67,22 @@ function renderBar(props: Partial<BarProps> = {}) {
 
 afterEach(() => vi.clearAllMocks())
 
+// Everything but a post's one next step sits in its "More actions" menu.
+async function openMore() {
+  await userEvent.click(screen.getByRole("button", { name: /^More actions for / }))
+  return screen.findByRole("menu")
+}
+async function menuItem(name: RegExp) {
+  const menu = await openMore()
+  return within(menu).getByRole("menuitem", { name })
+}
+function expectDisabled(item: HTMLElement) {
+  expect(item).toHaveAttribute("aria-disabled", "true")
+}
+function expectEnabled(item: HTMLElement) {
+  expect(item).not.toHaveAttribute("aria-disabled", "true")
+}
+
 describe("PostsActionBar", () => {
   it("publishes a draft, toasts the outcome and invalidates the posts list", async () => {
     api.publishPost.mockResolvedValue({ status: "published", postId: "p1", googlePostName: "locations/1/localPosts/9" })
@@ -86,6 +102,16 @@ describe("PostsActionBar", () => {
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
   })
 
+  it("shows one action per post and keeps the rest in a named menu", () => {
+    renderBar()
+    expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull()
+    expect(
+      screen.getByRole("button", { name: "More actions for Open late tonight" })
+    ).toBeInTheDocument()
+  })
+
   it("reports a publish that went to the approval queue", async () => {
     api.publishPost.mockResolvedValue({ status: "awaiting_approval" })
     renderBar({ post: post({ status: "failed" }) })
@@ -103,7 +129,7 @@ describe("PostsActionBar", () => {
     api.updatePost.mockResolvedValue({ post: { id: "p1", status: "draft" } })
     renderBar({ post: post({ status: "failed" }) })
 
-    await userEvent.click(screen.getByRole("button", { name: "Edit" }))
+    await userEvent.click(await menuItem(/^Edit/))
     const sheet = await screen.findByRole("dialog", { name: "Edit post" })
     const text = within(sheet).getByRole("textbox", { name: /summary/i })
     expect(text).toHaveValue("Open late tonight")
@@ -119,9 +145,10 @@ describe("PostsActionBar", () => {
     expect(api.publishPost).not.toHaveBeenCalled()
   })
 
-  it("has no Edit for a post that is live or waiting on someone", () => {
+  it("has no Edit for a post that is live or waiting on someone", async () => {
     renderBar({ post: post({ status: "awaiting_approval" }) })
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull()
+    const menu = await openMore()
+    expect(within(menu).queryByRole("menuitem", { name: /^Edit/ })).toBeNull()
   })
 
   it("approves and rejects an awaiting-approval post with the matching copy", async () => {
@@ -142,7 +169,7 @@ describe("PostsActionBar", () => {
     expect(api.decidePostApproval).toHaveBeenCalledWith("loc-1", "p1", "approve", 3)
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(true)
 
-    await userEvent.click(screen.getByRole("button", { name: "Reject" }))
+    await userEvent.click(await menuItem(/^Reject/))
     expect(await screen.findByText("Sent back to draft")).toBeInTheDocument()
     expect(api.decidePostApproval).toHaveBeenLastCalledWith("loc-1", "p1", "reject", 3)
   })
@@ -151,8 +178,13 @@ describe("PostsActionBar", () => {
     api.deletePost.mockResolvedValue({ status: "deleted" })
     const client = renderBar()
 
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }))
+    // Delete is the menu's last row, and still asks first.
+    const menu = await openMore()
+    const rows = within(menu).getAllByRole("menuitem")
+    expect(rows.at(-1)).toHaveAccessibleName(/^Delete/)
+    await userEvent.click(rows.at(-1)!)
     const dialog = await screen.findByRole("alertdialog")
+    expect(api.deletePost).not.toHaveBeenCalled()
     expect(within(dialog).getByText("This deletes the draft.")).toBeInTheDocument()
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }))
 
@@ -176,52 +208,60 @@ describe("PostsActionBar", () => {
     expect(client.getQueryState(POSTS_KEY)?.isInvalidated).toBe(false)
   })
 
-  it("disables every control when Google writes are paused", () => {
+  it("disables every control when Google writes are paused", async () => {
     renderBar({ post: post({ status: "awaiting_approval" }), writesEnabled: false })
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
+    const menu = await openMore()
+    expectDisabled(within(menu).getByRole("menuitem", { name: /^Reject/ }))
+    const remove = within(menu).getByRole("menuitem", { name: /^Delete/ })
+    expectDisabled(remove)
+    // The reason is on the row in words, not only a greyed-out row.
+    expect(remove).toHaveAccessibleDescription(/./)
   })
 
-  it("gates approve and reject on decide_approval but leaves draft delete to the edit grant", () => {
+  it("gates approve and reject on decide_approval but leaves draft delete to the edit grant", async () => {
     renderBar({ post: post({ status: "awaiting_approval" }), caps: MEMBER })
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
+    const menu = await openMore()
     // Rejecting is the same decision as approving: the route answers 403
     // permission_denied without decide_approval.
-    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
+    expectDisabled(within(menu).getByRole("menuitem", { name: /^Reject/ }))
     // A draft has no Google post, so deleting it needs no publish permission.
-    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled()
+    expectEnabled(within(menu).getByRole("menuitem", { name: /^Delete/ }))
   })
 
-  it("lets a decide_approval holder reject even without the posts resource", () => {
+  it("lets a decide_approval holder reject even without the posts resource", async () => {
     renderBar({
       post: post({ status: "awaiting_approval" }),
       caps: { ...MEMBER, canPublish: true, canDecideApproval: true, canRequestApproval: false },
     })
-    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled()
+    expectEnabled(await menuItem(/^Reject/))
   })
 
-  it("keeps a viewer's draft read-only: no request, edit or delete", () => {
+  it("keeps a viewer's draft read-only: no request, edit or delete", async () => {
     renderBar({ caps: VIEWER })
     expect(screen.getByRole("button", { name: "Request approval" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
     expect(screen.getByText("Your role can view this location but not change it.")).toBeInTheDocument()
+    const menu = await openMore()
+    const edit = within(menu).getByRole("menuitem", { name: /^Edit/ })
+    expectDisabled(edit)
+    expect(edit).toHaveAccessibleDescription("Your role can view this location but not change it.")
+    expectDisabled(within(menu).getByRole("menuitem", { name: /^Delete/ }))
   })
 
-  it("never offers a viewer a decision on someone's request", () => {
+  it("never offers a viewer a decision on someone's request", async () => {
     renderBar({ post: post({ status: "awaiting_approval" }), caps: VIEWER })
     expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
-    expect(screen.getByRole("button", { name: "Reject" })).toBeDisabled()
+    expectDisabled(await menuItem(/^Reject/))
   })
 
-  it("requires publish permission to delete a post that is live on Google", () => {
+  it("requires publish permission to delete a post that is live on Google", async () => {
     renderBar({
       post: post({ status: "published", googlePostName: "locations/1/localPosts/9", googleSearchUrl: "https://g.test/p" }),
       caps: MEMBER,
     })
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled()
     expect(screen.getByRole("link", { name: "View on Google" })).toHaveAttribute("href", "https://g.test/p")
+    expectDisabled(await menuItem(/^Delete from Google/))
   })
 
   it("honours a per-resource capability state over the plain publish gate", () => {
@@ -257,7 +297,7 @@ describe("PostsActionBar", () => {
   it("never tells the operator to use Check Google on a post that is still publishing", async () => {
     renderBar({ post: post({ status: "publishing" }) })
     expect(screen.queryByRole("button", { name: "Check Google" })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }))
+    await userEvent.click(await menuItem(/^Delete/))
     const dialog = await screen.findByRole("alertdialog")
     expect(within(dialog).getByText("This deletes the post from NabaPresence.")).toBeInTheDocument()
     expect(within(dialog).getByText(/This post is still being sent/)).toBeInTheDocument()
@@ -266,7 +306,7 @@ describe("PostsActionBar", () => {
 
   it("points an ambiguous post's delete at Check Google, because Google may hold it", async () => {
     renderBar({ post: post({ status: "ambiguous" }) })
-    await userEvent.click(screen.getByRole("button", { name: "Delete" }))
+    await userEvent.click(await menuItem(/^Delete/))
     const dialog = await screen.findByRole("alertdialog")
     expect(within(dialog).getByText(/use Check Google first to find out/)).toBeInTheDocument()
   })
