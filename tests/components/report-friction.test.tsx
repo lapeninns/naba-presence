@@ -37,6 +37,15 @@ describe("ReportBarChart values", () => {
     />
   )
 
+  it("keeps wrapped chart actions a full touch target apart", () => {
+    // On a narrow phone Show values and Download CSV stack; with a 4px row
+    // gap their 4px touch overhangs collided and each lost height.
+    render(chart)
+    const row = screen.getByRole("button", { name: "Show values" })
+      .parentElement as HTMLElement
+    expect(row).toHaveClass("flex-wrap", "gap-y-2")
+  })
+
   it("puts every value on screen on request, not only on hover", () => {
     // A bar's native tooltip never showed on a phone or to a keyboard.
     render(chart)

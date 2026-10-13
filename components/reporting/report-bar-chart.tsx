@@ -371,7 +371,10 @@ export function ReportBarChart({
             : `The busiest and the latest ${unitName} are labelled.`}{" "}
         Tap a bar for its figures. {unitNote}
       </figcaption>
-      <div className="flex flex-wrap items-center gap-1 print:hidden">
+      {/* 8px between wrapped rows: each small button's touch overhang (4px
+          above and below its 36px) stays its own, so a narrow phone that
+          stacks them keeps both at 44px. */}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-2 print:hidden">
         <Button
           variant="ghost"
           size="sm"
