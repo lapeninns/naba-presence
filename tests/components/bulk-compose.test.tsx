@@ -84,6 +84,15 @@ afterEach(() => {
   push.mockReset()
 })
 
+/** Picks the kind of change from the "What to change" list. */
+async function chooseChange(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await user.click(screen.getByRole("combobox", { name: "What to change" }))
+  await user.click(await screen.findByRole("option", { name }))
+}
+
 describe("BulkCompose (P09-R9)", () => {
   it("says photo storage is not set up as soon as the uploads cannot be listed for it", async () => {
     fetchMock.mockImplementation(async () =>
@@ -97,7 +106,7 @@ describe("BulkCompose (P09-R9)", () => {
     )
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
-    await user.click(screen.getByRole("tab", { name: "Photos" }))
+    await chooseChange(user, "Photos")
     expect(
       (
         await screen.findAllByText(
@@ -105,13 +114,16 @@ describe("BulkCompose (P09-R9)", () => {
         )
       ).length
     ).toBeGreaterThan(0)
-    expect(screen.getByLabelText("Upload a photo")).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Choose from library" })
+    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Take photo" })).toBeDisabled()
   })
 
   it("sends only the ticked weekdays of an opening-hours change", async () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
-    await user.click(screen.getByRole("tab", { name: "Opening hours" }))
+    await chooseChange(user, "Opening hours")
     for (const day of [
       "Sunday",
       "Tuesday",
@@ -122,7 +134,7 @@ describe("BulkCompose (P09-R9)", () => {
     ])
       await user.click(screen.getByRole("checkbox", { name: day }))
     expect(
-      screen.getByRole("checkbox", { name: "Closed on Tuesday" })
+      screen.getByRole("switch", { name: "Open on Tuesday" })
     ).toHaveAttribute("aria-disabled", "true")
     await user.click(
       screen.getByRole("button", { name: "Preview this change" })
@@ -145,10 +157,78 @@ describe("BulkCompose (P09-R9)", () => {
     })
   })
 
+  it("says an overnight close's day and sends 24:00 as midnight the contract can carry", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<BulkCompose />)
+    await chooseChange(user, "Opening hours")
+    for (const day of [
+      "Sunday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ])
+      await user.click(screen.getByRole("checkbox", { name: day }))
+    const closes = screen.getByRole("textbox", { name: "Monday closes" })
+    await user.clear(closes)
+    await user.type(closes, "0200")
+    await user.tab()
+    expect(
+      screen.getByText("Closes Tuesday at 02:00 (overnight).")
+    ).toBeInTheDocument()
+    await user.clear(closes)
+    await user.type(closes, "2400")
+    await user.tab()
+    expect(
+      screen.getByText("Closes at midnight, end of Monday.")
+    ).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("button", { name: "Preview this change" })
+    )
+    await vi.waitFor(() => expect(previewBody()).toBeDefined())
+    expect(previewBody().items[0].days).toEqual([
+      {
+        dayOfWeek: 1,
+        isClosed: false,
+        periods: [{ opensAt: "09:00", closesAt: "00:00" }],
+      },
+    ])
+  })
+
+  it("marks a special date that closes before it opens, instead of sending it", async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<BulkCompose />)
+    fireEvent.change(screen.getByLabelText("Date", { exact: true }), {
+      target: { value: "2026-12-25" },
+    })
+    await user.click(screen.getByRole("combobox", { name: "Set to, date 1" }))
+    await user.click(await screen.findByRole("option", { name: "Open" }))
+    const closes = screen.getByRole("textbox", { name: "Closes, date 1" })
+    await user.clear(closes)
+    await user.type(closes, "0900")
+    expect(closes).toHaveAccessibleDescription(
+      /A special date can’t run past midnight/
+    )
+    expect(closes).toHaveAttribute("aria-invalid", "true")
+    expect(
+      screen.getByText("Check the times marked above.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Preview this change" })
+    ).toBeDisabled()
+  })
+
+  it("keeps the selected listings behind a count", () => {
+    renderWithProviders(<BulkCompose />)
+    expect(screen.getByText("2 listings")).toBeInTheDocument()
+    expect(screen.getByText("White Horse")).toBeInTheDocument()
+  })
+
   it("refuses an opening-hours change with no weekday ticked", async () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
-    await user.click(screen.getByRole("tab", { name: "Opening hours" }))
+    await chooseChange(user, "Opening hours")
     for (const day of [
       "Sunday",
       "Monday",
@@ -259,14 +339,14 @@ describe("BulkCompose (P09-R9)", () => {
   it("uploads a photo in three steps and previews it as a photos change", async () => {
     const user = userEvent.setup()
     renderWithProviders(<BulkCompose />)
-    await user.click(screen.getByRole("tab", { name: "Photos" }))
+    await chooseChange(user, "Photos")
     expect(
       screen.getByText("Upload a photo or choose one already uploaded.")
     ).toBeInTheDocument()
     const file = new File([new Uint8Array(20_000)], "front.jpg", {
       type: "image/jpeg",
     })
-    await user.upload(screen.getByLabelText("Upload a photo"), file)
+    await user.upload(screen.getByLabelText("Choose from library"), file)
     expect(
       await screen.findByText("front.jpg is uploaded and checked.")
     ).toBeInTheDocument()
@@ -306,14 +386,14 @@ describe("BulkCompose (P09-R9)", () => {
     )
     const user = userEvent.setup({ applyAccept: false })
     renderWithProviders(<BulkCompose />)
-    await user.click(screen.getByRole("tab", { name: "Photos" }))
+    await chooseChange(user, "Photos")
     await user.upload(
-      screen.getByLabelText("Upload a photo"),
+      screen.getByLabelText("Choose from library"),
       new File(["x"], "notes.txt", { type: "text/plain" })
     )
     expect(screen.getByText("Choose a JPEG or PNG photo.")).toBeInTheDocument()
     await user.upload(
-      screen.getByLabelText("Upload a photo"),
+      screen.getByLabelText("Choose from library"),
       new File([new Uint8Array(20_000)], "front.png", { type: "image/png" })
     )
     expect(
