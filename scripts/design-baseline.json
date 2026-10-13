@@ -1,10 +1,10 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 89,
+    "R1": 77,
     "R2": 9,
-    "R3": 213,
-    "R4": 61,
+    "R3": 204,
+    "R4": 57,
     "R5": 6,
     "R6": 5,
     "R7": 53
@@ -1149,35 +1149,6 @@
         }
       }
     },
-    "components/ui/avatar.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[10.5px]": 1,
-          "text-[15px]": 1
-        }
-      }
-    },
-    "components/ui/badge.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "px-[7px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_0_0_0_1px_var(--np-line)]": 1
-        }
-      }
-    },
     "components/ui/button.tsx": {
       "R1": {
         "total": 1,
@@ -1195,9 +1166,9 @@
     },
     "components/ui/chart.tsx": {
       "R4": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "rounded-[3px]": 2
+          "rounded-[3px]": 1
         }
       }
     },
@@ -1206,14 +1177,6 @@
         "total": 1,
         "patterns": {
           "rounded-[5px]": 1
-        }
-      }
-    },
-    "components/ui/chip.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
         }
       }
     },
@@ -1263,20 +1226,6 @@
         }
       }
     },
-    "components/ui/diff-view.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11px]": 2
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "w-[clamp(120px,24%,180px)]": 1
-        }
-      }
-    },
     "components/ui/dropdown-menu.tsx": {
       "R3": {
         "total": 2,
@@ -1310,14 +1259,6 @@
         }
       }
     },
-    "components/ui/grouped-list.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      }
-    },
     "components/ui/input.tsx": {
       "R3": {
         "total": 1,
@@ -1343,15 +1284,6 @@
         "total": 1,
         "patterns": {
           "rounded-[5px]": 1
-        }
-      }
-    },
-    "components/ui/kpi-tile.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-8": 1,
-          "text-[26px]": 1
         }
       }
     },
@@ -1452,29 +1384,6 @@
         }
       }
     },
-    "components/ui/stars.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "size-[18px]": 1
-        }
-      }
-    },
-    "components/ui/status-pill.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[22px]": 1,
-          "size-[7px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_0_0_0_1px_var(--np-line)]": 1
-        }
-      }
-    },
     "components/ui/stepper.tsx": {
       "R1": {
         "total": 2,
@@ -1498,20 +1407,6 @@
           "size-[27px]": 1,
           "translate-x-[20px]": 1,
           "w-[51px]": 1
-        }
-      }
-    },
-    "components/ui/table.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-10": 1
         }
       }
     },
@@ -1542,24 +1437,6 @@
         "total": 1,
         "patterns": {
           "leading-[22px]": 1
-        }
-      }
-    },
-    "components/ui/timeline.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11.5px]": 1,
-          "text-[12.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 4,
-        "patterns": {
-          "grid-cols-[20px_minmax(0,1fr)_auto]": 1,
-          "left-[9.5px]": 1,
-          "size-[11px]": 1,
-          "top-[30px]": 1
         }
       }
     },
