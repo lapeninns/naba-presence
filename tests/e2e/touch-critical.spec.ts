@@ -25,27 +25,61 @@ async function applyCookie(
 const TARGET_FLOOR = 44
 
 /**
- * Tap a control after checking its hit area meets the 44px floor. The hit
- * area is the control's own box, or the <label> wrapping it when it has one:
- * a checkbox or switch row is pressed anywhere on its label, which is what
- * the label is for.
+ * Tap a control after checking its real hit band meets the 44px floor. The
+ * band is found by hit-testing, not read off the control's box: from the
+ * control's centre, `document.elementFromPoint` is probed outward in 1px
+ * steps along each axis while the press still lands on the control (or a
+ * ::before/::after overhang, which hit-tests as the control) or on the
+ * <label> that owns it (a switch or checkbox row is pressed anywhere on its
+ * label). The narrower of the two runs is the touch dimension.
  */
 async function tap(control: Locator) {
-  const box = await control.evaluate((element) => {
-    const target = element.closest("label") ?? element
-    const rect = target.getBoundingClientRect()
+  await control.scrollIntoViewIfNeeded()
+  const band = await control.evaluate((element) => {
+    const label =
+      element.closest("label") ??
+      (element.id
+        ? document.querySelector<HTMLElement>(
+            `label[for="${CSS.escape(element.id)}"]`
+          )
+        : null)
+    const lands = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight)
+        return false
+      const hit = document.elementFromPoint(x, y)
+      return Boolean(
+        hit &&
+        (element === hit ||
+          element.contains(hit) ||
+          (label && (label === hit || label.contains(hit))))
+      )
+    }
+    const rect = element.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const reach = (dx: number, dy: number) => {
+      let step = 0
+      while (step < 400 && lands(cx + dx * (step + 1), cy + dy * (step + 1)))
+        step++
+      return step
+    }
+    const centre = lands(cx, cy)
     return {
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
+      centre,
+      width: centre ? reach(-1, 0) + reach(1, 0) + 1 : 0,
+      height: centre ? reach(0, -1) + reach(0, 1) + 1 : 0,
       name:
         element.getAttribute("aria-label") ??
         element.textContent?.trim().slice(0, 40) ??
         element.tagName,
     }
   })
+  expect(band.centre, `a tap on "${band.name}" lands on something else`).toBe(
+    true
+  )
   expect(
-    Math.min(box.width, box.height),
-    `hit area of "${box.name}" is ${box.width}x${box.height}px`
+    Math.min(band.width, band.height),
+    `hit band of "${band.name}" is ${band.width}x${band.height}px`
   ).toBeGreaterThanOrEqual(TARGET_FLOOR)
   await control.tap()
 }
@@ -250,9 +284,14 @@ test.describe("touch: critical journeys at 390x844", () => {
     const more = tabBar(page).getByRole("button", { name: "More", exact: true })
     const sheet = page.getByRole("dialog", { name: "More" })
 
+    // While the modal sheet is open the rest of the page leaves the
+    // accessibility tree, so More's state is read from the DOM.
+    const moreButton = page.locator(
+      "[data-slot=tab-bar] button[aria-haspopup=dialog]"
+    )
     await tap(more)
     await expect(sheet).toBeVisible()
-    await expect(more).toHaveAttribute("aria-expanded", "true")
+    await expect(moreButton).toHaveAttribute("aria-expanded", "true")
     await tap(sheet.getByRole("button", { name: "Close" }))
     await expect(sheet).toBeHidden()
     await expect(more).toHaveAttribute("aria-expanded", "false")
@@ -389,12 +428,10 @@ test.describe("touch: critical journeys at 390x844", () => {
     await tap(tabBar(page).getByRole("link", { name: /^Listings/ }))
     await expect(page).toHaveURL(/\/listings$/)
     await tap(
-      page
-        .getByRole("main")
-        .getByRole("link", {
-          name: state.directReview.locationName,
-          exact: true,
-        })
+      page.getByRole("main").getByRole("link", {
+        name: state.directReview.locationName,
+        exact: true,
+      })
     )
     await expect(page).toHaveURL(
       new RegExp(`/listings/${state.primaryLocationId}$`)
