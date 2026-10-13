@@ -2,12 +2,6 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { RelativeTime } from "@/components/ui/relative-time"
 import {
@@ -87,23 +81,42 @@ export function ListingChangeRequests({
   if (pending.length === 0) return null
 
   return (
-    <div className="flex flex-col gap-2" data-testid="listing-change-requests">
-      {pending.map((change) => {
-        const busy =
-          decide.isPending && decide.variables?.change.id === change.id
-        return (
-          <Alert key={change.id} variant="info">
-            <AlertTitle>{change.label}: waiting for approval</AlertTitle>
-            <AlertDescription>
-              <p>
-                {change.isOwn
-                  ? "You asked"
-                  : `${change.author.name ?? "A publisher"} asked`}{" "}
-                <RelativeTime iso={change.createdAt} />
+    <section
+      data-testid="listing-change-requests"
+      aria-label="Changes waiting for approval"
+      className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+    >
+      <p role="status" className="sr-only">
+        {pending.length === 1
+          ? "1 change is waiting for approval."
+          : `${pending.length} changes are waiting for approval.`}
+      </p>
+      <ul className="flex flex-col divide-y divide-line-subtle">
+        {pending.map((change) => {
+          const busy =
+            decide.isPending && decide.variables?.change.id === change.id
+          return (
+            <li
+              key={change.id}
+              data-slot="listing-change-request"
+              className="flex flex-col gap-2 px-(--np-card-pad) py-3"
+            >
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <p className="text-body font-medium break-words text-ink">
+                  {change.label}: waiting for approval
+                </p>
+                <p className="text-caption text-ink-muted">
+                  {change.isOwn
+                    ? "You asked"
+                    : `${change.author.name ?? "A publisher"} asked`}{" "}
+                  · <RelativeTime iso={change.createdAt} />
+                </p>
+              </div>
+              <p className="text-ui text-ink-secondary">
                 {change.fieldMask.length > 0
-                  ? ` to change ${change.fieldMask.join(", ")}`
+                  ? `To change ${change.fieldMask.join(", ")}. `
                   : ""}
-                . Nothing has gone to Google yet.{" "}
+                Nothing has gone to Google yet.{" "}
                 {change.isOwn
                   ? "Another publisher needs to approve it."
                   : change.canDecide
@@ -118,40 +131,44 @@ export function ListingChangeRequests({
                   {change.details.map((detail, index) => (
                     <div key={index} className="contents">
                       <dt className="text-ink-muted">{detail.label}</dt>
-                      <dd className="min-w-0 break-words">{detail.value}</dd>
+                      <dd className="min-w-0 break-words text-ink">
+                        {detail.value}
+                      </dd>
                     </div>
                   ))}
                 </dl>
               ) : null}
-            </AlertDescription>
-            {change.canDecide || change.isOwn ? (
-              <AlertActions>
-                {change.canDecide ? (
+              {change.canDecide || change.isOwn ? (
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {change.canDecide ? (
+                    <Button
+                      disabled={decide.isPending}
+                      aria-busy={
+                        busy && decide.variables?.decision === "approve"
+                      }
+                      onClick={() =>
+                        decide.mutate({ change, decision: "approve" })
+                      }
+                    >
+                      Approve and send
+                    </Button>
+                  ) : null}
                   <Button
-                    size="sm"
+                    variant="secondary"
                     disabled={decide.isPending}
-                    aria-busy={busy && decide.variables?.decision === "approve"}
+                    aria-busy={busy && decide.variables?.decision === "reject"}
                     onClick={() =>
-                      decide.mutate({ change, decision: "approve" })
+                      decide.mutate({ change, decision: "reject" })
                     }
                   >
-                    Approve and send
+                    {change.isOwn ? "Withdraw" : "Reject"}
                   </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={decide.isPending}
-                  aria-busy={busy && decide.variables?.decision === "reject"}
-                  onClick={() => decide.mutate({ change, decision: "reject" })}
-                >
-                  {change.isOwn ? "Withdraw" : "Reject"}
-                </Button>
-              </AlertActions>
-            ) : null}
-          </Alert>
-        )
-      })}
-    </div>
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
