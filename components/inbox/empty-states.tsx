@@ -190,15 +190,22 @@ const NO_COUNTS: EmptyCounts = {
 }
 
 /**
- * A message in place of content (reference `.empty`): a tinted mark, the
- * title, one muted sentence and at most one action. Used for the pane that
- * has nothing selected and for every reason a queue can be empty.
+ * A message in place of content (reference `.empty`): a tinted mark or a
+ * line illustration, the title (an h2, at weight 500 like Notion Mail's
+ * "All caught up!"), one muted sentence and at most one action. Used for
+ * the pane that has nothing selected and for every reason a queue can be
+ * empty.
+ *
+ * `illustration` takes the mark's place. It is drawn here, as the `Empty`
+ * primitive's children, until the primitive grows its own illustration
+ * slot (FOUNDATION Drop 1); the swap is moving this one prop.
  */
 function Statement({
   title,
   description,
   action,
   icon = <InboxIcon />,
+  illustration,
   tone = "neutral",
   className,
 }: {
@@ -206,20 +213,178 @@ function Statement({
   description?: React.ReactNode
   action?: React.ReactNode
   icon?: React.ReactNode
+  illustration?: React.ReactNode
   tone?: "neutral" | "ok" | "bad"
   className?: string
 }) {
   return (
     <Empty
-      title={title}
+      title={<span className="font-medium">{title}</span>}
       description={description}
       action={action}
-      icon={icon}
+      icon={illustration ? null : icon}
       tone={tone}
       titleAs="h2"
       className={className}
-    />
+    >
+      {illustration || null}
+    </Empty>
   )
+}
+
+/**
+ * Line art for the empty list (Notion Mail's inbox-zero drawing, in our own
+ * shapes): 112px, a 1.5 stroke in `currentColor`, the muted ink for the
+ * object and the full ink for the one detail that carries the meaning.
+ * Always aria-hidden: the title says it in words. Nothing animates, so
+ * reduced motion has nothing to stop (the hourglass is a still drawing,
+ * never a spinner).
+ */
+function Art({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      data-slot="empty-illustration"
+      aria-hidden
+      focusable="false"
+      viewBox="0 0 112 112"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-28 shrink-0 text-ink-muted"
+    >
+      {children}
+    </svg>
+  )
+}
+
+/** The tray every inbox drawing starts from. */
+const TRAY = (
+  <>
+    <path d="M18 66 30 38h52l12 28v18a4 4 0 0 1-4 4H22a4 4 0 0 1-4-4Z" />
+    <path d="M18 66h22l4 8h24l4-8h22" />
+  </>
+)
+
+/**
+ * The danger mark for a reason that is a problem (`bad`): an exclamation in
+ * a circle, so the state is not carried by the red alone.
+ */
+const ALERT_MARK = (
+  <g className="text-danger-ink">
+    <circle cx="88" cy="24" r="10" />
+    <path d="M88 19v6" />
+    <path d="M88 29.5h.01" />
+  </g>
+)
+
+/** Caught up: the tray with a tick in it. */
+const TRAY_TICK = (
+  <Art>
+    {TRAY}
+    <path className="text-ink" d="m46 54 7 7 13-14" />
+  </Art>
+)
+
+/** Nothing yet: the empty tray, with a little air above it. */
+const TRAY_EMPTY = (
+  <Art>
+    {TRAY}
+    <path d="M46 26v-6M56 24V14M66 26v-6" />
+  </Art>
+)
+
+/** No clients or locations: a shopfront. */
+const STOREFRONT = (
+  <Art>
+    <path d="M24 44 32 26h48l8 18" />
+    <path
+      className="text-ink"
+      d="M24 44a8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0 8 8 0 0 0 16 0"
+    />
+    <path d="M28 52v36h56V52" />
+    <path d="M48 88V68h16v20" />
+    <path d="M70 62h8v10h-8Z" />
+    <path d="M16 88h80" />
+  </Art>
+)
+
+/** Not connected: a plug pulled out of its socket. */
+const UNPLUGGED = (
+  <Art>
+    <path d="M8 58h14" />
+    <rect x="22" y="48" width="20" height="20" rx="4" />
+    <path d="M42 53h8M42 63h8" />
+    <rect className="text-ink" x="64" y="46" width="24" height="24" rx="5" />
+    <path className="text-ink" d="M72 55v6M80 55v6" />
+    <path d="M88 58h16" />
+    <path d="m55 44 3-6M57 58h2M55 72l3 6" />
+  </Art>
+)
+
+/** Disconnected: the pulled plug, with the danger mark. */
+const UNPLUGGED_ALERT = (
+  <Art>
+    <path d="M8 66h14" />
+    <rect x="22" y="56" width="20" height="20" rx="4" />
+    <path d="M42 61h8M42 71h8" />
+    <rect className="text-ink" x="60" y="54" width="24" height="24" rx="5" />
+    <path className="text-ink" d="M68 63v6M76 63v6" />
+    <path d="M84 66h20" />
+    {ALERT_MARK}
+  </Art>
+)
+
+/** Still coming in: an hourglass, part run. */
+const HOURGLASS = (
+  <Art>
+    <path d="M38 18h36M38 94h36" />
+    <path d="M42 18c0 20 14 26 14 38S42 74 42 94" />
+    <path d="M70 18c0 20-14 26-14 38s14 18 14 38" />
+    <path className="text-ink" d="M48 30h16M48 88c2-6 6-8 8-8s6 2 8 8Z" />
+  </Art>
+)
+
+/** An import that did not finish: the tray, with the danger mark. */
+const TRAY_ALERT = (
+  <Art>
+    {TRAY}
+    <path d="M44 52h24" />
+    {ALERT_MARK}
+  </Art>
+)
+
+/**
+ * The drawing for each reason. `filtered` and `unknown` have none: a
+ * search or filter that matched nothing gets the small mark and one line,
+ * as Notion Mail's search does, and "nothing to show" is not an event to
+ * illustrate.
+ */
+function illustrationFor(
+  reason: EmptyReason,
+  queue: Queue | undefined
+): React.ReactNode {
+  switch (reason) {
+    case "queue_empty":
+      return queue && visibleQueue(queue) === "done" ? TRAY_EMPTY : TRAY_TICK
+    case "checked":
+      return TRAY_EMPTY
+    case "no_clients":
+      return STOREFRONT
+    case "disconnected":
+      return UNPLUGGED_ALERT
+    case "not_connected":
+    case "never_imported":
+      return UNPLUGGED
+    case "importing":
+      return HOURGLASS
+    case "import_failed":
+      return TRAY_ALERT
+    case "filtered":
+    case "unknown":
+      return null
+  }
 }
 
 const ICONS: Record<EmptyReason, React.ReactNode> = {
@@ -287,8 +452,15 @@ function EmptyState({
       >
         {business ? "Link your listings" : "Add a client"}
       </Link>
-    ) : reason === "disconnected" ||
-      reason === "import_failed" ||
+    ) : reason === "disconnected" ? (
+      // Says what the page it opens is for here. Same place as below.
+      <Link
+        href="/settings/connections"
+        className={cn(buttonVariants({ variant: "secondary" }))}
+      >
+        Reconnect Google
+      </Link>
+    ) : reason === "import_failed" ||
       reason === "never_imported" ||
       reason === "not_connected" ? (
       <Link
@@ -305,6 +477,7 @@ function EmptyState({
       description={description}
       action={action}
       icon={ICONS[reason]}
+      illustration={illustrationFor(reason, queue)}
       tone={
         // An empty Done queue is not good news; every other empty queue is.
         reason === "queue_empty" && queue && visibleQueue(queue) === "done"

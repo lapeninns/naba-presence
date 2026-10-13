@@ -552,7 +552,9 @@ test.describe("touch: critical journeys at 390x844", () => {
       const list = page.getByRole("region", { name: "Review list" })
       await tap(
         list.getByRole("button", {
-          name: new RegExp(inboxTenant.text + " "),
+          // The excerpt ends the row's name now (who, status and time come
+          // first), so it is followed by a space or by nothing.
+          name: new RegExp(inboxTenant.text + "(?: |$)"),
         })
       )
       await expect(page).toHaveURL(

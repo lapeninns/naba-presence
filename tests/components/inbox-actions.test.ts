@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   describeOutcomeToast,
@@ -52,14 +52,55 @@ describe("describeOutcomeToast", () => {
   it("shows success copy for an actually-published outcome", () => {
     expect(describeOutcomeToast("published")).toEqual({
       title: "Reply published",
-      description: "It is live on Google now.",
+      description: "Live on Google.",
       type: "success",
     })
+  })
+  // D5: a Google write is an outcome, never an Undo. A published reply may
+  // link to the review on Google, in a new tab that is told nothing.
+  it("offers View on Google, not Undo, for a published reply with a link", () => {
+    const toast = describeOutcomeToast("published", {
+      googleReplyUrl: "https://search.google.com/local/reviews?r=1",
+    })
+    expect(toast.title).toBe("Reply published")
+    expect(toast.actionProps?.children).toBe("View on Google")
+    const open = vi.spyOn(window, "open").mockReturnValue(null)
+    toast.actionProps?.onClick()
+    expect(open).toHaveBeenCalledWith(
+      "https://search.google.com/local/reviews?r=1",
+      "_blank",
+      "noopener,noreferrer"
+    )
+    open.mockRestore()
+  })
+  it("offers no action without an https link, and never on another outcome", () => {
+    expect(describeOutcomeToast("published").actionProps).toBeUndefined()
+    expect(
+      describeOutcomeToast("published", { googleReplyUrl: null }).actionProps
+    ).toBeUndefined()
+    expect(
+      describeOutcomeToast("published", {
+        googleReplyUrl: "javascript:alert(1)",
+      }).actionProps
+    ).toBeUndefined()
+    for (const status of [
+      "awaiting_approval",
+      "rejected",
+      "returned_to_draft",
+      "deleted",
+      "cancelled",
+      "pending",
+    ]) {
+      const toast = describeOutcomeToast(status, {
+        googleReplyUrl: "https://search.google.com/local/reviews?r=1",
+      })
+      expect(toast.actionProps).toBeUndefined()
+    }
   })
   it("shows the awaiting-approval copy, not success", () => {
     expect(describeOutcomeToast("awaiting_approval")).toEqual({
       title: "Submitted for approval",
-      description: "A manager needs to approve it before it goes live.",
+      description: "It goes live on Google once a manager approves it.",
       type: "info",
     })
   })
@@ -71,7 +112,7 @@ describe("describeOutcomeToast", () => {
   it("shows success copy when a reject decision returns the reply to draft", () => {
     expect(describeOutcomeToast("returned_to_draft")).toEqual({
       title: "Reply sent back for edits",
-      description: "The author can revise it and submit again.",
+      description: "Its author can revise it and submit it again.",
       type: "success",
     })
   })

@@ -749,3 +749,100 @@ describe("ReplyComposer — first draft on `g`", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 })
+
+// The insert bar puts plain text into the reply exactly as typing would:
+// the same box, the same dirty state the publish bar reads, and no network.
+describe("ReplyComposer — the insert bar", () => {
+  it("inserts a local template greeting by name and signing off as the venue, calling nothing", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount()
+    const bar = document.querySelector<HTMLElement>(
+      '[data-slot="composer-prompt-bar"]'
+    )!
+    const insert = within(bar).getByRole("button", { name: "Insert template" })
+    // The tooltip says what the name says, for the touch drawing where the
+    // label is visually hidden.
+    expect(insert).toHaveAttribute("title", "Insert template")
+    await user.click(insert)
+    expect(textbox()).toHaveValue(
+      "Hi Sam,\n\n\n\nBest wishes,\nThe team at Riverside"
+    )
+    expect(mutateAsync).not.toHaveBeenCalled()
+    // An edit like any other: the publish bar now offers the composer's save.
+    expect(screen.getByRole("button", { name: "Probe save" })).toBeEnabled()
+    // And the guidance ticks the greeting off.
+    const guidance = screen.getByRole("list", { name: "Reply guidance" })
+    expect(
+      within(guidance)
+        .getByText(/Greets them by name/)
+        .closest("li")
+    ).toHaveAttribute("data-met", "true")
+  })
+
+  it("greets an anonymous reviewer without a name", async () => {
+    const user = userEvent.setup()
+    mount({ reviewerIsAnonymous: true, reviewerDisplayName: null })
+    await user.click(screen.getByRole("button", { name: "Insert template" }))
+    expect(textbox()).toHaveValue(
+      "Hello,\n\n\n\nBest wishes,\nThe team at Riverside"
+    )
+  })
+
+  it("starts an appended template on its own paragraph after existing words", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING)
+    // The box has not been used, so the template goes at the end — after a
+    // paragraph break, never run on from the last sentence.
+    await user.click(screen.getByRole("button", { name: "Insert template" }))
+    expect(textbox()).toHaveValue(
+      "Existing draft body\n\nHi Sam,\n\n\n\nBest wishes,\nThe team at Riverside"
+    )
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("inserts a variable at the caret", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING)
+    const field = textbox() as HTMLTextAreaElement
+    await user.click(field)
+    // "Existing draft body" with the caret after "Existing ".
+    field.setSelectionRange(9, 9)
+    await user.click(screen.getByRole("button", { name: "Insert variable" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Venue name/ })
+    )
+    expect(textbox()).toHaveValue("Existing Riversidedraft body")
+    await user.click(screen.getByRole("button", { name: "Insert variable" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Reviewer.s first name/ })
+    )
+    expect(textbox()).toHaveValue("Existing RiversideSamdraft body")
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("says why there is no first name to insert", async () => {
+    const user = userEvent.setup()
+    mount({ reviewerDisplayName: "J." })
+    await user.click(screen.getByRole("button", { name: "Insert variable" }))
+    const item = await screen.findByRole("menuitem", {
+      name: /Reviewer.s first name/,
+    })
+    expect(item).toHaveAttribute("aria-disabled", "true")
+    expect(item).toHaveAccessibleDescription(
+      "This review gives no first name to greet."
+    )
+  })
+
+  it("counts the characters, in danger ink past Google's limit", () => {
+    mount(EXISTING)
+    const count = document.querySelector<HTMLElement>(
+      '[data-slot="char-count"]'
+    )!
+    expect(count).toHaveTextContent("19 characters")
+    expect(count).toHaveClass("text-count", "tabular-nums", "text-ink-muted")
+    fireEvent.change(textbox(), { target: { value: "a".repeat(4097) } })
+    expect(count).toHaveTextContent("4,097 characters")
+    expect(count).toHaveClass("text-danger-ink")
+    expect(count).not.toHaveClass("text-ink-muted")
+  })
+})

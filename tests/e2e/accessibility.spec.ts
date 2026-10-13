@@ -1235,7 +1235,7 @@ for (const theme of themes) {
           )
         ).toBeVisible()
         await expect(
-          page.getByRole("link", { name: "Manage connection" })
+          page.getByRole("link", { name: "Reconnect Google" })
         ).toHaveAttribute("href", "/settings/connections")
         await expectAccessible(
           page,

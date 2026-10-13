@@ -152,6 +152,48 @@ describe("ReviewDetail", () => {
     ).toBeTruthy()
   })
 
+  // Which venue the review is for is always on screen: the location for a
+  // business, the client first for an agency.
+  it("names the venue under the reviewer, client first when there is one", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const { container, unmount } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    expect(
+      container.querySelector('[data-slot="review-venue"]')
+    ).toHaveTextContent(/^Riverside$/)
+    unmount()
+
+    const agency = renderPane(
+      <ReviewDetail reviewId="rev-1" clientName="Old Crown Group" />
+    )
+    expect(
+      agency.container.querySelector('[data-slot="review-venue"]')
+    ).toHaveTextContent(/^Old Crown Group · Riverside$/)
+  })
+
+  // A message header (avatar beside the name) over words that span the
+  // whole column; the rail stays in the DOM but is not drawn, and one
+  // hairline separates the review from the reply.
+  it("lays each thread item out as a header row over a full-width body", () => {
+    fakeDetail({ isPending: false, isError: false, data: detail })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const review = container.querySelector<HTMLElement>(
+      '[data-slot="thread-review"]'
+    )!
+    expect(review).toHaveClass("border-b", "border-line")
+    expect(review.querySelector('[data-slot="thread-rail"]')).toHaveClass(
+      "hidden"
+    )
+    const words = screen.getByText("Slow service at breakfast.")
+    expect(words.closest(".col-span-2")?.parentElement).toBe(review)
+    const reply = container.querySelector<HTMLElement>(
+      '[data-slot="thread-reply"]'
+    )!
+    expect(
+      within(reply).getByRole("heading", { name: "Reply as Riverside" })
+        .parentElement?.parentElement
+    ).toBe(reply)
+  })
+
   it("gives an anonymous reviewer no initials", () => {
     fakeDetail({
       isPending: false,
@@ -172,7 +214,7 @@ describe("ReviewDetail", () => {
   })
 
   // Who, in one line under the name: stars, when, and that it is a Google
-  // review. The listing is named once, on the reply ("Reply as …").
+  // review. The venue has its own line under it (see "names the venue …").
   it("reads the rating in the thread's meta line", () => {
     fakeDetail({
       isPending: false,
@@ -957,6 +999,47 @@ describe("ReviewDetail — publish bar", () => {
     expect(
       container.querySelector('[data-slot="action-bar-spacer"]')
     ).toBeNull()
+  })
+
+  // The primary in the inbox's bar reaches Google (or asks for the approval
+  // that will), so the bar is the one charcoal bar, and the status words on
+  // it take the on-charcoal inks.
+  it("draws the bar charcoal when it carries actions, with on-charcoal status words", () => {
+    fakeDetail({ isPending: false, isError: false, data: readyToPublish })
+    const { container } = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        actions={<button type="button">Publish reply</button>}
+      />
+    )
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).toHaveAttribute("data-bar-tone", "charcoal")
+    expect(footer).not.toHaveClass("bg-surface")
+    const line = footer!.querySelector('[data-slot="reply-status"]')
+    expect(line).toHaveClass("text-ink-on-charcoal")
+    expect(line).not.toHaveClass("text-ink")
+  })
+
+  it("keeps the plain surface bar without actions and while loading", () => {
+    fakeDetail({ isPending: false, isError: false, data: readyToPublish })
+    const { container, unmount } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).toHaveAttribute("data-bar-tone", "surface")
+    expect(footer!.querySelector('[data-slot="reply-status"]')).toHaveClass(
+      "text-ink"
+    )
+    unmount()
+
+    fakeDetail({ isPending: true, isError: false })
+    const loading = renderPane(
+      <ReviewDetail
+        reviewId="rev-1"
+        actions={<button type="button">Publish reply</button>}
+      />
+    )
+    expect(
+      loading.container.querySelector('[data-slot="composer-footer"]')
+    ).toHaveAttribute("data-bar-tone", "surface")
   })
 
   it("gives a viewer no bar, the status inline and a note", () => {
