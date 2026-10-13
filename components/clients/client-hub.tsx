@@ -24,6 +24,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import {
   DropdownMenu,
@@ -32,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
+import { KpiTile } from "@/components/ui/kpi-tile"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
@@ -91,7 +93,7 @@ function ClientHub({
     return (
       <>
         <PageHeader title="Client" eyebrow="Client" />
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
           <Empty
             tone="bad"
             titleAs="h2"
@@ -118,7 +120,7 @@ function ClientHub({
               </>
             }
           />
-        </div>
+        </Card>
       </>
     )
   }
@@ -205,7 +207,7 @@ function ClientHub({
           name={client.name}
           colour={client.colour}
           size="lg"
-          className="mt-1 hidden @min-[480px]:flex"
+          className="mt-1 hidden @md:flex"
         />
         <PageHeader
           className="min-w-0 flex-1"
@@ -250,7 +252,7 @@ function ClientHub({
             Each opens the inbox or listings filtered to {client.name}.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 @min-[820px]:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
           <WorkTile
             label="Needs reply"
             value={formatNumber(client.openWork.needsReply)}
@@ -287,7 +289,10 @@ function ClientHub({
         </div>
       </section>
 
-      <div className="grid items-start gap-6 @min-[980px]:grid-cols-[minmax(0,1fr)_minmax(16rem,21rem)]">
+      {/* The page is the container (PageFrame `@container`). At a 1280px
+          window with the 240px sidebar it is about 979px wide, so the side
+          column has to arrive at @4xl (56rem, 896px), not at 980px. */}
+      <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
         <ListingsSection
           client={client}
           listings={locations}
@@ -299,32 +304,35 @@ function ClientHub({
         />
         <aside
           aria-label={`${client.name} details`}
-          className="flex flex-col gap-4"
+          className="flex min-w-0 flex-col gap-4 @4xl:w-80 @4xl:shrink-0"
         >
           <ImportCard client={client} canManage={canManage} />
-          <section
-            aria-labelledby="client-notes"
-            className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-4"
-          >
-            <h2 id="client-notes" className="text-body font-semibold text-ink">
-              Notes for the team
-            </h2>
-            <p
-              className={cn(
-                "text-ui break-words whitespace-pre-line",
-                client.notes ? "text-ink" : "text-ink-muted"
-              )}
-            >
-              {client.notes || "No notes yet."}
-            </p>
-            {canManage ? (
-              <Link
-                href={`/clients/${client.id}/settings#details`}
-                className="self-start rounded-(--np-radius-tag) text-ui font-medium text-accent-ink underline underline-offset-3 focus-halo pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
-              >
-                Edit notes
-              </Link>
-            ) : null}
+          <section aria-labelledby="client-notes">
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle as="h2" id="client-notes">
+                  Notes for the team
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                <p
+                  className={cn(
+                    "text-ui break-words whitespace-pre-line",
+                    client.notes ? "text-ink" : "text-ink-muted"
+                  )}
+                >
+                  {client.notes || "No notes yet."}
+                </p>
+                {canManage ? (
+                  <Link
+                    href={`/clients/${client.id}/settings#details`}
+                    className="self-start rounded-(--np-radius-tag) text-ui font-medium text-accent-ink underline underline-offset-3 focus-halo pointer-coarse:inline-flex pointer-coarse:min-h-(--np-touch) pointer-coarse:items-center"
+                  >
+                    Edit notes
+                  </Link>
+                ) : null}
+              </CardContent>
+            </Card>
           </section>
         </aside>
       </div>
@@ -394,6 +402,14 @@ function LoginLine({
   )
 }
 
+/**
+ * One work count as a deep link into the filtered inbox (or listings).
+ *
+ * The figure is the shared `KpiTile`; this wrapper only makes the whole tile
+ * one link, so it is a single tab stop whose accessible name starts with the
+ * visible label ("Needs reply 5 Across this client's listings"). Once
+ * `KpiTile` takes an `href` this wrapper goes away.
+ */
 function WorkTile({
   label,
   value,
@@ -410,25 +426,27 @@ function WorkTile({
   return (
     <Link
       href={href}
-      className="group flex min-w-0 flex-col gap-1 rounded-(--np-radius-card) border border-line bg-surface p-4 text-ink no-underline focus-halo transition-[border-color,box-shadow] duration-(--np-duration-fast) hover:border-line-strong hover:shadow-np-raised"
+      className="group/work flex min-w-0 rounded-(--np-radius-card) text-ink no-underline focus-halo"
     >
-      <span className="flex items-center justify-between gap-2 text-ui font-medium text-ink-muted">
-        {label}
-        <ChevronRightIcon
-          aria-hidden
-          strokeWidth={1.75}
-          className="size-4 shrink-0 transition-transform duration-(--np-duration-fast) group-hover:translate-x-0.5"
-        />
-      </span>
-      <span
-        className={cn(
-          "font-mono text-[26px] leading-8 font-semibold tracking-[-0.02em] tabular-nums",
-          tone === "bad" ? "text-danger-ink" : "text-ink"
-        )}
-      >
-        {value}
-      </span>
-      <span className="text-caption text-ink-muted">{hint}</span>
+      <KpiTile
+        label={label}
+        value={value}
+        hint={
+          tone === "bad" ? (
+            <span className="font-medium text-danger-ink">{hint}</span>
+          ) : (
+            hint
+          )
+        }
+        trailing={
+          <ChevronRightIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="size-4 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) group-hover/work:translate-x-0.5"
+          />
+        }
+        className="w-full transition-[border-color,box-shadow] duration-(--np-duration-fast) group-hover/work:border-line-strong group-hover/work:shadow-np-raised"
+      />
     </Link>
   )
 }
@@ -460,7 +478,7 @@ function ListingsSection({
   return (
     <section
       aria-labelledby="client-listings"
-      className="flex min-w-0 flex-col gap-2.5"
+      className="flex min-w-0 flex-1 flex-col gap-2.5"
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h2 id="client-listings" className="text-title font-semibold text-ink">
@@ -476,7 +494,7 @@ function ListingsSection({
       </div>
 
       {listings.length === 0 ? (
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
           <Empty
             titleAs="h3"
             icon={<MapPinIcon />}
@@ -497,8 +515,11 @@ function ListingsSection({
               )
             }
           />
-        </div>
+        </Card>
       ) : (
+        // Below 720px of its own width the table becomes record cards: the
+        // name is the headline, the address its one meta line, and the
+        // Google and verification states are unlabelled status words.
         <DataTable
           caption={`${client.name}'s listings with their Google link and verification`}
           rows={listings}
@@ -530,6 +551,7 @@ function ListingsSection({
             {
               id: "google",
               header: "Google",
+              label: "",
               cell: (listing) =>
                 listing.linkId ? (
                   listing.accessLost ? (
@@ -550,6 +572,7 @@ function ListingsSection({
             {
               id: "verified",
               header: "Verified",
+              label: "",
               cell: (listing) =>
                 !listing.linkId ? (
                   <span className="text-ui text-ink-muted">—</span>
@@ -637,44 +660,51 @@ function ImportCard({
   const { running, failed, succeeded, notStarted } = client.backfill
   const total = running + failed + succeeded + notStarted
   return (
-    <section
-      aria-labelledby="client-import"
-      className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4"
-    >
-      <h2 id="client-import" className="text-body font-semibold text-ink">
-        Review import
-      </h2>
-      {total === 0 ? (
-        <p className="text-ui text-ink-muted">
-          Nothing to import until a listing is linked.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2 text-ui">
-          {running > 0 ? (
-            <ImportRow tone="info" label="Importing" count={running} />
-          ) : null}
-          {failed > 0 ? (
-            <ImportRow tone="bad" label="Stopped" count={failed} />
-          ) : null}
-          {succeeded > 0 ? (
-            <ImportRow tone="ok" label="Complete" count={succeeded} />
-          ) : null}
-          {notStarted > 0 ? (
-            <ImportRow tone="neutral" label="Not started" count={notStarted} />
-          ) : null}
-        </ul>
-      )}
-      {canManage && (failed > 0 || notStarted > 0) ? (
-        <Link
-          href={`/setup?client=${client.id}&step=backfill`}
-          className={cn(
-            buttonVariants({ variant: "secondary", size: "sm" }),
-            "self-start"
+    <section aria-labelledby="client-import">
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle as="h2" id="client-import">
+            Review import
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2.5">
+          {total === 0 ? (
+            <p className="text-ui text-ink-muted">
+              Nothing to import until a listing is linked.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2 text-ui">
+              {running > 0 ? (
+                <ImportRow tone="info" label="Importing" count={running} />
+              ) : null}
+              {failed > 0 ? (
+                <ImportRow tone="bad" label="Stopped" count={failed} />
+              ) : null}
+              {succeeded > 0 ? (
+                <ImportRow tone="ok" label="Complete" count={succeeded} />
+              ) : null}
+              {notStarted > 0 ? (
+                <ImportRow
+                  tone="neutral"
+                  label="Not started"
+                  count={notStarted}
+                />
+              ) : null}
+            </ul>
           )}
-        >
-          {failed > 0 ? "Retry the import" : "Start the import"}
-        </Link>
-      ) : null}
+          {canManage && (failed > 0 || notStarted > 0) ? (
+            <Link
+              href={`/setup?client=${client.id}&step=backfill`}
+              className={cn(
+                buttonVariants({ variant: "secondary", size: "sm" }),
+                "self-start"
+              )}
+            >
+              {failed > 0 ? "Retry the import" : "Start the import"}
+            </Link>
+          ) : null}
+        </CardContent>
+      </Card>
     </section>
   )
 }
@@ -784,11 +814,17 @@ function DiagnosisAlert({
   )
 }
 
+/**
+ * The hub's loading shape, drawn by the route's `loading.tsx` and by the hub
+ * while its query is pending: the same header, the same tile grid and the
+ * same listings-plus-side-column split at the same container sizes, so the
+ * swap to the real hub does not jump.
+ */
 function HubSkeleton() {
   return (
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
       <div className="flex items-start gap-4">
-        <Skeleton className="size-12 rounded-(--np-radius-card)" />
+        <Skeleton className="mt-1 hidden size-12 rounded-(--np-radius-card) @md:block" />
         <div className="flex flex-1 flex-col gap-2 pt-1">
           <Skeleton className="h-3 w-12" />
           <Skeleton className="h-8 w-64 max-w-full" />
@@ -798,12 +834,18 @@ function HubSkeleton() {
       <p role="status" className="text-ui text-ink-muted">
         Loading this client…
       </p>
-      <div className="grid grid-cols-2 gap-3 @min-[820px]:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @3xl:grid-cols-4">
         {[0, 1, 2, 3].map((index) => (
           <Skeleton key={index} className="h-28 rounded-(--np-radius-card)" />
         ))}
       </div>
-      <Skeleton className="h-48 rounded-(--np-radius-card)" />
+      <div className="flex flex-col gap-6 @4xl:flex-row @4xl:items-start">
+        <Skeleton className="h-48 min-w-0 flex-1 rounded-(--np-radius-card)" />
+        <div className="flex flex-col gap-4 @4xl:w-80 @4xl:shrink-0">
+          <Skeleton className="h-28 rounded-(--np-radius-card)" />
+          <Skeleton className="h-24 rounded-(--np-radius-card)" />
+        </div>
+      </div>
     </div>
   )
 }
