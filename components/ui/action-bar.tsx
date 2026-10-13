@@ -145,8 +145,14 @@ function ActionBar({
           className={cn(
             "flex min-w-0 grow basis-60 items-center gap-2.5 text-ui [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75]",
             // On a docked phone bar the status shares one line with the
-            // actions: it takes what they leave and wraps within it.
-            dock && "max-md:basis-0"
+            // actions: it takes what they leave and wraps within it, to at
+            // most two lines (2 x 20px, under the 44px buttons). The bar
+            // must stay --np-actionbar-h tall, because the spacer below and
+            // the document's scroll padding (globals.css) both assume it:
+            // a taller bar would cover the page's last line and a focused
+            // field. The clamp is visual only; the full words stay in the
+            // accessibility tree and in the polite announcement.
+            dock && "max-md:basis-0 max-md:[&>:not(svg)]:line-clamp-2"
           )}
         >
           {status}
@@ -183,12 +189,15 @@ function ActionBar({
   if (!dock) return bar
   return (
     <>
-      {/* Keeps the page's last line reachable above the fixed bar. Phone
-          only; from `md` the bar is back in flow. */}
+      {/* Keeps the page's last line reachable above the fixed bar: the
+          bar's whole height, which is the action-bar height plus the dock
+          edge (home indicator or keyboard), the same sum the CHROME
+          CONTRACT uses for scroll padding. Phone only; from `md` the bar is
+          back in flow. */}
       <div
         aria-hidden
         data-slot="action-bar-spacer"
-        className="h-(--np-actionbar-h) md:hidden"
+        className="h-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))] md:hidden"
       />
       {bar}
     </>

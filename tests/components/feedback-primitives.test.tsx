@@ -97,9 +97,12 @@ describe("ActionBar", () => {
       />
     )
     expect(slots(container)).toHaveLength(1)
+    // The spacer reserves the bar's whole docked height (action bar plus
+    // the dock edge), the same sum the chrome contract's scroll padding
+    // uses, so the page's last line is never under the bar.
     expect(
-      container.querySelector('[data-slot="action-bar-spacer"]')
-    ).not.toBeNull()
+      container.querySelector('[data-slot="action-bar-spacer"]')?.className
+    ).toContain("var(--np-actionbar-h)+var(--np-dock-bottom)")
   })
 
   it("leaves no node at all while not visible", () => {
