@@ -26,10 +26,10 @@ export function OnboardingServiceRow({ row, index, categories, onChange, onRemov
   // The currency picker's list, with a saved code kept in it.
   const currencies = withCurrent(currencyOptions(), currency, "currency")
   const prefix = `onboarding-service-${index}`
-  return <div role="group" aria-label={`Service ${index + 1}`} className="flex min-w-0 flex-col gap-3 rounded-(--np-radius-control) border border-line p-3">
+  return <div role="group" aria-label={`Service ${index + 1}`} className="flex min-w-0 flex-col gap-3 border-t border-line-subtle pt-3">
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <h5 className="text-ui font-medium break-words">{title}</h5>
+        <h5 className="text-body font-medium break-words text-ink">{title}</h5>
         <p className="text-caption text-ink-muted break-all">{custom ? categories.find((category) => serviceCategoryId(category.name) === serviceCategoryId(custom.category))?.displayName ?? custom.category : structured?.serviceTypeId}</p>
       </div>
       <Button type="button" variant="outline" aria-label={`Remove service ${index + 1}`} onClick={onRemove}>Remove</Button>

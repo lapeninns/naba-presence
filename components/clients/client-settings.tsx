@@ -33,6 +33,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
@@ -112,8 +113,9 @@ type ClientDetails = {
  * support ticket, not a security boundary.
  *
  * Reference `client-settings.html`: a section rail beside the Details form,
- * the listings tables and the Archive danger card; the rail becomes a row of
- * links on a narrow screen.
+ * the listings tables and the Archive danger card. On a narrow screen the
+ * rail is a grouped list of section links with chevrons (one nav, so the
+ * landmark name is not repeated; the desk rail is display:none there).
  */
 function ClientSettings({ clientId }: { clientId: string }) {
   const query = useClient(clientId)
@@ -335,17 +337,28 @@ function SettingsBody({
       <div className="flex flex-col gap-6 @3xl:flex-row @3xl:items-start">
         <nav
           aria-label="Client settings sections"
-          className="flex flex-wrap gap-1 @3xl:sticky @3xl:top-(--np-toolbar-h) @3xl:w-52 @3xl:shrink-0 @3xl:flex-col @3xl:gap-0.5 @3xl:pt-4"
+          className="@3xl:sticky @3xl:top-(--np-toolbar-h) @3xl:w-52 @3xl:shrink-0 @3xl:pt-4"
         >
-          {SECTIONS.map((section) => (
-            <a
-              key={section.id}
-              href={`#${section.id}`}
-              className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill"
-            >
-              {section.label}
-            </a>
-          ))}
+          <GroupedList className="@3xl:hidden">
+            {SECTIONS.map((section) => (
+              <GroupedListItem
+                key={section.id}
+                href={`#${section.id}`}
+                label={section.label}
+              />
+            ))}
+          </GroupedList>
+          <div className="hidden @3xl:flex @3xl:flex-col @3xl:gap-0.5">
+            {SECTIONS.map((section) => (
+              <a
+                key={section.id}
+                href={`#${section.id}`}
+                className="flex min-h-(--np-control-h) items-center rounded-(--np-radius-control) px-2.5 text-ui text-ink-secondary no-underline focus-halo hover:bg-fill"
+              >
+                {section.label}
+              </a>
+            ))}
+          </div>
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col gap-6">
@@ -819,7 +832,9 @@ function ArchiveSection({
       aria-labelledby="client-archive"
       className="scroll-mt-20"
     >
-      <Card className="border-danger-ink">
+      {/* The desk keeps the danger card; a phone reads it as a quiet group
+          with the consequence and a centred danger-ink text button. */}
+      <Card className="border-danger-ink @max-md:border-transparent @max-md:bg-fill-secondary">
         <CardHeader>
           <CardTitle as="h2" id="client-archive">
             Archive
@@ -853,8 +868,9 @@ function ArchiveSection({
           </p>
           <Button
             variant="danger-outline"
-            // A long client name wraps instead of pushing the card wider.
-            className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left [overflow-wrap:anywhere] whitespace-normal"
+            // A long client name wraps instead of pushing the card wider. On
+            // a phone it is a full-width, touch-height danger-ink text button.
+            className="h-auto min-h-(--np-control-h) max-w-full py-2 text-left [overflow-wrap:anywhere] whitespace-normal @max-md:min-h-(--np-touch) @max-md:w-full @max-md:border-transparent @max-md:bg-transparent @max-md:text-center"
             disabled={loading}
             focusableWhenDisabled={loading}
             aria-describedby="client-archive-reason"

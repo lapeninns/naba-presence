@@ -416,6 +416,7 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
 
   return (
     <SettingsSection
+      variant="group"
       id="privacy-requests"
       title="Privacy requests"
       description="Access, correction, erasure and restriction requests about reviewers’ data, each due 30 days after it is logged."

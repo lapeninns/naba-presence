@@ -101,7 +101,7 @@ export function ReviewedWritePanel({
         className
       )}
     >
-      <header className="flex min-w-0 flex-col gap-2">
+      <header className="flex min-w-0 flex-col gap-1">
         <Heading
           id={id}
           ref={heading}
@@ -110,8 +110,10 @@ export function ReviewedWritePanel({
         >
           {title}
         </Heading>
-        {description ? <p className="text-ui text-ink-secondary">{description}</p> : null}
-        {stage ? <ReviewedWriteSteps stage={stage} secondApprover={secondApprover} /> : null}
+        {description ? <p className="text-ui text-ink-muted">{description}</p> : null}
+        {stage ? (
+          <ReviewedWriteSteps stage={stage} secondApprover={secondApprover} className="mt-2" />
+        ) : null}
       </header>
       {children}
     </section>

@@ -67,7 +67,7 @@ function StepAgency({
   React.useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   return (
-    <div className="flex max-w-[27.5rem] flex-col gap-6">
+    <div className="flex max-w-md flex-col gap-6">
       <AgencyNameForm />
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">

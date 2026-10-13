@@ -31,14 +31,14 @@ export function OnboardingServices({ draft, rows, setRows, contextSaved, error }
   const choices = [...new Map(categories.flatMap((category) => category.serviceTypes).map((item) => [item.serviceTypeId, item])).values()]
   const ready = contextSaved && current && metadata.isSuccess && !metadata.isFetching && !metadata.error && rows.length < 100
   return <div role="group" aria-label="Creation services" className="flex min-w-0 flex-col gap-3 sm:col-span-2">
-    <h4 className="text-ui font-semibold">Services</h4>
+    <h4 className="text-ui font-semibold text-ink">Services</h4>
     <p className="text-caption text-ink-muted">Add the services this business offers. Saving keeps them in this proposal; Google validation and approval are separate.</p>
-    {!hasCategory || !contextSaved ? <p role="status" className="text-ui text-ink-muted">Select and save the categories, language and country before loading service choices.</p> : metadata.isFetching ? <p role="status" className="text-ui text-ink-muted">Loading service choices…</p> : null}
+    {!hasCategory || !contextSaved ? <p role="status" className="text-body text-ink-muted">Select and save the categories, language and country before loading service choices.</p> : metadata.isFetching ? <p role="status" className="text-body text-ink-muted">Loading service choices…</p> : null}
     {metadata.error && <div className="flex flex-col gap-2">
       <FormError>{describeActionError(metadata.error)}</FormError>
       <Button type="button" variant="outline" className="self-start" disabled={!contextSaved} onClick={() => void metadata.refetch()}>Retry service choices</Button>
     </div>}
-    {rows.length === 0 && <p className="text-ui text-ink-muted">No services in this proposal.</p>}
+    {rows.length === 0 && <p className="text-body text-ink-muted">No services in this proposal.</p>}
     {rows.map((row, index) => <OnboardingServiceRow key={index} row={row} index={index} categories={categories} onChange={(value) => setRows((currentRows) => currentRows.map((item, position) => position === index ? value : item))} onRemove={() => setRows((currentRows) => currentRows.filter((_, position) => position !== index))} />)}
     <Field>
       <FieldLabel htmlFor="onboarding-add-structured-service">Add a suggested service</FieldLabel>

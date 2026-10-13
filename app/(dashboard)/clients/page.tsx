@@ -1,6 +1,7 @@
 import { PageFrame, PageHeader } from "@/components/app-shell/page-frame"
 import { AllListingsLink } from "@/components/clients/all-listings-link"
 import {
+  ClientsCount,
   ClientsIndex,
   NewClientButton,
 } from "@/components/clients/clients-index"
@@ -18,6 +19,7 @@ export default async function ClientsPage() {
     <PageFrame width="wide">
       <PageHeader
         title="Clients"
+        meta={<ClientsCount />}
         description="Every business you look after, and what each one needs."
         actions={
           <>

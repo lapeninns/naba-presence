@@ -15,7 +15,6 @@ import {
   useState,
 } from "react"
 
-import { COUNT_TEXT_CLASS } from "@/components/ui/count-text"
 import { useFieldTriggerProps } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
@@ -102,10 +101,11 @@ const segmentedItemClassName = cn(
   "hover:text-ink",
   // Written out in full, not built from a helper: Tailwind only generates
   // classes it can read literally in the source.
-  "aria-pressed:bg-surface aria-pressed:text-ink aria-pressed:shadow-np-raised",
-  "data-active:bg-surface data-active:text-ink data-active:shadow-np-raised",
-  "data-checked:bg-surface data-checked:text-ink data-checked:shadow-np-raised",
-  "data-pressed:bg-surface data-pressed:text-ink data-pressed:shadow-np-raised",
+  // Selected: the thumb (the non-colour cue) and 600 ink.
+  "aria-pressed:bg-surface aria-pressed:font-semibold aria-pressed:text-ink aria-pressed:shadow-np-raised",
+  "data-active:bg-surface data-active:font-semibold data-active:text-ink data-active:shadow-np-raised",
+  "data-checked:bg-surface data-checked:font-semibold data-checked:text-ink data-checked:shadow-np-raised",
+  "data-pressed:bg-surface data-pressed:font-semibold data-pressed:text-ink data-pressed:shadow-np-raised",
   "disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50",
   "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
 )
@@ -514,8 +514,8 @@ export type SegmentedControlItemProps = Omit<
 > & {
   value: string
   /**
-   * A figure after the label — "Needs attention 3" — in mono tabular
-   * numerals so a changing count does not shift its neighbours. Part of the
+   * A figure after the label — "Needs attention 3" — in sans tabular
+   * figures (D1) so a changing count does not shift its neighbours. Part of the
    * segment's accessible name.
    */
   count?: React.ReactNode
@@ -549,7 +549,7 @@ function SegmentedControlItem({
               and `gap` does the spacing. */}{" "}
           <span
             data-slot="segmented-control-count"
-            className={cn(COUNT_TEXT_CLASS, "text-ink-muted")}
+            className="text-count leading-none font-normal text-ink-muted tabular-nums"
           >
             {count}
           </span>

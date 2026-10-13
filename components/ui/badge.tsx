@@ -11,13 +11,14 @@ const tone = (name: keyof typeof TONE_CLASSES) =>
 
 /**
  * A small, non-interactive label: a count, a category, a role. METADATA,
- * not state: "OWNER", "You", "3 new". If the word would change when
+ * not state: "Owner", "You", "3 new". If the word would change when
  * something happens ("Verified", "Paused"), use `StatusPill`; if it can be
  * pressed or removed, use a `Chip`. The full rule is in status-pill.tsx.
  *
  * Reference `.badge`: 20px tall, the tag radius, caption semibold (never
  * below the 12px floor), on the hover-fill grey with the strong secondary
- * ink. `role` is the mono role badge ("OWNER"). The status-coloured
+ * ink. `role` is the role badge ("Owner"): sentence case, medium weight,
+ * never mono uppercase (D8). The status-coloured
  * variants (`success`, `warning`, `info`, `destructive`) read the five tones
  * from lib/ui/status-tone.ts, so a badge and a pill in the same state are
  * the same colour. `shape="pill"` keeps a capsule for callers that asked for
@@ -39,7 +40,7 @@ const badgeVariants = cva(
         success: tone("healthy"),
         warning: tone("attention"),
         info: tone("pending"),
-        role: "bg-fill font-mono font-medium tracking-[0.02em] text-ink-secondary uppercase",
+        role: "bg-fill font-medium text-ink-secondary",
       },
       shape: {
         pill: "rounded-(--np-radius-pill)",

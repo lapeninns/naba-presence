@@ -14,8 +14,10 @@ export type SummaryRow = {
 
 /**
  * What a reviewed write will do, as label/value rows: stacked on a phone,
- * two columns from `sm`. The human rows come first; technical references
- * follow in a collapsed disclosure (`TechnicalDetails`).
+ * two columns from `sm`, a hairline between rows and no box around them
+ * (the label muted in `text-ui`, the value in `text-body`). The human rows
+ * come first; technical references follow in a quiet collapsed disclosure
+ * (`TechnicalDetails`).
  */
 export function SummaryList({
   rows,
@@ -31,17 +33,14 @@ export function SummaryList({
   return (
     <div data-slot="summary-list" className={cn("flex min-w-0 flex-col gap-2", className)}>
       {human.length > 0 ? (
-        <dl
-          aria-label={ariaLabel}
-          className="divide-y divide-line rounded-(--np-radius-card) border border-line"
-        >
+        <dl aria-label={ariaLabel} className="divide-y divide-line-subtle">
           {human.map((row) => (
             <div
               key={row.label}
-              className="grid min-w-0 gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-3"
+              className="grid min-w-0 gap-0.5 py-2.5 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] sm:gap-3"
             >
-              <dt className="text-caption text-ink-muted">{row.label}</dt>
-              <dd className="min-w-0 text-ui break-words whitespace-pre-wrap text-ink">
+              <dt className="text-ui text-ink-muted">{row.label}</dt>
+              <dd className="min-w-0 text-body break-words whitespace-pre-wrap text-ink">
                 {row.value}
               </dd>
             </div>
@@ -60,7 +59,8 @@ export function SummaryList({
 }
 
 /**
- * A collapsed "Technical details" disclosure for exact Google references.
+ * A collapsed "Technical details" disclosure for exact Google references:
+ * a quiet muted line with a chevron, no box, its contents indented under it.
  * They stay one tap away for support and audit, and out of the way of the
  * names and actions a person reads first.
  */
@@ -77,12 +77,9 @@ export function TechnicalDetails({
   readonly className?: string
 }) {
   return (
-    <details
-      data-slot="technical-details"
-      className={cn("group min-w-0 rounded-(--np-radius-card) border border-line", className)}
-    >
-      <summary className="flex min-h-(--np-control-h) cursor-pointer items-center gap-2 rounded-(--np-radius-card) px-3 text-ui text-ink-secondary focus-halo marker:content-none [&::-webkit-details-marker]:hidden">
-        <span aria-hidden className="text-ink-muted transition-transform group-open:rotate-90">
+    <details data-slot="technical-details" className={cn("group min-w-0", className)}>
+      <summary className="flex min-h-(--np-control-h) w-fit cursor-pointer items-center gap-2 rounded-(--np-radius-control) text-ui text-ink-muted focus-halo marker:content-none hover-fine:text-ink-secondary [&::-webkit-details-marker]:hidden">
+        <span aria-hidden className="text-ink-muted transition-transform group-open:rotate-90 motion-reduce:transition-none">
           ›
         </span>
         {/* Its own element, so "Technical details" is findable as text
@@ -90,9 +87,9 @@ export function TechnicalDetails({
         <span>{summary}</span>
       </summary>
       {list ? (
-        <dl className="flex min-w-0 flex-col gap-2 border-t border-line px-3 py-2.5">{children}</dl>
+        <dl className="flex min-w-0 flex-col gap-2 pt-1 pb-2.5 pl-5">{children}</dl>
       ) : (
-        <div className="flex min-w-0 flex-col gap-2 border-t border-line px-3 py-2.5 text-ui text-ink-secondary">{children}</div>
+        <div className="flex min-w-0 flex-col gap-2 pt-1 pb-2.5 pl-5 text-ui text-ink-secondary">{children}</div>
       )}
     </details>
   )

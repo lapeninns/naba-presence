@@ -250,6 +250,7 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
 
   return (
     <SettingsSection
+      variant="group"
       id="legal-holds"
       title="Legal holds"
       description="Reviews kept out of retention and erasure while a legal matter is open."

@@ -47,12 +47,12 @@ type PositionProps = Pick<
 >
 
 /**
- * The floating popup (reference `.menu`): surface, hairline edge, 10px
- * radius, pop shadow, 6px inset, at least 200px wide (never wider than the
- * viewport).
+ * The floating popup (Notion Mail's popover menu): an opaque surface (no
+ * glass, D3), hairline edge, the menu radius, the soft float shadow, 6px
+ * inset, at least 200px wide (never wider than the viewport).
  */
 const popupClassName =
-  "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-24px)] min-w-[200px] origin-(--transform-origin) flex-col gap-px overflow-y-auto rounded-[10px] border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
+  "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-24px)] min-w-[200px] origin-(--transform-origin) flex-col gap-px overflow-y-auto rounded-menu border border-line bg-surface p-1.5 text-ink shadow-np-float outline-none transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
 
 function DropdownMenuContent({
   className,
@@ -185,23 +185,57 @@ function DropdownMenuItem({
   )
 }
 
+/**
+ * Where a checkable row draws its ✓: `start` (the default) in a leading
+ * column, or `end`, trailing the label (Notion Mail's switcher: the current
+ * account ticked on the right).
+ */
+type IndicatorPosition = "start" | "end"
+
+function TrailingCheck({ children }: { children?: React.ReactNode }) {
+  return (
+    <span
+      data-slot="dropdown-menu-check"
+      data-position="end"
+      aria-hidden="true"
+      className="ml-auto flex size-4 shrink-0 items-center justify-center"
+    >
+      {children}
+    </span>
+  )
+}
+
 function DropdownMenuCheckboxItem({
   className,
   children,
+  indicatorPosition = "start",
   ...props
-}: MenuPrimitive.CheckboxItem.Props) {
+}: MenuPrimitive.CheckboxItem.Props & {
+  indicatorPosition?: IndicatorPosition
+}) {
+  const indicator = (
+    <MenuPrimitive.CheckboxItemIndicator className="flex">
+      <CheckIcon className="size-4 text-accent-ink!" />
+    </MenuPrimitive.CheckboxItemIndicator>
+  )
   return (
     <MenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
+      data-indicator-position={indicatorPosition}
       className={cn(itemClassName, className)}
       {...props}
     >
-      <CheckColumn>
-        <MenuPrimitive.CheckboxItemIndicator className="flex">
-          <CheckIcon className="size-4 text-accent-ink!" />
-        </MenuPrimitive.CheckboxItemIndicator>
-      </CheckColumn>
-      {children}
+      {indicatorPosition === "end" ? (
+        <>
+          {children}
+          <TrailingCheck>{indicator}</TrailingCheck>
+        </>
+      ) : (
+        <>
+          <CheckColumn>{indicator}</CheckColumn>
+          {children}
+        </>
+      )}
     </MenuPrimitive.CheckboxItem>
   )
 }
@@ -213,20 +247,34 @@ function DropdownMenuRadioGroup(props: MenuPrimitive.RadioGroup.Props) {
 function DropdownMenuRadioItem({
   className,
   children,
+  indicatorPosition = "start",
   ...props
-}: MenuPrimitive.RadioItem.Props) {
+}: MenuPrimitive.RadioItem.Props & {
+  indicatorPosition?: IndicatorPosition
+}) {
+  const indicator = (
+    <MenuPrimitive.RadioItemIndicator className="flex">
+      <CheckIcon className="size-4 text-accent-ink!" />
+    </MenuPrimitive.RadioItemIndicator>
+  )
   return (
     <MenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
+      data-indicator-position={indicatorPosition}
       className={cn(itemClassName, className)}
       {...props}
     >
-      <CheckColumn>
-        <MenuPrimitive.RadioItemIndicator className="flex">
-          <CheckIcon className="size-4 text-accent-ink!" />
-        </MenuPrimitive.RadioItemIndicator>
-      </CheckColumn>
-      {children}
+      {indicatorPosition === "end" ? (
+        <>
+          {children}
+          <TrailingCheck>{indicator}</TrailingCheck>
+        </>
+      ) : (
+        <>
+          <CheckColumn>{indicator}</CheckColumn>
+          {children}
+        </>
+      )}
     </MenuPrimitive.RadioItem>
   )
 }

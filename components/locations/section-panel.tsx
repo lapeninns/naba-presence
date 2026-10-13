@@ -2,19 +2,20 @@
 
 import { Alert, AlertDescription, AlertActions } from "@/components/ui/alert"
 import { Empty } from "@/components/ui/empty"
-import { cardClassName } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 /**
  * One sub-resource of the industry/administration GET is a { data, error }
  * pair. A failing sub-resource shows its own honest panel (never the raw
  * Google error string, per §7); an empty one shows a "nothing set" note;
- * otherwise its editor, on a plain card.
+ * otherwise its editor.
  *
- * The card is the reference `.card`: white on the canvas, a 1px hairline,
- * radius 12, no shadow. `heading` draws the title inside the card as a hairline-separated
- * header; it is off by default because every caller today already writes its
- * own heading above the panel, and two would read twice.
+ * Flat, not a card: the panel always sits inside a page section that has
+ * its own heading, so a box here would be card-in-card. One hairline above
+ * separates it from that heading; the content reads straight on the page.
+ * `heading` draws the title inside the panel instead; it is off by default
+ * because every caller today already writes its own heading above the
+ * panel, and two would read twice.
  */
 export function SectionPanel({
   title,
@@ -26,7 +27,7 @@ export function SectionPanel({
   title: string
   result: { data: unknown; error: string | null }
   children: (data: unknown) => React.ReactNode
-  /** Render `title` as the card's own header (an h3 over a hairline). */
+  /** Render `title` as the panel's own header (an h3 above the hairline). */
   heading?: boolean
   className?: string
 }) {
@@ -36,7 +37,8 @@ export function SectionPanel({
   if (result.data == null) {
     return (
       <Empty
-        className={cardClassName({ className })}
+        size="sm"
+        className={className}
         title={`No ${title.toLowerCase()} set`}
         description="There is nothing to manage here yet."
       />
@@ -45,16 +47,12 @@ export function SectionPanel({
   return (
     <div
       data-slot="section-panel"
-      className={cardClassName({
-        className: cn("flex min-w-0 flex-col", className),
-      })}
+      className={cn("flex min-w-0 flex-col gap-4", className)}
     >
       {heading ? (
-        <h3 className="border-b border-line px-(--np-card-pad) py-3 text-title font-semibold text-ink">
-          {title}
-        </h3>
+        <h3 className="text-section font-semibold text-ink">{title}</h3>
       ) : null}
-      <div className="flex flex-col gap-4 p-(--np-card-pad)">
+      <div className="flex min-w-0 flex-col gap-4 border-t border-line pt-4">
         {children(result.data)}
       </div>
     </div>

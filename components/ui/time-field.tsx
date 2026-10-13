@@ -181,7 +181,7 @@ function TimeField({
       data-slot="time-field"
       className={cn(
         fieldChromeClassName,
-        "h-(--np-field-h) w-26 px-(--np-field-pad-x) py-(--np-field-pad-y) font-mono tabular-nums",
+        "h-(--np-field-h) w-26 px-(--np-field-pad-x) py-(--np-field-pad-y) tabular-nums",
         className
       )}
       {...fieldControlProps(field)}

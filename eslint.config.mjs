@@ -27,6 +27,12 @@ const eslintConfig = defineConfig([
     "playwright-report/**",
     "coverage/**",
     ".pnpm-store/**",
+    // Agentic e2e journeys run on a machine-level `e2e` install that is not a
+    // project dependency (see e2e.config.ts), so their imports do not resolve
+    // in this toolchain. `.e2e/` is the runner's output.
+    "e2e.config.ts",
+    "tests/agentic/**",
+    ".e2e/**",
   ]),
 ])
 

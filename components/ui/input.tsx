@@ -123,7 +123,8 @@ function Input({
  * the tap target: a press on its border, padding or icon focuses the input
  * (the input alone is 2px short of the 44px field). Clearing goes through
  * the native value setter plus an `input` event so a controlled `onChange`
- * sees it exactly like typing, and focus returns to the field.
+ * sees it exactly like typing, and focus returns to the field. The clear
+ * button is drawn at 28px; its hit area is 44px on touch (36px on a desk).
  */
 function SearchInput({
   className,
@@ -219,7 +220,7 @@ function SearchInput({
           aria-label="Clear search"
           data-slot="input-search-clear"
           onClick={clear}
-          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-1 after:content-[''] hover:text-ink active:scale-[0.98]"
+          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] hover:text-ink active:scale-[0.98] desk:after:-inset-1"
         >
           <XCircleIcon className="size-4" strokeWidth={1.75} aria-hidden />
         </button>
