@@ -115,10 +115,15 @@ export function InlineError({ id, message }: { id: string; message?: string }) {
 }
 
 /**
- * One item row: name, description and price, with move, duplicate and
- * remove in one always-visible overflow menu (never hover-only). The price
- * field shows the text as typed; the parent keeps it in the draft so a
- * collapsed section or another selected menu never loses an unfinished
+ * One item row of a section's list: the name, a one-line description that
+ * grows as it is typed, and the price on the trailing side in tabular
+ * figures, with move, duplicate and remove in one always-visible overflow
+ * menu (never hover-only). Rows are separated by the list's hairline, not
+ * drawn as cards. The fields stay inline: validation focuses them by id, so
+ * they cannot move into a sheet until the summary can open one.
+ *
+ * The price field shows the text as typed; the parent keeps it in the draft
+ * so a collapsed section or another selected menu never loses an unfinished
  * decimal.
  */
 export function MenuItemEditor({
@@ -166,20 +171,28 @@ export function MenuItemEditor({
   const options = Array.isArray(item.options) ? item.options.length : 0
 
   return (
-    <div
+    <li
       onFocusCapture={onActivate}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) onDeactivate()
       }}
-      className="rounded-md border border-line bg-surface p-3"
+      data-slot="menu-item-row"
+      className="flex flex-col gap-1.5 py-3"
     >
       <div
         className={cn(
-          "grid grid-cols-1 items-start gap-x-3 gap-y-2.5 @[26rem]/section:grid-cols-[minmax(0,1fr)_auto]",
+          // Phone: name and actions, the description under them, the price
+          // on the trailing edge below. Wider: name, price and actions on
+          // one line; widest: one line with the description between.
+          "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2",
+          "@[26rem]/section:grid-cols-[minmax(0,1fr)_--spacing(32)_auto]",
           "@[46rem]/section:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_--spacing(32)_auto]"
         )}
       >
-        <div data-slot="field" className="flex min-w-0 flex-col gap-1">
+        <div
+          data-slot="field"
+          className="col-start-1 row-start-1 flex min-w-0 flex-col gap-1"
+        >
           <FieldCaption htmlFor={ids.name}>Item name</FieldCaption>
           <Input
             id={ids.name}
@@ -190,13 +203,14 @@ export function MenuItemEditor({
             value={label.displayName}
             disabled={disabled}
             onChange={(event) => onName(event.target.value)}
+            className="font-medium"
           />
           <InlineError id={`${ids.name}-error`} message={nameError} />
         </div>
 
         <div
           className={cn(
-            "row-start-2 flex min-w-0 flex-col gap-1 @[26rem]/section:col-span-2",
+            "col-span-2 row-start-2 flex min-w-0 flex-col gap-1 @[26rem]/section:col-span-3",
             "@[46rem]/section:col-span-1 @[46rem]/section:col-start-2 @[46rem]/section:row-start-1"
           )}
         >
@@ -207,14 +221,13 @@ export function MenuItemEditor({
             placeholder="Description"
             value={label.description}
             disabled={disabled}
-            // Grows with its content, so a two-line description is read
-            // rather than half-shown; starts one field high.
+            // Grows with its content, so a long description is read rather
+            // than half-shown. Two lines is the shortest start that clears
+            // the touch field height without overriding the primitive.
             autoSize
-            minRows={1}
+            minRows={2}
             maxRows={6}
-            // A one-line start is shorter than a field on touch; the field
-            // height wins over the rows' inline minimum.
-            className="min-h-(--np-field-h)!"
+            className="text-ink-secondary"
             onChange={(event) => onDescription(event.target.value)}
           />
         </div>
@@ -222,15 +235,16 @@ export function MenuItemEditor({
         <div
           data-slot="field"
           className={cn(
-            "row-start-3 flex max-w-48 min-w-0 flex-col gap-1",
-            "@[46rem]/section:col-start-3 @[46rem]/section:row-start-1 @[46rem]/section:max-w-none"
+            "col-span-2 row-start-3 flex w-32 min-w-0 flex-col gap-1 justify-self-end",
+            "@[26rem]/section:col-span-1 @[26rem]/section:col-start-2 @[26rem]/section:row-start-1 @[26rem]/section:w-full",
+            "@[46rem]/section:col-start-3"
           )}
         >
           <FieldCaption htmlFor={ids.price}>Price ({currency})</FieldCaption>
           <div className="relative">
             <span
               aria-hidden
-              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-mono text-ui text-ink-muted"
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ui text-ink-muted"
             >
               {currencySymbol(currency)}
             </span>
@@ -244,7 +258,7 @@ export function MenuItemEditor({
               value={priceText}
               disabled={disabled}
               onChange={(event) => onPrice(event.target.value)}
-              className="pl-7 font-mono tabular-nums"
+              className="pl-7 tabular-nums"
             />
           </div>
           <InlineError id={`${ids.price}-error`} message={priceError} />
@@ -253,8 +267,8 @@ export function MenuItemEditor({
         {!disabled ? (
           <div
             className={cn(
-              "row-start-4 justify-self-end @[26rem]/section:col-start-2 @[26rem]/section:row-start-1 @[26rem]/section:self-end",
-              "@[46rem]/section:col-start-4"
+              "col-start-2 row-start-1 self-end justify-self-end",
+              "@[26rem]/section:col-start-3 @[46rem]/section:col-start-4"
             )}
           >
             <RowActionsMenu
@@ -271,11 +285,11 @@ export function MenuItemEditor({
         ) : null}
       </div>
       {options > 0 ? (
-        <p className="mt-2 text-caption text-ink-muted">
+        <p className="text-caption text-ink-muted">
           {options} {options === 1 ? "option" : "options"} from Google kept as
           they are.
         </p>
       ) : null}
-    </div>
+    </li>
   )
 }

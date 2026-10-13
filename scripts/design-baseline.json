@@ -5,7 +5,7 @@
     "R2": 9,
     "R3": 82,
     "R4": 15,
-    "R5": 2,
+    "R5": 1,
     "R6": 2,
     "R7": 16
   },
@@ -316,14 +316,6 @@
         "total": 3,
         "patterns": {
           "[@media(min-height:620px)]:": 3
-        }
-      }
-    },
-    "components/locations/menu-editor.tsx": {
-      "R5": {
-        "total": 1,
-        "patterns": {
-          "<select>": 1
         }
       }
     },

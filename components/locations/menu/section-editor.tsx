@@ -15,10 +15,13 @@ import { readLabel } from "@/lib/locations/forms/menu-editor"
 type Json = Record<string, unknown>
 
 /**
- * One section card: a sunken head with the disclosure toggle, the section
- * name, its item count and order/remove controls; then, while expanded, the
- * section description, its items (`children`) and Add item. A collapsed
- * section unmounts its fields; the draft keeps everything typed in them.
+ * One section as a group: a label row with the disclosure toggle, the
+ * section name (the group's label, edited in place), its item count and the
+ * order/remove menu; then, while expanded, the section description, its
+ * item rows (`children`, each an `li`) and Add item. On a phone the group
+ * has no card chrome, only the hairlines between rows; the desk keeps a
+ * bordered card. A collapsed section unmounts its fields; the draft keeps
+ * everything typed in them.
  */
 export function MenuSectionEditor({
   section,
@@ -66,12 +69,9 @@ export function MenuSectionEditor({
   return (
     <section
       aria-label={name}
-      className="@container/section scroll-mt-20 rounded-lg border border-line bg-surface"
+      className="@container/section flex scroll-mt-20 flex-col gap-2 desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)"
     >
-      <div
-        data-slot="field"
-        className="flex flex-wrap items-center gap-2 rounded-t-lg border-b border-line bg-surface-alt px-4 py-3"
-      >
+      <div data-slot="field" className="flex flex-wrap items-center gap-2">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -99,7 +99,7 @@ export function MenuSectionEditor({
           onChange={(event) => onName(event.target.value)}
           className="min-w-0 grow basis-48 font-semibold"
         />
-        <span className="font-mono text-caption text-ink-muted tabular-nums">
+        <span className="text-caption text-ink-muted tabular-nums">
           {itemCount} {itemCount === 1 ? "item" : "items"}
         </span>
         {!disabled ? (
@@ -123,7 +123,7 @@ export function MenuSectionEditor({
       </div>
 
       {expanded ? (
-        <div id={panelId} className="flex flex-col gap-2.5 p-4">
+        <div id={panelId} className="flex flex-col gap-2">
           <div className="flex min-w-0 flex-col gap-1">
             <FieldCaption htmlFor={ids.description}>
               Section description{" "}
@@ -135,24 +135,29 @@ export function MenuSectionEditor({
               placeholder="A short introduction to this section"
               value={label.description}
               disabled={disabled}
+              // Two lines is the shortest start that clears the touch field
+              // height without overriding the primitive's own minimum.
               autoSize
-              minRows={1}
+              minRows={2}
               maxRows={6}
-              // A one-line start is shorter than a field on touch; the
-              // field height wins over the rows' inline minimum.
-              className="min-h-(--np-field-h)!"
               onChange={(event) => onDescription(event.target.value)}
             />
           </div>
           {itemCount === 0 ? (
-            <p className="text-caption text-ink-muted">
+            <p className="py-2 text-caption text-ink-muted">
               No items in this section yet.
             </p>
-          ) : null}
-          {children}
+          ) : (
+            <ul
+              aria-label={`Items in ${name}`}
+              className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle"
+            >
+              {children}
+            </ul>
+          )}
           {!disabled ? (
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
               className="self-start"
               onClick={onAddItem}

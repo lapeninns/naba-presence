@@ -20,10 +20,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
-import { fieldChromeClassName } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   SegmentedControl,
@@ -48,7 +46,6 @@ import {
   readPrice,
   withPrice,
 } from "@/lib/locations/forms/menu-editor"
-import { cn } from "@/lib/utils"
 
 export { currencySymbol, readPrice } from "@/lib/locations/forms/menu-editor"
 
@@ -71,6 +68,18 @@ const DRAFT_KEYS = [PRICE_TEXT_KEY, CURRENCY_KEY] as const
 
 /** Google accepts at most this many menus in one replacement. */
 const MAX_MENUS = 100
+
+/**
+ * One group of the editor (the menu switcher, the menu's details, the find
+ * bar): no card chrome on a phone, a bordered card on the desk.
+ */
+const GROUP_CLASS =
+  "flex flex-col gap-3 desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)"
+
+/** The menu's name as the switcher shows it. */
+function menuTitle(menu: Json, index: number): string {
+  return readLabel(menu).displayName || `Untitled menu ${index + 1}`
+}
 
 /**
  * Change the primary label only; translations and unknown label properties
@@ -642,27 +651,26 @@ export function MenuEditor({
 
   if (menus.length === 0) {
     return (
-      <Card flush>
-        <Empty
-          icon={<UtensilsCrossed aria-hidden />}
-          titleAs="h3"
-          title="Build your first menu"
-          description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
-          action={
-            disabled ? undefined : (
-              <Button onClick={addMenu}>
-                <Plus aria-hidden />
-                Create menu
-              </Button>
-            )
-          }
-        />
-      </Card>
+      <Empty
+        framed
+        icon={<UtensilsCrossed aria-hidden />}
+        titleAs="h3"
+        title="Build your first menu"
+        description="Create a menu, organise it into sections, and add your dishes or drinks. Nothing changes on Google until you review and publish."
+        action={
+          disabled ? undefined : (
+            <Button onClick={addMenu}>
+              <Plus aria-hidden />
+              Create menu
+            </Button>
+          )
+        }
+      />
     )
   }
 
   return (
-    <div data-slot="menu-editor" className="flex min-w-0 flex-col gap-3.5">
+    <div data-slot="menu-editor" className="flex min-w-0 flex-col gap-6">
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>
@@ -686,29 +694,44 @@ export function MenuEditor({
         </Alert>
       ) : null}
 
-      <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4">
+      <div data-slot="menu-toolbar" className={GROUP_CLASS}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex min-w-0 flex-1 flex-col gap-1 sm:max-w-sm">
-            <FieldCaption htmlFor="menu-select">Menu</FieldCaption>
-            <select
-              id="menu-select"
+            <span
+              id="menu-select-label"
+              className="text-caption font-semibold text-ink-muted"
+            >
+              Menu
+            </span>
+            <Select
               value={keyOf(menu)}
-              onChange={(event) => {
-                setSelectedKey(event.target.value)
+              onValueChange={(value) => {
+                if (typeof value !== "string") return
+                setSelectedKey(value)
                 setSearch("")
                 setChangedOnly(false)
               }}
-              className={cn(
-                fieldChromeClassName,
-                "h-(--np-field-h) w-full px-3"
-              )}
             >
-              {menus.map((entry, m) => (
-                <option key={keyOf(entry)} value={keyOf(entry)}>
-                  {readLabel(entry).displayName || `Untitled menu ${m + 1}`}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                id="menu-select"
+                aria-labelledby="menu-select-label"
+                className="w-full"
+              >
+                <SelectValue>
+                  {(value: string | null) => {
+                    const m = menus.findIndex((entry) => keyOf(entry) === value)
+                    return m < 0 ? "" : menuTitle(menus[m]!, m)
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent title="Menu">
+                {menus.map((entry, m) => (
+                  <SelectItem key={keyOf(entry)} value={keyOf(entry)}>
+                    {menuTitle(entry, m)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SegmentedControl
@@ -758,12 +781,12 @@ export function MenuEditor({
         <>
           <section
             aria-labelledby="menu-details-heading"
-            className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+            className={GROUP_CLASS}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3
                 id="menu-details-heading"
-                className="text-title font-semibold text-ink"
+                className="text-caption font-medium text-ink-muted"
               >
                 Menu details
               </h3>
@@ -824,7 +847,7 @@ export function MenuEditor({
 
           {sections.length > 0 ? (
             <div
-              className="flex flex-col gap-3 rounded-lg border border-line bg-surface p-4"
+              className={GROUP_CLASS}
               role="search"
               aria-label="Find menu items"
             >
@@ -910,14 +933,13 @@ export function MenuEditor({
               ) : null}
             </div>
           ) : (
-            <Card flush>
-              <Empty
-                icon={<UtensilsCrossed aria-hidden />}
-                titleAs="h3"
-                title="Start with a section"
-                description="Group this menu into sections such as starters, mains or drinks, then add the items customers can order."
-              />
-            </Card>
+            <Empty
+              size="sm"
+              icon={<UtensilsCrossed aria-hidden />}
+              titleAs="h3"
+              title="Start with a section"
+              description="Group this menu into sections such as starters, mains or drinks, then add the items customers can order."
+            />
           )}
 
           {sections.map((section, sectionIndex) => {
