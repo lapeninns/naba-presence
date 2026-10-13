@@ -40,8 +40,23 @@ type Mode = "closed" | "step_up" | "enroll" | "verified"
  * person sends it again. An owner or admin with no authenticator app
  * (`mfa_enrollment_required`) is sent to the enrollment screen instead.
  */
-function MfaStepUpPrompt() {
-  const [mode, setMode] = useState<Mode>("closed")
+function MfaStepUpPrompt({
+  initialCode,
+}: {
+  /**
+   * The event that caused this prompt to load, when it was loaded on demand
+   * (components/auth/mfa-step-up-host.tsx): it opens straight away instead
+   * of waiting for the next one.
+   */
+  initialCode?: MfaStepUpEventDetail["code"]
+} = {}) {
+  const [mode, setMode] = useState<Mode>(() =>
+    initialCode === undefined
+      ? "closed"
+      : initialCode === MFA_ENROLLMENT_REQUIRED
+        ? "enroll"
+        : "step_up"
+  )
   const [password, setPassword] = useState("")
   const [code, setCode] = useState("")
   const [backup, setBackup] = useState(false)
