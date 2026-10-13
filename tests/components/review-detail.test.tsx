@@ -703,10 +703,9 @@ describe("ReviewDetail", () => {
     ).not.toBeInTheDocument()
     // Docked from the first paint, as the loaded bar will be, so the tab bar
     // does not show and then step aside.
-    expect(container.querySelector("footer")).toHaveAttribute(
-      "data-docked",
-      "bottom"
-    )
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).toHaveAttribute("data-docked", "bottom")
+    expect(footer).toHaveAttribute("aria-hidden", "true")
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
@@ -907,6 +906,25 @@ describe("ReviewDetail — publish bar", () => {
         name: "Publish reply",
       })
     ).toBeInTheDocument()
+    // The shared ActionBar's dock: a named region, fixed on a phone, with
+    // an in-flow spacer that keeps the reply reachable above it.
+    expect(footer).toHaveAttribute("role", "region")
+    expect(footer).toHaveAccessibleName("Reply actions")
+    expect(footer?.className).toMatch(/max-md:fixed/)
+    expect(
+      container.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+  })
+
+  it("keeps the bar undocked when it has no actions", () => {
+    fakeDetail({ isPending: false, isError: false, data: readyToPublish })
+    const { container } = renderPane(<ReviewDetail reviewId="rev-1" />)
+    const footer = container.querySelector('[data-slot="composer-footer"]')
+    expect(footer).not.toBeNull()
+    expect(footer).not.toHaveAttribute("data-docked")
+    expect(
+      container.querySelector('[data-slot="action-bar-spacer"]')
+    ).toBeNull()
   })
 
   it("gives a viewer no bar, the status inline and a note", () => {
