@@ -269,7 +269,7 @@ function NavigationSheet({
           }
           finalFocus={toggleRef}
           className={cn(
-            "fixed inset-y-0 left-0 z-50 flex w-[min(300px,86vw)] flex-col bg-surface text-ink shadow-np-pop outline-none md:hidden",
+            "fixed inset-y-0 left-0 z-50 flex w-[min(var(--np-drawer-w),86vw)] flex-col bg-surface text-ink shadow-np-pop outline-none md:hidden",
             "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
             "transition-transform duration-(--np-duration-standard) ease-out-strong data-ending-style:-translate-x-full data-starting-style:-translate-x-full"
           )}

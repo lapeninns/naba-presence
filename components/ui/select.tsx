@@ -51,9 +51,9 @@ function Select<Value>({
 export const selectTriggerClassName = cn(
   "inline-flex h-(--np-field-h) min-w-0 cursor-default items-center justify-between gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-2.5 pl-[11px] text-body text-ink outline-none select-none",
   "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
-  "hover:border-ink-muted focus-visible:border-primary focus-visible:shadow-[0_0_0_3px_var(--np-accent-tint)] data-popup-open:border-primary data-popup-open:shadow-[0_0_0_3px_var(--np-accent-tint)]",
+  "hover:border-ink-muted focus-visible:border-primary focus-visible:shadow-(--np-field-ring) data-popup-open:border-primary data-popup-open:shadow-(--np-field-ring)",
   "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-ink-muted data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
-  "aria-invalid:border-danger-ink aria-invalid:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+  "aria-invalid:border-danger-ink aria-invalid:shadow-(--np-field-ring-invalid)",
   "pointer-coarse:text-base",
   "[&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:whitespace-nowrap",
   "[&_[data-slot=select-value][data-placeholder]]:text-ink-muted"

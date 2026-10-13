@@ -1,0 +1,62 @@
+{
+  "_about": "Redesign TARGET budgets, checked against perf-lab.mjs medians (>=3 runs; 5 recommended for /inbox). Times ms, cls unitless, *Transfer KB (gzip as served by `pnpm start`), counts as counts. The unmodified main baseline (2026-10-13) does NOT meet these; see /tmp/naba-redesign/baseline/perf/REPORT.md. Build-side ceilings: node tests/perf/route-js.mjs --max-chunk 50 --max-shared 250 --max-route 400",
+  "mobile": {
+    "default": {
+      "_profile": "390x844 DPR3, 4x CPU, 150ms RTT / 1.6 Mbps down",
+      "fcp": 1500,
+      "lcp": 2500,
+      "cls": 0.05,
+      "tbt": 150,
+      "longestTask": 150,
+      "inp": 100,
+      "firstLoadJsTransfer": 330,
+      "otherJsTransfer": 60,
+      "fontTransfer": 60,
+      "transfer": 600,
+      "apiRequests": 5,
+      "domNodes": 1200
+    },
+    "routes": {
+      "/inbox": { "firstLoadJsTransfer": 380 },
+      "/inbox?selected={review}": {
+        "firstLoadJsTransfer": 380,
+        "apiRequests": 7
+      },
+      "/listings/{loc}": { "firstLoadJsTransfer": 380 },
+      "/listings/{loc}/hours": { "firstLoadJsTransfer": 380, "apiRequests": 7 },
+      "/listings/{loc}/photos": { "firstLoadJsTransfer": 380 },
+      "/listings/{loc}/posts": { "firstLoadJsTransfer": 380, "apiRequests": 6 },
+      "/setup": { "firstLoadJsTransfer": 380 },
+      "/reports": { "apiRequests": 6 },
+      "/sign-in": {
+        "lcp": 1800,
+        "firstLoadJsTransfer": 180,
+        "transfer": 350,
+        "apiRequests": 0
+      }
+    }
+  },
+  "desktop": {
+    "default": {
+      "_profile": "1280x800, unthrottled",
+      "lcp": 1200,
+      "cls": 0.05,
+      "tbt": 50,
+      "inp": 50,
+      "firstLoadJsTransfer": 330,
+      "otherJsTransfer": 120,
+      "fontTransfer": 60,
+      "transfer": 750
+    },
+    "routes": {
+      "/inbox": { "firstLoadJsTransfer": 380 },
+      "/inbox?selected={review}": { "firstLoadJsTransfer": 380 },
+      "/listings/{loc}": { "firstLoadJsTransfer": 380 },
+      "/listings/{loc}/hours": { "firstLoadJsTransfer": 380 },
+      "/listings/{loc}/photos": { "firstLoadJsTransfer": 380 },
+      "/listings/{loc}/posts": { "firstLoadJsTransfer": 380 },
+      "/setup": { "firstLoadJsTransfer": 380 },
+      "/sign-in": { "lcp": 600, "firstLoadJsTransfer": 180, "transfer": 350 }
+    }
+  }
+}
