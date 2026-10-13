@@ -129,3 +129,57 @@ describe("focused editor fields", () => {
     expect(scroller.scrollBy).toHaveBeenCalledWith({ top: -42 })
   })
 })
+
+describe("the on-screen keyboard opening under a focused field", () => {
+  // A docked bar grows by the keyboard's height only once ViewportInsets has
+  // written --np-keyboard-inset, a frame after the visualViewport resize. The
+  // field must be measured against the risen bar, not the closed one.
+  it("measures the docked bar after the keyboard inset is written", () => {
+    vi.stubGlobal("innerHeight", 844)
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.stubGlobal("cancelAnimationFrame", () => {})
+    const viewport = Object.assign(new EventTarget(), {
+      height: 844,
+      offsetTop: 0,
+    })
+    vi.stubGlobal("visualViewport", viewport)
+    const flush = () => frames.splice(0).forEach((frame) => frame(0))
+    const scroll = vi.spyOn(window, "scrollBy").mockImplementation(() => {})
+
+    function DockedHarness() {
+      const root = useRef<HTMLDivElement>(null)
+      useKeepFocusClear(root)
+      return (
+        <div ref={root}>
+          <input aria-label="Opening time" />
+          <div data-slot="editor-frame-footer">
+            <div data-docked="bottom" data-testid="bar" />
+          </div>
+        </div>
+      )
+    }
+    render(<DockedHarness />)
+    const input = screen.getByRole("textbox")
+    const bar = screen.getByTestId("bar")
+    bounds(input, 452, 496)
+    bounds(bar, 763, 844)
+    input.focus()
+    flush()
+    expect(scroll).not.toHaveBeenCalled()
+
+    // The keyboard opens: the visual viewport shrinks by 336px.
+    viewport.height = 508
+    viewport.dispatchEvent(new Event("resize"))
+    // Frame one: ViewportInsets writes the inset; the bar rises over it.
+    flush()
+    bounds(bar, 427, 844)
+    expect(scroll).not.toHaveBeenCalled()
+    // Frame two: measured against the risen bar, less the 12px gap.
+    flush()
+    expect(scroll).toHaveBeenCalledWith({ top: 496 - (427 - 12) })
+  })
+})

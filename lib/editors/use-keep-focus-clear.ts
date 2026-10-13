@@ -97,8 +97,18 @@ export function useKeepFocusClear(
       // After the browser's own focus scroll has settled.
       requestAnimationFrame(() => keepClear(event.target as Element))
     }
+    // Two frames on: the keyboard's resize reaches ViewportInsets too, which
+    // writes --np-keyboard-inset on its next frame, and only then does a
+    // docked bar grow by the keyboard's height (its padding rides on top of
+    // it). Measured at once, the bar's top was still the closed-keyboard
+    // one and a field could be left under the risen bar. Whichever of the
+    // two listeners subscribed first, the second frame follows the write.
+    let frame = 0
     function onViewportResize() {
-      keepClear(document.activeElement)
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(() => keepClear(document.activeElement))
+      })
     }
 
     container.addEventListener("focusin", onFocusIn)
@@ -106,6 +116,7 @@ export function useKeepFocusClear(
     return () => {
       container.removeEventListener("focusin", onFocusIn)
       window.visualViewport?.removeEventListener("resize", onViewportResize)
+      cancelAnimationFrame(frame)
     }
   }, [root, footerSelector])
 }
