@@ -894,6 +894,16 @@
     outline: none;
     box-shadow: var(--np-focus-halo);
   }
+  /* Forced-colours mode (Windows High Contrast) drops box-shadow, so the
+     halo vanishes there. Draw a real outline in the system's text colour
+     instead. `!important` because many controls also carry
+     `focus-visible:outline-none`, which would otherwise win. */
+  @media (forced-colors: active) {
+    &:focus-visible {
+      outline: 2px solid CanvasText !important;
+      outline-offset: 2px !important;
+    }
+  }
 }
 
 /* Controls on the charcoal counter-surface: ghost and grey buttons take
