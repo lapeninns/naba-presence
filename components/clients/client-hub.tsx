@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
 import { KpiTile } from "@/components/ui/kpi-tile"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
@@ -46,7 +47,7 @@ import {
 } from "@/lib/clients/health"
 import type { ClientResponse } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { formatAddressLine } from "@/lib/locations/address"
 import { useClient } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
@@ -223,9 +224,16 @@ function ClientHub({
                 {client.health === "attention" && client.freshness
                   ? freshnessSentence(client.freshness)
                   : healthDescription(client.health)}
-                {client.lastSyncAt
-                  ? ` Last synced ${formatRelativeTime(client.lastSyncAt)}.`
-                  : ""}
+                {client.lastSyncAt ? (
+                  <>
+                    {" "}
+                    <RelativeTime
+                      iso={client.lastSyncAt}
+                      prefix="Last synced "
+                      suffix="."
+                    />
+                  </>
+                ) : null}
               </span>
               <LoginLine client={client} diagnosis={diagnosis} />
             </span>
@@ -379,9 +387,12 @@ function LoginLine({
       {firstBroken ? (
         <StatusPill tone="at-risk">
           Needs reconnecting
-          {first.lastRefreshAt
-            ? ` · last refresh ${formatRelativeTime(first.lastRefreshAt)}`
-            : ""}
+          {first.lastRefreshAt ? (
+            <>
+              {" · "}
+              <RelativeTime iso={first.lastRefreshAt} prefix="last refresh " />
+            </>
+          ) : null}
         </StatusPill>
       ) : accessLost ? (
         <StatusPill tone="attention">
@@ -392,9 +403,12 @@ function LoginLine({
       ) : (
         <StatusPill tone="healthy">
           Connected
-          {first.lastRefreshAt
-            ? ` · refreshed ${formatRelativeTime(first.lastRefreshAt)}`
-            : ""}
+          {first.lastRefreshAt ? (
+            <>
+              {" · "}
+              <RelativeTime iso={first.lastRefreshAt} prefix="refreshed " />
+            </>
+          ) : null}
         </StatusPill>
       )}
     </span>

@@ -3,9 +3,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
-import { SettingsFacts, SettingsSection } from "@/components/settings/settings-section"
+import {
+  SettingsFacts,
+  SettingsSection,
+} from "@/components/settings/settings-section"
 import { Button } from "@/components/ui/button"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
@@ -19,7 +23,7 @@ import type {
   OperationsHealth,
   SchedulerTick,
 } from "@/lib/contracts/operations"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatDateTime, formatNumber } from "@/lib/format"
 import {
   describeSchedule,
   isTickStale,
@@ -50,12 +54,16 @@ const STATE_LABEL: Record<string, string> = {
   unknown: "Outcome unknown",
 }
 
-function ago(iso: string | null | undefined) {
-  return iso ? formatRelativeTime(iso) : "None"
+function ago(iso: string | null | undefined, prefix?: string) {
+  return iso ? <RelativeTime iso={iso} prefix={prefix} /> : "None"
 }
 
 /** Label/value figures, numbers formatted, values in tabular mono. */
-function Figures({ rows }: { rows: Array<[string, string | number]> }) {
+function Figures({
+  rows,
+}: {
+  rows: Array<[string, React.ReactNode | number]>
+}) {
   return (
     <SettingsFacts
       columns={3}
@@ -121,7 +129,10 @@ export function OperationsView() {
     mutationFn: replayWebhookEvent,
     onMutate: () => setReplayError(null),
     onSuccess: () => {
-      toast.add({ title: "Event queued for the next sync run.", type: "success" })
+      toast.add({
+        title: "Event queued for the next sync run.",
+        type: "success",
+      })
       refresh()
     },
     onError: (error, id) => setReplayError({ id, text: failure(error) }),
@@ -175,7 +186,7 @@ export function OperationsView() {
                   disabled={replay.isPending}
                   pending={replay.isPending && replay.variables === item.id}
                   onClick={() => replay.mutate(item.id)}
-                  aria-label={`Replay ${item.eventType} received ${ago(item.receivedAt)}`}
+                  aria-label={`Replay ${item.eventType} received ${formatDateTime(item.receivedAt, "Europe/London")}`}
                 >
                   Replay
                 </Button>
@@ -210,7 +221,7 @@ function SchedulerTicks({ ticks }: { ticks: SchedulerTick[] }) {
         const info = scheduledJobInfo(tick.name)
         const stale = isTickStale(tick, now)
         const last = tick.lastCompletedAt
-          ? `Last run ${ago(tick.lastCompletedAt)}`
+          ? ago(tick.lastCompletedAt, "Last run ")
           : "Never completed"
         return (
           <li
@@ -322,7 +333,9 @@ function HealthSections({
           <Figures
             rows={data.unresolvedWrites.map((row) => [
               FAMILY_LABEL[row.family] ?? row.family.replaceAll("_", " "),
-              `${formatNumber(row.count)} · oldest ${ago(row.oldestAt)}`,
+              <>
+                {formatNumber(row.count)} · oldest {ago(row.oldestAt)}
+              </>,
             ])}
           />
         ) : (

@@ -122,6 +122,30 @@ describe("Table record cards", () => {
     expect(cells[2]).toHaveAttribute("data-label", "Joined")
   })
 
+  // setup's import list: a row with no action today rendered an empty
+  // actions cell whose net -2px margins let the line break onto the title
+  // line, and the listing name ran one letter per line at 390. jsdom lays
+  // nothing out, so this pins the rule that drops the empty cell; the
+  // layout itself is checked in tests/e2e/setup.spec.ts at 320 and 390.
+  it("drops an empty actions cell from a record card's title line", () => {
+    render(
+      <Table responsive>
+        <TableBody>
+          <TableRow>
+            <TableCell label="Listing">Stub location 0b8e951f</TableCell>
+            <TableCell data-actions="" />
+          </TableRow>
+        </TableBody>
+      </Table>
+    )
+    const [title, actions] = screen.getAllByRole("cell")
+    expect(title).not.toHaveAttribute("data-priority")
+    expect(actions).toBeEmptyDOMElement()
+    expect(screen.getByRole("table").className).toContain(
+      "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions]):empty]:hidden"
+    )
+  })
+
   it("puts a cell holding only a checkbox in the leading select slot", () => {
     render(
       <Table responsive>

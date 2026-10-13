@@ -1,7 +1,7 @@
 "use client"
 
 import { useClientScope } from "@/components/app-shell/client-context"
-import { formatRelativeTime } from "@/lib/format"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { useClients } from "@/lib/queries/use-clients"
 import { cn } from "@/lib/utils"
 
@@ -47,9 +47,11 @@ export function GoogleFreshness({
         !delayed && className
       )}
     >
-      {oldest
-        ? `Google checked ${formatRelativeTime(oldest)}`
-        : "Google not checked yet"}
+      {oldest ? (
+        <RelativeTime iso={oldest} prefix="Google checked " />
+      ) : (
+        "Google not checked yet"
+      )}
       {delayed ? " · delayed, retrying" : ""}
     </span>
   )

@@ -13,9 +13,9 @@ import {
 } from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Empty } from "@/components/ui/empty"
 import { formatNumber } from "@/lib/format"
-import { formatRelativeTime } from "@/lib/format/date"
 import type { EmptyReason } from "@/lib/inbox/empty-reason"
 import { visibleQueue, type Queue } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
@@ -156,15 +156,10 @@ function content(
     case "checked":
       return {
         title: "No reviews yet.",
-        // The age is read against the clock twice, on the server and again
-        // while hydrating, so it may have moved on a minute in between.
         description: counts.lastSyncAt ? (
           <>
             Google had none for these locations when we last checked,{" "}
-            <span suppressHydrationWarning>
-              {formatRelativeTime(counts.lastSyncAt)}
-            </span>
-            .
+            <RelativeTime iso={counts.lastSyncAt} />.
           </>
         ) : (
           "Google had none for these locations when we last checked."

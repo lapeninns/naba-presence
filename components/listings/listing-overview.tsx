@@ -16,10 +16,10 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { SectionHeader } from "@/components/ui/section-header"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { formatRelativeTime } from "@/lib/format"
 import {
   listingHealth,
   listingHealthDescription,
@@ -124,7 +124,7 @@ function OverviewAlerts({
             : "The last"}{" "}
           {failedArea ? failedArea.label.toLowerCase() : failed.area}{" "}
           {failed.status === "ambiguous" ? "publish" : "publish failed"} ·{" "}
-          {formatRelativeTime(failed.at)}
+          <RelativeTime iso={failed.at} />
         </AlertTitle>
         <AlertDescription>
           Some changes may already be on Google. The saved copy here is kept.
