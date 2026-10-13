@@ -1485,7 +1485,9 @@ for (const width of [375, 768, 1280]) {
     await name.fill("Westminster")
     await id.fill("ChIJ_Westminster")
     await area.getByRole("button", { name: "Add service area" }).click()
-    await area.getByRole("combobox").click()
+    await area
+      .getByRole("combobox", { name: "Where do you meet customers?" })
+      .click()
     await page
       .getByRole("option", {
         name: "At business and customer locations",
@@ -1506,7 +1508,9 @@ for (const width of [375, 768, 1280]) {
       addressLines: ["1 High Street"],
       organization: "Preserved organisation",
     })
-    await area.getByRole("combobox").click()
+    await area
+      .getByRole("combobox", { name: "Where do you meet customers?" })
+      .click()
     await page
       .getByRole("option", { name: "At customer locations only", exact: true })
       .click()
@@ -1529,7 +1533,9 @@ for (const width of [375, 768, 1280]) {
       },
     })
     await page.reload()
-    await expect(area.getByRole("combobox")).toContainText(
+    await expect(
+      area.getByRole("combobox", { name: "Where do you meet customers?" })
+    ).toContainText(
       "At customer locations only"
     )
     await expect(
