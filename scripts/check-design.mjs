@@ -26,8 +26,8 @@ export const RULES = {
     title: "Arbitrary type size",
     description:
       "text-[<length>], leading-[…], leading-<n>, Tailwind's default text-xs…9xl scale, or an inline fontSize/lineHeight.",
-    why: "Type sizes are seven roles with paired line heights; a one-off size drifts from the scale and from the fluid page title.",
-    fix: "Use text-caption / ui / body / title / section / page-title / display / reading, or add a role to globals.css.",
+    why: "Type sizes are nine roles with paired line heights; a one-off size drifts from the scale and from the fluid page title.",
+    fix: "Use text-caption / count / ui / body / title / section / page-title / display / reading, or add a role to globals.css.",
   },
   R2: {
     title: "Literal colour",
