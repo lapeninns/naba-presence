@@ -16,14 +16,13 @@ import { cn } from "@/lib/utils"
 // about 21 KB each instead of the 190 KB TTFs. The two calls share one
 // family name, so italic mono text still finds its face. Only the upright
 // face is preloaded: nothing sets mono italic today, and a preload would
-// spend phone bandwidth on it ahead of the page's own scripts.
-const MONO_FAMILY = "JetBrains Mono NP"
-
+// spend phone bandwidth on it ahead of the page's own scripts. (next/font
+// takes only literals, so the shared family name is written out twice.)
 const jetbrainsMono = localFont({
   src: "../public/fonts/jetbrains-mono/JetBrainsMono-Latin[wght].woff2",
   weight: "100 800",
   style: "normal",
-  declarations: [{ prop: "font-family", value: MONO_FAMILY }],
+  declarations: [{ prop: "font-family", value: "JetBrains Mono NP" }],
   display: "swap",
   variable: "--font-jetbrains-mono",
   fallback: ["ui-monospace", "Menlo", "monospace"],
@@ -34,7 +33,7 @@ const jetbrainsMonoItalic = localFont({
   src: "../public/fonts/jetbrains-mono/JetBrainsMono-Latin-Italic[wght].woff2",
   weight: "100 800",
   style: "italic",
-  declarations: [{ prop: "font-family", value: MONO_FAMILY }],
+  declarations: [{ prop: "font-family", value: "JetBrains Mono NP" }],
   display: "swap",
   preload: false,
   // Unused by any rule; declaring it keeps this call's @font-face in the
