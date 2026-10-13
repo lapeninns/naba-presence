@@ -1,5 +1,6 @@
 "use client"
 
+import { EYEBROW_CLASS } from "@/components/app-shell/page-frame"
 import { PresenceFigures } from "@/components/performance/presence-figures"
 import { PartialCoverageAlert } from "@/components/reporting/partial-coverage-alert"
 import {
@@ -112,7 +113,7 @@ export function SharedClientReportView({
         Skip to the figures
       </a>
       <header className="flex flex-col gap-3 border-b border-line-subtle pb-5">
-        <p className="text-caption font-medium text-ink-muted">
+        <p className={EYEBROW_CLASS}>
           Performance report
         </p>
         <h1 className="text-page-title font-semibold text-balance [overflow-wrap:anywhere] text-ink">
@@ -157,7 +158,7 @@ export function SharedClientReportView({
                       "inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-control) px-3 text-ui focus-halo focus-visible:outline-none",
                       current
                         ? "bg-accent-tint font-semibold text-accent-ink"
-                        : "text-ink-secondary hover:bg-fill hover:text-ink"
+                        : "text-ink-secondary hover-fine:hover:bg-fill hover-fine:hover:text-ink"
                     )}
                   >
                     {option.label}

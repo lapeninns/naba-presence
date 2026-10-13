@@ -166,7 +166,9 @@ function DayNumber({
         "inline-grid place-items-center rounded-full tabular-nums",
         compact ? "size-8 text-body" : "min-w-6 px-1",
         isToday && "bg-primary font-semibold text-primary-foreground",
-        isSelected && !isToday && "bg-fill-secondary font-semibold text-ink",
+        isSelected &&
+          !isToday &&
+          "bg-fill-secondary font-semibold text-ink ring-1 ring-line-strong",
         isSelected &&
           isToday &&
           "ring-2 ring-line-strong ring-offset-1 ring-offset-surface"
