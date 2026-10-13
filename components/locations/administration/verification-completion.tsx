@@ -52,7 +52,7 @@ export function ReviewedCompletionVerification({ verifications }: { readonly ver
   function checkState() { void run(async () => { const result = await current.refetch(); if (result.error) throw result.error }) }
   const errorNote = error && <p role="alert" className="text-ui text-danger-ink">{error}</p>
   const stateCheck = <div className="flex min-w-0 flex-col gap-2">
-    <Button variant="secondary" className="self-start" disabled={busy} onClick={checkState}>Check current Google verification state</Button>
+    <Button variant="secondary" className="h-auto min-h-(--np-control-h) max-w-full self-start py-2 text-left leading-snug whitespace-normal" disabled={busy} onClick={checkState}>Check current Google verification state</Button>
     {current.data && <p className="text-caption text-ink-muted">Current requests last checked <Instant value={current.data.checkedAt} />.</p>}
     {current.isError && <p role="status" className="text-ui text-ink-secondary">Current Google state could not be refreshed. Any request details still shown are earlier observations.</p>}
   </div>

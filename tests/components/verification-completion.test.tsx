@@ -283,6 +283,14 @@ describe("reviewed PIN completion", () => {
     expect(screen.queryByText("echo 001234")).not.toBeInTheDocument()
     expect(executeGoogleVerificationCompletion).not.toHaveBeenCalled()
   })
+  it("lets the long state-check label wrap on a narrow phone instead of clipping", () => {
+    fixture()
+    // At 320px the one-line label overran its column by ~10px (final-QA audit).
+    const check = screen.getByRole("button", { name: "Check current Google verification state" })
+    expect(check.className).toContain("whitespace-normal")
+    expect(check.className).toContain("max-w-full")
+    expect(check.className).toContain("min-h-(--np-control-h)")
+  })
   it("refreshes current requests independently and removes PIN entry after completion", async () => {
     fixture(); await userEvent.click(screen.getByRole("button", { name: "Check current Google verification state" }))
     expect(await screen.findByText(/Current requests last checked/)).toBeInTheDocument()
