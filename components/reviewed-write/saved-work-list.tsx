@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { SectionHeader } from "@/components/ui/section-header"
 import { Instant } from "./instant"
 
@@ -26,7 +27,8 @@ export type SavedWorkItem = {
  * Rows read like mail rows: the operation as the title, then a muted
  * sub-line "when · stage" (the stage is often a phrase, "Approval expires ·
  * Approved request", so it stays words in the sub-line rather than a pill),
- * then the action that reopens it. Hairlines between rows, no card.
+ * then the action that reopens it. Hairlines between rows, no card: the
+ * shared `ListRow`, flush with the section heading.
  */
 export function SavedWorkList({
   id,
@@ -81,21 +83,34 @@ export function SavedWorkList({
       ) : items.length === 0 ? (
         <p className="text-ui text-ink-muted">{emptyText}</p>
       ) : (
-        <ul className="divide-y divide-line-subtle">
+        // The shared list row (Drop 1), drawn as a plain box: the row holds
+        // its own button, so it is not one hit target. The section already
+        // sits in the page's padding, so the row's padding and divider run
+        // flush with the heading above them.
+        <ListRows>
           {items.map((item) => (
-            <li key={item.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3">
-              <div className="flex min-w-0 grow basis-48 flex-col gap-0.5">
-                <p className="text-body text-ink">{item.operation}</p>
-                <p className="text-caption text-ink-muted tabular-nums">
+            <ListRow
+              key={item.id}
+              interactive={false}
+              emphasis="neutral"
+              className="px-0"
+              wrapperClassName="after:start-0 after:end-0"
+              title={<span className="whitespace-normal">{item.operation}</span>}
+              subtitle={
+                // One text run, "when · stage", that wraps rather than
+                // truncates: the stage is often a phrase worth reading whole.
+                <span className="text-caption whitespace-normal text-ink-muted tabular-nums">
                   <Instant value={item.createdAt} /> · {item.stage}
-                </p>
-              </div>
-              <Button variant="secondary" size="sm" disabled={item.disabled} onClick={item.onOpen}>
-                {item.actionLabel}
-              </Button>
-            </li>
+                </span>
+              }
+              trailing={
+                <Button variant="secondary" size="sm" disabled={item.disabled} onClick={item.onOpen}>
+                  {item.actionLabel}
+                </Button>
+              }
+            />
           ))}
-        </ul>
+        </ListRows>
       )}
       {failed && items.length > 0 ? (
         <p role="alert" className="text-ui text-danger-ink">{staleText ?? errorText}</p>

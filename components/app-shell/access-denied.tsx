@@ -43,8 +43,11 @@ function AccessDenied({
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
       {/* Neutral, not a warning: nothing is wrong, the page belongs to a
-          role. The sentence names the role and who can grant it. */}
+          role. The sentence names the role and who can grant it. Inline,
+          not page placement: the access details below belong on screen
+          with it. */}
       <PageEmptyState
+        placement="inline"
         icon={<Lock />}
         eyebrow="No access · 403"
         title="You don’t have access to this page"

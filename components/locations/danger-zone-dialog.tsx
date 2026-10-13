@@ -1,5 +1,6 @@
 "use client"
 
+import { CheckIcon } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import {
@@ -11,15 +12,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { TypedConfirmation } from "@/components/ui/typed-confirmation"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 // A destructive Google action (remove admin / transfer / delete location) needs
 // TWO gates: the route's exact confirmation literal (sent by the client) AND this
 // UI typed-name confirmation. The confirm button is inert until the typed name
-// matches the location name (trimmed, case-insensitive). TypedConfirmation is
-// the shared "type the name" field (label wired to the input, a polite
-// "Matches" line); the button's own gate below stays this dialog's original
-// comparison, so the guard is exactly as strict as it always was.
+// matches the location name (trimmed, case-insensitive). The field mirrors the
+// shared TypedConfirmation (label wired to the input, a polite "Matches"
+// line), but both that line and the button read the one `matches` below: the
+// primitive's modes either collapse inner spaces or compare case, and neither
+// is this dialog's original comparison, which stays exactly as strict.
 //
 // Cancel comes first and the destructive action, which names the
 // object, comes last so it sits at the trailing edge (and on top when the
@@ -80,13 +84,37 @@ export function DangerZoneDialog({
             </ul>
           </div>
         ) : null}
-        <TypedConfirmation
-          expected={expectedName}
-          value={typed}
-          onValueChange={setTyped}
-          label="Type the location's name to confirm"
-          placeholder={expectedName}
-        />
+        <Field>
+          <FieldLabel>Type the location&apos;s name to confirm</FieldLabel>
+          <Input
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+            data-matched={matches || undefined}
+            placeholder={expectedName}
+            value={typed}
+            onChange={(event) => setTyped(event.target.value)}
+          />
+          {/* Always mounted so the live region exists before its first
+              message; screen readers skip announcements into a fresh region. */}
+          <p
+            aria-live="polite"
+            data-slot="typed-confirmation-status"
+            className={cn(
+              "flex min-h-4 items-center gap-1.5 text-caption font-medium text-ink-muted",
+              matches && "text-success-ink"
+            )}
+          >
+            {matches ? (
+              <>
+                <CheckIcon aria-hidden strokeWidth={2} className="size-3.5" />
+                Matches
+              </>
+            ) : null}
+          </p>
+        </Field>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="ghost" />}>
             Cancel
