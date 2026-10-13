@@ -101,6 +101,8 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
 
   return (
     <GroupedListItem
+      // Leading: what the row is (an invitation), neutral ink, not a status hue.
+      icon={<UserPlusIcon />}
       label={role ? `${adminRoleLabel(role)} invitation` : "Invitation"}
       description={`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for a reply on Google`}
       trailing={

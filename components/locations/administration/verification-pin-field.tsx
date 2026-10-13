@@ -11,10 +11,16 @@ import { verificationCompletionInputSchema } from "@/lib/contracts/google-verifi
  * One visible PIN field. It is a text input (leading zeros survive) that asks
  * for the numeric keypad and offers the code Google just texted; the contract
  * still accepts any 1-128 character code, so non-digits are not rejected here.
- * That variable length is why this is not an OtpField: per-character boxes
- * need a length known up front, and Google does not tell us one.
  *
- * The PIN lives only in this component's state: it is cleared as soon as it
+ * Why this is not an OtpField, even for the postcard (ADDRESS) method: the
+ * per-character boxes need a length known up front, and Google does not
+ * promise one. The verification contract and our recovery specs accept a
+ * 6-character PIN for every method, ADDRESS included, so five boxes would
+ * cut a valid PIN short. One input that holds any length is the safe default
+ * for every method. (This departs from the F6 brief's "OtpField length 5 for
+ * POSTCARD" plan, which the specs disproved; logged in the F6 ledger.)
+ *
+ * It lives only in this component's state: it is cleared as soon as it
  * is handed to `onSubmit` and never reaches a query or mutation cache. At the
  * send step (`reentry`) the same PIN is typed again inside the consent, so
  * nothing is restored from the preview.
@@ -62,6 +68,7 @@ export function VerificationPinField({
         {...inputHints.oneTimeCode}
         enterKeyHint={reentry ? "send" : "go"}
         maxLength={128}
+        className="tabular-nums"
         value={pin}
         disabled={blocked || busy}
         onChange={(event) => setPin(event.target.value)}

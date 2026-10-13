@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input, inputHints } from "@/components/ui/input"
+import { SectionHeader } from "@/components/ui/section-header"
 import { googleAccountNameSchema } from "@/lib/contracts/google-administration-review"
 import { normaliseAccountName } from "@/lib/locations/forms/administration"
 import { SectionGateNote, useAdministrationSection } from "./context"
@@ -34,12 +35,16 @@ function DangerZoneControls() {
     try { await workflow.preview({ operation: "delete_location", payload: {} }); setDeleting(false) }
     catch (error) { if (!(error instanceof Error)) throw error }
   }
-  return <section aria-labelledby="danger-zone-heading" className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-danger-ink bg-surface">
-    <div className="flex flex-col gap-1 border-b border-line px-4 py-3"><h2 id="danger-zone-heading" className="text-title font-semibold text-ink">Danger zone</h2><p className="text-ui text-ink-muted">Review an exact lifecycle request before approval and sending. Google may reject a request, and NabaPresence cannot undo an accepted deletion.</p></div>
-    <ul aria-label="Danger zone actions" className="flex list-none flex-col divide-y divide-line">
-      <li className="flex min-w-0 flex-col gap-2 px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-body font-semibold text-ink">Transfer this location</p><p className="text-ui text-ink-muted">Move the exact Google location between accounts. Current source ownership and destination management access must be established.</p></div><Button variant="danger-outline" size="sm" disabled={blocked} onClick={() => setCollecting(true)}>Transfer this location</Button></div><SectionGateNote /></li>
-      <li className="flex min-w-0 flex-col gap-2 px-4 py-4"><p className="text-body font-semibold text-ink">Remove from NabaPresence</p><p className="text-ui text-ink-muted">Unlink this app location under <Link href="/settings/connections" className="rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-3 focus-halo hover:underline">Connections</Link>. Unlinking does not request a change to the business on Google.</p></li>
-      <li className="flex min-w-0 flex-col gap-2 px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-body font-semibold text-danger-ink">Request deletion on Google</p><p className="text-ui text-ink-muted">Request deletion of the managed Business Profile location. Search/Maps removal and customer-review deletion are not guaranteed.</p></div><Button variant="danger-outline" size="sm" disabled={blocked} onClick={() => setDeleting(true)}>Delete this location</Button></div><SectionGateNote /></li>
+  // A settings group: the label and what it is for above one card of rows,
+  // each row a title and consequence with its control trailing (wrapping
+  // under the text on a phone). Last on the page; every destructive step
+  // still goes through a saved review and the typed listing name at send.
+  return <section aria-labelledby="danger-zone-heading" className="flex min-w-0 flex-col gap-3">
+    <SectionHeader id="danger-zone-heading" title="Danger zone" description="Review an exact lifecycle request before approval and sending. Google may reject a request, and NabaPresence cannot undo an accepted deletion." />
+    <ul aria-label="Danger zone actions" className="flex min-w-0 list-none flex-col divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
+      <li className="flex min-w-0 flex-col gap-2 px-(--np-card-pad) py-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5"><p className="text-body font-medium text-ink">Transfer this location</p><p className="text-ui text-ink-muted">Move the exact Google location between accounts. Current source ownership and destination management access must be established.</p></div><Button variant="danger-outline" size="sm" disabled={blocked} onClick={() => setCollecting(true)}>Transfer this location</Button></div><SectionGateNote /></li>
+      <li className="flex min-w-0 flex-col gap-0.5 px-(--np-card-pad) py-3"><p className="text-body font-medium text-ink">Remove from NabaPresence</p><p className="text-ui text-ink-muted">Unlink this app location under <Link href="/settings/connections" className="rounded-(--np-radius-tag) font-medium text-accent-ink underline-offset-3 focus-halo hover:underline">Connections</Link>. Unlinking does not request a change to the business on Google.</p></li>
+      <li className="flex min-w-0 flex-col gap-2 px-(--np-card-pad) py-3"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex min-w-0 flex-1 basis-60 flex-col gap-0.5"><p className="text-body font-medium text-danger-ink">Request deletion on Google</p><p className="text-ui text-ink-muted">Request deletion of the managed Business Profile location. Search/Maps removal and customer-review deletion are not guaranteed.</p></div><Button variant="danger-outline" size="sm" disabled={blocked} onClick={() => setDeleting(true)}>Delete this location</Button></div><SectionGateNote /></li>
     </ul>
     <Dialog open={collecting} onOpenChange={closeTransfer} dirty={destination.trim().length > 0} onDiscard={() => setDestination("")}><DialogContent><DialogHeader><DialogTitle>Transfer this location</DialogTitle><DialogDescription>Choose an exact destination account, then review current access and the frozen transfer. This step sends no provider write.</DialogDescription></DialogHeader>
       <form className="flex min-w-0 flex-col gap-4" onSubmit={(event) => { event.preventDefault(); if (!blocked && parsed.success) void previewTransfer() }}>
