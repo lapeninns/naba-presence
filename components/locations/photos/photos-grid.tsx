@@ -22,8 +22,11 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
  * moving an item to another category, making it the logo, the lightbox and
  * the delete confirmation.
  *
- * Tiles are at least 10rem wide, so a phone shows two across from about
- * 360px and one across below that; a wide pane fits five or six.
+ * Columns follow the pane's own width (container queries on the named
+ * scale, so no one-off lengths): one across below 20rem of pane (a 320px
+ * phone), two from 20rem (a phone from about 360px), then three, four,
+ * five, six and seven as the pane widens, which keeps every tile near the
+ * old 10rem minimum. A 1440 desk pane shows five or six.
  */
 export function PhotosGrid({
   locationId,
@@ -89,23 +92,25 @@ export function PhotosGrid({
   return (
     <>
       <TooltipProvider>
-        <ul
-          aria-label="Photos"
-          className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,10rem),1fr))] gap-3"
-        >
-          {items.map((item) => (
-            <MediaCard
-              key={item.id}
-              item={item}
-              disabled={disabled}
-              updating={updatingId === item.id}
-              patchCategories={patchCategories}
-              onOpen={() => setPreviewId(item.id)}
-              onCategoryChange={(next) => moveTo(item, next)}
-              onDelete={() => setDeleteTarget(item)}
-            />
-          ))}
-        </ul>
+        <div className="@container/photos">
+          <ul
+            aria-label="Photos"
+            className="grid grid-cols-1 gap-x-3 gap-y-4 @xs/photos:grid-cols-2 @lg/photos:grid-cols-3 @2xl/photos:grid-cols-4 @4xl/photos:grid-cols-5 @5xl/photos:grid-cols-6 @7xl/photos:grid-cols-7"
+          >
+            {items.map((item) => (
+              <MediaCard
+                key={item.id}
+                item={item}
+                disabled={disabled}
+                updating={updatingId === item.id}
+                patchCategories={patchCategories}
+                onOpen={() => setPreviewId(item.id)}
+                onCategoryChange={(next) => moveTo(item, next)}
+                onDelete={() => setDeleteTarget(item)}
+              />
+            ))}
+          </ul>
+        </div>
       </TooltipProvider>
 
       <LoadMore
