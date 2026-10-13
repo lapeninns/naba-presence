@@ -259,6 +259,10 @@ describe("ClientSettings", () => {
     fireEvent.click(await screen.findByRole("checkbox", { name: /Select all/ }))
     const bar = screen.getByRole("region", { name: "Unfiled listing actions" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
     expect(within(bar).getByText("6 selected")).toBeInTheDocument()
     fireEvent.click(
       within(bar).getByRole("button", { name: "Add 6 to this client" })
