@@ -3,7 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { chainSearchChoices } from "@/lib/domain/google-chains"
 import { unsupportedRelationshipBaseline } from "@/lib/domain/google-relationships"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
@@ -43,8 +43,8 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
     <Field error={error}>
       <FieldLabel htmlFor="profile-chain-search">Search Google chains</FieldLabel>
       <div className="flex items-center gap-3">
-        <Input className="min-w-0 flex-1" id="profile-chain-search" enterKeyHint="search" value={query} maxLength={255} disabled={blocked}
-          autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false}
+        <Input className="min-w-0 flex-1" id="profile-chain-search" value={query} maxLength={255} disabled={blocked}
+          {...inputHints.search} autoCapitalize="none" autoComplete="off"
           onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); runSearch() }
           }} />

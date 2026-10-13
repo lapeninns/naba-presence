@@ -9,6 +9,7 @@ import {
   FieldLabel,
   useFieldContext,
 } from "@/components/ui/field"
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
 import type { BusinessInformationDraft } from "@/lib/locations/google-values"
 
@@ -63,13 +64,14 @@ function OpeningDateGroup({
     .join(" ")
   const date = draft.openingDate
   return (
-    <fieldset
+    <Fieldset
       id="profile-opening-date"
-      className="flex min-w-0 flex-col gap-3"
       disabled={disabled}
+      // The hint and error belong to the outer Field, not a
+      // FieldsetDescription, so the group is described by them directly.
       aria-describedby={describedBy || undefined}
     >
-      <legend className="text-ui font-semibold text-ink">Opening date</legend>
+      <FieldsetLegend>Opening date</FieldsetLegend>
       <FieldDescription>
         When the business first opened. Enter a month and year; leave the day
         blank if unknown.
@@ -133,6 +135,6 @@ function OpeningDateGroup({
         </Button>
       )}
       <FieldError />
-    </fieldset>
+    </Fieldset>
   )
 }

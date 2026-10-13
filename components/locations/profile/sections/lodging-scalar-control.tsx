@@ -1,9 +1,9 @@
 "use client"
 
-import { AnswerChoice } from "@/components/locations/profile/answer-choice"
 import { Button } from "@/components/ui/button"
-import { Field, FieldDescription, FieldError, FieldLabel, useFieldTriggerProps } from "@/components/ui/field"
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LODGING_FIELD_GUIDANCE, lodgingFieldLabel, type LodgingEditorNode } from "@/lib/locations/forms/lodging-catalogue"
 
@@ -57,17 +57,24 @@ export function LodgingScalarControl({ node, value, original, disabled, error, a
  * A lodging yes/no detail as one Yes / No / Not recorded choice. "Not
  * recorded" shows that Google holds no answer; lodging has no way to take an
  * answer back off Google, so it is never a choice.
+ *
+ * TriState's look and order, but TriState has no per-answer disabled state,
+ * so this is the segmented radio track TriState is built from with the third
+ * segment locked. Inside the Field, the track takes the Field's label and
+ * hint/error wiring itself.
  */
 function LodgingAnswer({ value, disabled, onChange }: {
   readonly value: unknown; readonly disabled: boolean; readonly onChange: (value: unknown) => void
 }) {
-  const field: { "aria-labelledby"?: string; "aria-describedby"?: string } = useFieldTriggerProps()
-  return <AnswerChoice
-    aria-labelledby={field["aria-labelledby"]}
-    aria-describedby={field["aria-describedby"]}
+  return <SegmentedControl
+    semantics="radio"
+    className="w-full sm:w-auto"
     value={value === true ? "true" : value === false ? "false" : "unknown"}
     disabled={disabled}
-    options={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }, { value: "unknown", label: "Not recorded", disabled: true }]}
     onValueChange={(next) => { if (next !== "unknown") onChange(next === "true") }}
-  />
+  >
+    <SegmentedControlItem value="true">Yes</SegmentedControlItem>
+    <SegmentedControlItem value="false">No</SegmentedControlItem>
+    <SegmentedControlItem value="unknown" disabled className="data-checked:data-disabled:opacity-100">Not recorded</SegmentedControlItem>
+  </SegmentedControl>
 }

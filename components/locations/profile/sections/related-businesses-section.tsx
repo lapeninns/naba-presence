@@ -3,7 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { googleRelevantLocationSchema, unsupportedRelationshipBaseline } from "@/lib/domain/google-relationships"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
@@ -71,7 +71,7 @@ function RelationshipControl({ draft, setDraft, location, disabled, kind }: Prop
       <FieldLabel htmlFor={`profile-${kind}-place-id`}>{kind === "parent" ? "Parent business place ID" : "New child business place ID"}</FieldLabel>
       <Input id={`profile-${kind}-place-id`} value={placeId} maxLength={255} disabled={blocked}
         // A place ID is a case-sensitive code: no capitalising, correcting or spell-check marks.
-        autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false}
+        {...inputHints.identifier}
         onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} />
       <FieldDescription>Use an existing Google place ID. Local checks validate format only; provider validation and confirmation are separate.</FieldDescription>
       <FieldError />

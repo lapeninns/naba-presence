@@ -4,7 +4,7 @@ import { useState, type Dispatch, type SetStateAction } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { googleServiceAreaSchema } from "@/lib/domain/google-service-area"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
@@ -82,7 +82,7 @@ export function ServiceAreaSection({ draft, setDraft, location, disabled, change
       {places.length < 20 && <div className="flex flex-col gap-3">
         <Field><FieldLabel htmlFor="profile-area-name">New area name</FieldLabel><Input id="profile-area-name" value={name} maxLength={255} disabled={blocked} onChange={(event) => { setName(event.target.value); setEntryError(undefined) }} /></Field>
         <Field error={entryError}><FieldLabel htmlFor="profile-area-id">New area place ID</FieldLabel><Input id="profile-area-id" value={placeId} maxLength={255} disabled={blocked}
-          autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} /><FieldError />
+          {...inputHints.identifier} onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} /><FieldError />
           <FieldDescription>Use an existing Google place ID. These checks validate format only; Google validates the proposed areas before publication.</FieldDescription>
         </Field>
         <Button className="self-start" type="button" variant="outline" disabled={blocked || !name.trim() || !placeId.trim()} onClick={() => {

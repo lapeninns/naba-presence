@@ -4,6 +4,7 @@ import { useEffect, useImperativeHandle, type Ref } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { SectionCard } from "../section-card"
 import { Button } from "@/components/ui/button"
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
 import {
@@ -199,11 +200,11 @@ function ServiceEditor({
           </Button>
         </div>
       ) : null}
-      <fieldset
+      <Fieldset
         disabled={disabled || pending || workflow.unresolved}
-        className="flex min-w-0 flex-col gap-4"
+        className="gap-4"
       >
-        <legend className="sr-only">Service details</legend>
+        <FieldsetLegend srOnly>Service details</FieldsetLegend>
         {draft.draft.length === 0 ? (
           <p className="text-ui text-ink-muted">No services added.</p>
         ) : null}
@@ -421,7 +422,7 @@ function ServiceEditor({
             Add custom service for {category.displayName ?? category.name}
           </Button>
         ))}
-      </fieldset>
+      </Fieldset>
       {!built.success ? (
         <p role="alert" className="text-ui text-danger-ink">
           {built.message}

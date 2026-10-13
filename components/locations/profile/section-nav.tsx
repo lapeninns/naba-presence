@@ -140,7 +140,7 @@ export function SectionNav({
         // Phone: a sticky chip row under the app bar (the same offset the
         // document's scroll padding uses). Desk: a sticky rail.
         "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky -mx-1 bg-canvas px-1 py-2 md:top-(--np-toolbar-h)",
-        "desk:top-[calc(var(--np-toolbar-h)+1rem)] desk:mx-0 desk:bg-transparent desk:p-0",
+        "desk:top-[calc(var(--np-toolbar-h)+--spacing(4))] desk:mx-0 desk:bg-transparent desk:p-0",
         className
       )}
     >

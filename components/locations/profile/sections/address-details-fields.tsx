@@ -2,7 +2,7 @@
 
 import { useState, type Dispatch, type SetStateAction } from "react"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { unsupportedAddressDetails } from "@/lib/domain/business-information"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
@@ -36,14 +36,14 @@ export function AddressDetailsFields({ draft, setDraft, location, disabled, erro
       </Field>
       {showSorting && <Field><FieldLabel htmlFor="profile-address-sorting">Postal sorting code (optional)</FieldLabel>
         <Input id="profile-address-sorting" value={draft.addressSortingCode ?? ""} maxLength={100} disabled={blocked("sortingCode")}
-          autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false} onChange={(event) => setDraft((current) => ({ ...current, addressSortingCode: event.target.value }))} />
+          {...inputHints.identifier} autoCapitalize="characters" onChange={(event) => setDraft((current) => ({ ...current, addressSortingCode: event.target.value }))} />
         <FieldDescription>A country-specific code, such as CEDEX in France. It is not a UK postcode. Existing values are shown so they can be preserved or explicitly cleared.</FieldDescription>
       </Field>}
       {/* The language tag is a code: it follows the human address details. */}
       <Field error={error}>
         <FieldLabel htmlFor="profile-address-language">Address language (optional)</FieldLabel>
         <Input id="profile-address-language" value={draft.addressLanguageCode ?? ""} maxLength={35} disabled={blocked("languageCode")}
-          autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} onChange={(event) => setDraft((current) => ({ ...current, addressLanguageCode: event.target.value }))} />
+          {...inputHints.identifier} onChange={(event) => setDraft((current) => ({ ...current, addressLanguageCode: event.target.value }))} />
         <FieldDescription>Use a language tag such as en or cy only when known. Leave it blank if unknown; this does not change the profile language.</FieldDescription>
         <FieldError />
       </Field>

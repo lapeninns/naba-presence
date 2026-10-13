@@ -3,6 +3,7 @@
 import { CircleAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import {
   LODGING_FIELD_GUIDANCE,
   type LodgingEditorNode,
@@ -59,10 +60,8 @@ export function LodgingFieldControl({
     const current = lodgingRecord(value),
       before = lodgingRecord(original)
     return (
-      <fieldset className="@container/lodging-fields col-span-full flex min-w-0 flex-col gap-3 border-l border-line pl-3">
-        <legend className="mb-2 text-ui font-semibold text-ink">
-          {node.label}
-        </legend>
+      <Fieldset className="@container/lodging-fields col-span-full border-l border-line pl-3">
+        <FieldsetLegend className="mb-2">{node.label}</FieldsetLegend>
         <div className="grid min-w-0 gap-4 @[36rem]/lodging-fields:grid-cols-2">
           {node.children.map((child) => (
             <LodgingFieldControl
@@ -83,7 +82,7 @@ export function LodgingFieldControl({
             />
           ))}
         </div>
-      </fieldset>
+      </Fieldset>
     )
   }
   if (node.kind === "array") {
@@ -93,10 +92,8 @@ export function LodgingFieldControl({
     const hint = LODGING_FIELD_GUIDANCE[node.path]?.hint
     const error = errors[path]
     return (
-      <fieldset className="col-span-full flex min-w-0 flex-col gap-3 border-l border-line pl-3">
-        <legend className="mb-2 text-ui font-semibold text-ink">
-          {node.label}
-        </legend>
+      <Fieldset className="col-span-full border-l border-line pl-3">
+        <FieldsetLegend className="mb-2">{node.label}</FieldsetLegend>
         {hint ? <p className="text-caption text-ink-muted">{hint}</p> : null}
         {!supported ? (
           <p className="text-ui text-ink-muted">
@@ -189,7 +186,7 @@ export function LodgingFieldControl({
             Reset {node.label.toLowerCase()}
           </Button>
         ) : null}
-      </fieldset>
+      </Fieldset>
     )
   }
   if (node.kind === "time")
