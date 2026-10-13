@@ -29,7 +29,18 @@ export default async function SettingsHomePage() {
             title="Settings"
             description="Your own preferences, and how the workspace runs."
           />
-          <SettingsIndex role={session?.role ?? null} />
+          <SettingsIndex
+            role={session?.role ?? null}
+            profile={
+              session
+                ? {
+                    displayName: session.displayName ?? null,
+                    email: session.email ?? null,
+                    organisationName: session.organisationName ?? null,
+                  }
+                : undefined
+            }
+          />
         </>
       }
       policy={<ReplyPolicyContent session={session} />}
