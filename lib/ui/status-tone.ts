@@ -52,9 +52,11 @@ export type ToneName = StatusTone | ToneAlias
 
 /** The tone a name stands for. */
 export function resolveTone(tone: ToneName): StatusTone {
-  return (
-    (TONE_ALIASES as Record<string, StatusTone>)[tone] ?? (tone as StatusTone)
-  )
+  // Own keys only: `"toString" in TONE_ALIASES` is true through the
+  // prototype.
+  return Object.hasOwn(TONE_ALIASES, tone)
+    ? TONE_ALIASES[tone as ToneAlias]
+    : (tone as StatusTone)
 }
 
 /** True for the five tones and their aliases; false for anything else. */
@@ -62,7 +64,7 @@ export function isToneName(value: unknown): value is ToneName {
   return (
     typeof value === "string" &&
     ((STATUS_TONES as readonly string[]).includes(value) ||
-      value in TONE_ALIASES)
+      Object.hasOwn(TONE_ALIASES, value))
   )
 }
 

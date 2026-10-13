@@ -48,6 +48,9 @@ describe("status-tone vocabulary", () => {
     expect(isToneName("ok")).toBe(true)
     expect(isToneName("purple")).toBe(false)
     expect(isToneName(3)).toBe(false)
+    // Not through the prototype.
+    expect(isToneName("toString")).toBe(false)
+    expect(isToneName("constructor")).toBe(false)
   })
 
   it("draws a pill and a badge in the same state in the same colours", () => {
