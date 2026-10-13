@@ -82,6 +82,7 @@ export function ReportingPanel({
   framed = false,
   icon,
   action,
+  titleAs = "p",
 }: {
   variant: PanelVariant
   title?: string
@@ -99,6 +100,13 @@ export function ReportingPanel({
   icon?: React.ReactNode
   /** A next step under an empty state. */
   action?: React.ReactNode
+  /**
+   * The empty state's title as a heading, one level under the section it
+   * stands in for: a framed panel that is the whole of a tab or section is
+   * a heading (h3 under the tab's h2, h2 directly under the page); a small
+   * note inside a card stays a `p`.
+   */
+  titleAs?: "p" | "h2" | "h3"
 }) {
   if (variant === "loading") {
     return (
@@ -144,6 +152,7 @@ export function ReportingPanel({
   const empty = (
     <Empty
       icon={icon ?? ICONS[variant]}
+      titleAs={titleAs}
       title={title ?? copy.title}
       description={description ?? copy.description}
       action={action}

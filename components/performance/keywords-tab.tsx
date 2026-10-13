@@ -97,6 +97,7 @@ export function KeywordsTab({
       paused ? (
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="paused"
           title="Keyword reporting is paused"
           description="Google search-keyword reporting is on hold for now. Please check back soon."
@@ -130,6 +131,7 @@ export function KeywordsTab({
     return frame(
       <ReportingPanel
         framed
+        titleAs="h3"
         variant="empty"
         icon={<Link2OffIcon />}
         title="No linked location"
@@ -153,7 +155,7 @@ export function KeywordsTab({
       <>
         {/* No keywords yet: still name each location and why. */}
         <PartialCoverageAlert completeness={data.completeness} />
-        <ReportingPanel framed variant="collecting" />
+        <ReportingPanel framed titleAs="h3" variant="collecting" />
       </>
     )
   if (data.state === "unavailable")
@@ -185,6 +187,7 @@ export function KeywordsTab({
         <PartialCoverageAlert completeness={data.completeness} />
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           icon={<SearchIcon />}
           title="No keywords yet"
@@ -242,6 +245,7 @@ export function KeywordsTab({
       {shown.length === 0 ? (
         <ReportingPanel
           framed
+          titleAs="h3"
           variant="empty"
           icon={<SearchIcon />}
           title="No terms match this filter"

@@ -168,6 +168,7 @@ export function NotificationsView() {
         empty={
           <Card flush>
             <Empty
+              titleAs="h2"
               icon={<BellOffIcon />}
               title="Nothing here"
               description={
@@ -265,7 +266,7 @@ function NotificationRow({
             <span>{copy.label}</span>
             {!item.readAt ? <span className="sr-only">(unread)</span> : null}
           </span>
-          <StatusPill tone={item.status === "open" ? "warn" : "outline"} plain>
+          <StatusPill tone={item.status === "open" ? "attention" : "outline"} plain>
             {item.status === "open" ? "Open" : "Resolved"}
           </StatusPill>
         </p>

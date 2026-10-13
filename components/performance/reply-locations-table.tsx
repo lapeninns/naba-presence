@@ -93,7 +93,10 @@ export function ReplyLocationsTable({
           const id = encodeURIComponent(location.id)
           return (
             <TableRow key={location.id}>
-              <TableCell className="font-medium text-ink">
+              {/* A record card on a phone: the name is the headline and the
+                  five figures are labelled details (each td keeps its
+                  data-label, which the reports e2e reads for Response rate). */}
+              <TableCell priority="primary" className="font-medium text-ink">
                 {/* The location's own report: same figures, one place. */}
                 {linked ? (
                   <Link
