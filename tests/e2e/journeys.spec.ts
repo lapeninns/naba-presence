@@ -251,18 +251,52 @@ test.describe("inbox critical journeys", () => {
     // replied to, so the viewer meets the control in its "Publish reply"
     // state whichever order these tests run in.
     await openReview(page, state.approvalReview.text)
-    const publish = page.getByRole("button", { name: "Publish reply" })
-    await expect(publish).toBeDisabled()
-    // The composer is READ-ONLY, not disabled: a viewer is meant to be able to
-    // read and copy the reply (reply-composer.tsx sets `readOnly`, keeping the
-    // text selectable) and is told why in words, by the exception above the
-    // review (detail/reply-exception.tsx). `not.toBeEditable()` is what
-    // actually holds a viewer out of the box — `toBeDisabled()` is false for a
-    // readonly control, so it was asserting nothing about this composer.
+    // Before inbox-08 a viewer met a disabled "Publish reply" and a read-only
+    // composer. Now neither is drawn: no publish control of any kind, no
+    // docked bar, no reply box to type in, and the review says in words that
+    // the access is view-only (detail/reply-exception.tsx and the reply row).
+    // "Not there" is stronger than "there but off": nothing to tab to, press
+    // or misread as a broken button.
+    const pane = page.getByRole("region", { name: "Selected review" })
     await expect(
-      page.getByRole("textbox", { name: "Your reply" })
-    ).not.toBeEditable()
-    await expect(page.getByText("View-only access")).toBeVisible()
+      pane.getByText(state.approvalReview.text, { exact: true })
+    ).toBeVisible()
+    await expect(
+      page.getByText(
+        "View-only access. You can read reviews and replies; an owner or admin can reply."
+      )
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", {
+        name: /^(Publish reply|Submit for approval|Update reply)$/,
+      })
+    ).toHaveCount(0)
+    await expect(page.locator('[data-slot="composer-footer"]')).toHaveCount(0)
+    // No editable reply box: none at all, or (should one return) not editable.
+    const replyBoxes = page.getByRole("textbox", { name: "Your reply" })
+    for (const box of await replyBoxes.all()) {
+      await expect(box).not.toBeEditable()
+    }
+    // The UI follows the server: the viewer's own session reads the review
+    // with every reply capability off (a read, nothing is sent).
+    const detail = await page.request.get(
+      `/api/reviews/${state.approvalReview.id}`
+    )
+    expect(detail.status()).toBe(200)
+    const { review } = (await detail.json()) as {
+      review: {
+        capabilities: {
+          canEdit: boolean
+          canPublish: boolean
+          canRequestApproval: boolean
+        }
+      }
+    }
+    expect(review.capabilities).toMatchObject({
+      canEdit: false,
+      canPublish: false,
+      canRequestApproval: false,
+    })
   })
 
   test("dirty draft: switching reviews confirms before discarding edits", async ({
