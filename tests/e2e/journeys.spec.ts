@@ -335,3 +335,177 @@ test.describe("inbox critical journeys", () => {
     )
   })
 })
+
+/**
+ * Counts how many times "Discard unsaved reply?" OPENS from here on (a
+ * transition from no open dialog to one), so a second question is caught even
+ * when it replaces the first between two polls.
+ */
+async function countDiscardPrompts(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as { __discardOpens: number }
+    w.__discardOpens = 0
+    let wasOpen = false
+    const check = () => {
+      const open = [...document.querySelectorAll("[role=alertdialog]")].some(
+        (dialog) =>
+          dialog.getAttribute("aria-label") === "Discard unsaved reply?" &&
+          !dialog.hasAttribute("data-ending-style") &&
+          !dialog.hasAttribute("data-closed")
+      )
+      if (open && !wasOpen) w.__discardOpens++
+      wasOpen = open
+    }
+    new MutationObserver(check).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-ending-style", "data-closed", "data-open"],
+    })
+    check()
+  })
+  return () =>
+    page.evaluate(
+      () => (window as unknown as { __discardOpens: number }).__discardOpens
+    )
+}
+
+/** The open prompt has finished arriving: no enter state, nothing animating. */
+async function settled(page: Page) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const sheet = document.querySelector(
+          '[data-slot="alert-dialog-content"]'
+        )
+        if (!sheet || sheet.hasAttribute("data-starting-style")) return false
+        return document
+          .getAnimations()
+          .every((animation) => animation.playState !== "running")
+      })
+    )
+    .toBe(true)
+}
+
+// One question per way out (64f2c80f): a confirmed Discard leaves the review
+// at once. With an unsaved reply, "Back to Inbox" (the app bar link on a
+// phone) used to ask, then ask again: Discard only marked the edits for the
+// unmount, so the back it re-ran still saw a dirty reply, and the leave
+// guard's sentinel (a review pushed from the list) or the in-page gate (a
+// deep link) put the same question up a second time.
+test.describe("dirty draft: one question per way out", () => {
+  const UNSAVED = "Unsaved edit, never sent"
+
+  for (const variant of ["pushed from the list", "a deep link"] as const) {
+    test(`Back to Inbox asks once, then lands on the list (390, ${variant})`, async ({
+      baseURL,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      const state = await readJourneyState()
+      await useCookie(page, baseURL, state.cookie)
+      if (variant === "pushed from the list") {
+        await page.goto("/inbox?queue=all")
+        await openReview(page, state.approvalReview.text)
+      } else {
+        await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
+      }
+      await expect(page).toHaveURL(/[?&]selected=/)
+      await (await replyBox(page)).fill(UNSAVED)
+      const opens = await countDiscardPrompts(page)
+
+      await page
+        .getByRole("banner")
+        .getByRole("link", { name: "Back to Inbox" })
+        .click()
+      const prompt = page.getByRole("alertdialog", {
+        name: "Discard unsaved reply?",
+      })
+      await expect(prompt).toBeVisible()
+      await settled(page)
+      await prompt.getByRole("button", { name: "Discard", exact: true }).click()
+
+      // The list, with no review selected and no prompt left or reopened.
+      await expect(page).not.toHaveURL(/[?&]selected=/)
+      await expect(page.locator('[data-slot="inbox"]')).toHaveAttribute(
+        "data-view",
+        "list"
+      )
+      await expect(prompt).toHaveCount(0)
+      // Long enough for a second question to have opened.
+      await page.waitForTimeout(1500)
+      await expect(prompt).toHaveCount(0)
+      expect(await opens()).toBe(1)
+    })
+  }
+
+  test("Keep editing stays on the review with the reply intact (390, pushed)", async ({
+    baseURL,
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const state = await readJourneyState()
+    await useCookie(page, baseURL, state.cookie)
+    await page.goto("/inbox?queue=all")
+    await openReview(page, state.approvalReview.text)
+    await (await replyBox(page)).fill(UNSAVED)
+    const back = page
+      .getByRole("banner")
+      .getByRole("link", { name: "Back to Inbox" })
+    await back.click()
+    const prompt = page.getByRole("alertdialog", {
+      name: "Discard unsaved reply?",
+    })
+    await expect(prompt).toBeVisible()
+    await settled(page)
+    await prompt.getByRole("button", { name: "Keep editing" }).click()
+    await expect(prompt).toHaveCount(0)
+    await expect(page).toHaveURL(/[?&]selected=/)
+    await expect(page.getByRole("textbox", { name: "Your reply" })).toHaveValue(
+      UNSAVED
+    )
+    // Still guarded: going back again asks again.
+    await back.click()
+    await expect(prompt).toBeVisible()
+  })
+
+  // On a desk the list is beside the review, so there is no Back to Inbox;
+  // the way out of an unsaved reply is the shell's navigation, which asks
+  // once and then goes, however the review was opened.
+  for (const variant of ["pushed from the list", "a deep link"] as const) {
+    test(`a shell link asks once, then leaves (1280, ${variant})`, async ({
+      baseURL,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 860 })
+      const state = await readJourneyState()
+      await useCookie(page, baseURL, state.cookie)
+      if (variant === "pushed from the list") {
+        await page.goto("/inbox?queue=all")
+        await openReview(page, state.approvalReview.text)
+      } else {
+        await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
+      }
+      await expect(page).toHaveURL(/[?&]selected=/)
+      await expect(
+        page.getByRole("link", { name: "Back to Inbox" })
+      ).toHaveCount(0)
+      await (await replyBox(page)).fill(UNSAVED)
+      const opens = await countDiscardPrompts(page)
+
+      await page
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Listings" })
+        .click()
+      const prompt = page.getByRole("alertdialog", {
+        name: "Discard unsaved reply?",
+      })
+      await expect(prompt).toBeVisible()
+      await settled(page)
+      await prompt.getByRole("button", { name: "Discard", exact: true }).click()
+      await expect(page).toHaveURL(/\/listings/)
+      await page.waitForTimeout(1500)
+      expect(await opens()).toBe(1)
+    })
+  }
+})

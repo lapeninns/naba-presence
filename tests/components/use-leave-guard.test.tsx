@@ -147,6 +147,37 @@ describe("useLeaveGuard: the back button", () => {
     expect(window.location.pathname).toBe(before)
   })
 
+  // Back to Inbox: the prompt holds the link, Leave re-runs it, and the
+  // inbox's back then steps over the sentinel while the editor is still
+  // mounted (dirty until it unmounts). That step is the navigation the
+  // operator agreed to: it must not put the question up again.
+  it("lets the confirmed navigation step back over the sentinel without asking again", async () => {
+    const { before } = openPage()
+    const onLeave = vi.fn()
+    // Confirms and closes in one press, as the inbox's dialog does.
+    function Prompt() {
+      const prompt = useLeaveGuard({ when: true, onLeave })
+      return prompt.open ? (
+        <button
+          type="button"
+          onClick={() => {
+            prompt.onConfirm()
+            prompt.onOpenChange(false)
+          }}
+        >
+          Leave
+        </button>
+      ) : null
+    }
+    render(<Prompt />)
+    act(() => guardNavigation(() => window.history.back()))
+    fireEvent.click(screen.getByRole("button", { name: "Leave" }))
+    await settle()
+    expect(screen.queryByRole("button", { name: "Leave" })).toBeNull()
+    expect(onLeave).toHaveBeenCalledTimes(1)
+    expect(window.location.pathname).toBe(before)
+  })
+
   it("ignores a forward step onto the sentinel and a jump within the page", async () => {
     const { page } = openPage()
     render(<Guarded when />)
