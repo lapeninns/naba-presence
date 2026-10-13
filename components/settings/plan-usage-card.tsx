@@ -10,6 +10,7 @@ import {
   describeLocationUsage,
   pendingLinkLimitNote,
 } from "@/lib/billing/presentation"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useBilling } from "@/lib/queries/use-billing"
 
 /**
@@ -20,7 +21,12 @@ import { useBilling } from "@/lib/queries/use-billing"
  */
 export function PlanUsageCard() {
   const billing = useBilling()
-  const data = billing.data
+  // The server never has billing, so it renders the skeleton. The shell's
+  // billing banner reads the same query and can fill the cache before this
+  // card hydrates; the hydration render must still match the server's
+  // skeleton (React #418), so the plan lands one render later.
+  const hydrated = useHydrated()
+  const data = hydrated ? billing.data : undefined
   const limit = data?.access.locationLimit ?? null
   const status = data ? billingStatus(data) : null
   const linkNote = data ? pendingLinkLimitNote(data) : null
@@ -33,7 +39,7 @@ export function PlanUsageCard() {
       description="Linked Google locations count toward the plan, including disconnected ones."
       variant="group"
     >
-      {billing.isPending ? (
+      {!hydrated || billing.isPending ? (
         <Skeleton className="h-10 w-full" />
       ) : data && status ? (
         <>
