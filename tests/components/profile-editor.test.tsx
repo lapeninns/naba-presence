@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { ProfileTab } from "@/components/locations/profile/profile-editor"
@@ -9,6 +9,14 @@ import { locationFieldCapabilities } from "@/lib/domain/google-capabilities"
 import { businessInformationPreviewSchema } from "@/lib/contracts/location-business-information"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { emptyListingSummary } from "@/lib/contracts/location-summary"
+
+// The lodging editor is loaded on demand (next/dynamic). Transforming its
+// module graph the first time can take longer than a query's wait on a
+// loaded machine, so it is imported once up front: the tests then wait only
+// for what the UI does.
+beforeAll(async () => {
+  await import("@/components/locations/profile/sections/industry-editor")
+})
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
