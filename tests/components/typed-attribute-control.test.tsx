@@ -186,4 +186,70 @@ describe("TypedAttributeControl", () => {
       values: ["PARTIAL"],
     })
   })
+  describe("layout=\"row\" (settings-row drawing)", () => {
+    it("keeps the BOOL choice named by its label and the same value paths", async () => {
+      const onChange = vi.fn()
+      const onClear = vi.fn()
+      render(
+        <TypedAttributeControl
+          layout="row"
+          description="Free for guests"
+          metadata={{ parent: "attributes/wifi", displayName: "Wi-Fi", valueType: "BOOL" }}
+          attribute={{ name: "attributes/wifi", values: [false] }}
+          disabled={false}
+          onChange={onChange}
+          onClear={onClear}
+        />
+      )
+      // The label still names the radio group (aria-labelledby), and the
+      // description is drawn under it.
+      expect(answer("Wi-Fi", "No")).toBeChecked()
+      expect(screen.getByText("Free for guests")).toBeVisible()
+      // It describes the control; it is not part of its name.
+      expect(screen.getByRole("radiogroup", { name: "Wi-Fi" })).toHaveAccessibleDescription(
+        "Free for guests"
+      )
+      await userEvent.click(answer("Wi-Fi", "Yes"))
+      expect(onChange).toHaveBeenCalledWith({ name: "attributes/wifi", values: [true] })
+      await userEvent.click(answer("Wi-Fi", "Not set"))
+      expect(onClear).toHaveBeenCalledWith("attributes/wifi")
+      expect(onChange).toHaveBeenCalledTimes(1)
+    })
+    it("keeps the ENUM select named by its label and emits the chosen value", async () => {
+      const onChange = vi.fn()
+      render(
+        <TypedAttributeControl
+          layout="row"
+          metadata={{
+            parent: "attributes/wheelchair",
+            displayName: "Wheelchair access",
+            valueType: "ENUM",
+            valueMetadata: [
+              { value: "FULL", displayName: "Full access" },
+              { value: "PARTIAL", displayName: "Partial access" },
+            ],
+          }}
+          attribute={{ name: "attributes/wheelchair", values: ["FULL"] }}
+          disabled={false}
+          onChange={onChange}
+        />
+      )
+      await userEvent.click(screen.getByRole("combobox", { name: "Wheelchair access" }))
+      await userEvent.click(await screen.findByRole("option", { name: "Partial access" }))
+      expect(onChange).toHaveBeenCalledWith({ name: "attributes/wheelchair", values: ["PARTIAL"] })
+    })
+    it("draws nothing extra in the default stack layout", () => {
+      render(
+        <TypedAttributeControl
+          description="Free for guests"
+          metadata={{ parent: "attributes/wifi", displayName: "Wi-Fi", valueType: "BOOL" }}
+          attribute={{ name: "attributes/wifi", values: [true] }}
+          disabled={false}
+          onChange={vi.fn()}
+        />
+      )
+      expect(answer("Wi-Fi", "Yes")).toBeChecked()
+      expect(screen.queryByText("Free for guests")).toBeNull()
+    })
+  })
 })

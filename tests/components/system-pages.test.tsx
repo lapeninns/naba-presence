@@ -19,6 +19,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 
 import DashboardError from "@/app/(dashboard)/error"
 import DashboardLoading from "@/app/(dashboard)/loading"
+import { BoundaryErrorState } from "@/components/app-shell/boundary"
 import DashboardNotFound from "@/app/(dashboard)/not-found"
 import { ShellNavigationContext } from "@/components/app-shell/shell-navigation"
 import { queryKeys } from "@/lib/queries/keys"
@@ -61,6 +62,40 @@ describe("route error boundary", () => {
     expect(screen.queryByText("Reference")).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(reset).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("BoundaryErrorState", () => {
+  it("announces what happened, retries, and offers one quiet way out", async () => {
+    const reset = vi.fn()
+    render(
+      <BoundaryErrorState
+        title="This client page hit an error"
+        description="Your clients are unaffected."
+        onReset={reset}
+        homeHref="/clients"
+        homeLabel="All clients"
+      />
+    )
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveTextContent("This client page hit an error")
+    expect(alert).toHaveTextContent("Your clients are unaffected.")
+    // One primary action; the way out is the only other control.
+    expect(screen.getAllByRole("button")).toHaveLength(1)
+    expect(screen.getByRole("link", { name: "All clients" })).toHaveAttribute(
+      "href",
+      "/clients"
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }))
+    expect(reset).toHaveBeenCalledTimes(1)
+  })
+
+  it("defaults the way out to the Inbox", () => {
+    render(<BoundaryErrorState title="x" description="y" onReset={vi.fn()} />)
+    expect(screen.getByRole("link", { name: "Go to Inbox" })).toHaveAttribute(
+      "href",
+      "/inbox"
+    )
   })
 })
 

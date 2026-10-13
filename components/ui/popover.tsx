@@ -144,9 +144,10 @@ function PopoverContent({
           data-slot="popover-content"
           data-presentation="popover"
           className={cn(
-            // Reference `.popover`: surface, hairline edge, card radius, pop
-            // shadow, 16px inside, min(360px, 100vw - 24px) wide.
-            "w-[min(360px,calc(100vw-24px))] origin-(--transform-origin) rounded-(--np-radius-card) border border-line bg-surface p-4 text-ui text-ink shadow-np-pop outline-none",
+            // An opaque surface (no glass, D3), hairline edge, the menu
+            // radius, the soft float shadow, 16px inside, min(360px, 100vw -
+            // 24px) wide.
+            "w-[min(360px,calc(100vw-24px))] origin-(--transform-origin) rounded-menu border border-line bg-surface p-4 text-ui text-ink shadow-np-float outline-none",
             "transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
             className
           )}

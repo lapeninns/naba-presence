@@ -34,10 +34,52 @@ describe("DangerZoneDialog (typed-name confirm)", () => {
     await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden")
     expect(screen.getByRole("button", { name: "Delete location" })).toBeDisabled()
   })
+  it("says Matches only when the button arms: a doubled inner space is neither", async () => {
+    render(
+      <DangerZoneDialog open onOpenChange={() => {}} title="t" description="d" expectedName="Camden Hotel" confirmLabel="Delete location" pending={false} onConfirm={() => {}} />
+    )
+    const input = screen.getByLabelText(/type the location's name/i)
+    const button = screen.getByRole("button", { name: "Delete location" })
+    await userEvent.type(input, "camden  hotel")
+    expect(button).toBeDisabled()
+    expect(screen.queryByText("Matches")).toBeNull()
+    await userEvent.clear(input)
+    await userEvent.type(input, " camden hotel ")
+    expect(button).toBeEnabled()
+    expect(screen.getByText("Matches")).toBeInTheDocument()
+  })
   it("never enables the destructive button when expectedName is empty (defence-in-depth)", () => {
     render(
       <DangerZoneDialog open onOpenChange={() => {}} title="t" description="d" expectedName="" confirmLabel="Delete location" pending={false} onConfirm={() => {}} />
     )
     expect(screen.getByRole("button", { name: "Delete location" })).toBeDisabled()
+  })
+  it("lists the consequences before the typed name, when given", () => {
+    render(
+      <DangerZoneDialog
+        open
+        onOpenChange={() => {}}
+        title="t"
+        description="d"
+        expectedName="Camden Hotel"
+        confirmLabel="Delete location"
+        pending={false}
+        onConfirm={() => {}}
+        consequences={["The Google listing is deleted.", "Reviews stop syncing."]}
+      />
+    )
+    const items = screen.getAllByRole("listitem").map((item) => item.textContent)
+    expect(items).toEqual(["The Google listing is deleted.", "Reviews stop syncing."])
+    const list = screen.getByRole("list")
+    const input = screen.getByLabelText(/type the location's name/i)
+    expect(
+      list.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+  it("draws no consequences list when none is given", () => {
+    render(
+      <DangerZoneDialog open onOpenChange={() => {}} title="t" description="d" expectedName="Camden Hotel" confirmLabel="Delete location" pending={false} onConfirm={() => {}} />
+    )
+    expect(screen.queryByRole("list")).toBeNull()
   })
 })

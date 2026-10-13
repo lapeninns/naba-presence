@@ -24,6 +24,12 @@ export type ValidationError = {
  *   title      defaults to "Fix 1 problem" / "Fix N problems".
  *   focusKey   change it to re-focus the summary (a submit counter).
  *   autoFocus  default true.
+ *   onNavigate `(fieldId) => void | Promise<void>`, called when a link is
+ *              followed and awaited before focus moves, so a caller can
+ *              first open the closed sheet, tab or disclosure that holds the
+ *              field. Resolve once the field is mounted. Focus moves when
+ *              it settles (even if it rejects; one frame later if the field
+ *              is not there yet), and only if the field is in the document.
  *
  * Keep the per-field `FieldError` too: the summary is how a keyboard or
  * screen-reader user finds the problems, the field error is how everyone
@@ -37,17 +43,25 @@ export type ValidationError = {
  * bar; the scroll margin keeps its heading in view, and the links scroll
  * their field to the centre of what is left above the keyboard.
  */
+function moveTo(target: HTMLElement) {
+  target.scrollIntoView({ block: "center" })
+  target.focus({ preventScroll: true })
+}
+
 function ValidationSummary({
   errors,
   title,
   focusKey,
   autoFocus = true,
+  onNavigate,
   className,
 }: {
   errors: ValidationError[]
   title?: string
   focusKey?: string | number
   autoFocus?: boolean
+  /** Reveal the field's container before focus moves to it. */
+  onNavigate?: (fieldId: string) => void | Promise<void>
   className?: string
 }) {
   const ref = React.useRef<HTMLDivElement>(null)
@@ -80,7 +94,7 @@ function ValidationSummary({
       aria-labelledby={titleId}
       data-slot="validation-summary"
       className={cn(
-        "grid scroll-mt-[calc(var(--np-appbar-h)+var(--np-safe-top)+--spacing(3))] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-danger-ink bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-(--np-field-ring-invalid)",
+        "grid scroll-mt-[calc(var(--np-appbar-h)+var(--np-safe-top)+--spacing(3))] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-transparent bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-(--np-field-ring-invalid)",
         className
       )}
     >
@@ -98,11 +112,29 @@ function ValidationSummary({
             <a
               href={`#${error.fieldId}`}
               onClick={(event) => {
-                const target = document.getElementById(error.fieldId)
-                if (!target) return
+                if (!onNavigate) {
+                  const target = document.getElementById(error.fieldId)
+                  if (!target) return
+                  event.preventDefault()
+                  moveTo(target)
+                  return
+                }
+                // The field may not exist yet (its sheet is closed), so the
+                // link never falls back to the hash jump here.
                 event.preventDefault()
-                target.scrollIntoView({ block: "center" })
-                target.focus({ preventScroll: true })
+                void Promise.resolve()
+                  .then(() => onNavigate(error.fieldId))
+                  .catch(() => undefined)
+                  .then(() => {
+                    const target = document.getElementById(error.fieldId)
+                    if (target) return moveTo(target)
+                    // A state change made by onNavigate may commit on the
+                    // next frame; look once more then.
+                    requestAnimationFrame(() => {
+                      const late = document.getElementById(error.fieldId)
+                      if (late) moveTo(late)
+                    })
+                  })
               }}
               className="inline-block rounded-(--np-radius-tag) py-0.5 font-medium text-danger-ink underline underline-offset-3 focus-halo hover:decoration-2"
             >

@@ -1,12 +1,14 @@
 import type { ReactNode } from "react"
 import { Checkbox } from "@/components/ui/checkbox"
-import { cardClassName } from "@/components/ui/card"
 
 /**
  * The explicit consent before a send: one checkbox naming exactly what will
  * be sent, and any extra friction the flow needs (a typed confirmation for a
  * destructive request, a re-entered PIN) in `children`. Approval never
  * sends; this is the separate, deliberate step that does.
+ *
+ * A calm inline block, set off from what it confirms by one hairline above
+ * rather than drawn as a box.
  */
 export function ConsentSlot({
   label,
@@ -24,10 +26,7 @@ export function ConsentSlot({
   return (
     <div
       data-slot="consent"
-      className={cardClassName({
-        surface: "sunken",
-        className: "flex min-w-0 flex-col gap-3 p-3",
-      })}
+      className="flex min-w-0 flex-col gap-3 border-t border-line pt-3"
     >
       {children}
       <Checkbox

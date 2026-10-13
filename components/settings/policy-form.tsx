@@ -31,13 +31,6 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Field,
@@ -197,13 +190,8 @@ export function PolicyForm({ role }: { role: string | null }) {
   // off screen, and with a phone keyboard up a field above the keyboard can
   // still sit under the bar. The form mounts after the loading states, so
   // the hook follows it through a callback ref.
-  const [formElement, setFormElement] = useState<HTMLFormElement | null>(
-    null
-  )
-  const keepClearRoot = useMemo(
-    () => ({ current: formElement }),
-    [formElement]
-  )
+  const [formElement, setFormElement] = useState<HTMLFormElement | null>(null)
+  const keepClearRoot = useMemo(() => ({ current: formElement }), [formElement])
   useKeepFocusClear(keepClearRoot, "[data-slot=action-bar]")
   // Stable, so React doesn't detach and reattach it on every render.
   const setFormRef = useCallback((node: HTMLFormElement | null) => {
@@ -468,6 +456,7 @@ export function PolicyForm({ role }: { role: string | null }) {
         id="settings-org-name"
         title={terms.org}
         description="The name your team and invited people see."
+        variant="group"
       >
         <Field error={nameError ?? nameProblem ?? undefined}>
           <FieldLabel>{terms.orgName}</FieldLabel>
@@ -490,165 +479,154 @@ export function PolicyForm({ role }: { role: string | null }) {
         </Field>
       </SettingsSection>
 
-      <Card flush>
-        <CardHeader divided>
-          <CardTitle as="h2">Approval</CardTitle>
-          <CardDescription>
-            Who has to look at a reply before it goes to Google.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4 py-(--np-card-pad)">
+      <SettingsSection
+        id="settings-approval"
+        title="Approval"
+        description="Who has to look at a reply before it goes to Google."
+        variant="group"
+        contentClassName="gap-4"
+      >
+        <Switch
+          label="Require approval before replies publish"
+          description="Replies from people who can’t publish wait in the Approval queue for someone who can."
+          labelClassName="items-start"
+          checked={current.approvalRequired}
+          disabled={!canEdit}
+          onCheckedChange={(value) =>
+            setForm({
+              ...current,
+              approvalRequired: value,
+              directPublishConsent: value
+                ? false
+                : current.directPublishConsent,
+            })
+          }
+        />
+
+        <Consequence>{consequence}</Consequence>
+
+        {current.approvalRequired ? (
           <Switch
-            label="Require approval before replies publish"
-            description="Replies from people who can’t publish wait in the Approval queue for someone who can."
+            label="Require a second person to approve each reply"
+            description="The person who asked for approval can’t approve their own reply."
             labelClassName="items-start"
-            checked={current.approvalRequired}
+            checked={current.requireTwoPersonApproval}
             disabled={!canEdit}
-            onCheckedChange={(value) =>
-              setForm({
-                ...current,
-                approvalRequired: value,
-                directPublishConsent: value
-                  ? false
-                  : current.directPublishConsent,
-              })
+            onCheckedChange={(value) => set("requireTwoPersonApproval", value)}
+          />
+        ) : (
+          <Alert variant="warning">
+            <AlertTitle>Replies will publish without approval</AlertTitle>
+            <AlertDescription className="flex flex-col gap-2.5">
+              <span>
+                {turningApprovalOff
+                  ? isOwner
+                    ? "Only an owner can confirm this."
+                    : "Only an owner can turn off approval before replies publish."
+                  : "Direct publishing is on."}
+                {consentedOn
+                  ? ` Direct publishing was confirmed on ${consentedOn}.`
+                  : ""}
+              </span>
+              {turningApprovalOff ? (
+                <Checkbox
+                  checked={current.directPublishConsent}
+                  disabled={!isOwner || !canEdit}
+                  onCheckedChange={(value) =>
+                    set("directPublishConsent", value === true)
+                  }
+                  label="I confirm replies may publish to Google without approval"
+                />
+              ) : null}
+            </AlertDescription>
+          </Alert>
+        )}
+      </SettingsSection>
+
+      <SettingsSection
+        id="settings-retention"
+        title="Raw review content retention"
+        description="How long we keep the customer’s review text after it arrives."
+        variant="group"
+      >
+        <Field
+          error={fieldError("rawContentRetentionDays")}
+          className="grid grid-cols-1 gap-x-4 gap-y-1.5 @[32rem]:grid-cols-[minmax(0,1fr)_auto] @[32rem]:items-center"
+        >
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <FieldLabel>Days to keep raw review content</FieldLabel>
+            <FieldDescription>
+              1 to 30 days. After this, the text is deleted here; it stays on
+              Google.
+            </FieldDescription>
+          </div>
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={30}
+            value={current.rawContentRetentionDays}
+            disabled={!canEdit}
+            className="w-24 text-right font-mono tabular-nums"
+            onChange={(event) =>
+              set("rawContentRetentionDays", event.target.value)
             }
           />
+          <FieldError className="@[32rem]:col-span-2">
+            {fieldError("rawContentRetentionDays")}
+          </FieldError>
+        </Field>
+      </SettingsSection>
 
-          <Consequence>{consequence}</Consequence>
-
-          {current.approvalRequired ? (
-            <Switch
-              label="Require a second person to approve each reply"
-              description="The person who asked for approval can’t approve their own reply."
-              labelClassName="items-start"
-              checked={current.requireTwoPersonApproval}
-              disabled={!canEdit}
-              onCheckedChange={(value) =>
-                set("requireTwoPersonApproval", value)
-              }
-            />
-          ) : (
-            <Alert variant="warning">
-              <AlertTitle>Replies will publish without approval</AlertTitle>
-              <AlertDescription className="flex flex-col gap-2.5">
-                <span>
-                  {turningApprovalOff
-                    ? isOwner
-                      ? "Only an owner can confirm this."
-                      : "Only an owner can turn off approval before replies publish."
-                    : "Direct publishing is on."}
-                  {consentedOn
-                    ? ` Direct publishing was confirmed on ${consentedOn}.`
-                    : ""}
-                </span>
-                {turningApprovalOff ? (
-                  <Checkbox
-                    checked={current.directPublishConsent}
-                    disabled={!isOwner || !canEdit}
-                    onCheckedChange={(value) =>
-                      set("directPublishConsent", value === true)
-                    }
-                    label="I confirm replies may publish to Google without approval"
-                  />
-                ) : null}
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card flush>
-        <CardHeader divided>
-          <CardTitle as="h2">Raw review content retention</CardTitle>
-          <CardDescription>
-            How long we keep the customer’s review text after it arrives.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="py-(--np-card-pad)">
-          <Field
-            error={fieldError("rawContentRetentionDays")}
-            className="grid grid-cols-1 gap-x-4 gap-y-1.5 @[32rem]:grid-cols-[minmax(0,1fr)_auto] @[32rem]:items-center"
+      <SettingsSection
+        id="settings-defaults"
+        title="Defaults"
+        description="What new replies and schedules start from."
+        variant="group"
+        contentClassName="grid grid-cols-1 gap-4 @[36rem]:grid-cols-2"
+      >
+        <Field error={fieldError("defaultLanguageCode")}>
+          <FieldLabel>Default language</FieldLabel>
+          <Select
+            value={current.defaultLanguageCode}
+            disabled={!canEdit}
+            onValueChange={(value: string | null) =>
+              set("defaultLanguageCode", value ?? current.defaultLanguageCode)
+            }
           >
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <FieldLabel>Days to keep raw review content</FieldLabel>
-              <FieldDescription>
-                1 to 30 days. After this, the text is deleted here; it stays on
-                Google.
-              </FieldDescription>
-            </div>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={30}
-              value={current.rawContentRetentionDays}
-              disabled={!canEdit}
-              className="w-24 text-right font-mono tabular-nums"
-              onChange={(event) =>
-                set("rawContentRetentionDays", event.target.value)
-              }
-            />
-            <FieldError className="@[32rem]:col-span-2">
-              {fieldError("rawContentRetentionDays")}
-            </FieldError>
-          </Field>
-        </CardContent>
-      </Card>
-
-      <Card flush>
-        <CardHeader divided>
-          <CardTitle as="h2">Defaults</CardTitle>
-          <CardDescription>
-            What new replies and schedules start from.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 py-(--np-card-pad) @[36rem]:grid-cols-2">
-          <Field error={fieldError("defaultLanguageCode")}>
-            <FieldLabel>Default language</FieldLabel>
-            <Select
-              value={current.defaultLanguageCode}
-              disabled={!canEdit}
-              onValueChange={(value: string | null) =>
-                set("defaultLanguageCode", value ?? current.defaultLanguageCode)
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(value: string) => languageLabel(value)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {languageOptionsFor(current.defaultLanguageCode).map(
-                  (option) => (
-                    <SelectItem key={option.code} value={option.code}>
-                      {option.label}
-                    </SelectItem>
-                  )
-                )}
-              </SelectContent>
-            </Select>
-            <FieldDescription>
-              The language new reply drafts are written in when a review’s own
-              language can’t be told.
-            </FieldDescription>
-            <FieldError>{fieldError("defaultLanguageCode")}</FieldError>
-          </Field>
-          <Field error={fieldError("defaultTimezone")}>
-            <FieldLabel>Default timezone</FieldLabel>
-            <TimezonePicker
-              value={current.defaultTimezone}
-              disabled={!canEdit}
-              onChange={(zone) => set("defaultTimezone", zone)}
-            />
-            <FieldDescription>
-              Opening hours and report windows are read in this timezone unless
-              a listing sets its own.
-            </FieldDescription>
-            <FieldError>{fieldError("defaultTimezone")}</FieldError>
-          </Field>
-        </CardContent>
-      </Card>
+            <SelectTrigger className="w-full">
+              <SelectValue>
+                {(value: string) => languageLabel(value)}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {languageOptionsFor(current.defaultLanguageCode).map((option) => (
+                <SelectItem key={option.code} value={option.code}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FieldDescription>
+            The language new reply drafts are written in when a review’s own
+            language can’t be told.
+          </FieldDescription>
+          <FieldError>{fieldError("defaultLanguageCode")}</FieldError>
+        </Field>
+        <Field error={fieldError("defaultTimezone")}>
+          <FieldLabel>Default timezone</FieldLabel>
+          <TimezonePicker
+            value={current.defaultTimezone}
+            disabled={!canEdit}
+            onChange={(zone) => set("defaultTimezone", zone)}
+          />
+          <FieldDescription>
+            Opening hours and report windows are read in this timezone unless a
+            listing sets its own.
+          </FieldDescription>
+          <FieldError>{fieldError("defaultTimezone")}</FieldError>
+        </Field>
+      </SettingsSection>
 
       <ActionBar
         label="Save reply policy"

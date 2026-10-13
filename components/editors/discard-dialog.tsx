@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast } from "@/components/ui/toast"
 
 /**
  * "Discard your changes?" (reference discard dialog). Discarding only throws
@@ -42,7 +42,7 @@ function DiscardDialog({
   /** Toast "Changes discarded" after confirming. Off when the page is left. */
   announce?: boolean
 }) {
-  const toasts = useToastManager()
+  const toasts = useOutcomeToast()
   const confirmed = useRef(false)
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -73,7 +73,9 @@ function DiscardDialog({
               onConfirm()
               onOpenChange(false)
               if (announce)
-                toasts.add({
+                // A local step, and not one that can be undone: no Undo.
+                toasts.show({
+                  kind: "local",
                   title: "Changes discarded",
                   description: "Back to what NabaPresence last saved.",
                   type: "info",

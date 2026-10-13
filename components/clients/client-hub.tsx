@@ -66,6 +66,22 @@ const SECTIONS = [
 ]
 
 /**
+ * On a phone the primary takes a row of its own under the others (it stays
+ * last in reading order, so focus order matches what is seen).
+ */
+const PRIMARY_ON_PHONE = "@max-md:basis-full"
+
+/**
+ * The side column's cards read as quiet settings groups on a phone: no
+ * border, a grey group surface, and a small muted label instead of a title.
+ * The desk keeps the cards in the `@4xl` side column.
+ */
+const ASIDE_CARD_ON_PHONE =
+  "@max-md:border-transparent @max-md:bg-fill-secondary"
+const ASIDE_LABEL_ON_PHONE =
+  "@max-md:text-ui @max-md:font-medium @max-md:text-ink-muted"
+
+/**
  * One client's home: how it is doing, what needs doing, and its listings.
  *
  * This is the level an agency actually works at. Everything below — a
@@ -139,7 +155,7 @@ function ClientHub({
       <Link
         key="finish"
         href={`/setup?client=${client.id}`}
-        className={cn(buttonVariants())}
+        className={cn(buttonVariants(), PRIMARY_ON_PHONE)}
       >
         Finish setup
       </Link>
@@ -154,7 +170,8 @@ function ClientHub({
         className={cn(
           buttonVariants({
             variant: inboxIsPrimary ? "default" : "secondary",
-          })
+          }),
+          inboxIsPrimary && PRIMARY_ON_PHONE
         )}
       >
         {inboxIsPrimary ? <InboxIcon aria-hidden strokeWidth={1.75} /> : null}
@@ -202,12 +219,14 @@ function ClientHub({
 
   return (
     <>
-      <div className="flex min-w-0 items-start gap-4">
+      {/* The client's mark leads the header at every width: 44px beside a
+          name that may wrap on a phone, the full 48px from @md. */}
+      <div className="flex min-w-0 items-start gap-3 @md:gap-4">
         <ClientAvatar
           name={client.name}
           colour={client.colour}
           size="lg"
-          className="mt-1 hidden @md:flex"
+          className="mt-1 size-11 @md:size-12"
         />
         <PageHeader
           className="min-w-0 flex-1"
@@ -220,7 +239,7 @@ function ClientHub({
           }
           description={
             <span className="flex flex-col gap-1.5">
-              <span>
+              <span className="text-ui text-ink-secondary">
                 {client.health === "attention" && client.freshness
                   ? freshnessSentence(client.freshness)
                   : healthDescription(client.health)}
@@ -315,9 +334,13 @@ function ClientHub({
         >
           <ImportCard client={client} canManage={canManage} />
           <section aria-labelledby="client-notes">
-            <Card size="sm">
+            <Card size="sm" className={ASIDE_CARD_ON_PHONE}>
               <CardHeader>
-                <CardTitle as="h2" id="client-notes">
+                <CardTitle
+                  as="h2"
+                  id="client-notes"
+                  className={ASIDE_LABEL_ON_PHONE}
+                >
                   Notes for the team
                 </CardTitle>
               </CardHeader>
@@ -365,7 +388,7 @@ function LoginLine({
   const [first, ...rest] = client.connections
   if (!first) {
     return (
-      <span className="flex items-center gap-2 text-ui text-ink-muted">
+      <span className="flex items-center gap-2 text-caption text-ink-muted">
         <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
         No Google login connected yet.
       </span>
@@ -375,7 +398,7 @@ function LoginLine({
   const accessLost = diagnosis?.kind === "access_lost"
   const lost = accessLost ? diagnosis.accessLost : 0
   return (
-    <span className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
+    <span className="flex flex-wrap items-center gap-2 text-caption text-ink-secondary">
       <KeyRoundIcon aria-hidden strokeWidth={1.75} className="size-3.5" />
       <span className="min-w-0 [overflow-wrap:anywhere]">
         Behind it:{" "}
@@ -485,7 +508,7 @@ function ListingsSection({
           Listings
         </h2>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="font-mono text-caption text-ink-muted tabular-nums">
+          <span className="text-caption text-ink-muted tabular-nums">
             {formatNumber(linked.length)} linked · {formatNumber(verified)}{" "}
             verified
           </span>
@@ -669,9 +692,13 @@ function ImportCard({
   const total = running + failed + succeeded + notStarted
   return (
     <section aria-labelledby="client-import">
-      <Card size="sm">
+      <Card size="sm" className={ASIDE_CARD_ON_PHONE}>
         <CardHeader>
-          <CardTitle as="h2" id="client-import">
+          <CardTitle
+            as="h2"
+            id="client-import"
+            className={ASIDE_LABEL_ON_PHONE}
+          >
             Review import
           </CardTitle>
         </CardHeader>
@@ -731,7 +758,7 @@ function ImportRow({
       <StatusPill tone={tone} dashed={tone === "neutral"}>
         {label}
       </StatusPill>
-      <span className="font-mono text-caption text-ink-muted tabular-nums">
+      <span className="text-caption text-ink-muted tabular-nums">
         {formatNumber(count)} {count === 1 ? "listing" : "listings"}
       </span>
     </li>
@@ -832,7 +859,7 @@ function HubSkeleton() {
   return (
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
       <div className="flex items-start gap-4">
-        <Skeleton className="mt-1 hidden size-12 rounded-(--np-radius-card) @md:block" />
+        <Skeleton className="mt-1 size-11 rounded-(--np-radius-card) @md:size-12" />
         <div className="flex flex-1 flex-col gap-2 pt-1">
           <Skeleton className="h-3 w-12" />
           <Skeleton className="h-8 w-64 max-w-full" />

@@ -1,6 +1,7 @@
 "use client"
 
-import { useState } from "react"
+import { CheckIcon } from "lucide-react"
+import { useState, type ReactNode } from "react"
 
 import {
   AlertDialog,
@@ -13,16 +14,18 @@ import {
 import { Button } from "@/components/ui/button"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 // A destructive Google action (remove admin / transfer / delete location) needs
 // TWO gates: the route's exact confirmation literal (sent by the client) AND this
 // UI typed-name confirmation. The confirm button is inert until the typed name
-// matches the location name (trimmed, case-insensitive). The Field/FieldLabel
-// pair wires the Input's id to the label's htmlFor automatically (see
-// components/ui/input.tsx's useFieldContext), so no separate aria-label is
-// needed on the Input itself.
+// matches the location name (trimmed, case-insensitive). The field mirrors the
+// shared TypedConfirmation (label wired to the input, a polite "Matches"
+// line), but both that line and the button read the one `matches` below: the
+// primitive's modes either collapse inner spaces or compare case, and neither
+// is this dialog's original comparison, which stays exactly as strict.
 //
-// Cancel is the grey button and the destructive action, which names the
+// Cancel comes first and the destructive action, which names the
 // object, comes last so it sits at the trailing edge (and on top when the
 // footer stacks on a phone).
 export function DangerZoneDialog({
@@ -34,6 +37,7 @@ export function DangerZoneDialog({
   confirmLabel,
   pending,
   onConfirm,
+  consequences,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -43,6 +47,11 @@ export function DangerZoneDialog({
   confirmLabel: string
   pending: boolean
   onConfirm: () => void
+  /**
+   * What happens once this goes through, one short sentence each, listed
+   * before the typed name so the cost is read before it is confirmed.
+   */
+  consequences?: readonly ReactNode[]
 }) {
   const [typed, setTyped] = useState("")
   // Defence-in-depth: an empty expectedName can never match, even against an
@@ -63,14 +72,48 @@ export function DangerZoneDialog({
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
+        {consequences && consequences.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-caption font-medium text-ink-muted">
+              What happens
+            </p>
+            <ul className="flex list-disc flex-col gap-1 ps-5 text-ui text-ink">
+              {consequences.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <Field>
           <FieldLabel>Type the location&apos;s name to confirm</FieldLabel>
           <Input
+            autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+            data-matched={matches || undefined}
+            placeholder={expectedName}
             value={typed}
             onChange={(event) => setTyped(event.target.value)}
-            placeholder={expectedName}
-            autoComplete="off"
           />
+          {/* Always mounted so the live region exists before its first
+              message; screen readers skip announcements into a fresh region. */}
+          <p
+            aria-live="polite"
+            data-slot="typed-confirmation-status"
+            className={cn(
+              "flex min-h-4 items-center gap-1.5 text-caption font-medium text-ink-muted",
+              matches && "text-success-ink"
+            )}
+          >
+            {matches ? (
+              <>
+                <CheckIcon aria-hidden strokeWidth={2} className="size-3.5" />
+                Matches
+              </>
+            ) : null}
+          </p>
         </Field>
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="ghost" />}>

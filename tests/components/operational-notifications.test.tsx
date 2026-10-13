@@ -460,4 +460,34 @@ describe("NotificationPreferences", () => {
       ).not.toBeChecked()
     )
   })
+
+  it("turns every in-app choice on in one request from the group action", async () => {
+    const preferences = [
+      { kind: "publication_failed", channel: "in_app", mode: "off", explicit: true },
+      { kind: "publication_failed", channel: "email", mode: "off", explicit: false },
+      { kind: "schedule_missed", channel: "in_app", mode: "immediate", explicit: false },
+      { kind: "schedule_missed", channel: "email", mode: "off", explicit: false },
+    ]
+    const calls = stub((call) =>
+      call.method === "PUT"
+        ? {
+            emailConfigured: true,
+            preferences: preferences.map((row) =>
+              row.channel === "in_app" ? { ...row, mode: "immediate", explicit: true } : row
+            ),
+          }
+        : { emailConfigured: true, preferences }
+    )
+    renderWith(<NotificationPreferences />)
+    fireEvent.click(await screen.findByRole("button", { name: "Turn all on in app" }))
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "PUT")?.body).toEqual({
+        changes: [
+          { kind: "publication_failed", channel: "in_app", mode: "immediate" },
+          { kind: "schedule_missed", channel: "in_app", mode: "immediate" },
+        ],
+      })
+    )
+    expect(await screen.findByRole("button", { name: "Turn all off in app" })).toBeInTheDocument()
+  })
 })

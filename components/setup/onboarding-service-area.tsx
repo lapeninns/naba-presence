@@ -127,14 +127,14 @@ export function OnboardingServiceArea({
               Required for a customer-only business.
             </FieldDescription>
           </Field>
-          <ul className="space-y-2">
+          <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
             {places.map((place) => (
               <li
                 key={place.placeId}
-                className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3"
+                className="flex min-w-0 items-start justify-between gap-3 py-3"
               >
                 <div className="min-w-0">
-                  <p className="text-ui font-semibold break-words">
+                  <p className="text-body font-medium break-words text-ink">
                     {place.placeName}
                   </p>
                   <p className="font-mono text-caption break-all text-ink-muted">

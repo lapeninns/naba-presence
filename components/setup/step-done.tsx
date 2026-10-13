@@ -42,7 +42,7 @@ function StepDone({
       >
         <CircleCheckIcon className="size-7" strokeWidth={1.75} />
       </span>
-      <p className="max-w-[56ch] text-body text-ink">
+      <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink">
         {business ? "Your business" : clientName} is connected. New reviews
         appear in your inbox as Google sends them.
       </p>
@@ -51,7 +51,7 @@ function StepDone({
         className={cardClassName({
           surface: "sunken",
           className:
-            "grid w-full grid-cols-1 gap-x-6 gap-y-1 p-4 text-ui @min-[520px]/wiz:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] @min-[520px]/wiz:gap-y-2.5",
+            "grid w-full grid-cols-1 gap-x-6 gap-y-1 p-4 text-ui text-ink @min-[520px]/wiz:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] @min-[520px]/wiz:gap-y-2.5 [&>dd]:text-body",
         })}
       >
         <dt className="text-ink-muted">Google login</dt>
@@ -67,11 +67,11 @@ function StepDone({
           )}
         </dd>
         <dt className="text-ink-muted">Business Profile accounts</dt>
-        <dd className="mb-2 font-mono tabular-nums @min-[520px]/wiz:mb-0">
+        <dd className="mb-2 tabular-nums @min-[520px]/wiz:mb-0">
           {formatNumber(facts.accountsActive)} selected
         </dd>
         <dt className="text-ink-muted">Listings linked</dt>
-        <dd className="mb-2 font-mono tabular-nums @min-[520px]/wiz:mb-0">
+        <dd className="mb-2 tabular-nums @min-[520px]/wiz:mb-0">
           {formatNumber(facts.locationsLinked)}
         </dd>
         <dt className="text-ink-muted">Review import</dt>
@@ -89,7 +89,7 @@ function StepDone({
           {facts.teamInvited ? "Teammates added or invited" : "Only you so far"}
         </dd>
       </dl>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex w-full flex-col gap-2 @min-[520px]/wiz:w-auto @min-[520px]/wiz:flex-row @min-[520px]/wiz:flex-wrap">
         {business ? null : (
           <Link href={`/clients/${clientId}`} className={cn(buttonVariants())}>
             Open the client

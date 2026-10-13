@@ -43,11 +43,11 @@ function ClientColourField({
               style={{ "--swatch": option.value } as React.CSSProperties}
               className={cn(
                 "flex size-8 items-center justify-center rounded-(--np-radius-control) border border-line bg-(--swatch) text-primary-foreground focus-halo transition-transform duration-(--np-duration-fast) ease-spring-snappy active:scale-[0.96] pointer-coarse:size-11",
-                selected && "outline-2 outline-offset-2 outline-primary"
+                selected && "outline-2 outline-offset-2 outline-ink"
               )}
             >
               {selected ? (
-                <CheckIcon aria-hidden className="size-4" strokeWidth={2} />
+                <CheckIcon aria-hidden className="size-4" strokeWidth={2.5} />
               ) : null}
             </button>
           )

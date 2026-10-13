@@ -19,7 +19,7 @@ export type Step = {
 /**
  * Progress through an ordered flow (reference `.stepper`).
  *
- * Each step has a 22px mono number ring: done is the ok tint with a tick,
+ * Each step has a 22px number ring (tabular figures): done is the ok tint with a tick,
  * current is the accent solid (and, vertically, the whole row sits on the
  * accent tint), to-do is the control edge. `ol` with `aria-current="step"`
  * on the active item is the accessible contract; the rings and rules are
@@ -63,7 +63,7 @@ function Stepper({
           <span
             aria-hidden
             className={cn(
-              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-count leading-none tabular-nums",
+              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] text-count leading-none tabular-nums",
               step.state === "done" &&
                 "border-success-ink bg-success-tint text-success-ink",
               step.state === "current" &&

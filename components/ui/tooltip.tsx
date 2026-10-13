@@ -64,9 +64,9 @@ type PositionProps = Pick<
 >
 
 /**
- * A small charcoal label (the counter-surface, like toasts): caption text in
- * the on-charcoal ink, control radius, on the tooltip layer above every
- * overlay. In the dark theme charcoal is near-white with dark text. Never
+ * A small, calm charcoal label (the counter-surface, like toasts): caption
+ * text in the on-charcoal ink, control radius, flat (no shadow), on the
+ * tooltip layer above every overlay. In the dark theme charcoal is near-white with dark text. Never
  * the only home of information a touch user needs; a tooltip does not open
  * on touch (see TooltipTrigger).
  */
@@ -91,7 +91,7 @@ function TooltipContent({
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           className={cn(
-            "max-w-xs origin-(--transform-origin) rounded-(--np-radius-control) bg-charcoal px-2 py-1 text-caption font-medium text-balance text-ink-on-charcoal shadow-np-pop outline-none",
+            "max-w-xs origin-(--transform-origin) rounded-(--np-radius-control) bg-charcoal px-2 py-1 text-caption font-medium text-balance text-ink-on-charcoal outline-none",
             "transition-[opacity,scale] duration-(--np-duration-fast) ease-spring data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-instant:duration-0",
             className
           )}

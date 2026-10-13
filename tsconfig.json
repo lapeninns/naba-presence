@@ -39,6 +39,8 @@
     "ds-bundle",
     ".worktrees",
     ".omo",
-    ".superpowers"
+    ".superpowers",
+    "e2e.config.ts",
+    "tests/agentic"
   ]
 }

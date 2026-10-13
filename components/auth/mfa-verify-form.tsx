@@ -11,7 +11,12 @@ import {
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
 import { Button } from "@/components/ui/button"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { OtpField } from "@/components/ui/otp-field"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { ApiClientError } from "@/lib/api/client"
@@ -132,7 +137,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
 
   if (expired) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <AuthErrorAlert
           message={{
             title: "Your sign-in has expired.",
@@ -143,7 +148,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
         <Button
           type="button"
           size="lg"
-          className="w-full"
+          block
           onClick={() => hardNavigate("/sign-in")}
         >
           Sign in again
@@ -187,21 +192,24 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           value={code}
           onValueChange={setCode}
         />
+        <FieldDescription>
+          From your authenticator app. Codes refresh every 30 seconds.
+        </FieldDescription>
         <FieldError>{codeError}</FieldError>
       </Field>
       <Button
         type="submit"
         size="lg"
-        className="w-full"
+        block
         disabled={pending || factors === null}
       >
         {pending ? "Checking…" : "Verify and sign in"}
       </Button>
       <Button
         type="button"
-        variant="ghost"
+        variant="secondary"
         size="lg"
-        className="w-full"
+        block
         disabled={pending}
         onClick={startOver}
       >
