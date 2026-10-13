@@ -30,9 +30,10 @@ import { cn } from "@/lib/utils"
  * it), so two pills can never disagree.
  *
  * The footer. On a phone (under 48rem) the EditorFooter docks itself to the
- * bottom edge once there is something to save, and the frame reserves that
- * much room under the last field (`:has([data-docked])`) so the bar never
- * covers it. From 48rem on screens at least 620px tall it sticks 12px above
+ * bottom edge once there is something to save. The docked ActionBar leaves a
+ * spacer its single-row height in the flow; the editor's bar is two rows on
+ * a phone (status over its buttons), so the frame reserves the second row
+ * (`:has([data-docked])`) and the bar never covers the last field. From 48rem on screens at least 620px tall it sticks 12px above
  * the bottom of the scrolling pane as a floating dark bar; shorter screens
  * use normal document flow so the bar cannot cover the form.
  */
@@ -82,7 +83,7 @@ function EditorFrame({
       ref={ref}
       data-slot="editor-frame"
       className={cn(
-        "flex flex-col gap-5 max-md:has-[[data-docked=bottom]]:pb-[calc(var(--np-actionbar-h)+var(--np-control-h)+var(--np-dock-bottom))]",
+        "flex flex-col gap-5 max-md:has-[[data-docked=bottom]]:pb-(--np-control-h)",
         className
       )}
     >
@@ -92,9 +93,7 @@ function EditorFrame({
           <div className="flex min-w-0 flex-col gap-1">
             {!titleHidden ? (
               <div className="flex flex-wrap items-center gap-2.5">
-                <h2 className="text-section font-semibold text-ink">
-                  {title}
-                </h2>
+                <h2 className="text-section font-semibold text-ink">{title}</h2>
                 {pill ? (
                   <StatusPill tone={tone ?? "neutral"}>{pill}</StatusPill>
                 ) : null}
