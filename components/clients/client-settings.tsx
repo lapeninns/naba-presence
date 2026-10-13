@@ -425,7 +425,10 @@ function SettingsBody({
                     cell: (l) => (
                       <Link
                         href={`/listings/${l.id}`}
-                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                        // The record card's way in: a full touch-height row
+                        // on touch (the name alone is an 18px line), the
+                        // compact text link at the desk.
+                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
                       >
                         {l.name}
                       </Link>

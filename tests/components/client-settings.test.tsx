@@ -204,6 +204,15 @@ describe("ClientSettings", () => {
     })
   })
 
+  it("gives each filed listing's name link a full touch height on a phone", async () => {
+    stub({ attached: true })
+    renderSettings()
+    const link = await screen.findByRole("link", { name: "Old Crown Girton" })
+    expect(link).toHaveAttribute("href", "/listings/l1")
+    // The record card's way in is a 44px row on touch, a text link at the desk.
+    expect(link).toHaveClass("min-h-(--np-touch)", "desk:min-h-0")
+  })
+
   it("asks before filing more than five listings at once", async () => {
     const unfiled = Array.from({ length: 6 }, (_, index) => ({
       ...listing(null),
