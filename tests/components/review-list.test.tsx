@@ -323,7 +323,9 @@ describe("ReviewList", () => {
         timezone="Europe/London"
       />
     )
-    expect(screen.getByText(/2024/)).toBeInTheDocument()
+    // The visible date carries the year; the spoken one is the exact time.
+    const time = document.querySelector("time")!
+    expect(time.querySelector("[aria-hidden]")).toHaveTextContent(/2024/)
   })
 
   it("previews only the English translation for Google-translated reviews", () => {
@@ -504,9 +506,16 @@ describe("ReviewList", () => {
         timezone="Europe/London"
       />
     )
-    const time = screen.getByText(/2024/)
+    const time = document.querySelector("time")!
     expect(time).toHaveAttribute("datetime", "2024-03-04T10:00:00.000Z")
-    expect(time).toHaveTextContent("edited")
+    expect(time.querySelector("[aria-hidden]")).toHaveTextContent(
+      /2024 · edited/
+    )
+    // Spoken in full rather than left to a hover title a touch screen never
+    // shows.
+    expect(time.querySelector(".sr-only")).toHaveTextContent(
+      /^Written .*2024.*, edited .*2024/
+    )
   })
 
   // The tick box is only visible on hover or once ticked, so its name is the
@@ -520,7 +529,12 @@ describe("ReviewList", () => {
         reviews={[row({ id: "a" })]}
         selectedId={undefined}
         onSelect={() => true}
-        selection={{ selected: new Set(), toggle, extendTo: vi.fn() }}
+        selection={{
+          selected: new Set(),
+          toggle,
+          extendTo: vi.fn(),
+          selectMode: false,
+        }}
       />
     )
     const checkbox = screen.getByRole("checkbox", {
@@ -558,7 +572,12 @@ describe("ReviewList", () => {
         ]}
         selectedId={undefined}
         onSelect={() => true}
-        selection={{ selected: new Set(["a"]), toggle, extendTo }}
+        selection={{
+          selected: new Set(["a"]),
+          toggle,
+          extendTo,
+          selectMode: false,
+        }}
       />
     )
     await user.keyboard("{Shift>}")
@@ -568,5 +587,89 @@ describe("ReviewList", () => {
     await user.keyboard("{/Shift}")
     expect(extendTo).toHaveBeenCalledWith("b")
     expect(toggle).not.toHaveBeenCalled()
+  })
+  // Select mode (components/inbox/selection-context.tsx). A desk always shows
+  // the tick boxes; touch shows them only while the operator has asked to
+  // batch, so a phone row keeps its width the rest of the time.
+  describe("select mode", () => {
+    function stubPointer(coarse: boolean, wide: boolean) {
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: query.includes("pointer: coarse")
+            ? coarse
+            : query.includes("min-width")
+              ? wide
+              : false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          onchange: null,
+          dispatchEvent: vi.fn(),
+        }))
+      )
+    }
+
+    function renderSelectable(selectMode: boolean) {
+      const toggle = vi.fn()
+      const onSelect = vi.fn(() => true)
+      render(
+        <ReviewList
+          reviews={[row({ id: "a" })]}
+          selectedId={undefined}
+          onSelect={onSelect}
+          selection={{
+            selected: new Set(),
+            toggle,
+            extendTo: vi.fn(),
+            selectMode,
+          }}
+        />
+      )
+      const column = screen
+        .getByRole("checkbox", { name: "Select the review from Sam Traveller" })
+        .closest('[data-slot="review-row-select"]')
+      return { toggle, onSelect, column }
+    }
+
+    it("hides the tick-box column on touch until select mode is on", () => {
+      const { column } = renderSelectable(false)
+      expect(column).toHaveClass("hidden", "desk:flex")
+    })
+
+    it("shows the tick-box column at every size in select mode", () => {
+      const { column } = renderSelectable(true)
+      expect(column).toHaveClass("flex")
+      expect(column).not.toHaveClass("hidden")
+    })
+
+    it("ticks a row instead of opening it when tapped on touch in select mode", async () => {
+      stubPointer(true, false)
+      const user = userEvent.setup()
+      const { toggle, onSelect } = renderSelectable(true)
+      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      expect(toggle).toHaveBeenCalledWith("a")
+      expect(onSelect).not.toHaveBeenCalled()
+    })
+
+    it("still opens the row with a mouse on a wide screen", async () => {
+      stubPointer(false, true)
+      const user = userEvent.setup()
+      const { toggle, onSelect } = renderSelectable(true)
+      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      expect(onSelect).toHaveBeenCalledWith("a")
+      expect(toggle).not.toHaveBeenCalled()
+    })
+
+    it("opens the row on touch when select mode is off", async () => {
+      stubPointer(true, false)
+      const user = userEvent.setup()
+      const { toggle, onSelect } = renderSelectable(false)
+      await user.click(screen.getByRole("button", { name: /Sam Traveller/ }))
+      expect(onSelect).toHaveBeenCalledWith("a")
+      expect(toggle).not.toHaveBeenCalled()
+    })
   })
 })
