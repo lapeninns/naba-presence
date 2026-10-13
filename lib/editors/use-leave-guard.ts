@@ -325,9 +325,12 @@ export function useLeaveGuard({
     if (!self.current || !guards.includes(self.current))
       latestOnLeave.current?.()
     for (const guard of guards) guard.leave()
+    // Agreed: the sentinel no longer stands for unsaved edits. A navigation
+    // re-run below can itself step back over it (Back to Inbox pops the
+    // review it pushed), and that step must go through, not ask again.
+    sentinelId = null
     if (pending.kind === "back") {
       holding = false
-      sentinelId = null
       window.history.back()
     } else if (pending.kind === "run") {
       pending.run()

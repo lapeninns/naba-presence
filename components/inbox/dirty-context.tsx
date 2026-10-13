@@ -78,7 +78,15 @@ class DirtyStore {
   getIsDirty = () => this.gate.isDirty
   getSave = () => this.gate.save
   confirmDiscard = () => this.gate.confirmDiscard()
-  discard = () => this.gate.discard()
+  // The operator agreed to leave (the leave prompt): the edits are given up,
+  // so the reply stops counting as dirty at once. Whatever the confirmed
+  // navigation runs next (Back to Inbox's back, the in-page gate) must not
+  // find unsaved edits and ask a second time. The composer re-registers if
+  // it is still there and edited again.
+  discard = () => {
+    this.gate.discard()
+    if (this.gate.isDirty) this.set({ ...this.gate, isDirty: false })
+  }
   set = (gate: Gate) => {
     this.gate = gate
     this.listeners.forEach((listener) => listener())
