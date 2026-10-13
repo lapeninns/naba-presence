@@ -693,9 +693,16 @@ function AreaFrameBody({
               Below that the pane is not a scroller: the page scrolls with
               the column, as PageFrame intends, and a phone's footer docks
               to the screen's bottom edge instead. */}
+          {/* A keyboard user must be able to scroll it even when the editor
+              holds nothing focusable (a viewer's read-only hours or booking),
+              so it is a named, focusable region (WCAG 2.1.1, axe
+              scrollable-region-focusable). */}
           <div
+            role="region"
+            aria-label={listingArea(areaKey).label}
+            tabIndex={0}
             className={cn(
-              "flex flex-col gap-6 md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:flex-1 md:[@media(min-height:620px)]:overflow-y-auto",
+              "flex flex-col gap-6 rounded-(--np-radius-card) outline-none focus-visible:shadow-np-focus md:[@media(min-height:620px)]:min-h-0 md:[@media(min-height:620px)]:flex-1 md:[@media(min-height:620px)]:overflow-y-auto",
               PANE_BLEED
             )}
           >
