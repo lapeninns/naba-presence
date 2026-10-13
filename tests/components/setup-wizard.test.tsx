@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import type { ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -102,6 +108,27 @@ describe("SetupWizard", () => {
     expect(rail.querySelectorAll("li")).toHaveLength(7)
     expect(rail.querySelector("[aria-current='step']")).toHaveTextContent(
       "Connect"
+    )
+  })
+
+  it("docks the step's actions to the bottom edge as a surface ActionBar", async () => {
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    const bar = screen.getByRole("region", { name: "Step actions" })
+    expect(bar).toHaveAttribute("data-slot", "setup-footer")
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar).toHaveAttribute("data-bar-tone", "surface")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+    // Connect is not the first step, so Back is live.
+    expect(within(bar).getByRole("button", { name: "Back" })).toBeEnabled()
+    const next = within(bar).getByRole("button", { name: "Continue" })
+    // The blocked reason stays Continue's description, in words.
+    expect(next).toHaveAccessibleDescription(
+      "Connect a Google account to continue."
     )
   })
 

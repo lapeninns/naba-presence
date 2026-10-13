@@ -11,6 +11,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
@@ -70,8 +71,9 @@ function focusTargetFor(step: SetupStep): string {
  * Layout (reference `setup.html`): a sticky 220px step rail beside one card
  * from 720px of room; below that the rail folds into "Step N of 6" with a
  * progress bar and an "All steps" disclosure. The card's footer (Back, the
- * reason Continue is blocked, Continue) sticks to the bottom of the screen so
- * it is always reachable on a phone.
+ * reason Continue is blocked, Continue) is a docked ActionBar: fixed to the
+ * bottom of the screen on a phone so it is always reachable, sticky at the
+ * foot of the card from md.
  */
 function SetupWizard({ clientId }: { clientId: string }) {
   const router = useRouter()
@@ -126,7 +128,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
   }
   const goTo = (step: SetupStep) => {
     if (current === "locations" && onboardingDirty) {
-      setAttempt({ step: current, message: "Save your business draft before changing setup steps, or use Saved drafts to discard your edits.", key: Date.now() })
+      setAttempt({
+        step: current,
+        message:
+          "Save your business draft before changing setup steps, or use Saved drafts to discard your edits.",
+        key: Date.now(),
+      })
       return
     }
     setAttempt(null)
@@ -209,7 +216,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
 
   const advance = async () => {
     if (current === "locations" && onboardingDirty) {
-      setAttempt({ step: current, message: "Save your business draft before continuing, or use Saved drafts to discard your edits.", key: Date.now() })
+      setAttempt({
+        step: current,
+        message:
+          "Save your business draft before continuing, or use Saved drafts to discard your edits.",
+        key: Date.now(),
+      })
       return
     }
     setChecking(true)
@@ -391,57 +403,71 @@ function SetupWizard({ clientId }: { clientId: string }) {
               </div>
             </div>
 
-            {isDone ? null : (
-              <div
-                data-slot="setup-footer"
-                className="sticky bottom-0 z-10 mt-auto flex flex-wrap items-center gap-2 rounded-b-(--np-radius-card) border-t border-line bg-surface-alt px-(--np-card-pad) pt-3 pb-[max(12px,env(safe-area-inset-bottom))]"
-              >
-                {/* One row of buttons. The reason line shows only when it
+            {/* The step's actions: the shared ActionBar, docked. On a phone
+                it is fixed to the bottom edge (the tab bar steps aside, the
+                page's scroll padding follows it, and it rides the on-screen
+                keyboard); from md it sticks to the foot of the card. The
+                surface tone: these move between steps, nothing here reaches
+                Google. Laid out as the card's last row (its gutter, its
+                corners), the buttons in one row; a blocked step's reason
+                takes a row of its own above them on a narrow card. */}
+            <ActionBar
+              data-slot="setup-footer"
+              label="Step actions"
+              tone="surface"
+              dock
+              visible={!isDone}
+              className="mt-auto gap-2 rounded-none rounded-b-(--np-radius-card) border-x-0 border-b-0 bg-surface-alt px-(--np-card-pad) pt-3 shadow-none max-md:flex-wrap"
+            >
+              {/* One row of buttons. The reason line shows only when it
                     says why Continue is blocked; otherwise it stays for
                     assistive tech (Continue's description, and the live
                     region that announces a blocker), since the rail and the
                     step header already say the step can be revisited. */}
-                <p
-                  id="setup-continue-reason"
-                  aria-live="polite"
-                  className={cn(
-                    blocker
-                      ? "order-first w-full text-caption font-semibold text-warning-ink @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right"
-                      : "sr-only"
-                  )}
-                >
-                  {footerHint}
-                </p>
-                <Button
-                  variant="ghost"
-                  onClick={() => goTo(flow[index - 1])}
-                  disabled={index === 0}
-                  className="@min-[560px]/wiz:order-first"
-                >
-                  <ArrowLeftIcon aria-hidden />
-                  Back
-                </Button>
-                <div className="ml-auto flex items-center gap-2">
-                  {definition.optional ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => goTo(flow[index + 1])}
-                    >
-                      Skip for now
-                    </Button>
-                  ) : null}
-                  <Button
-                    onClick={() => void advance()}
-                    pending={checking}
-                    pendingLabel="Checking…"
-                    aria-describedby="setup-continue-reason"
-                    data-blocked={blocker ? "" : undefined}
-                  >
-                    {importing ? "Continue while it runs" : "Continue"}
+              <p
+                id="setup-continue-reason"
+                aria-live="polite"
+                className={cn(
+                  blocker
+                    ? "order-first w-full text-caption font-semibold text-warning-ink @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right"
+                    : "sr-only"
+                )}
+              >
+                {footerHint}
+              </p>
+              <Button
+                variant="ghost"
+                onClick={() => goTo(flow[index - 1])}
+                disabled={index === 0}
+                className="@min-[560px]/wiz:order-first"
+              >
+                <ArrowLeftIcon aria-hidden />
+                Back
+              </Button>
+              <div className="ml-auto flex items-center gap-2">
+                {definition.optional ? (
+                  <Button variant="ghost" onClick={() => goTo(flow[index + 1])}>
+                    Skip for now
                   </Button>
-                </div>
+                ) : null}
+                <Button
+                  onClick={() => void advance()}
+                  pending={checking}
+                  pendingLabel="Checking…"
+                  aria-describedby="setup-continue-reason"
+                  data-blocked={blocker ? "" : undefined}
+                >
+                  {importing ? "Continue while it runs" : "Continue"}
+                </Button>
               </div>
-            )}
+            </ActionBar>
+            {/* The reason row makes a blocked step's docked bar one caption
+                line (plus its gap) taller than the spacer the bar leaves, so
+                reserve that line too: the card's last field stays reachable
+                above the bar. */}
+            {!isDone && blocker ? (
+              <div aria-hidden className="h-6 md:hidden" />
+            ) : null}
           </section>
         </div>
       </div>
