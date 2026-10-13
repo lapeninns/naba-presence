@@ -756,7 +756,7 @@ function InvitationActions({
   const url = invitation.inviteUrl
   const canShare = useCanShareLink(url ?? "")
   return (
-    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:flex @max-[720px]/table:justify-start">
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-3xl/table:flex @max-3xl/table:justify-start">
       {emailDelivery ? (
         <Button
           variant="secondary"
@@ -839,7 +839,7 @@ function InvitationActions({
  * works, and Copy link / Revoke. When the organisation emails its
  * invitations, each row also says where its email stands and offers Resend
  * (not while a send is queued, nor once the link has expired). Copy link
- * stays the fallback whatever the email did. Labelled rows under 720px.
+ * stays the fallback whatever the email did. Record cards below 48rem of the table's width.
  */
 export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
@@ -1006,7 +1006,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                     />
                   </TableCell>
                 ) : null}
-                <TableCell data-actions="" className="text-right">
+                <TableCell actions className="text-right">
                   <InvitationActions
                     invitation={invitation}
                     expired={expired}

@@ -497,8 +497,8 @@ export function ConnectionCard({
                     </StatusPill>
                   )}
                 </TableCell>
-                <TableCell data-actions="" className="text-right">
-                  <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
+                <TableCell actions className="text-right">
+                  <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-3xl/table:justify-start">
                     {connection.reconnectRequired ? (
                       <Button
                         size="sm"
