@@ -17,9 +17,11 @@ import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
  * phone's hidden policy form from running their queries. The kept face
  * keeps its CSS class, so it is drawn exactly as before.
  *
- * Crossing md while on the page (a window dragged narrow) mounts the other
- * face fresh: unsaved policy edits don't follow, which is what the leave
- * guard would ask about anyway.
+ * Once the policy face has been shown it stays mounted, hidden by CSS below
+ * md: a phone turned from landscape (844px, above md) back to portrait, or a
+ * window dragged narrow, must not silently drop unsaved policy edits (no
+ * navigation happens, so the leave guard never asks). That rare state has
+ * the second h1 again; losing input would be worse.
  */
 export function SettingsHome({
   index,
@@ -31,6 +33,10 @@ export function SettingsHome({
   policy: React.ReactNode
 }) {
   const wide = useHydratedBreakpoint("md")
+  // Adjusting state during render (React's documented pattern for deriving
+  // from a changing value): latch once the policy face has been on screen.
+  const [policyShown, setPolicyShown] = React.useState(false)
+  if (wide === true && !policyShown) setPolicyShown(true)
   return (
     <>
       {wide !== true ? (
@@ -41,7 +47,7 @@ export function SettingsHome({
           {index}
         </div>
       ) : null}
-      {wide !== false ? (
+      {wide !== false || policyShown ? (
         <div
           data-slot="settings-home-policy"
           className="flex flex-col gap-(--np-gap-section) max-md:hidden"
