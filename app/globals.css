@@ -410,6 +410,10 @@
   --np-focus-ring: var(--np-ramp-accent-400);
   /* A 2px accent outline standing 2px off the control. */
   --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
+  /* A field's focus ring: a 3px tint outside its border, danger while
+     invalid. */
+  --np-field-ring: 0 0 0 3px var(--np-accent-tint);
+  --np-field-ring-invalid: 0 0 0 3px var(--np-danger-tint);
 
   /* Chrome is opaque paper with a 1px line. The material names survive so
      every `material-*` utility still resolves. */
@@ -439,6 +443,7 @@
   /* Shape. */
   --np-radius-tag: 6px;
   --np-radius-control: 8px;
+  --np-radius-menu: 10px;
   --np-radius-field: 8px;
   --np-radius-card: 12px;
   --np-radius-panel: 12px;
@@ -458,6 +463,9 @@
   --np-shadow-modal:
     0 1px 2px oklch(0.22 0.02 240 / 0.08),
     0 12px 40px oklch(0.22 0.02 240 / 0.2);
+  /* The bottom sheet: the modal shadow plus a solid bleed 3rem under its
+     bottom edge, covering the gap an upward over-drag opens. */
+  --np-shadow-sheet: var(--np-shadow-modal), 0 3rem 0 0 var(--np-surface);
 
   /* Motion: one ease-out, short durations, nothing bounces. */
   --np-duration-fast: 140ms;
@@ -564,6 +572,35 @@
   --np-table-header-bg: var(--np-surface-alt);
   --np-pill-h: 24px;
   --np-menu-item-h: 44px;
+
+  /* Field text sits 12px / 8px inside the field, less its 1px border. */
+  --np-field-pad-x: 11px;
+  --np-field-pad-y: 7px;
+
+  /* Checkbox and radio: an 18px mark, nudged down to centre on the first
+     line of a body-text label (3px on touch, 2px at the desk). */
+  --np-selection-box: 18px;
+  --np-selection-offset: calc(
+    (var(--np-text-body-lh) - var(--np-selection-box)) / 2
+  );
+
+  /* The segmented control's track padding: each segment is this much
+     shorter than the track above and below. */
+  --np-segment-inset: 3px;
+
+  /* Overlay geometry (components/ui/overlay.tsx). A centred dialog keeps a
+     12px gutter from the viewport edge; a bottom sheet is full width up to
+     40rem; the side panel and the navigation drawer cap their width; the
+     sheet's grabber is a 5px bar. */
+  --np-overlay-gutter: 12px;
+  --np-dialog-w: 520px;
+  --np-dialog-w-wide: 760px;
+  --np-dialog-max-h: 760px;
+  --np-sheet-max-w: 40rem;
+  --np-sheet-grabber-h: 5px;
+  --np-panel-w: 560px;
+  --np-panel-w-wide: 880px;
+  --np-drawer-w: 300px;
 
   /* ---- 4. ALIASES ------------------------------------------------------ */
   /* shadcn's `--accent` is a HIGHLIGHT SURFACE, not the brand colour: it maps
@@ -678,6 +715,10 @@
   --np-hover-bg: oklch(0.28 0.015 240);
   --np-focus-ring: oklch(0.72 0.15 145);
   --np-focus-halo: 0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
+  /* A field's focus ring: a 3px tint outside its border, danger while
+     invalid. */
+  --np-field-ring: 0 0 0 3px var(--np-accent-tint);
+  --np-field-ring-invalid: 0 0 0 3px var(--np-danger-tint);
 
   --np-material-sidebar: oklch(0.18 0.012 240);
   --np-material-toolbar: oklch(0.18 0.012 240);
@@ -702,6 +743,9 @@
   --np-shadow-pop: 0 1px 2px oklch(0 0 0 / 0.4), 0 10px 30px oklch(0 0 0 / 0.5);
   --np-shadow-modal:
     0 1px 2px oklch(0 0 0 / 0.4), 0 16px 48px oklch(0 0 0 / 0.6);
+  /* The bottom sheet: the modal shadow plus a solid bleed 3rem under its
+     bottom edge, covering the gap an upward over-drag opens. */
+  --np-shadow-sheet: var(--np-shadow-modal), 0 3rem 0 0 var(--np-surface);
 
   --np-field-bg: var(--np-surface);
   --np-table-header-bg: var(--np-surface-alt);
@@ -837,9 +881,7 @@
     scroll-padding-bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
   }
   html:has([data-docked="bottom"]) {
-    scroll-padding-bottom: calc(
-      var(--np-actionbar-h) + var(--np-dock-bottom)
-    );
+    scroll-padding-bottom: calc(var(--np-actionbar-h) + var(--np-dock-bottom));
   }
   body:has([data-docked="bottom"]) [data-slot="tab-bar"],
   [data-keyboard="open"] [data-slot="tab-bar"] {

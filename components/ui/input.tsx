@@ -108,7 +108,7 @@ function Input({
       data-slot="input"
       className={cn(
         fieldChromeClassName,
-        "h-(--np-field-h) w-full px-[11px] py-[7px]",
+        "h-(--np-field-h) w-full px-(--np-field-pad-x) py-(--np-field-pad-y)",
         className
       )}
       {...fieldControlProps(field)}
@@ -172,8 +172,8 @@ function SearchInput({
       className={cn(
         "group/search relative flex h-(--np-field-h) w-full min-w-0 items-center gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-1 pl-[11px] text-body text-ink",
         "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",
-        "focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--np-accent-tint)]",
-        "has-[[aria-invalid=true]]:border-danger-ink has-[[aria-invalid=true]]:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+        "focus-within:border-primary focus-within:shadow-(--np-field-ring)",
+        "has-[[aria-invalid=true]]:border-danger-ink has-[[aria-invalid=true]]:shadow-(--np-field-ring-invalid)",
         "data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
         className
       )}

@@ -158,7 +158,7 @@ function DialogContent({
                 className,
                 // Whatever width a caller gave the card, a phone's sheet
                 // spans the screen.
-                "w-full! max-w-[min(100%,40rem)]!"
+                "w-full! max-w-[min(100%,var(--np-sheet-max-w))]!"
               )}
               {...(props as DrawerPrimitive.Popup.Props)}
             >

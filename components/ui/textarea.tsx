@@ -91,7 +91,7 @@ function Textarea({
       data-autosize={autoSize || undefined}
       className={cn(
         fieldChromeClassName,
-        "w-full px-[11px] py-[7px] leading-[22px]",
+        "w-full px-(--np-field-pad-x) py-(--np-field-pad-y) leading-[22px]",
         autoSize
           ? "field-sizing-content resize-none overflow-y-auto"
           : "min-h-24 resize-none desk:resize-y",

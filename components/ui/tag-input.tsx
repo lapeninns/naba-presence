@@ -126,9 +126,9 @@ function TagInput({
         className={cn(
           "flex min-h-(--np-field-h) w-full min-w-0 flex-wrap items-center gap-1.5 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) px-1.5 py-1 text-body",
           "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",
-          "focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--np-accent-tint)]",
+          "focus-within:border-primary focus-within:shadow-(--np-field-ring)",
           (wiring["aria-invalid"] || message) &&
-            "border-danger-ink shadow-[0_0_0_3px_var(--np-danger-tint)]",
+            "border-danger-ink shadow-(--np-field-ring-invalid)",
           disabled && "cursor-not-allowed bg-surface-alt text-ink-muted"
         )}
       >
