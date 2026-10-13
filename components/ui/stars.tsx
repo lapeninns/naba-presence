@@ -8,10 +8,14 @@ import { cn } from "@/lib/utils"
  * stars"); the glyphs themselves are ornament.
  *
  * Props: `value` (0–5, rounded to the nearest whole star; `null` renders
- * "No rating" in words), `max` (default 5), `size` ("sm" 12px, default 14px,
- * "lg" 18px), `label` to override the spoken text.
+ * `emptyLabel`, "No rating", in words), `max` (default 5), `size` ("sm"
+ * 12px, default 14px, "lg" 18px), and `label`, the spoken text: a string, or
+ * a function of the value for a list that names its rows by the rating
+ * ("4 stars", the inbox's wording):
+ *
+ *   <Stars value={4} label={(value) => `${value} star${value === 1 ? "" : "s"}`} />
  */
-const STAR_SIZE = { sm: "size-3", default: "size-3.5", lg: "size-[18px]" }
+const STAR_SIZE = { sm: "size-3", default: "size-3.5", lg: "size-4.5" }
 
 function StarGlyph({ className }: { className?: string }) {
   return (
@@ -29,13 +33,16 @@ function Stars({
   max = 5,
   size = "default",
   label,
+  emptyLabel,
   className,
   ...props
 }: Omit<React.ComponentProps<"span">, "children"> & {
   value: number | null
   max?: number
   size?: keyof typeof STAR_SIZE
-  label?: string
+  label?: string | ((value: number, max: number) => string)
+  /** The words shown when there is no rating. */
+  emptyLabel?: string
 }) {
   if (value === null || Number.isNaN(value)) {
     return (
@@ -44,7 +51,9 @@ function Stars({
         className={cn("text-caption text-ink-muted", className)}
         {...props}
       >
-        {label ?? "No rating"}
+        {/* A string label predates `emptyLabel` and still names the empty
+            state for the callers that relied on it. */}
+        {emptyLabel ?? (typeof label === "string" ? label : "No rating")}
       </span>
     )
   }
@@ -53,7 +62,11 @@ function Stars({
     <span
       role="img"
       data-slot="stars"
-      aria-label={label ?? `${value} out of ${max} stars`}
+      aria-label={
+        typeof label === "function"
+          ? label(value, max)
+          : (label ?? `${value} out of ${max} stars`)
+      }
       className={cn("inline-flex shrink-0 gap-px text-rating", className)}
       {...props}
     >

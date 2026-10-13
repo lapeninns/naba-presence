@@ -1,13 +1,13 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 83,
+    "R1": 47,
     "R2": 9,
-    "R3": 195,
-    "R4": 55,
-    "R5": 6,
+    "R3": 145,
+    "R4": 29,
+    "R5": 4,
     "R6": 3,
-    "R7": 53
+    "R7": 31
   },
   "files": {
     "app/(auth)/layout.tsx": {
@@ -29,44 +29,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[minmax(0,1fr)_20rem]": 1
-        }
-      }
-    },
-    "app/(dashboard)/inbox/loading.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-[1.18]": 1,
-          "text-[clamp(22px,1.1vw+15px,28px)]": 1
-        }
-      },
-      "R3": {
-        "total": 11,
-        "patterns": {
-          "grid-cols-[22px_minmax(0,1fr)]": 1,
-          "grid-cols-[clamp(320px,32%,420px)_minmax(0,1fr)]": 1,
-          "grid-cols-[minmax(280px,340px)_minmax(0,1fr)]": 1,
-          "h-[30px]": 2,
-          "h-[38px]": 1,
-          "p-[3px]": 1,
-          "size-[18px]": 1,
-          "w-[220px]": 1,
-          "w-[300px]": 1,
-          "w-[92px]": 1
-        }
-      },
-      "R4": {
-        "total": 3,
-        "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[5px]": 1,
-          "rounded-[7px]": 1
-        }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "[@media(min-height:620px)]:": 1
         }
       }
     },
@@ -197,12 +159,6 @@
         "patterns": {
           "w-[min(18rem,calc(100vw-2rem))]": 1
         }
-      },
-      "R7": {
-        "total": 3,
-        "patterns": {
-          "max-[1181px]:": 3
-        }
       }
     },
     "components/app-shell/app-shell.tsx": {
@@ -220,28 +176,14 @@
         }
       },
       "R4": {
-        "total": 5,
-        "patterns": {
-          "shadow-[inset_-1px_0_0_var(--np-line)]": 1,
-          "z-30": 1,
-          "z-50": 2,
-          "z-[100]": 1
-        }
-      },
-      "R5": {
         "total": 1,
         "patterns": {
-          "@base-ui/react/dialog": 1
+          "shadow-[inset_-1px_0_0_var(--np-line)]": 1
         }
       },
       "R7": {
-        "total": 6,
-        "patterns": {
-          "(min-width: 768px)": 1,
-          "(min-width: 768px) and (max-width: 1180.98px)": 1,
-          "max-[1181px]:": 3,
-          "min-[1181px]:": 1
-        }
+        "total": 1,
+        "patterns": {}
       }
     },
     "components/app-shell/brand-mark.tsx": {
@@ -274,7 +216,6 @@
         "total": 4,
         "patterns": {
           "h-[34px]": 1,
-          "max-h-[min(50vh,24rem)]": 1,
           "max-w-[min(16rem,32vw)]": 1,
           "w-[min(320px,calc(100vw-24px))]": 1
         }
@@ -321,12 +262,6 @@
           "min-h-[34px]": 1,
           "w-[3px]": 1
         }
-      },
-      "R7": {
-        "total": 8,
-        "patterns": {
-          "max-[1181px]:": 8
-        }
       }
     },
     "components/app-shell/notifications-link.tsx": {
@@ -355,9 +290,9 @@
         }
       },
       "R7": {
-        "total": 3,
+        "total": 1,
         "patterns": {
-          "[@media(min-height:620px)]:": 3
+          "[@media(min-height:620px)]:": 1
         }
       }
     },
@@ -503,117 +438,7 @@
         }
       }
     },
-    "components/inbox/activity-timeline.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "w-[calc(100%+1rem)]": 1
-        }
-      }
-    },
-    "components/inbox/bulk-action-bar.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "pb-[max(10px,env(safe-area-inset-bottom))]": 1
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-b-[calc(var(--np-radius-card)-1px)]": 1,
-          "z-20": 1
-        }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "[@media(min-height:620px)]:": 1
-        }
-      }
-    },
-    "components/inbox/detail/reply-status-line.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-5": 1,
-          "text-[13px]": 1
-        }
-      }
-    },
-    "components/inbox/dirty-context.tsx": {
-      "R5": {
-        "total": 1,
-        "patterns": {
-          "window.confirm()": 1
-        }
-      }
-    },
-    "components/inbox/filter-controls.tsx": {
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-[6px]": 1,
-          "rounded-[calc(var(--np-radius-control)-2px)]": 1
-        }
-      }
-    },
-    "components/inbox/filter-toolbar.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[18px]": 1,
-          "min-w-[18px]": 1
-        }
-      }
-    },
-    "components/inbox/google-freshness.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      }
-    },
-    "components/inbox/inbox-toolbar.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-[1.18]": 1,
-          "text-[13px]": 1,
-          "text-[clamp(22px,1.1vw+15px,28px)]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[0_1_220px]": 1,
-          "flex-[0_1_300px]": 1
-        }
-      }
-    },
     "components/inbox/inbox-view.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11.5px]": 1,
-          "text-[13px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "grid-cols-[22px_minmax(0,1fr)]": 1,
-          "grid-cols-[clamp(320px,32%,420px)_minmax(0,1fr)]": 1,
-          "grid-cols-[minmax(280px,340px)_minmax(0,1fr)]": 1
-        }
-      },
       "R7": {
         "total": 6,
         "patterns": {
@@ -621,142 +446,25 @@
         }
       }
     },
-    "components/inbox/more-filters.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "pb-[max(16px,env(safe-area-inset-bottom))]": 1
-        }
-      }
-    },
-    "components/inbox/queue-tabs.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 4,
-        "patterns": {
-          "min-h-[30px]": 1,
-          "min-h-[38px]": 2,
-          "p-[3px]": 1
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[7px]": 1
-        }
-      }
-    },
-    "components/inbox/reply-composer.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[13px]": 1,
-          "text-[15px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "flex-[1_1_200px]": 1,
-          "h-[34px]": 1,
-          "min-h-[160px]": 1
-        }
-      },
-      "R4": {
-        "total": 3,
-        "patterns": {
-          "rounded-[7px]": 1,
-          "rounded-[9px]": 1,
-          "shadow-[0_0_0_3px_var(--np-fill)]": 1
-        }
-      }
-    },
     "components/inbox/review-detail.tsx": {
-      "R1": {
-        "total": 7,
-        "patterns": {
-          "leading-5": 2,
-          "text-[13px]": 2,
-          "text-[15px]": 1,
-          "text-[17px]": 2
-        }
-      },
       "R2": {
         "total": 1,
         "patterns": {
           "bg-black": 1
         }
       },
-      "R3": {
-        "total": 10,
-        "patterns": {
-          "grid-cols-[32px_minmax(0,1fr)]": 1,
-          "grid-cols-[44px_minmax(0,1fr)]": 1,
-          "grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]": 1,
-          "max-h-[min(60vh,32rem)]": 1,
-          "max-h-[min(70vh,36rem)]": 2,
-          "max-w-[760px]": 1,
-          "max-w-[min(42rem,calc(100%-2rem))]": 1,
-          "pb-[max(12px,env(safe-area-inset-bottom))]": 1,
-          "top-[52px]": 1
-        }
-      },
-      "R4": {
+      "R7": {
         "total": 2,
         "patterns": {
-          "rounded-b-[calc(var(--np-radius-card)-1px)]": 1,
-          "z-20": 1
-        }
-      },
-      "R7": {
-        "total": 3,
-        "patterns": {
-          "[@media(min-height:620px)]:": 3
+          "[@media(min-height:620px)]:": 2
         }
       }
     },
     "components/inbox/review-list.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-5": 1,
-          "text-[11.5px]": 1,
-          "text-[13px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "mt-[3px]": 1,
-          "mt-[7px]": 1,
-          "w-[3px]": 1
-        }
-      },
-      "R4": {
-        "total": 3,
-        "patterns": {
-          "rounded-r-[3px]": 1,
-          "z-10": 2
-        }
-      },
       "R7": {
         "total": 1,
         "patterns": {
           "[@media(min-height:620px)]:": 1
-        }
-      }
-    },
-    "components/inbox/sync-reviews-button.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-10": 1
         }
       }
     },
@@ -1134,40 +842,11 @@
         }
       }
     },
-    "components/ui/avatar.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[10.5px]": 1,
-          "text-[15px]": 1
-        }
-      }
-    },
-    "components/ui/badge.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "px-[7px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_0_0_0_1px_var(--np-line)]": 1
-        }
-      }
-    },
     "components/ui/chart.tsx": {
       "R4": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "rounded-[3px]": 2
+          "rounded-[3px]": 1
         }
       }
     },
@@ -1176,14 +855,6 @@
         "total": 1,
         "patterns": {
           "rounded-[5px]": 1
-        }
-      }
-    },
-    "components/ui/chip.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
         }
       }
     },
@@ -1233,20 +904,6 @@
         }
       }
     },
-    "components/ui/diff-view.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11px]": 2
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "w-[clamp(120px,24%,180px)]": 1
-        }
-      }
-    },
     "components/ui/dropdown-menu.tsx": {
       "R3": {
         "total": 2,
@@ -1271,28 +928,11 @@
         }
       }
     },
-    "components/ui/grouped-list.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      }
-    },
     "components/ui/input.tsx": {
       "R3": {
         "total": 1,
         "patterns": {
           "pl-[11px]": 1
-        }
-      }
-    },
-    "components/ui/kpi-tile.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-8": 1,
-          "text-[26px]": 1
         }
       }
     },
@@ -1341,29 +981,6 @@
         }
       }
     },
-    "components/ui/stars.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "size-[18px]": 1
-        }
-      }
-    },
-    "components/ui/status-pill.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[22px]": 1,
-          "size-[7px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_0_0_0_1px_var(--np-line)]": 1
-        }
-      }
-    },
     "components/ui/stepper.tsx": {
       "R1": {
         "total": 2,
@@ -1390,20 +1007,6 @@
         }
       }
     },
-    "components/ui/table.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-10": 1
-        }
-      }
-    },
     "components/ui/tag-input.tsx": {
       "R1": {
         "total": 1,
@@ -1423,24 +1026,6 @@
         "total": 1,
         "patterns": {
           "leading-[22px]": 1
-        }
-      }
-    },
-    "components/ui/timeline.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11.5px]": 1,
-          "text-[12.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 4,
-        "patterns": {
-          "grid-cols-[20px_minmax(0,1fr)_auto]": 1,
-          "left-[9.5px]": 1,
-          "size-[11px]": 1,
-          "top-[30px]": 1
         }
       }
     },
@@ -1476,14 +1061,6 @@
         "total": 1,
         "patterns": {
           "window.confirm()": 1
-        }
-      }
-    },
-    "lib/inbox/url-state.ts": {
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "(min-width: 768px)": 1
         }
       }
     }

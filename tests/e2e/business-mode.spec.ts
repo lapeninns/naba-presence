@@ -142,8 +142,12 @@ test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async
     !(await isBusinessTenant(page)),
     "The harness tenant is not in business mode."
   )
+  // The desk sidebar (from 1180px): its More disclosure is open on /team.
+  await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto("/team")
-  const nav = page.getByRole("navigation", { name: "Primary" })
+  const nav = page
+    .locator('aside[aria-label="Sidebar"]')
+    .getByRole("navigation", { name: "Primary" })
   await expect(nav.getByRole("link", { name: "Clients" })).toHaveCount(0)
   for (const label of ["Inbox", "Listings", "Reports", "Team", "Settings"]) {
     await expect(
@@ -151,4 +155,49 @@ test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async
     ).toBeVisible()
   }
   await expect(page.getByRole("combobox", { name: /client/i })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /^Client:/ })).toHaveCount(0)
+})
+
+test("a phone's tabs have no Clients, and More holds Team and Settings", async ({
+  page,
+}) => {
+  test.skip(
+    !(await isBusinessTenant(page)),
+    "The harness tenant is not in business mode."
+  )
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/reports")
+  await expect(
+    page.getByRole("heading", { name: "Reports", level: 1 })
+  ).toBeVisible()
+  const tabs = page.getByRole("navigation", { name: "Primary" })
+  await expect(tabs).toHaveAttribute("data-slot", "tab-bar")
+  await expect(tabs.getByRole("link", { name: "Clients" })).toHaveCount(0)
+  // Calendar takes the Clients slot (or Notifications, with scheduling off).
+  await expect(tabs.getByRole("link")).toHaveCount(4)
+  for (const label of ["Listings", "Reports"]) {
+    await expect(
+      tabs.getByRole("link", { name: label, exact: true })
+    ).toBeVisible()
+  }
+  await expect(
+    tabs.getByRole("link", { name: /^Inbox(, \d+ needs? a reply)?$/ })
+  ).toBeVisible()
+  // The app bar names the business; there is no client chip to change.
+  const bar = page.locator('header[data-slot="app-bar"]')
+  await expect(bar.getByRole("button", { name: /^Client:/ })).toHaveCount(0)
+  await expect(bar.locator('[data-slot="workspace-name"]')).toBeVisible()
+
+  await tabs.getByRole("button", { name: "More", exact: true }).click()
+  const sheet = page.getByRole("dialog", { name: "More" })
+  await expect(sheet).toBeVisible()
+  // No "Working on" client row in a business.
+  await expect(sheet.getByText("Working on", { exact: true })).toHaveCount(0)
+  const more = sheet.getByRole("navigation", { name: "More" })
+  for (const label of ["Team", "Settings"]) {
+    await expect(
+      more.getByRole("link", { name: label, exact: true })
+    ).toBeVisible()
+  }
+  await expect(more.getByRole("link", { name: "Clients" })).toHaveCount(0)
 })

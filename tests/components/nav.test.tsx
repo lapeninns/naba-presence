@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -22,9 +22,7 @@ vi.mock("next/link", () => ({
 import {
   isClientsActive,
   isMoreActive,
-  MORE_ITEMS,
   Nav,
-  NAV_ITEMS,
   navItemsFor,
 } from "@/components/app-shell/nav"
 import type { NavClient } from "@/components/app-shell/nav"
@@ -42,7 +40,7 @@ beforeEach(() => {
 describe("primary navigation", () => {
   it("offers five destinations and a More disclosure, and no Home", () => {
     render(<Nav />)
-    expect(NAV_ITEMS.map((item) => item.label)).toEqual([
+    expect(navItemsFor("agency").map((item) => item.label)).toEqual([
       "Inbox",
       "Listings",
       "Clients",
@@ -107,19 +105,46 @@ describe("primary navigation", () => {
   })
 
   it("keeps Team and Settings behind More until asked", async () => {
-    render(<Nav />)
-    expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
+    // The disclosure is CSS on the desk sidebar (`wide:hidden` while
+    // collapsed) because the 768-1180 rail lists the same rows as tiles,
+    // so the rows stay in the DOM and the list's class carries the state.
+    render(<Nav role="owner" />)
+    const more = screen.getByRole("button", { name: "More" })
+    const list = document.getElementById(more.getAttribute("aria-controls")!)!
+    expect(more).toHaveAttribute("aria-expanded", "false")
+    expect(list).toHaveClass("wide:hidden")
+    await userEvent.click(more)
+    expect(more).toHaveAttribute("aria-expanded", "true")
+    expect(list).not.toHaveClass("wide:hidden")
+    for (const [label, href] of [
+      ["Team", "/team"],
+      ["Settings", "/settings"],
+    ]) {
+      expect(
+        within(list).getByRole("link", { name: label })
+      ).toHaveAttribute("href", href)
+    }
+    // From 768px the toolbar's bell is Notifications' place.
+    expect(
+      screen.queryByRole("link", { name: "Notifications" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("remembers the More choice for the session", async () => {
+    const { unmount } = render(<Nav role="owner" />)
     await userEvent.click(screen.getByRole("button", { name: "More" }))
+    unmount()
+    render(<Nav role="owner" />)
     expect(screen.getByRole("button", { name: "More" })).toHaveAttribute(
       "aria-expanded",
       "true"
     )
-    for (const item of MORE_ITEMS) {
-      expect(screen.getByRole("link", { name: item.label })).toHaveAttribute(
-        "href",
-        item.href
-      )
-    }
+  })
+
+  it("hides Team while the role is still unknown", () => {
+    render(<Nav />)
+    expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
   })
 
   it("opens More on its own when Team or Settings is the current page", () => {
@@ -184,7 +209,7 @@ describe("primary navigation", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("closes the mobile sheet when a destination is chosen", async () => {
+  it("reports a chosen destination through onNavigate", async () => {
     const onNavigate = vi.fn()
     render(<Nav clients={clients} onNavigate={onNavigate} />)
     screen.getByRole("link", { name: "Inbox" }).click()
@@ -210,13 +235,14 @@ describe("primary navigation", () => {
   })
 
   it("keeps rail labels as accessible names", () => {
-    render(<Nav layout="responsive" />)
+    // One markup draws the rail and the sidebar; the label is always text.
+    render(<Nav />)
     expect(screen.getByRole("link", { name: "Listings" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "More" })).toBeInTheDocument()
   })
 
   it("carries the needs-reply count onto the rail icon as a badge", () => {
-    const { container } = render(<Nav layout="responsive" needsReply={140} />)
+    const { container } = render(<Nav needsReply={140} />)
     const badge = container.querySelector("[data-slot='rail-count']")
     expect(badge).toHaveTextContent("99+")
     expect(badge).toHaveAttribute("aria-hidden")
@@ -234,15 +260,15 @@ describe("primary navigation", () => {
     expect(more).toHaveAttribute("aria-expanded", "true")
   })
 
-  it("leaves Team out for members and viewers", async () => {
-    render(<Nav role="member" />)
+  it.each(["member", "viewer"])("leaves Team out for a %s", async (role) => {
+    render(<Nav role={role} />)
     await userEvent.click(screen.getByRole("button", { name: "More" }))
     expect(screen.queryByRole("link", { name: "Team" })).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument()
   })
 
-  it("keeps Team for owners and admins", async () => {
-    render(<Nav role="admin" />)
+  it.each(["owner", "admin"])("keeps Team for an %s", async (role) => {
+    render(<Nav role={role} />)
     await userEvent.click(screen.getByRole("button", { name: "More" }))
     expect(screen.getByRole("link", { name: "Team" })).toBeInTheDocument()
   })

@@ -10,7 +10,6 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 
-import { SITUATION_TONE_INK } from "@/components/inbox/situation-tone"
 import type { ReplyStatus, ReplyStatusIcon } from "@/lib/inbox/reply-state"
 import { cn } from "@/lib/utils"
 
@@ -27,40 +26,29 @@ const ICONS: Record<ReplyStatusIcon, typeof CheckIcon> = {
 }
 
 /**
- * The one workflow status, as a line of text with a glyph.
+ * The one workflow status, as a line of text with a glyph, on the publish
+ * bar: ink words with the glyph and the words carrying the state, and the
+ * note muted after them. No tint, no capsule, no five-stage rail.
  *
- * No tint, no capsule, no five-stage rail: an ordinary state is quiet ink, and
- * only the two exception tones carry colour. `variant="row"` is the short form
- * for a list row, `variant="detail"` the sentence for the pane — both from the
- * same `ReplyStatus`, so the queue and the pane always say the same thing.
+ * Caption size and at most two lines, so the docked bar on a phone stays one
+ * row beside its button however long the note is.
  */
 function ReplyStatusLine({
   status,
-  variant = "detail",
   className,
 }: {
   status: ReplyStatus
-  /**
-   * `bar` is the sentence on the publish bar: set a size up and in ink, with
-   * the words and the glyph carrying the state.
-   */
-  variant?: "detail" | "row" | "bar"
+  /** The bar is the only form; kept so existing callers still compile. */
+  variant?: "bar"
   className?: string
 }) {
   const Icon = ICONS[status.icon]
-  const text = variant === "row" ? status.short : status.text
   return (
     <span
       data-slot="reply-status"
       data-tone={status.tone}
-      // The full sentence is the accessible name even in a row, so a reader
-      // hears "Ready to publish" rather than the abbreviation.
-      aria-label={variant === "row" ? status.text : undefined}
       className={cn(
-        variant === "bar"
-          ? "inline-flex min-w-0 items-center gap-2 text-[13px] leading-5 font-semibold text-ink"
-          : "inline-flex min-w-0 items-center gap-1.5 text-caption font-medium whitespace-nowrap",
-        variant !== "bar" && SITUATION_TONE_INK[status.tone],
+        "inline-flex min-w-0 items-center gap-2 text-caption font-semibold text-ink",
         className
       )}
     >
@@ -68,13 +56,13 @@ function ReplyStatusLine({
         aria-hidden
         strokeWidth={1.75}
         className={cn(
-          variant === "bar" ? "size-4 shrink-0" : "size-3.5 shrink-0",
+          "size-4 shrink-0",
           status.icon === "loader" && "animate-spin"
         )}
       />
-      <span className={variant === "row" ? "truncate" : undefined}>
-        {text}
-        {variant === "bar" && status.note ? (
+      <span className="line-clamp-2 min-w-0">
+        {status.text}
+        {status.note ? (
           <span className="font-normal text-ink-muted"> · {status.note}</span>
         ) : null}
       </span>

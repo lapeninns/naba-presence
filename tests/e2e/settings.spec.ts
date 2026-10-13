@@ -97,17 +97,32 @@ test.describe("settings", () => {
   test("an admin keeps Policy and Connections, and Team as a primary destination", async ({ baseURL, page }) => {
     const state = await readJourneyState()
     await applyCookie(page, baseURL, state.adminCookie)
+    // From 1180px the sidebar's More group, open on a Settings page.
+    await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto("/settings")
     const nav = page.getByRole("navigation", { name: "Settings sections" })
     await expect(nav.getByRole("link", { name: "Google connections" })).toBeVisible()
     // Team is a primary destination now, not a settings tab.
     await expect(
-      page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Team" })
+      page
+        .locator('aside[aria-label="Sidebar"]')
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Team", exact: true })
     ).toBeVisible()
     // The compliance console is gone for every role, admin included.
     await expect(nav.getByRole("link", { name: "Compliance" })).toHaveCount(0)
     // Operations returned for owners and admins as the operational recovery
     // view (components/settings/settings-nav.tsx).
     await expect(nav.getByRole("link", { name: "Operations" })).toBeVisible()
+
+    // On a phone Team is a row in the More sheet, beside Settings.
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page
+      .getByRole("navigation", { name: "Primary" })
+      .getByRole("button", { name: "More", exact: true })
+      .click()
+    const more = page.getByRole("dialog", { name: "More" }).getByRole("navigation", { name: "More" })
+    await expect(more.getByRole("link", { name: "Team", exact: true })).toBeVisible()
+    await expect(more.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page")
   })
 })

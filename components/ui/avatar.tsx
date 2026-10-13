@@ -8,11 +8,15 @@ import { cn } from "@/lib/utils"
  * Reference `.avatar`: a circle on the hover-fill grey with initials in the
  * strong secondary ink. Sizes 24 / 32 / 44. `shape="square"` is the 8px
  * rounded square used for locations and organisations.
+ *
+ * Initials read the type roles, so nothing drops below the 12px floor: the
+ * 24px avatar takes the caption size with no added tracking (two capitals
+ * still fit inside it), the 44px avatar the title size.
  */
 const AVATAR_SIZES = {
-  sm: "size-6 text-[10.5px]",
+  sm: "size-6 text-caption tracking-normal",
   default: "size-8 text-caption",
-  lg: "size-11 text-[15px]",
+  lg: "size-11 text-title",
 } as const
 
 function Avatar({

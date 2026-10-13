@@ -246,7 +246,7 @@ function ReplyException({
         <div className="mt-2 flex flex-wrap gap-2">
           <Link
             href="/settings/connections"
-            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+            className={cn(buttonVariants({ variant: "secondary" }))}
           >
             Check Google connections
           </Link>

@@ -11,14 +11,14 @@ import { SHORTCUTS_OPEN_EVENT } from "@/lib/inbox/events"
  * The dialog itself belongs to InboxHotkeys, so this only asks for it.
  */
 function ShortcutsButton() {
-  // The span keeps the button its own width where the toolbar lets its
-  // actions share a row. Phones have no keyboard to take shortcuts from.
+  // Desk only: the shortcuts are keyboard shortcuts, and a touch screen has
+  // no keyboard to take them from. The span keeps the button its own width
+  // where the toolbar lets its actions share a row.
   return (
-    <span className="flex max-md:hidden">
+    <span className="hidden desk:flex">
       <Button
         type="button"
         variant="ghost"
-        size="sm"
         aria-haspopup="dialog"
         onClick={() => window.dispatchEvent(new Event(SHORTCUTS_OPEN_EVENT))}
       >

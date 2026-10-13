@@ -1,10 +1,15 @@
 import { Check, CircleAlert, TriangleAlert } from "lucide-react"
 import * as React from "react"
 
+import { resolveTone, type ToneName, toneClasses } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
-export type TimelineTone =
-  "accent" | "success" | "warning" | "danger" | "info" | "neutral"
+/**
+ * A mark's tone: any status tone or alias from lib/ui/status-tone.ts
+ * (`healthy`, `success`, `at-risk`, `danger`…), plus `accent` for a
+ * product action that is not a state ("Draft saved").
+ */
+export type TimelineTone = "accent" | ToneName
 
 export type TimelineEntry = {
   id: string
@@ -17,7 +22,7 @@ export type TimelineEntry = {
    */
   when?: React.ReactNode
   detail?: React.ReactNode
-  /** A 11px glyph inside the mark; overrides the tone's default glyph. */
+  /** A 12px glyph inside the mark; overrides the tone's default glyph. */
   marker?: React.ReactNode
   /**
    * Tints the mark. Never the only signal: the state must also be in the
@@ -26,19 +31,17 @@ export type TimelineEntry = {
   tone?: TimelineTone
 }
 
-const MARK_TONE_CLASS: Record<TimelineTone, string> = {
-  accent: "bg-accent-tint text-accent-ink",
-  success: "bg-success-tint text-success-ink",
-  warning: "bg-warning-tint text-warning-ink",
-  danger: "bg-danger-tint text-danger-ink",
-  info: "bg-info-tint text-info-ink",
-  neutral: "bg-fill text-ink-secondary",
+function markClass(tone: TimelineTone) {
+  if (tone === "accent") return "bg-accent-tint text-accent-ink"
+  const classes = toneClasses(tone)
+  return cn(classes.tint, classes.text)
 }
 
 function defaultGlyph(tone: TimelineTone) {
-  if (tone === "success") return <Check strokeWidth={2.25} />
-  if (tone === "danger") return <CircleAlert strokeWidth={2} />
-  if (tone === "warning") return <TriangleAlert strokeWidth={2} />
+  const resolved = tone === "accent" ? tone : resolveTone(tone)
+  if (resolved === "healthy") return <Check strokeWidth={2.25} />
+  if (resolved === "at-risk") return <CircleAlert strokeWidth={2} />
+  if (resolved === "attention") return <TriangleAlert strokeWidth={2} />
   return <span className="size-1.5 rounded-full bg-current" />
 }
 
@@ -49,6 +52,10 @@ function defaultGlyph(tone: TimelineTone) {
  *
  * An `ol` because order is the meaning. Titles are plain text, not
  * headings, so a timeline can sit inside any section.
+ *
+ * In a container narrower than 20rem (a phone card at 320px) the time moves
+ * under the title instead of taking a column from it, so a long title is
+ * never squeezed to a few characters a line.
  */
 function Timeline({
   entries,
@@ -66,7 +73,7 @@ function Timeline({
   return (
     <ol
       data-slot="timeline"
-      className={cn("flex list-none flex-col", className)}
+      className={cn("@container/timeline flex list-none flex-col", className)}
       {...props}
     >
       {entries.map((entry) => {
@@ -76,13 +83,15 @@ function Timeline({
             key={entry.id}
             data-reveal={reveal ? "rise" : undefined}
             data-tone={tone}
-            className="relative grid grid-cols-[20px_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 py-2.5 text-ui before:absolute before:top-[30px] before:-bottom-2 before:left-[9.5px] before:w-px before:bg-line before:content-[''] last:before:hidden"
+            // The connector runs from under this mark (10px padding + the 20px
+            // mark) to the next one, centred on the mark's 10px midline.
+            className="relative grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 py-2.5 text-ui before:absolute before:top-7.5 before:-bottom-2 before:left-2.5 before:w-px before:-translate-x-1/2 before:bg-line before:content-[''] last:before:hidden"
           >
             <span
               aria-hidden
               className={cn(
-                "grid size-5 place-items-center rounded-full [&_svg]:size-[11px]",
-                MARK_TONE_CLASS[tone]
+                "grid size-5 place-items-center rounded-full [&_svg]:size-3",
+                markClass(tone)
               )}
             >
               {entry.marker ?? defaultGlyph(tone)}
@@ -96,14 +105,14 @@ function Timeline({
               ) : null}
             </div>
             {entry.when ? (
-              <span className="pt-0.5 font-mono text-[11.5px] whitespace-nowrap text-ink-muted tabular-nums">
+              <span className="pt-0.5 font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums @max-xs/timeline:col-start-2 @max-xs/timeline:pt-0">
                 {entry.when}
               </span>
             ) : (
               <span />
             )}
             {entry.detail ? (
-              <div className="col-start-2 col-end-4 text-[12.5px] text-ink-muted">
+              <div className="col-start-2 col-end-4 min-w-0 text-caption [overflow-wrap:anywhere] text-ink-muted">
                 {entry.detail}
               </div>
             ) : null}

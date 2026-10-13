@@ -2,7 +2,16 @@
 
 import { StarIcon } from "lucide-react"
 
-import { RATING_OPTIONS } from "@/lib/inbox/filter-labels"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
+import {
+  FILTER_NAMES,
+  RATING_OPTIONS,
+  REPLY_STATE_LABELS,
+  WRITTEN_LABELS,
+} from "@/lib/inbox/filter-labels"
 import type { InboxState } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
@@ -13,9 +22,11 @@ export function toggleRating(ratings: number[], value: number): number[] {
 }
 
 /**
- * The 1–5 star multi-select, as one 36px control: a hairline box holding
- * five toggles. A chosen rating fills with ink, the way a pressed chip does —
- * the accent is kept for the primary action. The roles stay `checkbox`
+ * The 1–5 star multi-select, as one field-height control: a hairline box
+ * holding five toggles, each a full 44px tall on touch (the box grows to
+ * hold them) and the field height on a desk. A chosen rating fills with
+ * ink, the way a pressed chip does — the accent is kept for the primary
+ * action. The roles stay `checkbox`
  * because several can be on at once (Home deep-links `rating=1,2`).
  */
 function RatingFilter({
@@ -30,9 +41,9 @@ function RatingFilter({
   return (
     <div
       role="group"
-      aria-label="Rating"
+      aria-label={FILTER_NAMES.rating}
       className={cn(
-        "inline-flex h-(--np-field-h) shrink-0 items-center gap-0.5 rounded-(--np-radius-field) border border-line-strong bg-surface p-0.5",
+        "inline-flex h-12.5 shrink-0 items-center gap-0.5 rounded-(--np-radius-field) border border-line-strong bg-surface p-0.5 desk:h-(--np-field-h)",
         className
       )}
     >
@@ -47,7 +58,7 @@ function RatingFilter({
             aria-label={option.label}
             onClick={() => onChange(toggleRating(ratings, option.value))}
             className={cn(
-              "inline-flex h-full min-w-8 flex-1 items-center justify-center gap-0.5 rounded-[6px] px-1.5 font-mono text-caption font-medium tabular-nums focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none pointer-coarse:min-w-10",
+              "inline-flex h-full min-w-8 flex-1 items-center justify-center gap-0.5 rounded-sm px-1.5 font-mono text-caption font-medium tabular-nums focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none pointer-coarse:min-w-11",
               checked
                 ? "bg-ink text-canvas"
                 : "text-ink-secondary hover:bg-fill hover:text-ink"
@@ -71,14 +82,15 @@ function RatingFilter({
   )
 }
 
+/** The "no narrowing" segment. Not `""`: an empty radio value reads as unset. */
+const ANY = "any"
+
 /**
- * Any / Unreplied / Replied. Drawn as a segmented control — a fill-grey track
- * with a white, raised thumb on the chosen segment — but kept as a radio
- * group, because exactly one is on and that is what a radio says.
- */
-/**
- * A small segmented radio group: "Any" plus a few values, as the filter
- * sheet's reply and written-review filters both need.
+ * "Any" plus a few values, as the filter sheet's reply and written-review
+ * filters both need: the SegmentedControl as a radio group, because exactly
+ * one is on and the person is choosing a value, not switching a view. The
+ * primitive brings the roving tab stop, the arrow keys and the 44px touch
+ * track; this only maps "Any" to an unset filter.
  */
 function SegmentedFilter<T extends string>({
   label,
@@ -91,43 +103,27 @@ function SegmentedFilter<T extends string>({
   options: readonly { value: T; label: string }[]
   onChange: (value: T | undefined) => void
 }) {
-  const all = [{ value: "" as const, label: "Any" }, ...options]
   return (
-    <div
-      role="radiogroup"
+    <SegmentedControl
+      semantics="radio"
       aria-label={label}
-      className="inline-flex h-7 w-full shrink-0 items-center gap-0.5 rounded-(--np-radius-control) bg-fill p-0.5"
+      value={value ?? ANY}
+      onValueChange={(next) => onChange(next === ANY ? undefined : (next as T))}
+      className="w-full"
     >
-      {all.map((option) => {
-        const checked = (value ?? "") === option.value
-        return (
-          <button
-            key={option.value || "any"}
-            type="button"
-            role="radio"
-            aria-checked={checked}
-            aria-label={option.label}
-            onClick={() =>
-              onChange(option.value === "" ? undefined : (option.value as T))
-            }
-            className={cn(
-              "h-full min-w-0 flex-1 rounded-[calc(var(--np-radius-control)-2px)] px-2 text-center text-ui font-medium whitespace-nowrap focus-halo transition duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:scale-[0.98]",
-              checked
-                ? "bg-surface text-ink shadow-(--np-shadow-raised)"
-                : "text-ink-muted hover:text-ink"
-            )}
-          >
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
+      <SegmentedControlItem value={ANY}>Any</SegmentedControlItem>
+      {options.map((option) => (
+        <SegmentedControlItem key={option.value} value={option.value}>
+          {option.label}
+        </SegmentedControlItem>
+      ))}
+    </SegmentedControl>
   )
 }
 
 const REPLY_OPTIONS = [
-  { value: "unreplied", label: "Unreplied" },
-  { value: "replied", label: "Replied" },
+  { value: "unreplied", label: REPLY_STATE_LABELS.unreplied },
+  { value: "replied", label: REPLY_STATE_LABELS.replied },
 ] as const
 
 function ReplyFilter({
@@ -139,7 +135,7 @@ function ReplyFilter({
 }) {
   return (
     <SegmentedFilter
-      label="Reply state"
+      label={FILTER_NAMES.replyState}
       value={replyState}
       options={REPLY_OPTIONS}
       onChange={onChange}
@@ -148,8 +144,8 @@ function ReplyFilter({
 }
 
 export const WRITTEN_OPTIONS = [
-  { value: "with_text", label: "With text" },
-  { value: "rating_only", label: "Rating only" },
+  { value: "with_text", label: WRITTEN_LABELS.with_text },
+  { value: "rating_only", label: WRITTEN_LABELS.rating_only },
 ] as const
 
 function WrittenFilter({
@@ -161,7 +157,7 @@ function WrittenFilter({
 }) {
   return (
     <SegmentedFilter
-      label="Written review"
+      label={FILTER_NAMES.written}
       value={written}
       options={WRITTEN_OPTIONS}
       onChange={onChange}
