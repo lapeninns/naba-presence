@@ -339,12 +339,12 @@ export function NotificationsCard() {
           aria-labelledby={typesLabelId}
           className="flex flex-col gap-1.5"
         >
-          <span id={typesLabelId} className="text-ui font-semibold text-ink">
+          <span id={typesLabelId} className="text-ui font-medium text-ink-muted">
             What Google should tell us about
           </span>
-          <ul className="flex flex-col divide-y divide-line rounded-(--np-radius-control) border border-line">
+          <ul className="flex flex-col divide-y divide-line-subtle desk:rounded-(--np-radius-control) desk:border desk:border-line">
             {GOOGLE_NOTIFICATION_TYPES.map((type) => (
-              <li key={type} className="px-3">
+              <li key={type} className="desk:px-3">
                 <Switch
                   label={describeNotificationType(type)}
                   labelClassName="text-ui"

@@ -153,7 +153,7 @@ export default async function SetupPage({
         aria-labelledby="setup-waiting"
         className={cardClassName({ className: "overflow-hidden" })}
       >
-        <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
+        <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
           <h2 id="setup-waiting" className="text-title font-semibold text-ink">
             Waiting to be set up
           </h2>
@@ -171,14 +171,14 @@ export default async function SetupPage({
             description="Every client you look after has at least one listing linked to Google."
           />
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="divide-y divide-line-subtle">
             {unfinished.map((entry) => (
               <li
                 key={entry.id}
                 className="flex flex-wrap items-center gap-3 px-(--np-card-pad) py-3.5"
               >
                 <ClientAvatar name={entry.name} colour={entry.colour} />
-                <div className="flex min-w-0 flex-[1_1_12rem] flex-col">
+                <div className="flex min-w-0 grow basis-48 flex-col">
                   <span className="text-body font-semibold break-words text-ink">
                     {entry.name}
                   </span>
@@ -204,7 +204,7 @@ export default async function SetupPage({
           aria-labelledby="setup-add-listings"
           className={cardClassName({ className: "overflow-hidden" })}
         >
-          <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
+          <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
             <h2
               id="setup-add-listings"
               className="text-title font-semibold text-ink"
@@ -215,14 +215,14 @@ export default async function SetupPage({
               Link more of a client’s Google Business Profile locations.
             </p>
           </div>
-          <ul className="divide-y divide-line">
+          <ul className="divide-y divide-line-subtle">
             {established.map((entry) => (
               <li
                 key={entry.id}
                 className="flex flex-wrap items-center gap-3 px-(--np-card-pad) py-3.5"
               >
                 <ClientAvatar name={entry.name} colour={entry.colour} />
-                <div className="flex min-w-0 flex-[1_1_12rem] flex-col">
+                <div className="flex min-w-0 grow basis-48 flex-col">
                   <span className="text-body font-semibold break-words text-ink">
                     {entry.name}
                   </span>
@@ -252,7 +252,7 @@ export default async function SetupPage({
           className: "flex flex-wrap items-center justify-between gap-4",
         })}
       >
-        <div className="flex min-w-0 flex-[1_1_18rem] flex-col gap-1">
+        <div className="flex min-w-0 grow basis-72 flex-col gap-1">
           <h2
             id="setup-start-new"
             className="text-title font-semibold text-ink"

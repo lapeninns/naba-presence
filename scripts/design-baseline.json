@@ -1,9 +1,9 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 15,
+    "R1": 13,
     "R2": 9,
-    "R3": 78,
+    "R3": 67,
     "R4": 15,
     "R5": 2,
     "R6": 2,
@@ -40,15 +40,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[13.75rem_minmax(0,1fr)]": 1
-        }
-      }
-    },
-    "app/(dashboard)/setup/page.tsx": {
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "flex-[1_1_12rem]": 2,
-          "flex-[1_1_18rem]": 1
         }
       }
     },
@@ -248,23 +239,6 @@
         }
       }
     },
-    "components/auth/auth-card.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "max-w-[20ch]": 1,
-          "max-w-[44ch]": 1
-        }
-      }
-    },
-    "components/auth/invitation-view.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[2rem_minmax(0,1fr)]": 1
-        }
-      }
-    },
     "components/editors/editor-frame.tsx": {
       "R7": {
         "total": 2,
@@ -361,43 +335,17 @@
     },
     "components/setup/setup-wizard.tsx": {
       "R3": {
-        "total": 4,
-        "patterns": {
-          "grid-cols-[13.75rem_minmax(0,1fr)]": 2,
-          "max-w-[64ch]": 1,
-          "top-[calc(var(--np-toolbar-h)+16px)]": 1
-        }
-      }
-    },
-    "components/setup/step-agency.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "max-w-[27.5rem]": 1
-        }
-      }
-    },
-    "components/setup/step-connect.tsx": {
-      "R1": {
         "total": 2,
         "patterns": {
-          "leading-4": 1,
-          "text-[0.71875rem]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_12rem]": 1
+          "grid-cols-[13.75rem_minmax(0,1fr)]": 2
         }
       }
     },
     "components/setup/step-done.tsx": {
       "R3": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "grid-cols-[minmax(0,14rem)_minmax(0,1fr)]": 1,
-          "max-w-[56ch]": 1
+          "grid-cols-[minmax(0,14rem)_minmax(0,1fr)]": 1
         }
       }
     },
