@@ -480,6 +480,85 @@ function FilterChipStrip({
   )
 }
 
+/**
+ * A read-only token (a selected listing, a recipient): the filter chip's
+ * capsule (`--np-chip-h` at least, `fill-secondary`, `text-ui`) with no control in
+ * it, so it is not a tab stop and has no hover. For a token the reader can
+ * remove, use `RemovableChip` or an applied `FilterChip`.
+ */
+function TokenChip({ className, ...props }: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="token-chip"
+      className={cn(
+        // A long name wraps inside the capsule rather than being clipped.
+        "inline-flex min-h-(--np-chip-h) max-w-full min-w-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 py-0.5 text-ui [overflow-wrap:anywhere] text-ink [&_svg]:size-3.5 [&_svg]:shrink-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export type TokenChipItem = { id: React.Key; label: React.ReactNode }
+
+/**
+ * A wrapping list of read-only tokens that shows the first `max` and then
+ * "+N more" ("Selected listings: The Bell, The Crown, +3 more").
+ *
+ * Nothing is hidden from assistive technology: the tokens past `max` are
+ * still in the list as visually hidden items, and the "+N more" text is
+ * `aria-hidden`, so a screen reader reads every token once and the list's
+ * item count is the true count. Name the list with `aria-label` or
+ * `aria-labelledby`.
+ */
+function TokenChipList({
+  items,
+  max = 3,
+  moreLabel = (hidden) => `+${hidden} more`,
+  className,
+  ...props
+}: Omit<React.ComponentProps<"ul">, "children"> & {
+  items: readonly TokenChipItem[]
+  /** How many tokens to draw before "+N more" (default 3). */
+  max?: number
+  /** The overflow text for `hidden` more tokens. Default "+N more". */
+  moreLabel?: (hidden: number) => React.ReactNode
+}) {
+  const shown = Math.max(0, max)
+  const hidden = Math.max(0, items.length - shown)
+  return (
+    <ul
+      role="list"
+      data-slot="token-chip-list"
+      className={cn(
+        "flex min-w-0 list-none flex-wrap items-center gap-1.5",
+        className
+      )}
+      {...props}
+    >
+      {items.map((item, index) => (
+        <li
+          key={item.id}
+          data-hidden-token={index >= shown || undefined}
+          className={cn("flex max-w-full min-w-0", index >= shown && "sr-only")}
+        >
+          <TokenChip>{item.label}</TokenChip>
+        </li>
+      ))}
+      {hidden > 0 ? (
+        <li
+          aria-hidden="true"
+          data-slot="token-chip-more"
+          className="flex text-ui whitespace-nowrap text-ink-muted"
+        >
+          {moreLabel(hidden)}
+        </li>
+      ) : null}
+    </ul>
+  )
+}
+
 export {
   ChipCount,
   ChipRow,
@@ -487,6 +566,8 @@ export {
   FilterChipStrip,
   RemovableChip,
   ToggleChip,
+  TokenChip,
+  TokenChipList,
   chipClassName,
   filterChipClassName,
 }

@@ -187,9 +187,15 @@ const rowClassName = cn(
   "-mx-2 w-[calc(100%+--spacing(4))] px-2"
 )
 
+/**
+ * Interactive rows focus with an INSET ring (`focus-ring-inset`): a desk
+ * `card` group clips its rows (`overflow-hidden`), and an outer halo on the
+ * first or last row would be cut off there. Forced colours get a CanvasText
+ * outline, also inside the row.
+ */
 const interactiveRowClassName = cn(
   rowClassName,
-  "cursor-pointer focus-halo transition-[background-color] duration-(--np-duration-fast) ease-standard outline-none active:bg-fill hover-fine:hover:bg-fill",
+  "cursor-pointer focus-ring-inset transition-[background-color] duration-(--np-duration-fast) ease-standard outline-none active:bg-fill hover-fine:hover:bg-fill",
   "disabled:cursor-not-allowed disabled:text-ink-muted aria-disabled:cursor-not-allowed aria-disabled:text-ink-muted"
 )
 

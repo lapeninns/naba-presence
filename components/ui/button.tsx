@@ -76,11 +76,33 @@ const buttonCva = cva(
         true: "rounded-(--np-radius-pill)",
         false: "",
       },
+      // Full width, and the label may wrap: a full-width button is usually
+      // a long sentence ("Request a verification code by post") at the
+      // bottom of a phone form, and at 320px or with enlarged text a
+      // nowrap label overflows the screen. The height grows with the lines
+      // and never drops below the size's own height (the compound variants
+      // below), so a one-line block button is exactly as tall as before.
       block: {
         true: "w-full",
         false: "",
       },
     },
+    compoundVariants: [
+      {
+        block: true,
+        size: ["default", "sm", "lg", "xs"],
+        className:
+          "h-auto text-center leading-tight text-balance whitespace-normal",
+      },
+      {
+        block: true,
+        size: "default",
+        className: "min-h-(--np-control-h) py-2",
+      },
+      { block: true, size: "sm", className: "min-h-(--np-control-h-sm) py-1" },
+      { block: true, size: "lg", className: "min-h-11 py-2.5" },
+      { block: true, size: "xs", className: "min-h-6 py-0.5" },
+    ],
     defaultVariants: {
       variant: "default",
       size: "default",
@@ -113,7 +135,13 @@ type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
   Omit<VariantProps<typeof buttonVariants>, "size" | "pill" | "block"> & {
     /** Capsule shape. For the page's prominent call to action. */
     pill?: boolean
-    /** Full width. */
+    /**
+     * Full width, with a label that wraps (balanced, centred) instead of
+     * overflowing; the height grows from the size's own height (44px on
+     * touch for `default`). The explicit opt-in for wrapping: a plain
+     * `className="w-full"` stays one nowrap line, so inline buttons never
+     * change. Icon sizes ignore the wrap.
+     */
     block?: boolean
     render?: useRender.RenderProp<ButtonPrimitive.State>
     /**
@@ -260,7 +288,10 @@ function Button({
         size,
         pill,
         block,
-        className: cn(iconOnlyBelow && ICON_ONLY_BELOW[iconOnlyBelow], className),
+        className: cn(
+          iconOnlyBelow && ICON_ONLY_BELOW[iconOnlyBelow],
+          className
+        ),
       })}
       {...props}
       {...childProps}

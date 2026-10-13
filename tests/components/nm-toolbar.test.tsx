@@ -61,7 +61,7 @@ describe("Toolbar", () => {
     const field = screen.getByRole("searchbox", { name: "Search" })
     expect(field).toHaveValue("roast")
     await user.type(field, "s")
-    expect(screen.getByRole("status")).toHaveTextContent("roasts")
+    expect(document.querySelector("output")).toHaveTextContent("roasts")
   })
 
   it("shows the filter and view slots and the chip row only with chips", () => {

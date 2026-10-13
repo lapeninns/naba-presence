@@ -204,10 +204,11 @@ describe("Sheet variant=inset", () => {
     expect(back).toHaveTextContent("Back")
     expect(back).toHaveClass("min-h-(--np-touch)", "min-w-(--np-touch)")
 
-    // The header action replaces the close button: one confirm, on the right.
+    // One confirm on the right, and Close is never gone (R2 A-S1, WCAG
+    // 2.5.7): with a back control it sits beside the action.
     expect(
-      within(sheet).queryByRole("button", { name: "Close" })
-    ).not.toBeInTheDocument()
+      within(sheet).getByRole("button", { name: "Close" })
+    ).toBeInTheDocument()
     await user.click(within(sheet).getByRole("button", { name: "Schedule" }))
     expect(onSchedule).toHaveBeenCalledOnce()
 

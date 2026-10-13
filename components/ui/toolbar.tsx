@@ -233,15 +233,17 @@ function Toolbar({
       {chipCount > 0 ? (
         <FilterChipStrip data-slot="toolbar-chips">{chips}</FilterChipStrip>
       ) : null}
-      {resultsLabel != null ? (
-        <p
-          role="status"
-          data-slot="toolbar-results"
-          className="text-ui text-ink-muted"
-        >
-          {resultsLabel}
-        </p>
-      ) : null}
+      {/* Always mounted, so the first results label is announced too: many
+          screen readers skip a live region's first content when the region
+          mounts with it. Empty, it is visually hidden but stays in the
+          accessibility tree. */}
+      <p
+        role="status"
+        data-slot="toolbar-results"
+        className="text-ui text-ink-muted empty:sr-only"
+      >
+        {resultsLabel}
+      </p>
     </div>
   )
 }
