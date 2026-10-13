@@ -8,24 +8,33 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export type CapabilityTone = "blocked" | "read_only" | "info" | "warning"
 
 /**
- * Each tone as an Alert: `read_only` is the sunken default panel with a
- * lock, `blocked` (publishing paused, disconnected) the danger tint with a
- * pause, `warning` (Google holds a different copy) and `info` their own
- * tints. The words stay ink; only the glyph takes the status colour.
+ * Each tone as an Alert, read as a calm inline notice rather than a box:
+ * `read_only` (a role limit, the common case) is flat, a lock and the
+ * sentence with no panel at all; `blocked` (publishing paused,
+ * disconnected) keeps the danger tint with a pause, `warning` (Google holds
+ * a different copy) and `info` their own tints, because there the tint
+ * reinforces a word that needs acting on. The words stay ink; only the
+ * glyph takes the status colour.
  */
 const TONE: Record<
   CapabilityTone,
   {
     variant: "default" | "destructive" | "warning" | "info"
     Icon: LucideIcon
+    className?: string
   }
 > = {
   blocked: { variant: "destructive", Icon: Pause },
-  read_only: { variant: "default", Icon: Lock },
+  read_only: {
+    variant: "default",
+    Icon: Lock,
+    className: "border-transparent bg-transparent px-0 py-0",
+  },
   warning: { variant: "warning", Icon: TriangleAlert },
   info: { variant: "info", Icon: Info },
 }
@@ -60,7 +69,7 @@ function CapabilityBanner({
   action?: { label: string; href?: string; onClick?: () => void }
   className?: string
 }) {
-  const { variant, Icon } = TONE[tone]
+  const { variant, Icon, className: toneClassName } = TONE[tone]
   return (
     <Alert
       variant={variant}
@@ -69,9 +78,9 @@ function CapabilityBanner({
       role={tone === "blocked" || tone === "warning" ? "status" : "note"}
       data-slot="capability-banner"
       data-tone={tone}
-      className={className}
+      className={cn(toneClassName, className)}
     >
-      <AlertTitle className="text-ui">{title}</AlertTitle>
+      <AlertTitle className="text-ui font-medium">{title}</AlertTitle>
       {description || code ? (
         <AlertDescription className="text-ink-secondary">
           {description}

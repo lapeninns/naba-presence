@@ -147,8 +147,10 @@ function ReviewChangesSheet({
 
         <SheetBody>
           {selection && selection.options.length > 1 ? (
-            <fieldset className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
-              <legend className="px-1 text-ui font-semibold text-ink">
+            // Flat, over one hairline: the choice reads as the sheet's
+            // header field, not a card nested in the sheet.
+            <fieldset className="flex flex-col gap-2 border-b border-line pb-4">
+              <legend className="mb-2 text-caption font-medium text-ink-muted">
                 Choose what to publish
               </legend>
               {selection.options.map((option) => (
@@ -224,7 +226,7 @@ function ReviewChangesSheet({
             >
               <h3
                 id="review-progress"
-                className="text-ui font-semibold text-ink"
+                className="text-caption font-medium text-ink-muted"
               >
                 Progress
               </h3>

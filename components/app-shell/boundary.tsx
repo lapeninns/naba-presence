@@ -42,13 +42,18 @@ function boundaryButtonClass(
     .join(" ")
 }
 
-/** The mono, upper-case context line above a boundary's title. */
-const BOUNDARY_EYEBROW_CLASS =
-  "font-mono text-caption font-medium tracking-[0.06em] text-ink-muted uppercase"
+/**
+ * The quiet context line above a boundary's title: sans, sentence case,
+ * muted (EYEBROW_CLASS in page-frame.tsx). Mono is for codes, not labels.
+ */
+const BOUNDARY_EYEBROW_CLASS = "text-caption font-medium text-ink-muted"
 
-/** The serif page title every boundary leads with. */
+/**
+ * The title every boundary leads with: a system page's title, set like an
+ * empty state's (PageEmptyState), calm rather than a page-sized headline.
+ */
 const BOUNDARY_TITLE_CLASS =
-  "font-display text-page-title font-semibold text-balance text-ink outline-none"
+  "text-title font-medium text-balance text-ink outline-none"
 
 /**
  * PageFrame's widths and gutters (page-frame.tsx) as a plain div carrying
@@ -92,9 +97,11 @@ function BoundaryCode({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * A route's error, inside a page that keeps working around it: the danger
- * alert (role="alert", as the Alert primitive announces it), Try again, and
- * one way out. The light twin of RouteErrorState in query-states.tsx.
+ * A route's error, inside a page that keeps working around it. Calm and
+ * honest, drawn like an empty state: a line glyph, what happened (the title
+ * and its sentence, announced as an alert, as the Alert primitive is), one
+ * primary Try again, and the way out as a quiet second action. The light
+ * twin of RouteErrorState in query-states.tsx.
  */
 function BoundaryErrorState({
   title,
@@ -110,17 +117,49 @@ function BoundaryErrorState({
   homeLabel?: string
 }) {
   return (
-    <div className="mx-auto flex min-h-[60svh] w-full max-w-md flex-col items-center justify-center gap-4 px-5 py-6 text-center">
-      <BoundaryAlert title={title}>{description}</BoundaryAlert>
-      <div className="flex flex-wrap items-center justify-center gap-2">
+    <div
+      data-slot="boundary-error-state"
+      className="mx-auto flex w-full max-w-md flex-col items-center gap-2 px-5 pt-10 pb-6 text-center md:pt-20"
+    >
+      <CircleAlert
+        className="mb-2 size-7 text-ink-secondary"
+        strokeWidth={1.5}
+        aria-hidden
+      />
+      <div data-slot="alert" role="alert" className="flex flex-col gap-2">
+        <div
+          data-slot="alert-title"
+          className="text-title font-medium text-balance text-ink"
+        >
+          {title}
+        </div>
+        <div
+          data-slot="alert-description"
+          className="text-ui text-pretty text-ink-muted"
+        >
+          {description}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         <button
           type="button"
           onClick={() => onReset()}
-          className={boundaryButtonClass("primary")}
+          className={boundaryButtonClass(
+            "primary",
+            "default",
+            "pointer-coarse:min-h-11"
+          )}
         >
           Try again
         </button>
-        <Link href={homeHref} className={boundaryButtonClass("outline")}>
+        <Link
+          href={homeHref}
+          className={boundaryButtonClass(
+            "ghost",
+            "default",
+            "pointer-coarse:min-h-11"
+          )}
+        >
           {homeLabel}
         </Link>
       </div>

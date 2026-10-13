@@ -54,6 +54,22 @@ describe("LocationActivityPanel", () => {
     expect(loadMore).toHaveBeenCalledTimes(1)
   })
 
+  it("shows one empty state, with no Load more, when a page has no rows", () => {
+    for (const total of [0, 3]) {
+      usePagesMock.mockReturnValue({
+        data: { canManage: false, total, pageSize: 10, items: [], paging: noMore },
+        isPending: false, isError: false, error: null, refetch: vi.fn(),
+      })
+      const { unmount } = renderPanel()
+      expect(
+        screen.getByText("No Google management changes recorded for this location yet.")
+      ).toBeVisible()
+      expect(screen.queryByRole("list", { name: "Recent changes" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Load more changes" })).toBeNull()
+      unmount()
+    }
+  })
+
   it("says when the whole history is shown", () => {
     usePagesMock.mockReturnValue({
       data: { canManage: false, total: 2, pageSize: 10, items: [item("a"), item("b")], paging: noMore },

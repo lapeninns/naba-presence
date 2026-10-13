@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import {
   AlertDialog,
@@ -11,18 +11,17 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { TypedConfirmation } from "@/components/ui/typed-confirmation"
 
 // A destructive Google action (remove admin / transfer / delete location) needs
 // TWO gates: the route's exact confirmation literal (sent by the client) AND this
 // UI typed-name confirmation. The confirm button is inert until the typed name
-// matches the location name (trimmed, case-insensitive). The Field/FieldLabel
-// pair wires the Input's id to the label's htmlFor automatically (see
-// components/ui/input.tsx's useFieldContext), so no separate aria-label is
-// needed on the Input itself.
+// matches the location name (trimmed, case-insensitive). TypedConfirmation is
+// the shared "type the name" field (label wired to the input, a polite
+// "Matches" line); the button's own gate below stays this dialog's original
+// comparison, so the guard is exactly as strict as it always was.
 //
-// Cancel is the grey button and the destructive action, which names the
+// Cancel comes first and the destructive action, which names the
 // object, comes last so it sits at the trailing edge (and on top when the
 // footer stacks on a phone).
 export function DangerZoneDialog({
@@ -34,6 +33,7 @@ export function DangerZoneDialog({
   confirmLabel,
   pending,
   onConfirm,
+  consequences,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -43,6 +43,11 @@ export function DangerZoneDialog({
   confirmLabel: string
   pending: boolean
   onConfirm: () => void
+  /**
+   * What happens once this goes through, one short sentence each, listed
+   * before the typed name so the cost is read before it is confirmed.
+   */
+  consequences?: readonly ReactNode[]
 }) {
   const [typed, setTyped] = useState("")
   // Defence-in-depth: an empty expectedName can never match, even against an
@@ -63,15 +68,25 @@ export function DangerZoneDialog({
       <AlertDialogContent>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
-        <Field>
-          <FieldLabel>Type the location&apos;s name to confirm</FieldLabel>
-          <Input
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            placeholder={expectedName}
-            autoComplete="off"
-          />
-        </Field>
+        {consequences && consequences.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-caption font-medium text-ink-muted">
+              What happens
+            </p>
+            <ul className="flex list-disc flex-col gap-1 ps-5 text-ui text-ink">
+              {consequences.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        <TypedConfirmation
+          expected={expectedName}
+          value={typed}
+          onValueChange={setTyped}
+          label="Type the location's name to confirm"
+          placeholder={expectedName}
+        />
         <AlertDialogFooter>
           <AlertDialogClose render={<Button variant="ghost" />}>
             Cancel
