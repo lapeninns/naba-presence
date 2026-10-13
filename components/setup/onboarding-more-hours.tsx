@@ -3,14 +3,15 @@
 import { useEffect, useId, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import { SupportDetails } from "@/components/editors/support-details"
+import { Field, FieldError, FieldLabel, FormError } from "@/components/ui/field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { fetchOnboardingServices } from "@/lib/api/google-onboarding-services"
 import type { GoogleOnboardingDraft } from "@/lib/contracts/google-onboarding"
 import { googleHoursPeriodLabel, googleOnboardingMoreHoursSchema, type GoogleOnboardingMoreHours } from "@/lib/domain/google-onboarding-hours"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { requestOptions } from "@/lib/queries/request-options"
-import { DayField, TimeField, timeValue } from "./onboarding-hours"
+import { DayField, HoursTimeField, timeValue } from "./onboarding-hours"
 
 export function OnboardingMoreHours({ draft, value, contextSaved, onChange, onEntryChange }: {
   readonly draft: GoogleOnboardingDraft
@@ -56,11 +57,11 @@ export function OnboardingMoreHours({ draft, value, contextSaved, onChange, onEn
     <h4 className="text-ui font-semibold">Additional service hours</h4>
     <p className="text-caption text-ink-muted">Propose hours for services supported by the saved categories. Each service keeps its own schedule. Google validation and approval are separate from saving.</p>
     {!hasCategory || !contextSaved ? <p role="status" className="text-ui text-ink-muted">Select and save the categories, language and country before loading hour types.</p> : metadata.isFetching ? <p role="status" className="text-ui text-ink-muted">Loading supported hour types…</p> : null}
-    {metadata.error && <div role="alert" className="flex flex-col gap-2"><p className="text-ui text-danger-ink">{describeActionError(metadata.error)}</p><Button type="button" variant="outline" className="self-start" disabled={!contextSaved} onClick={() => void metadata.refetch()}>Retry hour types</Button></div>}
+    {metadata.error && <div className="flex flex-col gap-2"><FormError>{describeActionError(metadata.error)}</FormError><Button type="button" variant="outline" className="self-start" disabled={!contextSaved} onClick={() => void metadata.refetch()}>Retry hour types</Button></div>}
     {!value && <p className="text-caption text-ink-muted">No additional service hours in this proposal.</p>}
     {value?.map((schedule) => <div key={schedule.hoursTypeId} role="group" aria-label={`Proposed service hours ${schedule.hoursTypeId}`} className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-control) border border-line p-3">
       <h5 className="text-ui font-medium break-words">{label(schedule.hoursTypeId)}</h5>
-      <p className="text-caption font-mono text-ink-muted break-all">{schedule.hoursTypeId}</p>
+      <SupportDetails items={[schedule.hoursTypeId]} />
       {!choices.some((item) => item.hoursTypeId === schedule.hoursTypeId) && <p className="text-caption text-ink-muted">This saved type is retained. Its current support must be confirmed before creation.</p>}
       {schedule.periods.map((period, index) => <div key={googleHoursPeriodLabel(period)} className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
         <p className="text-ui break-words">{googleHoursPeriodLabel(period)}</p>
@@ -81,9 +82,9 @@ export function OnboardingMoreHours({ draft, value, contextSaved, onChange, onEn
     {ready && choices.length === 0 && <p role="status" className="text-caption text-ink-muted">Google returned no additional hour types for these saved categories.</p>}
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
       <DayField label="Additional opening day" value={openDay} onChange={setOpenDay} />
-      <TimeField label="Additional opening time" value={opens} onChange={setOpens} />
+      <HoursTimeField label="Additional opening time" value={opens} onChange={setOpens} />
       <DayField label="Additional closing day" value={closeDay} onChange={setCloseDay} />
-      <TimeField label="Additional closing time" value={closes} onChange={setCloses} />
+      <HoursTimeField label="Additional closing time" value={closes} onChange={setCloses} />
     </div>
     <Field error={error}><FieldError /></Field>
     <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={!ready || !type || !openDay || !closeDay || !opens || !closes} onClick={add}>Add service hours period</Button>{dirty && <Button type="button" variant="ghost" onClick={reset}>Discard service hours entry</Button>}</div>

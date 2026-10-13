@@ -65,7 +65,7 @@ describe("AccountPickerCard", () => {
     renderCard([account({ id: "a1", accountName: "Riverside Group" })], save)
     expect(screen.getByText("Riverside Group")).toBeInTheDocument()
     fireEvent.click(
-      screen.getByRole("checkbox", { name: "Use Riverside Group" })
+      screen.getByRole("checkbox", { name: "Riverside Group" })
     )
     fireEvent.click(screen.getByRole("button", { name: "Save accounts" }))
     expect(save).toHaveBeenCalledWith(["a1"])
@@ -111,7 +111,7 @@ describe("AccountPickerCard", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
 
     fireEvent.click(
-      screen.getByRole("checkbox", { name: "Use Riverside Group" })
+      screen.getByRole("checkbox", { name: "Riverside Group" })
     )
     expect(screen.getByText("Continue saves your choice.")).toBeInTheDocument()
     await expect(ref.current?.()).resolves.toBe(true)
@@ -154,7 +154,7 @@ describe("AccountPickerCard", () => {
       </QueryClientProvider>
     )
     fireEvent.click(
-      screen.getByRole("checkbox", { name: "Use Riverside Group" })
+      screen.getByRole("checkbox", { name: "Riverside Group" })
     )
     await expect(ref.current?.()).resolves.toBe(false)
     expect(screen.getByRole("alert")).toHaveTextContent(

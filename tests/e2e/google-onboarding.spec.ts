@@ -455,11 +455,15 @@ for (const width of [375, 768, 1280]) {
     await page.keyboard.press("Escape")
     await expect(typeTrigger).toHaveAttribute("aria-expanded", "false")
     expect(fixture.read().draft.payload.moreHours?.[0].hoursTypeId).toBe("provider:legacy")
-    await card.getByRole("textbox", { name: "Listing language", exact: true }).fill("cy")
+    // The language is a picker now: a whole tag typed in commits on leaving
+    // the field (Tab), which also closes its list.
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).fill("cy")
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).press("Tab")
     await expect(hours.getByRole("combobox", { name: "Additional hours type" })).toBeDisabled()
     await expect(hours.getByText("Select and save the categories, language and country before loading hour types.", { exact: true })).toBeVisible()
     expect(fixture.read().draft.payload.moreHours?.[0].hoursTypeId).toBe("provider:legacy")
-    await card.getByRole("textbox", { name: "Listing language", exact: true }).fill("en-GB")
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).fill("en-GB")
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).press("Tab")
     await hours.getByRole("button", { name: "Remove provider:legacy period 1", exact: true }).click()
     if (width === 375) {
       const trigger = hours.getByRole("combobox", { name: "Additional hours type" })
@@ -850,9 +854,13 @@ for (const width of [375, 768, 1280]) {
     expect(fixture.read().draft.payload.serviceItems?.[1]).toEqual({ freeFormServiceItem: { category: "categories/gcid:shop", label: { displayName: "Custom advice", description: "Advice for a specific project.", languageCode: "en-GB" } }, price: { currencyCode: "GBP", units: "19", nanos: 123456789 } })
     await page.reload()
     await expect(second.getByRole("textbox", { name: "Service price", exact: true })).toHaveValue("19.123456789")
-    await card.getByRole("textbox", { name: "Listing language", exact: true }).fill("cy")
+    // The language is a picker now: a whole tag typed in commits on leaving
+    // the field (Tab), which also closes its list.
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).fill("cy")
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).press("Tab")
     await expect(suggested).toBeDisabled()
-    await card.getByRole("textbox", { name: "Listing language", exact: true }).fill("en-GB")
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).fill("en-GB")
+    await card.getByRole("combobox", { name: "Listing language", exact: true }).press("Tab")
     await second.getByRole("textbox", { name: "Custom service name" }).fill("Custom advice updated")
     await second.getByRole("button", { name: "Clear service price", exact: true }).click()
     await second.getByRole("button", { name: "Clear service description", exact: true }).click()
@@ -1437,8 +1445,12 @@ for (const width of [375, 768, 1280]) {
       "Enter the service-area country"
     )
     await area
-      .getByRole("textbox", { name: "Service-area country code", exact: true })
+      .getByRole("combobox", { name: "Service-area country code", exact: true })
       .fill("gb")
+    // A picker now: the typed code commits on leaving the field.
+    await area
+      .getByRole("combobox", { name: "Service-area country code", exact: true })
+      .press("Tab")
     await expect(card.getByRole("alert")).toContainText(
       "Remove the storefront address"
     )
@@ -1789,8 +1801,8 @@ test("starting a draft retries the same identity after an interrupted response",
     card.getByRole("textbox", { name: "Business name", exact: true })
   ).toHaveValue("")
   await expect(
-    card.getByRole("textbox", { name: "Listing language" })
-  ).toHaveValue("en-GB")
+    card.getByRole("combobox", { name: "Listing language" })
+  ).toHaveValue("English (UK) · en-GB")
   await expect(
     card.getByRole("button", { name: "Search for matches", exact: true })
   ).toBeDisabled()

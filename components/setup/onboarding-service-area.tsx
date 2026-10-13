@@ -8,7 +8,7 @@ import {
   FieldError,
   FieldLabel,
 } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -20,6 +20,14 @@ import {
   googleServiceAreaSchema,
   type GoogleServiceArea,
 } from "@/lib/domain/google-service-area"
+import {
+  codeLabel,
+  countryOptions,
+  typedCountryCode,
+  withCurrent,
+} from "@/lib/setup/onboarding-codes"
+
+import { CodeCombobox } from "./code-combobox"
 
 export function OnboardingServiceArea({
   value,
@@ -34,6 +42,12 @@ export function OnboardingServiceArea({
   const [placeId, setPlaceId] = useState("")
   const [error, setError] = useState<string>()
   const places = value?.places?.placeInfos ?? []
+  // The country picker's list, with a saved code kept in it.
+  const countryChoices = withCurrent(
+    countryOptions(),
+    value?.regionCode ?? "",
+    "region"
+  )
   const entryDirty = Boolean(name || placeId)
   useEffect(() => {
     onEntryChange(entryDirty)
@@ -94,27 +108,30 @@ export function OnboardingServiceArea({
         <>
           <Field>
             <FieldLabel>Service-area country code</FieldLabel>
-            <Input
+            <CodeCombobox
+              title="Service-area country"
+              placeholder="Choose a country"
               value={value.regionCode ?? ""}
-              maxLength={2}
-              onChange={(event) =>
+              options={countryChoices}
+              typed={(text) => typedCountryCode(text, countryChoices)}
+              label={(code) => codeLabel("region", code)}
+              onValueChange={(code) =>
                 onChange({
                   ...value,
-                  regionCode:
-                    event.target.value.toUpperCase().trim() || undefined,
+                  regionCode: code.toUpperCase().trim() || undefined,
                 })
               }
             />
             <FieldDescription>
-              Two-letter country code, such as GB. Required for a customer-only
-              business.
+              Two-letter country code, such as GB, or pick the country by name.
+              Required for a customer-only business.
             </FieldDescription>
           </Field>
           <ul className="space-y-2">
             {places.map((place) => (
               <li
                 key={place.placeId}
-                className="flex items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3"
+                className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3"
               >
                 <div className="min-w-0">
                   <p className="text-ui font-semibold break-words">
@@ -163,6 +180,7 @@ export function OnboardingServiceArea({
               <Field error={error}>
                 <FieldLabel>Service area place ID</FieldLabel>
                 <Input
+                  {...inputHints.identifier}
                   value={placeId}
                   maxLength={255}
                   onChange={(event) => {

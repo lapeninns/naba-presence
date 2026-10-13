@@ -4,7 +4,9 @@ import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { SupportDetails } from "@/components/editors/support-details"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
+import { QueryError, QueryPending } from "@/components/ui/query-states"
 import { Input } from "@/components/ui/input"
 import { fetchOnboardingAccessibleMatches } from "@/lib/api/google-onboarding-accessible-matches"
 import { approveOnboardingMatchLink, fetchOnboardingMatchLinkReview, previewOnboardingMatchLink, submitOnboardingMatchLink } from "@/lib/api/google-onboarding-match-link"
@@ -70,11 +72,12 @@ export function OnboardingMatchLink({ draft, disabled, onBusyChange, onDirtyChan
     <div className="space-y-1"><h4 id="existing-match-heading" className="text-title font-semibold">Link an existing match</h4>
       <p className="text-ui text-ink-muted">Check which potential matches belong to this Google account, then review the exact local mapping.</p></div>
     {disabled && <p role="status" className="text-ui text-ink-muted">Wait for the current action to finish, or discard the creation decision before reviewing an existing match.</p>}
-    {reviewId ? review.isPending ? <p role="status">Restoring existing listing review…</p> : review.isError ? <div role="alert" className="space-y-2">
-      <p>{describeActionError(review.error)}</p><div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={busy} onClick={() => void review.refetch()}>Retry restoring link review</Button><Button variant="ghost" disabled={busy} onClick={() => openReview(null)}>Start a fresh link review</Button></div>
+    {reviewId ? review.isPending ? <QueryPending label="Restoring existing listing review…" /> : review.isError ? <div className="flex flex-col gap-2">
+      <QueryError title="The link review didn’t load" description={describeActionError(review.error)} onRetry={() => void review.refetch()} retryLabel="Retry restoring link review" />
+      <Button variant="ghost" className="self-start" disabled={busy} onClick={() => openReview(null)}>Start a fresh link review</Button>
     </div> : review.data && <OnboardingMatchLinkReview key={`${review.data.id}:${review.data.approvedBy ?? "unapproved"}`} value={review.data} busy={busy || disabled} onApprove={() => approve.mutate()} onLink={() => link.mutate()} onRefresh={() => void review.refetch()} onReset={() => { setSelected(""); preview.reset(); approve.reset(); link.reset(); openReview(null) }} /> : <>
       <Button variant="secondary" className="self-start" disabled={disabled || busy || decisionDirty} pending={matches.isFetching} pendingLabel="Checking account access…" onClick={() => { if (discover) void matches.refetch(); else setDiscover(true) }}>Check accessible matches</Button>
-      {discover && matches.isError ? <p role="alert" className="text-ui text-danger-ink">{describeActionError(matches.error)} Access could not be established; this is not evidence that a new listing is needed.</p> : matches.data && !matches.isFetching && <>
+      {discover && matches.isError ? <FormError>{describeActionError(matches.error)} Access could not be established; this is not evidence that a new listing is needed.</FormError> : matches.data && !matches.isFetching && <>
         <p className="text-caption text-ink-muted">Account access checked {new Date(matches.data.observedAt).toLocaleString("en-GB")}.</p>
         <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">{matches.data.matches.map((match) => {
           const source = draft.matchResult?.matches.find((item) => item.name === match.matchName)
@@ -82,7 +85,7 @@ export function OnboardingMatchLink({ draft, disabled, onBusyChange, onDirtyChan
             <p className="text-ui font-semibold break-words">{source?.location.title || match.matchName}</p>
             {match.status === "accessible" ? <>
               <p className="text-ui text-ink-muted">Accessible in this account: {match.location.title || match.location.name}</p>
-              <p className="font-mono text-caption break-all text-ink-muted">{match.location.name}</p>
+              <SupportDetails items={[match.location.name]} />
               <Button variant="secondary" disabled={disabled || busy} aria-pressed={selected === match.matchName} onClick={() => { setSelected(match.matchName); preview.reset() }}>{selected === match.matchName ? "Selected for link review" : "Select this existing match"}</Button>
             </> : <p className="text-ui text-ink-muted">{descriptions[match.status]}</p>}
           </li>
@@ -96,6 +99,6 @@ export function OnboardingMatchLink({ draft, disabled, onBusyChange, onDirtyChan
       {decisionDirty && <Button variant="ghost" className="self-start" disabled={busy} onClick={() => { setSelected(""); setLocalName(draft.payload.title ?? ""); preview.reset() }}>Discard link decision</Button>}
     </>}
     {busy && <p role="status" className="text-caption text-ink-muted">{link.isPending ? "Linking the approved resource…" : approve.isPending ? "Checking and saving approval…" : "Checking the saved mapping…"}</p>}
-    {error && <p role="alert" className="text-ui text-danger-ink">{describeActionError(error)}{link.isError && " Restore link status before retrying."}</p>}
+    {error && <FormError>{describeActionError(error)}{link.isError && " Restore link status before retrying."}</FormError>}
   </section>
 }

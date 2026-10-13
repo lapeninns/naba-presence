@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { TimeField } from "@/components/ui/time-field"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { GOOGLE_DAYS } from "@/lib/domain/hours-vocabulary"
 import {
@@ -47,15 +48,20 @@ export function OnboardingHours(props: Props) {
 }
 
 export function DayField({ label, value, onChange }: { readonly label: string; readonly value: string; readonly onChange: (value: string) => void }) {
-  const id = useId()
-  return <Field><FieldLabel htmlFor={id}>{label}</FieldLabel><Select value={value || "choose"} onValueChange={(next) => { if (typeof next === "string") onChange(next === "choose" ? "" : next) }}>
-    <SelectTrigger id={id}><SelectValue>{value ? value.charAt(0) + value.slice(1).toLowerCase() : "Choose day"}</SelectValue></SelectTrigger>
+  // The trigger takes the label through the Field (aria-labelledby): a
+  // pop-up button is not something `<label for>` can name.
+  return <Field><FieldLabel>{label}</FieldLabel><Select value={value || "choose"} onValueChange={(next) => { if (typeof next === "string") onChange(next === "choose" ? "" : next) }}>
+    <SelectTrigger className="w-full"><SelectValue>{value ? value.charAt(0) + value.slice(1).toLowerCase() : "Choose day"}</SelectValue></SelectTrigger>
     <SelectContent><SelectItem value="choose">Choose day</SelectItem>{GOOGLE_DAYS.map((day) => <SelectItem key={day} value={day}>{day.charAt(0) + day.slice(1).toLowerCase()}</SelectItem>)}</SelectContent>
   </Select></Field>
 }
-export function TimeField({ label, value, onChange }: { readonly label: string; readonly value: string; readonly onChange: (value: string) => void }) {
-  const id = useId()
-  return <Field><FieldLabel htmlFor={id}>{label}</FieldLabel><Input id={id} value={value} maxLength={5} placeholder="HH:MM" onChange={(event) => onChange(event.target.value)} /><FieldDescription>00:00 to 24:00. 24:00 is midnight at the end of the selected day.</FieldDescription></Field>
+/**
+ * A labelled "HH:MM" entry. The shared TimeField opens the digit pad and
+ * inserts the colon; the text it hands back is the same "HH:MM" string this
+ * form always parsed with `timeValue`, so the payload is unchanged.
+ */
+export function HoursTimeField({ label, value, onChange }: { readonly label: string; readonly value: string; readonly onChange: (value: string) => void }) {
+  return <Field><FieldLabel>{label}</FieldLabel><TimeField value={value} onValueChange={onChange} /><FieldDescription>00:00 to 24:00. 24:00 is midnight at the end of the selected day.</FieldDescription></Field>
 }
 
 function RegularEntry({ value, onChange, onEntryChange, specialPresent }: {
@@ -87,9 +93,9 @@ function RegularEntry({ value, onChange, onEntryChange, specialPresent }: {
     {specialPresent && <p className="text-caption text-ink-muted">Remove special dates before removing the final regular period.</p>}
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
       <DayField label="Regular opening day" value={openDay} onChange={setOpenDay} />
-      <TimeField label="Regular opening time" value={opens} onChange={setOpens} />
+      <HoursTimeField label="Regular opening time" value={opens} onChange={setOpens} />
       <DayField label="Regular closing day" value={closeDay} onChange={setCloseDay} />
-      <TimeField label="Regular closing time" value={closes} onChange={setCloses} />
+      <HoursTimeField label="Regular closing time" value={closes} onChange={setCloses} />
     </div>
     <Field error={error}><FieldError /></Field>
     <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={!openDay || !closeDay || !opens || !closes} onClick={add}>Add regular period</Button>{dirty && <Button type="button" variant="ghost" onClick={reset}>Discard regular entry</Button>}</div>
@@ -132,8 +138,8 @@ function SpecialEntry({ value, onChange, onEntryChange, regularPresent }: {
       <SelectContent><SelectItem value="choose">Choose opening</SelectItem><SelectItem value="closed">Closed all day</SelectItem><SelectItem value="open">Custom hours</SelectItem></SelectContent>
     </Select></Field>
     {kind === "open" && <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-      <TimeField label="Special opening time" value={opens} onChange={setOpens} />
-      <TimeField label="Special closing time" value={closes} onChange={setCloses} />
+      <HoursTimeField label="Special opening time" value={opens} onChange={setOpens} />
+      <HoursTimeField label="Special closing time" value={closes} onChange={setCloses} />
       <Field className="sm:col-span-2"><FieldLabel htmlFor={`${prefix}-end`}>Special end date (optional)</FieldLabel><Input id={`${prefix}-end`} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} /><FieldDescription>Leave blank for the same date. Overnight periods must end before noon the following date and last less than 24 hours.</FieldDescription></Field>
     </div>}
     <Field error={error}><FieldError /></Field>

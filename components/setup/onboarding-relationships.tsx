@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { googleRelevantLocationSchema, type GoogleRelationship } from "@/lib/domain/google-relationships"
 import { relationshipLabels, removeOnboardingRelationship } from "@/lib/locations/onboarding-relationships"
@@ -62,7 +62,7 @@ function RelationshipEntry({ value, onChange, onEntryChange, parent }: Props & {
     </div>)}
     <Field error={error}>
       <FieldLabel htmlFor={`${prefix}-place`}>{parent ? "Parent business place ID" : "New child business place ID"}</FieldLabel>
-      <Input id={`${prefix}-place`} value={placeId} maxLength={255} onChange={(event) => { setPlaceId(event.target.value); setError(undefined) }} />
+      <Input id={`${prefix}-place`} {...inputHints.identifier} value={placeId} maxLength={255} onChange={(event) => { setPlaceId(event.target.value); setError(undefined) }} />
       <FieldDescription>Local checks validate ID format only. Use a known place ID; do not enter a Maps URL or infer an ID from a business name.</FieldDescription>
       <FieldError />
     </Field>

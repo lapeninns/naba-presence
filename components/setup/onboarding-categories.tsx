@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
-import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel, FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { fetchOnboardingCategories } from "@/lib/api/google-onboarding-categories"
 import { onboardingCategoryQuerySchema } from "@/lib/contracts/google-onboarding-categories"
@@ -181,15 +181,15 @@ export function OnboardingCategories({
         Find categories
       </Button>
       {searched && !input.success && (
-        <p role="alert" className="text-ui text-danger-ink">
+        <FormError>
           Enter a valid country code and listing language before searching
           categories.
-        </p>
+        </FormError>
       )}
       {input.success && results.isError && (
-        <p role="alert" className="text-ui text-danger-ink">
+        <FormError>
           {describeActionError(results.error)} Use Find categories to retry.
-        </p>
+        </FormError>
       )}
       {input.success && results.isSuccess && (
         <>
