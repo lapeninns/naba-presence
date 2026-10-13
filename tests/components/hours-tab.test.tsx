@@ -87,12 +87,16 @@ describe("HoursTab", () => {
     useCapsMock.mockReturnValue({
       data: { canEditCanonical: true, canPublish: true },
     })
-    renderTab()
-    const notices = screen
-      .getAllByRole("alert")
-      .filter((node) => node.getAttribute("data-slot") === "alert")
+    const { container } = renderTab()
+    // Alert announces a destructive note as role="alert" and every other tone
+    // as role="status" (components/ui/alert.tsx), so find the notices by the
+    // Alert slot and require each one to be a live region of either kind.
+    const notices = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="alert"]')
+    )
     expect(notices).toHaveLength(1)
     const notice = notices[0]!
+    expect(["alert", "status"]).toContain(notice.getAttribute("role"))
     // Google is empty, the boundaries need confirming, and the metadata
     // lookup failed: three notes, one panel. The server's boundary warning
     // repeats the "Confirm saved closing days" note, so it is not listed.
