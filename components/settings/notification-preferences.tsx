@@ -26,7 +26,7 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { SettingsGroupAction } from "@/components/ui/settings-row"
 
 const EMAIL_LABEL: Record<NotificationMode, string> = {
   immediate: "Immediately",
@@ -119,18 +119,14 @@ export function NotificationPreferences() {
           aria-labelledby="notification-events-label"
           className="flex flex-col gap-1.5"
         >
-          <div className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-3 px-1 desk:min-h-0">
+          <div className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-3 px-1 desk:min-h-8">
             <h2
               id="notification-events-label"
               className="text-ui font-medium text-ink-muted"
             >
               Notify me about
             </h2>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-accent-ink"
+            <SettingsGroupAction
               disabled={save.isPending || rows.length === 0}
               onClick={() =>
                 save.mutate(
@@ -145,7 +141,7 @@ export function NotificationPreferences() {
               }
             >
               {allInAppOn ? "Turn all off in app" : "Turn all on in app"}
-            </Button>
+            </SettingsGroupAction>
           </div>
           <p
             aria-live="polite"

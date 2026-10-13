@@ -13,9 +13,10 @@ import { cn } from "@/lib/utils"
  * One titled settings block. Two looks, one API:
  * - `card` (default): a Card with a divided header (title, one line of
  *   description, optional action) and its content. Setup uses this.
- * - `group`: the Notion Mail settings group (REFERENCE-BRIEF §4.3). A quiet
- *   sentence-case label in `ink-muted` sits above the content; on a phone the
- *   content lies flat on the canvas, and from `md` it sits in a bordered card.
+ * - `group`: the Drop 1 SettingsGroup look. A quiet sentence-case label in
+ *   `ink-muted` sits above the content; on a phone (and any touch screen)
+ *   the content lies flat on the canvas, and at the desk it sits in a
+ *   bordered card.
  * Either way the block is a region labelled by its heading.
  */
 function SettingsSection({
@@ -45,17 +46,24 @@ function SettingsSection({
   "data-slot"?: string
 }) {
   if (variant === "group") {
+    // Drop 1's SettingsGroup look (components/ui/settings-row.tsx): its
+    // label row and its desk-only card. That primitive holds a list of
+    // rows; a section holds forms and facts, so it keeps its own box.
     const Heading = headingLevel
     return (
       <section
         aria-labelledby={id}
         data-slot={slot ?? "settings-section"}
         data-variant="group"
-        className={cn("flex min-w-0 flex-col gap-2", className)}
+        className={cn("flex min-w-0 flex-col gap-1", className)}
       >
-        <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 px-1">
+        <div className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-3 gap-y-1 desk:min-h-8">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <Heading id={id} className="text-ui font-medium text-ink-muted">
+            <Heading
+              id={id}
+              data-slot="settings-group-label"
+              className="text-ui font-medium text-ink-muted"
+            >
               {title}
             </Heading>
             {description ? (
@@ -66,7 +74,7 @@ function SettingsSection({
         </div>
         <div
           className={cn(
-            "@container flex min-w-0 flex-col gap-3 px-1 md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface md:p-(--np-card-pad)",
+            "@container flex min-w-0 flex-col gap-3 desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)",
             contentClassName
           )}
         >
