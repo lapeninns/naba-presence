@@ -1014,8 +1014,15 @@ for (const theme of themes) {
         await expect(
           filtersSheet.getByRole("checkbox", { name: "5 stars" })
         ).toBeVisible()
+        // Every filter keeps an accessible group name. The sheet's sections
+        // were named regions (a dozen landmarks); they are now groups named
+        // by their headings, and where the control is itself the named group
+        // (Reply status is a radio group) that control carries the name.
         await expect(
-          filtersSheet.getByRole("region", { name: "Reply status" })
+          filtersSheet.getByRole("radiogroup", { name: "Reply status" })
+        ).toBeVisible()
+        await expect(
+          filtersSheet.getByRole("group", { name: "Date range" })
         ).toBeVisible()
         await expectAccessible(
           page,

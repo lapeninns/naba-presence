@@ -45,27 +45,37 @@ import type { InboxState } from "@/lib/inbox/url-state"
 import { cn } from "@/lib/utils"
 
 /**
- * One filter under its heading. A plain `<section>` with no name, so the
- * sheet is not read as a dozen landmarks; the headings are what a screen
- * reader steps through.
+ * One filter under its heading. A group named by that heading, not a named
+ * `<section>`: a group keeps its controls' shared name ("Date range" for
+ * From and To) without making the sheet a dozen landmarks. Where the control
+ * is already a group of that name (the rating toggles, the written and reply
+ * radio groups), `controlNamed` leaves the wrapper plain, so the name is not
+ * announced twice.
  */
 function Group({
   title,
   children,
   className,
+  controlNamed = false,
 }: {
   title: string
   children: React.ReactNode
   className?: string
+  controlNamed?: boolean
 }) {
+  const headingId = useId()
   return (
     <section
+      role={controlNamed ? undefined : "group"}
+      aria-labelledby={controlNamed ? undefined : headingId}
       className={cn(
         "flex flex-col gap-3 border-t border-line-subtle py-4 first:border-t-0 first:pt-0",
         className
       )}
     >
-      <h3 className="text-ui font-semibold text-ink">{title}</h3>
+      <h3 id={headingId} className="text-ui font-semibold text-ink">
+        {title}
+      </h3>
       {children}
     </section>
   )
@@ -157,7 +167,7 @@ function FiltersSheet({
         </SheetHeader>
 
         <SheetBody className="gap-0">
-          <Group title={FILTER_NAMES.rating}>
+          <Group title={FILTER_NAMES.rating} controlNamed>
             <RatingFilter
               ratings={state.ratings}
               onChange={(ratings) => onChange({ ratings })}
@@ -167,7 +177,7 @@ function FiltersSheet({
 
           {/* Stars with no words are replied to from a standard template, a
               whole selection at a time — this is how to gather them. */}
-          <Group title={FILTER_NAMES.written}>
+          <Group title={FILTER_NAMES.written} controlNamed>
             <WrittenFilter
               written={state.written}
               onChange={(written) => onChange({ written })}
@@ -259,7 +269,7 @@ function FiltersSheet({
             <Group title={FILTER_NAMES.owner}>{ownerControl(ownerId)}</Group>
           ) : null}
 
-          <Group title={FILTER_NAMES.replyState}>
+          <Group title={FILTER_NAMES.replyState} controlNamed>
             <ReplyFilter
               replyState={state.replyState}
               onChange={(replyState) => onChange({ replyState })}
