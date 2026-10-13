@@ -28,6 +28,7 @@
     "supabase:status": "supabase status",
     "supabase:reset": "supabase db reset --local",
     "test": "vitest run",
+    "audit:mobile": "node tests/visual/mobile-audit.mjs",
     "test:a11y": "node scripts/run-test-command.mjs e2e pnpm exec playwright test tests/e2e/accessibility.spec.ts",
     "test:e2e": "node scripts/run-test-command.mjs e2e pnpm exec playwright test",
     "test:integration": "node scripts/run-test-command.mjs integration pnpm exec vitest run tests/integration",
