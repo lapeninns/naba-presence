@@ -231,13 +231,13 @@ export function OnboardingReview({
   return (
     <section
       aria-labelledby="creation-review-heading"
-      className="flex min-w-0 flex-col gap-4 border-t border-line pt-4"
+      className="flex min-w-0 flex-col gap-4 border-t border-line-subtle pt-5"
     >
       <div className="space-y-1">
         <h4 id="creation-review-heading" className="text-title font-semibold">
           Create a separate listing
         </h4>
-        <p className="text-ui text-ink-muted">
+        <p className="text-body text-pretty text-ink-muted">
           First check accessible listings and ownership options above. Continue
           only if a separate public listing is appropriate.
         </p>
@@ -274,7 +274,7 @@ export function OnboardingReview({
             </Field>
           </fieldset>
           <Button
-            className="self-start"
+            className="self-stretch sm:self-start"
             pending={validate.isPending}
             pendingLabel="Validating with Google…"
             disabled={
@@ -332,7 +332,7 @@ export function OnboardingReview({
         review.data && (
           <>
             <div className="space-y-1">
-              <p className="text-ui">
+              <p className="text-body">
                 Google validation completed. Approval and submission are
                 separate actions.
               </p>
@@ -345,7 +345,7 @@ export function OnboardingReview({
               </p>
             </div>
             <SettingsFacts
-              className="rounded-(--np-radius-card) border border-line px-3"
+              className="border-y border-line-subtle"
               facts={detailRows(review.data.payload).map(
                 (row) =>
                   [
@@ -358,16 +358,16 @@ export function OnboardingReview({
                   ] as const
               )}
             />
-            <p className="text-ui break-words whitespace-pre-wrap">
-              <strong>Reason:</strong> {review.data.decision.reason}
+            <p className="text-body break-words whitespace-pre-wrap">
+              <strong className="font-semibold">Reason:</strong> {review.data.decision.reason}
             </p>
-            <p className="text-caption text-ink-muted">
+            <p className="text-caption text-ink-muted tabular-nums">
               {review.data.decision.acknowledgedMatchNames.length} potential
               matches acknowledged in this exact review.
             </p>
             {!review.data.approvedBy ? (
               <>
-                <p className="text-ui">
+                <p className="text-body">
                   {review.data.requiresSecondApprover
                     ? "A different authorised owner or admin must approve this review. Share this setup link with them."
                     : "Approve these exact details before submitting creation."}
@@ -379,7 +379,7 @@ export function OnboardingReview({
                   />
                 ) : null}
                 <Button
-                  className="self-start"
+                  className="self-stretch sm:self-start"
                   pending={approve.isPending}
                   pendingLabel="Approving…"
                   disabled={!review.data.canApprove || busy}
@@ -390,7 +390,7 @@ export function OnboardingReview({
               </>
             ) : (
               <>
-                <p role="status" className="text-ui">
+                <p role="status" className="text-body">
                   These creation details are approved.
                 </p>
                 <Checkbox
@@ -400,7 +400,7 @@ export function OnboardingReview({
                   onCheckedChange={setConfirmCreate}
                 />
                 <Button
-                  className="self-start"
+                  className="self-stretch sm:self-start"
                   pending={submit.isPending}
                   pendingLabel="Submitting creation…"
                   disabled={!confirmCreate || busy}
@@ -416,7 +416,7 @@ export function OnboardingReview({
                 review and outcome before retrying.
               </FormError>
             )}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Button
                 variant="secondary"
                 disabled={busy}

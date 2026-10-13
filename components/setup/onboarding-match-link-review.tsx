@@ -44,22 +44,22 @@ export function OnboardingMatchLinkReview({ value, busy, onApprove, onLink, onRe
     return []
   }) : []
   return <>
-    <p className="text-ui text-ink-muted">Review this exact mapping. Linking does not change the Google business details or create a public listing.</p>
-    <SettingsFacts className="rounded-(--np-radius-card) border border-line px-3" facts={[...rows, ...address].map(([label, text]) => [label, <span key={label} className="break-words whitespace-pre-wrap">{text}</span>] as const)} />
-    <p className="text-caption text-ink-muted">Observed {new Date(value.observedAt).toLocaleString("en-GB")}. Approval expires {new Date(value.approvalExpiresAt).toLocaleString("en-GB")}.</p>
+    <p className="text-body text-pretty text-ink-muted">Review this exact mapping. Linking does not change the Google business details or create a public listing.</p>
+    <SettingsFacts className="border-y border-line-subtle" facts={[...rows, ...address].map(([label, text]) => [label, <span key={label} className="break-words whitespace-pre-wrap">{text}</span>] as const)} />
+    <p className="text-caption text-ink-muted tabular-nums">Observed {new Date(value.observedAt).toLocaleString("en-GB")}. Approval expires {new Date(value.approvalExpiresAt).toLocaleString("en-GB")}.</p>
     {value.conflicts.length > 0 ? <FormError>
       <p className="font-semibold">Resolve these mapping conflicts before approval.</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 font-normal">{value.conflicts.map((code) => <li key={code}>{conflicts[code]}</li>)}</ul>
     </FormError> : !value.approvedBy ? <>
-      <p className="text-ui">{value.requiresSecondApprover ? "A different authorised owner or admin must approve this exact mapping. Share this setup link with them." : "Approve this exact mapping before linking."}</p>
+      <p className="text-body">{value.requiresSecondApprover ? "A different authorised owner or admin must approve this exact mapping. Share this setup link with them." : "Approve this exact mapping before linking."}</p>
       {value.requiresSecondApprover && <ShareSetupLink title="Approve an existing listing link" text="Please review and approve this existing listing link in NabaPresence." />}
-      <Button className="self-start" disabled={busy || !value.canApprove} onClick={onApprove}>Approve existing listing link</Button>
+      <Button className="self-stretch sm:self-start" disabled={busy || !value.canApprove} onClick={onApprove}>Approve existing listing link</Button>
     </> : <>
-      <p role="status" className="text-ui">This mapping is approved.</p>
+      <p role="status" className="text-body">This mapping is approved.</p>
       <Checkbox label="Link this existing Google resource to the reviewed local listing." checked={confirmed} disabled={busy} onCheckedChange={setConfirmed} />
-      <Button className="self-start" disabled={busy || !confirmed} onClick={onLink}>Link approved existing listing</Button>
+      <Button className="self-stretch sm:self-start" disabled={busy || !confirmed} onClick={onLink}>Link approved existing listing</Button>
     </>}
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       <Button variant="secondary" disabled={busy} onClick={onRefresh}>Refresh link review</Button>
       <Button variant="ghost" disabled={busy} onClick={onReset}>Start a fresh link review</Button>
     </div>

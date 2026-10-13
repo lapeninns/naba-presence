@@ -1,6 +1,6 @@
 "use client"
 
-import { CircleCheckIcon, Link2Icon } from "lucide-react"
+import { CheckIcon, CircleCheckIcon, Link2Icon, XIcon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import * as React from "react"
 
@@ -14,7 +14,6 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
-import { cardClassName } from "@/components/ui/card"
 
 /**
  * Choose the Google login that manages this client's Business Profile.
@@ -145,23 +144,23 @@ function StepConnect({
             </Alert>
           ) : null}
 
-          <div
-            className={cardClassName({
-              className:
-                "flex flex-col gap-3 p-3.5 @min-[520px]/wiz:flex-row @min-[520px]/wiz:items-center",
-            })}
-          >
+          {/* The focused step (Notion Mail's "Connect" sheet, in page): a
+              neutral tile, the ask, one full-width sign-in, then what the
+              consent covers and what it never does. The scopes are the ones
+              `lib/server/google/oauth.ts` requests (openid, email, profile,
+              business.manage) and nothing more. */}
+          <div className="flex max-w-lg flex-col items-start gap-4">
             <span
               aria-hidden
-              className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ink-secondary [&_svg]:size-4"
+              className="grid size-11 shrink-0 place-items-center rounded-lg bg-fill text-ink [&_svg]:size-5"
             >
               <Link2Icon strokeWidth={1.75} />
             </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <h3 className="text-body font-semibold text-ink">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h3 className="text-title font-semibold text-ink">
                 Connect a Google account
               </h3>
-              <p className="text-ui text-ink-muted">
+              <p className="text-body text-pretty text-ink-muted">
                 Sign in to the Google account that manages{" "}
                 {business ? "your" : `${clientName}’s`} Business Profile. You’ll
                 sign in on Google’s own page and come straight back to the next
@@ -170,15 +169,41 @@ function StepConnect({
             </div>
             <Button
               id="setup-connect-google"
+              size="lg"
+              block
               variant={usable.length === 0 ? "default" : "secondary"}
               onClick={() => void connect()}
               pending={starting && startingFor === null}
               pendingLabel="Opening Google…"
               disabled={starting}
-              className="self-start @min-[520px]/wiz:self-center"
             >
               Sign in with Google
             </Button>
+            <div className="grid w-full gap-4 @min-[520px]/wiz:grid-cols-2">
+              <ScopeList
+                id="setup-connect-allows"
+                label="What Google asks you to allow"
+                icon={<CheckIcon />}
+                items={[
+                  "See your name and email address, so you know which login is connected",
+                  "Manage your Business Profiles: read reviews, post replies and edit profile details",
+                ]}
+              />
+              <ScopeList
+                id="setup-connect-never"
+                label="What NabaPresence never does"
+                icon={<XIcon />}
+                items={[
+                  "Send anything to Google until a person approves it",
+                  "See or store your Google password",
+                  "Read your Gmail",
+                ]}
+              />
+            </div>
+            <p className="text-caption text-ink-muted">
+              You can disconnect the account at any time from Settings, under
+              Google connections.
+            </p>
           </div>
 
           <section
@@ -187,7 +212,7 @@ function StepConnect({
           >
             <h3
               id="setup-connected-logins"
-              className="font-mono text-[0.71875rem] leading-4 font-medium tracking-[0.06em] text-ink-muted uppercase"
+              className="text-ui font-medium text-ink-muted"
             >
               Use an account already connected
             </h3>
@@ -202,7 +227,7 @@ function StepConnect({
                 You haven’t connected a Google account yet.
               </p>
             ) : (
-              <ul className="flex flex-col gap-2">
+              <ul className="flex flex-col divide-y divide-line-subtle">
                 {connections.map((connection) => {
                   const broken =
                     connection.reconnectRequired ||
@@ -210,18 +235,15 @@ function StepConnect({
                   return (
                     <li
                       key={connection.id}
-                      className={cardClassName({
-                        className:
-                          "flex flex-wrap items-start gap-x-3 gap-y-1.5 p-3.5",
-                      })}
+                      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 py-3"
                     >
                       <span
                         aria-hidden
-                        className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ui font-semibold text-ink-secondary"
+                        className="grid size-8 shrink-0 place-items-center rounded-full bg-fill text-ui font-semibold text-ink-secondary"
                       >
                         G
                       </span>
-                      <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-0.5">
+                      <div className="flex min-w-0 grow basis-48 flex-col gap-0.5">
                         <span className="text-body font-semibold [overflow-wrap:anywhere] text-ink">
                           {connection.googleEmail ?? "Google account"}
                         </span>
@@ -293,15 +315,43 @@ function StepConnect({
               </p>
             ) : null}
           </section>
-
-          <p className="text-caption text-ink-muted">
-            NabaPresence reads reviews, replies to them and edits the profile
-            fields you approve. Nothing reaches Google until a person approves
-            it.
-          </p>
         </div>
       )}
     </QueryStates>
+  )
+}
+
+/** One half of the consent explanation: a plain label over short lines. */
+function ScopeList({
+  id,
+  label,
+  icon,
+  items,
+}: {
+  id: string
+  label: string
+  icon: React.ReactNode
+  items: string[]
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <p id={id} className="text-ui font-medium text-ink-muted">
+        {label}
+      </p>
+      <ul aria-labelledby={id} className="flex flex-col gap-2">
+        {items.map((item) => (
+          <li key={item} className="flex items-start gap-2 text-ui text-ink">
+            <span
+              aria-hidden
+              className="mt-0.5 shrink-0 text-ink-secondary [&_svg]:size-4"
+            >
+              {icon}
+            </span>
+            <span className="min-w-0">{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

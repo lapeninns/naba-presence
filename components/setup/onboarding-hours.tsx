@@ -41,7 +41,7 @@ export function OnboardingHours(props: Props) {
     return () => onEntryChange(false)
   }, [regularDirty, specialDirty, onEntryChange])
   return <div role="group" aria-label="Creation opening hours" className="flex min-w-0 flex-col gap-5 sm:col-span-2">
-    <div className="space-y-1"><h4 className="text-ui font-semibold">Opening hours</h4><p className="text-caption text-ink-muted">Propose local business times using the 24-hour clock. Google validates these hours before creation approval. No hours are assumed for days you do not supply.</p></div>
+    <div className="space-y-1"><h4 className="text-ui font-semibold text-ink">Opening hours</h4><p className="text-caption text-ink-muted">Propose local business times using the 24-hour clock. Google validates these hours before creation approval. No hours are assumed for days you do not supply.</p></div>
     <RegularEntry value={props.regular} onChange={props.onRegularChange} onEntryChange={setRegularDirty} specialPresent={Boolean(props.special)} />
     <SpecialEntry value={props.special} onChange={props.onSpecialChange} onEntryChange={setSpecialDirty} regularPresent={Boolean(props.regular)} />
   </div>
@@ -81,10 +81,10 @@ function RegularEntry({ value, onChange, onEntryChange, specialPresent }: {
     onChange(parsed.data); reset()
   }
   return <div role="group" aria-label="Proposed regular hours" className="flex min-w-0 flex-col gap-3">
-    <h5 className="text-ui font-medium">Regular hours</h5>
+    <h5 className="text-ui font-medium text-ink-muted">Regular hours</h5>
     {!value && <p className="text-caption text-ink-muted">Regular hours are not supplied in this proposal.</p>}
-    {value?.periods.map((period, index) => <div key={googleHoursPeriodLabel(period)} className="flex min-w-0 flex-col items-start gap-2 rounded-(--np-radius-control) border border-line p-3 sm:flex-row sm:justify-between">
-      <p className="text-ui break-words">{googleHoursPeriodLabel(period)}</p>
+    {value?.periods.map((period, index) => <div key={googleHoursPeriodLabel(period)} className="flex min-w-0 flex-col items-start gap-2 border-b border-line-subtle pb-3 sm:flex-row sm:justify-between">
+      <p className="text-body break-words tabular-nums">{googleHoursPeriodLabel(period)}</p>
       <Button type="button" variant="outline" disabled={value.periods.length === 1 && specialPresent} aria-label={`Remove regular period ${index + 1}`} onClick={() => {
         const periods = value.periods.filter((_, current) => current !== index)
         onChange(periods.length ? { periods } : undefined)
@@ -123,10 +123,10 @@ function SpecialEntry({ value, onChange, onEntryChange, regularPresent }: {
     onChange(parsed.data); reset()
   }
   return <div role="group" aria-label="Proposed special hours" className="flex min-w-0 flex-col gap-3">
-    <h5 className="text-ui font-medium">Special dates</h5>
+    <h5 className="text-ui font-medium text-ink-muted">Special dates</h5>
     {!value && <p className="text-caption text-ink-muted">No special dates in this proposal.</p>}
-    {value?.specialHourPeriods.map((period, index) => <div key={googleSpecialHoursPeriodLabel(period)} className="flex min-w-0 flex-col items-start gap-2 rounded-(--np-radius-control) border border-line p-3 sm:flex-row sm:justify-between">
-      <p className="text-ui break-words">{googleSpecialHoursPeriodLabel(period)}</p>
+    {value?.specialHourPeriods.map((period, index) => <div key={googleSpecialHoursPeriodLabel(period)} className="flex min-w-0 flex-col items-start gap-2 border-b border-line-subtle pb-3 sm:flex-row sm:justify-between">
+      <p className="text-body break-words tabular-nums">{googleSpecialHoursPeriodLabel(period)}</p>
       <Button type="button" variant="outline" aria-label={`Remove special period ${index + 1}`} onClick={() => {
         const specialHourPeriods = value.specialHourPeriods.filter((_, current) => current !== index)
         onChange(specialHourPeriods.length ? { specialHourPeriods } : undefined)
