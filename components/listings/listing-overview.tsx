@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { RelativeTime } from "@/components/ui/relative-time"
-import { SectionHeader } from "@/components/ui/section-header"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import {
@@ -171,6 +170,30 @@ function OverviewAlerts({
 }
 
 /**
+ * A section's group label (D8): sentence case, caption, medium, muted, as
+ * Notion Mail labels its groups, with the one-line description under it.
+ * Still the section's h2, so the regions keep their names.
+ */
+function SectionLabel({
+  id,
+  title,
+  description,
+}: {
+  id: string
+  title: string
+  description: React.ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5 px-1">
+      <h2 id={id} className="text-caption font-medium text-ink-muted">
+        {title}
+      </h2>
+      <p className="text-caption text-pretty text-ink-muted">{description}</p>
+    </div>
+  )
+}
+
+/**
  * One listing's home: what state it is in, which area needs someone, and
  * what last went to Google. Everything here paints from DB-only reads; the
  * editors are where Google is read, and they are one click away.
@@ -244,9 +267,9 @@ function ListingOverview({
 
             <section
               aria-labelledby="listing-areas"
-              className="flex flex-col gap-3"
+              className="flex flex-col gap-2"
             >
-              <SectionHeader
+              <SectionLabel
                 id="listing-areas"
                 title="Areas"
                 description="Check a problem, review changes or edit an area."
@@ -263,9 +286,9 @@ function ListingOverview({
 
             <section
               aria-labelledby="listing-health"
-              className="flex flex-col gap-3"
+              className="flex flex-col gap-2"
             >
-              <SectionHeader
+              <SectionLabel
                 id="listing-health"
                 title="Health"
                 description={

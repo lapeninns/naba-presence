@@ -9,18 +9,13 @@ import { PageHeader } from "@/components/app-shell/page-frame"
 import { OperationReceiptNotice } from "@/components/locations/operation-outcome"
 import { ActionBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { cardClassName, cardLinkClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { FormError } from "@/components/ui/field"
+import { ListRow } from "@/components/ui/list-row"
+import { Progress } from "@/components/ui/progress"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { ApiClientError } from "@/lib/api/client"
 import {
   approveBulkChange,
@@ -346,6 +341,13 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
         ].filter(Boolean)
       : []
   const actions = buttons.length ? <>{buttons}</> : null
+  // Progress once the change is under way: how many of its listing changes
+  // Google has confirmed, from the same counts the status line reads. A
+  // skipped listing is never sent, so it is not part of the total.
+  const total = (op?.children.length ?? 0) - skipped
+  const confirmed = op?.counts.succeeded ?? 0
+  const showProgress =
+    Boolean(op) && op?.status !== "previewed" && op?.status !== "expired"
 
   return (
     <>
@@ -380,28 +382,61 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                 "max-md:pb-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))]"
             )}
           >
-            <p className="text-ui text-ink" role="status">
-              {op.status === "previewed"
-                ? "Waiting for approval."
-                : op.status === "approved"
-                  ? "Approved. Start it to queue each listing."
-                  : op.status === "running"
-                    ? "Running. This page updates on its own; you can leave it."
-                    : op.status === "completed"
-                      ? "Every eligible listing is confirmed."
-                      : op.status === "completed_with_failures"
-                        ? "Finished with some listings not changed."
-                        : op.status === "cancelled"
-                          ? "Cancelled. Listings already confirmed keep their change."
-                          : "This change expired. Nothing more will be sent; prepare a new preview."}{" "}
-              {Object.entries(op.counts)
-                .map(
-                  ([status, count]) =>
-                    `${count} ${CHILD[status as BulkChild["status"]]?.label.toLowerCase() ?? status}`
-                )
-                .join(" · ")}
-            </p>
-            <Deadline operation={op} now={now} offset={offset} />
+            {/* The summary: what is true now in words, progress once it
+                runs, and the window that applies. */}
+            <div
+              className={cardClassName({
+                className: "flex min-w-0 flex-col gap-3 p-4",
+              })}
+            >
+              <p className="text-ui text-ink" role="status">
+                {op.status === "previewed"
+                  ? "Waiting for approval."
+                  : op.status === "approved"
+                    ? "Approved. Start it to queue each listing."
+                    : op.status === "running"
+                      ? "Running. This page updates on its own; you can leave it."
+                      : op.status === "completed"
+                        ? "Every eligible listing is confirmed."
+                        : op.status === "completed_with_failures"
+                          ? "Finished with some listings not changed."
+                          : op.status === "cancelled"
+                            ? "Cancelled. Listings already confirmed keep their change."
+                            : "This change expired. Nothing more will be sent; prepare a new preview."}{" "}
+                {Object.entries(op.counts)
+                  .map(
+                    ([status, count]) =>
+                      `${count} ${CHILD[status as BulkChild["status"]]?.label.toLowerCase() ?? status}`
+                  )
+                  .join(" · ")}
+              </p>
+              {showProgress && total > 0 ? (
+                <div className="flex flex-col gap-1.5">
+                  <p
+                    id="bulk-progress-label"
+                    className="text-caption text-ink-muted tabular-nums"
+                  >
+                    {`${confirmed} of ${total} ${unit(total)} confirmed on Google`}
+                  </p>
+                  <Progress
+                    value={confirmed}
+                    max={total}
+                    aria-labelledby="bulk-progress-label"
+                  />
+                </div>
+              ) : null}
+              <Deadline operation={op} now={now} offset={offset} />
+              {/* Approving and starting are for owners and admins; say so
+                rather than leave the page without actions or a reason. */}
+              {role &&
+              !manager &&
+              op.status !== "completed" &&
+              op.status !== "cancelled" ? (
+                <p className="text-caption text-ink-muted">
+                  Only owners and admins can approve or start a bulk change.
+                </p>
+              ) : null}
+            </div>
             <FormError>{failure}</FormError>
             {manager && op.status === "previewed" ? (
               <div className="flex flex-col gap-1">
@@ -451,47 +486,66 @@ export function BulkOperationView({ operationId }: { operationId: string }) {
                   )}. A post draft is made again every time it is previewed, so it would reach listings that already have it. Prepare it as its own bulk change for just those listings.`}
               </p>
             ) : null}
-            <Table surface responsive>
-              <caption className="sr-only">
-                {multiple
+            {/* One row per listing change, in send order: the listing (the
+                whole head of the row opens it), which change, its outcome in
+                words, then the exact change and its receipt below. Rows carry
+                their own controls, so the row itself is not one target. */}
+            <ul
+              aria-label={
+                multiple
                   ? "Per-listing preview and outcome of each change, in the order they are sent"
-                  : "Per-listing preview and outcome"}
-              </caption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Listing</TableHead>
-                  <TableHead>Outcome</TableHead>
-                  <TableHead>Detail</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {op.children.map((child) => (
-                  <TableRow key={child.id}>
-                    <TableCell label="Listing">
+                  : "Per-listing preview and outcome"
+              }
+              data-slot="bulk-outcomes"
+              className={cardClassName({
+                className: "flex min-w-0 flex-col overflow-hidden",
+              })}
+            >
+              {op.children.map((child) => (
+                <li
+                  key={child.id}
+                  className="border-b border-line-subtle last:border-b-0"
+                >
+                  <ListRow
+                    interactive={false}
+                    emphasis="neutral"
+                    className="px-4"
+                    wrapperClassName="after:hidden"
+                    title={
+                      // Stretched over the row's head (the ListRow box is
+                      // `relative`), so the target is the full row height
+                      // while the link's name stays the listing's name.
                       <Link
                         href={`/listings/${child.locationId}`}
-                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
+                        data-slot="bulk-outcome-link"
+                        className={cn(
+                          cardLinkClassName,
+                          // Wraps, never truncates: the venue is identity.
+                          "block font-semibold break-words whitespace-normal after:rounded-none"
+                        )}
                       >
                         {child.locationName}
                       </Link>
-                      {multiple ? (
-                        <span className="block text-caption text-ink-muted">
+                    }
+                    subtitle={
+                      multiple ? (
+                        <span className="block whitespace-normal">
                           {child.seq + 1}. {OPERATION_LABEL[child.operation]}
                         </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell label="Outcome">
+                      ) : undefined
+                    }
+                    trailing={
                       <StatusPill tone={CHILD[child.status].tone}>
                         {CHILD[child.status].label}
                       </StatusPill>
-                    </TableCell>
-                    <TableCell label="Detail" span>
-                      <ChildDetail operation={op} child={child} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    }
+                  />
+                  <div className="px-4 pb-3">
+                    <ChildDetail operation={op} child={child} />
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
       </QueryStates>

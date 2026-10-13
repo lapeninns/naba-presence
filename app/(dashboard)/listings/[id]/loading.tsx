@@ -1,10 +1,11 @@
 import { Skeleton } from "@/components/ui/skeleton"
 
 // The shape of a listing page while its segment loads, matching the compact
-// area header so switching areas doesn't jump: the listing's name, the serif
-// title with its pill, then the area button (under 64rem) or the tab row,
-// then a white card the height of a short section. Rendered inside the
-// dashboard layout's <main>, so no landmark or h1 of its own.
+// area header so switching areas doesn't jump: the listing's name, the title
+// with its pill and the one-line description, then the area button (under
+// 64rem) or the tab row, then a white card the height of a short section.
+// Rendered inside the dashboard layout's <main>, so no landmark or h1 of its
+// own.
 //
 // Known gap: every area route renders its own AreaFrame, so the header
 // still remounts on an area switch. Moving it into a shared
@@ -22,8 +23,9 @@ export default function ListingLoading() {
         </div>
         <div className="flex items-center gap-2.5">
           <Skeleton className="h-8 w-56 max-w-full" />
-          <Skeleton className="h-5 w-24 rounded-(--np-radius-tag)" />
+          <Skeleton className="h-5 w-28 rounded-(--np-radius-tag)" />
         </div>
+        <Skeleton className="mt-1 h-3.5 w-80 max-w-full md:mt-0" />
       </div>
       <Skeleton className="h-(--np-control-h) w-full rounded-(--np-radius-control) md:w-56 lg:hidden" />
       <div className="hidden gap-4 border-b border-line pb-3 lg:flex">

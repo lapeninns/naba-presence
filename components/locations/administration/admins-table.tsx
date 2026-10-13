@@ -1,16 +1,9 @@
 "use client"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
+import { Empty } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { StatusPill } from "@/components/ui/status-pill"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
 
 export type AdminRow = {
@@ -32,12 +25,14 @@ function initials(person: string): string {
 }
 
 /**
- * The people who may edit this listing on Google (reference people table):
- * an initials avatar and the Google account, the role as a mono tag, whether
- * they have access yet, and the row's actions at the trailing edge. Below
- * 48rem of the table's own width each row becomes a record card.
+ * The people who may edit this listing on Google, as `ListRow`s in one card
+ * (like an account list): a neutral initials avatar (D9), the Google
+ * account, its role in words with whether they have access yet, and the
+ * row's own controls on the line under it. The rows are `interactive={false}`
+ * because each carries its own buttons. The account wraps rather than
+ * truncating, so two similar addresses are never cut to the same text.
  */
-export function AdminsTable({
+export function AdminsList({
   admins,
   renderActions,
   caption = "People with access on Google",
@@ -46,60 +41,48 @@ export function AdminsTable({
   renderActions?: (admin: AdminRow) => React.ReactNode
   caption?: string
 }) {
+  if (admins.length === 0)
+    return <Empty size="sm" framed title="Google listed no one here." />
   return (
-    <Table surface responsive>
-      <caption className="sr-only">{caption}</caption>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Person</TableHead>
-          <TableHead>Role</TableHead>
-          <TableHead>Status</TableHead>
-          {renderActions ? (
-            <TableHead className="text-right">Actions</TableHead>
-          ) : null}
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <ListRows aria-label={caption}>
         {admins.map((admin, index) => {
-          const person = admin.admin ?? admin.name ?? "—"
+          const person = admin.admin ?? admin.name ?? "Unnamed Google account"
+          const actions = renderActions?.(admin)
           return (
-            <TableRow key={admin.name ?? index}>
-              <TableCell label="Person" className="font-medium text-ink">
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <Avatar size="sm">
-                    <AvatarFallback>{initials(person)}</AvatarFallback>
-                  </Avatar>
-                  <span className="min-w-0 break-all">{person}</span>
+            <ListRow
+              key={admin.name ?? index}
+              interactive={false}
+              emphasis="neutral"
+              leading={
+                <Avatar size="list" aria-hidden>
+                  <AvatarFallback>{initials(person)}</AvatarFallback>
+                </Avatar>
+              }
+              title={
+                <span className="block wrap-anywhere whitespace-normal">
+                  {person}
                 </span>
-              </TableCell>
-              <TableCell label="Role">
-                {admin.role ? (
-                  <Badge variant="role">{adminRoleLabel(admin.role)}</Badge>
-                ) : (
-                  "—"
-                )}
-              </TableCell>
-              <TableCell label="Status">
-                {admin.pendingInvitation ? (
+              }
+              subtitle={
+                <span className="block whitespace-normal">
+                  {admin.role
+                    ? adminRoleLabel(admin.role)
+                    : "Role not reported by Google"}
+                </span>
+              }
+              trailing={
+                admin.pendingInvitation ? (
                   <StatusPill tone="pending">Invitation pending</StatusPill>
                 ) : (
                   <StatusPill tone="healthy">Has access</StatusPill>
-                )}
-              </TableCell>
-              {renderActions ? (
-                <TableCell
-                  actions
-                  className="text-right @max-3xl/table:text-left"
-                >
-                  <span className="flex flex-wrap items-center justify-end gap-2 @max-3xl/table:justify-start">
-                    {renderActions(admin)}
-                  </span>
-                </TableCell>
-              ) : null}
-            </TableRow>
+                )
+              }
+              tags={actions}
+            />
           )
         })}
-      </TableBody>
-    </Table>
+      </ListRows>
+    </div>
   )
 }

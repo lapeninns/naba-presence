@@ -5,7 +5,7 @@ import { useState } from "react"
 
 import { StatusPill } from "@/components/ui/status-pill"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
   Dialog,
   DialogClose,
@@ -17,8 +17,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { GroupedList, GroupedListItem } from "@/components/ui/grouped-list"
+import { Empty } from "@/components/ui/empty"
 import { Input, inputHints } from "@/components/ui/input"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import {
   Select,
   SelectContent,
@@ -41,7 +42,10 @@ import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 import { EDITABLE_ROLES } from "./admins"
 import { invitationPlace } from "./access-target"
 import { useAdministrationSection } from "./context"
-import { StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
+import {
+  StaleRosterPlaceholder,
+  useAdministrationAccess,
+} from "./access-workspace"
 
 // --- Pending invitations ---------------------------------------------------
 export function InvitationsList({ data }: { data: unknown }) {
@@ -51,27 +55,25 @@ export function InvitationsList({ data }: { data: unknown }) {
     return <StaleRosterPlaceholder what="pending invitations" />
   if (invitations.length === 0) {
     return (
-      <Card size="sm">
-        <CardContent className="text-ui text-ink-muted">
-          No pending invitations.
-          <span>
-            {" "}
-            Invitations for this Google account appear here until they’re
-            accepted or declined.
-          </span>
-        </CardContent>
-      </Card>
+      <Empty
+        size="sm"
+        framed
+        title="No pending invitations."
+        description="Invitations for this Google account appear here until they’re accepted or declined."
+      />
     )
   }
   return (
-    <GroupedList aria-label="Pending invitations">
-      {invitations.map((invitation, index) => (
-        <InvitationRow
-          key={asString(invitation.name) || index}
-          invitation={invitation}
-        />
-      ))}
-    </GroupedList>
+    <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <ListRows aria-label="Pending invitations">
+        {invitations.map((invitation, index) => (
+          <InvitationRow
+            key={asString(invitation.name) || index}
+            invitation={invitation}
+          />
+        ))}
+      </ListRows>
+    </div>
   )
 }
 
@@ -87,7 +89,12 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
 
   const respond = useResourceMutation({
     mutationFn: (operation: InvitationResponse) =>
-      access.preview(administrationAccessRequestSchema.parse({ operation, payload: { name } })),
+      access.preview(
+        administrationAccessRequestSchema.parse({
+          operation,
+          payload: { name },
+        })
+      ),
     invalidate: [queryKeys.locationAdministration(locationId)],
     successToast: (_data, operation) =>
       operation === "accept_invitation"
@@ -100,17 +107,39 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
   const pendingOperation = respond.isPending ? respond.variables : null
 
   return (
-    <GroupedListItem
-      label={role ? `${adminRoleLabel(role)} invitation` : "Invitation"}
-      description={`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for a reply on Google`}
-      trailing={
+    // A row with its own buttons, so the row itself is not a target.
+    <ListRow
+      interactive={false}
+      emphasis="neutral"
+      // Leading: what the row is (an invitation), a neutral avatar, never a
+      // status hue (D9).
+      leading={
+        <Avatar size="list" aria-hidden>
+          <AvatarFallback>
+            <UserPlusIcon className="size-4" strokeWidth={1.75} />
+          </AvatarFallback>
+        </Avatar>
+      }
+      title={role ? `${adminRoleLabel(role)} invitation` : "Invitation"}
+      trailing={<StatusPill tone="pending">Invited</StatusPill>}
+      subtitle={
+        <span className="block whitespace-normal">
+          {`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for a reply on Google`}
+        </span>
+      }
+      tags={
         <>
-          <StatusPill tone="pending">Invited</StatusPill>
           <Button
             size="sm"
             variant="secondary"
             onClick={() => respond.mutate("decline_invitation")}
-            disabled={writeBlocked || !name || respond.isPending || access.busy || Boolean(access.unresolved)}
+            disabled={
+              writeBlocked ||
+              !name ||
+              respond.isPending ||
+              access.busy ||
+              Boolean(access.unresolved)
+            }
           >
             {pendingOperation === "decline_invitation"
               ? "Reviewing…"
@@ -119,9 +148,17 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
           <Button
             size="sm"
             onClick={() => respond.mutate("accept_invitation")}
-            disabled={writeBlocked || !name || respond.isPending || access.busy || Boolean(access.unresolved)}
+            disabled={
+              writeBlocked ||
+              !name ||
+              respond.isPending ||
+              access.busy ||
+              Boolean(access.unresolved)
+            }
           >
-            {pendingOperation === "accept_invitation" ? "Reviewing…" : "Review acceptance"}
+            {pendingOperation === "accept_invitation"
+              ? "Reviewing…"
+              : "Review acceptance"}
           </Button>
         </>
       }
@@ -156,10 +193,12 @@ export function CreateAdminDialog() {
   const create = useResourceMutation({
     mutationFn: () => {
       const values = createAdminSchema.parse({ scope, admin: email, role })
-      return access.preview(administrationAccessRequestSchema.parse({
-        operation: "create_admin",
-        payload: values,
-      }))
+      return access.preview(
+        administrationAccessRequestSchema.parse({
+          operation: "create_admin",
+          payload: values,
+        })
+      )
     },
     invalidate: [queryKeys.locationAdministration(locationId)],
     successToast: "Administrator invitation review saved",
@@ -170,7 +209,11 @@ export function CreateAdminDialog() {
   })
 
   const cannotSubmit =
-    !parsed.success || Boolean(publishReason) || create.isPending || access.busy || Boolean(access.unresolved)
+    !parsed.success ||
+    Boolean(publishReason) ||
+    create.isPending ||
+    access.busy ||
+    Boolean(access.unresolved)
 
   return (
     <Dialog
@@ -183,7 +226,13 @@ export function CreateAdminDialog() {
       dirty={email.trim().length > 0}
       onDiscard={() => setEmail("")}
     >
-      <DialogTrigger render={<Button disabled={writeBlocked || access.busy || Boolean(access.unresolved)} />}>
+      <DialogTrigger
+        render={
+          <Button
+            disabled={writeBlocked || access.busy || Boolean(access.unresolved)}
+          />
+        }
+      >
         <UserPlusIcon aria-hidden data-icon="inline-start" />
         Add administrator
       </DialogTrigger>
@@ -191,8 +240,8 @@ export function CreateAdminDialog() {
         <DialogHeader>
           <DialogTitle>Add an administrator</DialogTitle>
           <DialogDescription>
-            Google emails them an invitation. They get access once they
-            accept it on Google. Reviewing sends nothing yet.
+            Google emails them an invitation. They get access once they accept
+            it on Google. Reviewing sends nothing yet.
           </DialogDescription>
         </DialogHeader>
         {/* A real form: Enter in the email field reviews the invitation. */}

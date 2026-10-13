@@ -83,7 +83,7 @@ export function DeletePhotoDialog({
         </AlertDialogDescription>
         {item ? (
           <div className="flex items-center gap-3">
-            <span className="grid aspect-[4/3] w-24 shrink-0 place-items-center overflow-hidden rounded-md bg-fill">
+            <span className="grid aspect-4/3 w-24 shrink-0 place-items-center overflow-hidden rounded-md bg-fill">
               {item.thumbnailUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -99,7 +99,7 @@ export function DeletePhotoDialog({
             <span className="min-w-0 text-ui text-ink">
               {categoryLabel} {item.mediaFormat.toLowerCase()}
               {created ? (
-                <span className="block text-caption text-ink-muted">
+                <span className="block text-caption text-ink-muted tabular-nums">
                   Added {created}
                 </span>
               ) : null}

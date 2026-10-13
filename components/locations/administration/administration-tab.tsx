@@ -17,7 +17,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Empty } from "@/components/ui/empty"
 import { SectionHeader } from "@/components/ui/section-header"
 import type { AdministrationState } from "@/lib/api/location-administration"
 import { asArray, asRecord } from "@/lib/locations/google-values"
@@ -33,7 +33,11 @@ import { AdministrationProvider, useAdministrationSection } from "./context"
 import { DangerZone } from "./danger-zone"
 import { CreateAdminDialog, InvitationsList } from "./invitations"
 import { AdministrationDenied, type ConsoleKind } from "./administration-denied"
-import { AdministrationAccessWorkspace, StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
+import {
+  AdministrationAccessWorkspace,
+  StaleRosterPlaceholder,
+  useAdministrationAccess,
+} from "./access-workspace"
 import { lifecycleEndedReason, lifecycleEndedTitle } from "./lifecycle-ended"
 import { LifecycleWorkspace, useLifecycleContext } from "./lifecycle-workspace"
 
@@ -68,19 +72,21 @@ function Sub({
     }
   }, [result.error])
   if (result.error) {
-    return <AdministrationReadError title={title} failure={result.failure} onRetry={(button) => {
-      const heading = button.closest("section")?.querySelector("h2, h3, h4")
-      retryHeading.current = heading instanceof HTMLElement ? heading : null
-    }} />
+    return (
+      <AdministrationReadError
+        title={title}
+        failure={result.failure}
+        onRetry={(button) => {
+          const heading = button.closest("section")?.querySelector("h2, h3, h4")
+          retryHeading.current = heading instanceof HTMLElement ? heading : null
+        }}
+      />
+    )
   }
   if (result.data == null) {
     return (
       empty ?? (
-        <Card size="sm">
-          <CardContent className="text-ui text-ink-muted">
-            No {title.toLowerCase()} set.
-          </CardContent>
-        </Card>
+        <Empty size="sm" framed title={`No ${title.toLowerCase()} set.`} />
       )
     )
   }
@@ -121,7 +127,10 @@ function AdministrationReadError({
         size="sm"
         pending={query.isFetching}
         pendingLabel={`Retrying ${title.toLowerCase()}…`}
-        onClick={(event) => { onRetry(event.currentTarget); void query.refetch() }}
+        onClick={(event) => {
+          onRetry(event.currentTarget)
+          void query.refetch()
+        }}
       >
         Retry {title.toLowerCase()}
       </Button>
@@ -196,7 +205,13 @@ function AdministrationShell({
   // tests) always wins.
   const role = useSessionRole()
   const lifecycle = useLifecycleContext()
-  const lifecycleReason = lifecycle?.ended ? lifecycleEndedReason(lifecycle.ended) : lifecycle?.busy ? "A lifecycle action is in progress. Wait for its saved response before another Google change." : lifecycle?.unresolved ? "Resolve the saved lifecycle outcome before another Google change." : null
+  const lifecycleReason = lifecycle?.ended
+    ? lifecycleEndedReason(lifecycle.ended)
+    : lifecycle?.busy
+      ? "A lifecycle action is in progress. Wait for its saved response before another Google change."
+      : lifecycle?.unresolved
+        ? "Resolve the saved lifecycle outcome before another Google change."
+        : null
   const directoryQuery = useLocationDirectory(role)
   const caps = useLocationCapabilities(locationId)
   const resolvedLocationName =
@@ -260,7 +275,13 @@ function WritesBlocked({ reason }: { reason: string | null }) {
  * The one notice for a location this account no longer manages: a confirmed
  * deletion or transfer. Otherwise the shared "changes are paused" line.
  */
-function AccessNotice({ editReason, publishReason }: { editReason: string | null; publishReason: string | null }) {
+function AccessNotice({
+  editReason,
+  publishReason,
+}: {
+  editReason: string | null
+  publishReason: string | null
+}) {
   const ended = useLifecycleContext()?.ended
   if (ended)
     return (
@@ -288,43 +309,74 @@ function plural(count: number, one: string, many: string) {
  * unavailable, never as 0, and never claims a successful read; a roster read
  * before a confirmed change says it is being read again.
  */
-function PeopleSummary({ state, locationId }: { state: AdministrationState; locationId: string }) {
+function PeopleSummary({
+  state,
+  locationId,
+}: {
+  state: AdministrationState
+  locationId: string
+}) {
   const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
   const client = useQueryClient()
-  if (rosterUpdating) return <span role="status">Updating from Google… Counts refresh when Google’s current list arrives.</span>
-  if (rosterUnavailable) return <span role="status">Counts unavailable · Google’s list after the confirmed change could not be read</span>
-  const peopleFailed = Boolean(state.locationAdmins.error || state.accountAdmins.error)
+  if (rosterUpdating)
+    return (
+      <span role="status">
+        Updating from Google… Counts refresh when Google’s current list arrives.
+      </span>
+    )
+  if (rosterUnavailable)
+    return (
+      <span role="status">
+        Counts unavailable · Google’s list after the confirmed change could not
+        be read
+      </span>
+    )
+  const peopleFailed = Boolean(
+    state.locationAdmins.error || state.accountAdmins.error
+  )
   const invitationsFailed = Boolean(state.invitations.error)
   const people = peopleFailed
     ? "People count unavailable"
-    : plural(countOf(state.locationAdmins, "admins") + countOf(state.accountAdmins, "accountAdmins"), "person", "people")
+    : plural(
+        countOf(state.locationAdmins, "admins") +
+          countOf(state.accountAdmins, "accountAdmins"),
+        "person",
+        "people"
+      )
   const invitations = invitationsFailed
     ? "invitation count unavailable"
-    : plural(countOf(state.invitations, "invitations"), "invitation", "invitations")
-  const readAt = client.getQueryState(queryKeys.locationAdministration(locationId))?.dataUpdatedAt
-  const source = peopleFailed && invitationsFailed
-    ? "Google could not be read"
-    : peopleFailed || invitationsFailed
-      ? "Part of this list could not be read from Google"
-      : readAt
-        ? null
-        : "Read from Google when this page opened"
+    : plural(
+        countOf(state.invitations, "invitations"),
+        "invitation",
+        "invitations"
+      )
+  const readAt = client.getQueryState(
+    queryKeys.locationAdministration(locationId)
+  )?.dataUpdatedAt
+  const source =
+    peopleFailed && invitationsFailed
+      ? "Google could not be read"
+      : peopleFailed || invitationsFailed
+        ? "Part of this list could not be read from Google"
+        : readAt
+          ? null
+          : "Read from Google when this page opened"
   if (source === null && readAt)
-    return <>{`${people} · ${invitations} · Read from Google at `}<Instant value={new Date(readAt).toISOString()} /></>
+    return (
+      <>
+        {`${people} · ${invitations} · Read from Google at `}
+        <Instant value={new Date(readAt).toISOString()} />
+      </>
+    )
   return <>{`${people} · ${invitations} · ${source}`}</>
 }
 
 /** The empty account-admin list, unless it was read before a confirmed change. */
 function NoAccountAdmins() {
   const { rosterUpdating, rosterUnavailable } = useAdministrationAccess()
-  if (rosterUpdating || rosterUnavailable) return <StaleRosterPlaceholder what="account admins" />
-  return (
-    <Card size="sm">
-      <CardContent className="text-ui text-ink-muted">
-        No account-level admins.
-      </CardContent>
-    </Card>
-  )
+  if (rosterUpdating || rosterUnavailable)
+    return <StaleRosterPlaceholder what="account admins" />
+  return <Empty size="sm" framed title="No account-level admins." />
 }
 
 function InvitationsSummary({ state }: { state: AdministrationState }) {
@@ -346,101 +398,113 @@ export function AccessTab({
   const terms = useWorkspaceTerms()
   return (
     <LifecycleWorkspace locationId={locationId} locationName={locationName}>
-    <AdministrationShell
-      kind="people"
-      locationId={locationId}
-      locationName={locationName}
-    >
-      {({ state, editReason, publishReason }) => {
-        return (
-          <AdministrationAccessWorkspace><div className="flex flex-col gap-6">
-            <AccessNotice editReason={editReason} publishReason={publishReason} />
+      <AdministrationShell
+        kind="people"
+        locationId={locationId}
+        locationName={locationName}
+      >
+        {({ state, editReason, publishReason }) => {
+          return (
+            <AdministrationAccessWorkspace>
+              <div className="flex flex-col gap-6">
+                <AccessNotice
+                  editReason={editReason}
+                  publishReason={publishReason}
+                />
 
-            <section
-              aria-labelledby="people-location"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                id="people-location"
-                title="People with access on Google"
-                description={<PeopleSummary state={state} locationId={locationId} />}
-                actions={<CreateAdminDialog />}
-              />
-              <Sub title="Location admins" result={state.locationAdmins}>
-                {(data) => (
-                  <AdminsSection
-                    data={data}
-                    caption="People with access to this listing on Google"
+                <section
+                  aria-labelledby="people-location"
+                  className="flex flex-col gap-3"
+                >
+                  <SectionHeader
+                    id="people-location"
+                    title="People with access on Google"
+                    description={
+                      <PeopleSummary state={state} locationId={locationId} />
+                    }
+                    actions={<CreateAdminDialog />}
                   />
-                )}
-              </Sub>
-            </section>
+                  <Sub title="Location admins" result={state.locationAdmins}>
+                    {(data) => (
+                      <AdminsSection
+                        data={data}
+                        caption="People with access to this listing on Google"
+                      />
+                    )}
+                  </Sub>
+                </section>
 
-            <section
-              aria-labelledby="people-account"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                as="h3"
-                id="people-account"
-                title="Account admins"
-                description="People who manage every listing in this Google account"
-              />
-              <Sub title="Account admins" result={state.accountAdmins}>
-                {(data) =>
-                  asArray(asRecord(data).accountAdmins).length === 0 ? (
-                    <NoAccountAdmins />
-                  ) : (
-                    <AdminsSection
-                      data={data}
-                      scope="account"
-                      caption="People with access to the whole Google account"
-                    />
-                  )
-                }
-              </Sub>
-            </section>
+                <section
+                  aria-labelledby="people-account"
+                  className="flex flex-col gap-3"
+                >
+                  <SectionHeader
+                    as="h3"
+                    id="people-account"
+                    title="Account admins"
+                    description="People who manage every listing in this Google account"
+                  />
+                  <Sub title="Account admins" result={state.accountAdmins}>
+                    {(data) =>
+                      asArray(asRecord(data).accountAdmins).length === 0 ? (
+                        <NoAccountAdmins />
+                      ) : (
+                        <AdminsSection
+                          data={data}
+                          scope="account"
+                          caption="People with access to the whole Google account"
+                        />
+                      )
+                    }
+                  </Sub>
+                </section>
 
-            <section
-              aria-labelledby="people-invitations"
-              className="flex flex-col gap-3"
-            >
-              <SectionHeader
-                as="h3"
-                id="people-invitations"
-                title="Pending invitations"
-                description={<InvitationsSummary state={state} />}
-              />
-              <Sub title="Invitations" result={state.invitations}>
-                {(data) => <InvitationsList data={data} />}
-              </Sub>
-            </section>
+                <section
+                  aria-labelledby="people-invitations"
+                  className="flex flex-col gap-3"
+                >
+                  <SectionHeader
+                    as="h3"
+                    id="people-invitations"
+                    title="Pending invitations"
+                    description={<InvitationsSummary state={state} />}
+                  />
+                  <Sub title="Invitations" result={state.invitations}>
+                    {(data) => <InvitationsList data={data} />}
+                  </Sub>
+                </section>
 
-            {/* The rules that explain the roster, after it: the roster and
+                {/* The rules that explain the roster, after it: the roster and
                 "Add administrator" come first on a phone. */}
-            <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
-              <AlertTitle>Primary owner rules</AlertTitle>
-              <AlertDescription>
-                Google keeps exactly one primary owner per listing. The primary
-                owner can’t be removed or demoted here, and a listing is never
-                left without an owner. To hand over primary ownership, make
-                someone an owner first, then transfer it on Google.
-              </AlertDescription>
-            </Alert>
-            <p className="text-caption text-ink-muted">
-              These are the people Google lets manage this listing. Who can see
-              it in NabaPresence is usually managed per {terms.scope}, from{" "}
-              <Link href="/team" className="font-semibold text-ink underline">
-                Team → {terms.access}
-              </Link>
-              .
-            </p>
+                <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
+                  <AlertTitle>Primary owner rules</AlertTitle>
+                  <AlertDescription>
+                    Google keeps exactly one primary owner per listing. The
+                    primary owner can’t be removed or demoted here, and a
+                    listing is never left without an owner. To hand over primary
+                    ownership, make someone an owner first, then transfer it on
+                    Google.
+                  </AlertDescription>
+                </Alert>
+                <p className="text-caption text-ink-muted">
+                  These are the people Google lets manage this listing. Who can
+                  see it in NabaPresence is usually managed per {terms.scope},
+                  from{" "}
+                  <Link
+                    href="/team"
+                    className="font-semibold text-ink underline"
+                  >
+                    Team → {terms.access}
+                  </Link>
+                  .
+                </p>
 
-            <DangerZone />
-          </div></AdministrationAccessWorkspace>
-        )
-      }}
-    </AdministrationShell>
+                <DangerZone />
+              </div>
+            </AdministrationAccessWorkspace>
+          )
+        }}
+      </AdministrationShell>
     </LifecycleWorkspace>
   )
 }
