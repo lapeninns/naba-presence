@@ -209,13 +209,16 @@ function AreaCards({
           // `relative` so the stretched hit area reaches the card's edges;
           // the button keeps its own focus halo and drops the link's hover
           // underline. A ShellLink, so it prefetches on intent, not on view.
+          // The small button's own touch overhang (`after:inset-y-…`) would
+          // win the merge and shrink the stretch to a band across the card's
+          // middle, so the full-card `after:inset-0` is restated last.
           <ShellLink
             data-slot="card-link"
             href={listingHref(locationId, area.segment)}
             className={cn(
               cardLinkClassName,
               buttonVariants({ variant: "secondary", size: "sm" }),
-              "static hover-fine:hover:no-underline"
+              "static after:inset-0 hover-fine:hover:no-underline desk:after:block"
             )}
             aria-label={`${verb} ${area.label}`}
           >
