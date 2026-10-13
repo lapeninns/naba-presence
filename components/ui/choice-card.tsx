@@ -54,7 +54,7 @@ function ChoiceCard<Value>({
         aria-describedby={description ? `${id}-desc` : undefined}
         className={cn(
           radioClassName,
-          "mt-[3px] focus-visible:shadow-none data-disabled:opacity-100 desk:mt-0.5"
+          "mt-(--np-selection-offset) focus-visible:shadow-none data-disabled:opacity-100"
         )}
         {...props}
       />

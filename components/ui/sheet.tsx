@@ -132,7 +132,8 @@ function SheetContent({
               overlayScrollPaddingClassName,
               className,
               // A phone's sheet spans the screen whatever the panel width.
-              presentation === "sheet" && "w-full! max-w-[min(100%,40rem)]!"
+              presentation === "sheet" &&
+                "w-full! max-w-[min(100%,var(--np-sheet-max-w))]!"
             )}
             {...props}
           >

@@ -59,7 +59,9 @@ function CommandDialog({
           className="flex h-[calc(100dvh-var(--np-safe-top)-0.75rem)] flex-col gap-0 overflow-hidden p-0"
         >
           <DialogTitle className="sr-only">{title}</DialogTitle>
-          <DialogDescription className="sr-only">{description}</DialogDescription>
+          <DialogDescription className="sr-only">
+            {description}
+          </DialogDescription>
           <div className="relative flex h-11 shrink-0 items-start">
             <OverlayGrabber />
             <DialogClose
@@ -73,7 +75,7 @@ function CommandDialog({
               Cancel
             </DialogClose>
           </div>
-          <Command className="min-h-0 flex-1 bg-surface [&_[data-slot=command-list]]:max-h-none [&_[data-slot=command-list]]:min-h-0 [&_[data-slot=command-list]]:flex-1 [&_[data-slot=command-list]]:pb-[calc(0.5rem+var(--overlay-dock,0px))]">
+          <Command className="min-h-0 flex-1 bg-surface [&_[data-slot=command-list]]:max-h-none [&_[data-slot=command-list]]:min-h-0 [&_[data-slot=command-list]]:flex-1 [&_[data-slot=command-list]]:pb-[calc(--spacing(2)+var(--overlay-dock,0px))]">
             {children}
           </Command>
         </DialogContent>

@@ -1,0 +1,54 @@
+{
+  "_about": "NO-REGRESSION gate: unmodified main medians (2026-10-13, mobile 3 runs / desktop 2 runs) plus ~5% bytes / ~10% time headroom. Every redesign PR should pass this from day one; tighten toward budgets.json as work lands. Build-side: node tests/perf/route-js.mjs --max-chunk 70 --max-shared 400 --max-route 560",
+  "mobile": {
+    "default": {
+      "lcp": 1500,
+      "cls": 0.1,
+      "tbt": 200,
+      "longestTask": 200,
+      "inp": 150,
+      "firstLoadJsTransfer": 520,
+      "otherJsTransfer": 60,
+      "fontTransfer": 200,
+      "transfer": 820,
+      "domNodes": 1200
+    },
+    "routes": {
+      "/inbox": { "lcp": 5000 },
+      "/inbox?selected={review}": { "lcp": 5000, "cls": 0.8 },
+      "/listings/{loc}": { "firstLoadJsTransfer": 540 },
+      "/listings/{loc}/hours": {
+        "lcp": 5700,
+        "firstLoadJsTransfer": 565,
+        "transfer": 860
+      },
+      "/listings/{loc}/photos": { "lcp": 5700, "firstLoadJsTransfer": 545 },
+      "/listings/{loc}/posts": {
+        "lcp": 5200,
+        "firstLoadJsTransfer": 565,
+        "transfer": 860
+      },
+      "/setup": { "firstLoadJsTransfer": 545 },
+      "/sign-in": { "firstLoadJsTransfer": 260, "transfer": 530 }
+    }
+  },
+  "desktop": {
+    "default": {
+      "cls": 0.1,
+      "tbt": 100,
+      "inp": 100,
+      "firstLoadJsTransfer": 520,
+      "otherJsTransfer": 300,
+      "fontTransfer": 200,
+      "transfer": 1000
+    },
+    "routes": {
+      "/listings/{loc}": { "firstLoadJsTransfer": 540 },
+      "/listings/{loc}/hours": { "firstLoadJsTransfer": 565 },
+      "/listings/{loc}/photos": { "firstLoadJsTransfer": 545 },
+      "/listings/{loc}/posts": { "firstLoadJsTransfer": 565 },
+      "/setup": { "firstLoadJsTransfer": 545 },
+      "/sign-in": { "firstLoadJsTransfer": 260 }
+    }
+  }
+}

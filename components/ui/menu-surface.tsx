@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils"
  * scales: the menu simply appears over the trigger.
  */
 export const menuPopupClassName = cn(
-  "rounded-[10px] border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none",
+  "rounded-(--np-radius-menu) border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none",
   "origin-(--transform-origin) transition-[transform,opacity] duration-(--np-duration-overlay) ease-spring",
   "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
   "data-[side=none]:data-starting-style:scale-100 data-[side=none]:data-starting-style:opacity-100 data-[side=none]:data-starting-style:transition-none"
@@ -80,7 +80,7 @@ export const menuSheetPositionerClassName =
  * caller's desk sizing (`w-72`, `p-0`) cannot squeeze the sheet.
  */
 export const menuSheetPopupClassName = cn(
-  "mx-auto flex max-h-[min(75dvh,calc(100dvh-var(--np-safe-top)-3rem))]! w-full! max-w-[min(100%,40rem)]! min-w-0! flex-col overflow-hidden rounded-t-(--np-radius-sheet) rounded-b-none border-0 bg-surface p-0! pb-[calc(0.5rem+var(--np-dock-bottom))]! text-ink shadow-(--np-shadow-modal) outline-none",
+  "mx-auto flex max-h-[min(75dvh,calc(100dvh-var(--np-safe-top)-3rem))]! w-full! max-w-[min(100%,var(--np-sheet-max-w))]! min-w-0! flex-col overflow-hidden rounded-t-(--np-radius-sheet) rounded-b-none border-0 bg-surface p-0! pb-[calc(--spacing(2)+var(--np-dock-bottom))]! text-ink shadow-(--np-shadow-modal) outline-none",
   "transition-transform duration-(--np-duration-sheet) ease-out-strong data-ending-style:translate-y-full data-ending-style:duration-(--np-duration-standard) data-starting-style:translate-y-full"
 )
 

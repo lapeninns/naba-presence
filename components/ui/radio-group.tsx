@@ -33,7 +33,7 @@ function RadioGroup<Value>({
  * has none (ChoiceCard and labelled radios are targets already).
  */
 export const radioClassName = cn(
-  "relative flex size-[18px] shrink-0 items-center justify-center rounded-(--np-radius-pill) border-[1.5px] border-line-strong bg-(--np-field-bg) focus-halo",
+  "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-(--np-radius-pill) border-[1.5px] border-line-strong bg-(--np-field-bg) focus-halo",
   "transition-[border-color,border-width] duration-(--np-duration-fast) ease-spring-snappy",
   "data-checked:border-[5px] data-checked:border-primary",
   "data-disabled:cursor-not-allowed data-disabled:opacity-50",
@@ -68,7 +68,7 @@ function RadioGroupItem<Value>({
         // An unlabelled radio gets the same 44px-on-touch hit area as an
         // unlabelled checkbox; a labelled one is reached through its row.
         hasLabel
-          ? "after:absolute after:-inset-[3px] after:content-['']"
+          ? "after:absolute after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)] after:content-['']"
           : selectionHitAreaClassName,
         className
       )}
@@ -83,7 +83,7 @@ function RadioGroupItem<Value>({
       data-slot="radio-label"
       className={cn(
         selectionRowClassName,
-        "[&>[data-slot=radio]]:mt-[3px] desk:[&>[data-slot=radio]]:mt-0.5",
+        "[&>[data-slot=radio]]:mt-(--np-selection-offset)",
         labelClassName
       )}
     >
