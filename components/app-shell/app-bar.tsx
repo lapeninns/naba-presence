@@ -21,6 +21,11 @@ import { usePageChromeOverride } from "./page-chrome"
  * Listings", which starts with nothing the eye can't see but keeps the
  * visible label inside it (WCAG 2.5.3). The phone app bar and the tablet
  * toolbar share it.
+ *
+ * When the page declared its own way back (`<PageChrome onBack>`, the
+ * Inbox's pushed review), a plain click or Enter runs that instead of
+ * following the link; a modified click (new tab, new window) still follows
+ * `href`, which is why it stays a link.
  */
 function ShellBackLink({
   target,
@@ -29,11 +34,34 @@ function ShellBackLink({
   target: BackTarget
   className?: string
 }) {
+  // The page's handler arrives on the override, which useShellBack returns
+  // as the target itself when the page declared one.
+  const override = usePageChromeOverride().back
+  const onNavigate =
+    override && override === target ? override.onNavigate : undefined
   return (
     <Link
       href={target.href}
       data-slot="back-control"
       title={target.label}
+      onClick={
+        onNavigate
+          ? (event) => {
+              if (
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              ) {
+                return
+              }
+              event.preventDefault()
+              onNavigate()
+            }
+          : undefined
+      }
       className={cn(
         "flex h-11 max-w-full min-w-0 items-center gap-0.5 rounded-md pr-2 pl-1 text-ui font-medium text-accent-ink",
         "transition-colors duration-(--np-duration-fast) hover:bg-fill",

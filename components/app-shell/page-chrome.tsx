@@ -15,9 +15,17 @@ import type { BackTarget } from "@/lib/navigation/back-target"
  *
  *   // The Inbox's pushed review detail goes back to the list, which is the
  *   // same path with a different query string.
- *   <PageChrome back={{ href: "/inbox?queue=needs_reply", label: "Reviews" }} />
+ *   <PageChrome
+ *     back={{ href: "/inbox?queue=needs_reply", label: "Inbox" }}
+ *     onBack={backToList}
+ *   />
  *
  * `back: null` removes the back control (a page that is its own root).
+ * `onBack` is for a page whose way back is more than a link: the control
+ * stays a real link to `back.href` (a modified click still opens it in a
+ * new tab), but a plain activation runs `onBack` instead, so the page can
+ * pop the history entry it pushed, ask its leave guard, and put focus back
+ * where it came from.
  * `title` replaces the h1 text in the phone app bar; keep it the h1's
  * words, shortened if anything, never different ones.
  *
@@ -25,9 +33,12 @@ import type { BackTarget } from "@/lib/navigation/back-target"
  * route change can never leave one page's back control on the next.
  */
 export type PageChromeOverride = {
-  back?: BackTarget | null
+  back?: ShellBackTarget | null
   title?: string
 }
+
+/** A back target, with the page's own handler when it declared one. */
+export type ShellBackTarget = BackTarget & { onNavigate?: () => void }
 
 type Registry = {
   override: PageChromeOverride
@@ -68,23 +79,47 @@ function PageChromeProvider({ children }: { children: React.ReactNode }) {
 }
 
 /** Declares this page's chrome overrides; renders nothing. */
-function PageChrome({ back, title }: PageChromeOverride) {
+function PageChrome({
+  back,
+  title,
+  onBack,
+}: {
+  back?: BackTarget | null
+  title?: string
+  /** Runs instead of following `back.href` on a plain activation. */
+  onBack?: () => void
+}) {
   const set = React.useContext(PageChromeContext)?.set
   const [owner] = React.useState(() => Symbol("page-chrome"))
   const hasBack = back !== undefined
   const backHref = back?.href
   const backLabel = back?.label
+  // The latest handler, read at click time, so a page passing a fresh
+  // closure every render doesn't re-register its override every render.
+  const onBackRef = React.useRef(onBack)
+  React.useEffect(() => {
+    onBackRef.current = onBack
+  })
+  const hasHandler = onBack !== undefined
 
   React.useEffect(() => {
     if (!set) return
     const value: PageChromeOverride = {}
     if (hasBack) {
       value.back =
-        backHref && backLabel ? { href: backHref, label: backLabel } : null
+        backHref && backLabel
+          ? {
+              href: backHref,
+              label: backLabel,
+              ...(hasHandler
+                ? { onNavigate: () => onBackRef.current?.() }
+                : {}),
+            }
+          : null
     }
     if (title !== undefined) value.title = title
     set(owner, value)
-  }, [set, owner, hasBack, backHref, backLabel, title])
+  }, [set, owner, hasBack, backHref, backLabel, hasHandler, title])
 
   React.useEffect(() => () => set?.(owner, null), [set, owner])
 

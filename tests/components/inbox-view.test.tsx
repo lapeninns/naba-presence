@@ -8,6 +8,10 @@ import {
   ClientScopeRoot,
   usePageScopeHandler,
 } from "@/components/app-shell/client-context"
+import {
+  PageChromeProvider,
+  usePageChromeOverride,
+} from "@/components/app-shell/page-chrome"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
@@ -203,6 +207,22 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
+
+// Reads what the inbox told the shell's chrome (<PageChrome>), as the app
+// bar's back control would.
+function ChromeProbe() {
+  const back = usePageChromeOverride().back
+  return (
+    <button
+      type="button"
+      data-testid="chrome-back"
+      data-href={back?.href}
+      onClick={() => back?.onNavigate?.()}
+    >
+      {back ? back.label : "none"}
+    </button>
+  )
+}
 
 function renderInbox() {
   return render(
@@ -589,6 +609,63 @@ describe("InboxView — history", () => {
     await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
     expect(back).toHaveBeenCalledTimes(1)
     expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("gives the shell's app bar a labelled way back that pops the pushed entry", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const ui = () => (
+      <PageChromeProvider>
+        <ChromeProbe />
+        <QueryProvider>
+          <Toaster>
+            <InboxView />
+          </Toaster>
+        </QueryProvider>
+      </PageChromeProvider>
+    )
+    const view = render(ui())
+    // On the list, the Inbox is a top-level page: no override.
+    expect(screen.getByTestId("chrome-back")).toHaveTextContent("none")
+    await user.click(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-slot="review-row"]'
+      )!
+    )
+    currentParams = new URLSearchParams(
+      new URL(push.mock.calls[0][0], "http://x").search
+    )
+    view.rerender(ui())
+
+    // "‹ Inbox", linking to the same list without the open review.
+    const probe = screen.getByTestId("chrome-back")
+    expect(probe).toHaveTextContent("Inbox")
+    expect(probe).toHaveAttribute(
+      "data-href",
+      expect.stringContaining("/inbox?")
+    )
+    expect(probe.getAttribute("data-href")).toContain("rating=4")
+    expect(probe.getAttribute("data-href")).not.toContain("selected=")
+    // Activating it runs the review head's back: pop, don't push the list.
+    await user.click(probe)
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("adds no app-bar back where the list sits beside the review", () => {
+    // The default stub matches every query: a desk, split view.
+    render(
+      <PageChromeProvider>
+        <ChromeProbe />
+        <QueryProvider>
+          <Toaster>
+            <InboxView />
+          </Toaster>
+        </QueryProvider>
+      </PageChromeProvider>
+    )
+    expect(screen.getByTestId("chrome-back")).toHaveTextContent("none")
   })
 
   it("leaves a dirty pushed review to the leave guard's one prompt", async () => {
