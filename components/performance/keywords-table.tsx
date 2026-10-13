@@ -38,7 +38,7 @@ export function keywordsCsv(keywords: KeywordRow[]): CsvCell[][] {
  * Search terms by impressions (reference `keywords-table`): rank, the term
  * as the customer typed it, and the honest "N+" for thresholded volumes.
  *
- * Under 720px of its own width each row is a record card: the term as the
+ * Under 48rem of its own width each row is a record card: the term as the
  * headline, the impressions figure trailing it, and one meta line with the
  * position. Wider, it is the three-column table.
  */
@@ -64,15 +64,15 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
             <TableCell
               numeric
               priority="meta"
-              className="text-ink-muted @max-[720px]/table:col-span-full! @max-[720px]/table:row-start-2! @max-[720px]/table:text-caption"
+              className="text-ink-muted"
             >
-              <span className="@min-[720px]/table:hidden">No. </span>
+              <span className="@min-3xl/table:hidden">No. </span>
               {keyword.rank}
-              <span className="@min-[720px]/table:hidden"> by impressions</span>
+              <span className="@min-3xl/table:hidden"> by impressions</span>
             </TableCell>
             <TableCell
               priority="primary"
-              className="font-medium break-words text-ink @max-[720px]/table:col-start-1! @max-[720px]/table:row-start-1! @max-[720px]/table:text-body"
+              className="font-medium break-words text-ink"
               lang="und"
               dir="auto"
             >
@@ -81,10 +81,10 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
             <TableCell
               numeric
               priority="trailing"
-              className="@max-[720px]/table:col-start-2! @max-[720px]/table:row-start-1! @max-[720px]/table:text-right! @max-[720px]/table:text-body @max-[720px]/table:font-semibold"
+              className="@max-3xl/table:text-body @max-3xl/table:font-semibold"
             >
               <span>{formatKeywordImpressions(keyword)}</span>
-              <span className="sr-only @min-[720px]/table:hidden">
+              <span className="sr-only @min-3xl/table:hidden">
                 {" "}
                 impressions
               </span>
