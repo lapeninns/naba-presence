@@ -22,6 +22,7 @@ export default async function SettingsSecurityPage() {
       <TwoStepVerificationCard
         factorCount={session.mfaFactorCount ?? 0}
         verifiedThisSession={session.aal === "aal2"}
+        email={session.email}
       />
     </>
   )

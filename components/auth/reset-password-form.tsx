@@ -151,6 +151,22 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         </div>
       ) : null}
 
+      {/* A username field beside the new passwords marks this as an
+          account's password change, so a password manager offers to update
+          an existing entry rather than save a nameless one. It is empty:
+          the reset link doesn't tell this page the address, and the page
+          must not look it up (that would confirm the account exists). It is
+          `hidden` (no tab stop, nothing for a screen reader), and never
+          sent: the submit handler sends the token and password from state,
+          not FormData. */}
+      <input
+        type="email"
+        name="username"
+        autoComplete="username"
+        defaultValue=""
+        hidden
+      />
+
       <PasswordField
         label="New password"
         name="password"

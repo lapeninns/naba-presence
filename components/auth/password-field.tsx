@@ -59,12 +59,17 @@ function PasswordField({
             setCapsLock(event.getModifierState?.("CapsLock") ?? false)
           }
         />
-        <span className="absolute inset-y-0 right-[3px] flex items-center">
+        {/* The field is 44px on touch (`--np-field-h`), so the toggle fills
+            its height there and is a real 44px target, not a small drawing
+            with a padded hit area (which measuring tools and the mobile
+            audit don't see). At the desk the field is 36px and the toggle
+            returns to a 32px icon button inside it. */}
+        <span className="absolute inset-y-0 right-0 flex items-center desk:right-1">
           <Button
             type="button"
             variant="ghost"
-            size="icon-sm"
-            className="size-8 rounded-md text-ink-muted hover:text-ink pointer-coarse:size-10"
+            size="icon-xs"
+            className="size-(--np-touch) rounded-md text-ink-muted hover:text-ink desk:size-8 [&_svg:not([class*='size-'])]:size-4"
             accessibleNameFromChildren
             onClick={() => setVisible((current) => !current)}
           >

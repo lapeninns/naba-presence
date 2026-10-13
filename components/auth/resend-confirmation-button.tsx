@@ -43,7 +43,7 @@ function ResendConfirmationButton({
         className={cn(
           "focus-halo focus-visible:outline-none disabled:cursor-default",
           variant === "link"
-            ? "inline-flex min-h-6 items-center rounded-sm text-ui font-semibold text-accent-ink underline decoration-1 underline-offset-3 hover:decoration-2 disabled:text-ink-muted disabled:no-underline pointer-coarse:min-h-11"
+            ? "inline-flex min-h-(--np-touch) items-center rounded-sm text-ui font-semibold text-accent-ink underline decoration-1 underline-offset-3 hover:decoration-2 desk:min-h-6 disabled:text-ink-muted disabled:no-underline"
             : "inline-flex h-(--np-control-h) items-center rounded-md border border-line-strong bg-surface px-3 text-ui font-medium text-ink transition-colors hover:bg-fill disabled:opacity-60"
         )}
         onClick={() =>

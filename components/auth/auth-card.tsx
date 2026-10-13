@@ -108,7 +108,7 @@ const ASIDES: Record<
 }
 
 /**
- * The charcoal half of the split layout. Hidden at 900px and below, where the
+ * The charcoal half of the split layout, from `lg` (64rem). Below that the
  * compact wordmark above the card takes its place.
  */
 function AuthAside({ variant }: { variant: AsideVariant }) {
@@ -116,7 +116,7 @@ function AuthAside({ variant }: { variant: AsideVariant }) {
   return (
     <aside
       aria-label={aside.label}
-      className="hidden flex-col justify-between gap-8 bg-charcoal p-[clamp(28px,5vw,64px)] text-ink-on-charcoal min-[901px]:flex"
+      className="hidden flex-col justify-between gap-8 bg-charcoal p-12 text-ink-on-charcoal lg:flex xl:p-16"
     >
       <Link
         href="/sign-in"
@@ -135,11 +135,11 @@ function AuthAside({ variant }: { variant: AsideVariant }) {
           {aside.beats.map((beat) => (
             <li
               key={beat.text}
-              className="grid grid-cols-[34px_minmax(0,1fr)] items-start gap-3.5"
+              className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3.5"
             >
               <span
                 aria-hidden
-                className="grid size-[34px] place-items-center rounded-[9px] shadow-[inset_0_0_0_1px_var(--np-ink-muted-on-charcoal)]"
+                className="grid size-9 place-items-center rounded-lg ring-1 ring-ink-muted-on-charcoal ring-inset"
               >
                 <beat.icon className="size-4" strokeWidth={1.75} />
               </span>
@@ -170,10 +170,31 @@ function AuthAside({ variant }: { variant: AsideVariant }) {
 }
 
 /**
+ * Every anonymous page's first tab stop: jumps past the product panel's
+ * links to the card. Off-screen until focused.
+ */
+const SKIP_LINK_CLASS =
+  "fixed top-3 left-3 z-skip-link mt-(--np-safe-top) ml-(--np-safe-left) -translate-y-24 rounded-full bg-primary px-4 py-2 text-ui font-semibold text-primary-foreground no-underline focus-halo focus:translate-y-0 focus:shadow-np-pop focus-visible:outline-none motion-safe:transition-transform"
+
+/**
+ * A caption link that stays a 44px target on touch (the project floor) and
+ * earns back its compact height only at the desk. Height, not padding, so
+ * the row's visual rhythm is unchanged and only the tap area grows.
+ */
+const TOUCH_LINK_CLASS =
+  "inline-flex min-h-(--np-touch) items-center desk:min-h-6"
+
+/**
  * The shape every pre-auth screen takes: the charcoal product panel on the
  * left and a white column holding one 400px card on the right. The card
  * column is the page's `<main>` and carries its only `h1`; the `(auth)`
  * layout renders no landmark of its own.
+ *
+ * Phone first: below `lg` the card is top-aligned so the form starts in the
+ * thumb's reach and an on-screen keyboard never hides the heading. The main
+ * clears the notch and home indicator (`pt-safe`/`px-safe`) and, while the
+ * iOS keyboard is open, pads its foot by the keyboard's height (`pb-dock`)
+ * so the submit button can still be scrolled into view above it.
  */
 function AuthCard({
   eyebrow,
@@ -197,16 +218,22 @@ function AuthCard({
 }) {
   return (
     <>
+      <a href="#main" className={SKIP_LINK_CLASS}>
+        Skip to content
+      </a>
       <AuthAside variant={aside} />
       <main
         id="main"
         tabIndex={-1}
-        className="flex min-w-0 flex-col justify-center bg-surface p-[clamp(24px,5vw,56px)] outline-none max-[901px]:justify-start max-[901px]:pt-10 max-[431px]:px-4 max-[431px]:pt-5 max-[431px]:pb-9"
+        className="flex min-w-0 flex-col bg-surface pt-safe pb-dock px-safe outline-none"
       >
-        <div className="mx-auto flex w-full max-w-[400px] flex-col gap-5 max-[431px]:gap-4">
+        <div className="mx-auto flex w-full max-w-100 flex-1 flex-col gap-4 px-4 pt-5 pb-9 sm:gap-5 sm:px-0 sm:pt-10 sm:pb-12 lg:justify-center lg:py-12">
           <Link
             href="/sign-in"
-            className="w-fit rounded-md focus-halo focus-visible:outline-none min-[901px]:hidden"
+            className={cn(
+              TOUCH_LINK_CLASS,
+              "w-fit rounded-md focus-halo focus-visible:outline-none lg:hidden"
+            )}
           >
             <BrandMark size="lg" />
           </Link>
@@ -247,17 +274,23 @@ function AuthCard({
               review checks for a privacy policy link. */}
           <nav
             aria-label="Legal"
-            className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-caption text-ink-muted"
+            className="flex flex-wrap justify-center gap-x-4 text-caption text-ink-muted"
           >
             <Link
               href="/privacy"
-              className="rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+              className={cn(
+                TOUCH_LINK_CLASS,
+                "rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+              )}
             >
               Privacy policy
             </Link>
             <Link
               href="/terms"
-              className="rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+              className={cn(
+                TOUCH_LINK_CLASS,
+                "rounded-sm underline-offset-4 focus-halo hover:underline focus-visible:outline-none"
+              )}
             >
               Terms of service
             </Link>
