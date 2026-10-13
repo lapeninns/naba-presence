@@ -46,8 +46,8 @@ import { cn } from "@/lib/utils"
  * Select instead of a track that has to scroll.
  *
  * Reference `.segmented`: a hover-fill track with 3px padding and a 10px
- * radius, whose outer height is `--np-control-h` (44px on touch, 36px at the
- * desk); segments in the strong secondary ink; the selected segment is drawn
+ * radius. Each segment is a 44px target on touch (a 50px track); at the
+ * desk the track's outer height is `--np-control-h` (36px); segments in the strong secondary ink; the selected segment is drawn
  * as a white thumb with the raised shadow (styled on the segment itself, so
  * it never depends on a measured indicator). A track longer than its room
  * scrolls sideways inside itself, snapping to segments, with an edge fade on
@@ -81,20 +81,21 @@ const SegmentedContext = createContext<SegmentedContextValue>({
 const segmentedThumbClassName = cn("rounded-[7px] bg-surface shadow-np-raised")
 
 const segmentedItemClassName = cn(
-  // Height is the control token less the track's 3px padding top and
-  // bottom, so the TRACK is exactly `--np-control-h`: 44px on touch, 36px at
-  // the desk, and the compact density's 30px where a subtree opts in. No
-  // `pointer-coarse:` patch — the token already carries the touch size.
+  // On touch every segment is itself a 44px target (`--np-touch`), so the
+  // track, with its 3px padding top and bottom, is 50px. At the desk the
+  // height is the control token less that padding, so the TRACK is exactly
+  // `--np-control-h`: 36px, or the compact density's 30px where a subtree
+  // opts in.
   //
   // `flex-[1_0_auto]` rather than the old `flex-1 min-w-0`: segments still
   // grow to fill a wide track, but never shrink below their label. Shrinking
   // is what truncated "Needs attention" to "N" at 360px; now the track
   // scrolls instead. Written as the `flex` shorthand so a caller's
   // `flex-none` still replaces it through tailwind-merge.
-  "relative z-10 inline-flex h-[calc(var(--np-control-h)-2*var(--np-segment-inset))] flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none",
+  "relative z-10 inline-flex h-(--np-touch) flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))]",
   // The hit area: the visible segment is 6px shorter than the track, so a
   // transparent pseudo-element reaches over the track's padding and the
-  // whole 44px of track height on touch is tappable. It stays inside the
+  // whole track height is tappable, at the desk as on touch. It stays inside the
   // track's padding box, so the scroll container never clips it.
   "after:absolute after:inset-x-0 after:-inset-y-(--np-segment-inset)",
   "transition-[color,background-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
@@ -129,8 +130,8 @@ const trackVariants = cva(
   {
     variants: {
       size: {
-        // Smaller at the desk only. On touch the small track keeps the full
-        // 44px: `--np-control-h-sm` is 36px there, under the touch floor.
+        // Smaller at the desk only. On touch the small track keeps its 44px
+        // segments: `--np-control-h-sm` is 36px there, under the touch floor.
         sm: "desk:[&_[data-slot=segmented-control-item]]:h-[calc(var(--np-control-h-sm)-2*var(--np-segment-inset))]",
         default: "",
       },
