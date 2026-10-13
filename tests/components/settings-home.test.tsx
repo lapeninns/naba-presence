@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import * as React from "react"
 import { renderToString } from "react-dom/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -57,9 +57,10 @@ describe("SettingsHome", () => {
     ).toBeInTheDocument()
   })
 
-  it("keeps a policy face it has shown mounted when the viewport narrows", () => {
-    // A phone turned from landscape (above md) to portrait: no navigation, so
-    // no leave guard, and unmounting the form would drop unsaved edits.
+  it("keeps a shown policy face, and only it, through portrait and back", () => {
+    // A phone turned from landscape (above md) to portrait and back: no
+    // navigation, so no leave guard; the form must keep its input, and the
+    // page must keep exactly one face and one h1 in every state.
     let wide = true
     const listeners = new Set<() => void>()
     vi.stubGlobal(
@@ -73,30 +74,43 @@ describe("SettingsHome", () => {
           listeners.delete(fn),
       }))
     )
-    function Draft() {
+    function Policy() {
       const [value, setValue] = React.useState("")
       return (
-        <input
-          aria-label="Draft"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-        />
+        <>
+          <h1>Reply policy</h1>
+          <input
+            aria-label="Draft"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </>
       )
     }
-    render(<SettingsHome index={<h1>Settings</h1>} policy={<Draft />} />)
+    render(<SettingsHome index={<h1>Settings</h1>} policy={<Policy />} />)
     const draft = screen.getByLabelText<HTMLInputElement>("Draft")
-    act(() => {
-      draft.value = "unsaved"
-      draft.dispatchEvent(new Event("input", { bubbles: true }))
-    })
+    fireEvent.change(draft, { target: { value: "unsaved" } })
+
+    const expectOnlyPolicy = () => {
+      expect(document.querySelectorAll("h1")).toHaveLength(1)
+      expect(
+        screen.getByRole("heading", { level: 1, name: "Reply policy" })
+      ).toBeInTheDocument()
+      expect(document.querySelector("[data-slot=settings-index]")).toBeNull()
+      // The same input, with its value: nothing remounted.
+      expect(screen.getByLabelText<HTMLInputElement>("Draft")).toBe(draft)
+      expect(draft.value).toBe("unsaved")
+      // Never hidden by CSS once the width is known.
+      expect(
+        draft.closest("[data-slot=settings-home-policy]")?.className
+      ).not.toMatch(/hidden/)
+    }
+    expectOnlyPolicy()
     wide = false
     act(() => listeners.forEach((fn) => fn()))
-    expect(screen.getByLabelText<HTMLInputElement>("Draft")).toBe(draft)
-    expect(draft.closest("[data-slot=settings-home-policy]")).toHaveClass(
-      "max-md:hidden"
-    )
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Settings" })
-    ).toBeInTheDocument()
+    expectOnlyPolicy()
+    wide = true
+    act(() => listeners.forEach((fn) => fn()))
+    expectOnlyPolicy()
   })
 })

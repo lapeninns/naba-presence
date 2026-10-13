@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
+import { cn } from "@/lib/utils"
 
 /**
  * The /settings home's two faces: below md the settings index (its h1 is
@@ -14,14 +15,20 @@ import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
  * a second h1 (the mobile audit counts them), so once the client knows its
  * width it drops the hidden face entirely, as the inbox does for its hidden
  * title (InboxViewInner). That also stops a desk's hidden index and a
- * phone's hidden policy form from running their queries. The kept face
- * keeps its CSS class, so it is drawn exactly as before.
+ * phone's hidden policy form from running their queries.
  *
- * Once the policy face has been shown it stays mounted, hidden by CSS below
- * md: a phone turned from landscape (844px, above md) back to portrait, or a
- * window dragged narrow, must not silently drop unsaved policy edits (no
- * navigation happens, so the leave guard never asks). That rare state has
- * the second h1 again; losing input would be worse.
+ * Once the policy face has been shown it stays THE face at every width
+ * until the person leaves the page: a phone turned from landscape (844px,
+ * above md) back to portrait, or a window dragged narrow, keeps Reply policy
+ * on screen, so unsaved edits survive (no navigation happens, so the leave
+ * guard never asks), its docked save bar stays visible and reachable, and
+ * the document still has exactly one face and one h1. Reply policy carries
+ * the settings tabs, so every other section stays one tap away; the phone's
+ * index is what /settings shows to someone who arrived narrow.
+ *
+ * Never keep a face mounted but hidden: its h1 would be a second one, and a
+ * hidden dirty form's docked bar would still match the chrome contract's
+ * `body:has([data-docked=bottom])`, hiding the tab bar with no bar shown.
  */
 export function SettingsHome({
   index,
@@ -37,20 +44,30 @@ export function SettingsHome({
   // from a changing value): latch once the policy face has been on screen.
   const [policyShown, setPolicyShown] = React.useState(false)
   if (wide === true && !policyShown) setPolicyShown(true)
+  // null until hydrated: both faces, each hidden by CSS at the other width.
+  const face = wide === null ? null : wide || policyShown ? "policy" : "index"
   return (
     <>
-      {wide !== true ? (
+      {face !== "policy" ? (
         <div
           data-slot="settings-index"
-          className="flex flex-col gap-(--np-gap-section) md:hidden"
+          className={cn(
+            "flex flex-col gap-(--np-gap-section)",
+            face === null && "md:hidden"
+          )}
         >
           {index}
         </div>
       ) : null}
-      {wide !== false || policyShown ? (
+      {face !== "index" ? (
+        // The same element in the same position whatever `face` was, so the
+        // form keeps its state across a rotation.
         <div
           data-slot="settings-home-policy"
-          className="flex flex-col gap-(--np-gap-section) max-md:hidden"
+          className={cn(
+            "flex flex-col gap-(--np-gap-section)",
+            face === null && "max-md:hidden"
+          )}
         >
           {policy}
         </div>
