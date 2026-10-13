@@ -101,9 +101,11 @@ describe("ClientHub", () => {
     // The overview is the listing's name, already a link; a "Listing" section
     // link beside it was a second stop to the same page.
     expect(sections.querySelector('a[href="/listings/l1"]')).toBeNull()
-    expect(
-      screen.getByRole("link", { name: "Old Crown Girton" })
-    ).toHaveAttribute("href", "/listings/l1")
+    const name = screen.getByRole("link", { name: "Old Crown Girton" })
+    expect(name).toHaveAttribute("href", "/listings/l1")
+    // The record card's way in is a 44px row on touch, a text link at the
+    // desk (the name alone was two 18px lines on a phone).
+    expect(name).toHaveClass("min-h-(--np-touch)", "desk:min-h-0")
     // On a narrow row the same sections sit behind one menu.
     expect(
       screen.getByRole("button", { name: "More for Old Crown Girton" })
