@@ -72,18 +72,19 @@ export function ReportToolbar({
     >
       {/* Phone: the scope in one tappable line. The visible words are the
           start of the accessible name (WCAG 2.5.3); truncation is CSS only,
-          so the full scope is still what a screen reader hears. */}
+          so the full scope is still what a screen reader hears. Parts wrap
+          to a second line before any one of them is cut short. */}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger
           render={
             <Button
               variant="secondary"
-              className="min-w-0 flex-1 justify-start md:hidden print:hidden"
+              className="h-auto min-h-(--np-control-h) min-w-0 flex-1 justify-start py-2 md:hidden print:hidden"
             />
           }
         >
           <SlidersHorizontalIcon aria-hidden strokeWidth={1.75} />
-          <span className="flex min-w-0 flex-1 items-center gap-1 text-left">
+          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-left">
             {parts.map((part, index) => (
               <React.Fragment key={`${index}-${part}`}>
                 {index > 0 ? (
@@ -98,8 +99,8 @@ export function ReportToolbar({
                 <span
                   className={cn(
                     index === last
-                      ? "shrink-0 whitespace-nowrap"
-                      : "min-w-0 truncate"
+                      ? "whitespace-nowrap"
+                      : "max-w-full truncate"
                   )}
                 >
                   {part}
