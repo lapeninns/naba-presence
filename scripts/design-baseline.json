@@ -1,26 +1,20 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 89,
+    "R1": 88,
     "R2": 9,
-    "R3": 213,
-    "R4": 61,
+    "R3": 199,
+    "R4": 56,
     "R5": 6,
-    "R6": 5,
-    "R7": 53
+    "R6": 4,
+    "R7": 43
   },
   "files": {
     "app/(auth)/layout.tsx": {
       "R3": {
         "total": 1,
         "patterns": {
-          "grid-cols-[minmax(0,1fr)_minmax(360px,520px)]": 1
-        }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "min-[901px]:": 1
+          "grid-cols-[minmax(0,1fr)_minmax(22.5rem,32.5rem)]": 1
         }
       }
     },
@@ -394,30 +388,10 @@
     },
     "components/auth/auth-card.tsx": {
       "R3": {
-        "total": 7,
-        "patterns": {
-          "grid-cols-[34px_minmax(0,1fr)]": 1,
-          "max-w-[20ch]": 1,
-          "max-w-[400px]": 1,
-          "max-w-[44ch]": 1,
-          "p-[clamp(24px,5vw,56px)]": 1,
-          "p-[clamp(28px,5vw,64px)]": 1,
-          "size-[34px]": 1
-        }
-      },
-      "R4": {
         "total": 2,
         "patterns": {
-          "rounded-[9px]": 1,
-          "shadow-[inset_0_0_0_1px_var(--np-ink-muted-on-charcoal)]": 1
-        }
-      },
-      "R7": {
-        "total": 8,
-        "patterns": {
-          "max-[431px]:": 4,
-          "max-[901px]:": 2,
-          "min-[901px]:": 2
+          "max-w-[20ch]": 1,
+          "max-w-[44ch]": 1
         }
       }
     },
@@ -426,44 +400,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[2rem_minmax(0,1fr)]": 1
-        }
-      }
-    },
-    "components/auth/password-field.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "right-[3px]": 1
-        }
-      }
-    },
-    "components/auth/password-requirements.tsx": {
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "min-[431px]:": 1
-        }
-      }
-    },
-    "components/auth/sign-in-form.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[12px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[30px]": 1,
-          "p-[3px]": 1
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-[10px]": 1,
-          "rounded-[7px]": 1
         }
       }
     },
@@ -1031,57 +967,11 @@
         }
       }
     },
-    "components/settings/connection-card.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[6.5rem_minmax(0,1fr)]": 2
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_3px_0_0_var(--np-accent)]": 1
-        }
-      }
-    },
-    "components/settings/members-table.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "max-w-[min(20rem,calc(100vw-24px))]": 1
-        }
-      }
-    },
-    "components/settings/notification-preferences.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_auto_11rem]": 1
-        }
-      }
-    },
-    "components/settings/notifications-card.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "min-w-[14rem]": 2
-        }
-      }
-    },
     "components/settings/two-step-verification-card.tsx": {
       "R2": {
         "total": 1,
         "patterns": {
           "bg-white": 1
-        }
-      }
-    },
-    "components/settings/usage-card.tsx": {
-      "R6": {
-        "total": 1,
-        "patterns": {
-          "style={{…}}": 1
         }
       }
     },
