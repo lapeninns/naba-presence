@@ -179,15 +179,15 @@ describe("business mode", () => {
     location.search = "locationId=l1"
     renderScope({ mode: "business", directory: [BELL, CROWN] })
     const sheet = await openSheet("Location: The Bell")
-    const group = within(sheet).getByRole("radiogroup", { name: "Location" })
-    const radios = within(group).getAllByRole("radio")
-    expect(radios.map((radio) => radio.textContent)).toEqual([
+    const group = within(sheet).getByRole("listbox", { name: "Location" })
+    const options = within(group).getAllByRole("option")
+    expect(options.map((option) => option.textContent)).toEqual([
       "All locations",
       "The Bell",
       "The CrownNot linked",
     ])
-    expect(radios[1]).toHaveAttribute("aria-checked", "true")
-    expect(radios[2]).toHaveAccessibleDescription("Not linked")
+    expect(options[1]).toHaveAttribute("aria-selected", "true")
+    expect(options[2]).toHaveAccessibleDescription("Not linked")
     expect(sheet.textContent).not.toMatch(/client|agency/i)
     expect(within(sheet).queryByRole("searchbox")).toBeNull()
   })
@@ -197,7 +197,7 @@ describe("business mode", () => {
     renderScope({ mode: "business", directory: [BELL, CROWN] })
     const sheet = await openSheet("Location: All locations")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "The Crown" })
+      within(sheet).getByRole("option", { name: "The Crown" })
     )
     expect(replace).toHaveBeenLastCalledWith(
       "/inbox?queue=failed&locationId=l2",
@@ -215,7 +215,7 @@ describe("business mode", () => {
     renderScope({ mode: "business", directory: [BELL, CROWN] })
     const sheet = await openSheet("Location: The Bell")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "All locations" })
+      within(sheet).getByRole("option", { name: "All locations" })
     )
     expect(replace).toHaveBeenLastCalledWith("/reports?tab=google", {
       scroll: false,
@@ -228,7 +228,7 @@ describe("business mode", () => {
     renderScope({ mode: "business", directory: [BELL, CROWN] })
     const sheet = await openSheet("Location: All locations")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "All locations" })
+      within(sheet).getByRole("option", { name: "All locations" })
     )
     expect(replace).not.toHaveBeenCalled()
     expect(push).not.toHaveBeenCalled()
@@ -240,7 +240,7 @@ describe("business mode", () => {
     renderScope({ mode: "business", directory: [BELL, CROWN] })
     const sheet = await openSheet("Location: All locations")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "The Bell" })
+      within(sheet).getByRole("option", { name: "The Bell" })
     )
     expect(push).toHaveBeenCalledWith("/listings/l1")
     // Opening a listing is a page change, not a scope change: the chip
@@ -253,7 +253,7 @@ describe("business mode", () => {
     renderScope({ mode: "business", directory: [BELL, CROWN] })
     const sheet = await openSheet("Location: All locations")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "The Bell" })
+      within(sheet).getByRole("option", { name: "The Bell" })
     )
     expect(leaveGuard.guardNavigation).toHaveBeenCalledTimes(1)
     expect(replace).not.toHaveBeenCalled()
@@ -271,16 +271,16 @@ describe("business mode", () => {
       name: "Search locations",
     })
     expect(search).toHaveClass("text-body")
-    expect(within(sheet).getAllByRole("radio")).toHaveLength(10)
+    expect(within(sheet).getAllByRole("option")).toHaveLength(10)
     await user.type(search, "venue c")
     expect(
       within(sheet)
-        .getAllByRole("radio")
-        .map((radio) => radio.textContent)
+        .getAllByRole("option")
+        .map((option) => option.textContent)
     ).toEqual(["Venue C"])
     await user.clear(search)
     await user.type(search, "zzz")
-    expect(within(sheet).queryAllByRole("radio")).toHaveLength(0)
+    expect(within(sheet).queryAllByRole("option")).toHaveLength(0)
     expect(within(sheet).getByText("No location matches that.")).toBeVisible()
   })
 })
@@ -295,14 +295,21 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR, client("c3", "Empty Co", 0)])
     renderScope({ directory: DIRECTORY })
     const sheet = await openSheet("Client: All clients")
-    // The radios keep their names; the chevron is its own button.
+    // The options keep their names; the chevron is its own button.
     expect(
-      within(sheet).getByRole("radio", { name: "Old Crown" })
+      within(sheet).getByRole("option", { name: "Old Crown" })
     ).toBeInTheDocument()
     const chevron = within(sheet).getByRole("button", {
       name: "Locations of Old Crown",
     })
     expect(chevron).toHaveClass("size-11")
+    // A listbox holds only options: the chevron sits beside the list, not
+    // inside the option or the listbox.
+    const list = within(sheet).getByRole("listbox", { name: "Client" })
+    expect(list).not.toContainElement(chevron)
+    expect(
+      within(sheet).getByRole("option", { name: "Old Crown" })
+    ).toHaveAttribute("aria-selected", "false")
     // A client with no locations has nothing to push to.
     expect(
       within(sheet).queryByRole("button", { name: "Locations of Empty Co" })
@@ -320,15 +327,15 @@ describe("agency mode: a client's locations", () => {
     const title = within(sheet).getByRole("heading", { name: "Old Crown" })
     await waitFor(() => expect(title).toHaveFocus())
     expect(sheet).toHaveAccessibleName("Old Crown")
-    const group = within(sheet).getByRole("radiogroup", { name: "Locations" })
-    const radios = within(group).getAllByRole("radio")
+    const group = within(sheet).getByRole("listbox", { name: "Locations" })
+    const options = within(group).getAllByRole("option")
     // Names, not text: the client's avatar initials are decoration.
-    expect(radios).toHaveLength(3)
-    expect(radios[0]).toHaveAccessibleName("All Old Crown locations")
-    expect(radios[1]).toHaveAccessibleName("The Bell")
-    expect(radios[2]).toHaveAccessibleName("The Crown")
+    expect(options).toHaveLength(3)
+    expect(options[0]).toHaveAccessibleName("All Old Crown locations")
+    expect(options[1]).toHaveAccessibleName("The Bell")
+    expect(options[2]).toHaveAccessibleName("The Crown")
     // The client is in scope and not narrowed: its "All" row is current.
-    expect(radios[0]).toHaveAttribute("aria-checked", "true")
+    expect(options[0]).toHaveAttribute("aria-selected", "true")
 
     await userEvent.click(
       within(sheet).getByRole("button", { name: "Back to All clients" })
@@ -340,7 +347,7 @@ describe("agency mode: a client's locations", () => {
       ).toHaveFocus()
     )
     expect(
-      within(sheet).getByRole("radiogroup", { name: "Client" })
+      within(sheet).getByRole("listbox", { name: "Client" })
     ).toBeInTheDocument()
   })
 
@@ -353,11 +360,11 @@ describe("agency mode: a client's locations", () => {
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
     expect(
-      within(sheet).getByRole("radio", { name: "The Crown" })
-    ).toHaveAttribute("aria-checked", "true")
+      within(sheet).getByRole("option", { name: "The Crown" })
+    ).toHaveAttribute("aria-selected", "true")
     expect(
-      within(sheet).getByRole("radio", { name: "All Old Crown locations" })
-    ).toHaveAttribute("aria-checked", "false")
+      within(sheet).getByRole("option", { name: "All Old Crown locations" })
+    ).toHaveAttribute("aria-selected", "false")
   })
 
   it("narrows Reports to a location with its client, and names both", async () => {
@@ -370,7 +377,7 @@ describe("agency mode: a client's locations", () => {
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "The Bell" })
+      within(sheet).getByRole("option", { name: "The Bell" })
     )
     expect(replace).toHaveBeenLastCalledWith(
       "/reports?tab=google&locationId=l1&clientId=c1",
@@ -389,7 +396,7 @@ describe("agency mode: a client's locations", () => {
         name: "Locations of Harbour Kitchen",
       })
     )
-    await userEvent.click(within(sheet).getByRole("radio", { name: "Quay" }))
+    await userEvent.click(within(sheet).getByRole("option", { name: "Quay" }))
     expect(push).toHaveBeenCalledWith("/listings/l3")
     expect(toastTitles()).toEqual([])
   })
@@ -403,7 +410,7 @@ describe("agency mode: a client's locations", () => {
       within(sheet).getByRole("button", { name: "Locations of Old Crown" })
     )
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "All Old Crown locations" })
+      within(sheet).getByRole("option", { name: "All Old Crown locations" })
     )
     expect(replace).toHaveBeenLastCalledWith("/inbox?clientId=c1", {
       scroll: false,
@@ -430,8 +437,8 @@ describe("agency mode: a client's locations", () => {
     await user.type(search, "venue i")
     expect(
       within(sheet)
-        .getAllByRole("radio")
-        .map((radio) => radio.textContent)
+        .getAllByRole("option")
+        .map((option) => option.textContent)
     ).toEqual(["Venue I"])
   })
 
@@ -440,10 +447,10 @@ describe("agency mode: a client's locations", () => {
     stubClients([OLD_CROWN, HARBOUR])
     renderScope({ directory: DIRECTORY })
     const sheet = await openSheet("Client: All clients")
-    within(sheet).getByRole("radio", { name: "All clients" }).focus()
+    within(sheet).getByRole("option", { name: "All clients" }).focus()
     await user.keyboard("{ArrowDown}")
     expect(
-      within(sheet).getByRole("radio", { name: "Old Crown" })
+      within(sheet).getByRole("option", { name: "Old Crown" })
     ).toHaveFocus()
     await user.tab()
     expect(
@@ -451,7 +458,7 @@ describe("agency mode: a client's locations", () => {
     ).toHaveFocus()
     await user.keyboard("{ArrowDown}")
     expect(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     ).toHaveFocus()
     expect(replace).not.toHaveBeenCalled()
   })
@@ -464,7 +471,7 @@ describe("the switch toast", () => {
     renderScope({ directory: [] })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
     expect(toastTitles()).toEqual(["Switched to Harbour Kitchen"])
   })
@@ -476,7 +483,7 @@ describe("the switch toast", () => {
     renderScope({ directory: [] })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "All clients" })
+      within(sheet).getByRole("option", { name: "All clients" })
     )
     expect(toastTitles()).toEqual(["Switched to All clients"])
   })
@@ -488,7 +495,7 @@ describe("the switch toast", () => {
     renderScope({ directory: [place("l1", "The Bell", "c1")] })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "All clients" })
+      within(sheet).getByRole("option", { name: "All clients" })
     )
     expect(replace).toHaveBeenLastCalledWith("/reports?tab=google", {
       scroll: false,
@@ -502,7 +509,7 @@ describe("the switch toast", () => {
     renderScope({ directory: [] })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Old Crown" })
+      within(sheet).getByRole("option", { name: "Old Crown" })
     )
     expect(toastAdd).not.toHaveBeenCalled()
   })
@@ -514,7 +521,7 @@ describe("the switch toast", () => {
     renderScope({ directory: [] })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
     expect(push).not.toHaveBeenCalled()
     expect(toastAdd).not.toHaveBeenCalled()
@@ -531,7 +538,7 @@ describe("the switch toast", () => {
     renderScope({ directory: [], children: <Page /> })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
     await waitFor(() => expect(handler).toHaveBeenCalledWith("c2"))
     expect(toastAdd).not.toHaveBeenCalled()

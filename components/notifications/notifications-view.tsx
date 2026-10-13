@@ -18,6 +18,7 @@ import {
   Layers,
   Lightbulb,
   RefreshCw,
+  Settings2Icon,
   Star,
   Unlink,
   UserRoundX,
@@ -28,16 +29,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
 
 import { PageChrome } from "@/components/app-shell/page-chrome"
-import { PageHeader } from "@/components/app-shell/page-frame"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Empty } from "@/components/ui/empty"
+import { Empty, EmptyIllustration } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
+import { Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
+import { ViewHeader } from "@/components/ui/view-header"
 import {
   fetchNotifications,
   markNotificationsRead,
@@ -67,10 +66,6 @@ const FILTERED_EMPTY: Record<NotificationFilter, string> = {
   unread: "Every notification has been read.",
   open: "No notification is open.",
 }
-
-/** No card on a phone (the empty state is the page); a bordered card from md. */
-const EMPTY_FRAME =
-  "md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
 
 /**
  * A neutral glyph per kind, for the leading circle of a row. It only helps
@@ -170,45 +165,48 @@ export function NotificationsView() {
       {/* The phone app bar echoes the count after the title; the status
           line below keeps it for assistive technology. */}
       <PageChrome count={unread} countLabel="open and unread" />
-      <PageHeader
-        title="Notifications"
-        meta={
-          unread > 0 ? (
-            // Notion Mail's "Inbox 99+": the count follows the title in the
-            // same size, regular weight, muted. Visual only: the status line
-            // under the filter says it in words.
-            <span
-              aria-hidden
-              data-slot="notifications-title-count"
-              className="text-page-title font-normal text-ink-muted tabular-nums"
+      <div className="flex flex-col gap-1">
+        {/* Notion Mail's "Inbox 99+": the count follows the title, regular
+            weight, muted, and reads as "(open and unread)". */}
+        <ViewHeader
+          title="Notifications"
+          titleAs="h1"
+          count={unread > 0 ? unread : undefined}
+          countLabel="open and unread"
+          actions={
+            // The words show from sm; on a narrow phone the glyph alone
+            // keeps the title whole, and the name stays the same words.
+            <Link
+              href="/settings/notifications"
+              className={cn(
+                buttonVariants({ variant: "ghost" }),
+                "max-sm:w-(--np-control-h) max-sm:px-0"
+              )}
             >
-              {unread}
-            </span>
-          ) : null
-        }
-        description="Problems and outcomes that need attention. Marking one read does not resolve it."
-        actions={
-          <Link
-            href="/settings/notifications"
-            className={cn(buttonVariants({ variant: "outline" }))}
-          >
-            Notification settings
-          </Link>
-        }
-      />
+              <Settings2Icon aria-hidden />
+              <span className="max-sm:sr-only">Notification settings</span>
+            </Link>
+          }
+        />
+        <p className="max-w-prose text-body text-pretty text-ink-muted">
+          Problems and outcomes that need attention. Marking one read does not
+          resolve it.
+        </p>
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <SegmentedControl
+        <Tabs
           value={filter}
-          onValueChange={setFilter}
-          aria-label="Show notifications"
+          onValueChange={(value) => setFilter(String(value))}
           className="w-full sm:w-auto"
         >
-          {FILTERS.map((option) => (
-            <SegmentedControlItem key={option.value} value={option.value}>
-              {option.label}
-            </SegmentedControlItem>
-          ))}
-        </SegmentedControl>
+          <TabsList variant="text" aria-label="Show notifications">
+            {FILTERS.map((option) => (
+              <TabsTab key={option.value} value={option.value}>
+                {option.label}
+              </TabsTab>
+            ))}
+          </TabsList>
+        </Tabs>
         <div className="flex w-full items-center justify-between gap-3 sm:w-auto">
           <p className="text-caption text-ink-muted tabular-nums" role="status">
             {unread} open and unread
@@ -236,21 +234,22 @@ export function NotificationsView() {
         }}
         onRetry={() => void query.refetch()}
         empty={
+          // The empty state is the page: no card, centred at about 35%.
           filter === DEFAULT_FILTER ? (
             <Empty
               titleAs="h2"
+              placement="page"
               icon={<BellOffIcon />}
               title="No notifications yet"
               description="Problems with Google connections, publishing and syncs appear here."
-              className={EMPTY_FRAME}
             />
           ) : (
             <Empty
               titleAs="h2"
-              icon={<BellOffIcon />}
+              placement="page"
+              illustration={<EmptyIllustration name="inbox-zero" />}
               title="Nothing matches this filter"
               description={FILTERED_EMPTY[filter]}
-              className={EMPTY_FRAME}
               action={
                 <Button
                   variant="secondary"
@@ -264,11 +263,12 @@ export function NotificationsView() {
         }
       >
         {/* Full-bleed on a phone (the list is the page, as in Notion Mail's
-            inbox), a bordered card from md. Each row draws its own inset
-            hairline, so the dividers start at the text column. */}
-        <ul
+            inbox), a bordered card from md. ListRow draws the inset divider
+            from the text column. */}
+        <ListRows
+          bleed
           aria-label="Notifications"
-          className="-mx-5 flex flex-col md:mx-0 md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
+          className="md:overflow-hidden md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface"
         >
           {items.map((item) => (
             <NotificationRow
@@ -282,7 +282,7 @@ export function NotificationsView() {
               onResolve={() => resolve.mutate(item.id)}
             />
           ))}
-        </ul>
+        </ListRows>
         {query.hasNextPage ? (
           <Button
             variant="secondary"
@@ -299,14 +299,14 @@ export function NotificationsView() {
 }
 
 /**
- * One notification as a list row, drawn to the shared ListRow spec so it
- * can move onto that primitive when it lands: a neutral kind glyph in a
- * circle, then the text column. Line 1 is what happened and when; unread
- * is said by weight and a small dot after the title, with the word
+ * One notification as a `ListRow` (Notion Mail's mail row): a neutral kind
+ * glyph in a circle, then the text column. Line 1 is what happened and
+ * when; unread is said by weight and the primitive's dot, with the word
  * "(unread)" for assistive technology, never by a row tint. Line 2 is the
- * listing and the status word; line 3 the one-sentence description. The
- * actions sit under the text on a phone (44px touch targets) and beside
- * it from md.
+ * listing (and when it was resolved) with the Open/Resolved word trailing;
+ * line 3 the one-sentence description. The row itself is not a control:
+ * the actions are real buttons in the footer, aligned to the text column,
+ * 44px on touch.
  */
 function NotificationRow({
   item,
@@ -338,82 +338,55 @@ function NotificationRow({
     if (confirming) confirmRef.current?.focus()
   }, [confirming])
   return (
-    <li
+    <ListRow
+      interactive={false}
       aria-busy={busy || undefined}
-      data-slot="notification-row"
-      data-unread={unread || undefined}
-      className={cn(
-        "relative flex min-w-0 items-start gap-3 px-5 py-3 md:px-4",
-        // The inset hairline: from the text column (gutter + 36px glyph +
-        // 12px gap; 32px glyph at the desk) to the right gutter, and none
-        // under the last row.
-        "after:absolute after:right-5 after:bottom-0 after:left-17 after:h-px after:bg-line-subtle last:after:hidden md:after:right-4 md:after:left-16 desk:after:left-15"
-      )}
-    >
-      <span
-        aria-hidden
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-fill text-ink-secondary desk:size-8 [&_svg]:size-4"
-      >
-        <Icon strokeWidth={1.75} />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-4">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex min-w-0 items-baseline justify-between gap-3">
-            <p
-              className={cn(
-                "flex min-w-0 items-center gap-1.5 text-body break-words",
-                unread
-                  ? "font-semibold text-ink"
-                  : "font-normal text-ink-secondary"
-              )}
-            >
-              <span className="min-w-0">{copy.label}</span>
-              {unread ? (
-                <>
-                  {/* Reinforces the word, never replaces it. */}
-                  <span
-                    aria-hidden
-                    data-slot="unread-dot"
-                    className="size-1.5 shrink-0 rounded-full bg-info-solid"
-                  />
-                  <span className="sr-only">(unread)</span>
-                </>
-              ) : null}
-            </p>
-            <span className="shrink-0 text-caption whitespace-nowrap text-ink-muted tabular-nums">
-              <RelativeTime iso={item.openedAt} />
-            </span>
-          </div>
-          <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-caption text-ink-muted tabular-nums">
-            {title ? (
-              <span className="min-w-0 [overflow-wrap:anywhere]">{title}</span>
-            ) : null}
-            <StatusPill
-              tone={item.status === "open" ? "attention" : "outline"}
-              plain
-            >
-              {item.status === "open" ? "Open" : "Resolved"}
-            </StatusPill>
+      emphasis={unread ? "unread" : "read"}
+      unreadLabel="(unread)"
+      leading={
+        <span
+          aria-hidden
+          className="grid size-full place-items-center rounded-full bg-avatar-bg text-avatar-ink [&_svg]:size-4"
+        >
+          <Icon strokeWidth={1.75} />
+        </span>
+      }
+      title={copy.label}
+      meta={<RelativeTime iso={item.openedAt} />}
+      subtitle={
+        title || item.resolvedAt ? (
+          <>
+            {title}
+            {title && item.resolvedAt ? " · " : null}
             {item.resolvedAt ? (
-              <span>
+              <>
                 resolved <RelativeTime iso={item.resolvedAt} />
-              </span>
+              </>
             ) : null}
-          </p>
-          <p className="text-ui break-words text-ink-secondary max-md:line-clamp-2">
-            {copy.description}
-          </p>
-        </div>
-        {/* Keyed apart: reusing the question's DOM for the actions turned the
-            green "Yes, resolve" into "Mark unread" mid colour transition. */}
-        {confirming ? (
+          </>
+        ) : null
+      }
+      trailing={
+        <StatusPill
+          tone={item.status === "open" ? "attention" : "outline"}
+          plain
+        >
+          {item.status === "open" ? "Open" : "Resolved"}
+        </StatusPill>
+      }
+      preview={copy.description}
+      footer={
+        // Keyed apart: reusing the question's DOM for the actions turned the
+        // green "Yes, resolve" into "Mark unread" mid colour transition.
+        confirming ? (
           <div
             key="confirm"
             role="group"
             aria-label={`Resolve ${copy.label}?`}
-            className="flex shrink-0 flex-wrap items-center gap-2 md:max-w-80 md:justify-end"
+            aria-busy={busy || undefined}
+            className="flex min-w-0 flex-wrap items-center gap-2"
           >
-            <p className="w-full text-caption text-ink-secondary md:text-right">
+            <p className="w-full text-caption text-ink-secondary">
               Resolve for everyone? It can’t be reopened.
             </p>
             <Button
@@ -437,10 +410,11 @@ function NotificationRow({
           </div>
         ) : (
           // Ghost buttons pulled back by their own padding, so their words
-          // line up with the text column on a phone.
+          // line up with the text column.
           <div
             key="actions"
-            className="-ml-2.5 flex shrink-0 flex-wrap gap-1 md:ml-0 md:justify-end"
+            aria-busy={busy || undefined}
+            className="-ms-2.5 flex min-w-0 flex-wrap gap-1"
           >
             {item.locationId ? (
               <Link
@@ -470,8 +444,8 @@ function NotificationRow({
               </Button>
             ) : null}
           </div>
-        )}
-      </div>
-    </li>
+        )
+      }
+    />
   )
 }

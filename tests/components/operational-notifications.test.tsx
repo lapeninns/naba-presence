@@ -106,7 +106,7 @@ describe("NotificationsView", () => {
     )
     renderWith(<NotificationsView />)
     expect(await screen.findByText("Publishing failed")).toBeInTheDocument()
-    expect(screen.getByText("(unread)")).toBeInTheDocument()
+    expect(screen.getByText(/\(unread\)/)).toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
     fireEvent.click(
       screen.getByRole("button", { name: "Mark read: Publishing failed" })
@@ -350,23 +350,51 @@ describe("NotificationsView rows and empty states", () => {
       unreadCount: 1,
     }))
     renderWith(<NotificationsView />)
-    const unreadTitle = (await screen.findByText("Publishing failed"))
-      .parentElement!
+    // ListRow: the title carries the weight; its line adds the dot and the
+    // sr-only word after it.
+    const unreadTitle = await screen.findByText("Publishing failed")
     expect(unreadTitle).toHaveClass("font-semibold", "text-ink")
     // The word is there for assistive technology; the dot only reinforces it.
-    expect(unreadTitle).toHaveTextContent("Publishing failed(unread)")
+    expect(unreadTitle.parentElement).toHaveTextContent(
+      "Publishing failed, (unread)"
+    )
     expect(
-      unreadTitle.querySelector('[data-slot="unread-dot"]')
+      unreadTitle.parentElement!.querySelector(
+        '[data-slot="list-row-unread-dot"]'
+      )
     ).toHaveAttribute("aria-hidden")
-    const readTitle = screen.getByText("Listing access lost").parentElement!
+    const readTitle = screen.getByText("Listing access lost")
     expect(readTitle).toHaveClass("font-normal", "text-ink-secondary")
     expect(readTitle).not.toHaveClass("font-semibold")
-    expect(readTitle).not.toHaveTextContent("(unread)")
-    expect(screen.getAllByText("(unread)")).toHaveLength(1)
-    expect(screen.getAllByText("(unread)")[0]).toHaveClass("sr-only")
+    expect(readTitle.parentElement).not.toHaveTextContent("(unread)")
+    expect(
+      readTitle.parentElement!.querySelector(
+        '[data-slot="list-row-unread-dot"]'
+      )
+    ).toBeNull()
+    expect(screen.getAllByText(/\(unread\)/)).toHaveLength(1)
+    expect(screen.getAllByText(/\(unread\)/)[0]).toHaveClass("sr-only")
     // No row tint: unread is weight and the dot, not a background.
     for (const row of screen.getAllByRole("listitem"))
       expect(row).not.toHaveClass("bg-surface-alt")
+  })
+
+  it("titles the page once, with the open-and-unread count after it", async () => {
+    stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 3 }))
+    renderWith(<NotificationsView />)
+    await screen.findByText("Publishing failed")
+    const headings = screen.getAllByRole("heading", { level: 1 })
+    expect(headings).toHaveLength(1)
+    expect(headings[0]).toHaveTextContent("Notifications")
+    const count = document.querySelector('[data-slot="view-header-count"]')
+    expect(count).toHaveTextContent("3(open and unread)")
+    expect(
+      screen.getByRole("link", { name: "Notification settings" })
+    ).toHaveAttribute("href", "/settings/notifications")
+    // The row is not a control: its actions are the buttons.
+    expect(document.querySelector('[data-slot="list-row-hit"]')?.tagName).toBe(
+      "DIV"
+    )
   })
 
   it("says why the list is empty and what will appear", async () => {
