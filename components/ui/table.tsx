@@ -95,8 +95,11 @@ const RECORD_CLASS = cn(
   // secondary: a full-width muted subtitle.
   "@max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:order-5 @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:basis-full @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:text-caption @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:text-ink-muted",
 
-  // meta: inline facts on one muted line, "Label value · Label value".
-  "@max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:order-6 @max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:inline-flex @max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:items-baseline @max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:text-caption @max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:text-ink-muted",
+  // meta: inline facts on one muted line, "Label value · Label value". Each
+  // cell stays a block (a flex item) with INLINE content: an inline-flex
+  // cell made every child its own flex item and collapsed the spaces
+  // between them ("No.1by impressions").
+  "@max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:order-6 @max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:text-caption @max-3xl/table:[&_tbody>tr>td[data-priority=meta]]:text-ink-muted",
   "@max-3xl/table:[&_tbody>tr>td[data-priority=meta][data-label]]:before:me-1 @max-3xl/table:[&_tbody>tr>td[data-priority=meta][data-label]]:before:content-[attr(data-label)]",
   "@max-3xl/table:[&_tbody>tr>td[data-priority=meta]:has(~td[data-priority=meta])]:after:mx-1.5 @max-3xl/table:[&_tbody>tr>td[data-priority=meta]:has(~td[data-priority=meta])]:after:content-['·']",
 
