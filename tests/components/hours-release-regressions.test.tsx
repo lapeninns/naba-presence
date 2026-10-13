@@ -1,11 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
+import userEvent from "@testing-library/user-event"
 import { HoursEditor } from "@/components/locations/hours-editor"
 import { emptyHours } from "@/lib/locations/forms/hours"
 import { buildGoogleHoursPatch, hashHours, normalizeGoogleHours } from "@/lib/domain/hours"
 
 describe("hours release regressions", () => {
-  it("keeps a newly added earlier service in provider order for readback", () => {
+  it("keeps a newly added earlier service in provider order for readback", async () => {
+    const user = userEvent.setup()
     const value = emptyHours()
     value.moreHours = [{ hoursTypeId: "KITCHEN", periods: [] }]
     const change = vi.fn()
@@ -13,7 +15,8 @@ describe("hours release regressions", () => {
       { hoursTypeId: "KITCHEN", displayName: "Kitchen" },
       { hoursTypeId: "BAR", displayName: "Bar" },
     ]} />)
-    fireEvent.change(screen.getByLabelText("Service schedule to add"), { target: { value: "BAR" } })
+    await user.click(screen.getByRole("combobox", { name: "Service schedule to add" }))
+    await user.click(await screen.findByRole("option", { name: "Bar" }))
     fireEvent.click(screen.getByRole("button", { name: "Add service schedule" }))
     const saved = change.mock.calls[0][0]
     expect(saved.moreHours.map((entry: { hoursTypeId: string }) => entry.hoursTypeId)).toEqual(["BAR", "KITCHEN"])

@@ -114,7 +114,11 @@ describe("saved action link work", () => {
     const region = within(await screen.findByRole("region", { name: "Saved action link work" }))
     expect(await region.findByText("Remove Shop online link")).toBeInTheDocument()
     expect(region.getByText("https://shop.example.test/old")).toBeInTheDocument()
-    expect(region.getByText(/^Google target: locations\/stub-/)).toHaveClass("text-ink-muted", "break-all")
+    // The raw Google resource name is kept for support, folded away.
+    const target = region.getByText(/^Google target: locations\/stub-/)
+    expect(target).toHaveClass("break-all")
+    expect(target.closest("details")).not.toBeNull()
+    expect(target.closest("details")).not.toHaveAttribute("open")
     expect(region.getByText(/Approval expired/)).toBeInTheDocument()
     expect(region.queryByText(/2020-01-01T21:04/)).not.toBeInTheDocument()
     expect(document.querySelector('time[datetime="2020-01-01T21:04:00Z"]')).not.toBeNull()

@@ -14,13 +14,6 @@ import {
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { useMedia } from "@/lib/queries/use-location-media"
 
-// The vocabulary helpers used to live here; keep the import path stable.
-export {
-  humaniseCategory,
-  isPatchableMediaCategory,
-  PATCHABLE_MEDIA_CATEGORIES,
-} from "@/lib/locations/media-labels"
-
 /** Browse filters, read from the URL (`?ownership=customer&category=INTERIOR`). */
 function usePhotosUrlState(): PhotosState {
   const searchParams = useSearchParams()

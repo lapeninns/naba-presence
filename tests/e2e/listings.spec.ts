@@ -170,7 +170,13 @@ test.describe("listings", () => {
     await page.goto(`/listings/${state.primaryLocationId}/photos`)
     await page.getByRole("button", { name: "Add photos" }).click()
     await expect(page.getByRole("heading", { name: "Add media" })).toBeVisible()
-    await expect(page.getByLabel("Direct file upload")).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Choose from library" })
+    ).toBeVisible()
+    await expect(page.getByLabel("Direct file upload")).toHaveAttribute(
+      "accept",
+      "image/jpeg,image/png"
+    )
     await expect(
       page.getByRole("button", { name: "Review file upload" })
     ).toBeDisabled()
@@ -544,9 +550,7 @@ test.describe("listings", () => {
     ).toBeVisible()
     // Starting verification is reviewed, approved, then sent separately.
     const panel = page.locator('section[aria-labelledby="verification-start"]')
-    await panel
-      .getByRole("button", { name: "Check available methods" })
-      .click()
+    await panel.getByRole("button", { name: "Check available methods" }).click()
     await panel.getByRole("radio").check()
     await panel.getByLabel("Email username").fill("operations")
     await panel

@@ -36,7 +36,7 @@ export function MediaLabel({
   return (
     <span
       className={cn(
-        "inline-flex h-[22px] items-center rounded-(--np-radius-tag) px-2 text-[11.5px] leading-none font-semibold shadow-np-raised",
+        "inline-flex h-6 items-center rounded-(--np-radius-tag) px-2 text-caption font-semibold shadow-np-raised",
         tone === "accent"
           ? "bg-accent-tint text-accent-ink"
           : "bg-surface text-ink"

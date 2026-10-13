@@ -10,10 +10,10 @@ import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
 import { UnresolvedCreates } from "@/components/locations/photos/unresolved-creates"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
 import type { ListPaging } from "@/lib/queries/paged-list"
-import { formatNumber } from "@/lib/format"
 import { isPatchableMediaCategory } from "@/lib/locations/media-labels"
 import {
   hasActivePhotoFilters,
@@ -25,9 +25,9 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 /**
- * The loaded photos tab (reference `listing-photos.html`): heading with the
- * library's size and the Add action, the capability banner, the browse row,
- * then the gallery or an empty state, and the add-media dialog.
+ * The loaded photos tab (reference `listing-photos.html`): the Add action,
+ * the capability banner, the browse row, then the gallery or an empty
+ * state, and the add-media dialog.
  *
  * Owns the one "refresh from Google" mutation that every write re-runs
  * afterwards, so the gallery always shows what Google holds.
@@ -76,19 +76,14 @@ export function PhotosLibrary({
   })
   const refreshFromGoogle = () => refresh.mutate()
 
-  const statusLabel =
-    media.total === 0
-      ? filtersActive
-        ? "No matches"
-        : "No photos"
-      : `${formatNumber(media.total)} ${media.total === 1 ? "item" : "items"}${filtersActive ? " match" : " on Google"}`
-
+  // Inside the listing area the header above already carries the "Photos"
+  // h1, the status pill and the model note ("Changes here go to Google
+  // straight away."), so the frame keeps its title for the outline only and
+  // repeats none of them.
   return (
     <EditorFrame
       title="Photo library"
-      statusLabel={statusLabel}
-      tone={media.total === 0 ? "neutral" : "healthy"}
-      description="Every photo on the listing, yours and your customers’. There is no draft step: adding, moving or deleting a photo changes Google."
+      titleHidden
       gateReason={writeReason}
       gateTitle="You can look, but not change these photos"
       actions={
@@ -114,14 +109,14 @@ export function PhotosLibrary({
         />
 
         {media.total === 0 ? (
-          <div className="rounded-lg border border-line bg-surface">
+          <Card flush>
             <PhotosEmpty
               filtersActive={filtersActive}
               onClearFilters={() =>
                 onStateChange({ ownership: "all", category: "all" })
               }
             />
-          </div>
+          </Card>
         ) : (
           <PhotosGrid
             locationId={locationId}

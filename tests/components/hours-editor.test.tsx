@@ -1,9 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { HoursEditor } from "@/components/locations/hours-editor"
-import { validateHours } from "@/lib/editors/hours-presentation"
+import {
+  INVALID_TIME_MESSAGE,
+  validateHours,
+} from "@/lib/editors/hours-presentation"
 import { emptyHours } from "@/lib/locations/forms/hours"
 import type { NormalizedHours } from "@/lib/api/location-hours"
 
@@ -197,8 +201,8 @@ describe("HoursEditor service and boundary preservation", () => {
       />
     )
     expect(
-      screen.getByLabelText("Bar Sunday period 1 closing day")
-    ).toHaveValue("1")
+      screen.getByRole("combobox", { name: "Bar Sunday period 1 closing day" })
+    ).toHaveTextContent("Next day (Monday)")
     fireEvent.change(screen.getByLabelText("Kitchen Monday period 1 closes"), {
       target: { value: "16:00" },
     })
@@ -263,7 +267,8 @@ describe("HoursEditor service and boundary preservation", () => {
     expect(change.mock.calls[0][0].special).toEqual(initial.special)
   })
 
-  it("offers only supported IDs for creation and requires explicit removal confirmation", () => {
+  it("offers only supported IDs for creation and requires explicit removal confirmation", async () => {
+    const user = userEvent.setup()
     const initial = emptyHours()
     initial.moreHours = [{ hoursTypeId: "KITCHEN", periods: [] }]
     const change = vi.fn()
@@ -278,7 +283,13 @@ describe("HoursEditor service and boundary preservation", () => {
         ]}
       />
     )
-    expect(screen.getByRole("option", { name: "Bar" })).toHaveValue("BAR")
+    await user.click(
+      screen.getByRole("combobox", { name: "Service schedule to add" })
+    )
+    expect(
+      (await screen.findAllByRole("option")).map((o) => o.textContent)
+    ).toEqual(["Bar"])
+    await user.keyboard("{Escape}")
     fireEvent.click(
       screen.getByRole("button", { name: "Remove Kitchen schedule" })
     )
@@ -287,5 +298,147 @@ describe("HoursEditor service and boundary preservation", () => {
       screen.getByRole("button", { name: "Remove schedule from draft" })
     )
     expect(change.mock.calls[0][0].moreHours).toEqual([])
+  })
+})
+
+describe("HoursEditor phone-first controls", () => {
+  it("edits times on the numeric pad and tidies loose input on blur", () => {
+    const value = emptyHours()
+    value.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "09:00", closesAt: "17:00", closeDayOfWeek: 1 }],
+    }
+    function Controlled() {
+      const [hours, setHours] = useState(value)
+      return <HoursEditor value={hours} onChange={setHours} disabled={false} />
+    }
+    render(<Controlled />)
+    const opens = screen.getByLabelText("Monday period 1 opens")
+    expect(opens).toHaveAttribute("inputmode", "numeric")
+    expect(opens).toHaveAttribute("id", "hours-1-0-opens")
+    for (const [typed, tidy] of [
+      ["9", "09:00"],
+      ["930", "09:30"],
+      ["9:30", "09:30"],
+      ["0930", "09:30"],
+      ["24", "24:00"],
+    ]) {
+      fireEvent.change(opens, { target: { value: typed } })
+      fireEvent.blur(opens)
+      expect(opens).toHaveValue(tidy)
+    }
+  })
+
+  it("keeps the contract strict and names a good time when one is wrong", () => {
+    const value = emptyHours()
+    value.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "25:00", closesAt: "17:00", closeDayOfWeek: 1 }],
+    }
+    value.special = [
+      {
+        effectiveDate: "not-a-date",
+        isClosed: true,
+        opensAt: null,
+        closesAt: null,
+      },
+    ]
+    const issues = validateHours(value)
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        fieldId: "hours-1-0-opens",
+        message: INVALID_TIME_MESSAGE,
+      })
+    )
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        fieldId: "special-0-date",
+        message: "Enter a valid date.",
+      })
+    )
+  })
+
+  it("asks for the closing day of an overnight period and sets it from the sheet", async () => {
+    const user = userEvent.setup()
+    const value = emptyHours()
+    value.regular[5] = {
+      dayOfWeek: 5,
+      isClosed: false,
+      periods: [{ opensAt: "18:00", closesAt: "02:00" }],
+    }
+    const change = vi.fn()
+    render(<HoursEditor value={value} onChange={change} disabled={false} />)
+    const closingDay = screen.getByRole("combobox", {
+      name: "Friday period 1 closing day",
+    })
+    expect(closingDay).toHaveAttribute("id", "hours-5-0-end")
+    expect(closingDay).toHaveTextContent("Choose closing day")
+    await user.click(closingDay)
+    await user.click(
+      await screen.findByRole("option", { name: "Next day (Saturday)" })
+    )
+    expect(change.mock.calls[0][0].regular[5].periods[0]).toMatchObject({
+      opensAt: "18:00",
+      closesAt: "02:00",
+      closeDayOfWeek: 6,
+    })
+  })
+
+  it("chooses Closed or Custom hours for a special day as a radio pair", () => {
+    function Controlled() {
+      const [hours, setHours] = useState<NormalizedHours>({
+        ...emptyHours(),
+        special: [
+          {
+            effectiveDate: "2099-12-24",
+            isClosed: true,
+            opensAt: null,
+            closesAt: null,
+          },
+        ],
+      })
+      return <HoursEditor value={hours} onChange={setHours} disabled={false} />
+    }
+    render(<Controlled />)
+    const group = screen.getByRole("radiogroup", {
+      name: "Special date 1 hours",
+    })
+    expect(within(group).getByRole("radio", { name: "Closed" })).toBeChecked()
+    fireEvent.click(within(group).getByRole("radio", { name: "Custom hours" }))
+    expect(
+      within(group).getByRole("radio", { name: "Custom hours" })
+    ).toBeChecked()
+    expect(screen.getByLabelText("Special date 1 opens")).toHaveValue("09:00")
+    expect(screen.getByLabelText("Special date 1 closes")).toHaveValue("17:00")
+  })
+
+  it("copies a day's hours from a dialog that does not open over another dialog", async () => {
+    const user = userEvent.setup()
+    const value = emptyHours()
+    value.regular[1] = {
+      dayOfWeek: 1,
+      isClosed: false,
+      periods: [{ opensAt: "10:00", closesAt: "22:00", closeDayOfWeek: 1 }],
+    }
+    const change = vi.fn()
+    render(<HoursEditor value={value} onChange={change} disabled={false} />)
+    await user.click(
+      screen.getByRole("button", { name: "Copy Monday’s hours to other days" })
+    )
+    const dialog = await screen.findByRole("dialog")
+    expect(screen.getAllByRole("dialog")).toHaveLength(1)
+    await user.click(within(dialog).getByRole("button", { name: "Weekdays" }))
+    await user.click(
+      within(dialog).getByRole("button", { name: "Copy to 4 days" })
+    )
+    const next: NormalizedHours = change.mock.calls[0][0]
+    for (const day of [2, 3, 4, 5])
+      expect(next.regular[day]).toMatchObject({
+        isClosed: false,
+        periods: [{ opensAt: "10:00", closesAt: "22:00", closeDayOfWeek: day }],
+      })
+    expect(next.regular[6]).toEqual(value.regular[6])
   })
 })

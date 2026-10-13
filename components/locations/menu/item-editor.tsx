@@ -1,8 +1,22 @@
 "use client"
 
-import { ChevronDownIcon, ChevronUpIcon, Copy, Trash2Icon } from "lucide-react"
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  Copy,
+  MoreHorizontal,
+  Trash2Icon,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { currencySymbol, readLabel } from "@/lib/locations/forms/menu-editor"
@@ -10,7 +24,12 @@ import { cn } from "@/lib/utils"
 
 type Json = Record<string, unknown>
 
-/** A visible caption for a field that also carries a positional aria-label. */
+/**
+ * A visible caption for a field that also carries a positional aria-label:
+ * the Field label, drawn at caption size so a long menu stays dense. The
+ * editor owns the control ids (validation and "jump to" focus them), so the
+ * label points at the id it is given.
+ */
 export function FieldCaption({
   htmlFor,
   children,
@@ -19,12 +38,70 @@ export function FieldCaption({
   children: React.ReactNode
 }) {
   return (
-    <label
+    <FieldLabel
       htmlFor={htmlFor}
-      className="text-[11.5px] leading-4 font-semibold text-ink-muted"
+      className="text-caption font-semibold text-ink-muted"
     >
       {children}
-    </label>
+    </FieldLabel>
+  )
+}
+
+/**
+ * One overflow menu for a row's ordering, copying and removal (a floating
+ * menu on the desk, an action sheet on a phone). Remove is last, after a
+ * separator, and still asks before anything is removed.
+ */
+export function RowActionsMenu({
+  label,
+  title,
+  canMoveUp,
+  canMoveDown,
+  onMove,
+  onDuplicate,
+  onRemove,
+  removeLabel,
+}: {
+  /** The trigger's accessible name: "Actions for Soup". */
+  label: string
+  /** The phone action sheet's heading. */
+  title: string
+  canMoveUp: boolean
+  canMoveDown: boolean
+  onMove: (direction: -1 | 1) => void
+  onDuplicate?: () => void
+  onRemove: () => void
+  removeLabel: string
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="ghost" size="icon-sm" aria-label={label} />}
+      >
+        <MoreHorizontal aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent title={title}>
+        <DropdownMenuItem disabled={!canMoveUp} onClick={() => onMove(-1)}>
+          <ChevronUpIcon aria-hidden />
+          Move up
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!canMoveDown} onClick={() => onMove(1)}>
+          <ChevronDownIcon aria-hidden />
+          Move down
+        </DropdownMenuItem>
+        {onDuplicate ? (
+          <DropdownMenuItem onClick={onDuplicate}>
+            <Copy aria-hidden />
+            Duplicate
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={onRemove}>
+          <Trash2Icon aria-hidden />
+          {removeLabel}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -39,7 +116,7 @@ export function InlineError({ id, message }: { id: string; message?: string }) {
 
 /**
  * One item row: name, description and price, with move, duplicate and
- * remove controls that are always visible (never hover-only). The price
+ * remove in one always-visible overflow menu (never hover-only). The price
  * field shows the text as typed; the parent keeps it in the draft so a
  * collapsed section or another selected menu never loses an unfinished
  * decimal.
@@ -99,7 +176,7 @@ export function MenuItemEditor({
       <div
         className={cn(
           "grid grid-cols-1 items-start gap-x-3 gap-y-2.5 @[26rem]/section:grid-cols-[minmax(0,1fr)_auto]",
-          "@[46rem]/section:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_8rem_auto]"
+          "@[46rem]/section:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_--spacing(32)_auto]"
         )}
       >
         <div data-slot="field" className="flex min-w-0 flex-col gap-1">
@@ -130,11 +207,15 @@ export function MenuItemEditor({
             placeholder="Description"
             value={label.description}
             disabled={disabled}
-            rows={1}
+            // Grows with its content, so a two-line description is read
+            // rather than half-shown; starts one field high.
+            autoSize
+            minRows={1}
+            maxRows={6}
+            // A one-line start is shorter than a field on touch; the field
+            // height wins over the rows' inline minimum.
+            className="min-h-(--np-field-h)!"
             onChange={(event) => onDescription(event.target.value)}
-            // Grows with its content where the browser can (`field-sizing`),
-            // so a two-line description is read rather than half-shown.
-            className="field-sizing-content min-h-(--np-field-h)"
           />
         </div>
 
@@ -149,7 +230,7 @@ export function MenuItemEditor({
           <div className="relative">
             <span
               aria-hidden
-              className="pointer-events-none absolute top-1/2 left-[11px] -translate-y-1/2 font-mono text-ui text-ink-muted"
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-mono text-ui text-ink-muted"
             >
               {currencySymbol(currency)}
             </span>
@@ -171,48 +252,21 @@ export function MenuItemEditor({
 
         {!disabled ? (
           <div
-            role="group"
-            aria-label={`Actions for ${name}`}
             className={cn(
-              "row-start-4 flex flex-wrap items-center gap-0.5 justify-self-end @[26rem]/section:col-start-2 @[26rem]/section:row-start-1 @[26rem]/section:self-end",
+              "row-start-4 justify-self-end @[26rem]/section:col-start-2 @[26rem]/section:row-start-1 @[26rem]/section:self-end",
               "@[46rem]/section:col-start-4"
             )}
           >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${name} up`}
-              disabled={itemIndex === 0}
-              onClick={() => onMove(-1)}
-            >
-              <ChevronUpIcon aria-hidden />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${name} down`}
-              disabled={itemIndex === count - 1}
-              onClick={() => onMove(1)}
-            >
-              <ChevronDownIcon aria-hidden />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Duplicate ${name}`}
-              onClick={onDuplicate}
-            >
-              <Copy aria-hidden />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
-              aria-label={`Remove ${name}`}
-              onClick={onRemove}
-            >
-              <Trash2Icon aria-hidden />
-            </Button>
+            <RowActionsMenu
+              label={`Actions for ${name}`}
+              title={name}
+              canMoveUp={itemIndex > 0}
+              canMoveDown={itemIndex < count - 1}
+              onMove={onMove}
+              onDuplicate={onDuplicate}
+              onRemove={onRemove}
+              removeLabel="Remove item"
+            />
           </div>
         ) : null}
       </div>

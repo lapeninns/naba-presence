@@ -14,7 +14,7 @@ export function generateMetadata({
   return listingPageMetadata(params)
 }
 
-/** One listing's home: its state, its areas, its recent activity. */
+/** One listing’s home: its state, its areas and its health. */
 export default async function ListingPage({
   params,
 }: {
