@@ -4,13 +4,6 @@ import Link from "next/link"
 import * as React from "react"
 
 import { buttonVariants } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { Spinner } from "@/components/ui/spinner"
 import {
   CONFIRMATION_POLL_MS,
@@ -73,24 +66,34 @@ export function BillingConfirming({
   const attention = phase === "attention"
 
   return (
-    <Card flush data-slot="billing-confirming" data-phase={phase}>
-      <CardHeader divided>
-        <CardTitle as="h2">
+    // A centred state block (title, one line, the live status, one action),
+    // flat on a phone and in a card from md.
+    <section
+      aria-labelledby="billing-confirming-title"
+      data-slot="billing-confirming"
+      data-phase={phase}
+      className="flex flex-col items-center gap-4 px-1 py-10 text-center md:rounded-(--np-radius-card) md:border md:border-line md:bg-surface md:p-(--np-card-pad) md:py-12"
+    >
+      <div className="flex max-w-prose flex-col gap-1.5">
+        <h2
+          id="billing-confirming-title"
+          className="text-title font-semibold text-ink"
+        >
           {confirmed
             ? "Subscription confirmed"
             : attention
               ? "Subscription needs attention"
               : "Confirming subscription"}
-        </CardTitle>
-        <CardDescription>
+        </h2>
+        <p className="m-0 text-ui text-ink-muted">
           {confirmed
             ? "Stripe has confirmed the subscription."
             : attention
               ? "Stripe has the subscription, but its payment did not go through. Billing shows what to do next."
               : "We are waiting for Stripe to confirm the subscription. Nothing changes in this workspace until it does."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
+        </p>
+      </div>
+      <div className="flex max-w-prose flex-col items-center gap-3">
         <div role="status" aria-live="polite" className="text-body text-ink">
           {(confirmed || attention) && data ? (
             <p className="m-0">{describeBilling(data)}</p>
@@ -123,7 +126,7 @@ export function BillingConfirming({
             Back to Billing
           </Link>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
