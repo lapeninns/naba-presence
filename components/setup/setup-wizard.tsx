@@ -425,14 +425,22 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 surface tone: these move between steps, nothing here reaches
                 Google. Laid out as the card's last row (its gutter, its
                 corners), the buttons in one row; a blocked step's reason
-                takes a row of its own above them on a narrow card. */}
+                takes a row of its own above them on a narrow card.
+
+                Except on a short phone (under 640px tall): there two rows
+                with the app bar took over a quarter of the screen, so the
+                bar keeps the ActionBar's docked one-line shape instead.
+                Back shrinks to its arrow (still named "Back", still 44px)
+                and the reason, whole and readable, sits between it and
+                Continue; the gaps and the reason's weight ease so the
+                longest reason fits in five lines at 320px. */}
             <ActionBar
               data-slot="setup-footer"
               label="Step actions"
               tone="surface"
               dock
               visible={!isDone}
-              className="mt-auto gap-2 rounded-none rounded-b-(--np-radius-card) border-x-0 border-b-0 bg-surface-alt px-(--np-card-pad) pt-3 shadow-none max-md:flex-wrap"
+              className="mt-auto gap-2 rounded-none rounded-b-(--np-radius-card) border-x-0 border-b-0 bg-surface-alt px-(--np-card-pad) pt-3 shadow-none max-md:flex-wrap max-md:short:gap-1.5"
             >
               {/* One row of buttons. The reason line shows only when it
                     says why Continue is blocked; otherwise it stays for
@@ -444,7 +452,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 aria-live="polite"
                 className={cn(
                   blocker
-                    ? "order-first w-full text-caption font-semibold text-warning-ink @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right"
+                    ? "order-first w-full text-caption font-semibold text-warning-ink @min-[560px]/wiz:order-none @min-[560px]/wiz:w-auto @min-[560px]/wiz:flex-1 @min-[560px]/wiz:text-right max-md:short:order-none max-md:short:w-auto max-md:short:min-w-0 max-md:short:flex-1 max-md:short:leading-tight max-md:short:font-medium"
                     : "sr-only"
                 )}
               >
@@ -454,12 +462,12 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 variant="ghost"
                 onClick={() => goTo(flow[index - 1])}
                 disabled={index === 0}
-                className="@min-[560px]/wiz:order-first"
+                className="@min-[560px]/wiz:order-first max-md:short:order-first max-md:short:min-w-11 max-md:short:px-0"
               >
                 <ArrowLeftIcon aria-hidden />
-                Back
+                <span className="max-md:short:sr-only">Back</span>
               </Button>
-              <div className="ml-auto flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2 max-md:short:gap-1.5">
                 {definition.optional ? (
                   <Button variant="ghost" onClick={() => goTo(flow[index + 1])}>
                     Skip for now

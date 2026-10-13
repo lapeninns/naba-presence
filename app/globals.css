@@ -19,6 +19,12 @@
   @media not all and (min-width: 48rem) and (min-height: 34rem)
 );
 
+/* A short viewport: under 40rem (640px) tall, e.g. a 320x568 phone. Bottom
+   chrome that is two rows tall elsewhere (a docked step bar with its reason
+   above the buttons) folds to one row here, so the app bar plus the bar stay
+   within a quarter of the screen. Pair it with `max-md:` for phones. */
+@custom-variant short (@media not all and (min-height: 40rem));
+
 /* Hover motion only where a fine pointer can actually hover. */
 @custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
 

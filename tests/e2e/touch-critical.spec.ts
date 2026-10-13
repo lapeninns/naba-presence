@@ -852,6 +852,45 @@ test.describe("touch: critical journeys at 390x844", () => {
     }
   })
 
+  test("setup: on a short phone a blocked step's bar is one row and the chrome stays within a quarter", async ({
+    page,
+  }) => {
+    const state = await readJourneyState()
+    // 320x568: two rows (the reason over Back and Continue) plus the app bar
+    // took 27.6% of the screen. Under 640px tall the bar keeps one row.
+    await page.setViewportSize({ width: 320, height: 568 })
+    await page.goto(`/setup?client=${state.clientId}`)
+    const bar = page.locator("[data-slot=setup-footer]")
+    const reason = bar.locator("#setup-continue-reason")
+    await expect(reason).toBeVisible()
+    await expect(reason).not.toBeEmpty()
+    const back = bar.getByRole("button", { name: "Back", exact: true })
+    const next = bar.getByRole("button", { name: /^Continue/ })
+    await settle(page, reason, back, next)
+    const [barBox, reasonBox, nextBox, backBox] = [
+      (await bar.boundingBox())!,
+      (await reason.boundingBox())!,
+      (await next.boundingBox())!,
+      (await back.boundingBox())!,
+    ]
+    // One row: the reason sits beside the buttons, not above them.
+    expect(reasonBox.y + reasonBox.height).toBeGreaterThan(nextBox.y)
+    expect(reasonBox.x).toBeGreaterThanOrEqual(backBox.x + backBox.width)
+    expect(reasonBox.x + reasonBox.width).toBeLessThanOrEqual(nextBox.x)
+    // The arrow-only Back is still a full touch target.
+    expect(backBox.width).toBeGreaterThanOrEqual(44)
+    expect(backBox.height).toBeGreaterThanOrEqual(44)
+    const top = (await page.locator("[data-slot=app-bar]").boundingBox())!
+    expect((top.height + barBox.height) / 568).toBeLessThanOrEqual(0.25)
+    for (const [control, what] of [
+      [back, "Back"],
+      [next, "Continue"],
+    ] as const) {
+      await expect(control).toBeInViewport({ ratio: 1 })
+      await expectNotCovered(control, what)
+    }
+  })
+
   test("reports: a read journey by tap across the report tabs", async ({
     page,
   }) => {
