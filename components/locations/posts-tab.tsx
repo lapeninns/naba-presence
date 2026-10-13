@@ -14,7 +14,7 @@ import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { ChipRow, ToggleChip } from "@/components/ui/chip"
+import { ChipCount, ChipRow, ToggleChip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import { LoadMore } from "@/components/ui/load-more"
@@ -54,6 +54,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import type { ListPaging } from "@/lib/queries/paged-list"
 import { usePosts } from "@/lib/queries/use-location-posts"
+import { cn } from "@/lib/utils"
 
 function headline(post: Post): string {
   // Events and offers carry a title of their own. An update has none, so it
@@ -116,7 +117,7 @@ function problem(post: Post): React.ReactNode {
       <>
         Google didn’t accept this post, so nothing is live.{" "}
         {post.lastErrorCode ? (
-          <span className="font-mono text-caption text-ink-muted">
+          <span className="text-caption text-ink-muted">
             {post.lastErrorCode}
           </span>
         ) : null}
@@ -301,19 +302,32 @@ function PostsList({
           <ChipRow role="group" aria-label="Filter posts by status">
             {POST_FILTERS.map((option) => {
               const count = counts[option.value]
+              const alert = option.value === "attention" && count > 0
+              const pressed = filter === option.value
               return (
                 <ToggleChip
                   key={option.value}
-                  pressed={filter === option.value}
-                  count={count}
-                  countTone={
-                    option.value === "attention" && count > 0
-                      ? "alert"
-                      : "default"
-                  }
+                  pressed={pressed}
+                  // Filter-chip look: a filled capsule with no edge; the
+                  // current view takes the accent tint (the current item).
+                  className={cn(
+                    "border-transparent bg-fill-secondary hover-fine:hover:border-transparent hover-fine:hover:bg-fill",
+                    pressed &&
+                      "bg-accent-tint font-semibold text-accent-ink hover-fine:hover:border-transparent hover-fine:hover:bg-accent-tint"
+                  )}
                   onClick={() => setFilter(option.value)}
                 >
                   {option.label}
+                  <ChipCount
+                    tone={alert ? "alert" : "default"}
+                    className={
+                      alert
+                        ? undefined
+                        : "group-aria-pressed/chip:text-accent-ink"
+                    }
+                  >
+                    {count}
+                  </ChipCount>
                 </ToggleChip>
               )
             })}
@@ -339,7 +353,7 @@ function PostsList({
             </Card>
           ) : (
             <ul
-              className="flex flex-col gap-3"
+              className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface"
               aria-busy={switching || undefined}
             >
               {shown.map((post) => {
@@ -348,16 +362,16 @@ function PostsList({
                 const scheduled = scheduling
                   ? scheduledByPost.get(post.id)
                   : undefined
-                const meta = [
+                const meta = changedAt
+                  ? `Changed ${formatPostTimestamp(changedAt, timezone)}`
+                  : "Date unavailable"
+                const details = [
                   scheduled ? scheduleSummary(scheduled) : "",
                   postSchedule(post),
                   postRecurrence(post.event, timezone),
                   postActionLabel(post)
                     ? `${postActionLabel(post)} button`
                     : "",
-                  changedAt
-                    ? `Changed ${formatPostTimestamp(changedAt, timezone)}`
-                    : "Date unavailable",
                 ]
                   .filter(Boolean)
                   .join(" · ")
@@ -375,6 +389,7 @@ function PostsList({
                       status={status.label}
                       tone={status.tone}
                       meta={meta}
+                      details={details || undefined}
                       lang={post.languageCode}
                       thumbnailUrl={postImageUrl(post)}
                       problem={problem(post)}

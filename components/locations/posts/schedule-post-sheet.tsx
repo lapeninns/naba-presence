@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -46,11 +47,21 @@ import {
   slotProblemMessage,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
+import {
+  PRESET_TIME,
+  formatWallDay,
+  presetDates,
+  type SchedulePreset,
+} from "@/components/locations/posts/schedule-dates"
 import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
 
 type Frequency = ScheduleRule["frequency"]
+/** Which preset row is chosen; "custom" shows the full form. */
+type When = SchedulePreset | "custom"
+/** A preset option row: 44px on touch, the same padding at the desk. */
+const PRESET_ROW = "px-3 desk:min-h-(--np-touch) desk:py-2.5"
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 /** Read only from the open handler, never during render. */
@@ -102,6 +113,13 @@ function initial(
  * organisation has repeating schedules switched on (`recurring`).
  * `suggested` pre-fills a new schedule's date and time (an old per-post
  * time under review); `newTime` titles the sheet for a missed slot.
+ *
+ * A new one-time schedule (no `existing`, `suggested`, `newTime` or
+ * repeating option) opens on preset rows first: "Tomorrow morning" and
+ * "Next Monday", each at 09:00 in the venue's zone and shown resolved with
+ * that zone, and "Pick a date and time" for the full form. A preset only
+ * fills the form's date and time: the same validation, expansion preview
+ * and "Submit schedule for approval" follow, and nothing publishes.
  */
 export function SchedulePostSheet({
   locationId,
@@ -136,6 +154,11 @@ export function SchedulePostSheet({
     initial(existing, 0, recurring, zone, suggested)
   )
   const [failure, setFailure] = useState<string | null>(null)
+  const offerPresets = !existing && !recurring && !newTime && !suggested
+  const [when, setWhen] = useState<When>("tomorrow")
+  // Read from the moment the sheet opened, in the venue's zone.
+  const presets =
+    offerPresets && openedAt ? presetDates(openedAt, timezone) : null
   // Any change to the opening values: a swipe or tap outside then asks
   // before throwing the schedule away.
   const [touched, setTouched] = useState(false)
@@ -275,10 +298,45 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
-    setForm(initial(existing, at, recurring, zone, suggested))
+    if (offerPresets) {
+      // The presets are venue times, so the form starts in the venue's
+      // zone on the first preset: exactly what that row says.
+      setZone(timezone)
+      setWhen("tomorrow")
+      setForm({
+        ...initial(existing, at, recurring, timezone, suggested),
+        startDate: presetDates(at, timezone).tomorrow,
+        localTime: PRESET_TIME,
+      })
+    } else setForm(initial(existing, at, recurring, zone, suggested))
     setTouched(false)
     setOpen(true)
   }
+  /** A preset fills the form's date and time; "custom" shows the form. */
+  function choose(next: When) {
+    setWhen(next)
+    if (next === "custom" || !presets) return
+    setTouched(true)
+    setZone(timezone)
+    setForm((current) => ({
+      ...current,
+      startDate: presets[next],
+      localTime: PRESET_TIME,
+      offsetMinutes: null,
+    }))
+  }
+  /** "Thu 15 Oct, 09:00 · venue time (Europe/London)", or why it can't be. */
+  function presetLine(date: string) {
+    const plan = planOnceSlot(
+      { startDate: date, localTime: PRESET_TIME },
+      timezone,
+      null,
+      new Date(openedAt)
+    )
+    const line = `${formatWallDay(date)}, ${PRESET_TIME} · venue time (${timezone})`
+    return plan.ok ? line : `${line}. ${slotProblemMessage(plan.problem)}`
+  }
+  const showForm = !offerPresets || when === "custom"
   useImperativeHandle(openRef, () => ({ open: show }))
 
   return (
@@ -339,52 +397,86 @@ export function SchedulePostSheet({
                 </SegmentedControlItem>
               </SegmentedControl>
             ) : null}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel>
-                  {form.frequency === "once" ? "Date" : "Starting"}
-                </FieldLabel>
-                <Input
-                  type="date"
-                  value={form.startDate}
-                  onChange={(event) => set("startDate", event.target.value)}
-                />
-              </Field>
-              <Field>
-                <FieldLabel>Local time</FieldLabel>
-                <Input
-                  type="time"
-                  value={form.localTime}
-                  onChange={(event) => set("localTime", event.target.value)}
-                />
-              </Field>
-            </div>
-            <Field>
-              <FieldLabel>Timezone</FieldLabel>
-              <Select
-                value={zone}
-                onValueChange={(value) => {
-                  if (!value) return
-                  setTouched(true)
-                  setZone(value)
-                }}
+            {offerPresets && presets ? (
+              <RadioGroup
+                aria-label="When to publish"
+                value={when}
+                onValueChange={(value) => choose(value as When)}
+                className="gap-0 divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface"
               >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value: string | null) =>
-                      value ? timezoneLabel(value) : ""
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {zones.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {timezoneLabel(option)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+                <RadioGroupItem
+                  value="tomorrow"
+                  description={presetLine(presets.tomorrow)}
+                  labelClassName={PRESET_ROW}
+                >
+                  Tomorrow morning
+                </RadioGroupItem>
+                <RadioGroupItem
+                  value="monday"
+                  description={presetLine(presets.monday)}
+                  labelClassName={PRESET_ROW}
+                >
+                  Next Monday
+                </RadioGroupItem>
+                <RadioGroupItem
+                  value="custom"
+                  description="Choose the day, the time and the timezone."
+                  labelClassName={PRESET_ROW}
+                >
+                  Pick a date and time
+                </RadioGroupItem>
+              </RadioGroup>
+            ) : null}
+            {showForm ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field>
+                    <FieldLabel>
+                      {form.frequency === "once" ? "Date" : "Starting"}
+                    </FieldLabel>
+                    <Input
+                      type="date"
+                      value={form.startDate}
+                      onChange={(event) => set("startDate", event.target.value)}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Local time</FieldLabel>
+                    <Input
+                      type="time"
+                      value={form.localTime}
+                      onChange={(event) => set("localTime", event.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Field>
+                  <FieldLabel>Timezone</FieldLabel>
+                  <Select
+                    value={zone}
+                    onValueChange={(value) => {
+                      if (!value) return
+                      setTouched(true)
+                      setZone(value)
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {(value: string | null) =>
+                          value ? timezoneLabel(value) : ""
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {zones.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {timezoneLabel(option)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </>
+            ) : null}
             {slot?.kind === "ambiguous" ? (
               <div className="flex flex-col gap-1.5">
                 <span id={`${id}-offset`} className="text-ui text-ink">

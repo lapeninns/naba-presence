@@ -68,7 +68,7 @@ export function LegacyPostSchedules({
       <div>
         <h3
           id="legacy-post-schedules"
-          className="text-title font-semibold text-ink"
+          className="text-body font-semibold text-ink"
         >
           Old post times to review
         </h3>
@@ -83,22 +83,21 @@ export function LegacyPostSchedules({
           {failure}
         </p>
       ) : null}
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface">
         {rows.map((row) => {
           const wall = row.scheduledPublishTime
             ? localWallTime(row.scheduledPublishTime, timezone)
             : null
           const label = row.summary.slice(0, 80) || row.topicType
           return (
-            <li
-              key={row.id}
-              className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusPill tone="warn">Needs review</StatusPill>
-                <span className="min-w-0 text-ui font-semibold break-words text-ink">
+            <li key={row.id} className="flex min-w-0 flex-col gap-1 px-3 py-3">
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <span className="min-w-0 text-body font-semibold break-words text-ink">
                   {label}
                 </span>
+                <StatusPill tone="warn" className="shrink-0">
+                  Needs review
+                </StatusPill>
               </div>
               <p className="text-ui text-ink-secondary tabular-nums">
                 {wall
@@ -117,7 +116,7 @@ export function LegacyPostSchedules({
                   cannot be scheduled. Dismiss the old time.
                 </p>
               ) : null}
-              <div className="flex flex-wrap gap-1">
+              <div className="mt-1 flex flex-wrap gap-1">
                 {row.schedulable ? (
                   <SchedulePostSheet
                     locationId={locationId}

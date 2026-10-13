@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
+import { scheduleWhen } from "@/components/locations/posts/schedule-dates"
 import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { Button } from "@/components/ui/button"
 import {
@@ -110,7 +111,7 @@ export function PostSchedules({
   return (
     <section aria-labelledby="post-schedules" className="flex flex-col gap-3">
       <div>
-        <h3 id="post-schedules" className="text-title font-semibold text-ink">
+        <h3 id="post-schedules" className="text-body font-semibold text-ink">
           Publication schedules
         </h3>
         <p className="text-ui text-ink-muted">
@@ -134,7 +135,7 @@ export function PostSchedules({
           </p>
         }
       >
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface">
           {schedules.map((schedule) => {
             const status = scheduleBadge(schedule)
             const reason = scheduleReasonText(schedule)
@@ -146,23 +147,31 @@ export function PostSchedules({
             return (
               <li
                 key={schedule.id}
-                className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3"
+                className="flex min-w-0 flex-col gap-1 px-3 py-3"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusPill tone={status.tone}>{status.label}</StatusPill>
-                  <span className="min-w-0 text-ui font-semibold break-words text-ink">
+                <div className="flex min-w-0 items-start justify-between gap-2">
+                  <span className="min-w-0 text-body font-semibold break-words text-ink">
                     {schedule.template.summary.slice(0, 80) ||
                       schedule.template.topicType}
                   </span>
+                  <StatusPill tone={status.tone} className="shrink-0">
+                    {status.label}
+                  </StatusPill>
                 </div>
-                <p className="text-ui text-ink-secondary">
-                  {describeScheduleRule(
+                <p className="text-ui text-ink-secondary tabular-nums">
+                  {scheduleWhen(
                     schedule.rule,
                     schedule.timezone,
                     schedule.offsetMinutes
                   )}
                 </p>
                 <p className="text-caption text-ink-muted tabular-nums">
+                  {describeScheduleRule(
+                    schedule.rule,
+                    schedule.timezone,
+                    schedule.offsetMinutes
+                  )}
+                  {" · "}
                   {Object.entries(schedule.counts)
                     .map(([key, value]) => `${value} ${key}`)
                     .join(" · ") || `${schedule.preview.total} planned`}
@@ -175,7 +184,7 @@ export function PostSchedules({
                     {reason}
                   </p>
                 ) : null}
-                <div className="flex flex-wrap gap-1">
+                <div className="mt-1 flex flex-wrap gap-1">
                   {actions.review ? (
                     <Button
                       size="sm"
