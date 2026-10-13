@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { toast } from "@/components/ui/toast"
+import { showToast, toast, toastProgress } from "@/components/ui/toast"
 
 // Toast's manager API (`toast.add`) is imperative, so demonstrating it needs
 // a click handler — unlike Dialog/Sheet, whose triggers manage open state
@@ -16,14 +16,28 @@ export function ToastDemo() {
         variant="outline"
         size="sm"
         onClick={() =>
-          toast.add({
-            title: "Reply published",
-            description: "Your response is now live on Google.",
-            type: "success",
-          })
+          showToast({ title: "Review marked done", undo: { onUndo: () => {} } })
         }
       >
-        Success
+        Local · Undo
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => {
+          const publishing = toastProgress("Publishing reply…", {
+            kind: "google",
+          })
+          window.setTimeout(
+            () =>
+              publishing.success("Reply published", {
+                link: { href: "https://business.google.com/" },
+              }),
+            1500
+          )
+        }}
+      >
+        Google write · phases
       </Button>
       <Button
         variant="outline"

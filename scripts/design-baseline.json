@@ -4,7 +4,7 @@
     "R1": 14,
     "R2": 9,
     "R3": 71,
-    "R4": 15,
+    "R4": 13,
     "R5": 2,
     "R6": 2,
     "R7": 16
@@ -483,14 +483,6 @@
         "patterns": {
           "max-h-[min(24rem,var(--available-height))]": 1,
           "pl-[11px]": 1
-        }
-      }
-    },
-    "components/ui/sheet.tsx": {
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "z-10": 2
         }
       }
     },

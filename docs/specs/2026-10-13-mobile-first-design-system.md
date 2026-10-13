@@ -192,3 +192,29 @@ reflow at 320px, 2.5.3 label in name, and forced-colours focus.
 - `tests/perf/perf-lab.mjs`: throttled mobile lab budgets.
 - Playwright: the existing suites plus a touch project (390x844, `hasTouch`,
   `isMobile`) for the critical journeys.
+
+## Amendment 2026-10-13: Notion Mail type identity (D1)
+
+This amendment supersedes the serif in the type table above and the "serif
+page titles and customer words" line in the summary.
+
+- **All sans.** Page titles, headings, list rows and the customer's words use
+  the system sans. In `app/globals.css`, `--font-display` points at
+  `var(--font-sans)`, and `--font-heading` and `--font-reading` follow it
+  through `--font-display`.
+- **`text-reading` keeps 17/28.** It keeps its size and line height at every
+  width; only the face changes to sans.
+- **Mono is narrow.** Use it only for IDs, codes and tabular figures in
+  tables. List timestamps are sans `text-caption tabular-nums`.
+- **Reversible.** Reverting that one token block (the `--font-display` line)
+  restores the serif everywhere. `tests/design-system-contract.test.ts` pins
+  the new values with the same strictness.
+- **Feature code must not set font families.** Type identity lives only in
+  the token block, so the change and its rollback each stay one edit.
+
+The same drop adds the Notion Mail foundation tokens: `--np-indicator-unread`,
+the neutral avatar roles, `--np-row-mail-py`, `--np-row-inset-start`,
+`--np-settings-row-h`, `--np-chip-h`, the inset-sheet and toast radii,
+`--np-shadow-float`, the banner roles and the decorative `--np-tag-*` ramp.
+The menu radius moves from 10px to 14px. Every new colour pair is gated in
+`lib/design/contrast-pairs.ts`.

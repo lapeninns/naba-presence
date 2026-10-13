@@ -219,4 +219,135 @@ function ChipRow({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-export { ChipCount, ChipRow, RemovableChip, ToggleChip, chipClassName }
+/** The plain text of a label, for the remove control's name. */
+function labelText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean")
+    return ""
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(labelText).join("")
+  if (React.isValidElement<{ children?: React.ReactNode }>(node))
+    return labelText(node.props.children)
+  return ""
+}
+
+/**
+ * The filter chip (Notion Mail, brief §4.3): a quieter capsule than
+ * `ToggleChip`, `--np-chip-h` drawn (28px touch, 24px desk) on the
+ * `fill-secondary` grey with no edge, `text-ui`. On touch an invisible
+ * extension takes the hit area to the 44px floor, so a strip of chips stays
+ * short.
+ *
+ * Two jobs, by props:
+ * - a TOGGLE (`pressed`, `onClick`): a button reporting `aria-pressed`;
+ * - an APPLIED filter (`onRemove`): the whole chip is the remove control,
+ *   drawn with a ×, named "Remove filter: <label>" (`removeLabel`
+ *   overrides). A 20px × inside a 28px chip is too small to hit on a phone,
+ *   and an applied chip has nothing else to do when pressed.
+ *
+ * Pressed and applied chips are `accent-tint` / `accent-ink` / 600: the
+ * weight and the × (or the pressed state) are the non-colour cues.
+ * Labels are never truncated: put chips in a `FilterChipStrip`, which
+ * scrolls sideways instead.
+ */
+function filterChipClassName({
+  active = false,
+  className,
+}: { active?: boolean; className?: string } = {}) {
+  return cn(
+    "group/chip relative inline-flex h-(--np-chip-h) shrink-0 items-center gap-1 rounded-(--np-radius-pill) bg-fill-secondary px-3 text-ui whitespace-nowrap text-ink no-underline focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none",
+    // 28px drawn, 44px pressable on touch (see chipClassName).
+    "after:absolute after:inset-x-0 after:inset-y-[calc((100%-var(--np-touch))/2)] after:content-[''] desk:after:hidden",
+    "hover-fine:hover:bg-fill",
+    "disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
+    active &&
+      "bg-accent-tint font-semibold text-accent-ink hover-fine:hover:bg-(--np-accent-tint-strong)",
+    className
+  )
+}
+
+type FilterChipProps = Omit<React.ComponentProps<"button">, "children"> & {
+  children: React.ReactNode
+  /** A toggle chip's state; reported as `aria-pressed`. */
+  pressed?: boolean
+  /** Makes the chip an applied filter whose press removes it. */
+  onRemove?: () => void
+  /** The remove control's name. Defaults to "Remove filter: <label>". */
+  removeLabel?: string
+  /** A count after the label. */
+  count?: React.ReactNode
+}
+
+function FilterChip({
+  children,
+  pressed,
+  onRemove,
+  removeLabel,
+  count,
+  className,
+  onClick,
+  ...props
+}: FilterChipProps) {
+  const removable = onRemove !== undefined
+  const active = removable || Boolean(pressed)
+  return (
+    <button
+      type="button"
+      data-slot="filter-chip"
+      data-active={active || undefined}
+      aria-pressed={removable ? undefined : pressed}
+      aria-label={
+        removable
+          ? (removeLabel ?? `Remove filter: ${labelText(children)}`)
+          : undefined
+      }
+      onClick={(event) => {
+        onClick?.(event)
+        if (!event.defaultPrevented) onRemove?.()
+      }}
+      className={filterChipClassName({
+        active,
+        className: cn(removable && "pe-2", className),
+      })}
+      {...props}
+    >
+      {children}
+      {count !== undefined && count !== null ? (
+        <span
+          data-slot="chip-count"
+          className="text-count leading-none tabular-nums"
+        >
+          {count}
+        </span>
+      ) : null}
+      {removable ? <X aria-hidden strokeWidth={1.75} /> : null}
+    </button>
+  )
+}
+
+/**
+ * The strip filter chips sit in: one row that scrolls sideways (never
+ * wraps, never truncates) with faded edges. `ChipRow` under another name.
+ */
+function FilterChipStrip({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <ChipRow
+      data-slot="filter-chip-strip"
+      // The 28px chip reaches 44px on touch; the padding keeps that hit
+      // area from being clipped by the scrolling row.
+      className={cn("-my-2 gap-1.5 py-2", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  ChipCount,
+  ChipRow,
+  FilterChip,
+  FilterChipStrip,
+  RemovableChip,
+  ToggleChip,
+  chipClassName,
+  filterChipClassName,
+}
+export type { FilterChipProps }
