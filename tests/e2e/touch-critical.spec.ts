@@ -1,5 +1,12 @@
 import { expect, type Locator, type Page, test } from "@playwright/test"
+import postgres from "postgres"
 
+import {
+  createTestTenant,
+  destroyTenants,
+  seedGoogleConnection,
+  seedLinkedReview,
+} from "../integration/helpers/tenant"
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // The critical journeys on a phone held in the hand: the `touch-390` project
@@ -10,7 +17,10 @@ import { readJourneyState } from "./helpers/stub-bridge"
 // ones under test: Base UI's touch handling, the tab bar, the docked bars.
 //
 // Nothing here publishes, saves or sends. Edits stay on the page, so the
-// seeded journey tenant every other spec reads is left as it was.
+// seeded journey tenant every other spec reads is left as it was. The
+// reverse holds too: no journey here depends on what earlier specs did to
+// that tenant. The inbox journeys run on a tenant of their own (below), and
+// an edit to a field the journey tenant shares sets its caret explicitly.
 
 async function applyCookie(
   page: Page,
@@ -19,6 +29,92 @@ async function applyCookie(
 ) {
   const [name, value] = cookie.split("=", 2)
   await page.context().addCookies([{ name, value, url: baseURL! }])
+}
+
+type InboxTenant = { cookie: string; reviewId: string; text: string }
+
+/**
+ * The inbox journeys' own tenant. The journey tenant's reviews are shared
+ * with journeys.spec, which publishes a reply to one, moving it out of
+ * "Needs reply" and turning its composer's action into "Update reply"; in a
+ * full run that happens first, whatever the order. So each inbox journey gets
+ * a fresh agency organisation set up the way the journey tenant is (direct
+ * publishing confirmed, no approval step), one Google connection and one
+ * never-replied review, destroyed after the test. Its cookie is applied in
+ * the test body, because the describe's beforeEach (which signs in as the
+ * journey tenant) runs after fixtures.
+ */
+const touchTest = test.extend<
+  { inboxTenant: InboxTenant },
+  { harnessAdmin: ReturnType<typeof postgres> }
+>({
+  harnessAdmin: [
+    // Playwright requires the first fixture argument to be destructured.
+    async ({}, provide) => {
+      const url = process.env.DIRECT_DATABASE_URL
+      if (!url) {
+        throw new Error(
+          "DIRECT_DATABASE_URL (the harness database) is required to seed the touch inbox tenant."
+        )
+      }
+      const admin = postgres(url, { max: 1 })
+      await provide(admin)
+      await admin.end()
+    },
+    { scope: "worker" },
+  ],
+  inboxTenant: async ({ harnessAdmin }, provide) => {
+    const tenant = await createTestTenant(harnessAdmin)
+    try {
+      await harnessAdmin`
+        update organisation
+        set
+          approval_required = false,
+          require_two_person_approval = false,
+          direct_publish_consent_at = now(),
+          direct_publish_consent_by = ${tenant.userId}
+        where id = ${tenant.organisationId}
+      `
+      const connection = await seedGoogleConnection(harnessAdmin, {
+        organisationId: tenant.organisationId,
+      })
+      const text = "Touch project review"
+      const review = await seedLinkedReview(harnessAdmin, {
+        organisationId: tenant.organisationId,
+        connectionId: connection.connectionId,
+        googleAccountName: connection.googleAccountName,
+        text,
+        rating: 5,
+      })
+      // Filed under a client, as every journey-tenant location is, so the
+      // agency inbox shows it the way it shows real work.
+      await harnessAdmin`
+        with filed as (
+          insert into client (organisation_id, name, slug)
+          values (${tenant.organisationId}, 'Touch Hospitality', 'touch-hospitality')
+          returning id
+        )
+        update location set client_id = (select id from filed)
+        where id = ${review.locationId}
+      `
+      await provide({ cookie: tenant.cookie, reviewId: review.reviewId, text })
+    } finally {
+      await destroyTenants(harnessAdmin, [tenant.organisationId])
+    }
+  },
+})
+
+/**
+ * Put the caret at the end of a text field. A tap lands it wherever the
+ * finger was, and End does not move it on every platform (not on macOS), so
+ * typing after a tap would splice into the middle of whatever value an
+ * earlier spec left there.
+ */
+async function caretToEnd(field: Locator) {
+  await field.evaluate((element) => {
+    const input = element as HTMLInputElement | HTMLTextAreaElement
+    input.setSelectionRange(input.value.length, input.value.length)
+  })
 }
 
 /**
@@ -448,82 +544,84 @@ test.describe("touch: critical journeys at 390x844", () => {
     ).toBeVisible()
   })
 
-  test("inbox: a review opens as a pushed detail with exactly one way back", async ({
-    page,
-  }) => {
-    const state = await readJourneyState()
-    await page.goto("/inbox")
-    const list = page.getByRole("region", { name: "Review list" })
-    await tap(
-      list.getByRole("button", {
-        name: new RegExp(state.directReview.text + " "),
-      })
-    )
-    await expect(page).toHaveURL(
-      new RegExp(`[?&]selected=${state.directReview.id}`)
-    )
-    const detail = page.getByRole("region", { name: "Selected review" })
-    await expect(detail).toBeVisible()
-    await expect(detail.getByText(state.directReview.text)).toBeVisible()
-    // The list is pushed away, not beside the review, on a phone.
-    await expect(list).toBeHidden()
-    // One way back, whether it is drawn as a button or a link.
-    const backControls = page
-      .getByRole("button", { name: /^Back\b/ })
-      .or(page.getByRole("link", { name: /^Back\b/ }))
-    await expect(backControls).toHaveCount(1)
-    await tap(backControls)
-    await expect(list).toBeVisible()
-    await expect(page).not.toHaveURL(/[?&]selected=/)
-  })
+  touchTest(
+    "inbox: a review opens as a pushed detail with exactly one way back",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await page.goto("/inbox")
+      const list = page.getByRole("region", { name: "Review list" })
+      await tap(
+        list.getByRole("button", {
+          name: new RegExp(inboxTenant.text + " "),
+        })
+      )
+      await expect(page).toHaveURL(
+        new RegExp(`[?&]selected=${inboxTenant.reviewId}`)
+      )
+      const detail = page.getByRole("region", { name: "Selected review" })
+      await expect(detail).toBeVisible()
+      await expect(detail.getByText(inboxTenant.text)).toBeVisible()
+      // The list is pushed away, not beside the review, on a phone.
+      await expect(list).toBeHidden()
+      // One way back, whether it is drawn as a button or a link.
+      const backControls = page
+        .getByRole("button", { name: /^Back\b/ })
+        .or(page.getByRole("link", { name: /^Back\b/ }))
+      await expect(backControls).toHaveCount(1)
+      await tap(backControls)
+      await expect(list).toBeVisible()
+      await expect(page).not.toHaveURL(/[?&]selected=/)
+    }
+  )
 
-  test("inbox: the reply composer's docked bar keeps the focused reply clear, with the keyboard up", async ({
-    page,
-  }) => {
-    const state = await readJourneyState()
-    await installKeyboardShim(page)
-    await page.goto(`/inbox?selected=${state.directReview.id}`)
-    const reply = page.getByRole("textbox", { name: "Your reply" })
-    await tap(reply)
-    await page.keyboard.type("Thank you for the lovely review, Stub.")
-    await expect(reply).toBeFocused()
+  touchTest(
+    "inbox: the reply composer's docked bar keeps the focused reply clear, with the keyboard up",
+    async ({ page, baseURL, inboxTenant }) => {
+      await applyCookie(page, baseURL, inboxTenant.cookie)
+      await installKeyboardShim(page)
+      await page.goto(`/inbox?selected=${inboxTenant.reviewId}`)
+      const reply = page.getByRole("textbox", { name: "Your reply" })
+      await tap(reply)
+      await page.keyboard.type("Thank you for the lovely review, Stub.")
+      await expect(reply).toBeFocused()
 
-    const bar = page.locator("[data-slot=composer-footer]")
-    await expect(bar).toBeVisible()
-    await expect(
-      bar.getByRole("button", { name: "Publish reply" })
-    ).toBeVisible()
-    // One bar owns the bottom edge: the tab bar has stepped aside.
-    await expect(page.locator("[data-slot=tab-bar]")).toBeHidden()
-    await expectNotCovered(
-      bar.getByRole("button", { name: "Publish reply" }),
-      "Publish reply"
-    )
-    await expectFocusClear(
-      page,
-      "[data-slot=composer-footer]",
-      "textarea",
-      "with the keyboard down"
-    )
+      const bar = page.locator("[data-slot=composer-footer]")
+      await expect(bar).toBeVisible()
+      await expect(
+        bar.getByRole("button", { name: "Publish reply" })
+      ).toBeVisible()
+      // One bar owns the bottom edge: the tab bar has stepped aside.
+      await expect(page.locator("[data-slot=tab-bar]")).toBeHidden()
+      await expectNotCovered(
+        bar.getByRole("button", { name: "Publish reply" }),
+        "Publish reply"
+      )
+      await expectFocusClear(
+        page,
+        "[data-slot=composer-footer]",
+        "textarea",
+        "with the keyboard down"
+      )
 
-    await openKeyboard(page)
-    // The bar rides on the keyboard: its actions are above the keyboard's
-    // edge, and the focused reply is above the bar.
-    await settle(page, bar)
-    const publish = await bar
-      .getByRole("button", { name: "Publish reply" })
-      .boundingBox()
-    const visibleBottom = await page.evaluate(
-      () => window.visualViewport!.offsetTop + window.visualViewport!.height
-    )
-    expect(publish!.y + publish!.height).toBeLessThanOrEqual(visibleBottom)
-    await expectFocusClear(
-      page,
-      "[data-slot=composer-footer]",
-      "textarea",
-      "with the keyboard up"
-    )
-  })
+      await openKeyboard(page)
+      // The bar rides on the keyboard: its actions are above the keyboard's
+      // edge, and the focused reply is above the bar.
+      await settle(page, bar)
+      const publish = await bar
+        .getByRole("button", { name: "Publish reply" })
+        .boundingBox()
+      const visibleBottom = await page.evaluate(
+        () => window.visualViewport!.offsetTop + window.visualViewport!.height
+      )
+      expect(publish!.y + publish!.height).toBeLessThanOrEqual(visibleBottom)
+      await expectFocusClear(
+        page,
+        "[data-slot=composer-footer]",
+        "textarea",
+        "with the keyboard up"
+      )
+    }
+  )
 
   test("listings: open a listing, edit its profile, and review the change in the sheet", async ({
     page,
@@ -562,7 +660,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(review).toBeHidden()
     const original = await name.inputValue()
     await tap(name)
-    await page.keyboard.press("End")
+    await caretToEnd(name)
     await page.keyboard.type(" Touch")
     await expect(name).toHaveValue(`${original} Touch`)
 
@@ -706,8 +804,9 @@ test.describe("touch: critical journeys at 390x844", () => {
 
     const agency = page.getByRole("textbox", { name: "Agency name" })
     await tap(agency)
-    await page.keyboard.press("End")
+    await caretToEnd(agency)
     await page.keyboard.type(" Touch")
+    await expect(agency).toHaveValue(/ Touch$/)
     await expectFocusClear(
       page,
       "[data-slot=setup-footer]",
