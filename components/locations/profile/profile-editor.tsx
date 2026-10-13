@@ -916,8 +916,9 @@ function ProfileEditor({
       footer={
         quiet ? undefined : (
           <EditorFooter
-            // The bar starts at the form column, beside the desk rail.
-            className="desk:ml-[calc(12.5rem+1.5rem)]"
+            // The bar starts at the form column: the desk rail's width plus
+            // the grid's gap-x-6 below.
+            className="desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]"
             status={footerStatus}
             isDirty={footerDirty}
             canDiscard={isDirty}
@@ -970,7 +971,7 @@ function ProfileEditor({
         />
       ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 desk:grid-cols-[12.5rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 items-start gap-x-6 gap-y-3 desk:grid-cols-[var(--np-form-rail-w)_minmax(0,1fr)]">
         <SectionNav entries={navEntries} />
 
         <div className="@container/profile-body flex min-w-0 flex-col gap-5">

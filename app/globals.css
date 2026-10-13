@@ -538,6 +538,10 @@
   --np-card-pad: 16px;
   --np-panel-pad: 16px;
   --np-measure-reading: 72ch;
+  /* A long form's desk side column: the section nav beside the business
+     profile's fields (and the action bar inset to start at the fields).
+     Not the shell's icon rail, which is --np-rail-width. */
+  --np-form-rail-w: 12.5rem;
 
   /* Safe areas and the on-screen keyboard. The insets need
      `viewport-fit=cover` (app/layout.tsx). `--np-keyboard-inset` is written
