@@ -13,7 +13,3 @@ export function adjacentReviewId(
   return reviews[next]?.id ?? null
 }
 
-export function pageForIndex(index: number, pageSize: number): number {
-  if (index <= 0 || pageSize <= 0) return 0
-  return Math.floor(index / pageSize)
-}

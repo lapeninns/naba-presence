@@ -28,9 +28,11 @@ import type { InboxState } from "@/lib/inbox/url-state"
 // the rendered items come from the contract's sort vocabulary.
 
 /**
- * The review search: one field, debounced into the URL. The local draft
- * follows the URL when it is cleared from elsewhere ("Clear filters", the
- * chip's remove button). The shell's ⌘K launcher is Commands — clients,
+ * The review search, and the inbox's only one at every width ("Search
+ * reviews" is its name, label and placeholder): one field, debounced into
+ * the URL. The local draft
+ * follows the URL when it is cleared from elsewhere ("Clear all filters",
+ * the search chip). The shell's ⌘K launcher is Commands — clients,
  * venues and actions — and deliberately does not look inside review text, so
  * this is the one place to type words a customer wrote.
  */
@@ -45,7 +47,10 @@ function ReviewSearchField({
   ref?: React.Ref<HTMLInputElement>
   state: InboxState
   onChange: (partial: Partial<InboxState>) => void
-  /** Draws the `/` key hint at the trailing edge while the field is empty. */
+  /**
+   * Draws the `/` key hint at the trailing edge while the field is empty —
+   * on a desk only, since a phone has no key to press.
+   */
   showShortcut?: boolean
   className?: string
 }) {
@@ -79,15 +84,16 @@ function ReviewSearchField({
         aria-label="Search reviews"
         aria-busy={searchPending || undefined}
         value={searchDraft}
-        placeholder="Search reviews or reviewers"
+        placeholder="Search reviews"
+        enterKeyHint="search"
         onChange={(event) => setSearchDraft(event.target.value)}
         className="w-full"
-        inputClassName={showShortcut ? "pr-7" : undefined}
+        inputClassName={showShortcut ? "desk:pr-7" : undefined}
       />
       {showShortcut && searchDraft === "" ? (
         <Kbd
           aria-hidden
-          className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 pointer-coarse:hidden"
+          className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 desk:inline-flex"
         >
           /
         </Kbd>
@@ -129,26 +135,4 @@ function ReviewSortSelect({
   )
 }
 
-/** Search and sort side by side, for a surface that wants them as one strip. */
-function ReviewSearchBar({
-  state,
-  onChange,
-  className,
-}: {
-  state: InboxState
-  onChange: (partial: Partial<InboxState>) => void
-  className?: string
-}) {
-  return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <ReviewSearchField state={state} onChange={onChange} className="flex-1" />
-      <ReviewSortSelect
-        state={state}
-        onChange={onChange}
-        className="shrink-0"
-      />
-    </div>
-  )
-}
-
-export { ReviewSearchBar, ReviewSearchField, ReviewSortSelect }
+export { ReviewSearchField, ReviewSortSelect }

@@ -349,7 +349,9 @@ function TemplateReplyDialog({
 
             {skipped.length > 0 ? (
               <details className="text-caption">
-                <summary className="cursor-pointer text-ink-muted">
+                {/* Padded rather than flexed, so the disclosure marker stays;
+                    44px tall on touch. */}
+                <summary className="cursor-pointer py-3.5 text-ink-muted desk:py-0">
                   {skipped.length} selected{" "}
                   {skipped.length === 1 ? "is" : "are"} left out
                 </summary>

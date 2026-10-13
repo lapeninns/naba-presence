@@ -20,6 +20,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import { Textarea } from "@/components/ui/textarea"
 import { useToastManager } from "@/components/ui/toast"
 import {
@@ -105,8 +109,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const [body, setBody] = useState("")
   const [tone, setTone] = useState<Tone>(DEFAULT_TONE)
   const [confirmOpen, setConfirmOpen] = useState(false)
-  // The tone a regenerate waits on while the discard confirm is open.
-  const [pendingTone, setPendingTone] = useState<Tone | null>(null)
+  // A tone chosen over a reply already in the box: Generate then says which
+  // tone the next reply will be written in.
+  const [toneChanged, setToneChanged] = useState(false)
   // A failed generation, said where it happened, with the two ways on.
   const [generateError, setGenerateError] = useState<{
     message: string
@@ -124,7 +129,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   const isDirty = body !== seededBody
   const askDiscard = useAskDiscardConfirm()
-  const { confirmDiscard, restore } = useDirtyGuard({
+  const { confirmDiscard, restore, markDiscarded } = useDirtyGuard({
     key: guardKey,
     isDirty,
     snapshot: () => body,
@@ -149,6 +154,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       setBody(next)
       setMutationVerification(null)
       setVerdictStale(false)
+      setToneChanged(false)
       return
     }
     // A newer draft for the review already on screen: someone else saved one,
@@ -227,7 +233,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     confirmDiscard,
     offerSave
       ? { save: runSave, blockedReason: saveBlocked, saving }
-      : undefined
+      : undefined,
+    markDiscarded
   )
 
   // `g`: a first draft in the chosen tone, when there is nothing to lose —
@@ -274,6 +281,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       setBody(result.body)
       setMutationVerification(result.verification)
       setVerdictStale(false)
+      setToneChanged(false)
       const restorable =
         previous.trim() !== "" && previous !== result.body ? previous : null
       toasts.add({
@@ -311,34 +319,22 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
 
   function onGenerateClick() {
     if (isDirty && body.trim() !== "") {
-      setPendingTone(tone)
       setConfirmOpen(true)
       return
     }
     void runGenerate()
   }
 
-  // With a reply in the box, choosing a tone is asking for it in that tone,
-  // so it regenerates — through the same discard confirm when there are
-  // unsaved edits. With an empty box it only sets the tone Generate uses.
+  // Choosing a tone only sets the tone; Generate is what writes. A tone
+  // that regenerated the moment it was tapped spent an AI credit, and
+  // replaced the reply in the box, on what is usually a look at the
+  // options (and on a phone, a stray tap). Over a reply already in the box
+  // Generate then reads "Regenerate in <tone>", and goes through the same
+  // discard confirm as ever when there are unsaved edits.
   function onToneChoose(next: Tone) {
     if (next === tone || generateOrSave.isPending) return
-    // Out of credits: the tone is only remembered, nothing is written.
-    if (creditsExhausted) {
-      setTone(next)
-      return
-    }
-    if (body.trim() === "") {
-      setTone(next)
-      return
-    }
-    if (isDirty) {
-      setPendingTone(next)
-      setConfirmOpen(true)
-      return
-    }
     setTone(next)
-    void runGenerate(next)
+    if (body.trim() !== "") setToneChanged(true)
   }
 
   function writeOwn() {
@@ -391,6 +387,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       : []
   const showFail = verification?.verdict === "fail"
   const empty = body.trim() === ""
+  const showCredits = Boolean(aiCredits.data) && editable
   // Advice, ticked off as they type; never a gate — the verification above
   // is the only check that can stop a publish.
   const guidance = editable
@@ -403,6 +400,26 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         rating: review.rating,
       })
     : []
+
+  // Someone who may not edit gets the reply as text: no tone, no Generate,
+  // no credits and no box that looks typeable but is not.
+  if (!canEdit) {
+    return (
+      <div data-slot="reply-composer" className="flex min-w-0 flex-col">
+        <p
+          data-slot="reply-readonly"
+          lang={review.detectedLanguageCode ?? undefined}
+          dir="auto"
+          className={cn(
+            "m-0 rounded-lg border border-line bg-surface px-4 py-3 text-body whitespace-pre-line",
+            seededBody ? "text-ink" : "text-ink-muted"
+          )}
+        >
+          {seededBody || "No reply yet."}
+        </p>
+      </div>
+    )
+  }
 
   const discardDialog = (
     <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -418,11 +435,8 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           </AlertDialogClose>
           <Button
             onClick={() => {
-              const next = pendingTone ?? tone
               setConfirmOpen(false)
-              setPendingTone(null)
-              setTone(next)
-              void runGenerate(next)
+              void runGenerate(tone)
             }}
           >
             Discard and regenerate
@@ -443,7 +457,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         strokeWidth={1.75}
         className="size-4 shrink-0 text-danger-ink"
       />
-      <span className="min-w-0 flex-[1_1_200px]">
+      <span className="min-w-0 flex-1 basis-50">
         <strong className="font-semibold">No reply was generated.</strong>{" "}
         {generateError.creditsOut
           ? aiCredits.data && creditsExhausted
@@ -455,14 +469,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
         {generateError.creditsOut ? null : (
           <Button
             variant="secondary"
-            size="sm"
             disabled={generateOrSave.isPending}
             onClick={() => void runGenerate(generateError.tone)}
           >
             Retry
           </Button>
         )}
-        <Button variant="ghost" size="sm" onClick={writeOwn}>
+        <Button variant="ghost" onClick={writeOwn}>
           <PenLineIcon aria-hidden data-icon="inline-start" />
           Write my own
         </Button>
@@ -471,38 +484,33 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   ) : null
 
   // Tone applies to Generate, so it sits beside it, on the bar above the
-  // words: these are the prompt's controls, not part of the text.
+  // words: these are the prompt's controls, not part of the text. The
+  // segmented control as a radio group: one tab stop, arrow keys move and
+  // select, and the track scrolls inside itself (focusable, snapping, with an
+  // edge fade) rather than cutting a label when the pane is narrow.
   const toneControl = (
-    <div
-      role="radiogroup"
-      aria-label="Reply tone"
-      className="inline-flex h-[34px] max-w-full [scrollbar-width:none] items-center gap-0.5 overflow-x-auto rounded-[9px] border border-line bg-canvas p-0.5 @max-[480px]/detail:h-10 @max-[480px]/detail:flex-[1_1_100%] pointer-coarse:h-10"
-    >
-      {TONES.map((option) => {
-        const selected = tone === option.value
-        return (
-          <button
+    <>
+      <SegmentedControl
+        semantics="radio"
+        aria-label="Reply tone"
+        value={tone}
+        onValueChange={(next) => onToneChoose(next as Tone)}
+        disabled={!editable || generateOrSave.isPending}
+        className="min-w-0 @max-[480px]/detail:flex-[1_1_100%]"
+      >
+        {TONES.map((option) => (
+          <SegmentedControlItem
             key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            title={option.hint}
+            value={option.value}
+            // Named by its label, described by its hint: no hover-only title.
             aria-describedby={`${fieldId}-${option.value}-hint`}
-            disabled={!editable || generateOrSave.isPending}
-            onClick={() => onToneChoose(option.value)}
-            className={cn(
-              "inline-flex h-full shrink-0 items-center justify-center rounded-[7px] px-2.5 text-[13px] whitespace-nowrap focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-out-strong focus-visible:outline-none disabled:opacity-50 @max-[480px]/detail:flex-1",
-              selected
-                ? "bg-ink font-semibold text-canvas"
-                : "text-ink-secondary hover:bg-fill hover:text-ink"
-            )}
           >
             {option.label}
-          </button>
-        )
-      })}
-      {/* Outside the radios, so each is named by its label alone and
-          described by its hint. */}
+          </SegmentedControlItem>
+        ))}
+      </SegmentedControl>
+      {/* Outside the track, so each radio is named by its label alone and
+          the track holds only its segments. */}
       {TONES.map((option) => (
         <span
           key={option.value}
@@ -512,8 +520,14 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           {option.hint}
         </span>
       ))}
-    </div>
+    </>
   )
+  const toneLabel = TONES.find((option) => option.value === tone)?.label
+  const generateLabel = empty
+    ? "Generate reply"
+    : toneChanged
+      ? `Regenerate in ${toneLabel}`
+      : "Regenerate"
 
   return (
     <div data-slot="reply-composer" className="flex min-w-0 flex-col gap-2">
@@ -527,23 +541,16 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       {/* One bordered card whose edge takes the focus ring while the
           textarea inside is borderless: the tone and Generate docked on a
           bar above the words, the guidance and length beneath them. */}
-      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:shadow-[0_0_0_3px_var(--np-fill)] has-[[aria-invalid=true]]:border-danger-ink">
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink">
         <div
           data-slot="composer-prompt-bar"
-          className="flex flex-wrap items-center gap-2 border-b border-line py-1.5 pr-1.5 pl-3"
+          className="flex flex-wrap items-center gap-2 border-b border-line p-1.5"
         >
-          <span
-            aria-hidden
-            className="text-caption text-ink-muted @max-[480px]/detail:hidden"
-          >
-            Tone
-          </span>
           {toneControl}
           <span aria-hidden className="flex-1" />
           {editable && isDirty && seededBody !== "" ? (
             <Button
               variant="ghost"
-              size="sm"
               disabled={generateOrSave.isPending}
               onClick={() => {
                 setBody(seededBody)
@@ -555,33 +562,25 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             </Button>
           ) : null}
           <Button
-            variant={empty ? "secondary" : "ghost"}
-            size="sm"
+            variant={empty || toneChanged ? "secondary" : "ghost"}
             disabled={!canGenerate}
             pending={generateOrSave.isPending && !saving}
             pendingLabel="Writing…"
             onClick={onGenerateClick}
           >
             <SparklesIcon aria-hidden data-icon="inline-start" />
-            {empty ? "Generate reply" : "Regenerate"}
+            {generateLabel}
           </Button>
         </div>
-        {aiCredits.data && editable ? (
-          <p
-            data-slot="ai-credits"
-            data-exhausted={creditsExhausted || undefined}
-            className={cn(
-              "m-0 border-b border-line px-3 py-1.5 text-caption",
-              creditsExhausted ? "text-warning-ink" : "text-ink-muted"
-            )}
-          >
-            {describeCreditsLeft(aiCredits.data)}
-          </p>
-        ) : null}
 
+        {/* Grows with the reply from six lines, then scrolls inside itself:
+            the publish bar and the keyboard below it stay where they are. */}
         <Textarea
           ref={textareaRef}
           id={fieldId}
+          autoSize
+          minRows={6}
+          maxRows={16}
           lang={review.detectedLanguageCode ?? undefined}
           dir="auto"
           value={body}
@@ -611,12 +610,13 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           }}
           placeholder="Write a reply, or generate one in the chosen tone."
           className={cn(
-            "min-h-[160px] rounded-none border-0 bg-transparent px-4 pt-3.5 pb-3 text-[15px] leading-relaxed shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            // text-body is 16px on touch, so iOS does not zoom into the box.
+            "rounded-none border-0 bg-transparent px-4 pt-3.5 pb-3 text-body shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
             generateOrSave.isPending && !saving && "animate-pulse"
           )}
         />
 
-        {guidance.length > 0 || nearLimit || overLimit ? (
+        {guidance.length > 0 || nearLimit || overLimit || showCredits ? (
           <div
             data-slot="composer-foot"
             className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5"
@@ -673,6 +673,20 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                   ? `Over Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`
                   : `Nearly at Google's length limit · ${bytes.toLocaleString("en-GB")} of ${BYTE_LIMIT.toLocaleString("en-GB")} bytes`}
               </span>
+            ) : null}
+            {/* Under the words rather than on its own row above them: on a
+                phone every row above the box pushes the box down. */}
+            {showCredits && aiCredits.data ? (
+              <p
+                data-slot="ai-credits"
+                data-exhausted={creditsExhausted || undefined}
+                className={cn(
+                  "m-0 basis-full text-caption",
+                  creditsExhausted ? "text-warning-ink" : "text-ink-muted"
+                )}
+              >
+                {describeCreditsLeft(aiCredits.data)}
+              </p>
             ) : null}
           </div>
         ) : null}

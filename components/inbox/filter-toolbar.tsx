@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, useState } from "react"
+import { useState } from "react"
 import { SlidersHorizontalIcon } from "lucide-react"
 
 import { FiltersSheet } from "@/components/inbox/more-filters"
@@ -145,16 +145,15 @@ function OwnerSelect({
 }
 
 /**
- * The filter end of the toolbar's second row (reference `.filters`): as few
- * controls as the width allows, and everything behind one Filters sheet.
+ * The filter end of the toolbar (reference `.filters`): as few controls as
+ * the width allows, and everything behind one Filters sheet.
  *
- * - 1280px and up: age, "waiting on" (Approval only) and sort stay on
- *   screen beside the button. Rating is in the sheet, where its five
- *   toggles have room, and its chip shows above the list once it is on.
- * - 1024 to 1279: sort and the button.
- * - 768 to 1023: the button alone; beside the icon rail and the queue track
- *   a sort select has no room to say what it sorts by.
- * - Phones: the button alone, so the queue track keeps the room.
+ * - `xl` and up: age, "waiting on" (Approval only) and sort stay on screen
+ *   beside the button. Rating is in the sheet, where its five toggles have
+ *   room, and its chip shows above the list once it is on.
+ * - `lg` to `xl`: sort and the button.
+ * - Below `lg`: the button alone; beside the queue strip a sort select has
+ *   no room to say what it sorts by. On a phone it sits beside the search.
  *
  * The sheet always holds every control, so nothing is out of reach at any
  * width; the inline copies are shortcuts to the ones used most.
@@ -167,9 +166,12 @@ function FilterToolbar({
   onChange,
   onQueueChange,
   onClear,
+  resultLabel,
   className,
 }: {
   state: InboxState
+  /** The list's count label, for the sheet's "Show 12 reviews". */
+  resultLabel: string
   locations: LocationOption[]
   clients: { id: string; name: string }[]
   showLocationFilter: boolean
@@ -178,8 +180,6 @@ function FilterToolbar({
   onClear: () => void
   className?: string
 }) {
-  const ageId = useId()
-  const ownerId = useId()
   const [open, setOpen] = useState(false)
   const isApproval = visibleQueue(state.queue) === "approval"
   const count = activeFilterCount(state)
@@ -191,28 +191,18 @@ function FilterToolbar({
       aria-label="Filter reviews"
       className={cn("flex min-w-0 items-center justify-end gap-2", className)}
     >
-      <label htmlFor={ageId} className="sr-only">
-        Age
-      </label>
       <AgeSelect
-        id={ageId}
         state={state}
         onChange={onChange}
         className="w-auto shrink-0 max-xl:hidden"
       />
 
       {isApproval ? (
-        <>
-          <label htmlFor={ownerId} className="sr-only">
-            Waiting on
-          </label>
-          <OwnerSelect
-            id={ownerId}
-            state={state}
-            onQueueChange={onQueueChange}
-            className="w-auto shrink-0 max-xl:hidden"
-          />
-        </>
+        <OwnerSelect
+          state={state}
+          onQueueChange={onQueueChange}
+          className="w-auto shrink-0 max-xl:hidden"
+        />
       ) : null}
 
       <ReviewSortSelect
@@ -235,7 +225,7 @@ function FilterToolbar({
         {count > 0 ? (
           <span
             aria-hidden
-            className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-(--np-radius-pill) bg-ink px-1 font-mono text-[11px] leading-none font-semibold text-canvas tabular-nums"
+            className="inline-flex h-5 min-w-5 items-center justify-center rounded-(--np-radius-pill) bg-ink px-1 font-mono text-caption leading-none font-semibold text-canvas tabular-nums"
           >
             {count}
           </span>
@@ -245,6 +235,7 @@ function FilterToolbar({
       <FiltersSheet
         open={open}
         onOpenChange={setOpen}
+        resultLabel={resultLabel}
         state={state}
         locations={locations}
         clients={clients}
