@@ -209,7 +209,7 @@ export function ReportBarChart({
         <p
           aria-hidden
           data-slot="report-bar-readout"
-          className="min-h-5 font-mono text-caption text-ink tabular-nums"
+          className="min-h-5 text-caption text-ink tabular-nums"
         >
           {selected === null ? (
             <span className="text-ink-muted">Latest {unitName} · </span>
@@ -234,7 +234,7 @@ export function ReportBarChart({
         >
           <div
             aria-hidden
-            className="relative h-45 w-9 font-mono text-caption text-ink-muted tabular-nums"
+            className="relative h-45 w-9 text-caption text-ink-muted tabular-nums"
           >
             {[0, 0.5, 1].map((fraction) => (
               <span
@@ -258,8 +258,8 @@ export function ReportBarChart({
             onKeyDown={onKeyDown}
             className="relative flex h-45 cursor-pointer items-end gap-px rounded-sm border-b border-line-strong outline-none focus-halo @[30rem]/chart:gap-0.5"
           >
-            <span className="pointer-events-none absolute inset-x-0 top-0 border-t border-line" />
-            <span className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-line" />
+            <span className="pointer-events-none absolute inset-x-0 top-0 border-t border-line-subtle" />
+            <span className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-line-subtle" />
             {data.map((datum, index) => {
               const show = labelAll || index === peak || index === last
               const value = printed(datum, index)
@@ -284,7 +284,7 @@ export function ReportBarChart({
                   {show && value !== null ? (
                     <span
                       className={cn(
-                        "pointer-events-none absolute bottom-(--label-y) font-mono text-caption leading-none font-semibold whitespace-nowrap text-ink tabular-nums",
+                        "pointer-events-none absolute bottom-(--label-y) text-caption leading-none font-semibold whitespace-nowrap text-ink tabular-nums",
                         index === last && data.length > 1
                           ? "right-0"
                           : index === 0 && data.length > 1
@@ -327,7 +327,7 @@ export function ReportBarChart({
           </div>
           <div
             aria-hidden
-            className="col-start-2 mt-1.5 flex justify-between gap-2 font-mono text-caption text-ink-muted tabular-nums"
+            className="col-start-2 mt-1.5 flex justify-between gap-2 text-caption text-ink-muted tabular-nums"
           >
             <span>{data[0]?.label}</span>
             {data.length > 2 ? (

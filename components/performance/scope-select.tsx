@@ -80,7 +80,7 @@ export function ScopeSelect<T extends string>({
         </SelectContent>
       </Select>
       {description ? (
-        <FieldDescription className="font-mono tabular-nums">
+        <FieldDescription className="tabular-nums">
           {description}
         </FieldDescription>
       ) : null}

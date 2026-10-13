@@ -229,7 +229,7 @@ export function KeywordsTab({
         />
         <p
           aria-live="polite"
-          className="font-mono text-caption text-ink-muted tabular-nums"
+          className="text-caption text-ink-muted tabular-nums"
         >
           {formatNumber(shown.length)} of {formatNumber(data.keywords.length)}{" "}
           terms
