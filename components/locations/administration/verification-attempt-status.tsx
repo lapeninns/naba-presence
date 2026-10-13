@@ -1,16 +1,11 @@
 "use client"
 
 import {
-  CONFIRMATION_LABELS,
-  EXECUTION_LABELS,
-  Instant,
   OutcomeSummary,
-  SummaryList,
   attemptOutcome,
   type SummaryRow,
 } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
-import { OperationOutcomeNotice } from "@/components/ui/operation-outcome"
 import type { VerificationAttempt } from "@/lib/contracts/google-verification-attempt"
 import type { OperationOutcome } from "@/lib/editors/outcome"
 import {
