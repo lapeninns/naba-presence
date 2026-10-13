@@ -198,13 +198,18 @@ function ActionBar({
 /**
  * The phone drawing of a docked bar: full width on the bottom edge, square
  * corners, a hairline on top, at least the action-bar height above the
- * dock edge, one line (status left, actions right). It slides up on
+ * dock edge, one line (status left, actions right). The bottom padding is
+ * `--np-dock-bottom` (the `pb-dock` edge: home indicator, or the keyboard
+ * while it is open) with an 8px floor, so on a phone with neither the
+ * buttons still sit centred in the 64px band. It slides up on
  * mount (`starting:`), so appearing with the first change reads as the bar
  * arriving rather than the page jumping.
  */
 const DOCKED_CLASS = cn(
-  "max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:m-0 max-md:flex-nowrap max-md:rounded-none max-md:border-x-0 max-md:border-t max-md:border-b-0 max-md:border-line max-md:px-safe",
-  "max-md:min-h-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))] max-md:pt-2 max-md:pb-dock",
+  "max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:m-0 max-md:flex-nowrap max-md:rounded-none max-md:border-x-0 max-md:border-t max-md:border-b-0 max-md:border-line",
+  // The page gutter, or the landscape notch when that is wider.
+  "max-md:pr-[max(--spacing(4),var(--np-safe-right))] max-md:pl-[max(--spacing(4),var(--np-safe-left))]",
+  "max-md:min-h-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))] max-md:pt-2 max-md:pb-[max(--spacing(2),var(--np-dock-bottom))]",
   "max-md:transition-transform max-md:duration-(--np-duration-sheet) max-md:ease-out max-md:starting:translate-y-full"
 )
 

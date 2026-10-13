@@ -122,7 +122,9 @@ describe("ActionBar", () => {
     rerender(<ActionBar dock label="Editor actions" />)
     expect(region()).toHaveAttribute("data-docked", "bottom")
     expect(region().className).toContain("max-md:fixed")
-    expect(region().className).toContain("max-md:pb-dock")
+    expect(region().className).toContain(
+      "max-md:pb-[max(--spacing(2),var(--np-dock-bottom))]"
+    )
     expect(region().className).toContain("z-chrome")
     expect(region().className).not.toMatch(/\bz-20\b|\bz-50\b/)
   })
