@@ -22,9 +22,16 @@ import { cn } from "@/lib/utils"
  *
  * Every hover colour is a token. Focus is the `focus-halo` utility.
  *
- * Coarse pointers: every size except `xs` grows to the 44px touch floor.
+ * Sizes read the control tokens, which are touch-first (globals.css): the
+ * default is `--np-control-h` (44px on touch, 36px under `desk`), `sm` is
+ * `--np-control-h-sm` (36/30). Nothing is patched per pointer any more. `sm`
+ * and `icon-sm` add an invisible hit area that reaches 44px on touch (an
+ * `::after` overhang, dropped under `desk`), so a small secondary still meets
+ * the touch floor without drawing bigger. `xs`/`icon-xs` are 24px everywhere
+ * — the WCAG 2.5.8 floor — for dense meta actions only; never a primary.
+ * Every `icon*` size is square at every density.
  */
-const buttonVariants = cva(
+const buttonCva = cva(
   "group/button relative inline-flex shrink-0 items-center justify-center rounded-(--np-radius-control) border border-transparent text-ui leading-none font-semibold whitespace-nowrap no-underline focus-halo transition-[background-color,border-color,color,box-shadow,transform] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none active:not-disabled:not-data-disabled:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress aria-invalid:text-danger-ink data-disabled:cursor-not-allowed data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
@@ -56,11 +63,12 @@ const buttonVariants = cva(
         // shrinks its buttons with it (the token is 44px on coarse pointers).
         default: "h-(--np-control-h) gap-2 px-3.5",
         xs: "h-6 gap-1 px-2 text-caption [&_svg:not([class*='size-'])]:size-3.5",
-        sm: "h-[30px] gap-1.5 px-2.5 text-[12.5px] pointer-coarse:min-h-(--np-touch)",
+        sm: "h-(--np-control-h-sm) gap-1.5 px-2.5 text-ui after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] desk:after:hidden",
         lg: "h-11 gap-2 px-5 text-body",
         icon: "size-(--np-control-h)",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3.5",
-        "icon-sm": "size-[30px] pointer-coarse:size-(--np-touch)",
+        "icon-sm":
+          "size-(--np-control-h-sm) after:absolute after:-inset-1 after:content-[''] desk:after:hidden",
         "icon-lg": "size-11",
       },
       // A capsule, for the rare prominent call to action.
@@ -81,6 +89,21 @@ const buttonVariants = cva(
     },
   }
 )
+
+type ButtonVariantOptions = Parameters<typeof buttonCva>[0]
+
+/**
+ * The button's classes, already merged. A link or label drawn as a button
+ * uses this directly (`<Link className={buttonVariants({ variant:
+ * "secondary" })}>`). It merges inside, because the base sets
+ * `border-transparent` and a variant then sets its own border colour: read
+ * raw, both classes reach the element and the later-in-the-stylesheet one
+ * wins, so a secondary link lost its edge (clients-reports-10). Wrapping it
+ * in `cn()` as well is harmless.
+ */
+function buttonVariants(options?: ButtonVariantOptions): string {
+  return cn(buttonCva(options))
+}
 
 // Icon-only sizes render no visible label, so the type system requires
 // aria-label wherever one of these sizes is selected.
@@ -109,6 +132,15 @@ type ButtonBaseProps = Omit<React.ComponentProps<"button">, "size"> &
      */
     disabledReason?: string
     focusableWhenDisabled?: boolean
+    /**
+     * Below this breakpoint the button draws as a square icon button: the
+     * label becomes visually hidden (still the accessible name, so the
+     * label-in-name rule holds) and the width collapses to the control
+     * height. Needs a leading `<svg>` icon among the children. Pure CSS, so
+     * the server and the phone agree (prim-09: no more hand-rolled
+     * `max-md:sr-only` labels that leave a 37×44 button).
+     */
+    iconOnlyBelow?: "sm" | "md"
   }
 export type ButtonProps =
   | (ButtonBaseProps & {
@@ -139,6 +171,16 @@ function ButtonSpinner() {
   )
 }
 
+/**
+ * Each collapse: the button turns square at the default control height and
+ * every child that is not an icon becomes visually hidden. Written out so
+ * Tailwind sees the classes.
+ */
+const ICON_ONLY_BELOW = {
+  sm: "max-sm:size-(--np-control-h) max-sm:gap-0 max-sm:px-0 max-sm:[&>:not(svg):not([data-slot=button-spinner])]:sr-only",
+  md: "max-md:size-(--np-control-h) max-md:gap-0 max-md:px-0 max-md:[&>:not(svg):not([data-slot=button-spinner])]:sr-only",
+} as const
+
 function Button({
   className,
   variant = "default",
@@ -150,6 +192,7 @@ function Button({
   disabledReason,
   disabled,
   focusableWhenDisabled,
+  iconOnlyBelow,
   children,
   onClick,
   // Type-only marker (see ButtonProps).
@@ -169,13 +212,14 @@ function Button({
   // Button used as another primitive's `render` element — which may be
   // pre-rendered on the server before the trigger clones its label in —
   // carries no `children` key to override the label with.
-  const decorated = pending || Boolean(disabledReason)
+  const decorated = pending || Boolean(disabledReason) || Boolean(iconOnlyBelow)
+  const label = pending && pendingLabel !== undefined ? pendingLabel : children
   const childProps = decorated
     ? {
         children: (
           <>
             {pending ? <ButtonSpinner /> : null}
-            {pending && pendingLabel !== undefined ? pendingLabel : children}
+            {iconOnlyBelow ? wrapLabelText(label) : label}
             {disabledReason ? (
               // `hidden` keeps the reason out of the accessible NAME (hidden
               // content is skipped by name-from-content) while
@@ -211,7 +255,13 @@ function Button({
       data-variant={variant}
       data-size={size}
       data-pending={pending || undefined}
-      className={cn(buttonVariants({ variant, size, pill, block, className }))}
+      className={buttonVariants({
+        variant,
+        size,
+        pill,
+        block,
+        className: cn(iconOnlyBelow && ICON_ONLY_BELOW[iconOnlyBelow], className),
+      })}
       {...props}
       {...childProps}
       {...stateProps}
@@ -220,4 +270,61 @@ function Button({
   )
 }
 
-export { Button, buttonVariants }
+/**
+ * Bare strings and numbers among a collapsing button's children are wrapped
+ * in a span, so the `sr-only` child selector can reach them (CSS cannot
+ * select a text node).
+ */
+function wrapLabelText(children: React.ReactNode) {
+  return React.Children.map(children, (child) =>
+    typeof child === "string" || typeof child === "number" ? (
+      <span data-slot="button-label">{child}</span>
+    ) : (
+      child
+    )
+  )
+}
+
+/**
+ * The visible half of `disabledReason` (prim-18). A title tooltip never
+ * shows on touch, so wherever a control can be disabled the same words
+ * should also be on screen. Wrap the control: the reason is drawn as a
+ * caption beside it (below it when the row has no room) and disappears when
+ * `reason` is empty.
+ *
+ *   <DisabledReason reason={reason}>
+ *     <Button disabledReason={reason ?? undefined}>Publish</Button>
+ *   </DisabledReason>
+ *
+ * The caption is `aria-hidden`: the Button already exposes the same words
+ * as its accessible description, and reading them twice is noise. Inside an
+ * `ActionBar`, put the reason in `status` instead.
+ */
+function DisabledReason({
+  reason,
+  children,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & {
+  reason?: React.ReactNode
+}) {
+  return (
+    <div
+      data-slot="disabled-reason"
+      className={cn(
+        "inline-flex flex-wrap items-center gap-x-3 gap-y-1",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {reason ? (
+        <span aria-hidden className="text-caption text-ink-muted">
+          {reason}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
+export { Button, DisabledReason, buttonVariants }
