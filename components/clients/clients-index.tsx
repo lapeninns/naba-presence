@@ -296,10 +296,11 @@ function ClientsIndex({ role }: { role: string | null }) {
     <div className="flex flex-col gap-(--np-gap-section)">
       {notice}
 
-      {/* Search first on a phone (the quickest way to one client), then the
-          health chips, full bleed so the strip scrolls edge to edge. At the
-          desk the chips sit left and the search right. */}
-      <div className="flex flex-col gap-2 md:flex-row-reverse md:items-center md:justify-between md:gap-3">
+      {/* Search first (the quickest way to one client), then the health
+          chips: above them on a phone, where the strip runs full bleed so it
+          scrolls edge to edge, and on the left at the desk. One order for
+          reading and Tab at every width. */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
         <div role="search" className="w-full min-w-0 md:w-80 md:flex-none">
           <SearchInput
             {...searchProps}
@@ -768,7 +769,7 @@ function ClientsSkeleton() {
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
       <div
         aria-hidden
-        className="flex flex-col gap-2 md:flex-row-reverse md:items-center md:justify-between md:gap-3"
+        className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3"
       >
         <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-pill) max-md:h-(--np-touch) md:w-80 md:flex-none" />
         <div className="flex min-w-0 gap-2 overflow-hidden md:flex-1">
@@ -835,7 +836,7 @@ function ClientsCount() {
   return (
     <span
       aria-hidden
-      className="font-display text-page-title font-normal text-ink-muted tabular-nums"
+      className="text-page-title font-normal text-ink-muted tabular-nums"
     >
       {formatNumber(count)}
     </span>
