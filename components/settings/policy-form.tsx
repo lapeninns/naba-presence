@@ -1,16 +1,35 @@
 "use client"
 
+/*
+ * SETTINGS SAVE CONTRACT (settings-setup-auth-08). One model per kind of
+ * control, the same everywhere in Settings:
+ *
+ *   - Independent toggles save themselves (autosave): each change is sent
+ *     on its own and the row says "Saving…", "Saved" or what went wrong
+ *     right beside the control (notification-preferences.tsx).
+ *   - A page of fields saved together gets ONE save bar (this file: the
+ *     agency or business name and the reply policy). The bar appears with
+ *     the first change and stays while saving or after a refused save; a
+ *     clean form, or one the person can't edit, shows no bar at all
+ *     (settings-setup-auth-07, m1, m2). On a phone it docks to the bottom
+ *     edge (`data-docked="bottom"`, the tab bar steps aside); on a desk it
+ *     sticks to the foot of the form. One leave guard covers every field.
+ *   - A card that is the only editable thing on its page, writing its own
+ *     record, saves with its own button at the card's trailing edge, the
+ *     inline status ("Unsaved changes", or the error) just before it
+ *     (notifications-card.tsx; agency-name-form.tsx in the setup wizard).
+ *
+ * Success is a toast; a failure stays inline next to the control or button
+ * that caused it, and in the bar.
+ */
+
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CircleCheck, Eye, Info, PenLine, RefreshCw } from "lucide-react"
-import { useId, useMemo, useState } from "react"
+import { CircleAlert, Eye, Info, PenLine } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useMemo, useRef, useState } from "react"
 
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -27,6 +46,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { QueryStates, queryStatus } from "@/components/ui/query-states"
 import {
   Select,
   SelectContent,
@@ -46,12 +66,19 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useSettings } from "@/lib/queries/use-settings"
 import { useSettingsCapabilities } from "@/lib/queries/use-settings-capabilities"
 import { ApiClientError } from "@/lib/api/client"
+import { cn } from "@/lib/utils"
 import { requiresDirectPublishConsent } from "@/lib/contracts/settings"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { editSettingsDisabledReason } from "@/lib/settings/gating"
 import { settingsPolicyFormSchema } from "@/lib/settings/forms/settings-policy"
 import { languageLabel, languageOptionsFor } from "@/lib/settings/languages"
+import { organisationNameProblem } from "@/components/settings/agency-name-form"
+import { SettingsSection } from "@/components/settings/settings-section"
 import { TimezonePicker } from "@/components/settings/timezone-picker"
+import { renameOrganisation, type SessionResponse } from "@/lib/api/session"
+import { ORGANISATION_NAME_MAX } from "@/lib/contracts/session"
+import { useSession } from "@/lib/queries/use-session"
+import { workspaceTerms } from "@/lib/workspace/terms"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
@@ -108,33 +135,6 @@ function localErrors(
   return errors
 }
 
-/** One labelled on/off rule: words on the left, the switch on the right. */
-function SwitchRow({
-  id,
-  label,
-  hint,
-  children,
-}: {
-  id: string
-  label: string
-  hint?: React.ReactNode
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <span id={id} className="text-ui font-semibold text-ink">
-          {label}
-        </span>
-        {hint ? (
-          <span className="text-caption text-ink-muted">{hint}</span>
-        ) : null}
-      </div>
-      <div className="shrink-0 pt-0.5">{children}</div>
-    </div>
-  )
-}
-
 /** A sunken note spelling out what the current choice means. */
 function Consequence({ children }: { children: React.ReactNode }) {
   return (
@@ -186,12 +186,29 @@ function PolicySkeleton() {
 export function PolicyForm({ role }: { role: string | null }) {
   const query = useSettings()
   const caps = useSettingsCapabilities()
+  const session = useSession()
   const client = useQueryClient()
+  const router = useRouter()
   const toast = useToastManager()
-  const ids = useId()
+  const formRef = useRef<HTMLFormElement>(null)
   const isOwner = role === "owner"
   const canEdit = caps.data?.canEditSettings ?? false
   const readOnly = caps.data !== undefined && !canEdit
+
+  // The account's name, saved by the same bar as the policy (finding m1):
+  // only an owner can rename (PATCH /api/organisations checks again), so for
+  // anyone else it is read-only and never makes the page dirty.
+  const sessionUser = session.data?.session
+  const terms = workspaceTerms(sessionUser?.workspaceMode ?? "agency")
+  const savedName = sessionUser?.organisationName ?? ""
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
+  const [nameError, setNameError] = useState<string | null>(null)
+  const nameValue = nameDraft ?? savedName
+  const nameDirty =
+    isOwner && nameDraft !== null && nameDraft.trim() !== savedName
+  const nameProblem = nameDirty
+    ? organisationNameProblem(nameValue, terms)
+    : null
 
   const initial = query.data ? toState(query.data) : null
   const [form, setForm] = useState<FormState | null>(null)
@@ -201,13 +218,15 @@ export function PolicyForm({ role }: { role: string | null }) {
   const [formError, setFormError] = useState<string | null>(null)
   const current = form ?? initial
 
-  const changed = useMemo(() => {
+  const policyChanged = useMemo(() => {
     if (!current || !initial) return []
     const keys = (Object.keys(current) as (keyof FormState)[]).filter(
       (key) => current[key] !== initial[key]
     )
     return [...new Set(keys.map((key) => CHANGE_LABELS[key]))]
   }, [current, initial])
+  const policyDirty = policyChanged.length > 0
+  const changed = nameDirty ? ["Name", ...policyChanged] : policyChanged
   const isDirty = changed.length > 0
 
   // Arms beforeunload while dirty (spec §6) and keeps the edits through a
@@ -216,7 +235,7 @@ export function PolicyForm({ role }: { role: string | null }) {
   const { markDiscarded } = useDirtyGuard({
     key: draftKey,
     isDirty,
-    snapshot: () => JSON.stringify(current ?? {}),
+    snapshot: () => JSON.stringify({ ...current, name: nameDraft }),
   })
   const leave = useLeaveGuard({ when: isDirty, onLeave: markDiscarded })
 
@@ -227,7 +246,6 @@ export function PolicyForm({ role }: { role: string | null }) {
       setServerErrors({})
       setFormError(null)
       await client.invalidateQueries({ queryKey: queryKeys.settings })
-      toast.add({ title: "Settings saved", type: "success" })
     },
     onError: (error) => {
       if (error instanceof ApiClientError && Array.isArray(error.details)) {
@@ -247,22 +265,37 @@ export function PolicyForm({ role }: { role: string | null }) {
     },
   })
 
-  if (query.isPending) return <PolicySkeleton />
-  if (query.isError || !current) {
+  // The same write, cache update and refresh as the wizard's name card
+  // (agency-name-form.tsx): the sidebar reads the name from the cached
+  // session, and server components still hold the old one.
+  const rename = useMutation({
+    mutationFn: (name: string) => renameOrganisation(name),
+    onSuccess: (organisation) => {
+      client.setQueryData<SessionResponse>(queryKeys.session, (old) =>
+        old?.session
+          ? { session: { ...old.session, organisationName: organisation.name } }
+          : old
+      )
+      void client.invalidateQueries({ queryKey: ["organisations"] })
+      setNameDraft(null)
+      setNameError(null)
+      router.refresh()
+    },
+    onError: (error) => setNameError(describeActionError(error)),
+  })
+  const saving = mutation.isPending || rename.isPending
+
+  if (query.isPending || query.isError || !current) {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>We couldn’t load your settings</AlertTitle>
-        <AlertDescription>
-          {describeActionError(query.error)} Your current policy is still in
-          force; nothing was changed.
-        </AlertDescription>
-        <AlertActions>
-          <Button variant="secondary" size="sm" onClick={() => query.refetch()}>
-            <RefreshCw aria-hidden />
-            Try again
-          </Button>
-        </AlertActions>
-      </Alert>
+      <QueryStates
+        status={queryStatus(query)}
+        pending={<PolicySkeleton />}
+        error={{
+          title: "We couldn’t load your settings",
+          description: `${describeActionError(query.error)} Your current policy is still in force; nothing was changed.`,
+        }}
+        onRetry={() => void query.refetch()}
+      />
     )
   }
 
@@ -296,44 +329,74 @@ export function PolicyForm({ role }: { role: string | null }) {
   const fieldError = (key: keyof FormState) =>
     serverErrors[key] ??
     (initial && current[key] !== initial[key] ? local[key] : undefined)
+  // The policy half is checked only when it changed: an owner renaming the
+  // workspace isn't held up by a policy they didn't touch.
+  const policyBlocked = policyDirty && (!parsed.success || consentBlocked)
   const canSave =
-    canEdit &&
     isDirty &&
-    parsed.success &&
-    !consentBlocked &&
-    !mutation.isPending
+    (!policyDirty || canEdit) &&
+    !policyBlocked &&
+    nameProblem === null &&
+    !saving
 
   const saveBlockedReason = !isDirty
     ? null
-    : !parsed.success
+    : (policyDirty && !parsed.success) || nameProblem
       ? "Fix the marked fields to save."
-      : consentBlocked
+      : policyDirty && consentBlocked
         ? isOwner
           ? "Tick the confirmation to publish without approval."
           : "Turning approval off needs an owner."
         : null
 
-  const onSubmit = (event: React.FormEvent) => {
+  // One press saves whatever changed: the policy (PUT /api/settings) and
+  // the name (PATCH /api/organisations), each with its own unchanged body.
+  // Each half reports its own refusal; the toast only says "saved" when
+  // everything that was sent was saved.
+  const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!parsed.success || !canSave) return
-    mutation.mutate({
-      approvalRequired: parsed.data.approvalRequired,
-      requireTwoPersonApproval: parsed.data.requireTwoPersonApproval,
-      rawContentRetentionDays: parsed.data.rawContentRetentionDays,
-      defaultLanguageCode: parsed.data.defaultLanguageCode,
-      defaultTimezone: parsed.data.defaultTimezone,
-      directPublishConsent: parsed.data.directPublishConsent,
-    })
+    if (!canSave) return
+    const writes: Promise<unknown>[] = []
+    if (policyDirty && parsed.success) {
+      writes.push(
+        mutation.mutateAsync({
+          approvalRequired: parsed.data.approvalRequired,
+          requireTwoPersonApproval: parsed.data.requireTwoPersonApproval,
+          rawContentRetentionDays: parsed.data.rawContentRetentionDays,
+          defaultLanguageCode: parsed.data.defaultLanguageCode,
+          defaultTimezone: parsed.data.defaultTimezone,
+          directPublishConsent: parsed.data.directPublishConsent,
+        })
+      )
+    }
+    if (nameDirty) {
+      setNameError(null)
+      writes.push(rename.mutateAsync(nameValue.trim()))
+    }
+    const results = await Promise.allSettled(writes)
+    if (results.every((result) => result.status === "fulfilled")) {
+      toast.add({ title: "Settings saved", type: "success" })
+      // The bar (and the Save button that had focus) goes with the last
+      // unsaved change; keep focus in the form rather than dropping it on
+      // the page body.
+      formRef.current?.focus({ preventScroll: true })
+    }
   }
 
   const discard = () => {
     setForm(null)
     setServerErrors({})
     setFormError(null)
+    setNameDraft(null)
+    setNameError(null)
   }
 
-  const approvalId = `${ids}-approval`
-  const twoPersonId = `${ids}-two-person`
+  // The bar is there only while there is something to say: unsaved edits,
+  // a save on its way, or a refused save. Never for someone who can't edit
+  // (the read-only note above says why), never pinned over a clean form.
+  const barError =
+    formError ?? (nameError ? `${terms.orgName}: ${nameError}` : null)
+  const showBar = !readOnly && (isDirty || saving || barError !== null)
   const consentedOn = query.data?.directPublishConsentAt
     ? new Date(query.data.directPublishConsentAt).toLocaleDateString("en-GB", {
         day: "numeric",
@@ -355,29 +418,55 @@ export function PolicyForm({ role }: { role: string | null }) {
 
   return (
     <form
-      className="flex flex-col gap-(--np-gap-section)"
-      onSubmit={onSubmit}
+      ref={formRef}
+      aria-label="Reply policy"
+      // Focus lands here after a save takes the bar away; it is never a
+      // Tab stop of its own.
+      tabIndex={-1}
+      // While the bar is up, a field focused near the foot of the page
+      // scrolls clear of it rather than under it (WCAG 2.4.11).
+      className={cn(
+        "flex flex-col gap-(--np-gap-section) outline-none",
+        showBar && "[&_:focus]:scroll-mb-24"
+      )}
+      onSubmit={(event) => void onSubmit(event)}
       noValidate
     >
       {readOnly ? (
         <Alert variant="info" icon={<Eye strokeWidth={1.75} aria-hidden />}>
           <AlertTitle>You can look, but not change this</AlertTitle>
           <AlertDescription>
-            Only owners and admins can change the reply policy. Ask one of them
-            if something here needs to change.
+            <span>{editReason}</span> Ask one of them if something here
+            needs to change.
           </AlertDescription>
         </Alert>
       ) : null}
 
-      {formError ? (
-        <Alert variant="destructive">
-          <AlertTitle>Your changes weren’t saved</AlertTitle>
-          <AlertDescription>
-            {formError} Your edits are still here, so you can fix them and save
-            again.
-          </AlertDescription>
-        </Alert>
-      ) : null}
+      <SettingsSection
+        id="settings-org-name"
+        title={terms.org}
+        description="The name your team and invited people see."
+      >
+        <Field error={nameError ?? nameProblem ?? undefined}>
+          <FieldLabel>{terms.orgName}</FieldLabel>
+          <Input
+            value={nameValue}
+            readOnly={!isOwner}
+            maxLength={ORGANISATION_NAME_MAX}
+            autoComplete="organization"
+            onChange={(event) => {
+              setNameError(null)
+              setNameDraft(event.target.value)
+            }}
+          />
+          <FieldDescription>
+            {isOwner
+              ? "What your team sees in the sidebar and what invitations say they are joining."
+              : `Only an owner can rename the ${terms.orgLower}.`}
+          </FieldDescription>
+          <FieldError>{nameError ?? nameProblem}</FieldError>
+        </Field>
+      </SettingsSection>
 
       <Card flush>
         <CardHeader divided>
@@ -387,44 +476,36 @@ export function PolicyForm({ role }: { role: string | null }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 py-(--np-card-pad)">
-          <SwitchRow
-            id={approvalId}
+          <Switch
             label="Require approval before replies publish"
-            hint="Replies from people who can’t publish wait in the Approval queue for someone who can."
-          >
-            <Switch
-              aria-labelledby={approvalId}
-              checked={current.approvalRequired}
-              disabled={!canEdit}
-              onCheckedChange={(value) =>
-                setForm({
-                  ...current,
-                  approvalRequired: value,
-                  directPublishConsent: value
-                    ? false
-                    : current.directPublishConsent,
-                })
-              }
-            />
-          </SwitchRow>
+            description="Replies from people who can’t publish wait in the Approval queue for someone who can."
+            labelClassName="items-start"
+            checked={current.approvalRequired}
+            disabled={!canEdit}
+            onCheckedChange={(value) =>
+              setForm({
+                ...current,
+                approvalRequired: value,
+                directPublishConsent: value
+                  ? false
+                  : current.directPublishConsent,
+              })
+            }
+          />
 
           <Consequence>{consequence}</Consequence>
 
           {current.approvalRequired ? (
-            <SwitchRow
-              id={twoPersonId}
+            <Switch
               label="Require a second person to approve each reply"
-              hint="The person who asked for approval can’t approve their own reply."
-            >
-              <Switch
-                aria-labelledby={twoPersonId}
-                checked={current.requireTwoPersonApproval}
-                disabled={!canEdit}
-                onCheckedChange={(value) =>
-                  set("requireTwoPersonApproval", value)
-                }
-              />
-            </SwitchRow>
+              description="The person who asked for approval can’t approve their own reply."
+              labelClassName="items-start"
+              checked={current.requireTwoPersonApproval}
+              disabled={!canEdit}
+              onCheckedChange={(value) =>
+                set("requireTwoPersonApproval", value)
+              }
+            />
           ) : (
             <Alert variant="warning">
               <AlertTitle>Replies will publish without approval</AlertTitle>
@@ -547,71 +628,75 @@ export function PolicyForm({ role }: { role: string | null }) {
         </CardContent>
       </Card>
 
-      <ActionBar
-        label="Save reply policy"
-        offset="bottom-3"
-        status={
-          readOnly ? (
-            <>
-              <Eye aria-hidden />
-              <span>
-                View only · <ActionBarMuted>{editReason}</ActionBarMuted>
-              </span>
-            </>
-          ) : isDirty ? (
-            <>
-              <PenLine aria-hidden />
-              <span>
-                <strong className="font-semibold">
-                  {changed.length} unsaved{" "}
-                  {changed.length === 1 ? "change" : "changes"}
-                </strong>{" "}
-                ·{" "}
-                <ActionBarMuted>
-                  {saveBlockedReason ?? changed.join(", ")}
-                </ActionBarMuted>
-              </span>
-            </>
-          ) : (
-            <>
-              <CircleCheck aria-hidden />
-              <span>All changes saved</span>
-            </>
-          )
-        }
-        actions={
-          readOnly ? (
-            <Button type="submit" disabled>
-              Save changes
-            </Button>
-          ) : (
+      {showBar ? (
+        <ActionBar
+          label="Save reply policy"
+          // Docked to a phone's bottom edge (the tab bar steps aside and the
+          // page's scroll padding follows it), riding above an iOS keyboard;
+          // stuck to the foot of the form on a desk.
+          data-docked="bottom"
+          offset="bottom-(--np-keyboard-inset) md:bottom-3"
+          status={
+            barError && !saving ? (
+              <>
+                <CircleAlert aria-hidden />
+                <span>
+                  <strong className="font-semibold">Not saved</strong> ·{" "}
+                  <ActionBarMuted>
+                    {barError} Your edits are still here.
+                  </ActionBarMuted>
+                </span>
+              </>
+            ) : (
+              <>
+                <PenLine aria-hidden />
+                <span>
+                  <strong className="font-semibold">
+                    {saving
+                      ? "Saving"
+                      : `${changed.length} unsaved ${changed.length === 1 ? "change" : "changes"}`}
+                  </strong>
+                  {changed.length > 0 ? (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <ActionBarMuted>
+                        {saveBlockedReason ?? changed.join(", ")}
+                      </ActionBarMuted>
+                    </>
+                  ) : null}
+                </span>
+              </>
+            )
+          }
+          actions={
             <>
               <Button
                 type="button"
                 variant="ghost-dark"
-                disabled={!isDirty || mutation.isPending}
+                disabled={!isDirty || saving}
                 onClick={discard}
               >
                 Discard
               </Button>
               <Button
                 type="submit"
-                disabled={!canSave && !mutation.isPending}
-                pending={mutation.isPending}
+                disabled={!canSave && !saving}
+                pending={saving}
                 pendingLabel="Saving…"
               >
                 Save changes
               </Button>
             </>
-          )
-        }
-      />
+          }
+        />
+      ) : null}
       <DiscardDialog
         {...leave}
         title="Leave without saving?"
         confirmLabel="Leave and discard"
         announce={false}
-        description="Your changes to the reply policy aren’t saved. Leaving throws them away; the current policy stays in force."
+        description="Your changes on this page aren’t saved. Leaving throws them away; the current name and policy stay in force."
       />
     </form>
   )

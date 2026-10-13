@@ -1,14 +1,8 @@
 "use client"
 
-import { ChevronRight, RefreshCw } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 import { useId, useRef, useState } from "react"
 
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -25,6 +19,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { QueryError } from "@/components/ui/query-states"
 import {
   Select,
   SelectContent,
@@ -51,7 +46,9 @@ const PUBSUB_TOPIC_RE =
  * Google's real-time notifications for the working account (reference
  * `notifications-section`): the Pub/Sub topic Google should post to, and a
  * switch per event kind. Nothing saves on toggle — the setting is one object
- * on Google's side, written once from the card's footer.
+ * on Google's side, written once from the card's footer (the per-card save
+ * of the settings save contract, policy-form.tsx): "Unsaved changes" or the
+ * error beside the Save button, success as a toast.
  */
 export function NotificationsCard() {
   const business = useWorkspaceMode() === "business"
@@ -95,6 +92,7 @@ export function NotificationsCard() {
   const [topic, setTopic] = useState<string | null>(null)
   const [types, setTypes] = useState<Set<string> | null>(null)
   const [topicError, setTopicError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState<boolean | null>(null)
   const topicRef = useRef<HTMLInputElement>(null)
 
@@ -103,6 +101,7 @@ export function NotificationsCard() {
     setTopic(null)
     setTypes(null)
     setTopicError(null)
+    setSaveError(null)
   }
 
   const headingId = `${ids}-heading`
@@ -110,7 +109,7 @@ export function NotificationsCard() {
     connections.length > 1 || activeAccounts.length > 1 ? (
       <div className="flex flex-wrap gap-3 border-b border-line px-(--np-card-pad) py-3">
         {connections.length > 1 ? (
-          <Field className="min-w-[14rem] flex-1">
+          <Field className="min-w-56 flex-1">
             <FieldLabel>Google login</FieldLabel>
             <Select
               value={connectionId ?? ""}
@@ -139,7 +138,7 @@ export function NotificationsCard() {
           </Field>
         ) : null}
         {activeAccounts.length > 1 ? (
-          <Field className="min-w-[14rem] flex-1">
+          <Field className="min-w-56 flex-1">
             <FieldLabel>Business Profile account</FieldLabel>
             <Select
               value={accountName ?? ""}
@@ -225,25 +224,12 @@ export function NotificationsCard() {
     return (
       <Card flush aria-labelledby={headingId} role="region">
         {header}
-        <div className="p-(--np-card-pad)">
-          <Alert variant="destructive">
-            <AlertTitle>We couldn’t load notifications</AlertTitle>
-            <AlertDescription>
-              {describeActionError(setting.query.error)} Nothing was changed on
-              Google.
-            </AlertDescription>
-            <AlertActions>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setting.query.refetch()}
-              >
-                <RefreshCw aria-hidden />
-                Try again
-              </Button>
-            </AlertActions>
-          </Alert>
-        </div>
+        <QueryError
+          className="p-(--np-card-pad)"
+          title="We couldn’t load notifications"
+          description={`${describeActionError(setting.query.error)} Nothing was changed on Google.`}
+          onRetry={() => void setting.query.refetch()}
+        />
       </Card>
     )
   }
@@ -252,6 +238,7 @@ export function NotificationsCard() {
   const currentTopic = topic ?? server.pubsubTopic ?? ""
   const currentTypes = types ?? new Set(server.notificationTypes ?? [])
   const topicEmpty = currentTopic.trim() === ""
+  const dirty = topic !== null || types !== null
   // Open by default only when a topic is already saved, and always when the
   // topic needs fixing; otherwise it follows the operator's own toggling
   // (never the field's contents, which would snap it shut mid-edit).
@@ -275,6 +262,7 @@ export function NotificationsCard() {
       return
     }
     setTopicError(null)
+    setSaveError(null)
     setting.save.mutate(
       { accountId, pubsubTopic: trimmed, notificationTypes: [...currentTypes] },
       {
@@ -289,8 +277,7 @@ export function NotificationsCard() {
             type: "success",
           })
         },
-        onError: (error) =>
-          toast.add({ title: describeActionError(error), type: "error" }),
+        onError: (error) => setSaveError(describeActionError(error)),
       }
     )
   }
@@ -356,25 +343,17 @@ export function NotificationsCard() {
             What Google should tell us about
           </span>
           <ul className="flex flex-col divide-y divide-line rounded-(--np-radius-control) border border-line">
-            {GOOGLE_NOTIFICATION_TYPES.map((type) => {
-              const labelId = `${ids}-${type}`
-              return (
-                <li
-                  key={type}
-                  className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5"
-                >
-                  <span id={labelId} className="text-ui text-ink">
-                    {describeNotificationType(type)}
-                  </span>
-                  <Switch
-                    aria-labelledby={labelId}
-                    checked={currentTypes.has(type)}
-                    disabled={topicEmpty}
-                    onCheckedChange={() => toggle(type)}
-                  />
-                </li>
-              )
-            })}
+            {GOOGLE_NOTIFICATION_TYPES.map((type) => (
+              <li key={type} className="px-3">
+                <Switch
+                  label={describeNotificationType(type)}
+                  labelClassName="text-ui"
+                  checked={currentTypes.has(type)}
+                  disabled={topicEmpty}
+                  onCheckedChange={() => toggle(type)}
+                />
+              </li>
+            ))}
           </ul>
           {topicEmpty ? (
             <p className="text-caption text-ink-muted">
@@ -383,7 +362,21 @@ export function NotificationsCard() {
           ) : null}
         </div>
       </div>
-      <CardFooter bar className="justify-end">
+      <CardFooter bar className="flex-wrap justify-end gap-3">
+        <p
+          aria-live="polite"
+          className={
+            saveError
+              ? "min-w-0 flex-1 text-ui text-danger-ink"
+              : "text-ui text-ink-muted empty:sr-only"
+          }
+        >
+          {saveError
+            ? `Not saved. ${saveError}`
+            : dirty && !setting.save.isPending
+              ? "Unsaved changes"
+              : null}
+        </p>
         <Button
           pending={setting.save.isPending}
           pendingLabel="Saving…"
