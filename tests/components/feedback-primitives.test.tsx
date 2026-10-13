@@ -118,6 +118,58 @@ describe("ActionBar", () => {
     ).toContain("var(--np-actionbar-h)+var(--np-dock-bottom)")
   })
 
+  it("publishes a docked bar's measured height for the spacer and scroll padding", () => {
+    // A bar that wraps to two rows (the editor footer, a blocked setup
+    // step) is taller than --np-actionbar-h: the spacer, the document's
+    // scroll padding and the toast edge read the measured height instead.
+    const root = document.documentElement
+    let height = 64
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        return {
+          top: 0,
+          left: 0,
+          right: 390,
+          bottom: height,
+          width: 390,
+          height,
+        } as DOMRect
+      })
+    const styles = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation(() => ({ position: "fixed" }) as CSSStyleDeclaration)
+    let onResize = () => {}
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          onResize = callback
+        }
+        observe() {}
+        disconnect() {}
+      }
+    )
+    try {
+      const { container, unmount } = render(
+        <ActionBar dock status="1 change" primary={<Button>Save</Button>} />
+      )
+      expect(root.style.getPropertyValue("--np-dock-bar-h")).toBe("64px")
+      expect(
+        container.querySelector('[data-slot="action-bar-spacer"]')?.className
+      ).toContain("var(--np-dock-bar-h,")
+      height = 116
+      act(() => onResize())
+      expect(root.style.getPropertyValue("--np-dock-bar-h")).toBe("116px")
+      unmount()
+      expect(root.style.getPropertyValue("--np-dock-bar-h")).toBe("")
+    } finally {
+      spy.mockRestore()
+      styles.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("leaves no node at all while not visible", () => {
     const { container, rerender } = render(
       <ActionBar dock visible={false} primary={<Button>Save</Button>} />
@@ -232,7 +284,12 @@ describe("TabNav", () => {
         aria-label="Listing areas"
         items={[
           { href: "/listings/a", label: "Overview" },
-          { href: "/listings/a/menu", label: "Menu", current: true, disabled: true },
+          {
+            href: "/listings/a/menu",
+            label: "Menu",
+            current: true,
+            disabled: true,
+          },
         ]}
       />
     )
@@ -426,7 +483,7 @@ describe("Toast", () => {
     expect(viewport.className).not.toMatch(/(^|\s)top-/)
     expect(viewport.className).toContain("z-toast")
     expect(viewport.className).toContain(
-      "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:calc(var(--np-actionbar-h)+var(--np-dock-bottom))]"
+      "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))]"
     )
     expect(viewport.className).toContain("data-slot=tab-bar")
   })

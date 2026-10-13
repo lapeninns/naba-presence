@@ -31,9 +31,9 @@ import { cn } from "@/lib/utils"
  *
  * The footer. On a phone (under 48rem) the EditorFooter docks itself to the
  * bottom edge once there is something to save. The docked ActionBar leaves a
- * spacer its single-row height in the flow; the editor's bar is two rows on
- * a phone (status over its buttons), so the frame reserves the second row
- * (`:has([data-docked])`) and the bar never covers the last field. From 48rem on screens at least 620px tall it sticks 12px above
+ * spacer its measured height in the flow (two rows on a phone: status over
+ * its buttons), so the bar never covers the last field. From 48rem on
+ * screens at least 620px tall it sticks 12px above
  * the bottom of the scrolling pane as a floating dark bar; shorter screens
  * use normal document flow so the bar cannot cover the form.
  */
@@ -83,7 +83,7 @@ function EditorFrame({
       ref={ref}
       data-slot="editor-frame"
       className={cn(
-        "flex flex-col gap-5 max-md:has-[[data-docked=bottom]]:pb-(--np-control-h)",
+        "flex flex-col gap-5",
         className
       )}
     >

@@ -23,6 +23,13 @@ vi.mock("next/link", () => ({
   ),
 }))
 
+// The keyboard-safety hook is the editors' own (tested in
+// keep-focus-clear.test.tsx); here only its wiring to the step is checked.
+const keepFocusClear = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/editors/use-keep-focus-clear", () => ({
+  useKeepFocusClear: keepFocusClear,
+}))
+
 import { SetupWizard } from "@/components/setup/setup-wizard"
 import type { ClientSetup, ClientSummary } from "@/lib/contracts/clients"
 import { Toaster } from "@/components/ui/toast"
@@ -130,6 +137,28 @@ describe("SetupWizard", () => {
     expect(next).toHaveAccessibleDescription(
       "Connect a Google account to continue."
     )
+  })
+
+  it("keeps a focused field clear of the step bar's measured top", async () => {
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    const section = screen
+      .getByRole("heading", { name: "Connect Google", level: 2 })
+      .closest("section")
+    // Wired to the step's section (once it has mounted past the loading
+    // states) and to the docked bar inside it, whose measured top it clears:
+    // two rows when a blocked reason sits over Back and Continue.
+    const wired = keepFocusClear.mock.calls.filter(
+      ([ref]) => (ref as { current: Element | null }).current === section
+    )
+    expect(section).not.toBeNull()
+    expect(wired.length).toBeGreaterThan(0)
+    expect(wired.at(-1)?.[1]).toBe("[data-slot=setup-footer]")
+    expect(section?.querySelector('[data-slot="setup-footer"]')).not.toBeNull()
+    // The bar's own spacer reserves its measured height; no fixed-height
+    // stand-in for the reason row is left behind it.
+    expect(section?.querySelector(".h-6.md\\:hidden")).toBeNull()
   })
 
   it("says why a deep-linked step is not available yet", async () => {

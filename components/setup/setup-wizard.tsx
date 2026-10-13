@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Stepper } from "@/components/ui/stepper"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import type { SetupStep } from "@/lib/contracts/clients"
+import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useClient, useClientSetup } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
@@ -96,6 +97,19 @@ function SetupWizard({ clientId }: { clientId: string }) {
   } | null>(null)
   const [stepsOpen, setStepsOpen] = React.useState(false)
   const titleRef = React.useRef<HTMLHeadingElement>(null)
+  // Keyboard safety for the docked step bar, as the editors have it: a
+  // focused field (or one under a just-opened phone keyboard) is scrolled
+  // clear of the bar's measured top, which is two rows when a blocked
+  // step's reason sits over Back and Continue. The section mounts after the
+  // loading states, so the hook follows it through a callback ref.
+  const [stepSection, setStepSection] = React.useState<HTMLElement | null>(
+    null
+  )
+  const stepSectionRef = React.useMemo(
+    () => ({ current: stepSection }),
+    [stepSection]
+  )
+  useKeepFocusClear(stepSectionRef, "[data-slot=setup-footer]")
 
   const clientName = clientQuery.data?.client.name
   const setup = setupQuery.data?.setup
@@ -290,6 +304,7 @@ function SetupWizard({ clientId }: { clientId: string }) {
           </nav>
 
           <section
+            ref={setStepSection}
             aria-labelledby="setup-step-title"
             data-step={current}
             className="@container/wiz flex min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface"
@@ -461,13 +476,6 @@ function SetupWizard({ clientId }: { clientId: string }) {
                 </Button>
               </div>
             </ActionBar>
-            {/* The reason row makes a blocked step's docked bar one caption
-                line (plus its gap) taller than the spacer the bar leaves, so
-                reserve that line too: the card's last field stays reachable
-                above the bar. */}
-            {!isDone && blocker ? (
-              <div aria-hidden className="h-6 md:hidden" />
-            ) : null}
           </section>
         </div>
       </div>

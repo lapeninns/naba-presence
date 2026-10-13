@@ -902,8 +902,13 @@
     scroll-padding-top: calc(var(--np-appbar-h) + var(--np-safe-top));
     scroll-padding-bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
   }
+  /* A docked bar's measured height (DockSpacer in action-bar.tsx), which
+     covers a bar that wraps to two rows; the one-row sum until measured. */
   html:has([data-docked="bottom"]) {
-    scroll-padding-bottom: calc(var(--np-actionbar-h) + var(--np-dock-bottom));
+    scroll-padding-bottom: var(
+      --np-dock-bar-h,
+      calc(var(--np-actionbar-h) + var(--np-dock-bottom))
+    );
   }
   body:has([data-docked="bottom"]) [data-slot="tab-bar"],
   [data-keyboard="open"] [data-slot="tab-bar"] {

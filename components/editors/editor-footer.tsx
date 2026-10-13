@@ -161,9 +161,10 @@ function EditorFooter({
       // bottom edge, riding the keyboard, the tab bar stepping aside (the
       // primitive's docking contract). Three buttons don't fit beside the
       // status on a phone, so the docked bar keeps two rows here, status
-      // over a full-width row of buttons; EditorFrame reserves the second
-      // row under the last field, and useKeepFocusClear measures the bar
-      // itself, so a focused field still clears it.
+      // over a full-width row of buttons; the ActionBar's spacer and the
+      // document's scroll padding follow its measured height, and
+      // useKeepFocusClear measures the bar itself, so neither the last field
+      // nor a focused one is left under it.
       dock={!idle}
       sticky={false}
       safeArea={false}

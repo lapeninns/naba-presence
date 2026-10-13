@@ -101,7 +101,10 @@ function useModalFooterClearance() {
  * `--toast-edge` is the height of whatever owns the bottom edge, decided in
  * CSS from the CHROME CONTRACT attributes (globals.css), so no JS measures
  * the shell:
- *   phone, docked ActionBar (`data-docked="bottom"`)   the action bar plus
+ *   phone, docked ActionBar (`data-docked="bottom"`)   the bar's measured
+ *                                                      height (`--np-dock-bar-h`,
+ *                                                      two rows when it wraps),
+ *                                                      else the action bar plus
  *                                                      `--np-dock-bottom`
  *   phone, tab bar showing (`data-slot="tab-bar"`, no  the tab bar plus the
  *     docked bar, keyboard closed)                     home indicator
@@ -118,7 +121,7 @@ const VIEWPORT_CLASS = cn(
   "[--toast-gap:--spacing(2)] md:[--toast-gap:--spacing(4)]",
   "[--toast-edge:var(--np-dock-bottom)] md:[--toast-edge:var(--np-safe-bottom)]",
   "max-md:[html:not([data-keyboard=open])_body:has([data-slot=tab-bar]):not(:has([data-docked=bottom]))_&]:[--toast-edge:calc(var(--np-tabbar-h)+var(--np-safe-bottom))]",
-  "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:calc(var(--np-actionbar-h)+var(--np-dock-bottom))]",
+  "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))]",
   "[--toast-bottom:calc(max(var(--toast-edge),var(--toast-footer-clearance))+var(--toast-gap))]"
 )
 
