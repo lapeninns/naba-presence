@@ -471,34 +471,41 @@ test.describe("dirty draft: one question per way out", () => {
 
   // On a desk the list is beside the review, so there is no Back to Inbox;
   // the way out of an unsaved reply is the shell's navigation, which asks
-  // once and then goes.
-  test("a shell link asks once, then leaves (1280)", async ({
-    baseURL,
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1280, height: 860 })
-    const state = await readJourneyState()
-    await useCookie(page, baseURL, state.cookie)
-    await page.goto("/inbox?queue=all")
-    await openReview(page, state.approvalReview.text)
-    await expect(page.getByRole("link", { name: "Back to Inbox" })).toHaveCount(
-      0
-    )
-    await (await replyBox(page)).fill(UNSAVED)
-    const opens = await countDiscardPrompts(page)
+  // once and then goes, however the review was opened.
+  for (const variant of ["pushed from the list", "a deep link"] as const) {
+    test(`a shell link asks once, then leaves (1280, ${variant})`, async ({
+      baseURL,
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 860 })
+      const state = await readJourneyState()
+      await useCookie(page, baseURL, state.cookie)
+      if (variant === "pushed from the list") {
+        await page.goto("/inbox?queue=all")
+        await openReview(page, state.approvalReview.text)
+      } else {
+        await page.goto(`/inbox?queue=all&selected=${state.approvalReview.id}`)
+      }
+      await expect(page).toHaveURL(/[?&]selected=/)
+      await expect(
+        page.getByRole("link", { name: "Back to Inbox" })
+      ).toHaveCount(0)
+      await (await replyBox(page)).fill(UNSAVED)
+      const opens = await countDiscardPrompts(page)
 
-    await page
-      .getByRole("navigation", { name: "Primary" })
-      .getByRole("link", { name: "Listings" })
-      .click()
-    const prompt = page.getByRole("alertdialog", {
-      name: "Discard unsaved reply?",
+      await page
+        .getByRole("navigation", { name: "Primary" })
+        .getByRole("link", { name: "Listings" })
+        .click()
+      const prompt = page.getByRole("alertdialog", {
+        name: "Discard unsaved reply?",
+      })
+      await expect(prompt).toBeVisible()
+      await settled(page)
+      await prompt.getByRole("button", { name: "Discard", exact: true }).click()
+      await expect(page).toHaveURL(/\/listings/)
+      await page.waitForTimeout(1500)
+      expect(await opens()).toBe(1)
     })
-    await expect(prompt).toBeVisible()
-    await settled(page)
-    await prompt.getByRole("button", { name: "Discard", exact: true }).click()
-    await expect(page).toHaveURL(/\/listings/)
-    await page.waitForTimeout(1500)
-    expect(await opens()).toBe(1)
-  })
+  }
 })
