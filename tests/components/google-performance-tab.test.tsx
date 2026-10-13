@@ -63,7 +63,7 @@ describe("GooglePerformanceTab state mapping (D9)", () => {
     expect(within(await tileFor("Website clicks")).getByText(/\+10|10/)).toBeInTheDocument()
     expect(screen.getByText(/1 of 2 locations reporting · 1 not fetched yet/)).toBeInTheDocument()
     expect(screen.getByText(/Data through .*Google’s daily dates/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Download Google profile totals as CSV" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Download totals CSV of the Google profile" })).toBeInTheDocument()
   })
   it("states expected vs covered locations and leaves a missing location out of the tiles", async () => {
     const totals = Object.fromEntries(Object.keys(ZERO_TOTALS).map((metric) => [metric, null]))
