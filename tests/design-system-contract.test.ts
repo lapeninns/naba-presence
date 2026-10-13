@@ -25,6 +25,7 @@ const primitiveNames = [
   "input",
   "label",
   "dialog",
+  "overlay",
   "sheet",
   "toast",
 ]
