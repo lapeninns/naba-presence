@@ -52,10 +52,12 @@ export const viewport: Viewport = {
   // not every browser takes oklch here: #f6f9fc ≈ oklch(0.98 0.005 250),
   // #0d1216 ≈ oklch(0.18 0.012 240). These follow the system preference; a
   // user who forces the other theme in-app keeps the system's bar colour.
+  // design-exempt-start R2: meta theme-color is read before any CSS loads
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f6f9fc" },
     { media: "(prefers-color-scheme: dark)", color: "#0d1216" },
   ],
+  // design-exempt-end
   // Both schemes are built (globals.css sets color-scheme per theme class),
   // so the browser may draw its pre-CSS canvas and form controls in either.
   colorScheme: "light dark",
@@ -68,10 +70,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn(
-        "font-sans antialiased",
-        jetbrainsMono.variable
-      )}
+      className={cn("font-sans antialiased", jetbrainsMono.variable)}
     >
       <body>
         <ViewportInsets />

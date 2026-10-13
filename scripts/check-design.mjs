@@ -313,6 +313,50 @@ const SKIP_ATTRIBUTES =
 const SKIP_KEYS =
   /^(?:href|src|url|path|pathname|id|key|testId|testid|data-testid|label|title|description|message|placeholder|aria-label)$/i
 
+/**
+ * Reviewed exemptions. A finding the design system genuinely cannot express
+ * as a token (a <meta name="theme-color"> value, which browsers read before
+ * any CSS) is exempted where it is written, with the reason beside it, so
+ * the exemption is visible in review instead of hidden in the baseline:
+ *
+ *   // design-exempt R2: meta theme-color is read before CSS loads
+ *   { color: "#f6f9fc" },
+ *
+ *   // design-exempt-start R2: the browser chrome colours, see above
+ *   ...
+ *   // design-exempt-end
+ *
+ * Several rules may be listed (`R2,R6`). A reason of fewer than ten
+ * characters does not count, so the marker cannot be dropped in bare.
+ * Returns, per 1-based line, the set of exempted rules.
+ */
+export function exemptLines(text) {
+  const lines = text.split("\n")
+  const exempt = new Map()
+  const grant = (line, rules) => {
+    const set = exempt.get(line) ?? new Set()
+    for (const rule of rules) set.add(rule)
+    exempt.set(line, set)
+  }
+  const marker =
+    /\/\/\s*design-exempt(-start)?\s+((?:R\d)(?:\s*,\s*R\d)*)\s*:\s*(.{10,})$/
+  let open = null
+  lines.forEach((content, index) => {
+    const line = index + 1
+    if (open && /\/\/\s*design-exempt-end\b/.test(content)) {
+      open = null
+      return
+    }
+    if (open) grant(line, open)
+    const match = marker.exec(content)
+    if (!match) return
+    const rules = match[2].split(",").map((rule) => rule.trim())
+    if (match[1]) open = rules
+    else grant(line + 1, rules)
+  })
+  return exempt
+}
+
 /** Scans one source file. `path` is repo-relative with forward slashes. */
 export function scanSource(text, path) {
   const kind = path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
@@ -325,8 +369,10 @@ export function scanSource(text, path) {
   )
   const primitive = isPrimitivePath(path)
   const findings = []
+  const exempt = exemptLines(text)
   const add = (rule, pattern, pos) => {
     const { line, character } = source.getLineAndCharacterOfPosition(pos)
+    if (exempt.get(line + 1)?.has(rule)) return
     findings.push({
       file: path,
       rule,

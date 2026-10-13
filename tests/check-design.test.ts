@@ -4,6 +4,7 @@ import {
   analyseClassToken,
   analyseString,
   compareToBaseline,
+  exemptLines,
   findColourLiterals,
   hasLengthLiteral,
   isIgnoredPath,
@@ -447,5 +448,44 @@ describe("ratchet", () => {
       baseline
     )
     expect(regressions).toEqual([])
+  })
+})
+
+describe("reviewed exemptions", () => {
+  it("exempts the listed rule on the next line only, with a reason", () => {
+    const source = [
+      "// design-exempt R2: meta theme-color is read before CSS loads",
+      'const a = { color: "#f6f9fc" }',
+      'const b = { color: "#0d1216" }',
+    ].join("\n")
+    const findings = scanSource(source, "app/example.tsx")
+    expect(findings.filter((f) => f.rule === "R2").map((f) => f.line)).toEqual([
+      3,
+    ])
+  })
+
+  it("exempts every line of a start/end block", () => {
+    const source = [
+      "// design-exempt-start R2: the browser chrome colours",
+      'const a = { color: "#f6f9fc" }',
+      'const b = { color: "#0d1216" }',
+      "// design-exempt-end",
+      'const c = { color: "#ffffff" }',
+    ].join("\n")
+    const findings = scanSource(source, "app/example.tsx")
+    expect(findings.filter((f) => f.rule === "R2").map((f) => f.line)).toEqual([
+      5,
+    ])
+  })
+
+  it("ignores a marker without a real reason or for another rule", () => {
+    expect(exemptLines("// design-exempt R2: short\nx").size).toBe(0)
+    const source = [
+      "// design-exempt R6: inline style needed for a measured width",
+      'const a = { color: "#f6f9fc" }',
+    ].join("\n")
+    expect(
+      scanSource(source, "app/example.tsx").some((f) => f.rule === "R2")
+    ).toBe(true)
   })
 })
