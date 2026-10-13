@@ -122,6 +122,10 @@ for (const width of [375, 768, 1280])
       await page
         .getByRole("button", { name: "Resolve: Publishing failed" })
         .click()
+      // Resolving closes it for everyone and cannot be reopened: it asks.
+      await page
+        .getByRole("button", { name: "Yes, resolve: Publishing failed" })
+        .click()
       await expect(
         page.getByText("Resolved", { exact: true }).first()
       ).toBeVisible()

@@ -5,6 +5,13 @@ import * as React from "react"
 
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
 import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { ChartDataTable, ChartLegend } from "@/components/ui/chart"
 import { csvFilename } from "@/lib/reporting/csv"
 import { cn } from "@/lib/utils"
@@ -26,7 +33,17 @@ import { cn } from "@/lib/utils"
  * - Each column has a minimum width. On a narrow screen with many columns
  *   the plot scrolls sideways inside its own box (focusable only while it
  *   actually overflows), never the page.
+ * - Tap to inspect: tapping or clicking a column shows its period and every
+ *   series' value in the readout line above the plot, so a phone never
+ *   needs hover. The plot is one keyboard stop (a slider over the columns:
+ *   arrows, Home, End), never a tab stop per bar; its value text is the
+ *   readout, so a screen reader hears what the eye sees. With nothing
+ *   picked the readout shows the latest column.
+ * - Computed geometry (bar heights, the plot's minimum width, label
+ *   offsets) is passed as CSS custom properties and read by utilities.
  */
+
+type ChartVars = React.CSSProperties & Record<`--${string}`, string>
 
 type SlotColor = 1 | 2 | 3
 
@@ -109,8 +126,10 @@ export function ReportBarChart({
   csvName?: string
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const columnRefs = React.useRef<Array<HTMLDivElement | null>>([])
   const overflows = useOverflowsX(scrollRef)
   const [showValues, setShowValues] = React.useState(false)
+  const [picked, setPicked] = React.useState<number | null>(null)
   const tableId = React.useId()
 
   const columnTotal = (datum: ReportBarDatum) =>
@@ -135,6 +154,43 @@ export function ReportBarChart({
   const pct = (value: number) => `${Math.min(100, (value / top) * 100)}%`
   const middle = Math.floor(data.length / 2)
 
+  // A picked column that a new data set no longer has falls back to latest.
+  const selected = picked !== null && picked <= last ? picked : null
+  const active = selected ?? last
+  const describe = (datum: ReportBarDatum) =>
+    `${datum.label}: ${series
+      .map((s) => {
+        const v = datum.values[s.key]
+        return `${s.label} ${v === null || v === undefined ? "—" : format(v)}`
+      })
+      .join(", ")}`
+  const readout = active >= 0 ? describe(data[active]) : ""
+
+  const pick = (index: number) => {
+    const next = Math.max(0, Math.min(last, index))
+    setPicked(next)
+    // Keep the picked column in view inside the scroll box.
+    columnRefs.current[next]?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    })
+  }
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const step: Record<string, number> = {
+      ArrowLeft: -1,
+      ArrowDown: -1,
+      ArrowRight: 1,
+      ArrowUp: 1,
+      PageDown: -7,
+      PageUp: 7,
+    }
+    if (event.key === "Home") pick(0)
+    else if (event.key === "End") pick(last)
+    else if (event.key in step) pick(active + step[event.key])
+    else return
+    event.preventDefault()
+  }
+
   return (
     <figure
       data-slot="report-bar-chart"
@@ -147,47 +203,78 @@ export function ReportBarChart({
           />
         </div>
       ) : null}
+      {/* The readout: what the eye gets from a tap. Hidden from assistive
+          tech, which hears the same words as the slider's value. */}
+      {data.length ? (
+        <p
+          aria-hidden
+          data-slot="report-bar-readout"
+          className="min-h-5 font-mono text-caption text-ink tabular-nums"
+        >
+          {selected === null ? (
+            <span className="text-ink-muted">Latest {unitName} · </span>
+          ) : null}
+          {readout}
+        </p>
+      ) : null}
       <div
         ref={scrollRef}
         role={overflows ? "group" : undefined}
         aria-label={overflows ? `${title}, scrolls sideways` : undefined}
         tabIndex={overflows ? 0 : undefined}
-        className="min-w-0 overflow-x-auto overscroll-x-contain focus-halo"
+        className="-m-1 min-w-0 overflow-x-auto overscroll-x-contain p-1 focus-halo"
       >
         <div
-          aria-hidden
-          className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 pt-5"
-          style={{ minWidth: `${48 + data.length * (minColumn + 1)}px` }}
+          className="grid min-w-(--chart-min-w) grid-cols-[auto_minmax(0,1fr)] gap-x-2 pt-5"
+          style={
+            {
+              "--chart-min-w": `${48 + data.length * (minColumn + 1)}px`,
+            } as ChartVars
+          }
         >
-          <div className="relative h-45 w-9 font-mono text-[11px] text-ink-muted tabular-nums">
+          <div
+            aria-hidden
+            className="relative h-45 w-9 font-mono text-caption text-ink-muted tabular-nums"
+          >
             {[0, 0.5, 1].map((fraction) => (
               <span
                 key={fraction}
-                className="absolute right-0 translate-y-1/2 leading-none"
-                style={{ bottom: `${fraction * 100}%` }}
+                className="absolute right-0 bottom-(--tick-y) translate-y-1/2 leading-none"
+                style={{ "--tick-y": `${fraction * 100}%` } as ChartVars}
               >
                 {format(top * fraction)}
               </span>
             ))}
           </div>
-          <div className="relative flex h-45 items-end gap-px border-b border-line-strong @[30rem]/chart:gap-0.5">
+          <div
+            role="slider"
+            tabIndex={data.length ? 0 : -1}
+            aria-label={`${title}: pick a ${unitName}`}
+            aria-orientation="horizontal"
+            aria-valuemin={0}
+            aria-valuemax={Math.max(0, last)}
+            aria-valuenow={Math.max(0, active)}
+            aria-valuetext={readout}
+            onKeyDown={onKeyDown}
+            className="relative flex h-45 cursor-pointer items-end gap-px rounded-sm border-b border-line-strong outline-none focus-halo @[30rem]/chart:gap-0.5"
+          >
             <span className="pointer-events-none absolute inset-x-0 top-0 border-t border-line" />
             <span className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-line" />
             {data.map((datum, index) => {
               const show = labelAll || index === peak || index === last
               const value = printed(datum, index)
-              const tip = `${datum.label}: ${series
-                .map((s) => {
-                  const v = datum.values[s.key]
-                  return `${s.label} ${v === null || v === undefined ? "—" : format(v)}`
-                })
-                .join(", ")}`
               return (
                 <div
                   key={`${datum.label}-${index}`}
-                  title={tip}
+                  ref={(element) => {
+                    columnRefs.current[index] = element
+                  }}
+                  aria-hidden
+                  title={describe(datum)}
+                  data-selected={selected === index || undefined}
+                  onClick={() => pick(index)}
                   className={cn(
-                    "group/col relative flex h-full min-w-0 flex-1 items-end justify-center",
+                    "group/col relative flex h-full min-w-0 flex-1 items-end justify-center rounded-t-sm data-selected:bg-fill",
                     stacked
                       ? "flex-col-reverse items-center justify-start"
                       : "gap-px"
@@ -197,16 +284,18 @@ export function ReportBarChart({
                   {show && value !== null ? (
                     <span
                       className={cn(
-                        "pointer-events-none absolute font-mono text-[11px] leading-none font-semibold whitespace-nowrap text-ink tabular-nums",
+                        "pointer-events-none absolute bottom-(--label-y) font-mono text-caption leading-none font-semibold whitespace-nowrap text-ink tabular-nums",
                         index === last && data.length > 1
                           ? "right-0"
                           : index === 0 && data.length > 1
                             ? "left-0"
                             : "left-1/2 -translate-x-1/2"
                       )}
-                      style={{
-                        bottom: `calc(${pct(totals[index])} + 4px)`,
-                      }}
+                      style={
+                        {
+                          "--label-y": `calc(${pct(totals[index])} + 4px)`,
+                        } as ChartVars
+                      }
                     >
                       {format(value)}
                     </span>
@@ -223,12 +312,12 @@ export function ReportBarChart({
                         key={s.key}
                         className={cn(
                           BAR_CLASS[s.color],
-                          "group-hover/col:brightness-95",
+                          "h-(--bar-h) group-hover/col:brightness-95",
                           stacked
-                            ? "w-full max-w-7.5 shrink-0 last:rounded-t-[2px]"
-                            : "min-h-px max-w-5.5 flex-1 rounded-t-[2px]"
+                            ? "w-full max-w-7.5 shrink-0 last:rounded-t-sm"
+                            : "min-h-px max-w-5.5 flex-1 rounded-t-sm"
                         )}
-                        style={{ height: pct(v) }}
+                        style={{ "--bar-h": pct(v) } as ChartVars}
                       />
                     )
                   })}
@@ -236,7 +325,10 @@ export function ReportBarChart({
               )
             })}
           </div>
-          <div className="col-start-2 mt-1.5 flex justify-between gap-2 font-mono text-[11px] text-ink-muted tabular-nums">
+          <div
+            aria-hidden
+            className="col-start-2 mt-1.5 flex justify-between gap-2 font-mono text-caption text-ink-muted tabular-nums"
+          >
             <span>{data[0]?.label}</span>
             {data.length > 2 ? (
               <span className="@max-[22rem]/chart:hidden">
@@ -277,9 +369,9 @@ export function ReportBarChart({
           : labelAll
             ? "Every bar is labelled."
             : `The busiest and the latest ${unitName} are labelled.`}{" "}
-        {unitNote}
+        Tap a bar for its figures. {unitNote}
       </figcaption>
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1 print:hidden">
         <Button
           variant="ghost"
           size="sm"
@@ -322,18 +414,17 @@ export function ReportChartCard({
   className?: string
 }) {
   return (
-    <section
+    <Card
       data-slot="report-chart-card"
-      className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)",
-        className
-      )}
+      className={cn("break-inside-avoid", className)}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 className="text-title font-semibold text-ink">{title}</h3>
-        {aside}
-      </div>
-      {children}
-    </section>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {aside ? <CardAction>{aside}</CardAction> : null}
+      </CardHeader>
+      <CardContent className="flex min-w-0 flex-col gap-3">
+        {children}
+      </CardContent>
+    </Card>
   )
 }

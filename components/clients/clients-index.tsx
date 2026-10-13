@@ -17,6 +17,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
+import { ClientRecordList } from "@/components/clients/clients-index-cards"
+import { useDebouncedSearchParam } from "@/components/clients/clients-index-search"
+import {
+  HealthFilterStrip,
+  healthCounts,
+} from "@/components/clients/health-filter"
 import {
   Alert,
   AlertActions,
@@ -24,25 +30,23 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
 import { SearchInput } from "@/components/ui/input"
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control"
+import { QueryError } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import {
   clientHealthNote,
+  compareClientsByNeed,
   connectionNeedsReconnect,
   HEALTH_FILTERS,
-  healthFilterMatches,
+  healthBucket,
   healthLabel,
   healthTone,
   isHealthFilter,
-  type ClientHealth,
   type HealthFilter,
 } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
@@ -86,14 +90,16 @@ export function movedNotice(section: string | null | undefined): string | null {
  * Every client, ordered so the ones needing work come first.
  *
  * An agency opens this to answer "where do I go now", so the default order is
- * by open work rather than alphabetically: a name-sorted list makes the
- * operator read all forty rows to find the two that matter.
+ * by need rather than alphabetically (`compareClientsByNeed`: health
+ * severity, then open work, then name): a name-sorted list makes the operator
+ * read all forty rows to find the two that matter.
  *
- * Reference `clients.html`: four health tiles, a health filter and a name
- * search, then the table, which becomes labelled rows on a narrow screen
- * with health and the open-work link intact. The filter (`?health=`), the
- * search (`?q=`) and the Archived view (`?view=archived`) live in the
- * address, so a filtered list can be shared, reloaded and gone back to.
+ * One health filter (a chip strip covering every bucket, with counts) and a
+ * name search, then the list: record cards on a phone, the table on a wider
+ * screen, both rendered and chosen in CSS. The filter (`?health=`), the
+ * search (`?q=`, written once typing pauses) and the Archived view
+ * (`?view=archived`) live in the address, so a filtered list can be shared,
+ * reloaded and gone back to.
  */
 function ClientsIndex({ role }: { role: string | null }) {
   const router = useRouter()
@@ -107,14 +113,6 @@ function ClientsIndex({ role }: { role: string | null }) {
   const rawHealth = params?.get("health") ?? null
   const health: HealthFilter = isHealthFilter(rawHealth) ? rawHealth : "all"
   const urlQuery = params?.get("q") ?? ""
-  // The field keeps its own value so typing never waits on navigation; the
-  // address follows it, and a Back/Forward that changes `?q=` wins.
-  const [query, setQueryState] = React.useState(urlQuery)
-  const [syncedQuery, setSyncedQuery] = React.useState(urlQuery)
-  if (urlQuery !== syncedQuery) {
-    setSyncedQuery(urlQuery)
-    setQueryState(urlQuery)
-  }
   const moved = movedNotice(params?.get("moved"))
 
   const replaceParams = (mutate: (search: URLSearchParams) => void) => {
@@ -125,19 +123,37 @@ function ClientsIndex({ role }: { role: string | null }) {
       scroll: false,
     })
   }
-  const setHealth = (next: string) =>
+  const putQuery = (search: URLSearchParams, next: string) => {
+    if (next.trim()) search.set("q", next)
+    else search.delete("q")
+  }
+  // The field keeps its own value so typing never waits on navigation; the
+  // address follows once typing pauses (or on Enter / leaving the field),
+  // and a Back/Forward that changes `?q=` wins.
+  const searchField = useDebouncedSearchParam(urlQuery, (next) =>
+    replaceParams((search) => putQuery(search, next))
+  )
+  const query = searchField.draft
+  const searchProps = {
+    value: query,
+    enterKeyHint: "search" as const,
+    autoComplete: "off",
+    autoCapitalize: "none",
+    spellCheck: false,
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+      searchField.setDraft(event.target.value),
+    onBlur: searchField.flush,
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") searchField.flush()
+    },
+  }
+  const setHealth = (next: HealthFilter) =>
     replaceParams((search) => {
       if (next === "all") search.delete("health")
       else search.set("health", next)
+      // A pending search goes in the same write, so the two never race.
+      putQuery(search, searchField.take())
     })
-  const setQuery = (next: string) => {
-    setQueryState(next)
-    setSyncedQuery(next)
-    replaceParams((search) => {
-      if (next.trim()) search.set("q", next)
-      else search.delete("q")
-    })
-  }
   const setView = (next: "archived" | null) =>
     replaceParams((search) => {
       if (next) search.set("view", next)
@@ -164,7 +180,7 @@ function ClientsIndex({ role }: { role: string | null }) {
           query={archived}
           onBack={() => setView(null)}
           search={query}
-          onSearch={setQuery}
+          searchProps={searchProps}
         />
       </div>
     )
@@ -174,7 +190,7 @@ function ClientsIndex({ role }: { role: string | null }) {
 
   if (clients.isError) {
     return (
-      <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <Card flush>
         <Empty
           tone="bad"
           titleAs="h2"
@@ -193,16 +209,11 @@ function ClientsIndex({ role }: { role: string | null }) {
             </Button>
           }
         />
-      </div>
+      </Card>
     )
   }
 
-  const all = [...(clients.data?.items ?? [])].sort((a, b) => {
-    const workA = a.openWork.needsReply + a.openWork.awaitingApproval
-    const workB = b.openWork.needsReply + b.openWork.awaitingApproval
-    if (workA !== workB) return workB - workA
-    return a.name.localeCompare(b.name)
-  })
+  const all = [...(clients.data?.items ?? [])].sort(compareClientsByNeed)
   const unassigned = clients.data?.unassignedLocationCount ?? 0
   const archivedCount = archived.data?.items.length ?? 0
   const archivedLink =
@@ -217,7 +228,7 @@ function ClientsIndex({ role }: { role: string | null }) {
     return (
       <div className="flex flex-col gap-(--np-gap-section)">
         {notice}
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
           {canCreate ? (
             <Empty
               titleAs="h2"
@@ -242,49 +253,38 @@ function ClientsIndex({ role }: { role: string | null }) {
               description="An owner or admin chooses which clients you can see. Once they share one, it appears here with its reviews and listings."
             />
           )}
-        </div>
+        </Card>
       </div>
     )
   }
 
   const needle = query.trim().toLowerCase()
+  // Filtered with the same bucket function the chips count with, so a
+  // chip's count is exactly the clients it shows.
   const rows = all
-    .filter((client) => healthFilterMatches(health, client.health))
+    .filter(
+      (client) => health === "all" || healthBucket(client.health) === health
+    )
     .filter((client) => !needle || client.name.toLowerCase().includes(needle))
-  const count = (filter: HealthFilter) =>
-    all.filter((client) => healthFilterMatches(filter, client.health)).length
+  const counts = healthCounts(all)
   const filterLabel =
     HEALTH_FILTERS.find((filter) => filter.value === health)?.label ?? "All"
 
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
       {notice}
-      <HealthSummary clients={all} active={health} onSelect={setHealth} />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <SegmentedControl
-          value={health}
-          onValueChange={setHealth}
-          aria-label="Filter by health"
-          className="max-w-full"
-        >
-          {HEALTH_FILTERS.map((filter) => (
-            <SegmentedControlItem
-              key={filter.value}
-              value={filter.value}
-              className="flex-none"
-            >
-              {filter.label}
-              <span className="font-mono text-[11px] font-medium text-ink-muted tabular-nums">
-                {formatNumber(count(filter.value))}
-              </span>
-            </SegmentedControlItem>
-          ))}
-        </SegmentedControl>
-        <div role="search" className="w-full min-w-0 @min-[640px]:w-80">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0 md:flex-1">
+          <HealthFilterStrip
+            value={health}
+            counts={counts}
+            onValueChange={setHealth}
+          />
+        </div>
+        <div role="search" className="w-full min-w-0 md:w-80 md:flex-none">
           <SearchInput
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            {...searchProps}
             placeholder="Filter clients by name"
             aria-label="Filter clients by name"
           />
@@ -312,7 +312,7 @@ function ClientsIndex({ role }: { role: string | null }) {
         </div>
 
         {rows.length === 0 ? (
-          <div className="rounded-(--np-radius-card) border border-line bg-surface">
+          <Card flush>
             <Empty
               titleAs="h3"
               tone={needle || health === "all" ? "neutral" : "ok"}
@@ -330,122 +330,125 @@ function ClientsIndex({ role }: { role: string | null }) {
               action={
                 <Button
                   variant="secondary"
-                  onClick={() =>
+                  onClick={() => {
+                    searchField.clear()
                     replaceParams((search) => {
-                      setQueryState("")
-                      setSyncedQuery("")
                       search.delete("q")
                       search.delete("health")
                     })
-                  }
+                  }}
                 >
                   Clear filters
                 </Button>
               }
             />
-          </div>
+          </Card>
         ) : (
-          <DataTable
-            caption="Clients, with their Google health and open review work"
-            rows={rows}
-            rowId={(client) => client.id}
-            onRowClick={(client) => router.push(`/clients/${client.id}`)}
-            surface
-            responsive
-            columns={[
-              {
-                id: "name",
-                header: "Client",
-                span: true,
-                label: "",
-                cell: (client) => (
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <ClientAvatar name={client.name} colour={client.colour} />
-                    <span className="flex min-w-0 flex-col">
-                      <Link
-                        href={`/clients/${client.id}`}
-                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        {client.name}
-                      </Link>
-                      <span className="text-caption text-ink-muted">
-                        {client.locationCount === 0
-                          ? "No listings"
-                          : `${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"}`}
+          <>
+            <ClientRecordList clients={rows} className="md:hidden" />
+            <DataTable
+              className="max-md:hidden"
+              caption="Clients, with their Google health and open review work"
+              rows={rows}
+              rowId={(client) => client.id}
+              onRowClick={(client) => router.push(`/clients/${client.id}`)}
+              surface
+              responsive
+              columns={[
+                {
+                  id: "name",
+                  header: "Client",
+                  span: true,
+                  label: "",
+                  cell: (client) => (
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <ClientAvatar name={client.name} colour={client.colour} />
+                      <span className="flex min-w-0 flex-col">
+                        <Link
+                          href={`/clients/${client.id}`}
+                          className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {client.name}
+                        </Link>
+                        <span className="text-caption text-ink-muted">
+                          {client.locationCount === 0
+                            ? "No listings"
+                            : `${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"}`}
+                        </span>
                       </span>
                     </span>
-                  </span>
-                ),
-              },
-              {
-                id: "health",
-                header: "Health",
-                cell: (client) => {
-                  const note = clientHealthNote(client)
-                  return (
-                    <span className="flex flex-col items-start gap-1">
-                      <StatusPill
-                        tone={healthTone(client.health)}
-                        dashed={client.health === "not_connected"}
-                      >
-                        {healthLabel(client.health)}
-                      </StatusPill>
-                      {note ? (
-                        <span className="text-caption text-ink-muted">
-                          {note}
-                        </span>
-                      ) : null}
-                    </span>
-                  )
+                  ),
                 },
-              },
-              {
-                id: "locations",
-                header: "Listings linked",
-                numeric: true,
-                cell: (client) => (
-                  <span>
-                    {formatNumber(client.linkedCount)}
-                    <span className="text-ink-muted">
-                      {" / "}
-                      {formatNumber(client.locationCount)}
+                {
+                  id: "health",
+                  header: "Health",
+                  cell: (client) => {
+                    const note = clientHealthNote(client)
+                    return (
+                      <span className="flex flex-col items-start gap-1">
+                        <StatusPill
+                          tone={healthTone(client.health)}
+                          dashed={client.health === "not_connected"}
+                        >
+                          {healthLabel(client.health)}
+                        </StatusPill>
+                        {note ? (
+                          <span className="text-caption text-ink-muted">
+                            {note}
+                          </span>
+                        ) : null}
+                      </span>
+                    )
+                  },
+                },
+                {
+                  id: "locations",
+                  header: "Listings linked",
+                  numeric: true,
+                  cell: (client) => (
+                    <span>
+                      {formatNumber(client.linkedCount)}
+                      <span className="text-ink-muted">
+                        {" / "}
+                        {formatNumber(client.locationCount)}
+                      </span>
                     </span>
-                  </span>
-                ),
-              },
-              {
-                id: "work",
-                header: "Open reviews",
-                numeric: true,
-                cell: (client) => <OpenWork client={client} />,
-              },
-              {
-                id: "sync",
-                header: "Last sync",
-                cell: (client) => (
-                  <span
-                    className={cn(
-                      "text-ui",
-                      client.health === "disconnected"
-                        ? "text-danger-ink"
-                        : "text-ink-muted"
-                    )}
-                  >
-                    {client.lastSyncAt
-                      ? formatRelativeTime(client.lastSyncAt)
-                      : "Not yet"}
-                  </span>
-                ),
-              },
-              {
-                id: "login",
-                header: "Google login",
-                span: true,
-                cell: (client) => <LoginCell client={client} />,
-              },
-            ]}
-          />
+                  ),
+                },
+                {
+                  id: "work",
+                  header: "Open reviews",
+                  numeric: true,
+                  cell: (client) => <OpenWork client={client} />,
+                },
+                {
+                  id: "sync",
+                  header: "Last sync",
+                  cell: (client) => (
+                    <span
+                      className={cn(
+                        "text-ui",
+                        client.health === "disconnected"
+                          ? "text-danger-ink"
+                          : "text-ink-muted"
+                      )}
+                    >
+                      {client.lastSyncAt
+                        ? formatRelativeTime(client.lastSyncAt)
+                        : "Not yet"}
+                    </span>
+                  ),
+                },
+                {
+                  id: "login",
+                  header: "Google login",
+                  span: true,
+                  cell: (client) => <LoginCell client={client} />,
+                },
+              ]}
+            />
+          </>
         )}
       </section>
 
@@ -477,78 +480,6 @@ function ClientsIndex({ role }: { role: string | null }) {
 }
 
 /**
- * The four health buckets, in the same words as the filter and the pills.
- * They do not overlap, so they add up to every client, and each tile is the
- * filter: pressing one shows exactly the clients it counted.
- */
-const SUMMARY_TILES: Array<{
-  filter: Exclude<HealthFilter, "all">
-  health: ClientHealth
-}> = [
-  { filter: "disconnected", health: "disconnected" },
-  { filter: "attention", health: "attention" },
-  { filter: "healthy", health: "healthy" },
-  { filter: "not_connected", health: "not_connected" },
-]
-
-function HealthSummary({
-  clients,
-  active,
-  onSelect,
-}: {
-  clients: ClientSummary[]
-  active: HealthFilter
-  onSelect: (filter: HealthFilter) => void
-}) {
-  const importing = clients.filter((c) => c.health === "syncing").length
-  return (
-    <section
-      aria-label="Health summary"
-      className="grid grid-cols-2 gap-3 @min-[760px]:grid-cols-4"
-    >
-      {SUMMARY_TILES.map((tile) => {
-        const value = clients.filter((c) =>
-          healthFilterMatches(tile.filter, c.health)
-        ).length
-        const pressed = active === tile.filter
-        return (
-          <button
-            key={tile.filter}
-            type="button"
-            aria-pressed={pressed}
-            // Pressing the shown filter again clears it.
-            onClick={() => onSelect(pressed ? "all" : tile.filter)}
-            className={cn(
-              "flex min-w-0 flex-col gap-0.5 rounded-(--np-radius-card) border bg-surface px-3.5 py-3 text-left focus-halo transition-[border-color,box-shadow] duration-(--np-duration-fast) hover:border-line-strong",
-              pressed ? "border-primary shadow-np-raised" : "border-line"
-            )}
-          >
-            <span className="font-mono text-[22px] leading-7 font-semibold text-ink tabular-nums">
-              {formatNumber(value)}
-            </span>
-            <span className="flex items-baseline gap-1.5 text-ui text-ink-muted">
-              <span className="shrink-0 translate-y-[-1px]">
-                <StatusPill
-                  variant="dot"
-                  tone={healthTone(tile.health)}
-                  dashed={tile.health === "not_connected"}
-                />
-              </span>
-              {healthLabel(tile.health)}
-            </span>
-            {tile.filter === "healthy" && importing > 0 ? (
-              <span className="text-caption text-ink-muted">
-                {formatNumber(importing)} importing
-              </span>
-            ) : null}
-          </button>
-        )
-      })}
-    </section>
-  )
-}
-
-/**
  * Archived clients, each with Restore. Archiving hides a client everywhere
  * else, so this is the one place to find it again.
  */
@@ -556,12 +487,13 @@ function ArchivedClients({
   query,
   onBack,
   search,
-  onSearch,
+  searchProps,
 }: {
   query: ReturnType<typeof useArchivedClients>
   onBack: () => void
   search: string
-  onSearch: (next: string) => void
+  /** The shared, debounced `?q=` field wiring from the index. */
+  searchProps: React.ComponentProps<typeof SearchInput>
 }) {
   const { update } = useClientMutations()
   const toast = useToastManager()
@@ -615,23 +547,11 @@ function ArchivedClients({
     return (
       <section className="flex flex-col gap-3">
         {header}
-        <Alert variant="destructive">
-          <AlertTitle>We couldn’t load archived clients</AlertTitle>
-          <AlertDescription>
-            {describeActionError(query.error)} Nothing was changed.
-          </AlertDescription>
-          <AlertActions>
-            <Button
-              variant="secondary"
-              size="sm"
-              pending={query.isFetching}
-              pendingLabel="Trying again…"
-              onClick={() => void query.refetch()}
-            >
-              Try again
-            </Button>
-          </AlertActions>
-        </Alert>
+        <QueryError
+          title="We couldn’t load archived clients"
+          description={`${describeActionError(query.error)} Nothing was changed.`}
+          onRetry={() => void query.refetch()}
+        />
       </section>
     )
   }
@@ -644,10 +564,9 @@ function ArchivedClients({
   return (
     <section className="flex flex-col gap-3" aria-label="Archived clients">
       {header}
-      <div role="search" className="w-full min-w-0 @min-[640px]:w-80">
+      <div role="search" className="w-full min-w-0 md:w-80">
         <SearchInput
-          value={search}
-          onChange={(event) => onSearch(event.target.value)}
+          {...searchProps}
           placeholder="Filter archived clients"
           aria-label="Filter archived clients by name"
         />
@@ -659,7 +578,7 @@ function ArchivedClients({
         </Alert>
       ) : null}
       {items.length === 0 ? (
-        <div className="rounded-(--np-radius-card) border border-line bg-surface">
+        <Card flush>
           <Empty
             titleAs="h3"
             icon={<ArchiveIcon />}
@@ -674,7 +593,7 @@ function ArchivedClients({
                 : "Clients you archive appear here, ready to restore."
             }
           />
-        </div>
+        </Card>
       ) : (
         <DataTable
           caption="Archived clients, with when each was archived"
@@ -794,38 +713,71 @@ function LoginCell({ client }: { client: ClientSummary }) {
 }
 
 /**
- * The index's loading shape: four tiles, a line saying what is loading, and
- * the list card. Exported so the route's `loading.tsx` draws exactly this
- * instead of a copy that drifted.
+ * The index's loading shape, drawn to the loaded page's measures so nothing
+ * jumps on swap: the chip strip and search, the list heading with a line
+ * saying what is loading, then record cards on a phone and table rows on a
+ * wider screen (the same CSS switch the list uses). Exported so the route's
+ * `loading.tsx` draws exactly this instead of a copy that drifted.
  */
 function ClientsSkeleton() {
   return (
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
-      <div className="grid grid-cols-2 gap-3 @min-[760px]:grid-cols-4">
-        {[0, 1, 2, 3].map((index) => (
-          <div
-            key={index}
-            className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface px-3.5 py-3"
-          >
-            <Skeleton className="h-5 w-10" />
-            <Skeleton className="h-3.5 w-3/4" />
-          </div>
-        ))}
+      <div
+        aria-hidden
+        className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+      >
+        <div className="flex min-w-0 gap-2 overflow-hidden md:flex-1">
+          {["w-16", "w-36", "w-40", "w-24", "w-32"].map((width) => (
+            <Skeleton
+              key={width}
+              className={cn(
+                "h-8 shrink-0 rounded-(--np-radius-pill) pointer-coarse:h-10",
+                width
+              )}
+            />
+          ))}
+        </div>
+        <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-control) md:w-80 md:flex-none" />
       </div>
-      <p role="status" className="text-ui text-ink-muted">
-        Loading clients…
-      </p>
-      <div className="divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">
-        {[0, 1, 2, 3].map((index) => (
-          <div
-            key={index}
-            className="flex h-(--np-row-h) items-center gap-3 px-(--np-cell-px)"
-          >
-            <Skeleton className="size-8 rounded-(--np-radius-control)" />
-            <Skeleton className="h-3.5 w-40 max-w-[40%]" />
-            <Skeleton className="ml-auto h-3.5 w-16" />
+      <div className="flex flex-col gap-2.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <Skeleton aria-hidden className="h-6 w-28" />
+          <p role="status" className="text-caption text-ink-muted">
+            Loading clients…
+          </p>
+        </div>
+        <Card flush aria-hidden className="md:hidden">
+          <div className="divide-y divide-line">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <div key={index} className="flex items-center gap-3 px-4 py-3">
+                <Skeleton className="size-8 shrink-0 rounded-(--np-radius-control)" />
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <Skeleton className="h-6 w-40 max-w-full" />
+                  <Skeleton className="h-5.5 w-20 rounded-(--np-radius-tag)" />
+                  <Skeleton className="h-4.5 w-48 max-w-full" />
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <Skeleton className="h-6 w-6" />
+                  <Skeleton className="h-4.5 w-20" />
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+        </Card>
+        <Card flush aria-hidden className="max-md:hidden">
+          <div className="divide-y divide-line">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <div
+                key={index}
+                className="flex h-(--np-row-h) items-center gap-3 px-(--np-cell-px)"
+              >
+                <Skeleton className="size-8 rounded-(--np-radius-control)" />
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="ml-auto h-3.5 w-16" />
+              </div>
+            ))}
+          </div>
+        </Card>
       </div>
     </div>
   )

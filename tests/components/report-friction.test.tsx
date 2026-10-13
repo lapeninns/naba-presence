@@ -70,7 +70,7 @@ describe("ReportBarChart values", () => {
       render(chart)
       fireEvent.click(
         screen.getByRole("button", {
-          name: "Download Reviews received and replied as CSV",
+          name: "Download CSV of Reviews received and replied",
         })
       )
       expect(create).toHaveBeenCalled()

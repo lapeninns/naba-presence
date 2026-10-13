@@ -10,6 +10,60 @@ import {
 } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
+/**
+ * Keyboard and autofill hints for the kinds of value the product asks for.
+ * Every native attribute passes straight through Input, so spread one of
+ * these and override what differs:
+ *
+ *   <Input {...inputHints.identifier} placeholder="accounts/…" />
+ *   <Input {...inputHints.email} autoComplete="username" />
+ *
+ * On a phone these decide which keyboard opens and whether iOS capitalises
+ * or "corrects" what was typed — a place id or `accounts/123` autocorrected
+ * into a word is the most common way a coded value arrives broken. Text is
+ * already 16px on touch (`text-body`), so focusing never zooms the page.
+ */
+export const inputHints = {
+  /** Resource names, ids, codes: no capitals, no corrections, no spellcheck. */
+  identifier: {
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    autoComplete: "off",
+    spellCheck: false,
+  },
+  email: {
+    type: "email",
+    inputMode: "email",
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    autoComplete: "email",
+    spellCheck: false,
+  },
+  phone: { type: "tel", inputMode: "tel", autoComplete: "tel" },
+  url: {
+    type: "url",
+    inputMode: "url",
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    autoComplete: "url",
+    spellCheck: false,
+  },
+  /** Whole numbers (a count, a postcode PIN of variable length). */
+  integer: { inputMode: "numeric", pattern: "[0-9]*" },
+  /** Prices and other decimals: the decimal pad on iOS. */
+  decimal: { inputMode: "decimal" },
+  /** A code sent by SMS or email; see OtpField for fixed-length codes. */
+  oneTimeCode: {
+    inputMode: "numeric",
+    autoComplete: "one-time-code",
+    autoCapitalize: "none",
+    autoCorrect: "off",
+    spellCheck: false,
+  },
+  /** A search box: the keyboard's return key says "search". */
+  search: { enterKeyHint: "search", autoCorrect: "off", spellCheck: false },
+} as const satisfies Record<string, React.ComponentProps<"input">>
+
 export type InputProps = React.ComponentProps<"input"> & {
   /**
    * `search` renders the search field (reference `.input-group`): the same
@@ -54,7 +108,7 @@ function Input({
       data-slot="input"
       className={cn(
         fieldChromeClassName,
-        "h-(--np-field-h) w-full px-[11px] py-[7px]",
+        "h-(--np-field-h) w-full px-(--np-field-pad-x) py-(--np-field-pad-y)",
         className
       )}
       {...fieldControlProps(field)}
@@ -118,8 +172,8 @@ function SearchInput({
       className={cn(
         "group/search relative flex h-(--np-field-h) w-full min-w-0 items-center gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-1 pl-[11px] text-body text-ink",
         "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",
-        "focus-within:border-primary focus-within:shadow-[0_0_0_3px_var(--np-accent-tint)]",
-        "has-[[aria-invalid=true]]:border-danger-ink has-[[aria-invalid=true]]:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+        "focus-within:border-primary focus-within:shadow-(--np-field-ring)",
+        "has-[[aria-invalid=true]]:border-danger-ink has-[[aria-invalid=true]]:shadow-(--np-field-ring-invalid)",
         "data-disabled:cursor-not-allowed data-disabled:bg-surface-alt data-disabled:text-ink-muted",
         className
       )}
@@ -142,7 +196,7 @@ function SearchInput({
           onChange?.(event)
         }}
         className={cn(
-          "h-full min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted pointer-coarse:text-base",
+          "h-full min-w-0 flex-1 bg-transparent text-body text-ink outline-none placeholder:text-ink-muted",
           "[&::-webkit-search-cancel-button]:appearance-none [&::-webkit-search-decoration]:appearance-none",
           "disabled:cursor-not-allowed",
           inputClassName
@@ -155,7 +209,7 @@ function SearchInput({
           aria-label="Clear search"
           data-slot="input-search-clear"
           onClick={clear}
-          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted after:absolute after:-inset-1 after:content-[''] focus-halo transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy hover:text-ink active:scale-[0.98]"
+          className="relative inline-flex size-7 shrink-0 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,transform] duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-1 after:content-[''] hover:text-ink active:scale-[0.98]"
         >
           <XCircleIcon className="size-4" strokeWidth={1.75} aria-hidden />
         </button>

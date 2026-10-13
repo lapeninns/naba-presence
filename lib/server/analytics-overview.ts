@@ -144,21 +144,30 @@ async function loadSeries(
       : granularity === "week"
         ? "1 week"
         : "1 day"
+  // The buckets are stepped on the organisation's wall clock, then turned
+  // back into instants. Stepping timestamptz values directly would add the
+  // interval in the database session's zone (UTC), so after a clock change,
+  // and for every month bucket outside UTC, the generated instants would miss
+  // the ones `counted` produces and the join would fill zeros: the charts
+  // would read empty beside tiles that count reviews.
+  // `timestamptz at time zone tz` gives the local timestamp;
+  // `timestamp at time zone tz` gives the instant back.
   return sql`
     with buckets as (
-      select generate_series(
+      select local_period at time zone ${timezone} as period
+      from generate_series(
         date_trunc(
           ${granularity},
           ${from}::timestamptz,
           ${timezone}
-        ),
+        ) at time zone ${timezone},
         date_trunc(
           ${granularity},
           ${to}::timestamptz,
           ${timezone}
-        ),
+        ) at time zone ${timezone},
         ${bucketInterval}::interval
-      ) as period
+      ) as local_period
     ),
     counted as (
       select

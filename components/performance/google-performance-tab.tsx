@@ -13,7 +13,6 @@ import { ReportTabHead } from "@/components/reporting/report-tab-head"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { PresenceFigures } from "@/components/performance/presence-figures"
-import { RangeSelect } from "@/components/performance/range-select"
 import { RefreshGoogleButton } from "@/components/performance/refresh-google-button"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useAnalyticsPresence } from "@/lib/queries/use-analytics-presence"
@@ -21,7 +20,6 @@ import {
   DEFAULT_RANGES,
   formatPeriod,
   isValidPeriod,
-  PRESENCE_RANGES,
   resolvedPeriod,
   type PresenceRangeId,
 } from "@/lib/reporting/ranges"
@@ -29,6 +27,11 @@ import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { useSessionRole } from "@/lib/queries/use-session" // client session hook (Task 1, REV-1)
 import { cn } from "@/lib/utils"
 
+/**
+ * Google performance for the page's scope and period. The period is chosen
+ * in the page's ReportToolbar (`?range=`); `onRangeChange` is still used for
+ * the "Show the last 12 months" shortcut on an empty window.
+ */
 export function GooglePerformanceTab({
   clientId,
   range,
@@ -67,21 +70,15 @@ export function GooglePerformanceTab({
         )
       }
       controls={
-        <>
-          <RangeSelect
-            value={rangeId}
-            onChange={setRangeId}
-            options={PRESENCE_RANGES}
-            period={period}
-          />
-          {/* Owners and admins only (lib/reporting/sync-permission); for
-              everyone else the button is not rendered at all. */}
+        // Owners and admins only (lib/reporting/sync-permission); for
+        // everyone else the button is not rendered at all.
+        canTriggerSync(role) ? (
           <RefreshGoogleButton
             kind="performance"
-            canTrigger={canTriggerSync(role)}
+            canTrigger
             onDone={() => void presence.refetch()}
           />
-        </>
+        ) : null
       }
     />
   )

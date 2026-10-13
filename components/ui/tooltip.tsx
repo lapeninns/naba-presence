@@ -24,8 +24,38 @@ function Tooltip(props: TooltipPrimitive.Root.Props) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
-function TooltipTrigger(props: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+/**
+ * A tooltip is supplementary: it never opens on touch, and a screen reader
+ * may never hear it. The trigger has to carry its own accessible name (its
+ * text, `aria-label`, or `aria-labelledby`), and anything a touch user needs
+ * to act has to be visible without hovering. In development a trigger with
+ * no name of its own is reported.
+ */
+function TooltipTrigger({ ref, ...props }: TooltipPrimitive.Trigger.Props) {
+  const checkName = React.useCallback(
+    (node: HTMLButtonElement | null) => {
+      if (typeof ref === "function") ref(node)
+      else if (ref) ref.current = node
+      if (process.env.NODE_ENV === "production" || !node) return
+      const named =
+        node.getAttribute("aria-label") ||
+        node.getAttribute("aria-labelledby") ||
+        node.textContent?.trim()
+      if (!named)
+        console.warn(
+          "TooltipTrigger has no accessible name of its own; the tooltip is not one.",
+          node
+        )
+    },
+    [ref]
+  )
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      ref={checkName}
+      {...props}
+    />
+  )
 }
 
 type PositionProps = Pick<
@@ -35,9 +65,10 @@ type PositionProps = Pick<
 
 /**
  * A small charcoal label (the counter-surface, like toasts): caption text in
- * the on-charcoal ink, control radius. In the dark theme charcoal is
- * near-white with dark text. Never the only home of information a touch
- * user needs; a tooltip does not open on touch.
+ * the on-charcoal ink, control radius, on the tooltip layer above every
+ * overlay. In the dark theme charcoal is near-white with dark text. Never
+ * the only home of information a touch user needs; a tooltip does not open
+ * on touch (see TooltipTrigger).
  */
 function TooltipContent({
   className,
@@ -55,7 +86,7 @@ function TooltipContent({
         align={align}
         sideOffset={sideOffset}
         alignOffset={alignOffset}
-        className="z-50"
+        className="z-tooltip"
       >
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"

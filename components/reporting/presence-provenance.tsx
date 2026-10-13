@@ -1,7 +1,65 @@
 "use client"
 
+import { useSyncExternalStore } from "react"
+
 import type { PresenceResponse } from "@/lib/contracts/analytics"
 import { formatDate, formatDateTime } from "@/lib/format"
+
+const noSubscribe = () => () => {}
+
+/**
+ * False while rendering on the server and while hydrating, true after: the
+ * one moment a component may read the viewer's own clock settings without
+ * the first client render disagreeing with the server's HTML.
+ */
+function useHydrated() {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false
+  )
+}
+
+/** "BST", "GMT+13", "UTC": the zone an instant is written in. */
+export function zoneLabel(iso: string, timeZone: string): string {
+  const date = new Date(iso)
+  if (!Number.isFinite(date.getTime())) return timeZone
+  return (
+    new Intl.DateTimeFormat("en-GB", { timeZone, timeZoneName: "short" })
+      .formatToParts(date)
+      .find((part) => part.type === "timeZoneName")?.value ?? timeZone
+  )
+}
+
+/**
+ * An instant written in a named zone, with the zone on screen ("13 Oct 2026,
+ * 09:12 GMT+13") and the machine-readable instant in `dateTime`.
+ *
+ * Pass `timeZone` whenever the page has one (the organisation's): the text
+ * is then the same on the server and in the browser. Without one it is the
+ * viewer's own zone, which the server cannot know, so the server and the
+ * hydrating client both write UTC and the browser switches to the viewer's
+ * zone after mount. Either way there is no hydration mismatch.
+ */
+export function ZonedTime({
+  iso,
+  timeZone,
+  className,
+}: {
+  iso: string
+  timeZone?: string
+  className?: string
+}) {
+  const hydrated = useHydrated()
+  const zone =
+    timeZone ??
+    (hydrated ? Intl.DateTimeFormat().resolvedOptions().timeZone : "UTC")
+  return (
+    <time dateTime={iso} className={className}>
+      {`${formatDateTime(iso, zone)} ${zoneLabel(iso, zone)}`}
+    </time>
+  )
+}
 
 /**
  * Where a Google figure comes from: the last day Google has reported
@@ -9,34 +67,30 @@ import { formatDate, formatDateTime } from "@/lib/format"
  * fetched successfully, and how many locations in scope are reporting.
  * "Data through" and "last fetched" are different facts: a fetch today can
  * still only carry data through last week.
+ *
+ * `timeZone` writes the fetch times in that zone (the public report passes
+ * the organisation's); without it they are the viewer's, after hydration.
  */
-export function PresenceProvenance({ data }: { data: PresenceResponse }) {
-  const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+export function PresenceProvenance({
+  data,
+  timeZone,
+}: {
+  data: PresenceResponse
+  timeZone?: string
+}) {
   const coverage = data.coverage
-  const parts = [
-    data.freshThrough
-      ? `Data through ${formatDate(data.freshThrough, "UTC")} (Google’s daily dates)`
-      : "No Google data in this window",
-    data.fetchedAt?.oldest
-      ? data.fetchedAt.oldest === data.fetchedAt.newest
-        ? `Last fetched ${formatDateTime(data.fetchedAt.oldest, viewerZone)}`
-        : `Last fetched between ${formatDateTime(data.fetchedAt.oldest, viewerZone)} and ${formatDateTime(data.fetchedAt.newest ?? data.fetchedAt.oldest, viewerZone)}`
-      : "Not fetched successfully yet",
-  ]
+  const oldest = data.fetchedAt?.oldest ?? null
+  const newest = data.fetchedAt?.newest ?? oldest
+  const dataThrough = data.freshThrough
+    ? `Data through ${formatDate(data.freshThrough, "UTC")} (Google’s daily dates)`
+    : "No Google data in this window"
   // The oldest per-location watermark, when it trails the newest date: every
   // location is complete up to it, only some beyond it.
   const completeThrough = data.completeness?.completeThrough
-  if (
-    completeThrough &&
-    data.freshThrough &&
-    completeThrough < data.freshThrough
-  ) {
-    parts.splice(
-      1,
-      0,
-      `All reporting locations complete through ${formatDate(completeThrough, "UTC")}`
-    )
-  }
+  const completeLine =
+    completeThrough && data.freshThrough && completeThrough < data.freshThrough
+      ? `All reporting locations complete through ${formatDate(completeThrough, "UTC")}`
+      : null
   const coverageParts = coverage
     ? [
         `${coverage.reporting} of ${coverage.eligible} ${coverage.eligible === 1 ? "location" : "locations"} reporting`,
@@ -47,7 +101,23 @@ export function PresenceProvenance({ data }: { data: PresenceResponse }) {
     : []
   return (
     <div className="flex flex-col gap-0.5 text-caption text-ink-muted">
-      <p className="tabular-nums">{parts.join(" · ")}</p>
+      <p className="tabular-nums">
+        {dataThrough}
+        {completeLine ? ` · ${completeLine}` : null}
+        {" · "}
+        {oldest === null ? (
+          "Not fetched successfully yet"
+        ) : oldest === newest || newest === null ? (
+          <>
+            Last fetched <ZonedTime iso={oldest} timeZone={timeZone} />
+          </>
+        ) : (
+          <>
+            Last fetched between <ZonedTime iso={oldest} timeZone={timeZone} />{" "}
+            and <ZonedTime iso={newest} timeZone={timeZone} />
+          </>
+        )}
+      </p>
       {coverageParts.length ? (
         <p className="tabular-nums" data-slot="presence-coverage">
           {coverageParts.join(" · ")}

@@ -104,7 +104,12 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                 placeholder="Old Crown Group"
                 required
                 maxLength={120}
+                // The business's name for the team, not the person's own
+                // organisation, so the browser should not offer autofill.
                 autoComplete="off"
+                autoCapitalize="words"
+                enterKeyHint="go"
+                spellCheck={false}
                 autoFocus
               />
               <FieldDescription>
@@ -123,6 +128,7 @@ function NewClientForm({ listingId }: { listingId?: string }) {
                 onChange={(event) => setNotes(event.target.value)}
                 rows={3}
                 maxLength={NOTES_MAX}
+                autoCapitalize="sentences"
                 placeholder="Anything your team should know before replying for this client."
               />
               <FieldCounter count={notes.length} max={NOTES_MAX}>
@@ -162,51 +168,53 @@ function NewClientForm({ listingId }: { listingId?: string }) {
           not move any listings.
         </p>
       ) : (
-        <section
-          aria-labelledby="new-client-next"
-          className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface-alt p-(--np-card-pad)"
-        >
-          <h2 id="new-client-next" className="text-body font-semibold text-ink">
-            What happens next
-          </h2>
-          <ol className="flex flex-col gap-2.5 text-ui">
-            {[
-              [
-                "Connect Google.",
-                "Sign in to the Google account that manages this client’s Business Profile, or reuse one you’ve already connected.",
-              ],
-              [
-                "Link its listings.",
-                "Pick the locations that belong to this client. Their reviews start arriving once linked.",
-              ],
-              [
-                "Import past reviews.",
-                "Runs in the background. You can carry on while it works.",
-              ],
-            ].map(([title, detail], index) => (
-              <li
-                key={title}
-                className="grid grid-cols-[1.375rem_minmax(0,1fr)] gap-2.5"
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "grid size-[22px] place-items-center rounded-full border-[1.5px] font-mono text-[11px] tabular-nums",
-                    index === 0
-                      ? "border-primary bg-accent-tint text-accent-ink"
-                      : "border-line-strong text-ink-muted"
-                  )}
-                >
-                  {index + 1}
-                </span>
-                <span>
-                  <strong className="font-semibold text-ink">{title}</strong>{" "}
-                  <span className="text-ink-muted">{detail}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        </section>
+        <Card className="bg-surface-alt">
+          <section
+            aria-labelledby="new-client-next"
+            className="flex flex-col gap-3 px-(--card-spacing)"
+          >
+            <h2
+              id="new-client-next"
+              className="text-body font-semibold text-ink"
+            >
+              What happens next
+            </h2>
+            <ol className="flex flex-col gap-2.5 text-ui">
+              {[
+                [
+                  "Connect Google.",
+                  "Sign in to the Google account that manages this client’s Business Profile, or reuse one you’ve already connected.",
+                ],
+                [
+                  "Link its listings.",
+                  "Pick the locations that belong to this client. Their reviews start arriving once linked.",
+                ],
+                [
+                  "Import past reviews.",
+                  "Runs in the background. You can carry on while it works.",
+                ],
+              ].map(([title, detail], index) => (
+                <li key={title} className="flex gap-2.5">
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "grid size-6 shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-caption tabular-nums",
+                      index === 0
+                        ? "border-primary bg-accent-tint text-accent-ink"
+                        : "border-line-strong text-ink-muted"
+                    )}
+                  >
+                    {index + 1}
+                  </span>
+                  <span>
+                    <strong className="font-semibold text-ink">{title}</strong>{" "}
+                    <span className="text-ink-muted">{detail}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        </Card>
       )}
     </div>
   )
