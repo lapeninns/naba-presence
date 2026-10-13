@@ -205,12 +205,14 @@ function AlertAction({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-type BannerTone = "warn" | "bad" | "info"
+type BannerTone = "warn" | "bad" | "info" | "announcement"
 
 const BANNER_TONE: Record<BannerTone, string> = {
   warn: "bg-warning-tint [&>svg]:text-warning-ink",
   bad: "bg-danger-tint [&>svg]:text-danger-ink",
   info: "bg-info-tint [&>svg]:text-info-ink",
+  announcement:
+    "bg-banner-bg text-banner-ink [&_a]:underline [&_a]:underline-offset-3 [&>svg]:text-banner-ink",
 }
 
 /**
@@ -220,6 +222,11 @@ const BANNER_TONE: Record<BannerTone, string> = {
  * (a Google login needs reconnecting). Announced politely by default (a
  * banner usually arrives with data after the page); pass `role="alert"` for
  * a condition that just appeared and blocks work.
+ *
+ * `tone="announcement"` is the persistent product announcement strip (Notion
+ * Mail's "Learn more" banner) on the `--np-banner-*` roles: words in the
+ * banner ink, links underlined. It is news, not a state, so it carries no
+ * status hue of its own and no glyph by default.
  */
 function Banner({
   tone = "warn",
@@ -236,7 +243,13 @@ function Banner({
   action?: React.ReactNode
 }) {
   const Default =
-    tone === "bad" ? CircleAlert : tone === "info" ? Info : TriangleAlert
+    tone === "bad"
+      ? CircleAlert
+      : tone === "info"
+        ? Info
+        : tone === "announcement"
+          ? null
+          : TriangleAlert
   return (
     <div
       data-slot="banner"
@@ -249,7 +262,13 @@ function Banner({
       )}
       {...props}
     >
-      {icon === undefined ? <Default strokeWidth={1.75} aria-hidden /> : icon}
+      {icon === undefined ? (
+        Default ? (
+          <Default strokeWidth={1.75} aria-hidden />
+        ) : null
+      ) : (
+        icon
+      )}
       <div className="min-w-0 flex-1 basis-60">{children}</div>
       {action ? <div className="flex shrink-0 gap-2">{action}</div> : null}
     </div>

@@ -3,6 +3,7 @@
 import { Toolbar as ToolbarPrimitive } from "@base-ui/react/toolbar"
 import * as React from "react"
 
+import { DockSpacer } from "@/components/ui/action-bar"
 import { cn } from "@/lib/utils"
 
 /**
@@ -127,7 +128,14 @@ function SelectionBar({
   if (!dock) return bar
   return (
     <>
-      <SelectionDockSpacer />
+      {/* The shared spacer (action-bar): keeps the list's last row
+          reachable above the fixed bar and publishes its height for the
+          scroll padding and the toast stack, without clearing another
+          docked bar's. The fallback is a header row over the tiles. */}
+      <DockSpacer
+        data-slot="selection-bar-spacer"
+        className="h-[var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-touch)+var(--np-dock-bottom)))] md:hidden"
+      />
       {bar}
     </>
   )
@@ -145,51 +153,6 @@ const DOCKED_CLASS = cn(
   "max-md:pt-1 max-md:pb-[max(--spacing(2),var(--np-dock-bottom))]",
   "max-md:transition-transform max-md:duration-(--np-duration-sheet) max-md:ease-out max-md:starting:translate-y-full"
 )
-
-/** The document property a docked bar publishes its measured height on. */
-const DOCK_BAR_HEIGHT = "--np-dock-bar-h"
-
-/**
- * Keeps the list's last row reachable above the fixed bar, and publishes the
- * bar's height for the scroll padding and the toast stack (the same contract
- * as ActionBar's DockSpacer). Phone only; from `md` the bar is in flow.
- */
-function SelectionDockSpacer() {
-  const ref = React.useRef<HTMLDivElement>(null)
-  React.useEffect(() => {
-    const bar = ref.current?.nextElementSibling
-    if (!(bar instanceof HTMLElement)) return
-    const root = document.documentElement
-    const publish = () => {
-      if (getComputedStyle(bar).position === "fixed") {
-        root.style.setProperty(
-          DOCK_BAR_HEIGHT,
-          `${bar.getBoundingClientRect().height}px`
-        )
-      } else {
-        root.style.removeProperty(DOCK_BAR_HEIGHT)
-      }
-    }
-    publish()
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(publish)
-    observer?.observe(bar)
-    window.addEventListener("resize", publish)
-    return () => {
-      observer?.disconnect()
-      window.removeEventListener("resize", publish)
-      root.style.removeProperty(DOCK_BAR_HEIGHT)
-    }
-  }, [])
-  return (
-    <div
-      ref={ref}
-      aria-hidden
-      data-slot="selection-bar-spacer"
-      className="h-[var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-touch)+var(--np-dock-bottom)))] md:hidden"
-    />
-  )
-}
 
 export type SelectionBarTileTone = "default" | "danger" | "charcoal"
 

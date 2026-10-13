@@ -119,7 +119,7 @@ function FieldLabel({
       id={field?.labelId}
       htmlFor={field && !field.controlLabelable ? undefined : field?.id}
       className={cn(
-        "gap-1.5 text-ui leading-5 font-semibold text-ink",
+        "gap-1.5 text-ui leading-5 font-medium text-ink-secondary",
         className
       )}
       {...props}
@@ -489,8 +489,8 @@ export const fieldChromeClassName = cn(
 )
 
 /**
- * A byte or character counter beneath a field (reference `.counter`): mono,
- * muted, and danger ink once `over`. Say the limit in the text itself
+ * A byte or character counter beneath a field (reference `.counter`): sans
+ * tabular figures, muted, and danger ink once `over`. Say the limit in the text itself
  * ("1,204 / 4,096 bytes"), so colour is not the only warning.
  *
  * Announced only near or over the limit. A live counter far from its limit
@@ -529,7 +529,7 @@ function FieldCounter({
       data-near={isNear || undefined}
       aria-live={isOver || isNear ? "polite" : "off"}
       className={cn(
-        "font-mono text-count text-ink-muted tabular-nums",
+        "text-count text-ink-muted tabular-nums",
         isOver && "font-semibold text-danger-ink",
         className
       )}

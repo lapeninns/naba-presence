@@ -236,7 +236,10 @@ describe("Sheet variant=inset", () => {
     expect(sheet.className).toContain("rounded-t-(--np-radius-sheet)")
     expect(sheet).not.toHaveClass("rounded-sheet-inset")
     const title = within(sheet).getByRole("heading", { name: "Filters" })
-    expect(title).toHaveClass("text-section")
+    // Drop 2: one sheet title role for every variant (brief §4.3), so a
+    // phone's edge bottom sheet matches the inset and full sheets.
+    expect(title).toHaveClass("text-title", "font-semibold")
+    expect(title).not.toHaveClass("text-section")
     // Script-focusable only (never a Tab stop), so an edge sheet can push too.
     expect(title).toHaveAttribute("tabindex", "-1")
     const header = sheet.querySelector('[data-slot="sheet-header"]')!

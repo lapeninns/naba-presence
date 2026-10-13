@@ -21,7 +21,10 @@ import {
   ValidationDemo,
 } from "@/app/design-system/interactive-demos"
 import { NmFeedbackDemo } from "@/app/design-system/nm-feedback-demo"
+import { NmFormsDemo } from "@/app/design-system/nm-forms-demo"
 import { NmListDemo } from "@/app/design-system/nm-list-demo"
+import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
+import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
 import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
@@ -1550,6 +1553,9 @@ export default function Page() {
           <NmListDemo />
           <NmSheetDemo />
           <NmFeedbackDemo />
+          <NmLists1bDemo />
+          <NmFormsDemo />
+          <NmOverlaysDemo />
         </Section>
 
         <Section

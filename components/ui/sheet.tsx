@@ -70,7 +70,8 @@ type SheetPresentation =
  *   full   a search picker or tag manager: the bottom sheet at its full
  *          height on a phone, the centred dialog from `sm`.
  *
- * `inset` and `full` draw a centred `text-title` title; a pushed page puts
+ * Every variant's title is `text-title` 600 (brief §4.3). `inset` and `full`
+ * centre it in a three-part bar; a pushed page puts
  * a labelled back control (`SheetBack`) before a left-aligned title, and
  * `page` on the header moves focus to the new title. A confirm is either
  * immediate (apply on tap, no button) or the header's single `action` on
@@ -79,6 +80,15 @@ type SheetPresentation =
 export type SheetVariant = "edge" | "inset" | "full"
 
 const SheetVariantContext = React.createContext<SheetVariant>("edge")
+
+/**
+ * The in-sheet page last shown by any header of this content. Held by the
+ * content, not the header, so a caller that remounts its header on a push
+ * (a keyed header, a header per page component) still gets focus moved.
+ */
+const SheetPageContext = React.createContext<React.RefObject<
+  string | undefined
+> | null>(null)
 
 /**
  * Reference `dialog.sheet`, by side:
@@ -159,15 +169,18 @@ function SheetContent({
   if (!root?.open && held !== live) setHeld(live)
   const presentation = root?.open ? held : live
   useReportSwipeDirection(swipeDirectionFor[presentation])
+  const pageRef = React.useRef<string | undefined>(undefined)
 
   const body = (
     <SheetVariantContext.Provider value={variant}>
-      <OverlayChrome
-        presentation={chromePresentationFor[presentation]}
-        showCloseButton={showCloseButton}
-      >
-        {children}
-      </OverlayChrome>
+      <SheetPageContext.Provider value={pageRef}>
+        <OverlayChrome
+          presentation={chromePresentationFor[presentation]}
+          showCloseButton={showCloseButton}
+        >
+          {children}
+        </OverlayChrome>
+      </SheetPageContext.Provider>
     </SheetVariantContext.Provider>
   )
 
@@ -251,7 +264,10 @@ function SheetContent({
  *
  * `page` names the page an in-sheet push is showing. When it changes, focus
  * moves to the new title, so a screen reader hears where it landed and the
- * row that pushed (now gone) does not drop focus to the page.
+ * row that pushed (now gone) does not drop focus to the page. That holds
+ * whether the caller updates one header or mounts a new one per page: a
+ * header that mounts showing a different page from the last one, or that
+ * mounts with `page` and `back` (a pushed page), takes focus to its title.
  */
 const SheetHeader = markOverlayHeader(function SheetHeader({
   className,
@@ -272,16 +288,27 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
   const hidden = /(^|\s)sr-only(\s|$)/.test(className ?? "")
   const { presentation, closeButton, grabber } = useOverlayHeader(hidden)
   const ref = React.useRef<HTMLDivElement>(null)
-  const shown = React.useRef(page)
+  const contentPage = React.useContext(SheetPageContext)
+  const ownPage = React.useRef<string | undefined>(undefined)
+  const shown = contentPage ?? ownPage
+  const mounted = React.useRef(false)
   const hasBack = back !== undefined && back !== null && back !== false
 
   React.useEffect(() => {
-    if (shown.current === page) return
+    const firstRun = !mounted.current
+    mounted.current = true
+    const previous = shown.current
     shown.current = page
+    if (page === undefined || previous === page) return
+    // The very first page of a sheet keeps the overlay's own initial focus,
+    // unless it is already a pushed page (it has a back control).
+    if (previous === undefined && !(firstRun && hasBack)) return
     ref.current
       ?.querySelector<HTMLElement>('[data-slot="sheet-title"]')
       ?.focus()
-  }, [page])
+    // `hasBack` is read on the run `page` changes in; it is not a trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, shown])
 
   const bar = !hidden && (variant !== "edge" || hasBack || Boolean(action))
   if (!bar) {
@@ -427,8 +454,8 @@ function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
       // variant: an edge sheet can push a page too).
       tabIndex={-1}
       className={cn(
-        "text-section font-semibold text-ink",
-        variant !== "edge" && "text-title outline-none",
+        "text-title font-semibold text-ink",
+        variant !== "edge" && "outline-none",
         className
       )}
       {...props}

@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils"
  *              subtitle                 trailing
  *              preview (2 lines touch, 1 desk)
  *              tags
+ *              footer (actions, outside the hit element)
  *
  * - The WHOLE row is the hit target (a button, a link via `href`, or any
  *   element via `render`), at least `--np-touch` tall, padded by
@@ -112,6 +113,17 @@ export type ListRowProps = Omit<
   interactive?: boolean
   /** Classes for the outer `<li>`/`<div>` that draws the divider. */
   wrapperClassName?: string
+  /**
+   * Actions under the preview (Accept / Ignore, Approve / Reject). Drawn
+   * OUTSIDE the row's hit element, aligned to the text column, so its
+   * buttons are valid HTML and separate tab stops.
+   */
+  footer?: React.ReactNode
+  /**
+   * The outer element. Defaults to `li` inside `ListRows`, `div` elsewhere;
+   * pass `"li"` when the row sits in a list of your own.
+   */
+  as?: "li" | "div"
 }
 
 function ListRow({
@@ -131,12 +143,15 @@ function ListRow({
   href,
   interactive = true,
   wrapperClassName,
+  footer,
+  as,
   className,
   render,
   ...props
 }: ListRowProps) {
   const inList = React.useContext(ListRowsContext)
-  const Wrapper = inList ? "li" : "div"
+  const Wrapper = as ?? (inList ? "li" : "div")
+  const hasFooter = footer != null && footer !== false
   const hasLeading = leading != null || leadingControl != null
   const isLink = href !== undefined
 
@@ -269,7 +284,7 @@ function ListRow({
       data-selected={selected || undefined}
       data-bleed={bleed || undefined}
       className={cn(
-        "relative flex min-w-0",
+        "relative flex min-w-0 flex-col",
         // The divider: under the text column only, never under the last row
         // or the selected one.
         "after:pointer-events-none after:absolute after:end-(--np-page-pad-x) after:bottom-0 after:h-px after:bg-line-subtle after:content-['']",
@@ -290,6 +305,17 @@ function ListRow({
         </span>
       ) : null}
       {hit}
+      {hasFooter ? (
+        <div
+          data-slot="list-row-footer"
+          className={cn(
+            "-mt-1 flex min-w-0 flex-wrap items-center gap-2 pe-(--np-page-pad-x) pb-(--np-row-mail-py)",
+            hasLeading ? "ps-(--np-row-inset-start)" : "ps-(--np-page-pad-x)"
+          )}
+        >
+          {footer}
+        </div>
+      ) : null}
     </Wrapper>
   )
 }

@@ -4,7 +4,7 @@
     "R1": 13,
     "R2": 9,
     "R3": 67,
-    "R4": 13,
+    "R4": 12,
     "R5": 2,
     "R6": 2,
     "R7": 16
@@ -416,12 +416,6 @@
         "patterns": {
           "max-h-[min(var(--available-height),32rem)]": 1,
           "min-w-[200px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[10px]": 1
         }
       }
     },
