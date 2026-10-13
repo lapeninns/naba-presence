@@ -166,13 +166,16 @@ describe("ActiveFilterChips", () => {
     expect(row).toHaveClass("overflow-x-auto")
     expect(row).not.toHaveClass("flex-wrap")
     expect(row?.lastElementChild).toHaveAccessibleName("Clear all filters")
-    const chips = row!.querySelectorAll('[data-slot="chip"]')
+    // The primitive FilterChip, applied: the whole chip removes it.
+    const chips = row!.querySelectorAll('[data-slot="filter-chip"]')
     expect(chips.length).toBe(3)
     for (const chip of Array.from(chips)) {
       expect(chip.tagName).toBe("BUTTON")
       expect(chip).toHaveAccessibleName(/^Remove filter: /)
+      expect(chip).toHaveAttribute("data-active")
+      expect(chip.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
       expect(chip).toHaveClass(
-        "h-(--np-control-h-sm)",
+        "h-(--np-chip-h)",
         "bg-accent-tint",
         "text-accent-ink",
         "font-semibold"

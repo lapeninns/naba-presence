@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { InboxToolbar } from "@/components/inbox/inbox-toolbar"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
@@ -56,6 +56,25 @@ function header() {
   return document.querySelector<HTMLElement>('[data-slot="inbox-toolbar"]')!
 }
 
+/**
+ * A viewport that is (or is not) the `desk` layout: a touch layout is where
+ * the Toolbar's search mode takes over. jsdom has no matchMedia, which reads
+ * as the desk.
+ */
+function mockDesk(desk: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: desk,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+  )
+}
+
+afterEach(() => vi.unstubAllGlobals())
+
 describe("InboxToolbar", () => {
   it("has exactly one search entry point, named Search reviews", () => {
     // The shell's launcher does not look inside review text, so this field
@@ -91,33 +110,38 @@ describe("InboxToolbar", () => {
   it("follows the title with the needs-reply count, keeping the heading's name", () => {
     renderToolbar("7 reviews", { counts: counts(12), countsPending: false })
     const heading = screen.getByRole("heading", { level: 1, name: "Inbox" })
-    const count = header().querySelector('[data-slot="inbox-header-count"]')
+    // ViewHeader's count slot, after the h1 on the same line.
+    const count = header().querySelector('[data-slot="view-header-count"]')
     expect(count).toBeInTheDocument()
     // Beside the h1, not inside it: the heading stays "Inbox".
     expect(heading).not.toContainElement(count as HTMLElement)
-    const figure = count!.querySelector("[aria-hidden]")
-    expect(figure).toHaveTextContent("12")
-    expect(figure).toHaveClass(
-      "text-section",
-      "md:text-page-title",
+    expect(heading.parentElement).toContainElement(count as HTMLElement)
+    expect(count).toHaveClass(
+      "text-count",
       "font-normal",
       "text-ink-muted",
       "tabular-nums"
     )
-    expect(figure?.className).not.toMatch(/font-mono/)
-    expect(within(header()).getByText("12 need a reply")).toHaveClass("sr-only")
+    expect(count?.className).not.toMatch(/font-mono/)
+    const figure = count!.querySelector("[aria-hidden]")
+    expect(figure).toHaveTextContent("12")
+    expect(within(header()).getByText("(12 need a reply)")).toHaveClass(
+      "sr-only"
+    )
   })
 
   it("says one review needs a reply in the singular", () => {
     renderToolbar("7 reviews", { counts: counts(1), countsPending: false })
-    expect(within(header()).getByText("1 needs a reply")).toBeInTheDocument()
+    expect(within(header()).getByText("(1 needs a reply)")).toBeInTheDocument()
   })
 
   it("shows a skeleton, never a zero, while the counts are in flight", () => {
     renderToolbar()
-    const count = header().querySelector('[data-slot="inbox-header-count"]')
-    expect(count).toHaveAttribute("data-slot", "inbox-header-count")
-    expect(count?.getAttribute("aria-hidden")).toBe("true")
+    const count = header().querySelector('[data-slot="view-header-count"]')
+    const skeleton = count?.querySelector('[data-slot="skeleton"]')
+    expect(skeleton).toBeInTheDocument()
+    expect(skeleton?.getAttribute("aria-hidden")).toBe("true")
+    expect(count?.textContent).toBe("")
     expect(
       screen.getByRole("heading", { level: 1, name: "Inbox" }).parentElement
         ?.textContent
@@ -126,9 +150,7 @@ describe("InboxToolbar", () => {
 
   it("shows no figure when nothing needs a reply", () => {
     renderToolbar("7 reviews", { counts: counts(0), countsPending: false })
-    expect(
-      header().querySelector('[data-slot="inbox-header-count"]')
-    ).toBeNull()
+    expect(header().querySelector('[data-slot="view-header-count"]')).toBeNull()
     expect(screen.queryByText(/need(s)? a reply/)).toBeNull()
   })
 
@@ -150,7 +172,8 @@ describe("InboxToolbar", () => {
     )
   })
 
-  it("enters phone search mode on focus: title and queues fold, Cancel and the results label appear", async () => {
+  it("enters phone search mode on focus: title, filters and queues fold, Cancel and the results label appear", async () => {
+    mockDesk(false)
     const user = userEvent.setup()
     renderToolbar("12 reviews")
     expect(header()).not.toHaveAttribute("data-search-mode")
@@ -159,24 +182,46 @@ describe("InboxToolbar", () => {
     await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))
 
     expect(header()).toHaveAttribute("data-search-mode")
+    // The Toolbar's own Cancel: a 44px text button beside the field.
     const cancel = screen.getByRole("button", { name: "Cancel" })
-    // A phone affordance: the desk keeps its layout.
-    expect(cancel).toHaveClass("md:hidden", "h-(--np-touch)")
+    expect(cancel).toHaveAttribute("data-slot", "toolbar-cancel")
+    expect(cancel).toHaveClass("min-h-(--np-touch)")
     expect(
       screen.getByRole("navigation", { name: "Review queues" })
-    ).toHaveClass("max-md:hidden")
+    ).toHaveClass("hidden")
+    // The filter end steps aside while the field has the row.
+    expect(screen.queryByRole("button", { name: /^Filters/ })).toBeNull()
     // Folded for the eye only: the h1 is still the page's heading.
     const titleRow = header().querySelector('[data-slot="inbox-title-row"]')
-    expect(titleRow).toHaveClass("max-md:sr-only")
+    expect(titleRow).toHaveClass("sr-only")
     expect(
       screen.getByRole("heading", { level: 1, name: "Inbox" })
     ).toBeInTheDocument()
     const results = header().querySelector('[data-slot="inbox-search-results"]')
     expect(results).toHaveTextContent("Results · 12 reviews")
-    expect(results).toHaveClass("text-ui", "text-ink-muted", "md:hidden")
+    expect(results).toHaveClass("text-ui", "text-ink-muted")
+    // Not live: the list header announces the count.
+    expect(results).not.toHaveAttribute("role")
+  })
+
+  it("never takes over the desk: focus and a search in force leave the band as it is", async () => {
+    mockDesk(true)
+    const user = userEvent.setup()
+    renderToolbar("3 reviews", { state: { ...state, search: "slow" } })
+    await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))
+    expect(header()).not.toHaveAttribute("data-search-mode")
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull()
+    expect(screen.getByRole("button", { name: /^Filters/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole("navigation", { name: "Review queues" })
+    ).not.toHaveClass("hidden")
+    expect(
+      header().querySelector('[data-slot="inbox-title-row"]')
+    ).not.toHaveClass("sr-only")
   })
 
   it("stays in search mode when the field loses focus, until Cancel", async () => {
+    mockDesk(false)
     const user = userEvent.setup()
     renderToolbar()
     await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))
@@ -187,13 +232,14 @@ describe("InboxToolbar", () => {
     expect(header()).not.toHaveAttribute("data-search-mode")
     expect(
       screen.getByRole("navigation", { name: "Review queues" })
-    ).not.toHaveClass("max-md:hidden")
+    ).not.toHaveClass("hidden")
     expect(
       screen.getByRole("searchbox", { name: "Search reviews" })
     ).not.toHaveFocus()
   })
 
   it("ends an empty search's takeover when a review opens, so the queues are back on return", async () => {
+    mockDesk(false)
     const user = userEvent.setup()
     const { rerender, props } = renderToolbar()
     await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))
@@ -206,11 +252,12 @@ describe("InboxToolbar", () => {
     expect(header()).not.toHaveAttribute("data-search-mode")
     expect(
       screen.getByRole("navigation", { name: "Review queues" })
-    ).not.toHaveClass("max-md:hidden")
+    ).not.toHaveClass("hidden")
     expect(props.onFilterChange).not.toHaveBeenCalled()
   })
 
   it("keeps a typed search's takeover when a review opens and closes", () => {
+    mockDesk(false)
     const { rerender, props } = renderToolbar("3 reviews", {
       state: { ...state, search: "slow" },
     })
@@ -220,6 +267,7 @@ describe("InboxToolbar", () => {
   })
 
   it("arrives in search mode with a search in force, and Cancel clears it through the filter path", async () => {
+    mockDesk(false)
     const user = userEvent.setup()
     const { props } = renderToolbar("3 reviews", {
       state: { ...state, search: "slow" },
@@ -232,7 +280,22 @@ describe("InboxToolbar", () => {
     ).toHaveValue("")
   })
 
+  it("Escape leaves search mode the way Cancel does", async () => {
+    mockDesk(false)
+    const user = userEvent.setup()
+    const { props } = renderToolbar("3 reviews", {
+      state: { ...state, search: "slow" },
+    })
+    await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))
+    await user.keyboard("{Escape}")
+    expect(props.onFilterChange).toHaveBeenCalledWith({ search: "" })
+    expect(
+      screen.getByRole("searchbox", { name: "Search reviews" })
+    ).toHaveValue("")
+  })
+
   it("Cancel with nothing typed changes no filter", async () => {
+    mockDesk(false)
     const user = userEvent.setup()
     const { props } = renderToolbar()
     await user.click(screen.getByRole("searchbox", { name: "Search reviews" }))

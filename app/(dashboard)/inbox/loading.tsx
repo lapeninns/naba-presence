@@ -81,10 +81,10 @@ export default function InboxLoading() {
             className="flex min-h-0 flex-col overflow-hidden bg-surface max-md:-mx-4 lg:border-r lg:border-line"
             aria-hidden
           >
-            <div className="flex min-h-11 items-center gap-2.5 border-b border-line-subtle px-(--np-page-pad-x)">
+            <div className="flex min-h-11 items-center gap-3 border-b border-line-subtle px-(--np-page-pad-x)">
               <Skeleton className="h-3 w-20" />
             </div>
-            <ReviewRowsSkeleton selectColumn />
+            <ReviewRowsSkeleton />
           </div>
           <div className="hidden min-h-0 items-center justify-center bg-surface lg:flex">
             <p className="flex items-center gap-2 text-ui text-ink-muted">

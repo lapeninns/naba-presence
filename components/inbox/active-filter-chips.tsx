@@ -1,9 +1,7 @@
 "use client"
 
-import { XIcon } from "lucide-react"
-
 import { Button } from "@/components/ui/button"
-import { ChipRow, chipClassName } from "@/components/ui/chip"
+import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
 import {
   ASSIGNEE_LABELS,
   CLEAR_FILTERS_LABEL,
@@ -17,7 +15,6 @@ import {
 } from "@/lib/inbox/filter-labels"
 import { REVIEW_AGE_LABELS } from "@/lib/inbox/review-age"
 import { hasActiveFilters, type InboxState } from "@/lib/inbox/url-state"
-import { cn } from "@/lib/utils"
 
 // Structural, not the wire schema's LocationEntry: the filter UI reads a name
 // off an id and nothing else, so tying it to the API payload would make every
@@ -118,12 +115,15 @@ function buildChips(
  * The filters in force, as removable capsules, so the reason a list is short
  * is always on screen next to it.
  *
- * The whole capsule is the remove control rather than a 20px cross inside
- * it: on a phone the cross was the only target and too small to hit, and a
- * capsule that only shows a filter has nothing else to do when pressed. Its
- * name says what pressing it does ("Remove filter: Rating: 1–2 stars").
- * Each chip is drawn at the small control height in the accent tint, with
- * the touch extension taking its target to 44px.
+ * Each is the primitive `FilterChip` in its applied state: the whole capsule
+ * is the remove control (a 20px cross inside it was too small to hit on a
+ * phone, and a capsule that only shows a filter has nothing else to do when
+ * pressed), drawn `--np-chip-h` tall in the accent tint with a trailing ×,
+ * the touch extension taking its target to 44px. Its name says what pressing
+ * it does ("Remove filter: Rating: 1–2 stars"), in the inbox's own wording.
+ * The strip (`FilterChipStrip`) is one row that scrolls sideways with faded
+ * edges rather than wrapping or cutting a label short, and it keeps focus on
+ * a neighbour when the focused chip goes.
  */
 function ActiveFilterChips({
   state,
@@ -142,29 +142,15 @@ function ActiveFilterChips({
   if (!hasActiveFilters(state)) return null
   const chips = buildChips(state, locations, clientName)
   return (
-    // One row that scrolls sideways (fading at the edge with more behind it)
-    // rather than wrapping or cutting a label short.
-    <ChipRow data-slot="active-filter-chips" className="items-center">
+    <FilterChipStrip data-slot="active-filter-chips" className="items-center">
       {chips.map((chip) => (
-        <button
+        <FilterChip
           key={chip.key}
-          type="button"
-          data-slot="chip"
-          aria-label={removeFilterLabel(chip.label)}
-          onClick={() => onChange(chip.clear)}
-          className={chipClassName({
-            className: cn(
-              // Applied, so drawn in the accent tint; the hit area reaches
-              // 44px on touch through the chip's own extension.
-              "border-transparent bg-accent-tint pr-2 font-semibold text-accent-ink",
-              "hover-fine:hover:border-transparent hover-fine:hover:bg-accent-tint",
-              "[&_svg]:text-accent-ink"
-            ),
-          })}
+          removeLabel={removeFilterLabel(chip.label)}
+          onRemove={() => onChange(chip.clear)}
         >
-          <span>{chip.label}</span>
-          <XIcon aria-hidden strokeWidth={1.75} />
-        </button>
+          {chip.label}
+        </FilterChip>
       ))}
       <Button
         variant="link"
@@ -173,7 +159,7 @@ function ActiveFilterChips({
       >
         {CLEAR_FILTERS_LABEL}
       </Button>
-    </ChipRow>
+    </FilterChipStrip>
   )
 }
 

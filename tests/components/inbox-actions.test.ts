@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
+import { ACTION_TOAST_TIMEOUT } from "@/components/ui/toast"
 import {
   describeOutcomeToast,
   evaluateApproval,
@@ -57,31 +58,33 @@ describe("describeOutcomeToast", () => {
     })
   })
   // D5: a Google write is an outcome, never an Undo. A published reply may
-  // link to the review on Google, in a new tab that is told nothing.
+  // link to the review on Google: the toast's Google kind, whose link is a
+  // real anchor into a new tab that is told nothing.
   it("offers View on Google, not Undo, for a published reply with a link", () => {
     const toast = describeOutcomeToast("published", {
       googleReplyUrl: "https://search.google.com/local/reviews?r=1",
     })
-    expect(toast.title).toBe("Reply published")
-    expect(toast.actionProps?.children).toBe("View on Google")
-    const open = vi.spyOn(window, "open").mockReturnValue(null)
-    toast.actionProps?.onClick()
-    expect(open).toHaveBeenCalledWith(
-      "https://search.google.com/local/reviews?r=1",
-      "_blank",
-      "noopener,noreferrer"
-    )
-    open.mockRestore()
+    expect(toast).toEqual({
+      title: "Reply published",
+      description: "Live on Google.",
+      type: "success",
+      data: {
+        kind: "google",
+        link: { href: "https://search.google.com/local/reviews?r=1" },
+      },
+      timeout: ACTION_TOAST_TIMEOUT,
+    })
+    expect(toast).not.toHaveProperty("actionProps")
   })
-  it("offers no action without an https link, and never on another outcome", () => {
-    expect(describeOutcomeToast("published").actionProps).toBeUndefined()
+  it("offers no link without an https link, and never on another outcome", () => {
+    expect(describeOutcomeToast("published").data).toBeUndefined()
     expect(
-      describeOutcomeToast("published", { googleReplyUrl: null }).actionProps
+      describeOutcomeToast("published", { googleReplyUrl: null }).data
     ).toBeUndefined()
     expect(
       describeOutcomeToast("published", {
         googleReplyUrl: "javascript:alert(1)",
-      }).actionProps
+      }).data
     ).toBeUndefined()
     for (const status of [
       "awaiting_approval",
@@ -94,7 +97,8 @@ describe("describeOutcomeToast", () => {
       const toast = describeOutcomeToast(status, {
         googleReplyUrl: "https://search.google.com/local/reviews?r=1",
       })
-      expect(toast.actionProps).toBeUndefined()
+      expect(toast.data).toBeUndefined()
+      expect(toast).not.toHaveProperty("actionProps")
     }
   })
   it("shows the awaiting-approval copy, not success", () => {

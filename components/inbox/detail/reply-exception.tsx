@@ -3,6 +3,12 @@
 import { CircleAlertIcon, TriangleAlertIcon } from "lucide-react"
 import Link from "next/link"
 
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
 import { publishFailureCause } from "@/lib/inbox/publish-failure"
 import type { PrimaryAction } from "@/lib/inbox/reply-state"
@@ -219,41 +225,39 @@ function ReplyException({
   const connectionLink = exception.connectionLink === true
 
   return (
-    <aside
+    // The shared Alert on its tone's tint (the glyph in the tone's ink).
+    // Not a live region (`live={false}`); the explicit role keeps it the
+    // named complementary block it has always been.
+    <Alert
+      variant={exception.tone === "attention" ? "destructive" : "warning"}
+      live={false}
+      role="complementary"
+      icon={<Icon aria-hidden strokeWidth={1.75} />}
       data-slot="reply-exception"
       data-tone={exception.tone}
       aria-label="This reply needs attention"
-      className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-(--np-radius-card) px-3.5 py-3 text-ui text-ink",
-        exception.tone === "attention" ? "bg-danger-tint" : "bg-warning-tint"
-      )}
     >
-      <Icon
-        aria-hidden
-        strokeWidth={1.75}
-        className={cn("row-span-3 mt-0.5 size-4", toneInk)}
-      />
-      <strong className={cn("font-semibold", toneInk)}>
+      <AlertTitle className={cn("text-ui", toneInk)}>
         {exception.title}
-      </strong>
-      <p className="leading-normal text-ink-secondary">
+      </AlertTitle>
+      <AlertDescription className="text-ink-secondary">
         {exception.description}
         {exception.title === "Publish failed" ||
         exception.title === "Google declined this reply"
           ? " Nothing new is live on Google."
           : ""}
-      </p>
+      </AlertDescription>
       {connectionLink ? (
-        <div className="mt-2 flex flex-wrap gap-2">
+        <AlertActions>
           <Link
             href="/settings/connections"
             className={cn(buttonVariants({ variant: "secondary" }))}
           >
             Check Google connections
           </Link>
-        </div>
+        </AlertActions>
       ) : null}
-    </aside>
+    </Alert>
   )
 }
 

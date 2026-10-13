@@ -143,9 +143,11 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
 
   it("shows no count on the Filters button when nothing narrows the list", () => {
     renderToolbar({ search: "breakfast", sort: "updated_asc" })
-    expect(screen.getByRole("button", { name: /^Filters/ })).toHaveTextContent(
-      /^Filters$/
-    )
+    const button = screen.getByRole("button", { name: /^Filters/ })
+    expect(button).toHaveAccessibleName("Filters")
+    expect(button).not.toHaveAttribute("data-active")
+    expect(button.querySelector('[data-slot="filter-button-count"]')).toBeNull()
+    expect(button).toHaveTextContent(/^$/)
   })
 
   it("counts each kind of narrowing that is on", () => {
@@ -163,16 +165,30 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
   it("draws Filters as a circle whose icon takes the accent ink while any filter is on", () => {
     renderToolbar({ ratings: [5] })
     const button = screen.getByRole("button", { name: "Filters, 1 active" })
+    // The Toolbar's FilterButton (its slot name is the tooltip trigger's):
+    // a circle the control height (44px on touch, the desk's there), marked
+    // active.
+    expect(button).toHaveAttribute("data-active")
     expect(button).toHaveClass(
       "rounded-(--np-radius-pill)",
-      "size-(--np-touch)",
-      "desk:size-(--np-control-h)"
+      "size-(--np-control-h)"
     )
     expect(button.querySelector("svg")).toHaveClass("text-accent-ink")
-    const badge = button.querySelector("span[aria-hidden]")
+    const badge = button.querySelector('[data-slot="filter-button-count"]')
+    expect(badge).toHaveAttribute("aria-hidden", "true")
     expect(badge).toHaveTextContent("1")
-    expect(badge).toHaveClass("text-caption", "tabular-nums")
+    expect(badge).toHaveClass("text-count", "tabular-nums")
     expect(badge).not.toHaveClass("font-mono")
+  })
+
+  it("names the icon-only Filters button in a tooltip for a desk pointer", async () => {
+    const user = userEvent.setup()
+    renderToolbar()
+    await user.hover(screen.getByRole("button", { name: "Filters" }))
+    const tip = await screen.findByText("Filters", {
+      selector: '[data-slot="tooltip-content"]',
+    })
+    expect(tip).toBeInTheDocument()
   })
 
   it("keeps the Filters icon in its own ink with nothing on", () => {
@@ -304,6 +320,34 @@ describe("FiltersSheet — the sheet behind the Filters button", () => {
     await openSheet(user)
     return user
   }
+
+  it("is the full-height sheet on a phone and the edge panel from there up", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query.includes("max-width"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }))
+    )
+    try {
+      renderToolbar()
+      const sheet = await openSheet(user)
+      expect(sheet).toHaveAttribute("data-variant", "full")
+      expect(sheet).toHaveAttribute("data-presentation", "sheet")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("stays the edge panel at the desk", async () => {
+    const user = userEvent.setup()
+    renderToolbar()
+    const sheet = await openSheet(user)
+    expect(sheet).toHaveAttribute("data-variant", "edge")
+  })
 
   it("opens on demand and is closed until then", async () => {
     const user = userEvent.setup()

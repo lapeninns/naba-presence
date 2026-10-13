@@ -473,7 +473,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           lang={review.detectedLanguageCode ?? undefined}
           dir="auto"
           className={cn(
-            "m-0 rounded-lg border border-line bg-surface px-4 py-3 text-body whitespace-pre-line",
+            "m-0 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 text-body whitespace-pre-line",
             seededBody ? "text-ink" : "text-ink-muted"
           )}
         >
