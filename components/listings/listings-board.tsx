@@ -665,7 +665,7 @@ function ListingsBoard({
                   never a 24px line of text. */}
               <Link
                 href={listingHref(row.entry.id)}
-                className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-[720px]/table:text-body"
+                className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-[720px]/table:text-body"
               >
                 {row.entry.name}
               </Link>
