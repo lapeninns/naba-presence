@@ -2,6 +2,10 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { ShellBreadcrumbs } from "@/components/app-shell/breadcrumbs-context"
+import {
+  PageChrome,
+  PageChromeProvider,
+} from "@/components/app-shell/page-chrome"
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/listings/l2/people",
@@ -67,5 +71,30 @@ describe("ShellBreadcrumbs", () => {
       "title",
       "Stub location 2122d2d2 with a long name"
     )
+  })
+
+  it("puts the page's registered count after the current crumb, muted", async () => {
+    render(
+      <PageChromeProvider>
+        <ShellBreadcrumbs />
+        <PageChrome count={12} countLabel="need a reply" />
+      </PageChromeProvider>
+    )
+    const count = await screen.findByText("12")
+    expect(count).toHaveAttribute("data-slot", "breadcrumb-count")
+    expect(count).toHaveAttribute("aria-hidden", "true")
+    expect(count.className).toContain("text-ink-muted")
+    const current = screen.getByText("People")
+    expect(current.closest("li")).toContainElement(count)
+    expect(current).toHaveAttribute("aria-current", "page")
+  })
+
+  it("shows no count when the page registered none", () => {
+    render(
+      <PageChromeProvider>
+        <ShellBreadcrumbs />
+      </PageChromeProvider>
+    )
+    expect(document.querySelector('[data-slot="breadcrumb-count"]')).toBeNull()
   })
 })

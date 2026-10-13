@@ -73,10 +73,26 @@ function TabBar({
   const unread = useUnreadNotificationCount(sessionReady)
   const tabs = tabDestinations(context)
   const moreCurrentId = React.useId()
+  const moreUnreadId = React.useId()
+  const held = moreDestinations(context)
   // More is current while the page is one of the destinations it holds.
-  const moreCurrent = moreDestinations(context).some((destination) =>
+  const moreCurrent = held.some((destination) =>
     isActivePath(pathname, destination.href)
   )
+  // Notifications lives in More unless it earned a tab, so its unread count
+  // rides on More: the app bar may give the bell's slot to the scope
+  // switcher, and the count must still be seen somewhere on the bottom bar.
+  const moreUnread = held.some(
+    (destination) => destination.id === "notifications"
+  )
+    ? unread
+    : 0
+  // A description, not a name: "More" stays the exact accessible name the
+  // tab is found by, and the visible label still starts it (WCAG 2.5.3).
+  const moreDescribedBy =
+    [moreUnread > 0 && moreUnreadId, moreCurrent && moreCurrentId]
+      .filter(Boolean)
+      .join(" ") || undefined
 
   const countFor = (destination: Destination) =>
     destination.id === "inbox"
@@ -132,14 +148,33 @@ function TabBar({
             type="button"
             aria-haspopup="dialog"
             aria-expanded={moreOpen}
-            aria-describedby={moreCurrent ? moreCurrentId : undefined}
+            aria-describedby={moreDescribedBy}
             data-current={moreCurrent ? "true" : undefined}
             onClick={onOpenMore}
             className={TAB_CLASS}
           >
-            <MoreHorizontal className="size-6" strokeWidth={1.75} aria-hidden />
+            <span className="relative flex">
+              <MoreHorizontal
+                className="size-6"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              {moreUnread > 0 ? (
+                <CountBadge
+                  count={moreUnread}
+                  slot="more-count"
+                  className="absolute -top-1.5 left-4"
+                />
+              ) : null}
+            </span>
             <span>More</span>
           </button>
+          {moreUnread > 0 ? (
+            <span id={moreUnreadId} hidden>
+              {moreUnread} unread{" "}
+              {moreUnread === 1 ? "notification" : "notifications"}
+            </span>
+          ) : null}
           {moreCurrent ? (
             <span id={moreCurrentId} hidden>
               Contains the current page

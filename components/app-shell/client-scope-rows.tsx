@@ -28,14 +28,26 @@ function HealthDot({ client }: { client: ClientSummary }) {
   )
 }
 
-/** One row of the desk list: the client's mark, name and health. */
+/**
+ * One row of the desk list, in the scope sheet's look: the client's mark,
+ * its name, and its health as muted words with the tone dot. The visible
+ * words are hidden from the accessibility tree and read once, after the
+ * name, from the `sr-only` copy ("Old Crown, In sync").
+ */
 function ClientOption({ client }: { client: ClientSummary }) {
+  const words = healthLabel(client.health)
   return (
     <>
       <ClientAvatar name={client.name} colour={client.colour} size="xs" />
       <span className="min-w-0 flex-1 truncate">{client.name}</span>
-      <HealthDot client={client} />
-      <span className="sr-only">, {healthLabel(client.health)}</span>
+      <span
+        aria-hidden
+        className="flex shrink-0 items-center gap-1.5 text-caption font-normal text-ink-muted"
+      >
+        <HealthDot client={client} />
+        {words}
+      </span>
+      <span className="sr-only">, {words}</span>
     </>
   )
 }

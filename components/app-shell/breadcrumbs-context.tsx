@@ -54,7 +54,10 @@ function useShellBack(): BackTarget | null {
  * letters and repeated the eyebrow and the h1 below it.
  *
  * Slash-separated, the ancestors muted links and the current page in
- * semibold ink.
+ * semibold ink: the view's title, as in the Notion Mail header. When the
+ * page registered a count (`<PageChrome count>`), it follows the title in
+ * muted figures ("Inbox 12"); visual only, as the page's own h1 or region
+ * carries it for assistive technology.
  *
  * A `nav > ol > li` with no heading of any kind: the axe suite pins
  * `heading-order` and `page-has-heading-one`, and a heading here would land
@@ -62,6 +65,8 @@ function useShellBack(): BackTarget | null {
  */
 function ShellBreadcrumbs({ className }: { className?: string }) {
   const crumbs = useShellTrail()
+  const { count } = usePageChromeOverride()
+  const shownCount = count && count > 0 ? count : undefined
 
   if (crumbs.length === 0) return <div className={className} />
 
@@ -111,6 +116,15 @@ function ShellBreadcrumbs({ className }: { className?: string }) {
                   {crumb.label}
                 </ShellLink>
               )}
+              {isLast && shownCount !== undefined ? (
+                <span
+                  aria-hidden
+                  data-slot="breadcrumb-count"
+                  className="shrink-0 text-ink-muted tabular-nums"
+                >
+                  {shownCount > 99 ? "99+" : shownCount}
+                </span>
+              ) : null}
             </li>
           )
         })}

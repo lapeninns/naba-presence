@@ -31,6 +31,7 @@ import { Nav } from "./nav"
 import { PageChromeProvider } from "./page-chrome"
 import { ShellReconnectBanner } from "./reconnect-banner-gate"
 import { RouteFocus } from "./route-focus"
+import { ShellNavigationContext } from "./shell-navigation"
 import { ShellNotices } from "./shell-notices"
 import { ShellOAuthReturn } from "./shell-oauth-return"
 import { TabBar } from "./tab-bar"
@@ -277,14 +278,16 @@ function AppShell({
     <TooltipProvider>
       <ClientScopeRoot rememberedClientId={rememberedClientId}>
         <PageChromeProvider>
-          <ShellFrame
-            session={session}
-            sessionReady={sessionReady}
-            organisationName={organisationName}
-            context={context}
-          >
-            {children}
-          </ShellFrame>
+          <ShellNavigationContext.Provider value={context}>
+            <ShellFrame
+              session={session}
+              sessionReady={sessionReady}
+              organisationName={organisationName}
+              context={context}
+            >
+              {children}
+            </ShellFrame>
+          </ShellNavigationContext.Provider>
         </PageChromeProvider>
       </ClientScopeRoot>
     </TooltipProvider>
@@ -443,17 +446,18 @@ function ShellFrame({
             onOpenPalette={() => handOff(() => palette.setOpen(true))}
             onOpenClientScope={() => handOff(() => setClientSheetOpen(true))}
           />
-          {agency ? (
-            // Both read the address; the boundary keeps a prerendered page
-            // from bailing the whole shell out to client rendering.
-            <Suspense fallback={null}>
-              <ClientScopeSync />
-              <ClientScopeSheet
-                open={clientSheetOpen}
-                onOpenChange={setClientSheetOpen}
-              />
-            </Suspense>
-          ) : null}
+          {/* Both read the address; the boundary keeps a prerendered page
+              from bailing the whole shell out to client rendering. The
+              sheet switches clients then locations for an agency, and
+              locations for a business; only an agency remembers a client. */}
+          <Suspense fallback={null}>
+            {agency ? <ClientScopeSync /> : null}
+            <ClientScopeSheet
+              mode={mode}
+              open={clientSheetOpen}
+              onOpenChange={setClientSheetOpen}
+            />
+          </Suspense>
           <CommandPalette
             open={palette.open}
             onOpenChange={palette.setOpen}

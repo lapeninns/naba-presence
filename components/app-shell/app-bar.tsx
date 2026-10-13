@@ -10,11 +10,12 @@ import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
 import { useShellBack } from "./breadcrumbs-context"
-import { ClientScopeChip, useClientScopeLabel } from "./client-switcher"
+import { ClientScopeChip, useScopeLabel } from "./client-switcher"
 import { CommandPaletteButton } from "./command-palette"
 import { NotificationsLink } from "./notifications-link"
-import { usePageChromeOverride } from "./page-chrome"
+import { type PageChromeOverride, usePageChromeOverride } from "./page-chrome"
 import { ShellLink } from "./shell-link"
+import { useNeedsReplyCount } from "./use-needs-reply-count"
 
 /**
  * The labelled way up from a deep page: "‹ Listings". Its name is "Back to
@@ -161,15 +162,46 @@ function useCompactTitle(override: string | undefined) {
 }
 
 /**
- * The phone's top bar (below 768px): sticky, 52px plus the top safe area.
+ * The view count after the echoed title ("Inbox 12", the Notion Mail
+ * header): the page's own `<PageChrome count>` when it declared one;
+ * otherwise, on the Inbox's list, its needs-reply count. Undefined (no
+ * count shown) for 0 or unknown, and on a pushed detail, which is not the
+ * list the count belongs to.
+ */
+function useViewCount({
+  pathname,
+  override,
+  enabled,
+}: {
+  pathname: string | null
+  override: PageChromeOverride
+  enabled: boolean
+}): number | undefined {
+  const inboxList =
+    pathname === INBOX_HREF &&
+    override.count === undefined &&
+    override.back === undefined
+  // Shares the tab bar's query key, so this adds no request of its own.
+  const needsReply = useNeedsReplyCount(enabled && inboxList)
+  const count = override.count ?? (inboxList ? needsReply : undefined)
+  return count && count > 0 ? count : undefined
+}
+
+const INBOX_HREF = "/inbox"
+
+/**
+ * The phone's top bar (below 768px), the Notion Mail header: sticky, 52px
+ * plus the top safe area, on the canvas with the edge shadow below.
  *
  * - Leading: the labelled back control on a deep page; on a top-level page
- *   the client being worked (agency, more than one client) or the
- *   workspace's name.
- * - The page title, from its h1, once the h1 has scrolled under the bar.
- * - At most two actions: search (the command palette; left out where the
- *   page has its own search, the Inbox, so one magnifier means one thing)
- *   and notifications with the unread count in its name.
+ *   the workspace's name.
+ * - The page title, from its h1, once the h1 has scrolled under the bar,
+ *   with the view's count after it in muted figures.
+ * - Trailing: at most two 44px controls. With a scope switcher to show:
+ *   one action (search, or notifications where the page has its own
+ *   search, the Inbox) then the scope trigger; the bell moves into More,
+ *   whose tab carries its badge. Without one: search (left out on the
+ *   Inbox, so one magnifier means one thing) and notifications.
  *
  * Connection health is not here as a dot: it is a labelled row in the More
  * sheet and words beside every client in the client sheet.
@@ -191,6 +223,7 @@ function AppBar({
   const override = usePageChromeOverride()
   const title = useCompactTitle(override.title)
   const ownSearch = destinationForPath(pathname)?.ownSearch === true
+  const count = useViewCount({ pathname, override, enabled: sessionReady })
 
   return (
     <header
@@ -200,56 +233,105 @@ function AppBar({
       <div className="flex h-(--np-appbar-h) items-center gap-1 pr-1 pl-2">
         <div className="flex max-w-1/2 min-w-0 shrink-0 items-center">
           {sessionReady ? (
-            // The client scope reads the address (useSearchParams); the
-            // boundary keeps a prerendered page from bailing the whole bar
-            // out to client rendering.
             <React.Suspense fallback={null}>
-              <AppBarLeading
-                mode={mode}
-                organisationName={organisationName}
-                onOpenClientScope={onOpenClientScope}
-              />
+              <AppBarLeading organisationName={organisationName} />
             </React.Suspense>
           ) : null}
         </div>
-        <p
+        <div
           // The h1 is the page's title for assistive technology; this is a
-          // visual echo of it, so it is hidden from the accessibility tree.
+          // visual echo of it (and of the view's count), so it is hidden
+          // from the accessibility tree.
           aria-hidden
-          data-slot="app-bar-title"
-          data-visible={title.visible ? "true" : "false"}
+          data-slot="app-bar-heading"
           className={cn(
-            "min-w-0 flex-1 truncate px-1 text-title font-semibold text-ink",
+            "flex min-w-0 flex-1 items-baseline gap-1.5 px-1 text-title font-semibold text-ink",
             "transition-opacity duration-(--np-duration-fast)",
             title.visible ? "opacity-100" : "opacity-0"
           )}
         >
-          {title.text}
-        </p>
-        {sessionReady && !ownSearch ? (
-          <CommandPaletteButton onClick={onOpenPalette} />
+          <p
+            aria-hidden
+            data-slot="app-bar-title"
+            data-visible={title.visible ? "true" : "false"}
+            className="min-w-0 truncate"
+          >
+            {title.text}
+          </p>
+          {count !== undefined && title.text ? (
+            <span
+              data-slot="app-bar-count"
+              className="shrink-0 font-normal text-ink-muted tabular-nums"
+            >
+              {count > 99 ? "99+" : count}
+            </span>
+          ) : null}
+        </div>
+        {sessionReady ? (
+          <div
+            data-slot="app-bar-actions"
+            className="flex shrink-0 items-center"
+          >
+            {ownSearch ? (
+              <NotificationsLink />
+            ) : (
+              <CommandPaletteButton onClick={onOpenPalette} />
+            )}
+            {/* The scope reads the address (useSearchParams); the boundary
+                keeps a prerendered page from bailing the whole bar out to
+                client rendering. Until it resolves, the bar shows what it
+                shows with nothing to switch. */}
+            <React.Suspense fallback={ownSearch ? null : <NotificationsLink />}>
+              <AppBarScopeSlot
+                mode={mode}
+                ownSearch={ownSearch}
+                onOpenClientScope={onOpenClientScope}
+              />
+            </React.Suspense>
+          </div>
         ) : null}
-        {sessionReady ? <NotificationsLink /> : null}
       </div>
     </header>
   )
 }
 
-function AppBarLeading({
+/**
+ * The trailing slot's second control: the scope trigger when there is a
+ * scope to switch, otherwise the bell (unless the first control already is
+ * the bell, on a page with its own search).
+ */
+function AppBarScopeSlot({
   mode,
-  organisationName,
+  ownSearch,
   onOpenClientScope,
 }: {
   mode: WorkspaceMode
-  organisationName: string | null
+  ownSearch: boolean
   onOpenClientScope: () => void
 }) {
-  const back = useShellBack()
-  const scope = useClientScopeLabel()
-  if (back) return <ShellBackLink target={back} />
-  if (mode === "agency" && scope.visible) {
-    return <ClientScopeChip onOpen={onOpenClientScope} />
+  // A business switches location, an agency client (then location); the
+  // chip hides itself when there is nothing to switch.
+  const scope = useScopeLabel(mode)
+  if (scope.visible) {
+    // Room for the leading name too: the chip gives way first.
+    return (
+      <ClientScopeChip
+        mode={mode}
+        onOpen={onOpenClientScope}
+        className="max-w-[40vw]"
+      />
+    )
   }
+  return ownSearch ? null : <NotificationsLink />
+}
+
+function AppBarLeading({
+  organisationName,
+}: {
+  organisationName: string | null
+}) {
+  const back = useShellBack()
+  if (back) return <ShellBackLink target={back} />
   return (
     <span
       data-slot="workspace-name"
