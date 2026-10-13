@@ -25,6 +25,10 @@ import * as locationsHook from "@/lib/queries/use-locations"
 import * as sessionHook from "@/lib/queries/use-session"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
+// The dialog is a dynamic import on first open; under a loaded machine the
+// chunk can take longer than findBy's 1s default to arrive.
+const LAZY = { timeout: 5000 }
+
 function client(id: string, name: string): ClientSummary {
   return {
     id,
@@ -109,7 +113,7 @@ async function openPalette() {
   await userEvent.click(
     screen.getByRole("button", { name: /^Search (clients, )?listings/ })
   )
-  return screen.findByRole("dialog", { name: "Commands" })
+  return screen.findByRole("dialog", { name: "Commands" }, LAZY)
 }
 
 async function goToLabels() {
@@ -143,7 +147,7 @@ describe("CommandPalette loading", () => {
     const user = userEvent.setup()
     renderPalette()
     await user.keyboard("{Control>}k{/Control}")
-    await screen.findByRole("dialog", { name: "Commands" })
+    await screen.findByRole("dialog", { name: "Commands" }, LAZY)
     await user.keyboard("{Control>}k{/Control}")
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
 
@@ -155,14 +159,14 @@ describe("CommandPalette loading", () => {
 
     screen.getByRole("textbox", { name: "Reply" }).blur()
     await user.keyboard("/")
-    await screen.findByRole("dialog", { name: "Commands" })
+    await screen.findByRole("dialog", { name: "Commands" }, LAZY)
   })
 
   it("opens on the np:open-command-palette event", async () => {
     renderPalette()
     document.dispatchEvent(new Event("np:open-command-palette"))
     expect(
-      await screen.findByRole("dialog", { name: "Commands" })
+      await screen.findByRole("dialog", { name: "Commands" }, LAZY)
     ).toBeInTheDocument()
   })
 })
