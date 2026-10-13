@@ -1,7 +1,11 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 
-import { LegalDocument, LegalSection } from "@/components/legal/legal-document"
+import {
+  INLINE_LINK_CLASS,
+  LegalDocument,
+  LegalSection,
+} from "@/components/legal/legal-document"
 import { LEGAL_OPERATOR } from "@/lib/legal/operator"
 
 export const metadata: Metadata = {
@@ -17,15 +21,16 @@ export default function TermsPage() {
   const { legalName, registeredAddress, privacyEmail } = LEGAL_OPERATOR
   return (
     <LegalDocument
+      current="terms"
       title="Terms of service"
       summary={
         <p>
           These terms apply to NabaPresence, a service operated by {legalName}
           {registeredAddress ? ` (${registeredAddress})` : ""} for managing
-          Google Business Profiles: reading
-          and replying to reviews and keeping listing details up to date. By
-          signing in or connecting a Google account you agree to them on behalf
-          of yourself and the business you act for.
+          Google Business Profiles: reading and replying to reviews and keeping
+          listing details up to date. By signing in or connecting a Google
+          account you agree to them on behalf of yourself and the business you
+          act for.
         </p>
       }
     >
@@ -50,7 +55,7 @@ export default function TermsPage() {
         <p>
           You can disconnect a Google account at any time from Settings. We then
           stop using it straight away and ask Google to revoke our access. Our{" "}
-          <Link href="/privacy" className="underline underline-offset-4">
+          <Link href="/privacy" className={INLINE_LINK_CLASS}>
             privacy policy
           </Link>{" "}
           explains what happens to the data afterwards.

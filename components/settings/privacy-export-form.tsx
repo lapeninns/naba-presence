@@ -3,6 +3,7 @@
 import { Download } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
+import { SettingsSection } from "@/components/settings/settings-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,6 +13,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Progress } from "@/components/ui/progress"
 import {
   exportPrivacyPage,
   type PrivacyExportResponse,
@@ -117,25 +119,18 @@ export function PrivacyExportForm() {
       : undefined
 
   return (
-    <section aria-labelledby="privacy-export" className="flex flex-col gap-3">
-      <div>
-        <h2 id="privacy-export" className="text-title font-semibold text-ink">
-          Export a subject’s records
-        </h2>
-        <p className="text-caption text-ink-muted">
-          Everything still held about one reviewer, as a JSON file, to answer an
-          access request. Every page fetched is recorded in the audit log.
-        </p>
-      </div>
-      <form
-        noValidate
-        onSubmit={onSubmit}
-        className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
-      >
+    <SettingsSection
+      id="privacy-export"
+      title="Export a subject’s records"
+      description="Everything still held about one reviewer, as a JSON file, to answer an access request. Every page fetched is recorded in the audit log."
+    >
+      <form noValidate onSubmit={onSubmit} className="flex flex-col gap-4">
         <Field error={subjectError ?? undefined}>
           <FieldLabel>Subject reference</FieldLabel>
           <Input
             autoComplete="off"
+            enterKeyHint="go"
+            spellCheck={false}
             value={subject}
             disabled={running}
             onChange={(event) => {
@@ -149,10 +144,17 @@ export function PrivacyExportForm() {
           <FieldError>{subjectError}</FieldError>
         </Field>
         {running ? (
-          <p role="status" className="text-ui text-ink-muted">
-            Exporting… {formatNumber(fetched)}
-            {total !== undefined ? ` of ${formatNumber(total)}` : ""} reviews
-          </p>
+          <div className="flex flex-col gap-2">
+            <p role="status" className="text-ui text-ink-muted">
+              Exporting… {formatNumber(fetched)}
+              {total !== undefined ? ` of ${formatNumber(total)}` : ""} reviews
+            </p>
+            <Progress
+              label="Export progress"
+              value={total !== undefined && total > 0 ? fetched : null}
+              max={total !== undefined && total > 0 ? total : 100}
+            />
+          </div>
         ) : null}
         {state.phase === "failed" && state.pages.length === 0 ? (
           // Nothing was fetched, so there is nothing to resume: an unknown
@@ -217,12 +219,12 @@ export function PrivacyExportForm() {
             </AlertDescription>
           </Alert>
         ) : null}
-        <div className="flex justify-end">
+        <div className="flex flex-col sm:flex-row sm:justify-end">
           <Button type="submit" pending={running} pendingLabel="Exporting…">
             {state.phase === "done" ? "Export again" : "Export records"}
           </Button>
         </div>
       </form>
-    </section>
+    </SettingsSection>
   )
 }
