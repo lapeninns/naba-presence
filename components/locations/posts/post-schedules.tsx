@@ -37,7 +37,6 @@ import {
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useSessionRole } from "@/lib/queries/use-session"
-import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 /**
  * A location's publication schedules and the actions each allows. With the
@@ -272,7 +271,7 @@ export function PostSchedules({
             </DialogDescription>
           </DialogHeader>
           {review ? (
-            <DialogBody {...drawerContentProps} className="flex flex-col gap-3">
+            <DialogBody className="flex flex-col gap-3">
               <p className="text-ui break-words text-ink">
                 {review.template.summary || "(No text)"}
               </p>

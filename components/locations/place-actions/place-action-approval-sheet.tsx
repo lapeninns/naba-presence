@@ -24,7 +24,6 @@ import { placeActionBaselineSchema } from "@/lib/contracts/place-action-observat
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 
 import type { usePlaceActionReview } from "./use-place-action-review"
-import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 type SheetAction = "approve" | "send" | "read" | "refresh"
 type Workflow = ReturnType<typeof usePlaceActionReview>
@@ -151,7 +150,7 @@ export function PlaceActionApprovalSheet({
               : `Exact action link change for ${review.changeSet.locationName}. Approval saves the request; sending is a separate action.`}
           </SheetDescription>
         </SheetHeader>
-        <SheetBody {...drawerContentProps}>
+        <SheetBody>
           <ChangeDiff
             rows={rows}
             caption={`Reviewed action link change for ${review.changeSet.locationName}`}

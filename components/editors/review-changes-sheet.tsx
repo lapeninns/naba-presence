@@ -24,7 +24,6 @@ import {
   stepOutcome,
   type PublishStepResult,
 } from "@/lib/editors/use-publish-flow"
-import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 /**
  * The confirmation step in front of every Google write (reference review
@@ -146,7 +145,7 @@ function ReviewChangesSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <SheetBody {...drawerContentProps}>
+        <SheetBody>
           {selection && selection.options.length > 1 ? (
             <fieldset className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
               <legend className="px-1 text-ui font-semibold text-ink">

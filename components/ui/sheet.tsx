@@ -14,6 +14,7 @@ import {
   overlayScrimClassName,
   overlayScrollPaddingClassName,
   overlayViewportClassName,
+  markOverlayHeader,
   useOverlayChrome,
   useOverlayHeader,
   usePhoneOverlay,
@@ -154,7 +155,7 @@ function SheetContent({
  * The title block, pinned to the top of the sheet with the close button in
  * its corner and, on a bottom sheet, the drag handle above the title.
  */
-function SheetHeader({
+const SheetHeader = markOverlayHeader(function SheetHeader({
   className,
   children,
   ...props
@@ -178,7 +179,7 @@ function SheetHeader({
       {closeButton}
     </div>
   )
-}
+})
 
 /** The scrolling middle of a sheet (reference `.dialog-body`). */
 function SheetBody({ className, ...props }: React.ComponentProps<"div">) {

@@ -66,7 +66,6 @@ import {
 } from "@/lib/locations/post-recurrence"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
-import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 const TOPICS: ReadonlyArray<{ value: LocalPostTopicType; label: string }> = [
   { value: "STANDARD", label: "Update" },
@@ -517,7 +516,7 @@ export function PostComposerSheet({
           </SheetDescription>
         </SheetHeader>
 
-        <SheetBody {...drawerContentProps} className="@container/composer">
+        <SheetBody className="@container/composer">
           <DraftNotices drafts={[editor]} noun="this post" />
           <div className="grid grid-cols-1 items-start gap-6 @[760px]/composer:grid-cols-[minmax(0,1fr)_300px]">
             <div ref={formRef} className="flex min-w-0 flex-col gap-4">

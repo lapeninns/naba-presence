@@ -16,6 +16,7 @@ import {
   overlayScrimClassName,
   overlayScrollPaddingClassName,
   overlayViewportClassName,
+  markOverlayHeader,
   useOverlayChrome,
   useOverlayHeader,
   useOverlayPresentation,
@@ -196,7 +197,7 @@ function DialogContent({
  * above the title. A visually hidden header (`sr-only`) leaves the close
  * button to the content.
  */
-function DialogHeader({
+const DialogHeader = markOverlayHeader(function DialogHeader({
   className,
   children,
   ...props
@@ -221,7 +222,7 @@ function DialogHeader({
       {closeButton}
     </div>
   )
-}
+})
 
 /**
  * The action row. In a centred dialog the buttons sit right-aligned; in a

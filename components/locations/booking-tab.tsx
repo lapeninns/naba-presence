@@ -79,7 +79,6 @@ import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
 import { cn } from "@/lib/utils"
-import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 export { humaniseActionType } from "@/lib/editors/booking-presentation"
 
@@ -970,7 +969,7 @@ function EditLinkDialog({
               separate action.
             </DialogDescription>
           </DialogHeader>
-          <DialogBody {...drawerContentProps}>
+          <DialogBody>
             <Field error={error ?? undefined}>
               <FieldLabel htmlFor={uriId}>Link</FieldLabel>
               <Input

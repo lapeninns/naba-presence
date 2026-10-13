@@ -45,7 +45,6 @@ import {
 import { DAY_LABELS } from "@/lib/locations/forms/hours"
 import { describeDay, serviceWeek } from "@/lib/locations/hours-diff"
 import { cn } from "@/lib/utils"
-import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 type Day = NormalizedHours["regular"][number]
 
@@ -990,7 +989,7 @@ function CopyDaysDialog({
             days that should match.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody {...drawerContentProps} className="flex flex-col gap-3">
+        <DialogBody className="flex flex-col gap-3">
           <div className="flex flex-wrap gap-1.5">
             {QUICK_PICKS.map((pick) => (
               <Button
