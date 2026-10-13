@@ -3,7 +3,6 @@ import * as React from "react"
 import { useVerificationExpiry } from "@/components/locations/administration/use-verification-expiry"
 import { DiffView } from "@/components/ui/diff-view"
 import { formatDateTime } from "@/lib/format"
-import { cn } from "@/lib/utils"
 
 export type ChangeRow = {
   /** Unique row key; defaults to `field`. */
@@ -137,23 +136,6 @@ export function changeDiffLabels(
   return { beforeLabel: "On Google now", afterLabel: "After publishing" }
 }
 
-/**
- * The editors' flat diff: no card around it and no tinted cells. Field
- * names in muted UI text, the old value struck in muted ink, the new one in
- * ink, one hairline between rows (the table's own). The strike and the
- * column words carry the change, so colour is never the only signal.
- *
- * Applied through `DiffView`'s `className` until the primitive grows a flat
- * variant of its own (requested of the FOUNDATION owner); then this
- * constant becomes `variant="flat"`.
- */
-const FLAT_DIFF = cn(
-  "rounded-none border-0 bg-transparent",
-  "[&_thead_th]:bg-transparent [&_thead_th]:font-medium",
-  "[&_tbody_th]:bg-transparent [&_tbody_th]:font-normal [&_tbody_th]:text-ink-muted",
-  "[&_td]:bg-transparent [&_td]:font-normal [&_del]:text-ink-muted [&_del]:decoration-ink-muted"
-)
-
 function sameText(a: React.ReactNode, b: React.ReactNode) {
   return (
     (typeof a === "string" || typeof a === "number") &&
@@ -210,7 +192,7 @@ function ChangeDiff({
     <DiffView
       rows={diffRows}
       caption={caption}
-      className={FLAT_DIFF}
+      variant="flat"
       {...changeDiffLabels(phase, confirmedAt)}
     />
   )
