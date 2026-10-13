@@ -30,8 +30,8 @@ export type DiffRow = {
  *
  * Still a real table, so a screen reader announces "Phone, On Google now,
  * 01223 277 217" instead of leaving the pairing to the listener. When its
- * own container is narrower than 560px the columns stack, and each value
- * shows its column label above it.
+ * own container is narrower than 36rem the columns stack, and each value
+ * shows its column label above it (a caption, never below the 12px floor).
  *
  * Labels are props: `fieldLabel`, `beforeLabel`, `afterLabel`.
  */
@@ -61,7 +61,7 @@ function DiffView({
       <table
         className={cn(
           "w-full table-fixed border-collapse text-ui text-ink",
-          "@max-[560px]/diff:block @max-[560px]/diff:[&_tbody]:block @max-[560px]/diff:[&_td]:block @max-[560px]/diff:[&_th[scope=row]]:block @max-[560px]/diff:[&_thead]:hidden @max-[560px]/diff:[&_tr]:block"
+          "@max-xl/diff:block @max-xl/diff:[&_tbody]:block @max-xl/diff:[&_td]:block @max-xl/diff:[&_th[scope=row]]:block @max-xl/diff:[&_thead]:hidden @max-xl/diff:[&_tr]:block"
         )}
       >
         <caption className="sr-only">{caption}</caption>
@@ -69,7 +69,7 @@ function DiffView({
           <tr>
             <th
               scope="col"
-              className="w-[clamp(120px,24%,180px)] border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
+              className="w-1/4 border-b border-line bg-surface-alt px-3 py-2.5 text-left text-caption font-semibold text-ink-muted"
             >
               {fieldLabel}
             </th>
@@ -98,7 +98,7 @@ function DiffView({
               >
                 <th
                   scope="row"
-                  className="px-3 py-2.5 text-left align-top font-semibold break-words text-ink @max-[560px]/diff:bg-surface-alt"
+                  className="px-3 py-2.5 text-left align-top font-semibold break-words text-ink @max-xl/diff:bg-surface-alt"
                 >
                   <span className="flex flex-col items-start gap-1">
                     {row.field}
@@ -113,7 +113,7 @@ function DiffView({
                   data-label={beforeLabel}
                   className={cn(
                     "px-3 py-2.5 align-top [overflow-wrap:anywhere]",
-                    "@max-[560px]/diff:before:block @max-[560px]/diff:before:text-[11px] @max-[560px]/diff:before:text-ink-secondary @max-[560px]/diff:before:content-[attr(data-label)]",
+                    "@max-xl/diff:before:block @max-xl/diff:before:text-caption @max-xl/diff:before:text-ink-secondary @max-xl/diff:before:content-[attr(data-label)]",
                     changed
                       ? "bg-danger-tint text-ink-secondary"
                       : "text-ink-muted"
@@ -133,7 +133,7 @@ function DiffView({
                   data-label={afterLabel}
                   className={cn(
                     "px-3 py-2.5 align-top [overflow-wrap:anywhere]",
-                    "@max-[560px]/diff:before:block @max-[560px]/diff:before:text-[11px] @max-[560px]/diff:before:font-normal @max-[560px]/diff:before:text-ink-secondary @max-[560px]/diff:before:content-[attr(data-label)]",
+                    "@max-xl/diff:before:block @max-xl/diff:before:text-caption @max-xl/diff:before:font-normal @max-xl/diff:before:text-ink-secondary @max-xl/diff:before:content-[attr(data-label)]",
                     changed
                       ? "bg-success-tint font-semibold text-ink"
                       : "text-ink"

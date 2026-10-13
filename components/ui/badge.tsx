@@ -2,43 +2,60 @@ import { mergeProps } from "@base-ui/react/merge-props"
 import { useRender } from "@base-ui/react/use-render"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { COUNT_TEXT_CLASS } from "@/components/ui/count-text"
+import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 
+const tone = (name: keyof typeof TONE_CLASSES) =>
+  cn(TONE_CLASSES[name].tint, TONE_CLASSES[name].text)
+
 /**
- * A small, non-interactive label: a count, a category, a role.
+ * A small, non-interactive label: a count, a category, a role. METADATA,
+ * not state: "OWNER", "You", "3 new". If the word would change when
+ * something happens ("Verified", "Paused"), use `StatusPill`; if it can be
+ * pressed or removed, use a `Chip`. The full rule is in status-pill.tsx.
  *
- * Reference `.badge`: 20px tall, the tag radius, 11.5px semibold, on the
- * hover-fill grey with the strong secondary ink. `role` is the mono role
- * badge ("OWNER"). The status variants carry their own measured ink on tint
- * (lib/design/contrast-pairs.ts). `shape="pill"` keeps a capsule for callers
- * that asked for one.
+ * Reference `.badge`: 20px tall, the tag radius, caption semibold (never
+ * below the 12px floor), on the hover-fill grey with the strong secondary
+ * ink. `role` is the mono role badge ("OWNER"). The status-coloured
+ * variants (`success`, `warning`, `info`, `destructive`) read the five tones
+ * from lib/ui/status-tone.ts, so a badge and a pill in the same state are
+ * the same colour. `shape="pill"` keeps a capsule for callers that asked for
+ * one.
  */
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-[7px] text-[11.5px] leading-none font-semibold whitespace-nowrap tabular-nums focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden px-1.5 text-caption leading-none font-semibold whitespace-nowrap tabular-nums focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy focus-visible:outline-none [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground [a&]:hover:bg-accent-hover",
         tinted: "bg-accent-tint text-accent-ink",
         secondary: "bg-fill text-ink-secondary [a&]:hover:bg-fill-secondary",
-        destructive: "bg-danger-tint text-danger-ink",
+        destructive: tone("at-risk"),
         outline:
-          "bg-transparent text-ink-secondary shadow-[inset_0_0_0_1px_var(--np-line)] [a&]:hover:bg-fill",
+          "bg-transparent text-ink-secondary inset-ring inset-ring-line [a&]:hover:bg-fill",
         ghost: "text-ink-muted [a&]:hover:bg-fill [a&]:hover:text-ink",
         link: "text-accent-ink underline-offset-4 hover:underline",
-        success: "bg-success-tint text-success-ink",
-        warning: "bg-warning-tint text-warning-ink",
-        info: "bg-info-tint text-info-ink",
+        success: tone("healthy"),
+        warning: tone("attention"),
+        info: tone("pending"),
         role: "bg-fill font-mono font-medium tracking-[0.02em] text-ink-secondary uppercase",
       },
       shape: {
         pill: "rounded-(--np-radius-pill)",
         tag: "rounded-(--np-radius-tag)",
       },
+      // A badge that is only a number ("3 new" is a label; "3" is a count)
+      // draws it in the shared count figure, like a chip or tab count.
+      count: {
+        true: COUNT_TEXT_CLASS,
+        false: "",
+      },
     },
     defaultVariants: {
       variant: "default",
       shape: "tag",
+      count: false,
     },
   }
 )
@@ -47,6 +64,7 @@ function Badge({
   className,
   variant = "default",
   shape = "tag",
+  count = false,
   render,
   ...props
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
@@ -54,7 +72,7 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        className: cn(badgeVariants({ variant, shape }), className),
+        className: cn(badgeVariants({ variant, shape, count }), className),
       },
       props
     ),
