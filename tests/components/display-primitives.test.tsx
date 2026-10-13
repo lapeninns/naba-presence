@@ -379,31 +379,62 @@ describe("Chip", () => {
     expect(screen.getByText("7")).toHaveClass("text-ink-secondary")
   })
 
-  it("scrolls the pressed chip into view when it changes", () => {
+  it("scrolls the pressed chip into view when it changes, inside the row only", () => {
+    // A 200px row; "All" sits inside it, "Failed" 300px past its end.
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
-    const { rerender } = render(
-      <ChipRow>
-        <ToggleChip pressed>All</ToggleChip>
-        <ToggleChip>Failed</ToggleChip>
-      </ChipRow>
-    )
-    expect(scrollIntoView).toHaveBeenCalledTimes(1)
-    rerender(
-      <ChipRow>
-        <ToggleChip pressed>All</ToggleChip>
-        <ToggleChip>Failed</ToggleChip>
-      </ChipRow>
-    )
-    // Same chip: the reader's own scroll is left alone.
-    expect(scrollIntoView).toHaveBeenCalledTimes(1)
-    rerender(
-      <ChipRow>
-        <ToggleChip>All</ToggleChip>
-        <ToggleChip pressed>Failed</ToggleChip>
-      </ChipRow>
-    )
-    expect(scrollIntoView).toHaveBeenCalledTimes(2)
+    const rect = (left: number, width: number) =>
+      ({
+        left,
+        right: left + width,
+        width,
+        top: 0,
+        bottom: 36,
+        height: 36,
+        x: left,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect
+    const original = Element.prototype.getBoundingClientRect
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      if (this.getAttribute("data-slot") === "chip-row") return rect(0, 200)
+      if (this.textContent === "Failed") return rect(500, 60) as DOMRect
+      return rect(10, 40)
+    }
+    try {
+      const { container, rerender } = render(
+        <ChipRow>
+          <ToggleChip pressed>All</ToggleChip>
+          <ToggleChip>Failed</ToggleChip>
+        </ChipRow>
+      )
+      const row = container.querySelector<HTMLElement>(
+        '[data-slot="chip-row"]'
+      )!
+      // Already in view: nothing moves.
+      expect(row.scrollLeft).toBe(0)
+      rerender(
+        <ChipRow>
+          <ToggleChip>All</ToggleChip>
+          <ToggleChip pressed>Failed</ToggleChip>
+        </ChipRow>
+      )
+      // 560 - 200 past the end, plus the chip-width margin (capped at 50).
+      expect(row.scrollLeft).toBe(410)
+      row.scrollLeft = 0
+      rerender(
+        <ChipRow>
+          <ToggleChip>All</ToggleChip>
+          <ToggleChip pressed>Failed</ToggleChip>
+        </ChipRow>
+      )
+      // Same chip: the reader's own scroll is left alone.
+      expect(row.scrollLeft).toBe(0)
+      // The page never scrolls: scrollIntoView would move every ancestor.
+      expect(scrollIntoView).not.toHaveBeenCalled()
+    } finally {
+      Element.prototype.getBoundingClientRect = original
+    }
   })
 })
 

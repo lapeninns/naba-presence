@@ -125,7 +125,7 @@ function RemovableChip({
         aria-label={removeLabel}
         // 28px drawn on touch with a 44px target (`-inset-2`); 20px with a
         // 32px target on a desk.
-        className="relative inline-grid size-7 place-items-center rounded-(--np-radius-pill) text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] hover-fine:hover:bg-fill hover-fine:hover:text-ink focus-visible:outline-none desk:size-5 desk:after:-inset-1.5"
+        className="relative inline-grid size-7 place-items-center rounded-(--np-radius-pill) text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy after:absolute after:-inset-2 after:content-[''] focus-visible:outline-none hover-fine:hover:bg-fill hover-fine:hover:text-ink desk:size-5 desk:after:-inset-1.5"
       >
         <X className="size-3.5" strokeWidth={1.75} aria-hidden />
       </button>
@@ -176,6 +176,9 @@ function ChipRow({ className, ...props }: React.ComponentProps<"div">) {
 
   // After every render: if the pressed/current chip changed, bring it into
   // view. Only on change, so a reader's own sideways scroll is never undone.
+  // The ROW scrolls sideways, never the page: `scrollIntoView` would also
+  // scroll every ancestor vertically, so a filter row below the fold (or
+  // under the app bar) would jump the page on load.
   React.useEffect(() => {
     const row = ref.current
     if (!row) return
@@ -183,7 +186,17 @@ function ChipRow({ className, ...props }: React.ComponentProps<"div">) {
       '[aria-pressed="true"], [aria-current="page"]'
     )
     if (active && active !== current.current) {
-      active.scrollIntoView?.({ block: "nearest", inline: "nearest" })
+      const port = row.getBoundingClientRect()
+      const chip = active.getBoundingClientRect()
+      // A chip's width of breathing room past the faded edge.
+      const margin = Math.min(chip.width, port.width / 4)
+      const delta =
+        chip.left < port.left
+          ? chip.left - port.left - margin
+          : chip.right > port.right
+            ? chip.right - port.right + margin
+            : 0
+      if (delta !== 0) row.scrollLeft += delta
     }
     current.current = active
   })
