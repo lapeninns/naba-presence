@@ -93,22 +93,32 @@ export function binDailySeries(
   return [...bins.values()].sort((a, b) => a.start.localeCompare(b.start))
 }
 
-/** The label a bin carries on the axis, in the table and in its tooltip. */
+/**
+ * The label a bin carries on the axis, in the table and in its tooltip.
+ *
+ * A bare date ("2026-10-05", Google's daily dates and the bins above) is a
+ * calendar day, not an instant, so it is always read in UTC: formatting its
+ * UTC midnight in a zone west of Greenwich would label it the day before. A
+ * full timestamp (a reply series bucket, the start of a day, week or month
+ * on the organisation's clock) is formatted in `timeZone`.
+ */
 export function formatBinLabel(
   iso: string,
   unit: BinUnit,
   timeZone: string
 ): string {
-  const date = new Date(iso.length === 10 ? `${iso}T00:00:00.000Z` : iso)
+  const dateOnly = iso.length === 10
+  const date = new Date(dateOnly ? `${iso}T00:00:00.000Z` : iso)
+  const zone = dateOnly ? "UTC" : timeZone
   if (unit === "month") {
     return new Intl.DateTimeFormat("en-GB", {
-      timeZone,
+      timeZone: zone,
       month: "short",
       year: "numeric",
     }).format(date)
   }
   return new Intl.DateTimeFormat("en-GB", {
-    timeZone,
+    timeZone: zone,
     day: "numeric",
     month: "short",
   }).format(date)
