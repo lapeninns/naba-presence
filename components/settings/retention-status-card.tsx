@@ -35,6 +35,7 @@ export function RetentionStatusCard() {
   const query = useRetentionStatus()
   return (
     <SettingsSection
+      variant="group"
       id="retention-status"
       title="Retention"
       description="Google review content is redacted, and expired records deleted, by a daily run from 03:00 UTC."

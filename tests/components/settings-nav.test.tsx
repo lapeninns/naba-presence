@@ -188,8 +188,10 @@ describe("SettingsNav", () => {
 })
 
 describe("SettingsIndex", () => {
+  // Each group is a region named by its label (Drop 1 SettingsGroup),
+  // holding one list of rows.
   function group(name: string) {
-    return screen.getByRole("list", { name })
+    return screen.getByRole("region", { name })
   }
 
   it("groups a viewer's areas into You and Workspace, with the policy marked view only", () => {

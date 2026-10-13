@@ -156,7 +156,7 @@ function OutcomeSummary({
               {counts.map((entry, index) => (
                 <React.Fragment key={entry.state}>
                   {index > 0 ? <span aria-hidden> · </span> : null}
-                  <span className="font-mono tabular-nums">
+                  <span className="tabular-nums">
                     {entry.count}
                   </span>{" "}
                   {entry.word}

@@ -5,8 +5,8 @@ import {
   WithPrivacyAccess,
   type SettingsArea,
 } from "@/components/settings/settings-areas"
-import { SettingsGroup, SettingsRow } from "@/components/settings/settings-list"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import {
   MEMBER_ROLES,
   roleLabel,
@@ -35,6 +35,14 @@ const GROUPS: { id: SettingsArea["group"]; header: string; footer: string }[] =
     },
   ]
 
+// Local exemption (Review R1 S5; FOUNDATION request filed): the row's
+// `focus-halo` draws its ring outside the row, so draw it inset instead, and
+// keep a forced-colours outline inside the row. The `!` overrides rely on
+// Tailwind emitting variant utilities after `focus-halo`. Drop this once
+// SettingsRow carries the inset ring itself.
+const ROW_FOCUS_CLASS =
+  "focus-visible:ring-2! focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-[CanvasText] forced-colors:focus-visible:-outline-offset-2!"
+
 function SettingsIndexGroups({
   role,
   privacy,
@@ -50,25 +58,30 @@ function SettingsIndexGroups({
       {GROUPS.map((group) => {
         const rows = areas.filter((area) => area.group === group.id)
         if (rows.length === 0) return null
+        const footerId = `settings-index-${group.id}-footer`
         return (
-          <SettingsGroup
-            key={group.id}
-            label={group.header}
-            footer={group.footer}
-          >
-            {rows.map((area) => (
-              <SettingsRow
-                key={area.id}
-                href={area.href}
-                icon={area.icon}
-                label={area.label}
-                description={area.description}
-                trailing={
-                  area.id === "policy" && !canEditPolicy ? "View only" : null
-                }
-              />
-            ))}
-          </SettingsGroup>
+          <div key={group.id} className="flex flex-col gap-1.5">
+            <SettingsGroup label={group.header} aria-describedby={footerId}>
+              {rows.map((area) => (
+                <SettingsRow
+                  key={area.id}
+                  href={area.href}
+                  icon={area.icon}
+                  label={area.label}
+                  description={area.description}
+                  value={
+                    area.id === "policy" && !canEditPolicy
+                      ? "View only"
+                      : undefined
+                  }
+                  className={ROW_FOCUS_CLASS}
+                />
+              ))}
+            </SettingsGroup>
+            <p id={footerId} className="text-caption text-ink-muted">
+              {group.footer}
+            </p>
+          </div>
         )
       })}
     </nav>
@@ -99,9 +112,11 @@ function initialsOf(text: string): string {
 }
 
 /**
- * Who is signed in and to which workspace, at the top of the phone index
- * (Notion Mail's settings profile header). Read-only: there is no account
- * editing API, so it offers nothing to change.
+ * Who is signed in and to which workspace, at the top of the settings index
+ * (Notion Mail's settings profile header). It renders at every width; the
+ * page shows the whole index below md only (components/settings/
+ * settings-home.tsx). Read-only: there is no account editing API, so it
+ * offers nothing to change.
  */
 function SettingsProfileHeader({
   profile,

@@ -36,9 +36,11 @@ export function Expiry({
 }: ExpiryProps) {
   const subject = approved ? "Approval" : "Review"
   const expired = clockExpired || reportedExpired
+  // Words first, the time after them: a calm muted line while open; the
+  // danger ink (and a heavier weight, not colour alone) once it has expired.
   const tone = expired
-    ? "text-ui font-semibold text-danger-ink"
-    : "text-caption text-ink-muted"
+    ? "text-ui font-semibold text-danger-ink tabular-nums"
+    : "text-ui text-ink-muted tabular-nums"
   if (clockExpired)
     return (
       <p data-slot="expiry" className={cn(tone, className)}>

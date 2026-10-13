@@ -120,6 +120,7 @@ export function PrivacyExportForm() {
 
   return (
     <SettingsSection
+      variant="group"
       id="privacy-export"
       title="Export a subject’s records"
       description="Everything still held about one reviewer, as a JSON file, to answer an access request. Every page fetched is recorded in the audit log."

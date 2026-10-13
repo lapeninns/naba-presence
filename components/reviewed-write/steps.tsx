@@ -51,13 +51,17 @@ export function reviewedWriteSteps(
 export function ReviewedWriteSteps({
   stage,
   secondApprover,
+  className,
 }: {
   readonly stage: ReviewedWriteStage
   readonly secondApprover?: boolean
+  /** Placement only (the steps sit flush with the title above them). */
+  readonly className?: string
 }) {
   return (
     <Stepper
       aria-label="Steps to send this change"
+      className={className}
       steps={reviewedWriteSteps(stage, { secondApprover })}
     />
   )

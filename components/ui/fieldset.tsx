@@ -73,7 +73,7 @@ function Fieldset({
 const legendVariants = cva("p-0", {
   variants: {
     variant: {
-      label: "text-ui leading-5 font-semibold text-ink",
+      label: "text-ui leading-5 font-medium text-ink-secondary",
       muted: "text-ui text-ink-secondary",
       section: "text-title font-semibold text-ink",
     },

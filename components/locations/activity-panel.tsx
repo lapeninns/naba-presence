@@ -2,14 +2,14 @@
 
 import { LocationTab } from "@/components/locations/location-tab"
 import { Button } from "@/components/ui/button"
+import { Empty } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { LoadMore } from "@/components/ui/load-more"
 import { StatusPill } from "@/components/ui/status-pill"
-import { Timeline } from "@/components/ui/timeline"
 import { formatNumber } from "@/lib/format"
 import {
   activityPillTone,
   activityStatusLabel,
-  activityTone,
   humaniseActivity,
 } from "@/lib/listings/activity-outcome"
 import { useLocationActivityPages } from "@/lib/queries/use-location-activity"
@@ -40,8 +40,10 @@ export function LocationActivityPanel({ locationId }: { locationId: string }) {
 }
 
 /**
- * A plain list of hairline-divided rows. It sits on the sheet's white, so
- * the rows need no card of their own; the separators do the work.
+ * A plain list of hairline-divided rows (Notion Mail's list): what changed
+ * in body text with its time at the trailing edge, then the status word and
+ * who / which fields in muted caption. It sits on the sheet's white, so the
+ * rows need no card of their own; the separators do the work.
  */
 function ActivityList({
   locationId,
@@ -50,6 +52,18 @@ function ActivityList({
   locationId: string
   activity: ActivityPages
 }) {
+  if (activity.items.length === 0) {
+    // Nothing recorded at all: one calm empty state instead of a "0 recorded
+    // changes" count over an empty list. The drawer's own SheetTitle is the
+    // heading, so the title stays a `p`.
+    return (
+      <Empty
+        size="sm"
+        title="No changes yet"
+        description="No Google management changes recorded for this location yet."
+      />
+    )
+  }
   return (
     <section className="flex flex-col gap-3">
       {/* The drawer's own SheetTitle is the heading here; a second one would
@@ -58,56 +72,81 @@ function ActivityList({
         {formatNumber(activity.total)} recorded{" "}
         {activity.total === 1 ? "change" : "changes"}
       </p>
-      {activity.items.length === 0 ? (
-        <p className="text-ui text-ink-muted">
-          No Google management changes recorded for this location yet.
-        </p>
-      ) : (
-        <>
-          <Timeline
-            aria-label="Recent changes"
-            entries={activity.items.map((item) => ({
-              id: item.id,
-              tone: activityTone(item.status),
-              title: (
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="font-semibold text-ink">
-                    {humanise(item.operation)} · {humanise(item.resourceType)}
-                  </span>
+      <ListRows aria-label="Recent changes">
+        {activity.items.map((item) => {
+          const meta = [
+            item.actorDisplayName,
+            item.updateMask.length > 0
+              ? item.updateMask.map(humanise).join(", ")
+              : null,
+            item.lastErrorCode ? humanise(item.lastErrorCode) : null,
+            item.historicalReason ?? null,
+            item.executionState && item.executionState !== "unrecorded" ? `Request ${humanise(item.executionState).toLowerCase()}` : null,
+            item.confirmationState && item.confirmationState !== "unrecorded" ? `Google confirmation: ${humanise(item.confirmationState).toLowerCase()}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+          const when = new Date(item.createdAt).toLocaleString("en-GB", {
+            day: "numeric",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+          return (
+            <ListRow
+              key={item.id}
+              interactive={false}
+              emphasis="neutral"
+              data-status={item.status}
+              // The drawer's body already has its padding: the rows sit on
+              // it flush, the divider runs the full width of the text.
+              className="px-0"
+              wrapperClassName="after:start-0 after:end-0"
+              title={
+                <>
+                  {humanise(item.operation)} · {humanise(item.resourceType)}
+                </>
+              }
+              meta={<time dateTime={item.createdAt}>{when}</time>}
+              subtitle={
+                // The status word and every detail stay readable: wrap
+                // rather than truncate.
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 whitespace-normal">
                   <StatusPill tone={activityPillTone(item.status)}>
                     {activityStatusLabel(item.status)}
                   </StatusPill>
-                  {activity.canManage && (item.resourceType === "lodging" || item.resourceType === "business_info" || item.resourceType === "attributes") && (item.canConfirm || (item.resourceType === "lodging" && item.status === "ambiguous")) ? <ConfirmManagementButton locationId={locationId} mutationId={item.sourceId ?? item.id} resourceType={item.resourceType} /> : null}
+                  {meta ? (
+                    <span className="min-w-0 text-caption text-ink-muted tabular-nums">
+                      {meta}
+                    </span>
+                  ) : null}
                 </span>
-              ),
-              meta: [
-                item.actorDisplayName,
-                item.updateMask.length > 0
-                  ? item.updateMask.map(humanise).join(", ")
-                  : null,
-                item.lastErrorCode ? humanise(item.lastErrorCode) : null,
-                item.historicalReason ?? null,
-                item.executionState && item.executionState !== "unrecorded" ? `Request ${humanise(item.executionState).toLowerCase()}` : null,
-                item.confirmationState && item.confirmationState !== "unrecorded" ? `Google confirmation: ${humanise(item.confirmationState).toLowerCase()}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · "),
-              when: new Date(item.createdAt).toLocaleString("en-GB", {
-                day: "numeric",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-            }))}
-          />
-          <LoadMore
-            shown={activity.items.length}
-            total={activity.total}
-            noun={["change", "changes"]}
-            paging={activity.paging}
-          />
-        </>
-      )}
+              }
+              trailing={
+                activity.canManage &&
+                (item.resourceType === "lodging" ||
+                  item.resourceType === "business_info" ||
+                  item.resourceType === "attributes") &&
+                (item.canConfirm ||
+                  (item.resourceType === "lodging" &&
+                    item.status === "ambiguous")) ? (
+                  <ConfirmManagementButton
+                    locationId={locationId}
+                    mutationId={item.sourceId ?? item.id}
+                    resourceType={item.resourceType}
+                  />
+                ) : undefined
+              }
+            />
+          )
+        })}
+      </ListRows>
+      <LoadMore
+        shown={activity.items.length}
+        total={activity.total}
+        noun={["change", "changes"]}
+        paging={activity.paging}
+      />
     </section>
   )
 }
@@ -118,10 +157,12 @@ function ConfirmManagementButton({ locationId, mutationId, resourceType }: { loc
     invalidate: [queryKeys.locationActivity(locationId), resourceType === "lodging" ? queryKeys.locationIndustry(locationId) : queryKeys.locationBusinessInformation(locationId)],
     successToast: (result) => result.confirmationState === "confirmed" ? `${resourceType === "lodging" ? "Lodging" : "Profile"} change confirmed by Google` : null,
   })
-  return <span className="inline-flex items-center gap-2">
+  // In the row's trailing column: the button, and under it the one line
+  // the check can leave behind, wrapped narrow so it never crowds the row.
+  return <span className="flex flex-col items-end gap-1">
     <Button size="sm" variant="outline" disabled={confirmation.isPending} onClick={() => confirmation.mutate()}>
       {confirmation.isPending ? "Checking Google…" : "Check Google confirmation"}
     </Button>
-    {confirmation.data?.confirmationState === "unresolved" ? <span role="status" className="text-caption text-ink-muted">Still unresolved. No change was resent.</span> : null}
+    {confirmation.data?.confirmationState === "unresolved" ? <span role="status" className="max-w-40 text-right text-caption text-ink-muted">Still unresolved. No change was resent.</span> : null}
   </span>
 }

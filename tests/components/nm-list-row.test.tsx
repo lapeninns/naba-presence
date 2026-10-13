@@ -185,6 +185,58 @@ describe("ListRow", () => {
     expect(wrapper.className).toContain("after:bg-line-subtle")
   })
 
+  it("draws footer actions under the preview, outside the row's hit element", async () => {
+    const user = userEvent.setup()
+    const onRow = vi.fn()
+    const onAccept = vi.fn()
+    render(
+      <ListRows aria-label="Suggestions">
+        <ListRow
+          leading={<span>G</span>}
+          title="Google suggested new hours"
+          preview="Mon–Fri 11:00–23:00"
+          onClick={onRow}
+          footer={
+            <>
+              <button type="button" onClick={onAccept}>
+                Accept
+              </button>
+              <button type="button">Ignore</button>
+            </>
+          }
+        />
+      </ListRows>
+    )
+    const row = screen.getByRole("button", { name: /Google suggested/ })
+    // No button inside a button: the actions are siblings of the hit element.
+    expect(within(row).queryByRole("button")).toBeNull()
+    const accept = screen.getByRole("button", { name: "Accept" })
+    const footer = accept.closest('[data-slot="list-row-footer"]')!
+    expect(footer.parentElement).toBe(row.parentElement)
+    expect(
+      row.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    // Aligned to the text column.
+    expect(footer.className).toContain("ps-(--np-row-inset-start)")
+    await user.click(accept)
+    expect(onAccept).toHaveBeenCalledOnce()
+    expect(onRow).not.toHaveBeenCalled()
+    expect(screen.getByRole("listitem")).toContainElement(accept)
+  })
+
+  it('renders an li outside ListRows with as="li"', () => {
+    render(
+      <ul aria-label="Mine">
+        <ListRow as="li" title="One" />
+      </ul>
+    )
+    expect(
+      within(screen.getByRole("list", { name: "Mine" })).getAllByRole(
+        "listitem"
+      )
+    ).toHaveLength(1)
+  })
+
   it("draws tags from the decorative tag ramp", () => {
     render(<ListRowTag tone="purple">Staff</ListRowTag>)
     const tag = screen.getByText("Staff")

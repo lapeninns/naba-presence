@@ -64,6 +64,7 @@ function EditorFooter({
   saveDescription,
   readOnlyReason,
   reviewLabel = "Review changes",
+  rail = false,
 }: {
   status: EditorStatus
   /** Anything to publish: local edits, or drift that was already there. */
@@ -95,8 +96,17 @@ function EditorFooter({
    */
   readOnlyReason?: string | null
   reviewLabel?: string
+  /**
+   * The editor lays its fields out beside a label rail on the desk (profile,
+   * hours): start the bar at the form column, the rail's width plus the
+   * grid's gap-x-6, so it lines up with the fields it saves.
+   */
+  rail?: boolean
 }) {
   const saveDescriptionId = useId()
+  const railClass = rail
+    ? "desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]"
+    : undefined
   const localEdits = canDiscard ?? isDirty
 
   // Tell the area header (AreaFrame) what this footer says, so its pill
@@ -120,7 +130,7 @@ function EditorFooter({
         sticky={false}
         safeArea={false}
         label="Editor actions"
-        className={className}
+        className={cn(railClass, className)}
         status={
           <>
             <Eye aria-hidden />
@@ -173,6 +183,7 @@ function EditorFooter({
         idle
           ? "max-md:hidden"
           : "max-md:flex-wrap max-md:gap-2 max-md:[&>[data-slot=action-bar-actions]]:w-full max-md:[&>[data-slot=action-bar-actions]]:flex-nowrap",
+        railClass,
         className
       )}
       status={
@@ -181,7 +192,7 @@ function EditorFooter({
           <span className="min-w-0 max-md:truncate">
             {isDirty ? (
               <>
-                <strong className="font-semibold">{headline}</strong>
+                <strong className="font-medium">{headline}</strong>
                 {where ? <ActionBarMuted> · {where}</ActionBarMuted> : null}
               </>
             ) : (

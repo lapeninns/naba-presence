@@ -379,6 +379,16 @@ export const overlayFooterBarClassName =
   overlayFooterDockClassName
 
 /**
+ * The alert's calm action row (Notion Mail's alert): the same pinning and
+ * keyboard clearance as the footer bar, on the alert's own surface, with no
+ * hairline and no sunken fill. An alert is one question; its answers sit
+ * under the words rather than in a toolbar.
+ */
+export const overlayFooterCalmClassName =
+  "sticky -bottom-(--dlg-pad) z-sticky -mx-(--dlg-pad) -mb-(--dlg-pad) mt-1 rounded-b-[inherit] bg-surface px-(--dlg-pad) pt-2 " +
+  overlayFooterDockClassName
+
+/**
  * Leave room under a pinned header and above a pinned footer when the
  * browser scrolls a focused field into view (WCAG 2.4.11), so a field the
  * keyboard lands on is never hidden behind either bar.
@@ -653,7 +663,7 @@ function DiscardPrompt({
           data-presentation={presentation}
           className={cn(alertPopupClassName[presentation], "z-popover")}
         >
-          <AlertDialogPrimitive.Title className="text-section font-semibold text-ink">
+          <AlertDialogPrimitive.Title className="text-title font-semibold text-ink">
             {title}
           </AlertDialogPrimitive.Title>
           <AlertDialogPrimitive.Description className="text-ui text-ink-muted">
@@ -662,7 +672,7 @@ function DiscardPrompt({
           <div
             className={cn(
               overlayFooterClassName[presentation],
-              overlayFooterBarClassName,
+              overlayFooterCalmClassName,
               "mt-2"
             )}
           >

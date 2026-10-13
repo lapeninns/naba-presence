@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { QueryStates, queryStatus } from "@/components/ui/query-states"
+import { SettingsDestructiveAction } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { BillingOverview } from "@/lib/api/billing"
@@ -35,6 +36,7 @@ import {
   pendingLinkLimitNote,
 } from "@/lib/billing/presentation"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import {
   useBilling,
   useCancelSubscription,
@@ -51,11 +53,18 @@ import {
  */
 export function BillingCard() {
   const billing = useBilling()
+  // The server never has billing, so it renders the skeleton. The shell's
+  // billing banner reads the same query and can fill the cache before this
+  // page hydrates; the hydration render must still match the server's
+  // skeleton (React #418), so the details land one render later.
+  const hydrated = useHydrated()
   return (
     <QueryStates
       // Overview already on screen stays there through a failed background
       // refetch; only a first load that failed shows the error.
-      status={billing.data ? "ready" : queryStatus(billing)}
+      status={
+        !hydrated ? "pending" : billing.data ? "ready" : queryStatus(billing)
+      }
       pending={
         <Card flush aria-busy="true">
           <CardContent className="flex flex-col gap-3 py-(--np-card-pad)">
@@ -83,6 +92,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
   const cancel = useCancelSubscription()
   const keep = useChangePlan()
   const [confirmCancel, setConfirmCancel] = React.useState(false)
+  const cancelBlockedId = React.useId()
   const status = billingStatus(overview)
   const subscribed = isSubscribed(overview.state)
   const manageBlocked = overview.canManage
@@ -117,6 +127,7 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
         id="billing-subscription"
         title="Subscription"
         description={describeBilling(overview)}
+        variant="group"
       >
         <SettingsFacts
           columns={2}
@@ -168,86 +179,99 @@ export function BillingDetails({ overview }: { overview: BillingOverview }) {
           ]}
         />
 
-          {overview.pendingPlan && overview.pendingEffectiveAt ? (
-            <div
-              data-slot="pending-change"
-              className="flex flex-col gap-2 rounded-md bg-fill px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <p className="m-0 text-ui text-ink">
-                Changes to <strong>{overview.pendingPlan.name}</strong> on{" "}
-                {formatBillingDate(overview.pendingEffectiveAt)}.
-              </p>
-              {overview.plan ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabledReason={manageBlocked}
-                  pending={keep.isPending}
-                  onClick={() => keep.mutate(overview.plan!.id)}
-                >
-                  Keep {overview.plan.name}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {linkNote ? (
-            <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
-          ) : null}
-
-          <div className="flex flex-wrap gap-2">
-            {overview.hasCustomer ? (
+        {overview.pendingPlan && overview.pendingEffectiveAt ? (
+          <div
+            data-slot="pending-change"
+            className="flex flex-col gap-2 rounded-md bg-fill px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p className="m-0 text-ui text-ink">
+              Changes to <strong>{overview.pendingPlan.name}</strong> on{" "}
+              {formatBillingDate(overview.pendingEffectiveAt)}.
+            </p>
+            {overview.plan ? (
               <Button
                 variant="outline"
-                disabledReason={
-                  manageBlocked ??
-                  (overview.checkout.reason === "billing_disabled" ||
-                  overview.checkout.reason === "billing_paused"
-                    ? "Billing is not available right now."
-                    : undefined)
-                }
-                pending={portal.isPending}
-                onClick={() => portal.mutate()}
-              >
-                Payment details and invoices
-              </Button>
-            ) : null}
-            {subscribed && !overview.cancelAtPeriodEnd ? (
-              <Button
-                variant="destructive"
+                size="sm"
                 disabledReason={manageBlocked}
-                onClick={() => {
-                  cancel.reset()
-                  setConfirmCancel(true)
-                }}
+                pending={keep.isPending}
+                onClick={() => keep.mutate(overview.plan!.id)}
               >
-                Cancel subscription
-              </Button>
-            ) : null}
-            {subscribed && overview.cancelAtPeriodEnd ? (
-              <Button
-                variant="outline"
-                disabledReason={manageBlocked}
-                pending={cancel.isPending}
-                onClick={() => cancel.mutate(false)}
-              >
-                Resume subscription
+                Keep {overview.plan.name}
               </Button>
             ) : null}
           </div>
-          {actionError && !confirmCancel ? (
-            <p role="alert" className="m-0 text-ui text-danger-ink">
-              {billingActionError(actionError)}
-            </p>
+        ) : null}
+        {linkNote ? (
+          <p className="m-0 text-caption text-ink-muted">{linkNote}</p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-2">
+          {overview.hasCustomer ? (
+            <Button
+              variant="outline"
+              disabledReason={
+                manageBlocked ??
+                (overview.checkout.reason === "billing_disabled" ||
+                overview.checkout.reason === "billing_paused"
+                  ? "Billing is not available right now."
+                  : undefined)
+              }
+              pending={portal.isPending}
+              onClick={() => portal.mutate()}
+            >
+              Payment details and invoices
+            </Button>
           ) : null}
+          {subscribed && overview.cancelAtPeriodEnd ? (
+            <Button
+              variant="outline"
+              disabledReason={manageBlocked}
+              pending={cancel.isPending}
+              onClick={() => cancel.mutate(false)}
+            >
+              Resume subscription
+            </Button>
+          ) : null}
+        </div>
+        {actionError && !confirmCancel ? (
+          <p role="alert" className="m-0 text-ui text-danger-ink">
+            {billingActionError(actionError)}
+          </p>
+        ) : null}
       </SettingsSection>
 
       <SettingsSection
         id="billing-plans"
         title="Plans"
         description="Limits apply to linked Google locations, including disconnected ones. Linked locations are never removed automatically."
+        variant="group"
       >
         <PlanPicker overview={overview} />
       </SettingsSection>
+
+      {/* The one destructive action goes last on the page, alone and
+          centred (REFERENCE-BRIEF §4.3); it still asks first. Blocked, it
+          stays focusable and names why, as Button's disabledReason does. */}
+      {subscribed && !overview.cancelAtPeriodEnd ? (
+        <SettingsDestructiveAction
+          aria-disabled={manageBlocked ? "true" : undefined}
+          aria-describedby={manageBlocked ? cancelBlockedId : undefined}
+          title={manageBlocked}
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover-fine:hover:bg-transparent"
+          onClick={() => {
+            if (manageBlocked) return
+            cancel.reset()
+            setConfirmCancel(true)
+          }}
+        >
+          Cancel subscription
+          {manageBlocked ? (
+            <span id={cancelBlockedId} hidden>
+              {manageBlocked}
+            </span>
+          ) : null}
+        </SettingsDestructiveAction>
+      ) : null}
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">

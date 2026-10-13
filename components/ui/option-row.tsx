@@ -183,54 +183,117 @@ function OptionIndicatorMark({
 }
 
 const ROW_SELECTOR = '[data-slot="option-row"]:not(:disabled)'
+const GROUP_SELECTOR = '[data-slot="option-row-group"]'
+
+/** This group's own enabled rows (not those of a group nested inside it). */
+function rowsOf(group: HTMLElement) {
+  return Array.from(group.querySelectorAll<HTMLElement>(ROW_SELECTOR)).filter(
+    (row) => row.closest(GROUP_SELECTOR) === group
+  )
+}
 
 /**
  * A run of option rows. `type="single"` (the default) is a `radiogroup`,
  * `multiple` a plain group; `menu` switches the rows to the menuitem roles
  * for use inside a `role="menu"`. Arrow keys, Home and End move focus
  * between the rows; Enter and Space choose (they are buttons).
+ *
+ * A `single` group (and any `menu` group) is one Tab stop, by roving
+ * tabindex: the focused row, else the selected one, else the first. Arrow
+ * keys move focus; Enter or Space chooses. With `chooseOnArrow` (a `single`
+ * group outside a menu) the arrows also choose the row they land on, as a
+ * native radio group does. Leave it off where choosing applies and closes
+ * the sheet, or an arrow press would apply the next option. Home and End
+ * only move. A `multiple` group keeps every checkbox in the Tab order.
  */
 function OptionRowGroup({
   label,
   type = "single",
   menu = false,
+  chooseOnArrow = false,
   className,
   children,
   onKeyDown,
+  onFocus,
   ...props
 }: Omit<React.ComponentProps<"div">, "role"> & {
   /** The group's accessible name, when no visible heading names it. */
   label?: string
   type?: "single" | "multiple"
   menu?: boolean
+  /** Arrow keys also choose (ARIA radio pattern). Off by default. */
+  chooseOnArrow?: boolean
 }) {
   const value = React.useMemo(() => ({ menu }), [menu])
+  const ref = React.useRef<HTMLDivElement>(null)
+  const roving = type === "single" || menu
+  const chooseOnMove = chooseOnArrow && type === "single" && !menu
+
+  /** Make `focused` (or the selected row, or the first) the one Tab stop. */
+  const syncTabStop = React.useCallback(
+    (focused?: Element | null) => {
+      const group = ref.current
+      if (!roving || !group) return
+      const rows = rowsOf(group)
+      const stop =
+        rows.find((row) => row === focused) ??
+        rows.find((row) => row.hasAttribute("data-selected")) ??
+        rows[0]
+      for (const row of rows) row.tabIndex = row === stop ? 0 : -1
+    },
+    [roving]
+  )
+
+  // Every render: rows come and go, and the selection moves with them.
+  React.useLayoutEffect(() => {
+    const active = document.activeElement
+    syncTabStop(ref.current?.contains(active) ? active : null)
+  })
+
+  const keys = chooseOnMove
+    ? ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"]
+    : ["ArrowDown", "ArrowUp", "Home", "End"]
+
   return (
     <OptionContext.Provider value={value}>
       <div
+        ref={ref}
         data-slot="option-row-group"
         role={menu ? "group" : type === "single" ? "radiogroup" : "group"}
         aria-label={label}
         className={cn("flex flex-col gap-1", className)}
+        onFocus={(event) => {
+          onFocus?.(event)
+          syncTabStop(event.target)
+        }}
         onKeyDown={(event) => {
           onKeyDown?.(event)
           if (event.defaultPrevented) return
-          const keys = ["ArrowDown", "ArrowUp", "Home", "End"]
           if (!keys.includes(event.key)) return
-          const rows = Array.from(
-            event.currentTarget.querySelectorAll<HTMLElement>(ROW_SELECTOR)
-          )
+          const rows = rowsOf(event.currentTarget)
           const at = rows.indexOf(document.activeElement as HTMLElement)
           if (at === -1 || rows.length === 0) return
           event.preventDefault()
+          const forward =
+            event.key === "ArrowDown" || event.key === "ArrowRight"
           const next =
             event.key === "Home"
               ? 0
               : event.key === "End"
                 ? rows.length - 1
-                : (at + (event.key === "ArrowDown" ? 1 : -1) + rows.length) %
-                  rows.length
-          rows[next]?.focus()
+                : (at + (forward ? 1 : -1) + rows.length) % rows.length
+          const row = rows[next]
+          row?.focus()
+          if (
+            chooseOnMove &&
+            row &&
+            event.key !== "Home" &&
+            event.key !== "End" &&
+            row.getAttribute("role") === "radio" &&
+            row.getAttribute("aria-checked") !== "true"
+          ) {
+            row.click()
+          }
         }}
         {...props}
       >

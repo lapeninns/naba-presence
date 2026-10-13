@@ -156,6 +156,7 @@ export function OperationsView() {
         )}
       </QueryStates>
       <SettingsSection
+        variant="group"
         id="ops-webhooks"
         title="Review notification failures"
         description="Google review events that failed to process. Replaying queues one for the next sync run; it does not reply to anything."
@@ -173,7 +174,7 @@ export function OperationsView() {
             {failures.data?.items.map((item) => (
               <li
                 key={item.id}
-                className="flex flex-wrap items-center justify-between gap-2 py-2"
+                className="flex min-h-(--np-row-h) flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2"
               >
                 <span className="min-w-0 text-ui text-ink-secondary">
                   {item.eventType} · {item.status} · received{" "}
@@ -269,6 +270,7 @@ function HealthSections({
   return (
     <>
       <SettingsSection
+        variant="group"
         id="ops-scheduler"
         title="Scheduler"
         description="Background ticks that sync, publish and send notifications."
@@ -286,6 +288,7 @@ function HealthSections({
         ) : null}
       </SettingsSection>
       <SettingsSection
+        variant="group"
         id="ops-sync"
         title="Sync freshness"
         description="How current our copy of Google data is."
@@ -310,6 +313,7 @@ function HealthSections({
         />
       </SettingsSection>
       <SettingsSection
+        variant="group"
         id="ops-queue"
         title="Queued work"
         description="Due items by the tick that owns them."
@@ -325,6 +329,7 @@ function HealthSections({
         />
       </SettingsSection>
       <SettingsSection
+        variant="group"
         id="ops-unresolved"
         title="Unresolved Google writes"
         description="Changes sent to Google whose result is not confirmed. They are never resent automatically: open the listing and read the saved outcome."
@@ -345,6 +350,7 @@ function HealthSections({
         )}
       </SettingsSection>
       <SettingsSection
+        variant="group"
         id="ops-email"
         title="Notification email"
         description="Accepted means the provider took the message; delivered means a mail server accepted it. Neither means it was read."
