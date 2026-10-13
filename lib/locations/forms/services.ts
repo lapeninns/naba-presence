@@ -3,8 +3,11 @@ import {
   googleServiceItemSchema,
   googleServiceItemsSchema,
   googleServicePriceSchema,
+  serviceCategoryId,
+  type GoogleServiceCategory,
   type GoogleServiceItem,
 } from "@/lib/domain/google-services"
+import { categoryLabel } from "@/lib/locations/console-labels"
 
 const structuredDraft = googleServiceItemSchema.options[0]
 const freeFormDraft = googleServiceItemSchema.options[1]
@@ -137,4 +140,79 @@ export function buildServiceItems(rows: readonly ServiceDraftRow[]) {
         message:
           parsed.error.issues[0]?.message ?? "Check the service details.",
       }
+}
+
+/**
+ * One reviewed service in words: its name, category, label language,
+ * description and price. Names come from Google's metadata when the editor
+ * has loaded it; otherwise a humanised id, never the raw gcid token.
+ */
+export function describeServiceItem(
+  item: GoogleServiceItem | undefined,
+  categories: readonly GoogleServiceCategory[]
+): string {
+  if (!item) return "No service"
+  const freeForm = "freeFormServiceItem" in item
+  const name = freeForm
+    ? item.freeFormServiceItem.label.displayName
+    : categoryLabel({
+        name: item.structuredServiceItem.serviceTypeId,
+        displayName: categories
+          .flatMap((entry) => entry.serviceTypes)
+          .find(
+            (type) =>
+              type.serviceTypeId === item.structuredServiceItem.serviceTypeId
+          )?.displayName,
+      })
+  const category = freeForm
+    ? categoryLabel({
+        name: item.freeFormServiceItem.category,
+        displayName: categories.find(
+          (entry) =>
+            serviceCategoryId(entry.name) ===
+            serviceCategoryId(item.freeFormServiceItem.category)
+        )?.displayName,
+      })
+    : null
+  const language = freeForm ? item.freeFormServiceItem.label.languageCode : null
+  const description = freeForm
+    ? item.freeFormServiceItem.label.description
+    : item.structuredServiceItem.description
+  return [
+    name,
+    category,
+    language,
+    description === undefined
+      ? "No description"
+      : description === ""
+        ? "Empty description"
+        : description,
+    item.price
+      ? `${item.price.currencyCode ?? ""} ${servicePriceText(item.price)}`
+      : "No price",
+  ]
+    .filter(Boolean)
+    .join(" · ")
+}
+
+/**
+ * The before/after rows of a saved service review, one per position that
+ * changed. Null when either side is not a list of services this editor can
+ * read, so a caller can refuse to send what it cannot show.
+ */
+export function serviceReviewRows(
+  review: { readonly baseline: Record<string, unknown>; readonly payload: Record<string, unknown> } | null,
+  categories: readonly GoogleServiceCategory[]
+): { field: string; before: string; after: string }[] | null {
+  const before = googleServiceItemsSchema.safeParse(review?.baseline.serviceItems ?? [])
+  const after = googleServiceItemsSchema.safeParse(review?.payload.serviceItems ?? [])
+  if (!before.success || !after.success) return null
+  return Array.from(
+    { length: Math.max(before.data.length, after.data.length) },
+    (_, index) => ({
+      field: `Service ${index + 1}`,
+      before: describeServiceItem(before.data[index], categories),
+      after: describeServiceItem(after.data[index], categories),
+    })
+  ).filter((row) => row.before !== row.after)
 }
