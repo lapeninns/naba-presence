@@ -43,7 +43,8 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
     <Field error={error}>
       <FieldLabel htmlFor="profile-chain-search">Search Google chains</FieldLabel>
       <div className="flex items-center gap-3">
-        <Input className="min-w-0 flex-1" id="profile-chain-search" value={query} maxLength={255} disabled={blocked}
+        <Input className="min-w-0 flex-1" id="profile-chain-search" enterKeyHint="search" value={query} maxLength={255} disabled={blocked}
+          autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false}
           onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); runSearch() }
           }} />

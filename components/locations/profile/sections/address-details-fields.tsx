@@ -26,12 +26,6 @@ export function AddressDetailsFields({ draft, setDraft, location, disabled, erro
     <summary className="cursor-pointer text-ui font-medium">Additional address details</summary>
     <div className="mt-4 flex flex-col gap-4">
       {unsupported && <p role="status" className="text-ui text-ink-muted">Some address details cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage address details in Google</a>, then refresh.</p>}
-      <Field error={error}>
-        <FieldLabel htmlFor="profile-address-language">Address language (optional)</FieldLabel>
-        <Input id="profile-address-language" value={draft.addressLanguageCode ?? ""} maxLength={35} disabled={blocked("languageCode")} onChange={(event) => setDraft((current) => ({ ...current, addressLanguageCode: event.target.value }))} />
-        <FieldDescription>Use a language tag such as en or cy only when known. Leave it blank if unknown; this does not change the profile language.</FieldDescription>
-        <FieldError />
-      </Field>
       <Field><FieldLabel htmlFor="profile-address-organization">Address organisation (optional)</FieldLabel>
         <Input id="profile-address-organization" value={draft.addressOrganization ?? ""} maxLength={200} disabled={blocked("organization")} onChange={(event) => setDraft((current) => ({ ...current, addressOrganization: event.target.value }))} />
         <FieldDescription>Organisation named in the postal address. This is separate from the business name.</FieldDescription>
@@ -41,9 +35,18 @@ export function AddressDetailsFields({ draft, setDraft, location, disabled, erro
         <FieldDescription>One postal recipient or care-of line per line. Leave blank to remove existing recipients.</FieldDescription>
       </Field>
       {showSorting && <Field><FieldLabel htmlFor="profile-address-sorting">Postal sorting code (optional)</FieldLabel>
-        <Input id="profile-address-sorting" value={draft.addressSortingCode ?? ""} maxLength={100} disabled={blocked("sortingCode")} onChange={(event) => setDraft((current) => ({ ...current, addressSortingCode: event.target.value }))} />
+        <Input id="profile-address-sorting" value={draft.addressSortingCode ?? ""} maxLength={100} disabled={blocked("sortingCode")}
+          autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false} onChange={(event) => setDraft((current) => ({ ...current, addressSortingCode: event.target.value }))} />
         <FieldDescription>A country-specific code, such as CEDEX in France. It is not a UK postcode. Existing values are shown so they can be preserved or explicitly cleared.</FieldDescription>
       </Field>}
+      {/* The language tag is a code: it follows the human address details. */}
+      <Field error={error}>
+        <FieldLabel htmlFor="profile-address-language">Address language (optional)</FieldLabel>
+        <Input id="profile-address-language" value={draft.addressLanguageCode ?? ""} maxLength={35} disabled={blocked("languageCode")}
+          autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} onChange={(event) => setDraft((current) => ({ ...current, addressLanguageCode: event.target.value }))} />
+        <FieldDescription>Use a language tag such as en or cy only when known. Leave it blank if unknown; this does not change the profile language.</FieldDescription>
+        <FieldError />
+      </Field>
     </div>
   </details>
 }
