@@ -2,12 +2,17 @@ import { CircleAlert } from "lucide-react"
 import Link from "next/link"
 import type * as React from "react"
 
+import { Empty } from "@/components/ui/empty"
+
 /**
  * The pieces the error and not-found boundaries share, kept deliberately
- * light: no `cn`/tailwind-merge, no Base UI, no components/ui tree. Every
- * route segment gets its own boundary chunk, so whatever a boundary imports
- * is copied into each of them; these are plain class strings and markup
- * drawn with the same tokens as the primitives they stand in for.
+ * light: no Base UI and no interactive primitives. Every route segment gets
+ * its own boundary chunk, so whatever a boundary imports is copied into each
+ * of them; these are plain class strings and markup drawn with the same
+ * tokens as the primitives they stand in for. The one primitive used is
+ * `Empty` (a plain server-safe component: lucide glyphs and `cn`, both
+ * already in the app's shared chunk), so the error state is the same
+ * drawing as every other empty, error and system state.
  */
 
 type BoundaryButtonVariant = "primary" | "outline" | "ghost"
@@ -98,10 +103,12 @@ function BoundaryCode({ children }: { children: React.ReactNode }) {
 
 /**
  * A route's error, inside a page that keeps working around it. Calm and
- * honest, drawn like an empty state: a line glyph, what happened (the title
- * and its sentence, announced as an alert, as the Alert primitive is), one
- * primary Try again, and the way out as a quiet second action. The light
- * twin of RouteErrorState in query-states.tsx.
+ * honest, drawn by the shared empty state (`Empty variant="error"`): its
+ * failure mark, what happened (the title and its sentence, announced as an
+ * alert, as the Alert primitive is), one primary Try again, and the way out
+ * as a quiet second action. The actions sit outside the alert so it
+ * announces only what happened. The light twin of RouteErrorState in
+ * query-states.tsx.
  */
 function BoundaryErrorState({
   title,
@@ -119,28 +126,19 @@ function BoundaryErrorState({
   return (
     <div
       data-slot="boundary-error-state"
-      className="mx-auto flex w-full max-w-md flex-col items-center gap-2 px-5 pt-10 pb-6 text-center md:pt-20"
+      className="mx-auto flex w-full max-w-md flex-col items-center gap-4 px-5 pt-10 pb-6 text-center md:pt-20"
     >
-      <CircleAlert
-        className="mb-2 size-7 text-ink-secondary"
-        strokeWidth={1.5}
-        aria-hidden
+      {/* The wrapper owns the spacing; Empty's own padding is for a state
+          that stands alone. */}
+      <Empty
+        variant="error"
+        data-slot="alert"
+        role="alert"
+        className="px-0 py-0 sm:py-0 lg:py-0"
+        title={<span data-slot="alert-title">{title}</span>}
+        description={<span data-slot="alert-description">{description}</span>}
       />
-      <div data-slot="alert" role="alert" className="flex flex-col gap-2">
-        <div
-          data-slot="alert-title"
-          className="text-title font-medium text-balance text-ink"
-        >
-          {title}
-        </div>
-        <div
-          data-slot="alert-description"
-          className="text-ui text-pretty text-ink-muted"
-        >
-          {description}
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
         <button
           type="button"
           onClick={() => onReset()}

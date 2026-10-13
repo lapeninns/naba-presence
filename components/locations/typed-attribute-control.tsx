@@ -41,8 +41,9 @@ import { enumOptionsFor } from "@/lib/locations/google-values"
  *
  * `layout`: `stack` (default) is the original drawing. `row` is the settings
  * row look — the label in body text (with an optional muted `description`)
- * at the leading edge, the control at the trailing edge on one line of at
- * least 44px, wrapping under the label when the row is narrow (CSS only:
+ * at the leading edge, the control at the trailing edge on one line at
+ * least a settings row tall (`--np-settings-row-h`: 56px touch, 44px desk),
+ * wrapping under the label when the row is narrow (CSS only:
  * flex-wrap plus the controls' own `sm:` widths). Ids, labels and every
  * value path are the same in both layouts.
  */
@@ -114,7 +115,7 @@ export function TypedAttributeControl({
   )
 
   const rowClass = row
-    ? "flex min-h-11 w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 py-1"
+    ? "flex min-h-(--np-settings-row-h) w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 py-1"
     : "flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2"
 
   if (!metadata.deprecated && metadata.valueType === "REPEATED_ENUM" && enumOptions.length > 0) {

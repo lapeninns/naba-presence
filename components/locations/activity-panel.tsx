@@ -3,6 +3,7 @@
 import { LocationTab } from "@/components/locations/location-tab"
 import { Button } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { LoadMore } from "@/components/ui/load-more"
 import { StatusPill } from "@/components/ui/status-pill"
 import { formatNumber } from "@/lib/format"
@@ -71,10 +72,7 @@ function ActivityList({
         {formatNumber(activity.total)} recorded{" "}
         {activity.total === 1 ? "change" : "changes"}
       </p>
-      <ol
-        aria-label="Recent changes"
-        className="flex list-none flex-col divide-y divide-line-subtle"
-      >
+      <ListRows aria-label="Recent changes">
         {activity.items.map((item) => {
           const meta = [
             item.actorDisplayName,
@@ -95,37 +93,54 @@ function ActivityList({
             minute: "2-digit",
           })
           return (
-            <li
+            <ListRow
               key={item.id}
+              interactive={false}
+              emphasis="neutral"
               data-status={item.status}
-              className="flex min-w-0 flex-col gap-1 py-3"
-            >
-              <div className="flex min-w-0 items-baseline justify-between gap-3">
-                <p className="min-w-0 text-body font-medium text-ink">
+              // The drawer's body already has its padding: the rows sit on
+              // it flush, the divider runs the full width of the text.
+              className="px-0"
+              wrapperClassName="after:start-0 after:end-0"
+              title={
+                <>
                   {humanise(item.operation)} · {humanise(item.resourceType)}
-                </p>
-                <time
-                  dateTime={item.createdAt}
-                  className="shrink-0 text-caption whitespace-nowrap text-ink-muted tabular-nums"
-                >
-                  {when}
-                </time>
-              </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                <StatusPill tone={activityPillTone(item.status)}>
-                  {activityStatusLabel(item.status)}
-                </StatusPill>
-                {meta ? (
-                  <span className="min-w-0 text-caption text-ink-muted tabular-nums">
-                    {meta}
-                  </span>
-                ) : null}
-              </div>
-              {activity.canManage && (item.resourceType === "lodging" || item.resourceType === "business_info" || item.resourceType === "attributes") && (item.canConfirm || (item.resourceType === "lodging" && item.status === "ambiguous")) ? <ConfirmManagementButton locationId={locationId} mutationId={item.sourceId ?? item.id} resourceType={item.resourceType} /> : null}
-            </li>
+                </>
+              }
+              meta={<time dateTime={item.createdAt}>{when}</time>}
+              subtitle={
+                // The status word and every detail stay readable: wrap
+                // rather than truncate.
+                <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 whitespace-normal">
+                  <StatusPill tone={activityPillTone(item.status)}>
+                    {activityStatusLabel(item.status)}
+                  </StatusPill>
+                  {meta ? (
+                    <span className="min-w-0 text-caption text-ink-muted tabular-nums">
+                      {meta}
+                    </span>
+                  ) : null}
+                </span>
+              }
+              trailing={
+                activity.canManage &&
+                (item.resourceType === "lodging" ||
+                  item.resourceType === "business_info" ||
+                  item.resourceType === "attributes") &&
+                (item.canConfirm ||
+                  (item.resourceType === "lodging" &&
+                    item.status === "ambiguous")) ? (
+                  <ConfirmManagementButton
+                    locationId={locationId}
+                    mutationId={item.sourceId ?? item.id}
+                    resourceType={item.resourceType}
+                  />
+                ) : undefined
+              }
+            />
           )
         })}
-      </ol>
+      </ListRows>
       <LoadMore
         shown={activity.items.length}
         total={activity.total}
@@ -142,10 +157,12 @@ function ConfirmManagementButton({ locationId, mutationId, resourceType }: { loc
     invalidate: [queryKeys.locationActivity(locationId), resourceType === "lodging" ? queryKeys.locationIndustry(locationId) : queryKeys.locationBusinessInformation(locationId)],
     successToast: (result) => result.confirmationState === "confirmed" ? `${resourceType === "lodging" ? "Lodging" : "Profile"} change confirmed by Google` : null,
   })
-  return <span className="flex flex-wrap items-center gap-2 pt-1">
+  // In the row's trailing column: the button, and under it the one line
+  // the check can leave behind, wrapped narrow so it never crowds the row.
+  return <span className="flex flex-col items-end gap-1">
     <Button size="sm" variant="outline" disabled={confirmation.isPending} onClick={() => confirmation.mutate()}>
       {confirmation.isPending ? "Checking Google…" : "Check Google confirmation"}
     </Button>
-    {confirmation.data?.confirmationState === "unresolved" ? <span role="status" className="text-caption text-ink-muted">Still unresolved. No change was resent.</span> : null}
+    {confirmation.data?.confirmationState === "unresolved" ? <span role="status" className="max-w-40 text-right text-caption text-ink-muted">Still unresolved. No change was resent.</span> : null}
   </span>
 }

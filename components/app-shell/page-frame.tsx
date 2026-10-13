@@ -1,3 +1,4 @@
+import { Empty } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
 /**
@@ -136,13 +137,17 @@ const EYEBROW_CLASS = "text-caption font-medium text-ink-muted"
 
 /**
  * A whole page that is one message: access denied, not found, an archived
- * record. Drawn like an empty state, not a card: an optional line glyph in
- * neutral ink, a short title, one muted sentence saying why, and the next
- * action, centred in the upper third of the page so it reads calm whether
- * the page worked or not. `tone` only colours the glyph, never a box.
+ * record. Drawn by the shared empty state (`Empty`, components/ui/empty.tsx):
+ * an optional glyph in its mark, the eyebrow, a short title, one muted
+ * sentence saying why, and the next action. `placement="page"` (the default)
+ * fills the page and sits the message at about 35% of its height, so it reads
+ * calm whether the page worked or not; `inline` is for a message with more
+ * of the page under it (AccessDenied's access details). `tone` only colours
+ * the glyph's mark, never a box.
  *
- * Renders NO landmark: inside the dashboard AppShell owns the single
- * `<main>`; a route file outside it (the root 404) supplies its own.
+ * The title is the page's one `h1`. Renders NO landmark: inside the
+ * dashboard AppShell owns the single `<main>`; a route file outside it (the
+ * root 404) supplies its own.
  */
 function PageEmptyState({
   title,
@@ -151,6 +156,7 @@ function PageEmptyState({
   icon,
   eyebrow,
   tone = "neutral",
+  placement = "page",
   children,
   className,
 }: {
@@ -158,55 +164,55 @@ function PageEmptyState({
   description?: React.ReactNode
   /** The page's next action; one primary, any second one quiet. */
   action?: React.ReactNode
-  /** A lucide glyph, drawn at 28px in line style above the title. */
+  /** A lucide glyph, drawn in the empty state's mark above the title. */
   icon?: React.ReactNode
   /** e.g. "Page not found · 404". */
   eyebrow?: React.ReactNode
   tone?: "neutral" | "warning" | "danger"
+  /** `page` (default): the message is the page. `inline`: more follows it. */
+  placement?: "page" | "inline"
   /** Extra lines under the description (a requested path, an error id). */
   children?: React.ReactNode
   className?: string
 }) {
   return (
-    <div
+    <Empty
       data-slot="page-empty-state"
       data-tone={tone}
-      className={cn(
-        "mx-auto flex w-full max-w-md flex-col items-center gap-2 pt-10 pb-6 text-center md:pt-20",
-        className
-      )}
+      placement={placement}
+      titleAs={PAGE_TITLE_AS}
+      icon={icon}
+      tone={EMPTY_TONE[tone]}
+      className={cn("mx-auto w-full max-w-md", className)}
+      title={title}
+      description={
+        description || children ? (
+          <>
+            {description ? <p>{description}</p> : null}
+            {children}
+          </>
+        ) : undefined
+      }
+      action={action}
     >
-      {icon ? (
-        <span
-          aria-hidden
-          className={cn(
-            "mb-2 flex items-center justify-center [&_svg]:size-7 [&_svg]:[stroke-width:1.5]",
-            tone === "neutral" && "text-ink-secondary",
-            tone === "warning" && "text-warning-ink",
-            tone === "danger" && "text-danger-ink"
-          )}
-        >
-          {icon}
-        </span>
-      ) : null}
+      {/* Empty draws its children between the glyph and the title. */}
       {eyebrow ? <p className={EYEBROW_CLASS}>{eyebrow}</p> : null}
-      <h1
-        tabIndex={-1}
-        className="text-title font-medium text-balance text-ink outline-none"
-      >
-        {title}
-      </h1>
-      {description ? (
-        <p className="text-ui text-pretty text-ink-muted">{description}</p>
-      ) : null}
-      {children}
-      {action ? (
-        <div className="mt-3 flex w-full flex-wrap items-center justify-center gap-2 @max-[480px]:*:flex-1">
-          {action}
-        </div>
-      ) : null}
-    </div>
+    </Empty>
   )
 }
+
+const EMPTY_TONE = {
+  neutral: "neutral",
+  warning: "warn",
+  danger: "bad",
+} as const
+
+/**
+ * Empty's `titleAs` stops at h2 so an inline empty state never takes the
+ * page's h1 by accident. This one IS the page, so its title is the h1 (the
+ * one the shell's route focus lands on, route-focus.tsx). Empty renders the
+ * element it is given; the cast only widens its type.
+ */
+const PAGE_TITLE_AS = "h1" as unknown as "h2"
 
 export { EYEBROW_CLASS, PageEmptyState, PageFrame, PageHeader, type PageWidth }
