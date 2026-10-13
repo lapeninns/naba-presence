@@ -125,6 +125,41 @@ describe("overview area actions", () => {
     expect(card("Food menu").getByText("Unavailable")).toBeInTheDocument()
     expect(card("Food menu").queryByRole("link")).not.toBeInTheDocument()
   })
+  it("makes an area with a way in one interactive card whose link is the card's", () => {
+    render(
+      <AreaCards
+        locationId="l1"
+        linked
+        summary={summary}
+        caps={{
+          ...caps,
+          resources: {
+            menu: {
+              state: "unavailable",
+              reasonCode: "google_location_not_linked",
+            },
+          },
+        }}
+        canManageConsoles={false}
+      />
+    )
+    const hours = screen
+      .getByRole("heading", { name: "Opening hours" })
+      .closest("article")!
+    // listings-content-18: the whole card is the target (Card interactive),
+    // its one link the stretched CardLink.
+    expect(hours).toHaveAttribute("data-interactive")
+    expect(within(hours).getByRole("link")).toHaveAttribute(
+      "data-slot",
+      "card-link"
+    )
+    // A blocked area has no way in, so it is not drawn as a target.
+    const menu = screen
+      .getByRole("heading", { name: "Food menu" })
+      .closest("article")!
+    expect(menu).not.toHaveAttribute("data-interactive")
+    expect(menu).toHaveAttribute("data-surface", "sunken")
+  })
   it.each([
     { checkStatus: "failed" as const, observedAt: new Date().toISOString() },
     { checkStatus: "checked" as const, observedAt: "2020-01-01T00:00:00.000Z" },
