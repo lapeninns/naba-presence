@@ -81,9 +81,19 @@ function ListHeader({
         clientId={clientId}
         className="min-w-0 truncate max-2xl:hidden"
       />
-      {loaded && refreshed ? (
-        <span className="whitespace-nowrap tabular-nums">
-          Refreshed {refreshed}
+      {loaded ? (
+        // `refreshed` reads the viewer's clock, so it is null until
+        // hydration. The server render holds its place with an invisible
+        // same-width time; filling it in later would wrap the line and
+        // push the list down.
+        <span
+          aria-hidden={refreshed ? undefined : true}
+          className={cn(
+            "whitespace-nowrap tabular-nums",
+            !refreshed && "invisible"
+          )}
+        >
+          Refreshed {refreshed ?? "00:00"}
           <span className="sr-only">
             {" "}
             from NabaPresence. Queue counts cover every review in each queue for
