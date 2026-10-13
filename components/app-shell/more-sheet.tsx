@@ -86,7 +86,7 @@ function MoreSheet({
             your account.
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="gap-3 pb-[calc(1.25rem+var(--np-safe-bottom))]">
+        <SheetBody className="gap-3 pb-[calc(--spacing(5)+var(--np-safe-bottom))]">
           {/* Only rendered while open, so the reads below cost nothing on
               pages where the sheet is never opened. */}
           {open ? (

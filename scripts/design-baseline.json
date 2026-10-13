@@ -4,10 +4,10 @@
     "R1": 53,
     "R2": 9,
     "R3": 163,
-    "R4": 39,
-    "R5": 5,
+    "R4": 33,
+    "R5": 4,
     "R6": 5,
-    "R7": 49
+    "R7": 31
   },
   "files": {
     "app/(auth)/layout.tsx": {
@@ -159,12 +159,6 @@
         "patterns": {
           "w-[min(18rem,calc(100vw-2rem))]": 1
         }
-      },
-      "R7": {
-        "total": 3,
-        "patterns": {
-          "max-[1181px]:": 3
-        }
       }
     },
     "components/app-shell/app-shell.tsx": {
@@ -181,28 +175,10 @@
           "top-[-60px]": 1
         }
       },
-      "R4": {
-        "total": 5,
-        "patterns": {
-          "shadow-[inset_-1px_0_0_var(--np-line)]": 1,
-          "z-30": 1,
-          "z-50": 2,
-          "z-[100]": 1
-        }
-      },
-      "R5": {
+      "R7": {
         "total": 1,
         "patterns": {
-          "@base-ui/react/dialog": 1
-        }
-      },
-      "R7": {
-        "total": 6,
-        "patterns": {
-          "(min-width: 768px)": 1,
-          "(min-width: 768px) and (max-width: 1180.98px)": 1,
-          "max-[1181px]:": 3,
-          "min-[1181px]:": 1
+          "[@media(min-height:620px)]:": 1
         }
       }
     },
@@ -236,8 +212,8 @@
         "total": 4,
         "patterns": {
           "h-[34px]": 1,
-          "max-h-[min(50vh,24rem)]": 1,
           "max-w-[min(16rem,32vw)]": 1,
+          "pb-[max(20px,var(--np-safe-bottom))]": 1,
           "w-[min(320px,calc(100vw-24px))]": 1
         }
       }
@@ -283,12 +259,6 @@
           "min-h-[34px]": 1,
           "w-[3px]": 1
         }
-      },
-      "R7": {
-        "total": 8,
-        "patterns": {
-          "max-[1181px]:": 8
-        }
       }
     },
     "components/app-shell/notifications-link.tsx": {
@@ -317,9 +287,9 @@
         }
       },
       "R7": {
-        "total": 3,
+        "total": 1,
         "patterns": {
-          "[@media(min-height:620px)]:": 3
+          "[@media(min-height:620px)]:": 1
         }
       }
     },
@@ -343,14 +313,6 @@
         "total": 1,
         "patterns": {
           "grid-cols-[minmax(7.5rem,34%)_1fr]": 1
-        }
-      }
-    },
-    "components/app-shell/topbar.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[inset_0_-1px_0_var(--np-line)]": 1
         }
       }
     },

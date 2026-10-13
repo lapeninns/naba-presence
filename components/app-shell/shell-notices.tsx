@@ -81,7 +81,7 @@ function ShellNotices({ children }: { children: React.ReactNode }) {
           aria-expanded={expanded}
           aria-controls={listId}
           onClick={() => setExpanded((open) => !open)}
-          className="flex min-h-9 items-center gap-1.5 bg-surface-alt px-5 text-ui font-medium text-ink-secondary shadow-[inset_0_-1px_0_var(--np-line)] focus-halo hover:text-ink focus-visible:outline-none md:px-(--np-page-pad-x) pointer-coarse:min-h-11"
+          className="flex min-h-9 items-center gap-1.5 bg-surface-alt px-5 text-ui font-medium text-ink-secondary shadow-np-edge-bottom focus-halo hover:text-ink focus-visible:outline-none md:px-(--np-page-pad-x) pointer-coarse:min-h-11"
         >
           <ChevronDown
             className={cn(

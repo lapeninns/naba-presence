@@ -95,7 +95,7 @@ it is 16px on touch and iOS never zooms on focus.
   Checkbox, radio and switch keep a modest visual size with a 44px hit area
   on touch.
 - Chrome: app bar 52px, tab bar 56px, action bar 64px, desk toolbar 56px,
-  rail 64px, sidebar 240px; each bar adds its safe-area inset.
+  rail 72px, sidebar 240px; each bar adds its safe-area inset.
 - Safe areas and keyboard: `--np-safe-*`, `--np-keyboard-inset` (written by
   `ViewportInsets`), `--np-dock-bottom`; utilities `pt-safe`, `pb-safe`,
   `px-safe`, `pb-dock`. `app/layout.tsx` sets `viewport-fit=cover`,
@@ -115,7 +115,7 @@ it is 16px on touch and iOS never zooms on focus.
 | Width                               | Navigation                    | Header                                                              | Bottom                            |
 | ----------------------------------- | ----------------------------- | ------------------------------------------------------------------- | --------------------------------- |
 | < 48rem (phone)                     | Bottom tab bar, five items    | App bar: switcher or labelled back, page title, at most two actions | Tab bar, or the task's action bar |
-| 48rem - wide (tablet, small laptop) | 64px rail with visible labels | Desk toolbar                                                        | Inline action bars                |
+| 48rem - wide (tablet, small laptop) | 72px rail with visible labels | Desk toolbar                                                        | Inline action bars                |
 | ≥ wide                              | 240px sidebar                 | Desk toolbar with breadcrumbs                                       | Inline action bars                |
 
 - Tabs: agency mode Inbox, Listings, Clients, Reports, More; business mode
