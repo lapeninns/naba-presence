@@ -11,6 +11,11 @@ import { cn } from "@/lib/utils"
  * The footer of a keyset-paged list: how many rows are on screen out of how
  * many there are, and a "Load more" button while another page follows.
  *
+ * `total` may be unknown (`null`/omitted) — a keyset cursor often knows
+ * only that another page exists. Then the count says what is on screen
+ * ("Showing 40 photos") and never invents an "of N". The button is a
+ * default-size control: 44px on touch, a thumb's reach at a list's end.
+ *
  * The count is a polite status region, so a screen reader hears the new
  * count when a page lands (not on first render, which is the list itself).
  * The button keeps focus while more remain; when the last page lands and the
@@ -24,7 +29,8 @@ export function LoadMore({
   className,
 }: {
   shown: number
-  total: number
+  /** All the rows there are; `null` or omitted when the server cannot say. */
+  total?: number | null
   /** Singular and plural, e.g. `["photo", "photos"]`. */
   noun: readonly [string, string]
   paging: ListPaging
@@ -42,7 +48,8 @@ export function LoadMore({
     }
   }, [hasMore])
 
-  const word = total === 1 ? noun[0] : noun[1]
+  const known = typeof total === "number"
+  const word = (known ? total : shown) === 1 ? noun[0] : noun[1]
   return (
     <div
       className={cn(
@@ -56,9 +63,11 @@ export function LoadMore({
         tabIndex={-1}
         className="text-caption text-ink-muted tabular-nums outline-none"
       >
-        {shown >= total
-          ? `Showing all ${formatNumber(total)} ${word}`
-          : `Showing ${formatNumber(shown)} of ${formatNumber(total)} ${word}`}
+        {!known
+          ? `Showing ${formatNumber(shown)} ${word}`
+          : shown >= total
+            ? `Showing all ${formatNumber(total)} ${word}`
+            : `Showing ${formatNumber(shown)} of ${formatNumber(total)} ${word}`}
       </p>
       {paging.loadMoreFailed ? (
         <p role="alert" className="text-caption text-danger-ink">
@@ -69,7 +78,6 @@ export function LoadMore({
         <Button
           ref={buttonRef}
           variant="secondary"
-          size="sm"
           aria-disabled={paging.loadingMore || undefined}
           onClick={() => {
             hadFocus.current = document.activeElement === buttonRef.current
