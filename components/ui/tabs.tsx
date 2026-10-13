@@ -98,9 +98,13 @@ function scrollCurrentIntoRow(row: HTMLElement, current: HTMLElement | null) {
 
 /**
  * Keeps the row's current item (`selector`) in view: on mount, whenever the
- * caller's `key` changes (TabNav passes the current href), and whenever the
+ * caller's `key` changes (TabNav passes the current href), whenever the
  * item's state attribute flips (Base UI moves `data-active` on a tab
- * change without a React render of the list).
+ * change without a React render of the list), and whenever the row or an
+ * item changes size after mount (a late web font, a count arriving, the
+ * shell's rail or sidebar settling), which can push a current item that
+ * fitted at mount out of view. An item already in view is left alone, so a
+ * resize never fights a sideways scroll the reader made.
  */
 function useCurrentInView(
   ref: React.RefObject<HTMLElement | null>,
@@ -113,14 +117,25 @@ function useCurrentInView(
     const reveal = () =>
       scrollCurrentIntoRow(row, row.querySelector<HTMLElement>(selector))
     reveal()
-    if (typeof MutationObserver === "undefined") return
-    const observer = new MutationObserver(reveal)
-    observer.observe(row, {
+    const resize =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(reveal)
+    if (resize) {
+      resize.observe(row)
+      for (const item of row.children) resize.observe(item)
+    }
+    const observer =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(reveal)
+    observer?.observe(row, {
       subtree: true,
       attributes: true,
       attributeFilter: ["data-active", "aria-current", "aria-selected"],
     })
-    return () => observer.disconnect()
+    return () => {
+      observer?.disconnect()
+      resize?.disconnect()
+    }
   }, [ref, selector, key])
 }
 
