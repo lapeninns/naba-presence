@@ -22,6 +22,13 @@ vi.mock("next/link", () => ({
     </a>
   ),
 }))
+const historyMounted = vi.hoisted(() => vi.fn())
+vi.mock("@/components/locations/activity-panel", () => ({
+  LocationActivityPanel: () => {
+    historyMounted()
+    return <p>history</p>
+  },
+}))
 vi.mock("@/lib/queries/use-locations", () => ({
   useLocationDirectory: () => ({ data: [] }),
 }))
@@ -117,9 +124,32 @@ describe("mobile listing area navigation", () => {
     expect(
       screen.queryByRole("menuitem", { name: /Verification/ })
     ).not.toBeInTheDocument()
+    // Muted with its reason, the same as the desk's tab row, and still a
+    // link: a read-only look is allowed.
+    const menu = await screen.findByRole("menuitem", { name: /Food menu/ })
+    expect(menu).not.toHaveAttribute("aria-disabled", "true")
+    expect(menu).toHaveAttribute("data-unavailable", "true")
+    expect(menu).toHaveTextContent(/Unavailable/)
+    expect(menu).toHaveAttribute("href", "/listings/l1/menu")
+  })
+  it("lists the same pages, in the same order, as the desk's tab row, Review & publish last", async () => {
+    render(<Header />)
+    const tabs = screen.getByRole("navigation", { name: "Listing areas" })
+    const tabHrefs = Array.from(tabs.querySelectorAll("a")).map((link) =>
+      link.getAttribute("href")
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Listing area: Business profile" })
+    )
+    await screen.findByRole("menuitem", { name: "Opening hours" })
+    const menuHrefs = screen
+      .getAllByRole("menuitem")
+      .map((item) => item.getAttribute("href"))
+    expect(menuHrefs).toEqual(tabHrefs)
+    expect(menuHrefs.at(-1)).toBe("/listings/l1/changes")
     expect(
-      await screen.findByRole("menuitem", { name: /Food menu/ })
-    ).toHaveAttribute("aria-disabled", "true")
+      tabs.querySelector('[href="/listings/l1/menu"]')
+    ).toHaveAttribute("data-unavailable", "true")
   })
   it("keeps the existing dirty guard on menu links, including cancel and confirm", async () => {
     render(<Header dirty />)
@@ -149,5 +179,29 @@ describe("mobile listing area navigation", () => {
     expect(item).not.toHaveAttribute("aria-disabled", "true")
     await userEvent.click(item)
     expect(followed).toHaveBeenCalledExactlyOnceWith("/listings/l1/hours")
+  })
+  it("opens Activity from the phone's overflow menu, fetching history only then", async () => {
+    render(<Header />)
+    expect(historyMounted).not.toHaveBeenCalled()
+    await userEvent.click(
+      screen.getByRole("button", { name: "More listing actions" })
+    )
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Activity" })
+    )
+    expect(
+      await screen.findByRole("dialog", { name: "Recent activity" })
+    ).toBeInTheDocument()
+    expect(historyMounted).toHaveBeenCalled()
+  })
+  it("keeps the model note reachable on an area behind an info button", async () => {
+    render(<Header current="hours" />)
+    await userEvent.click(
+      screen.getByRole("button", { name: "Where changes go" })
+    )
+    expect(
+      (await screen.findAllByText(/nothing reaches Google until you review/))
+        .length
+    ).toBeGreaterThan(1)
   })
 })

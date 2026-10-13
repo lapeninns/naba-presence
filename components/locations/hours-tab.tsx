@@ -1,7 +1,7 @@
 "use client"
 
 import { Globe } from "lucide-react"
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react"
 
 import { CapabilityBanner } from "@/components/editors/capability-banner"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
@@ -15,7 +15,12 @@ import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import { HoursEditor } from "@/components/locations/hours-editor"
 import { LocationTab } from "@/components/locations/location-tab"
 import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Alert,
+  AlertActions,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
   fetchHours,
@@ -32,6 +37,7 @@ import {
   markHoursConflicts,
   validateHours,
 } from "@/lib/editors/hours-presentation"
+import { hoursNotes, type HoursNote } from "@/lib/editors/hours-notes"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
 import {
   NOTHING_TO_SEND,
@@ -97,6 +103,58 @@ function isEmptySchedule(hours: HoursState["google"]) {
   )
 }
 
+/**
+ * Every non-blocking note about the schedule in ONE notice (see
+ * `hoursNotes`): a single note reads as before; several become one list
+ * under a count, so a phone shows one panel, not a stack of near-identical
+ * banners, before the first day row.
+ */
+function HoursNotice({
+  notes,
+  reconcile,
+}: {
+  notes: HoursNote[]
+  reconcile: ReactNode
+}) {
+  if (notes.length === 0) return null
+  if (notes.length === 1) {
+    const note = notes[0]!
+    return (
+      <Alert variant={note.tone}>
+        <AlertTitle>{note.title ?? "Heads up"}</AlertTitle>
+        <AlertDescription>{note.description}</AlertDescription>
+        {note.action && reconcile ? (
+          <AlertActions>{reconcile}</AlertActions>
+        ) : null}
+      </Alert>
+    )
+  }
+  return (
+    <Alert
+      variant={
+        notes.some((note) => note.tone === "warning") ? "warning" : "info"
+      }
+    >
+      <AlertTitle>{notes.length} things to know about these hours</AlertTitle>
+      <AlertDescription>
+        <ul className="mt-1 flex list-disc flex-col gap-2 pl-4">
+          {notes.map((note) => (
+            <li key={note.key}>
+              {note.title ? (
+                <strong className="font-semibold">{note.title}. </strong>
+              ) : null}
+              {note.description}
+              {note.action && reconcile ? (
+                <span className="mt-2 flex">{reconcile}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
 function HoursForm({
   locationId,
   hours,
@@ -112,7 +170,11 @@ function HoursForm({
   const editor = useEditorDraft({
     initial: hours.canonical,
     revision: hours.canonicalResource.revision,
-    scope: { resource: "location-hours", resourceId: locationId, schemaVersion: 1 },
+    scope: {
+      resource: "location-hours",
+      resourceId: locationId,
+      schemaVersion: 1,
+    },
   })
   const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -337,7 +399,28 @@ function HoursForm({
     noun: "these hours",
     savesHere: true,
   })
-  const googleEmpty = isEmptySchedule(hours.google)
+  const notes = hoursNotes(hours, {
+    gated: Boolean(gate),
+    googleEmpty: isEmptySchedule(hours.google),
+  })
+
+  async function reconcile() {
+    setReconciling(true)
+    try {
+      const fresh = await fetchHours(locationId)
+      setDraft((current) =>
+        reconcileLegacyHoursBoundaries(current, fresh.google)
+      )
+      setFormError(null)
+    } catch (error) {
+      if (!(error instanceof Error)) throw error
+      setFormError(
+        "Google’s current closing boundaries could not be loaded. Your draft is unchanged. Try again."
+      )
+    } finally {
+      setReconciling(false)
+    }
+  }
 
   return (
     <EditorFrame
@@ -377,21 +460,24 @@ function HoursForm({
         />
       ) : null}
 
-      {!gate && hours.status === "conflict" ? (
-        <CapabilityBanner
-          tone="warning"
-          title="Google holds a different schedule"
-          description="The saved schedule and Google differ. Review both versions before deciding which hours to publish."
-        />
-      ) : null}
-
-      {!gate && googleEmpty && hours.status !== "conflict" ? (
-        <CapabilityBanner
-          tone="info"
-          title="Google has no opening hours for this listing"
-          description="Customers see “Hours not available”. Switch on the days the business opens, set the times, then publish."
-        />
-      ) : null}
+      <HoursNotice
+        notes={notes}
+        reconcile={
+          disabled ? null : (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={reconciling}
+              onClick={reconcile}
+            >
+              {reconciling
+                ? "Checking Google…"
+                : "Match Google closing boundaries"}
+            </Button>
+          )
+        }
+      />
 
       <DraftNotices drafts={[editor]} noun="these hours" />
 
@@ -432,53 +518,6 @@ function HoursForm({
           .
         </span>
       </p>
-
-      {hours.warnings.map((warning) => (
-        <Alert key={warning} variant="warning">
-          <AlertTitle>Heads up</AlertTitle>
-          <AlertDescription>{warning}</AlertDescription>
-        </Alert>
-      ))}
-
-      {hours.reconciliationRequired ? (
-        <Alert variant="warning">
-          <AlertTitle>Confirm saved closing days</AlertTitle>
-          <AlertDescription>
-            Some older periods did not store their ending day or date. Check
-            Google’s current boundaries, review them here, and save. Any period
-            with edited times must be confirmed manually.
-          </AlertDescription>
-          {!disabled ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              disabled={reconciling}
-              onClick={async () => {
-                setReconciling(true)
-                try {
-                  const fresh = await fetchHours(locationId)
-                  setDraft((current) =>
-                    reconcileLegacyHoursBoundaries(current, fresh.google)
-                  )
-                  setFormError(null)
-                } catch (error) {
-                  if (!(error instanceof Error)) throw error
-                  setFormError(
-                    "Google’s current closing boundaries could not be loaded. Your draft is unchanged. Try again."
-                  )
-                } finally {
-                  setReconciling(false)
-                }
-              }}
-            >
-              {reconciling
-                ? "Checking Google…"
-                : "Match Google closing boundaries"}
-            </Button>
-          ) : null}
-        </Alert>
-      ) : null}
 
       <HoursEditor
         value={draft}

@@ -5,7 +5,6 @@ import Link from "next/link"
 import { useState } from "react"
 
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { DiffView } from "@/components/ui/diff-view"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -261,10 +260,9 @@ export function SuggestionList({
         <h2 id={headingId} className="text-title font-semibold text-ink">
           {label}
         </h2>
-        <Badge variant={proposals.length > 0 ? "warning" : "secondary"}>
-          <span aria-hidden>{proposals.length}</span>
-          <span className="sr-only">{proposals.length} waiting</span>
-        </Badge>
+        <StatusPill tone={proposals.length > 0 ? "attention" : "neutral"}>
+          {proposals.length} waiting
+        </StatusPill>
         <Link
           href={editorHref}
           className={cn(
@@ -301,11 +299,13 @@ export function SuggestionList({
                   <span className="text-body font-semibold break-words text-ink">
                     {proposalTitle(proposal)}
                   </span>
-                  <Badge variant="secondary">
+                  <StatusPill
+                    tone={isAmbiguous(proposal) ? "attention" : "pending"}
+                  >
                     {isAmbiguous(proposal)
                       ? "Can't match automatically"
                       : KIND_LABELS[proposal.kind]}
-                  </Badge>
+                  </StatusPill>
                   {alsoEditedHere ? (
                     <StatusPill tone="attention">Also edited here</StatusPill>
                   ) : null}
@@ -355,7 +355,7 @@ export function SuggestionList({
                     className="flex flex-wrap items-center gap-2 text-ui"
                   >
                     <StatusPill tone="at-risk">Not applied</StatusPill>
-                    <span className="min-w-0 flex-[1_1_16rem] text-ink">
+                    <span className="min-w-0 grow basis-64 text-ink">
                       {failure.message}
                     </span>
                     <Button
@@ -429,7 +429,7 @@ export function SuggestionList({
                       </Button>
                     </>
                   )}
-                  <span className="min-w-0 flex-[1_1_16rem] text-caption text-ink-muted">
+                  <span className="min-w-0 grow basis-64 text-caption text-ink-muted">
                     {missing
                       ? "Only changes NabaPresence’s copy."
                       : "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."}
@@ -464,6 +464,12 @@ export function SuggestionList({
         requireAcknowledgement
         acknowledgementLabel="I understand this changes my local data."
         pending={decide.isPending}
+        // Both decisions change only NabaPresence's copy; nothing is sent.
+        pendingLabel={
+          confirming?.action === "delete_local"
+            ? "Removing here…"
+            : "Accepting…"
+        }
         onConfirm={() => {
           if (confirming) run(confirming.proposal, confirming.action, true)
         }}

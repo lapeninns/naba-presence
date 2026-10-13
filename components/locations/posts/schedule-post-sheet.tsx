@@ -2,10 +2,11 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { CalendarClock } from "lucide-react"
-import { useId, useMemo, useState } from "react"
+import { useId, useImperativeHandle, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
   SegmentedControl,
@@ -48,6 +49,7 @@ import {
 import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
+import { drawerContentProps } from "@/lib/editors/drawer-content"
 
 type Frequency = ScheduleRule["frequency"]
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -108,6 +110,7 @@ export function SchedulePostSheet({
   timezone,
   existing,
   trigger,
+  openRef,
   recurring = false,
   suggested,
   newTime = false,
@@ -117,6 +120,11 @@ export function SchedulePostSheet({
   timezone: string
   existing?: PublicationSchedule
   trigger?: (open: () => void) => React.ReactNode
+  /**
+   * Opened from somewhere else (a post's "More actions" menu): no trigger is
+   * drawn and `open()` is handed back instead.
+   */
+  openRef?: React.Ref<{ open: () => void }>
   recurring?: boolean
   suggested?: { startDate: string; localTime: string }
   newTime?: boolean
@@ -129,11 +137,19 @@ export function SchedulePostSheet({
     initial(existing, 0, recurring, zone, suggested)
   )
   const [failure, setFailure] = useState<string | null>(null)
+  // Any change to the opening values: a swipe or tap outside then asks
+  // before throwing the schedule away.
+  const [touched, setTouched] = useState(false)
   const client = useQueryClient()
   const id = useId()
   const dated = post.topicType === "EVENT" || post.topicType === "OFFER"
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
+  const set = <K extends keyof typeof form>(
+    key: K,
+    value: (typeof form)[K]
+  ) => {
+    setTouched(true)
     setForm((current) => ({ ...current, [key]: value }))
+  }
 
   const parsed = useMemo(() => {
     const end =
@@ -261,12 +277,14 @@ export function SchedulePostSheet({
     const at = currentTime()
     setOpenedAt(at)
     setForm(initial(existing, at, recurring, zone, suggested))
+    setTouched(false)
     setOpen(true)
   }
+  useImperativeHandle(openRef, () => ({ open: show }))
 
   return (
     <>
-      {trigger ? (
+      {openRef ? null : trigger ? (
         trigger(show)
       ) : (
         <Button
@@ -278,7 +296,17 @@ export function SchedulePostSheet({
           <CalendarClock aria-hidden /> Schedule
         </Button>
       )}
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet
+        open={open}
+        onOpenChange={setOpen}
+        dirty={touched && !save.isPending}
+        discardPrompt={{
+          title: "Discard this schedule?",
+          description:
+            "The schedule hasn’t been submitted. Nothing is published or sent for approval.",
+          confirmLabel: "Discard schedule",
+        }}
+      >
         <SheetContent side="right" size="wide" className="flex flex-col gap-0">
           <SheetHeader>
             <SheetTitle>
@@ -294,9 +322,10 @@ export function SchedulePostSheet({
               {existing ? ", and changing it needs a fresh approval" : ""}.
             </SheetDescription>
           </SheetHeader>
-          <SheetBody className="flex flex-col gap-5">
+          <SheetBody {...drawerContentProps} className="flex flex-col gap-5">
             {recurring ? (
               <SegmentedControl
+                semantics="radio"
                 value={form.frequency}
                 onValueChange={(value) => set("frequency", value as Frequency)}
                 aria-label="How often"
@@ -312,35 +341,36 @@ export function SchedulePostSheet({
               </SegmentedControl>
             ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex flex-col gap-1.5 text-ui text-ink">
-                {form.frequency === "once" ? "Date" : "Starting"}
+              <Field>
+                <FieldLabel>
+                  {form.frequency === "once" ? "Date" : "Starting"}
+                </FieldLabel>
                 <Input
                   type="date"
                   value={form.startDate}
                   onChange={(event) => set("startDate", event.target.value)}
                 />
-              </label>
-              <label className="flex flex-col gap-1.5 text-ui text-ink">
-                Local time
+              </Field>
+              <Field>
+                <FieldLabel>Local time</FieldLabel>
                 <Input
                   type="time"
                   value={form.localTime}
                   onChange={(event) => set("localTime", event.target.value)}
                 />
-              </label>
+              </Field>
             </div>
-            <div className="flex flex-col gap-1.5">
-              <span id={`${id}-zone`} className="text-ui text-ink">
-                Timezone
-              </span>
+            <Field>
+              <FieldLabel>Timezone</FieldLabel>
               <Select
                 value={zone}
-                onValueChange={(value) => value && setZone(value)}
+                onValueChange={(value) => {
+                  if (!value) return
+                  setTouched(true)
+                  setZone(value)
+                }}
               >
-                <SelectTrigger
-                  className="w-full"
-                  aria-labelledby={`${id}-zone`}
-                >
+                <SelectTrigger className="w-full">
                   <SelectValue>
                     {(value: string | null) =>
                       value ? timezoneLabel(value) : ""
@@ -355,13 +385,14 @@ export function SchedulePostSheet({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
             {slot?.kind === "ambiguous" ? (
               <div className="flex flex-col gap-1.5">
                 <span id={`${id}-offset`} className="text-ui text-ink">
                   Which {form.localTime}
                 </span>
                 <SegmentedControl
+                  semantics="radio"
                   value={offsetMinutes === null ? "" : String(offsetMinutes)}
                   onValueChange={(value) =>
                     set("offsetMinutes", value === "" ? null : Number(value))
@@ -403,10 +434,11 @@ export function SchedulePostSheet({
               </fieldset>
             ) : null}
             {form.frequency === "monthly" ? (
-              <label className="flex max-w-40 flex-col gap-1.5 text-ui text-ink">
-                Day of the month
+              <Field className="max-w-40">
+                <FieldLabel>Day of the month</FieldLabel>
                 <Input
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={31}
                   value={form.dayOfMonth}
@@ -414,12 +446,13 @@ export function SchedulePostSheet({
                     set("dayOfMonth", Number(event.target.value))
                   }
                 />
-              </label>
+              </Field>
             ) : null}
             {form.frequency !== "once" ? (
               <fieldset className="flex flex-col gap-2">
                 <legend className="text-ui text-ink">Ends</legend>
                 <SegmentedControl
+                  semantics="radio"
                   value={form.endType}
                   onValueChange={(value) =>
                     set("endType", value as "count" | "date")
@@ -434,10 +467,11 @@ export function SchedulePostSheet({
                   </SegmentedControlItem>
                 </SegmentedControl>
                 {form.endType === "count" ? (
-                  <label className="flex max-w-40 flex-col gap-1.5 text-ui text-ink">
-                    Times
+                  <Field className="max-w-40">
+                    <FieldLabel>Times</FieldLabel>
                     <Input
                       type="number"
+                      inputMode="numeric"
                       min={1}
                       max={366}
                       value={form.count}
@@ -445,16 +479,16 @@ export function SchedulePostSheet({
                         set("count", Number(event.target.value))
                       }
                     />
-                  </label>
+                  </Field>
                 ) : (
-                  <label className="flex max-w-56 flex-col gap-1.5 text-ui text-ink">
-                    Last date
+                  <Field className="max-w-56">
+                    <FieldLabel>Last date</FieldLabel>
                     <Input
                       type="date"
                       value={form.endDate}
                       onChange={(event) => set("endDate", event.target.value)}
                     />
-                  </label>
+                  </Field>
                 )}
               </fieldset>
             ) : null}
@@ -468,10 +502,11 @@ export function SchedulePostSheet({
                   approver and frozen with the schedule.
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="flex flex-col gap-1.5 text-ui text-ink">
-                    Starts after (days)
+                  <Field>
+                    <FieldLabel>Starts after (days)</FieldLabel>
                     <Input
                       type="number"
+                      inputMode="numeric"
                       min={0}
                       max={365}
                       value={form.startDays}
@@ -479,11 +514,12 @@ export function SchedulePostSheet({
                         set("startDays", Number(event.target.value))
                       }
                     />
-                  </label>
-                  <label className="flex flex-col gap-1.5 text-ui text-ink">
-                    Ends after (days)
+                  </Field>
+                  <Field>
+                    <FieldLabel>Ends after (days)</FieldLabel>
                     <Input
                       type="number"
+                      inputMode="numeric"
                       min={0}
                       max={365}
                       value={form.endDays}
@@ -491,7 +527,7 @@ export function SchedulePostSheet({
                         set("endDays", Number(event.target.value))
                       }
                     />
-                  </label>
+                  </Field>
                 </div>
               </fieldset>
             ) : null}

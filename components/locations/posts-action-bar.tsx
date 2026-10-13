@@ -1,13 +1,17 @@
 "use client"
 
 import {
+  CalendarClock,
   ExternalLink,
+  MoreHorizontalIcon,
+  PencilIcon,
   RefreshCwIcon,
   Trash2Icon,
+  UndoIcon,
   UploadIcon,
 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useRef, useState } from "react"
 
 import {
   AlertDialog,
@@ -26,7 +30,15 @@ import {
   unconfirmedReceiptId,
 } from "@/components/locations/operation-outcome"
 import { PostPreview } from "@/components/locations/posts/post-preview"
+import { SchedulePostSheet } from "@/components/locations/posts/schedule-post-sheet"
 import { Button, buttonVariants } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   decidePostApproval,
   deletePost,
@@ -97,9 +109,18 @@ function checkOutcomeTitle(state: PostsState, postId: string) {
   return "Google’s copy of this post is still unclear."
 }
 
+/**
+ * A post's actions: ONE visible action — the next step for the post as it
+ * stands (Publish / Request approval / Retry, Approve, Check Google, or View
+ * on Google) — and everything else in a "More actions" menu (an action sheet
+ * on a phone): Edit, Schedule, Reject, then Delete last, which still asks
+ * first. Every action keeps its gate, and a disabled one says why in words:
+ * under the visible action, and on the menu row itself.
+ */
 export function PostsActionBar({
   locationId,
   post,
+  label,
   caps,
   writesEnabled,
   timezone = DEFAULT_TIMEZONE,
@@ -107,6 +128,8 @@ export function PostsActionBar({
 }: {
   locationId: string
   post: Post
+  /** How the menu names the post ("More actions for Quiz night"). */
+  label?: string
   caps: LocationCapabilities | undefined
   writesEnabled: boolean
   /** The listing's IANA timezone, for when a repeat ends. */
@@ -116,13 +139,25 @@ export function PostsActionBar({
    * "Publish now" beside Schedule, and a post with a one-time schedule
    * (`scheduledFor`, its description) says that publishing now replaces it.
    */
-  scheduling?: { scheduledFor: string | null }
+  scheduling?: {
+    scheduledFor: string | null
+    /**
+     * Offer "Schedule publication" for this post (the list decides: a
+     * schedulable post with no schedule, and an editor's role).
+     */
+    canSchedule?: boolean
+    /** caps.postSchedulingRecurring: repeating schedules may be offered. */
+    recurring?: boolean
+  }
 }) {
   const queryClient = useQueryClient()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [publishOpen, setPublishOpen] = useState(false)
   // Approving publishes, so the approver sees exactly what goes to Google.
   const [approveOpen, setApproveOpen] = useState(false)
+  const composer = useRef<{ open: () => void }>(null)
+  const scheduler = useRef<{ open: () => void }>(null)
+  const name = label || post.summary.slice(0, 60) || "this post"
   const invalidate = [queryKeys.locationPosts(locationId)]
 
   const publish = useResourceMutation({
@@ -217,23 +252,31 @@ export function PostsActionBar({
 
   const previewNode = (
     <PostPreview
-            topicType={preview.topicType}
-            summary={preview.summary}
-            eventTitle={preview.eventTitle}
-            schedule={
-              preview.topicType !== "STANDARD" &&
-              preview.startDate &&
-              preview.endDate
-                ? preview
-                : null
-            }
-            actionLabel={
-              preview.action ? POST_ACTION_LABEL[preview.action] : ""
-            }
-            recurrence={postRecurrence(post.event, timezone)}
+      topicType={preview.topicType}
+      summary={preview.summary}
+      eventTitle={preview.eventTitle}
+      schedule={
+        preview.topicType !== "STANDARD" && preview.startDate && preview.endDate
+          ? preview
+          : null
+      }
+      actionLabel={preview.action ? POST_ACTION_LABEL[preview.action] : ""}
+      recurrence={postRecurrence(post.event, timezone)}
       imageUrl={postImageUrl(post)}
-          />
+    />
   )
+  const publishLabel = offerRequestApproval
+    ? "Request approval"
+    : post.status === "failed"
+      ? "Retry publish"
+      : scheduling
+        ? "Publish now"
+        : "Publish"
+  const canSchedule = Boolean(scheduling?.canSchedule)
+  const awaiting = post.status === "awaiting_approval"
+  // The visible action's reason, in words beside it.
+  const shownReason = editable ? primaryReason : awaiting ? approveReason : null
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {editable ? (
@@ -252,24 +295,8 @@ export function PostsActionBar({
           {post.status === "failed" && !offerRequestApproval ? (
             <RefreshCwIcon aria-hidden />
           ) : null}
-          {offerRequestApproval
-            ? "Request approval"
-            : post.status === "failed"
-              ? "Retry publish"
-              : scheduling
-                ? "Publish now"
-                : "Publish"}
+          {publishLabel}
         </Button>
-      ) : null}
-      {editable ? (
-        // Editing a draft touches NabaPresence only, so the pause switch
-        // that blocks Google writes doesn't block it; the edit grant does.
-        <PostComposerSheet
-          locationId={locationId}
-          disabledReason={editReason}
-          post={post}
-          timezone={timezone}
-        />
       ) : null}
       {post.status === "ambiguous" ? (
         // Never Publish from 'ambiguous': the post's Google name is unknown,
@@ -285,27 +312,16 @@ export function PostsActionBar({
           Check Google
         </Button>
       ) : null}
-      {post.status === "awaiting_approval" ? (
-        <>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setApproveOpen(true)}
-            disabled={Boolean(approveReason) || decide.isPending}
-            pending={decide.isPending && decide.variables === "approve"}
-          >
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => decide.mutate("reject")}
-            disabled={Boolean(rejectReason) || decide.isPending}
-            pending={decide.isPending && decide.variables === "reject"}
-          >
-            Reject
-          </Button>
-        </>
+      {awaiting ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setApproveOpen(true)}
+          disabled={Boolean(approveReason) || decide.isPending}
+          pending={decide.isPending && decide.variables === "approve"}
+        >
+          Approve
+        </Button>
       ) : null}
       {post.status === "published" && post.googleSearchUrl ? (
         <a
@@ -318,16 +334,89 @@ export function PostsActionBar({
           <ExternalLink aria-hidden />
         </a>
       ) : null}
-      <Button
-        size="sm"
-        variant="ghost"
-        className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
-        onClick={() => setDeleteOpen(true)}
-        disabled={Boolean(deleteReason) || remove.isPending}
-      >
-        <Trash2Icon aria-hidden />
-        Delete
-      </Button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`More actions for ${name}`}
+            />
+          }
+        >
+          <MoreHorizontalIcon aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          title={name}
+          className="max-w-xs"
+        >
+          {editable ? (
+            // Editing a draft touches NabaPresence only, so the pause switch
+            // that blocks Google writes doesn't block it; the edit grant does.
+            <DropdownMenuItem
+              disabledReason={editReason ?? undefined}
+              onClick={() => composer.current?.open()}
+            >
+              <PencilIcon aria-hidden />
+              Edit
+            </DropdownMenuItem>
+          ) : null}
+          {canSchedule ? (
+            <DropdownMenuItem onClick={() => scheduler.current?.open()}>
+              <CalendarClock aria-hidden />
+              Schedule publication
+            </DropdownMenuItem>
+          ) : null}
+          {awaiting ? (
+            <DropdownMenuItem
+              disabledReason={
+                rejectReason ??
+                (decide.isPending ? "Deciding…" : null) ??
+                undefined
+              }
+              onClick={() => decide.mutate("reject")}
+            >
+              <UndoIcon aria-hidden />
+              Reject
+            </DropdownMenuItem>
+          ) : null}
+          {editable || canSchedule || awaiting ? (
+            <DropdownMenuSeparator />
+          ) : null}
+          <DropdownMenuItem
+            variant="destructive"
+            disabledReason={
+              deleteReason ??
+              (remove.isPending ? "Deleting…" : null) ??
+              undefined
+            }
+            onClick={() => setDeleteOpen(true)}
+          >
+            <Trash2Icon aria-hidden />
+            {live ? "Delete from Google" : "Delete"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {editable ? (
+        <PostComposerSheet
+          locationId={locationId}
+          disabledReason={editReason}
+          post={post}
+          timezone={timezone}
+          openRef={composer}
+        />
+      ) : null}
+      {canSchedule ? (
+        <SchedulePostSheet
+          locationId={locationId}
+          post={post}
+          timezone={timezone}
+          recurring={scheduling?.recurring === true}
+          openRef={scheduler}
+        />
+      ) : null}
       {receiptId ? (
         <OperationReceiptNotice
           className="w-full"
@@ -340,10 +429,9 @@ export function PostsActionBar({
           }}
         />
       ) : null}
-      {primaryReason &&
-      (post.status === "draft" || post.status === "failed") ? (
+      {shownReason ? (
         <span className="w-full text-caption text-ink-muted">
-          {primaryReason}
+          {shownReason}
         </span>
       ) : null}
       <AlertDialog
@@ -389,13 +477,20 @@ export function PostsActionBar({
         <AlertDialogContent>
           <AlertDialogTitle>Approve and publish this post?</AlertDialogTitle>
           <AlertDialogDescription>
-            Approving sends exactly this post to Google. Customers see it once Google accepts it.
+            Approving sends exactly this post to Google. Customers see it once
+            Google accepts it.
           </AlertDialogDescription>
           {previewNode}
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="ghost">Not yet</Button>} />
+            <AlertDialogClose
+              render={<Button variant="ghost">Not yet</Button>}
+            />
             <Button
-              onClick={() => decide.mutate("approve", { onSettled: () => setApproveOpen(false) })}
+              onClick={() =>
+                decide.mutate("approve", {
+                  onSettled: () => setApproveOpen(false),
+                })
+              }
               pending={decide.isPending && decide.variables === "approve"}
               pendingLabel="Publishing…"
             >

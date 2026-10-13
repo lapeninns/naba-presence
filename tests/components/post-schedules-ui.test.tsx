@@ -201,34 +201,60 @@ describe("Posts tab scheduling (P08-R5)", () => {
     expect(screen.getAllByRole("button", { name: "Publish now" })).toHaveLength(
       2
     )
-    expect(
-      screen.getByRole("button", {
-        name: "Schedule publication: Sunday roast is back",
-      })
-    ).toBeInTheDocument()
+    // Scheduling is in each post's "More actions" menu.
+    const user = userEvent.setup()
+    const scheduleOffered = async (name: string) => {
+      await user.click(
+        screen.getByRole("button", { name: `More actions for ${name}` })
+      )
+      const menu = await screen.findByRole("menu")
+      const offered =
+        within(menu).queryByRole("menuitem", {
+          name: "Schedule publication",
+        }) !== null
+      await user.keyboard("{Escape}")
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull())
+      return offered
+    }
+    expect(await scheduleOffered("Sunday roast is back")).toBe(true)
     // A published post cannot be scheduled.
-    expect(
-      screen.queryByRole("button", {
-        name: "Schedule publication: Already live",
-      })
-    ).toBeNull()
+    expect(await scheduleOffered("Already live")).toBe(false)
     // The scheduled post says so and is changed from its schedule instead.
     expect(
       await screen.findByText(
         /Scheduled publication active: 2026-10-20 at 09:00 \(Europe\/London, UTC\+01:00\)/
       )
     ).toBeInTheDocument()
-    expect(
-      screen.queryByRole("button", { name: "Schedule publication: Quiz night" })
-    ).toBeNull()
+    expect(await scheduleOffered("Quiz night")).toBe(false)
 
     // Publishing it by hand says the scheduled publication will not run.
-    const user = userEvent.setup()
     const card = screen.getByText("Quiz night").closest("li") as HTMLElement
     await user.click(within(card).getByRole("button", { name: "Publish now" }))
     expect(
       await screen.findByText(/This post is also scheduled/)
     ).toBeInTheDocument()
+  })
+
+  it("switches the schedule sheet to a daily repeat with a Starting date, a time and a count", async () => {
+    renderTab([post()], { postScheduling: true, postSchedulingRecurring: true })
+    const user = userEvent.setup()
+    await user.click(
+      screen.getByRole("button", { name: "More actions for Sunday roast is back" })
+    )
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Schedule publication" })
+    )
+    const sheet = await screen.findByRole("dialog", {
+      name: "Schedule publication",
+    })
+    await user.click(within(sheet).getByRole("radio", { name: "Daily" }))
+    expect(within(sheet).getByRole("radio", { name: "Daily" })).toBeChecked()
+    const starting = within(sheet).getByLabelText("Starting")
+    await user.clear(starting)
+    await user.type(starting, "2026-10-24")
+    expect(starting).toHaveValue("2026-10-24")
+    expect(within(sheet).getByLabelText("Local time")).toBeInTheDocument()
+    expect(within(sheet).getByLabelText("Times")).toBeInTheDocument()
   })
 
   it("shows a missed slot as missed, with a new time instead of resume or retry", async () => {

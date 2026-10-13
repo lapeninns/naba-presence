@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
 
+import { LISTING_HEALTH, listingHealthLabel } from "@/lib/listings/health"
+
 import { readJourneyState } from "./helpers/stub-bridge"
 
 // Several authenticated surfaces below are gated server-side by the REAL
@@ -605,15 +607,34 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
         // The board's table is responsive (components/ui/table.tsx): below
-        // 720px of container width the header row hides and each cell is
-        // labelled with its column name instead.
+        // 720px of container width the header row hides and each listing
+        // becomes a compact record card led by its name (no per-cell
+        // labels: the name, health pill and waiting count speak for
+        // themselves).
+        const header = page.getByRole("columnheader", {
+          name: "Listing",
+          exact: true,
+        })
         if (viewport.name === "desktop") {
-          await expect(
-            page.getByRole("columnheader", { name: "Listing", exact: true })
-          ).toBeVisible()
+          await expect(header).toBeVisible()
         } else {
+          await expect(header).toBeHidden()
+          // A card per listing, identified by it: the row holding the
+          // journey listing carries its name as the link and its health as
+          // a word (one of the board's labels), not as colour alone.
+          const card = page
+            .locator("tbody > tr")
+            .filter({ hasText: state.directReview.locationName })
+          await expect(card).toHaveCount(1)
           await expect(
-            page.locator('td[data-label="Listing"]').first()
+            card.getByRole("link", { name: state.directReview.locationName })
+          ).toBeVisible()
+          await expect(
+            card.getByText(
+              new RegExp(
+                `^(${LISTING_HEALTH.map(listingHealthLabel).join("|")})$`
+              )
+            )
           ).toBeVisible()
         }
         await expect(
