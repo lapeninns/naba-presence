@@ -44,7 +44,7 @@ export function ReviewedWriteSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" size="wide" className="flex flex-col gap-0">
         <SheetHeader>
-          <SheetTitle className="text-title">{title}</SheetTitle>
+          <SheetTitle>{title}</SheetTitle>
           {description ? <SheetDescription>{description}</SheetDescription> : null}
           {stage ? (
             <ReviewedWriteSteps
