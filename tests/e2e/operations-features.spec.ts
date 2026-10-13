@@ -604,8 +604,10 @@ for (const width of [375, 768, 1280])
         page.getByText(/Data through .*Google’s daily dates/)
       ).toBeVisible()
       await expect(
+        // The visible "Download totals CSV" starts the accessible name
+        // (WCAG 2.5.3, label in name); the subject follows it.
         page.getByRole("button", {
-          name: "Download Google profile totals as CSV",
+          name: "Download totals CSV of the Google profile",
         })
       ).toBeVisible()
       await capture(page, info, "reports-provenance")
