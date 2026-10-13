@@ -44,7 +44,10 @@ export function suggestionCount(summary: ListingSummary | undefined): number {
  * Canonical areas never compared with Google ("unknown"), by name. While any
  * remain, "matches what customers see" is a claim nothing backs.
  */
-export function uncheckedAreas(summary: ListingSummary): string[] {
+export function uncheckedAreas(
+  summary: ListingSummary,
+  now?: number
+): string[] {
   return [
     { name: "business profile", area: summary.profile },
     { name: "opening hours", area: summary.hours },
@@ -52,11 +55,15 @@ export function uncheckedAreas(summary: ListingSummary): string[] {
       ? []
       : [{ name: "food menu", area: summary.menu }]),
   ]
-    .filter(({ area }) => comparisonCheck(area) !== "checked")
+    .filter(({ area }) => comparisonCheck(area, now) !== "checked")
     .map(({ name }) => name)
 }
 
-function syncedState(area: SyncedArea, unreachable = false): AreaState {
+function syncedState(
+  area: SyncedArea,
+  unreachable = false,
+  now?: number
+): AreaState {
   const dirty = area.status === "core_dirty" || area.status === "conflict"
   // With Google out of reach, only what is known locally can be said: edits
   // saved here are still not on Google, but "in sync", "changed on Google"
@@ -69,7 +76,7 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
         ? { line: "Last compared with Google", since: area.observedAt }
         : { line: "Not compared with Google yet" }),
     }
-  const check = comparisonCheck(area)
+  const check = comparisonCheck(area, now)
   if (!dirty && check !== "checked")
     return {
       tone: check === "failed" ? "attention" : "neutral",
@@ -114,15 +121,20 @@ function plural(count: number, one: string, many: string): string {
   return count === 1 ? one : many.replace("#", formatNumber(count))
 }
 
+/**
+ * `now` decides whether a comparison is overdue (an hour old). Pass `useNow()`
+ * from a component so the server and the hydrating browser agree.
+ */
 export function areaState(
   key: ListingAreaKey,
-  summary: ListingSummary
+  summary: ListingSummary,
+  now?: number
 ): AreaState {
   switch (key) {
     case "profile":
-      return syncedState(summary.profile, googleUnreachable(summary))
+      return syncedState(summary.profile, googleUnreachable(summary), now)
     case "hours":
-      return syncedState(summary.hours, googleUnreachable(summary))
+      return syncedState(summary.hours, googleUnreachable(summary), now)
     case "menu":
       if (summary.menu.eligible === false)
         return {
@@ -130,7 +142,7 @@ export function areaState(
           label: "Not offered",
           line: "Google does not show a menu for this kind of business",
         }
-      return syncedState(summary.menu, googleUnreachable(summary))
+      return syncedState(summary.menu, googleUnreachable(summary), now)
     case "booking":
       return {
         tone: "neutral",
@@ -242,7 +254,8 @@ export function areaState(
 /** Convenience for callers that hold the registry entry. */
 export function areaStateFor(
   area: ListingArea,
-  summary: ListingSummary
+  summary: ListingSummary,
+  now?: number
 ): AreaState {
-  return areaState(area.key, summary)
+  return areaState(area.key, summary, now)
 }

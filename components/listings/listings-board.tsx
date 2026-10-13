@@ -58,6 +58,7 @@ import {
   type DirectoryEntry,
 } from "@/lib/queries/use-locations"
 import { cn } from "@/lib/utils"
+import { useNow } from "@/lib/time/server-now"
 
 const HEALTH_FILTERS = [
   { value: "all", label: "All" },
@@ -391,6 +392,7 @@ function ListingsBoard({
   /** The organisation's `bulk_actions` feature; off hides bulk selection. */
   bulkEnabled?: boolean
 }) {
+  const now = useNow()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -527,6 +529,7 @@ function ListingsBoard({
         linked: entry.linked,
         verified: entry.verified ?? summary?.verified,
         summary,
+        now,
       }),
       clientId: entry.clientId ?? UNFILED,
       clientName: entry.clientName ?? "Not filed under a client",

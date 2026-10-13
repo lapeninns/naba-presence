@@ -1,4 +1,6 @@
-import { dehydrate, HydrationBoundary } from "@tanstack/react-query"
+import { dehydrate } from "@tanstack/react-query"
+
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 
@@ -42,10 +44,7 @@ export default async function DashboardLayout({
     redirect(signInPathFor(requested))
   }
 
-  redirectOutOfClientScope(
-    session,
-    (await headers()).get(REQUEST_PATH_HEADER)
-  )
+  redirectOutOfClientScope(session, (await headers()).get(REQUEST_PATH_HEADER))
 
   const queryClient = makeQueryClient()
   // The client the operator last worked (lib/clients/scope.ts). Read here so
@@ -95,7 +94,9 @@ export default async function DashboardLayout({
     // Failed optional prefetches leave their cache empty so the client can
     // show its error/retry state. Authentication above remains mandatory.
     if (connections.status === "fulfilled") {
-      queryClient.setQueryData(queryKeys.connections, { connections: connections.value })
+      queryClient.setQueryData(queryKeys.connections, {
+        connections: connections.value,
+      })
     }
 
     // Hydrating the session is what makes the directory hydration below
@@ -134,7 +135,9 @@ export default async function DashboardLayout({
         management ? queryKeys.locationsManagement : queryKeys.locations,
         management
           ? toDirectoryEntriesFromManagement(projectManagement(rows.value))
-          : toDirectoryEntriesFromDefault(projectDefault(rows.value, session.role))
+          : toDirectoryEntriesFromDefault(
+              projectDefault(rows.value, session.role)
+            )
       )
     }
   }

@@ -33,6 +33,7 @@ import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { useNow } from "@/lib/time/server-now"
 
 /**
  * The notes that decide what to do before anything else: a listing with no
@@ -181,6 +182,7 @@ function ListingOverview({
   locationId: string
   role: string | null
 }) {
+  const now = useNow()
   const canManageConsoles = role === "owner" || role === "admin"
   const summary = useListingSummary(locationId)
   const caps = useLocationCapabilities(locationId)
@@ -192,6 +194,7 @@ function ListingOverview({
           linked: entry.linked,
           verified: entry.verified ?? summary.data?.verified,
           summary: summary.data,
+          now,
         })
         const address = formatAddressLine(entry.address)
         const summaryFailed = summary.isError && !summary.data
