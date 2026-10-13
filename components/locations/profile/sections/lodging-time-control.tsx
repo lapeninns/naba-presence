@@ -103,6 +103,7 @@ export function LodgingTimeControl({
           type="button"
           size="sm"
           variant="ghost"
+          className="self-start"
           disabled={disabled}
           onClick={() => onChange(original)}
         >

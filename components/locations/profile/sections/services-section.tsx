@@ -2,7 +2,9 @@
 
 import { useEffect, useImperativeHandle, type Ref } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { PlusIcon } from "lucide-react"
 import { SectionCard } from "../section-card"
+import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
@@ -16,6 +18,7 @@ import {
 } from "@/components/ui/select"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { ServiceApprovalSheet } from "./service-approval-sheet"
+import { HandoffNote, InlineError, RowList } from "./setting-rows"
 import { useServiceReview } from "./use-service-review"
 import { useServiceWorkspace } from "./service-workspace"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
@@ -66,10 +69,10 @@ export function ServicesSection({
   if (!parsed.success)
     return (
       <SectionCard id="section-services" title="Services">
-        <p className="text-ui text-ink-muted">
+        <HandoffNote>
           Google returned service details this editor cannot preserve. Manage
           these services in Google.
-        </p>
+        </HandoffNote>
       </SectionCard>
     )
   return (
@@ -193,12 +196,18 @@ function ServiceEditor({
         </p>
       ) : null}
       {metadata.error ? (
-        <div role="alert">
-          <p>{metadata.error.message}</p>
-          <Button variant="outline" onClick={() => void metadata.refetch()}>
-            Retry service choices
-          </Button>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{metadata.error.message}</AlertDescription>
+          <AlertActions>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void metadata.refetch()}
+            >
+              Retry service choices
+            </Button>
+          </AlertActions>
+        </Alert>
       ) : null}
       <Fieldset
         disabled={disabled || pending || workflow.unresolved}
@@ -208,17 +217,20 @@ function ServiceEditor({
         {draft.draft.length === 0 ? (
           <p className="text-ui text-ink-muted">No services added.</p>
         ) : null}
+        {draft.draft.length > 0 ? (
+        <RowList>
         {draft.draft.map((row, index) => (
-          <div
+          <li
             key={index}
-            className="flex min-w-0 flex-col gap-3 border-b border-line pb-4"
+            className="flex min-w-0 flex-col gap-3 py-4"
           >
-            <div className="flex items-center justify-between gap-3">
-              <h4 className="text-body font-semibold">
+            <div className="flex min-h-(--np-control-h) items-center justify-between gap-3">
+              <h4 className="min-w-0 text-body font-semibold break-words text-ink">
                 {label(row.item) || `Service ${index + 1}`}
               </h4>
               <Button
                 variant="ghost"
+                size="sm"
                 onClick={() =>
                   draft.setDraft((rows) =>
                     rows.filter((_, position) => position !== index)
@@ -283,6 +295,8 @@ function ServiceEditor({
             </Field>
             <Button
               variant="ghost"
+              size="sm"
+              className="-mt-2 self-start"
               onClick={() =>
                 update(index, (current) => ({
                   ...current,
@@ -352,6 +366,8 @@ function ServiceEditor({
             </div>
             <Button
               variant="ghost"
+              size="sm"
+              className="-mt-2 self-start"
               onClick={() =>
                 update(index, (current) => ({
                   ...current,
@@ -361,8 +377,10 @@ function ServiceEditor({
             >
               Clear price
             </Button>
-          </div>
+          </li>
         ))}
+        </RowList>
+        ) : null}
         <Field>
           <FieldLabel htmlFor="add-structured-service">
             Add a suggested service
@@ -396,6 +414,8 @@ function ServiceEditor({
             </SelectContent>
           </Select>
         </Field>
+        {categories.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
         {categories.map((category) => (
           <Button
             key={category.name}
@@ -419,17 +439,23 @@ function ServiceEditor({
               ])
             }
           >
+            <PlusIcon aria-hidden />
             Add custom service for {category.displayName ?? category.name}
           </Button>
         ))}
+        </div>
+        ) : null}
       </Fieldset>
-      {!built.success ? (
-        <p role="alert" className="text-ui text-danger-ink">
-          {built.message}
-        </p>
+      {!built.success ? <InlineError>{built.message}</InlineError> : null}
+      {workflow.error ? <InlineError>{workflow.error}</InlineError> : null}
+      {workflow.unresolved ? (
+        <Alert variant="warning">
+          <AlertDescription>
+            Read the saved service outcome before another change.
+          </AlertDescription>
+        </Alert>
       ) : null}
-      {workflow.error ? <p role="alert">{workflow.error}</p> : null}
-      {workflow.unresolved ? <p role="status">Read the saved service outcome before another change.</p> : null}
+      <div className="flex flex-wrap gap-2">
       <Button
         disabled={
           disabled ||
@@ -443,11 +469,6 @@ function ServiceEditor({
       >
         Review service changes
       </Button>
-      {saved.error ? (
-        <p role="alert">
-          Saved reviews could not be loaded. {saved.error.message}
-        </p>
-      ) : null}
       {(saved.data ?? [])
         .filter(
           (change) =>
@@ -464,6 +485,12 @@ function ServiceEditor({
             Open saved service review
           </Button>
         ))}
+      </div>
+      {saved.error ? (
+        <InlineError>
+          Saved reviews could not be loaded. {saved.error.message}
+        </InlineError>
+      ) : null}
       {review && !workspace ? (
         <ServiceApprovalSheet
           workflow={workflow}

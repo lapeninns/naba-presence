@@ -9,6 +9,7 @@ import { unsupportedRelationshipBaseline } from "@/lib/domain/google-relationshi
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
 import { useBusinessInformationMetadata } from "@/lib/queries/use-location-business-information"
 import { SectionCard } from "../section-card"
+import { HandoffNote, InlineError, ItemRow, RowList } from "./setting-rows"
 
 export function ChainSection({ locationId, location, draft, setDraft, disabled, changed, error }: {
   locationId: string
@@ -36,10 +37,10 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
     else setSearched(query.trim())
   }
   return <SectionCard id="section-chain" model="google" title="Chain affiliation" description="Associate this location with a chain recognised by Google." changed={changed}>
-    {unsupported ? <p role="status" className="text-ui text-ink-muted">The existing chain affiliation cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage it in Google</a>, then refresh.</p> : <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0"><p className="text-ui font-medium">{selectedName ?? (current ? "Selected chain" : "No chain affiliation in this draft")}</p>{current && <p className="text-caption font-mono text-ink-muted break-all">{current}</p>}</div>
-      {current && <Button type="button" variant="outline" disabled={blocked} onClick={() => choose("")}>Remove affiliation</Button>}
-    </div>}
+    {unsupported ? <HandoffNote>The existing chain affiliation cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage it in Google</a>, then refresh.</HandoffNote> : <RowList>
+      <ItemRow title={selectedName ?? (current ? "Selected chain" : "No chain affiliation in this draft")} detail={current || undefined}
+        trailing={current ? <Button type="button" variant="ghost" disabled={blocked} onClick={() => choose("")}>Remove affiliation</Button> : undefined} />
+    </RowList>}
     <Field error={error}>
       <FieldLabel htmlFor="profile-chain-search">Search Google chains</FieldLabel>
       <div className="flex items-center gap-3">
@@ -53,14 +54,12 @@ export function ChainSection({ locationId, location, draft, setDraft, disabled, 
       <FieldDescription>Choose the exact chain from Google&apos;s results. Search results do not confirm this location&apos;s affiliation; review and publish to request the change.</FieldDescription>
       <FieldError />
     </Field>
-    {searched && <div className="flex flex-col gap-3" aria-label="Chain search results">
+    {searched && <div className="flex flex-col gap-2" aria-label="Chain search results">
       {search.isFetching ? <p role="status" className="text-ui text-ink-muted">Searching Google chains...</p>
-        : search.isError || (search.data && choices === null) ? <p role="alert" className="text-ui text-danger-ink">Chain results could not be loaded. Search again to retry.</p>
+        : search.isError || (search.data && choices === null) ? <InlineError>Chain results could not be loaded. Search again to retry.</InlineError>
         : choices?.length === 0 ? <p role="status" className="text-ui text-ink-muted">No chains found for {searched}. Try another name.</p>
-        : choices?.map((choice) => <div key={choice.name} className="flex items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
-          <div className="min-w-0"><p className="text-ui font-medium break-words">{choice.label}</p><p className="text-caption font-mono text-ink-muted break-all">{choice.name}</p></div>
-          <Button type="button" variant="outline" disabled={blocked || current === choice.name} aria-label={`Select ${choice.label}`} onClick={() => choose(choice.name)}>{current === choice.name ? "Selected" : "Select"}</Button>
-        </div>)}
+        : choices?.length ? <RowList>{choices.map((choice) => <ItemRow key={choice.name} title={choice.label} detail={choice.name}
+          trailing={<Button type="button" variant="outline" disabled={blocked || current === choice.name} aria-label={`Select ${choice.label}`} onClick={() => choose(choice.name)}>{current === choice.name ? "Selected" : "Select"}</Button>} />)}</RowList> : null}
     </div>}
   </SectionCard>
 }
