@@ -81,9 +81,12 @@ function MoreSheet({
       >
         <SheetHeader className="pb-1">
           <SheetTitle>More</SheetTitle>
+          {/* A business has no clients in its words (business-mode spec:
+              never "client" or "agency"). */}
           <SheetDescription className="sr-only">
-            Search, the client you are working on, the rest of NabaPresence and
-            your account.
+            {context.mode === "business"
+              ? "Search, the rest of NabaPresence and your account."
+              : "Search, the client you are working on, the rest of NabaPresence and your account."}
           </SheetDescription>
         </SheetHeader>
         <SheetBody className="gap-3 pb-[calc(--spacing(5)+var(--np-safe-bottom))]">
