@@ -21,6 +21,71 @@ async function applyCookie(
   await page.context().addCookies([{ name, value, url: baseURL! }])
 }
 
+/**
+ * Wait for the screen to stop moving before any geometry, cover or hit
+ * assertion. The phone's chrome animates: a docked bar slides up on mount
+ * (`starting:translate-y-full`), a sheet rises, the tab bar steps aside, the
+ * keyboard inset is written a frame after the viewport changes. Settled
+ * means, at once: no finite animation or transition running in the document
+ * (an endless spinner or skeleton pulse is not movement of the chrome), and
+ * the rects of the chrome (docked bars, sheets, the tab bar, the focused
+ * element) plus the measured elements and the visual viewport identical
+ * across two requestAnimationFrame frames. It only waits; every assertion
+ * after it is unchanged.
+ */
+async function settle(page: Page, ...measured: Locator[]) {
+  await expect
+    .poll(
+      async () => {
+        const handles = (
+          await Promise.all(measured.map((locator) => locator.elementHandles()))
+        ).flat()
+        return page.evaluate(async (elements) => {
+          const frame = () =>
+            new Promise((resolve) => requestAnimationFrame(resolve))
+          const watched = [
+            ...document.querySelectorAll(
+              "[data-docked], [data-slot=tab-bar], [data-slot=setup-footer], [data-slot=composer-footer], [role=dialog], [role=alertdialog]"
+            ),
+            ...(document.activeElement ? [document.activeElement] : []),
+            ...(elements as Element[]),
+          ]
+          const snapshot = () =>
+            JSON.stringify([
+              ...watched.map((element) => {
+                const rect = element.getBoundingClientRect()
+                return [rect.x, rect.y, rect.width, rect.height]
+              }),
+              [
+                window.visualViewport?.height,
+                window.visualViewport?.offsetTop,
+                window.innerHeight,
+                window.innerWidth,
+              ],
+            ])
+          const moving = () =>
+            document
+              .getAnimations()
+              .filter(
+                (animation) =>
+                  animation.playState === "running" &&
+                  Number.isFinite(
+                    animation.effect?.getComputedTiming().endTime ?? Infinity
+                  )
+              ).length
+          const first = snapshot()
+          await frame()
+          const second = snapshot()
+          await frame()
+          const third = snapshot()
+          return moving() === 0 && first === second && second === third
+        }, handles)
+      },
+      { message: "the screen settles", timeout: 5_000 }
+    )
+    .toBe(true)
+}
+
 /** The project floor for anything a finger presses (spec: touch targets). */
 const TARGET_FLOOR = 44
 
@@ -35,6 +100,7 @@ const TARGET_FLOOR = 44
  */
 async function tap(control: Locator) {
   await control.scrollIntoViewIfNeeded()
+  await settle(control.page(), control)
   const band = await control.evaluate((element) => {
     const label =
       element.closest("label") ??
@@ -64,19 +130,34 @@ async function tap(control: Locator) {
       return step
     }
     const centre = lands(cx, cy)
+    const labelledBy = element
+      .getAttribute("aria-labelledby")
+      ?.split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent?.trim() ?? "")
+      .join(" ")
+    const hit = document.elementFromPoint(cx, cy)
     return {
       centre,
       width: centre ? reach(-1, 0) + reach(1, 0) + 1 : 0,
       height: centre ? reach(0, -1) + reach(0, 1) + 1 : 0,
       name:
-        element.getAttribute("aria-label") ??
-        element.textContent?.trim().slice(0, 40) ??
+        element.getAttribute("aria-label") ||
+        labelledBy ||
+        label?.textContent?.trim().slice(0, 40) ||
+        element.textContent?.trim().slice(0, 40) ||
         element.tagName,
+      evidence: JSON.stringify({
+        control: element.outerHTML.slice(0, 300),
+        rect: [rect.left, rect.top, rect.width, rect.height],
+        hit: hit?.outerHTML.slice(0, 300) ?? null,
+        viewport: [window.innerWidth, window.innerHeight],
+      }),
     }
   })
-  expect(band.centre, `a tap on "${band.name}" lands on something else`).toBe(
-    true
-  )
+  expect(
+    band.centre,
+    `a tap on "${band.name}" lands on something else: ${band.evidence}`
+  ).toBe(true)
   expect(
     Math.min(band.width, band.height),
     `hit band of "${band.name}" is ${band.width}x${band.height}px`
@@ -129,6 +210,7 @@ async function openKeyboard(page: Page) {
     }
   }, KEYBOARD_HEIGHT)
   await expect(page.locator("html")).toHaveAttribute("data-keyboard", "open")
+  await settle(page)
 }
 
 /**
@@ -178,6 +260,7 @@ async function expectFocusClear(
   focused: string,
   when: string
 ) {
+  await settle(page)
   await expect
     .poll(() => focusCoverage(page, barSelector), {
       message: `the focused ${focused} is covered (px) ${when}`,
@@ -188,15 +271,40 @@ async function expectFocusClear(
 
 /** The element at a control's centre is the control: nothing lies over it. */
 async function expectNotCovered(control: Locator, what: string) {
-  const onTop = await control.evaluate((element) => {
+  await settle(control.page(), control)
+  const result = await control.evaluate((element) => {
     const rect = element.getBoundingClientRect()
     const hit = document.elementFromPoint(
       rect.left + rect.width / 2,
       rect.top + rect.height / 2
     )
-    return Boolean(hit && (hit === element || element.contains(hit)))
+    return {
+      onTop: Boolean(hit && (hit === element || element.contains(hit))),
+      evidence: JSON.stringify({
+        rect: [rect.left, rect.top, rect.width, rect.height],
+        hit: hit
+          ? {
+              html: hit.outerHTML.slice(0, 200),
+              slot: hit.closest("[data-slot]")?.getAttribute("data-slot"),
+              rect: (() => {
+                const box = hit.getBoundingClientRect()
+                return [box.left, box.top, box.width, box.height]
+              })(),
+            }
+          : null,
+        viewport: [
+          window.innerWidth,
+          window.innerHeight,
+          window.visualViewport?.height,
+          window.visualViewport?.offsetTop,
+        ],
+      }),
+    }
   })
-  expect(onTop, `${what} is covered by something drawn over it`).toBe(true)
+  expect(
+    result.onTop,
+    `${what} is covered by something drawn over it: ${result.evidence}`
+  ).toBe(true)
 }
 
 /** A finger dragging down from a point, as raw touch events. */
@@ -298,23 +406,8 @@ test.describe("touch: critical journeys at 390x844", () => {
 
     await tap(more)
     await expect(sheet).toBeVisible()
-    // Let the sheet finish rising before the finger lands on it: its top
-    // edge holds still across several frames (a transition that has not
-    // started yet reports no animations, so those are no signal).
-    await expect
-      .poll(
-        () =>
-          sheet.evaluate(async (element) => {
-            const tops: number[] = []
-            for (let frame = 0; frame < 6; frame++) {
-              tops.push(element.getBoundingClientRect().top)
-              await new Promise((resolve) => requestAnimationFrame(resolve))
-            }
-            return tops.every((top) => top === tops[0])
-          }),
-        { message: "the More sheet settles", timeout: 3_000 }
-      )
-      .toBe(true)
+    // Let the sheet finish rising before the finger lands on it.
+    await settle(page, sheet)
     await swipeDown(page, sheet.getByRole("heading", { name: "More" }))
     await expect(sheet).toBeHidden()
     await expect(more).toBeFocused()
@@ -416,6 +509,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     await openKeyboard(page)
     // The bar rides on the keyboard: its actions are above the keyboard's
     // edge, and the focused reply is above the bar.
+    await settle(page, bar)
     const publish = await bar
       .getByRole("button", { name: "Publish reply" })
       .boundingBox()
@@ -606,7 +700,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     ).toBeVisible()
     const bar = page.locator("[data-slot=setup-footer]")
     const next = bar.getByRole("button", { name: "Continue", exact: true })
-    // The docked bar slides up on mount; sample it once it has arrived.
+    await settle(page, next)
     await expect(next).toBeInViewport({ ratio: 1 })
     await expectNotCovered(next, "Continue")
 
@@ -643,6 +737,7 @@ test.describe("touch: critical journeys at 390x844", () => {
     await expect(reason).not.toBeEmpty()
     const back = bar.getByRole("button", { name: "Back", exact: true })
     const next = bar.getByRole("button", { name: /^Continue/ })
+    await settle(page, reason, back, next)
     const [reasonBox, nextBox] = [
       (await reason.boundingBox())!,
       (await next.boundingBox())!,
