@@ -363,11 +363,30 @@ describeDatabase("bulk photos and private assets", { timeout: 60_000 }, () => {
     await admin`
       update media_asset set staging_expires_at = now() - interval '1 minute'
       where id in ${admin([asset.id, ready.id])}`
-    const response = await fetch(`${server.baseUrl}/api/cron/retention`, {
-      method: "POST",
-      headers: CRON,
-    })
-    expect(response.status, await response.clone().text()).toBe(200)
+    // A hand-run page walk (an explicit cursor, empty for the head) covers
+    // the whole fleet now. The bare dispatcher works the day's cycle, which
+    // opens once per UTC day from 03:00 and then answers 200 with no cycle,
+    // so it would sweep nothing after an earlier run that day.
+    let own: Record<string, string | number> | undefined
+    let cursor: string | null = null
+    do {
+      const query = new URLSearchParams({ batch_size: "100" })
+      query.set("cursor", cursor ?? "")
+      const response = await fetch(
+        `${server.baseUrl}/api/cron/retention?${query}`,
+        { method: "POST", headers: CRON }
+      )
+      expect(response.status, await response.clone().text()).toBe(200)
+      const page = (await response.json()) as {
+        organisations: Array<Record<string, string | number>>
+        nextCursor: string | null
+      }
+      own ??= page.organisations.find(
+        (entry) => entry.organisationId === t.owner.organisationId
+      )
+      cursor = page.nextCursor
+    } while (cursor)
+    expect(own).toMatchObject({ stagingAssets: 2 })
     expect(storage.objects.has(staging)).toBe(false)
     expect(storage.objects.has(readyStaging)).toBe(false)
     const rows = await admin<{ id: string; status: string; purged: boolean }[]>`
