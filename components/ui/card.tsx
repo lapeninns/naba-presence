@@ -108,8 +108,10 @@ function Card({
       cn(
         "relative",
         // Controls inside a stretched-link card sit above the link's hit
-        // area, so they stay their own targets.
-        "[&_:is(a,button,input,select,textarea,label,[role=button]):not([data-slot=card-link])]:relative [&_:is(a,button,input,select,textarea,label,[role=button]):not([data-slot=card-link])]:z-raised"
+        // area, so they stay their own targets. Zero specificity (`:where`
+        // all the way): a control's own position wins, so an `absolute`
+        // corner button or an `sr-only` label is never forced `relative`.
+        "[:where(&)_:where(a:not([data-slot=card-link]),button,input,select,textarea,label,[role=button])]:relative [:where(&)_:where(a:not([data-slot=card-link]),button,input,select,textarea,label,[role=button])]:z-raised"
       ),
     className
   )
