@@ -156,6 +156,14 @@ function waitingCount(summary: ListingSummary): number {
   )
 }
 
+/** No summary, or nothing waiting and no failed publish. */
+function quietRow(summary: ListingSummary | undefined) {
+  if (!summary) return true
+  const failed =
+    summary.lastPublish?.status === "failed" || summary.posts.failed > 0
+  return !failed && waitingCount(summary) === 0
+}
+
 /** The phone row's one-line Waiting figure (the pills show from 720px). */
 function WaitingFigure({ summary }: { summary: ListingSummary | undefined }) {
   if (!summary) return <span className="text-ink-muted">—</span>
@@ -725,6 +733,12 @@ function ListingsBoard({
         <TableCell className="@max-[720px]/table:self-center">
           {summaries.isPending ? (
             <Skeleton className="h-5.5 w-32" />
+          ) : quietRow(row.summary) ? (
+            // One node at every width: a quiet row says so once, not once
+            // per layout (the phone figure and the pills would repeat it).
+            <span className="text-caption text-ink-muted @min-[720px]/table:text-ui">
+              {row.summary ? "Nothing waiting" : "—"}
+            </span>
           ) : (
             <>
               <span className={PHONE.wide}>
