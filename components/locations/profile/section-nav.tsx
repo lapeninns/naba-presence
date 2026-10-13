@@ -63,8 +63,9 @@ export function SectionNav({
   const [current, setCurrent] = useState<string | null>(null)
   // The section a chip just jumped to. A jump lands the section at its
   // scroll margin, which on a phone can sit below the scroll-spy line, so
-  // the spy would light the section above it. The chosen section stays
-  // current until the person scrolls or types themselves.
+  // the spy would light the section above it; and blocks loading above it
+  // would push it away. The chosen section stays current, and in place,
+  // until the person scrolls or types themselves.
   const pinned = useRef<string | null>(null)
   const wanted = entries.map((entry) => entry.id).join(" ")
 
@@ -89,11 +90,35 @@ export function SectionNav({
     const root =
       navRef.current?.closest(`[data-slot="${PROFILE_PAGE_SLOT}"]`) ??
       document.body
-    const observer = new MutationObserver(() => measure())
+    // A chip tapped while Google's sections are still loading jumps to its
+    // section, and then those sections arrive above it and push it off the
+    // screen. While the jump is pinned, keep the chosen section in place.
+    let anchorFrame = 0
+    const reanchor = () => {
+      if (!pinned.current) return
+      cancelAnimationFrame(anchorFrame)
+      anchorFrame = requestAnimationFrame(() => {
+        if (pinned.current)
+          document
+            .getElementById(pinned.current)
+            ?.scrollIntoView({ block: "start" })
+      })
+    }
+    const observer = new MutationObserver(() => {
+      measure()
+      reanchor()
+    })
     observer.observe(root, { childList: true, subtree: true })
+    const resize =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(reanchor)
+    resize?.observe(root)
     return () => {
       cancelAnimationFrame(frame)
+      cancelAnimationFrame(anchorFrame)
       observer.disconnect()
+      resize?.disconnect()
     }
   }, [measure])
 
@@ -120,7 +145,7 @@ export function SectionNav({
     const release = () => {
       pinned.current = null
     }
-    const events = ["wheel", "touchstart", "keydown"] as const
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const
     events.forEach((name) =>
       window.addEventListener(name, release, { passive: true })
     )
