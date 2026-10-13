@@ -55,8 +55,12 @@ function DraftNotices({ drafts, noun }: { drafts: DraftLike[]; noun: string }) {
             NabaPresence has saved.
           </AlertDescription>
           <AlertActions>
+            {/* Secondary, not the green primary: restoring is a local
+                step, and the accent is kept for the action that reaches
+                Google. */}
             <Button
               size="sm"
+              variant="secondary"
               onClick={() => stashed.forEach((draft) => draft.restoreStashed())}
             >
               Restore unsaved edits

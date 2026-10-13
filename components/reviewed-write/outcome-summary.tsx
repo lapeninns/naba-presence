@@ -49,7 +49,9 @@ export function attemptOutcome(
 /**
  * A recorded attempt's outcome: the shared outcome notice (tone, icon, words
  * from lib/editors/outcome), then the two recorded facts and when Google was
- * last read, then any flow-specific rows and notes.
+ * last read, then any flow-specific rows and notes. Words first: the outcome
+ * sentence leads and stays in place (a failure persists inline, never only in
+ * a toast); a Google write is never offered an Undo.
  *
  * `titles` lets a flow name a state more precisely ("Administrator removed")
  * without changing its tone; `effect` replaces the generic sentence with what
@@ -86,7 +88,7 @@ export function OutcomeSummary({
   const outcome = outcomeOverride ?? attemptOutcome(execution, confirmation)
   const presentation = describeOutcome(outcome)
   return (
-    <div data-slot="outcome-summary" aria-label={ariaLabel} role="group" className="flex min-w-0 flex-col gap-3">
+    <div data-slot="outcome-summary" aria-label={ariaLabel} role="group" className="flex min-w-0 flex-col gap-4">
       <OperationOutcomeNotice
         outcome={outcome}
         title={titles?.[outcome] ?? presentation.title}

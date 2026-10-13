@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { SectionHeader } from "@/components/ui/section-header"
 import { Instant } from "./instant"
 
@@ -23,6 +22,11 @@ export type SavedWorkItem = {
  * survives a reload, an expiry or a second approver. One list, one row
  * shape (operation, when, stage, open), one place: after the thing it
  * belongs to.
+ *
+ * Rows read like mail rows: the operation as the title, then a muted
+ * sub-line "when · stage" (the stage is often a phrase, "Approval expires ·
+ * Approved request", so it stays words in the sub-line rather than a pill),
+ * then the action that reopens it. Hairlines between rows, no card.
  */
 export function SavedWorkList({
   id,
@@ -77,13 +81,12 @@ export function SavedWorkList({
       ) : items.length === 0 ? (
         <p className="text-ui text-ink-muted">{emptyText}</p>
       ) : (
-        <Card flush>
-        <ul className="divide-y divide-line">
+        <ul className="divide-y divide-line-subtle">
           {items.map((item) => (
-            <li key={item.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2.5">
-              <div className="min-w-0 grow basis-48">
-                <p className="text-ui text-ink">{item.operation}</p>
-                <p className="text-caption text-ink-muted">
+            <li key={item.id} className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3">
+              <div className="flex min-w-0 grow basis-48 flex-col gap-0.5">
+                <p className="text-body text-ink">{item.operation}</p>
+                <p className="text-caption text-ink-muted tabular-nums">
                   <Instant value={item.createdAt} /> · {item.stage}
                 </p>
               </div>
@@ -93,7 +96,6 @@ export function SavedWorkList({
             </li>
           ))}
         </ul>
-        </Card>
       )}
       {failed && items.length > 0 ? (
         <p role="alert" className="text-ui text-danger-ink">{staleText ?? errorText}</p>
