@@ -11,12 +11,12 @@ import {
   MoreHorizontalIcon,
   PlayIcon,
   TriangleAlertIcon,
-  UserIcon,
 } from "lucide-react"
 import Link from "next/link"
 
+import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import { ActionBar } from "@/components/ui/action-bar"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
 import {
@@ -139,24 +139,12 @@ const THREAD_AVATAR_CLASS =
  * is the accessible identity.
  */
 function ReviewerAvatar({ review }: { review: Review }) {
-  const name = reviewerName(review)
   return (
-    <Avatar size="lg" aria-hidden className={THREAD_AVATAR_CLASS}>
-      {!review.reviewerIsAnonymous && review.reviewerProfilePhotoUrl ? (
-        <AvatarImage
-          src={review.reviewerProfilePhotoUrl}
-          alt=""
-          referrerPolicy="no-referrer"
-        />
-      ) : null}
-      <AvatarFallback>
-        {review.reviewerIsAnonymous ? (
-          <UserIcon aria-hidden strokeWidth={1.75} className="size-4" />
-        ) : (
-          initialsOf(name)
-        )}
-      </AvatarFallback>
-    </Avatar>
+    <ReviewAvatar
+      name={reviewerName(review)}
+      anonymous={review.reviewerIsAnonymous}
+      photoUrl={review.reviewerProfilePhotoUrl}
+    />
   )
 }
 

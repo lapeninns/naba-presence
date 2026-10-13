@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react"
 import { GlobeIcon, ImageIcon } from "lucide-react"
 
+import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Stars } from "@/components/ui/stars"
@@ -284,6 +285,7 @@ function ReviewList({
           return (
             <li
               key={review.id}
+              data-slot="review-row-item"
               className={cn(
                 "group/row relative flex border-b border-line transition-[background-color] duration-(--np-duration-fast) ease-out-strong",
                 selected ? "bg-fill" : "hover-fine:hover:bg-surface-alt",
@@ -347,95 +349,113 @@ function ReviewList({
                   selected ? "bg-fill" : "active:bg-surface-alt"
                 )}
               >
-                <span className="flex min-w-0 flex-col">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Stars
-                      value={review.rating}
-                      label={
-                        review.rating === null
-                          ? undefined
-                          : ratingLabel(review.rating)
-                      }
-                    />
-                    <span className="min-w-0 truncate text-ui font-semibold text-ink">
-                      {displayName}
-                    </span>
-                    {/* When it was written, as the detail pane says — the two
+                <span data-slot="review-row-content">
+                  <ReviewAvatar
+                    name={displayName}
+                    anonymous={review.reviewer.isAnonymous}
+                    photoUrl={review.reviewer.profilePhotoUrl}
+                  />
+                  <span
+                    data-slot="review-row-copy"
+                    className="flex min-w-0 flex-col"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate text-ui font-semibold text-ink">
+                        {displayName}
+                      </span>
+                      {/* When it was written, as the detail pane says — the two
                         used to disagree, one showing the edit and the other
                         the original. An edit is noted beside it. The exact
                         times are spoken, not left to a hover title a touch
                         screen never shows; the title stays for a mouse. */}
-                    <time
-                      dateTime={review.createTime}
-                      title={exactTime}
-                      className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
+                      <time
+                        dateTime={review.createTime}
+                        title={exactTime}
+                        className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
+                      >
+                        <ListTime
+                          iso={review.createTime}
+                          timezone={timezone}
+                          edited={edited}
+                        />
+                        <span className="sr-only">{exactTime}</span>
+                      </time>
+                    </span>
+
+                    <span
+                      data-slot="review-row-preview"
+                      lang={parsed?.bodyLang ?? undefined}
+                      dir="auto"
+                      // One line beside the thread, where the queue is narrow and
+                      // the full words are a glance away; two on a phone, where
+                      // the row is all there is.
+                      className={cn(
+                        "mt-0.5 line-clamp-2 text-ui lg:line-clamp-1",
+                        parsed ? "text-ink-secondary" : "text-ink-muted italic"
+                      )}
                     >
-                      <ListTime
-                        iso={review.createTime}
-                        timezone={timezone}
-                        edited={edited}
+                      {parsed?.body ?? "A rating with no written review."}
+                    </span>
+
+                    <span
+                      data-slot="review-row-venue"
+                      className="mt-2 flex min-w-0 flex-wrap items-center gap-2"
+                    >
+                      <Stars
+                        value={review.rating}
+                        label={
+                          review.rating === null
+                            ? undefined
+                            : ratingLabel(review.rating)
+                        }
                       />
-                      <span className="sr-only">{exactTime}</span>
-                    </time>
-                  </span>
-
-                  <span
-                    lang={parsed?.bodyLang ?? undefined}
-                    dir="auto"
-                    // One line beside the thread, where the queue is narrow and
-                    // the full words are a glance away; two on a phone, where
-                    // the row is all there is.
-                    className={cn(
-                      "mt-0.5 line-clamp-2 text-ui lg:line-clamp-1",
-                      parsed ? "text-ink-secondary" : "text-ink-muted italic"
-                    )}
-                  >
-                    {parsed?.body ?? "A rating with no written review."}
-                  </span>
-
-                  <span className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                    {/* Client first: in an agency inbox the location name
+                      {/* Client first: in an agency inbox the location name
                         alone ("High Street") does not say whose business this
                         is, and replying in the wrong voice is the mistake this
                         line exists to prevent. */}
-                    <span className="min-w-0 truncate text-caption text-ink-muted">
-                      {venue}
-                    </span>
-                    {review.hasMedia ? (
-                      <ImageIcon
-                        role="img"
-                        aria-label="Has photos"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-muted"
-                      />
-                    ) : null}
-                    {parsed?.original ? (
-                      <GlobeIcon
-                        role="img"
-                        aria-label="Translated"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-muted"
-                      />
-                    ) : null}
-                    {pillRepeatsQueue ? null : (
-                      <StatusPill
-                        tone={pill.tone}
-                        dashed={pill.dashed}
-                        // The full sentence is the accessible name, so a
-                        // reader hears "Draft checked · Ready to publish"
-                        // rather than the abbreviation the row has room for.
-                        data-slot="reply-status"
-                        data-tone={status.tone}
-                        aria-label={status.text}
+                      <span
+                        data-slot="review-row-location"
+                        title={venue}
+                        className="min-w-0 truncate text-caption text-ink-muted"
                       >
-                        {status.short}
-                      </StatusPill>
-                    )}
-                    {/* The non-colour half of the selection cue, for
+                        {venue}
+                      </span>
+                      {review.hasMedia ? (
+                        <ImageIcon
+                          role="img"
+                          aria-label="Has photos"
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink-muted"
+                        />
+                      ) : null}
+                      {parsed?.original ? (
+                        <GlobeIcon
+                          role="img"
+                          aria-label="Translated"
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink-muted"
+                        />
+                      ) : null}
+                      {pillRepeatsQueue ? null : (
+                        <StatusPill
+                          tone={pill.tone}
+                          dashed={pill.dashed}
+                          // The full sentence is the accessible name, so a
+                          // reader hears "Draft checked · Ready to publish"
+                          // rather than the abbreviation the row has room for.
+                          data-slot="reply-status"
+                          data-tone={status.tone}
+                          aria-label={status.text}
+                        >
+                          {status.short}
+                        </StatusPill>
+                      )}
+                      {/* The non-colour half of the selection cue, for
                         greyscale, forced colours and screen readers. */}
-                    {selected ? (
-                      <span className="sr-only">Selected review</span>
-                    ) : null}
+                      {selected ? (
+                        <span className="sr-only">Selected review</span>
+                      ) : null}
+                    </span>
                   </span>
                 </span>
               </button>

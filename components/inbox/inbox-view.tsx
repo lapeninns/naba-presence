@@ -33,6 +33,7 @@ import {
   useDirtyGate,
   useReadIsDirty,
 } from "@/components/inbox/dirty-context"
+import styles from "@/components/inbox/inbox-mail.module.css"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { Button } from "@/components/ui/button"
@@ -997,7 +998,10 @@ function InboxViewInner({
       // `min-h-0` only where the workspace is locked to the window: there
       // the panes share the height and scroll inside. Everywhere else the
       // inbox is as tall as its content and the page scrolls.
-      className="group/inbox relative flex flex-1 flex-col gap-3 xl:gap-4 lg:[@media(min-height:620px)]:min-h-0"
+      className={cn(
+        "group/inbox relative flex flex-1 flex-col gap-3 xl:gap-4 lg:[@media(min-height:620px)]:min-h-0",
+        styles.workspace
+      )}
     >
       <InboxHotkeys handlers={hotkeyHandlers} />
       {/* A review pushed over the list (below lg) is a level down from the
