@@ -85,7 +85,9 @@ export function TechnicalDetails({
         <span aria-hidden className="text-ink-muted transition-transform group-open:rotate-90">
           ›
         </span>
-        {summary}
+        {/* Its own element, so "Technical details" is findable as text
+            without the chevron. */}
+        <span>{summary}</span>
       </summary>
       {list ? (
         <dl className="flex min-w-0 flex-col gap-2 border-t border-line px-3 py-2.5">{children}</dl>
