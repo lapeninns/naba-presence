@@ -76,7 +76,7 @@ const renderIndex = (role = "owner") =>
   )
 
 describe("ClientsIndex", () => {
-  it("orders by open work, not alphabetically", async () => {
+  it("orders by open work within a health state, not alphabetically", async () => {
     // An agency opens this to answer "where do I go now". A name-sorted list
     // makes them read every row to find the two that matter.
     stub([
@@ -151,34 +151,109 @@ describe("ClientsIndex", () => {
     )
   })
 
-  it("counts each client on one tile, and a tile filters to exactly those", async () => {
+  it("counts all seven health buckets in one chip strip, and a chip filters to exactly those", async () => {
     stub([
       { ...base, id: "a", name: "A", health: "disconnected" },
       { ...base, id: "b", name: "B", health: "attention" },
       { ...base, id: "c", name: "C", health: "syncing" },
+      { ...base, id: "d", name: "D", health: "healthy" },
+      { ...base, id: "e", name: "E", health: "unchecked" },
+      { ...base, id: "f", name: "F", health: "partially_checked" },
+      { ...base, id: "g", name: "G", health: "unpublished" },
+      { ...base, id: "h", name: "H", health: "not_connected" },
     ])
     renderIndex()
-    const summary = await screen.findByRole("region", {
-      name: "Health summary",
-    })
-    const action = within(summary).getByRole("button", {
-      name: /Action needed/,
-    })
-    expect(action).toHaveTextContent("1")
-    expect(
-      within(summary).getByRole("button", { name: /Needs attention/ })
-    ).toHaveTextContent("1")
-    // Importing clients are up to date; their pill says Importing.
-    expect(
-      within(summary).getByRole("button", { name: /In sync/ })
-    ).toHaveTextContent("1 importing")
-    fireEvent.click(action)
+    const strip = await screen.findByRole("group", { name: "Filter by health" })
+    const chips = within(strip).getAllByRole("button")
+    // "All" plus every bucket; no bucket is left out of the counts.
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      "All8",
+      "Action needed1",
+      "Needs attention1",
+      "In sync2",
+      "Not checked1",
+      "Partially checked1",
+      "Changes to publish1",
+      "Not set up1",
+    ])
+    expect(chips[0]).toHaveAttribute("aria-pressed", "true")
+    fireEvent.click(chips[1])
     expect(replace).toHaveBeenCalledWith("/clients?health=disconnected", {
       scroll: false,
     })
   })
 
-  it("keeps the name search in the address", async () => {
+  it("never shows a card whose health contradicts the chosen chip's count", async () => {
+    // The old tiles said 0/0/0/0 beside a client marked Partially checked.
+    search = new URLSearchParams("health=partially_checked")
+    stub([
+      { ...base, id: "a", name: "Alpha", health: "partially_checked" },
+      { ...base, id: "b", name: "Bravo", health: "healthy" },
+      { ...base, id: "c", name: "Charlie", health: "partially_checked" },
+    ])
+    renderIndex()
+    const strip = await screen.findByRole("group", { name: "Filter by health" })
+    const chosen = within(strip).getByRole("button", { pressed: true })
+    expect(chosen).toHaveTextContent("Partially checked2")
+    const list = screen.getByRole("list", { name: "Clients" })
+    const cards = within(list).getAllByRole("link")
+    expect(cards).toHaveLength(2)
+    for (const card of cards)
+      expect(card).toHaveTextContent("Partially checked")
+    expect(screen.getByText(/2 of 3 clients/)).toBeInTheDocument()
+  })
+
+  it("puts a broken login first even with no open reviews", async () => {
+    stub([
+      {
+        ...base,
+        id: "busy",
+        name: "Busy Bar",
+        health: "healthy",
+        openWork: { needsReply: 12, awaitingApproval: 0, failed: 0 },
+      },
+      {
+        ...base,
+        id: "broken",
+        name: "Broken Bistro",
+        health: "disconnected",
+        openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+      },
+      {
+        ...base,
+        id: "setup",
+        name: "Setup Cafe",
+        health: "not_connected",
+        openWork: { needsReply: 0, awaitingApproval: 0, failed: 0 },
+      },
+    ])
+    renderIndex()
+    const list = await screen.findByRole("list", { name: "Clients" })
+    expect(
+      within(list)
+        .getAllByRole("link")
+        .map((link) => link.getAttribute("href"))
+    ).toEqual(["/clients/broken", "/clients/setup", "/clients/busy"])
+  })
+
+  it("draws each client on a phone as one link with its health word and open work", async () => {
+    stub([
+      {
+        ...base,
+        health: "disconnected",
+        openWork: { needsReply: 2, awaitingApproval: 1, failed: 0 },
+      },
+    ])
+    renderIndex()
+    const list = await screen.findByRole("list", { name: "Clients" })
+    const [card] = within(list).getAllByRole("link")
+    expect(card).toHaveAttribute("href", "/clients/c1")
+    expect(card).toHaveTextContent("Action needed")
+    expect(card).toHaveTextContent("3open reviews")
+    expect(card).toHaveTextContent("3 listings · Google login needs reconnecting")
+  })
+
+  it("keeps the name search in the address, written once typing pauses", async () => {
     search = new URLSearchParams("q=zebra")
     stub([
       { ...base, id: "a", name: "Aardvark Cafe" },
@@ -190,10 +265,52 @@ describe("ClientsIndex", () => {
     })
     expect(box).toHaveValue("zebra")
     expect(screen.queryByText("Aardvark Cafe")).not.toBeInTheDocument()
+    fireEvent.change(box, { target: { value: "a" } })
+    fireEvent.change(box, { target: { value: "aa" } })
     fireEvent.change(box, { target: { value: "aard" } })
-    expect(replace).toHaveBeenLastCalledWith("/clients?q=aard", {
-      scroll: false,
+    // The list follows at once; the address does not, keystroke by keystroke.
+    expect(box).toHaveValue("aard")
+    expect(screen.getAllByText("Aardvark Cafe").length).toBeGreaterThan(0)
+    expect(replace).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith("/clients?q=aard", {
+        scroll: false,
+      })
+    )
+    expect(replace).toHaveBeenCalledTimes(1)
+  })
+
+  it("writes the search at once on Enter, and only once", async () => {
+    stub([base])
+    renderIndex()
+    const box = await screen.findByRole("searchbox", {
+      name: "Filter clients by name",
     })
+    fireEvent.change(box, { target: { value: "old" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    expect(replace).toHaveBeenCalledWith("/clients?q=old", { scroll: false })
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(replace).toHaveBeenCalledTimes(1)
+  })
+
+  it("lets Back/Forward win over the field", async () => {
+    search = new URLSearchParams("q=old")
+    stub([base])
+    const view = renderIndex()
+    const box = await screen.findByRole("searchbox", {
+      name: "Filter clients by name",
+    })
+    fireEvent.change(box, { target: { value: "olde" } })
+    // The address changes underneath (Back), before the pause elapses.
+    search = new URLSearchParams("q=crown")
+    view.rerender(
+      <QueryProvider>
+        <ClientsIndex role="owner" />
+      </QueryProvider>
+    )
+    expect(box).toHaveValue("crown")
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("says where a moved page went", async () => {
