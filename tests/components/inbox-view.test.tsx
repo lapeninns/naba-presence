@@ -32,6 +32,7 @@ import * as locationsApi from "@/lib/api/locations"
 
 const push = vi.fn()
 const replace = vi.fn()
+const back = vi.fn()
 // Stable across renders (like the real hook when the URL hasn't changed) —
 // a fresh instance per call would make every `useMemo([searchParams])` in
 // `InboxViewInner` recompute every render, which is unnecessary noise here.
@@ -39,7 +40,7 @@ const INITIAL_PARAMS = new URLSearchParams("selected=rev-1&rating=4")
 let currentParams = INITIAL_PARAMS
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace }),
+  useRouter: () => ({ push, replace, back }),
   useSearchParams: () => currentParams,
 }))
 
@@ -145,15 +146,14 @@ beforeEach(() => {
   sessionStorage.clear()
   push.mockClear()
   replace.mockClear()
+  back.mockClear()
   currentParams = INITIAL_PARAMS
 
-  // jsdom does not implement matchMedia; the auto-select effect's isDesktop
-  // check calls it unconditionally. `selected` is already set in every test
-  // here, so autoSelectId short-circuits before `isDesktop` matters. It does
-  // decide the layout, though: below lg an open review REPLACES the list and
-  // the controls above it (they are `hidden`), so these tests — which work
-  // the filters, queues and list while a review is open — run on the
-  // side-by-side desktop workspace.
+  // jsdom does not implement matchMedia. The inbox asks it only for
+  // behaviour (push or replace, auto-select, scroll and focus on open); the
+  // layout is CSS keyed on `data-view`, which jsdom does not apply. These
+  // tests work the filters, queues and list while a review is open, as on
+  // the side-by-side desk.
   vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }))
 
   vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
@@ -232,7 +232,7 @@ describe("InboxView — filters keep a dirty reply open", () => {
     const textbox = await dirtyComposer(user)
 
     await user.click(
-      screen.getByRole("button", { name: "Remove rating filter" })
+      screen.getByRole("button", { name: /^Remove filter: Rating/ })
     )
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     expect(replace).toHaveBeenCalledTimes(1)
@@ -258,7 +258,7 @@ describe("InboxView — filters keep a dirty reply open", () => {
     renderInbox()
 
     await user.click(
-      screen.getByRole("button", { name: "Remove rating filter" })
+      screen.getByRole("button", { name: /^Remove filter: Rating/ })
     )
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -292,18 +292,18 @@ describe("InboxView — dirty-guard gates nav that clears the selection", () => 
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
   })
 
-  it("gates 'Back to reviews'", async () => {
+  it("gates 'Back to Inbox'", async () => {
     const user = userEvent.setup()
     renderInbox()
     const textbox = await dirtyComposer(user)
 
-    await user.click(screen.getByRole("button", { name: "Back to reviews" }))
+    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Keep editing" }))
     expect(replace).not.toHaveBeenCalled()
     expect(textbox).toHaveValue("Seed extra")
 
-    await user.click(screen.getByRole("button", { name: "Back to reviews" }))
+    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
     await user.click(screen.getByRole("button", { name: "Discard" }))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(replace.mock.calls[0][0]).not.toContain("selected=")
@@ -407,7 +407,7 @@ describe("InboxView — client scope", () => {
     await dirtyComposer(user)
 
     await user.click(
-      screen.getByRole("button", { name: "Remove client filter" })
+      screen.getByRole("button", { name: /^Remove filter: Client/ })
     )
     // Widening keeps the review, so nothing is asked.
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
@@ -483,16 +483,65 @@ describe("InboxView — next and previous review", () => {
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
 
     renderInbox()
-    // The pane has no previous / next buttons; J steps down the queue.
-    expect(
-      screen.queryByRole("button", { name: "Next review" })
-    ).not.toBeInTheDocument()
+    // J steps down the queue, as the head's Next review does below lg.
     await user.keyboard("j")
     // Replace, not push: stepping through a queue must not leave one history
     // entry per review between the operator and the page they came from.
     expect(push).not.toHaveBeenCalled()
     expect(replace).toHaveBeenCalled()
     expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+
+  it("steps from the phone head and says where the review sits", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: {
+        pages: [
+          {
+            items: [row(), row({ id: "rev-2" }), row({ id: "rev-3" })],
+            nextCursor: null,
+          },
+        ],
+      },
+      isPending: false,
+      isError: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+    const { container } = renderInbox()
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Sam Traveller" })
+    ).toBeInTheDocument()
+    expect(
+      container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("Review 1 of 3")
+    // The first review has nothing before it.
+    expect(
+      screen.getByRole("button", { name: "Previous review" })
+    ).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Next review" }))
+    expect(push).not.toHaveBeenCalled()
+    expect(replace).toHaveBeenCalledTimes(1)
+    expect(replace.mock.calls[0][0]).toContain("selected=rev-2")
+  })
+
+  it("keeps Next on at the last loaded review while another page follows", () => {
+    vi.spyOn(reviewsHook, "useReviews").mockReturnValue({
+      data: { pages: [{ items: [row()], nextCursor: "c" }] },
+      isPending: false,
+      isError: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof reviewsHook.useReviews>)
+    const { container } = renderInbox()
+    expect(
+      container.querySelector('[data-slot="review-position"]')
+    ).toHaveTextContent("1 of 1+")
+    expect(screen.getByRole("button", { name: "Next review" })).toBeEnabled()
   })
 })
 
@@ -510,6 +559,34 @@ describe("InboxView — history", () => {
     expect(replace).not.toHaveBeenCalled()
     expect(push).toHaveBeenCalledTimes(1)
     expect(push.mock.calls[0][0]).toContain("selected=rev-1")
+  })
+
+  it("pops the pushed entry on Back to Inbox rather than adding one", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const view = renderInbox()
+    await user.click(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-slot="review-row"]'
+      )!
+    )
+    expect(push).toHaveBeenCalledTimes(1)
+
+    // The router mock does not move the URL; serve the pushed one.
+    currentParams = new URLSearchParams(
+      new URL(push.mock.calls[0][0], "http://x").search
+    )
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it("replaces when a row is chosen beside an open review", async () => {
@@ -703,30 +780,74 @@ describe("InboxView — publish pulse, then advance", () => {
 // Below lg the list and the open review take turns (reference `data-view`):
 // the review replaces the list and the controls above it rather than sliding
 // a sheet over them, and the list stays mounted so its selected row and its
-// place survive the trip.
-describe("InboxView — narrow screens", () => {
-  it("shows the open review in place of the list and the controls", () => {
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+// place survive the trip. The swap is CSS keyed on `data-view`, which comes
+// from the URL, so the server already renders the right view.
+describe("InboxView — list and detail", () => {
+  it("renders the detail view from ?selected=, whatever the width", () => {
+    // matchMedia is never asked which view to draw: a desk answer here
+    // still yields the detail view.
     const { container } = renderInbox()
-
     const inbox = container.querySelector('[data-slot="inbox"]')
     expect(inbox).toHaveAttribute("data-view", "detail")
-    expect(
-      screen.queryByRole("navigation", { name: "Review queues" })
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole("region", { name: "Review list" })
-    ).not.toBeInTheDocument()
-    // Hidden, not unmounted: the selected row keeps its aria-current.
+    // The controls and the list hide below lg with CSS, staying mounted.
+    for (const slot of ["inbox-controls", "inbox-list-column"]) {
+      expect(
+        container.querySelector(`[data-slot="${slot}"]`)?.className
+      ).toContain("group-data-[view=detail]/inbox:max-lg:hidden")
+    }
     expect(
       container.querySelector('[data-slot="review-row"][aria-current="true"]')
     ).not.toBeNull()
     expect(
       screen.getByRole("region", { name: "Selected review" })
     ).toBeInTheDocument()
+  })
+
+  it("renders the list view, with the review pane waiting, without ?selected=", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const { container } = renderInbox()
+    expect(container.querySelector('[data-slot="inbox"]')).toHaveAttribute(
+      "data-view",
+      "list"
+    )
+    const inspector = screen.getByRole("region", { name: "Selected review" })
+    expect(inspector.className).toContain(
+      "group-data-[view=list]/inbox:max-lg:hidden"
+    )
     expect(
-      screen.getByRole("button", { name: "Back to reviews" })
-    ).toHaveFocus()
+      within(inspector).getByRole("heading", { name: "No review selected" })
+    ).toBeInTheDocument()
+  })
+
+  it("puts focus on Back to Inbox when a review opens below lg", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const view = renderInbox()
+    currentParams = new URLSearchParams("rating=4&selected=rev-1")
+    view.rerender(
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    )
+    expect(screen.getByRole("button", { name: "Back to Inbox" })).toHaveFocus()
+  })
+
+  it("leaves focus alone on a page that arrives already on a review", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    renderInbox()
+    expect(
+      screen.getByRole("button", { name: "Back to Inbox" })
+    ).not.toHaveFocus()
+  })
+
+  it("leaves focus alone when a review opens beside the list", () => {
+    renderInbox()
+    expect(
+      screen.getByRole("button", { name: "Back to Inbox" })
+    ).not.toHaveFocus()
   })
 })
 
