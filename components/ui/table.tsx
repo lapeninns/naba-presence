@@ -87,9 +87,14 @@ const RECORD_CLASS = cn(
 
   // trailing and actions share the title line. Actions are forced back into
   // the flow: older tables pinned them with `absolute`, which would now sit
-  // on top of the title.
+  // on top of the title. A row with no action today (an import that is not
+  // running) leaves its cell empty, and an empty cell is dropped: its
+  // margins net -2px, which cancelled the title's 1px basis, so the line
+  // break fit on the title line and the title collapsed to one letter per
+  // line (setup's import list at 390).
   "@max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:order-2 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:ms-3 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:max-w-1/2 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:shrink-0 @max-3xl/table:[&_tbody>tr>td[data-priority=trailing]]:text-end",
-  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:order-3 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:-my-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:ms-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:-me-1.5 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:shrink-0 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:static!",
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:static! @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:order-3 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:-my-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:ms-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:-me-1.5 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions])]:shrink-0",
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=actions],td[data-actions]):empty]:hidden",
   "@max-3xl/table:[&_tbody>tr[data-interactive]]:after:order-3 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:ms-3 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:mt-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:size-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:shrink-0 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:rotate-45 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-e-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-t-2 @max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-ink-faint @max-3xl/table:[&_tbody>tr[data-interactive]]:after:content-['']",
 
   // secondary: a full-width muted subtitle.
