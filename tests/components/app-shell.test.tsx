@@ -392,7 +392,7 @@ describe("AppShell", () => {
     // A left drawer, not the shared Sheet's phone bottom sheet: navigation
     // slides in from the edge the sidebar lives on (reference: min(300px,
     // 86vw)), and the toggle reports it is open.
-    expect(dialog).toHaveClass("left-0", "w-[min(300px,86vw)]")
+    expect(dialog).toHaveClass("left-0", "w-[min(var(--np-drawer-w),86vw)]")
     expect(dialog).toHaveAttribute("id", "mobile-navigation")
     expect(
       within(dialog).getByRole("navigation", { name: "Primary" })
@@ -445,7 +445,9 @@ describe("account menu", () => {
     renderShell()
     await user.click(screen.getByRole("button", { name: /Aman Shrestha/ }))
     expect(
-      await screen.findByText(/Full access, including the agency.s settings and team/)
+      await screen.findByText(
+        /Full access, including the agency.s settings and team/
+      )
     ).toBeInTheDocument()
   })
 

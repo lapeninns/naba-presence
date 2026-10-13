@@ -253,7 +253,7 @@ describe("Sheet presentation", () => {
     const drawer = await renderSheet("left")
     expect(drawer).toHaveAttribute("data-presentation", "drawer")
     // The classes the shell's own navigation drawer is drawn with.
-    expect(drawer).toHaveClass("left-0", "w-[min(300px,86vw)]")
+    expect(drawer).toHaveClass("left-0", "w-[min(var(--np-drawer-w),86vw)]")
   })
 })
 
