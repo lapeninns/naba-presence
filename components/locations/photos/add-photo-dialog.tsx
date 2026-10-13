@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import { Progress } from "@/components/ui/progress"
 import {
   Select,
@@ -449,27 +450,31 @@ export function AddPhotoDialog({
                   }}
                   disabled={pickDisabled}
                 />
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                  <Button
-                    variant="secondary"
-                    className="hidden pointer-coarse:inline-flex"
+                {/* Notion Mail's attachment picker: one option row per
+                    way in, each a plain button (no checked state), the
+                    camera first where there is one. */}
+                <OptionRowGroup
+                  type="multiple"
+                  label="Ways to add photos"
+                  className="w-full sm:max-w-xs"
+                >
+                  <OptionRow
+                    className="hidden bg-surface pointer-coarse:flex"
+                    icon={<CameraIcon />}
+                    label="Take photo"
                     onClick={() => cameraRef.current?.click()}
                     disabled={pickDisabled}
                     aria-describedby={hintId}
-                  >
-                    <CameraIcon aria-hidden />
-                    Take photo
-                  </Button>
-                  <Button
-                    variant="secondary"
+                  />
+                  <OptionRow
+                    className="bg-surface"
+                    icon={<ImagesIcon />}
+                    label="Choose from library"
                     onClick={() => fileRef.current?.click()}
                     disabled={pickDisabled}
                     aria-describedby={hintId}
-                  >
-                    <ImagesIcon aria-hidden />
-                    Choose from library
-                  </Button>
-                </div>
+                  />
+                </OptionRowGroup>
                 <p className="hidden text-ui text-ink-muted hover-fine:block">
                   or drop photos here
                 </p>

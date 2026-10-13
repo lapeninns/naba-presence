@@ -10,7 +10,6 @@ import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
 import { UnresolvedCreates } from "@/components/locations/photos/unresolved-creates"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
 import type { ListPaging } from "@/lib/queries/paged-list"
@@ -110,14 +109,12 @@ export function PhotosLibrary({
         />
 
         {media.total === 0 ? (
-          <Card flush>
-            <PhotosEmpty
-              filtersActive={filtersActive}
-              onClearFilters={() =>
-                onStateChange({ ownership: "all", category: "all" })
-              }
-            />
-          </Card>
+          <PhotosEmpty
+            filtersActive={filtersActive}
+            onClearFilters={() =>
+              onStateChange({ ownership: "all", category: "all" })
+            }
+          />
         ) : (
           <PhotosGrid
             locationId={locationId}
@@ -156,6 +153,8 @@ function PhotosEmpty({
 }) {
   return (
     <Empty
+      variant="empty"
+      framed
       icon={filtersActive ? <FilterIcon /> : <ImagesIcon />}
       titleAs="h3"
       title={filtersActive ? "No matching photos" : "No photos yet"}
