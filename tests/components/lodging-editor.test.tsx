@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { fireEvent, screen } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it } from "vitest"
 import { LodgingEditor } from "@/components/locations/profile/sections/lodging-editor"
@@ -22,6 +22,11 @@ async function search(user: ReturnType<typeof userEvent.setup>, query: string) {
   await user.paste(query)
 }
 
+/** The answer a Yes / No / Not recorded choice holds, by its radio's name. */
+function answerOf(control: HTMLElement) {
+  return within(control).getByRole("radio", { checked: true })
+}
+
 // Opening the guest-unit group renders every unit field; give the group the
 // same headroom as other large-editor suites under the loaded gate run.
 describe("complete lodging editor", { timeout: 15_000 }, () => {
@@ -29,14 +34,16 @@ describe("complete lodging editor", { timeout: 15_000 }, () => {
     const user = userEvent.setup()
     renderWithProviders(<Editor initial={{ pets: { futureRule: "preserve" } }} />)
     await search(user, "Pets allowed")
-    const control = screen.getByRole("combobox", { name: "Pets allowed" })
-    expect(control).toHaveTextContent("Not recorded")
-    await user.click(control)
-    await user.click(await screen.findByRole("option", { name: "No" }))
+    const control = screen.getByRole("radiogroup", { name: "Pets allowed" })
+    expect(answerOf(control)).toHaveAccessibleName("Not recorded")
+    // "Not recorded" shows Google's state; it cannot be chosen to clear a value.
+    expect(within(control).getByRole("radio", { name: "Not recorded" })).toHaveAttribute("aria-disabled", "true")
+    await user.click(within(control).getByRole("radio", { name: "No" }))
     expect(screen.getByTestId("draft")).toHaveTextContent('"petsAllowed":false')
     expect(screen.getByTestId("draft")).toHaveTextContent('"futureRule":"preserve"')
+    expect(answerOf(control)).toHaveAccessibleName("No")
     await user.click(screen.getByRole("button", { name: "Reset pets allowed" }))
-    expect(control).toHaveTextContent("Not recorded")
+    expect(answerOf(control)).toHaveAccessibleName("Not recorded")
     expect(screen.getByTestId("draft")).toHaveTextContent('{"pets":{"futureRule":"preserve"}}')
   })
 
@@ -105,8 +112,8 @@ describe("complete lodging editor", { timeout: 15_000 }, () => {
     expect(screen.queryByText(/supported (array|string) value/)).not.toBeInTheDocument()
     expect(screen.queryByText("Google has not recorded a value for this detail.")).not.toBeInTheDocument()
     expect(screen.getAllByText("Not set yet.").length).toBeGreaterThan(0)
-    expect(screen.getByRole("combobox", { name: "TV" })).toBeInTheDocument()
-    expect(screen.getByRole("combobox", { name: "In-unit safe" })).toBeInTheDocument()
+    expect(screen.getByRole("radiogroup", { name: "TV" })).toBeInTheDocument()
+    expect(screen.getByRole("radiogroup", { name: "In-unit safe" })).toBeInTheDocument()
   })
 
   it("distinguishes an unknown repeated list from an explicitly emptied list", async () => {

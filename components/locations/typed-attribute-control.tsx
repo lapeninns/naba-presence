@@ -3,6 +3,7 @@
 import { useId, useState } from "react"
 import { googleAttributeWriteSchema } from "@/lib/domain/google-attributes"
 
+import { AnswerChoice, type AnswerOption } from "@/components/locations/profile/answer-choice"
 import { ChangedMark } from "@/components/locations/profile/section-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -14,7 +15,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { StatusPill } from "@/components/ui/status-pill"
-import { Switch } from "@/components/ui/switch"
 import type {
   AttributeMetadata,
   GoogleAttribute,
@@ -29,11 +29,21 @@ import { enumOptionsFor } from "@/lib/locations/google-values"
  * anything else is read-only with the pressure-valve note, never a JSON
  * escape hatch.
  *
- * A BOOL attribute is a switch with its state in words ("Yes" / "No"). "Not
- * set" is a real third state on Google — the attribute simply isn't there —
- * so the row says "Not set" until a value is chosen, and `onClear` (when
- * given) offers "Clear" to take a value back off Google.
+ * A BOOL attribute, and each option of a REPEATED_ENUM one, is a Yes / No /
+ * Not set segmented choice. "Not set" is a real third state on Google — the
+ * attribute simply isn't there — so it is shown as an answer, and choosing
+ * it (when `onClear` is given) takes the value back off Google.
  */
+type Answer = "yes" | "no" | "unset"
+
+function answerOptions(unsetLocked: boolean): AnswerOption<Answer>[] {
+  return [
+    { value: "yes", label: "Yes" },
+    { value: "no", label: "No" },
+    { value: "unset", label: "Not set", disabled: unsetLocked },
+  ]
+}
+
 export function TypedAttributeControl({
   metadata,
   attribute,
@@ -73,59 +83,51 @@ export function TypedAttributeControl({
   if (!metadata.deprecated && metadata.valueType === "REPEATED_ENUM" && enumOptions.length > 0) {
     const selected = attribute?.repeatedEnumValue?.setValues ?? []
     const unselected = attribute?.repeatedEnumValue?.unsetValues ?? []
-    return <fieldset disabled={disabled} className="w-full space-y-3">
+    return <fieldset disabled={disabled} className="w-full min-w-0 space-y-3">
       <legend className="mb-2">{labelBlock}</legend>
-      {enumOptions.map((option) => <div key={option.value} className={rowClass}>
-        <span className="text-ui text-ink">{option.label}</span>
-        <Select items={[{ value: "unknown", label: "Not set" }, { value: "yes", label: "Yes" }, { value: "no", label: "No" }]} disabled={disabled} value={selected.includes(option.value) ? "yes" : unselected.includes(option.value) ? "no" : "unknown"} onValueChange={(answer) => {
-          if (!answer) return
-          const setValues = selected.filter((value) => value !== option.value)
-          const unsetValues = unselected.filter((value) => value !== option.value)
-          if (answer === "yes") setValues.push(option.value)
-          if (answer === "no") unsetValues.push(option.value)
-          if (!setValues.length && !unsetValues.length && onClear) onClear(name)
-          else onChange({ name, repeatedEnumValue: { setValues, unsetValues } })
-        }}>
-          <SelectTrigger aria-label={`${label}: ${option.label}`} className="w-full sm:w-40"><SelectValue /></SelectTrigger>
-          <SelectContent><SelectItem value="unknown">Not set</SelectItem><SelectItem value="yes">Yes</SelectItem><SelectItem value="no">No</SelectItem></SelectContent>
-        </Select>
-      </div>)}
-      {(selected.length > 0 || unselected.length > 0) && onClear && !disabled ? <Button type="button" variant="ghost" size="xs" onClick={() => onClear(name)} aria-label={`Clear ${label}`}>Clear all answers</Button> : null}
+      {enumOptions.map((option) => {
+        const answer: Answer = selected.includes(option.value) ? "yes" : unselected.includes(option.value) ? "no" : "unset"
+        return <div key={option.value} className={rowClass}>
+          <span className="min-w-0 text-ui text-ink">{option.label}</span>
+          <AnswerChoice
+            aria-label={`${label}: ${option.label}`}
+            value={answer}
+            disabled={disabled}
+            // Taking the final answer away removes the attribute (onClear).
+            options={answerOptions(false)}
+            onValueChange={(next) => {
+              const setValues = selected.filter((value) => value !== option.value)
+              const unsetValues = unselected.filter((value) => value !== option.value)
+              if (next === "yes") setValues.push(option.value)
+              if (next === "no") unsetValues.push(option.value)
+              if (!setValues.length && !unsetValues.length && onClear) onClear(name)
+              else onChange({ name, repeatedEnumValue: { setValues, unsetValues } })
+            }}
+          />
+        </div>
+      })}
+      {(selected.length > 0 || unselected.length > 0) && onClear && !disabled ? <Button type="button" variant="ghost" size="sm" onClick={() => onClear(name)} aria-label={`Clear ${label}`}>Clear all answers</Button> : null}
     </fieldset>
   }
 
   if (kind === "bool") {
     const value = attribute?.values?.[0]
-    const set = typeof value === "boolean"
-    const checked = value === true
+    const answer: Answer = value === true ? "yes" : value === false ? "no" : "unset"
     return (
       <div className={rowClass}>
         {labelBlock}
-        <span className="flex items-center gap-2">
-          {set && onClear && !disabled ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              aria-label={`Clear ${label}`}
-              onClick={() => onClear(name)}
-            >
-              Clear
-            </Button>
-          ) : null}
-          <span aria-hidden className="w-14 text-right text-ui text-ink-muted">
-            {set ? (checked ? "Yes" : "No") : "Not set"}
-          </span>
-          <Switch
-            checked={checked}
-            disabled={disabled}
-            aria-labelledby={labelId}
-            aria-description={set ? undefined : "Not set on Google"}
-            onCheckedChange={(next) =>
-              onChange({ name, values: [next === true] })
-            }
-          />
-        </span>
+        <AnswerChoice
+          aria-labelledby={labelId}
+          value={answer}
+          disabled={disabled}
+          // "Not set" takes the value back off Google, so it is only a
+          // choice where the caller can clear the attribute.
+          options={answerOptions(!onClear)}
+          onValueChange={(next) => {
+            if (next === "unset") onClear?.(name)
+            else onChange({ name, values: [next === "yes"] })
+          }}
+        />
       </div>
     )
   }
@@ -137,7 +139,7 @@ export function TypedAttributeControl({
         {labelBlock}
         <span className="flex w-full items-center gap-2 sm:w-auto">
         {current && onClear && !disabled ? (
-          <Button type="button" variant="ghost" size="xs" aria-label={`Clear ${label}`} onClick={() => onClear(name)}>Clear</Button>
+          <Button type="button" variant="ghost" size="sm" aria-label={`Clear ${label}`} onClick={() => onClear(name)}>Clear</Button>
         ) : null}
         <Select
           value={current}
@@ -169,7 +171,7 @@ export function TypedAttributeControl({
         <legend className="mb-2">{labelBlock}</legend>
         {uris.map((entry, index) => <div key={index} className="flex items-center gap-2">
           <Input type="url" inputMode="url" value={entry.uri} aria-label={`${label} URL ${index + 1}`} disabled={disabled} onChange={(event) => onChange({ name, uriValues: uris.map((item, position) => position === index ? { ...item, uri: event.target.value } : item) })} />
-          <Button type="button" variant="ghost" size="xs" disabled={disabled} aria-label={`Remove ${label} URL ${index + 1}`} onClick={() => {
+          <Button type="button" variant="ghost" size="sm" disabled={disabled} aria-label={`Remove ${label} URL ${index + 1}`} onClick={() => {
             const remaining = uris.filter((_, position) => position !== index)
             if (!remaining.length && onClear) onClear(name)
             else onChange({ name, uriValues: remaining })
