@@ -1,12 +1,12 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 37,
+    "R1": 31,
     "R2": 9,
-    "R3": 105,
-    "R4": 23,
+    "R3": 87,
+    "R4": 17,
     "R5": 2,
-    "R6": 4,
+    "R6": 2,
     "R7": 16
   },
   "files": {
@@ -479,36 +479,6 @@
         }
       }
     },
-    "components/ui/action-bar.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[1_1_240px]": 1,
-          "pb-[max(12px,env(safe-area-inset-bottom))]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-20": 1
-        }
-      }
-    },
-    "components/ui/button.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[12.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[30px]": 1,
-          "size-[30px]": 1
-        }
-      }
-    },
     "components/ui/chart.tsx": {
       "R4": {
         "total": 1,
@@ -586,15 +556,6 @@
         }
       }
     },
-    "components/ui/empty.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "max-w-[46ch]": 1,
-          "py-[clamp(32px,6vw,64px)]": 1
-        }
-      }
-    },
     "components/ui/field.tsx": {
       "R1": {
         "total": 2,
@@ -612,53 +573,6 @@
         }
       }
     },
-    "components/ui/kbd.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11px]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "px-[5px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[5px]": 1
-        }
-      }
-    },
-    "components/ui/lifecycle.tsx": {
-      "R1": {
-        "total": 4,
-        "patterns": {
-          "leading-4": 1,
-          "leading-[15px]": 1,
-          "text-[11.5px]": 1,
-          "text-[12.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 5,
-        "patterns": {
-          "left-[5px]": 1,
-          "pl-[22px]": 1,
-          "pt-[18px]": 1,
-          "top-[14px]": 1,
-          "top-[5px]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "shadow-[0_0_0_3px_var(--np-accent-tint)]": 1
-        }
-      }
-    },
     "components/ui/popover.tsx": {
       "R3": {
         "total": 5,
@@ -668,31 +582,6 @@
           "right-[-14px]": 1,
           "top-[-9px]": 1,
           "w-[min(360px,calc(100vw-24px))]": 1
-        }
-      }
-    },
-    "components/ui/progress.tsx": {
-      "R6": {
-        "total": 2,
-        "patterns": {
-          "style={{…}}": 2
-        }
-      }
-    },
-    "components/ui/publish-steps.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[20px_minmax(0,1fr)]": 1,
-          "grid-cols-[20px_minmax(0,1fr)_auto]": 1
-        }
-      }
-    },
-    "components/ui/section-header.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_20rem]": 1
         }
       }
     },
@@ -755,14 +644,6 @@
         }
       }
     },
-    "components/ui/tabs.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[2px]": 1
-        }
-      }
-    },
     "components/ui/tag-input.tsx": {
       "R1": {
         "total": 1,
@@ -787,20 +668,15 @@
     },
     "components/ui/toast.tsx": {
       "R3": {
-        "total": 4,
+        "total": 1,
         "patterns": {
-          "bottom-[calc(max(16px,env(safe-area-inset-bottom))+var(--toast-footer-clearance,0px))]": 1,
-          "h-[calc(var(--gap)+1px)]": 1,
-          "top-[max(16px,env(safe-area-inset-top))]": 1,
-          "w-[min(380px,calc(100vw-32px))]": 1
+          "h-[calc(var(--gap)+1px)]": 1
         }
       },
       "R4": {
-        "total": 3,
+        "total": 1,
         "patterns": {
-          "[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]": 1,
-          "z-[120]": 1,
-          "z-[calc(1000-var(--toast-index))]": 1
+          "[box-shadow:0_0_0_2px_var(--np-surface-canvas),0_0_0_4px_var(--np-focus-ring)]": 1
         }
       }
     },

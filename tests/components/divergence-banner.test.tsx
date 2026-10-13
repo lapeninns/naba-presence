@@ -21,14 +21,19 @@ describe("DivergenceBanner", () => {
   })
 
   it("speaks to the operator internally and to the client publicly", () => {
-    const { rerender } = render(
+    const { container, rerender } = render(
       <DivergenceBanner divergent audience="internal" />
     )
-    expect(screen.getByRole("alert")).toHaveTextContent(
+    const banner = () =>
+      container.querySelector('[data-slot="alert"]') as HTMLElement
+    expect(banner()).toHaveTextContent(
       /than we have collected so far.*syncing catches up/
     )
+    // Present when the report loads, so it is read in place rather than
+    // interrupting as an alert (prim-19).
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     rerender(<DivergenceBanner divergent audience="public" />)
-    const alert = screen.getByRole("alert")
+    const alert = banner()
     expect(alert).toHaveTextContent(/may not be counted yet/)
     // No "we" and no sync jargon on the client's page.
     expect(alert.textContent).not.toMatch(/\bwe\b|sync/i)

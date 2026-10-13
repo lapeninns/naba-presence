@@ -98,7 +98,9 @@ function InboxHotkeys({ handlers }: { handlers: HotkeyHandlers }) {
             <React.Fragment key={shortcut.action}>
               <dt className="flex gap-1">
                 {shortcut.keys.split(" ").map((key) => (
-                  <Kbd key={key}>{key}</Kbd>
+                  <Kbd key={key} touch="show">
+                    {key}
+                  </Kbd>
                 ))}
               </dt>
               <dd className="text-ui text-ink">{shortcut.label}</dd>

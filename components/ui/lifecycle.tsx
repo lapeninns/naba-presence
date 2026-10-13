@@ -13,6 +13,12 @@ export type LifecycleStage = {
   meta?: React.ReactNode
 }
 
+/**
+ * The spoken state of each stage. The same words as the publish steps and
+ * the outcome notice (lib/editors/outcome.ts, components/ui/publish-steps):
+ * "Not sent yet" is the publish list's to-do, "Skipped" and "Failed" are
+ * shared verbatim, so one state never has two names across a flow.
+ */
 const STATE_WORD: Record<LifecycleState, string> = {
   done: "done",
   current: "current step",
@@ -58,13 +64,13 @@ function Lifecycle({
               key={stage.id}
               data-state={stage.state}
               aria-current={stage.state === "current" ? "step" : undefined}
-              className="relative flex min-w-0 flex-col gap-0.5 pt-[18px] pr-2 @max-[520px]/lifecycle:pt-0 @max-[520px]/lifecycle:pr-0 @max-[520px]/lifecycle:pl-[22px]"
+              className="relative flex min-w-0 flex-col gap-0.5 pt-4.5 pr-2 @max-[520px]/lifecycle:pt-0 @max-[520px]/lifecycle:pr-0 @max-[520px]/lifecycle:pl-5.5"
             >
               {/* The rule to the next stage. */}
               <span
                 aria-hidden
                 className={cn(
-                  "absolute top-[5px] right-0 left-0 h-0.5 @max-[520px]/lifecycle:top-[14px] @max-[520px]/lifecycle:right-auto @max-[520px]/lifecycle:-bottom-3 @max-[520px]/lifecycle:left-[5px] @max-[520px]/lifecycle:h-auto @max-[520px]/lifecycle:w-0.5",
+                  "absolute top-1.25 right-0 left-0 h-0.5 @max-[520px]/lifecycle:top-3.5 @max-[520px]/lifecycle:right-auto @max-[520px]/lifecycle:-bottom-3 @max-[520px]/lifecycle:left-1.25 @max-[520px]/lifecycle:h-auto @max-[520px]/lifecycle:w-0.5",
                   stage.state === "done" ? "bg-success-solid" : "bg-line",
                   isLast && "@max-[520px]/lifecycle:hidden"
                 )}
@@ -77,7 +83,7 @@ function Lifecycle({
                   stage.state === "done" &&
                     "border-success-solid bg-success-solid",
                   stage.state === "current" &&
-                    "border-primary shadow-[0_0_0_3px_var(--np-accent-tint)]",
+                    "border-primary ring-3 ring-accent-tint",
                   stage.state === "failed" &&
                     "border-danger-solid bg-danger-solid",
                   stage.state === "skipped" &&
@@ -87,7 +93,7 @@ function Lifecycle({
               />
               <span
                 className={cn(
-                  "text-[12.5px] leading-4 font-semibold text-ink",
+                  "text-caption font-semibold text-ink",
                   (stage.state === "todo" || stage.state === "skipped") &&
                     "font-medium text-ink-muted"
                 )}
@@ -96,7 +102,7 @@ function Lifecycle({
                 <span className="sr-only">, {STATE_WORD[stage.state]}</span>
               </span>
               {stage.meta ? (
-                <span className="truncate text-[11.5px] leading-[15px] text-ink-muted @max-[520px]/lifecycle:whitespace-normal">
+                <span className="truncate text-caption text-ink-muted @max-[520px]/lifecycle:whitespace-normal">
                   {stage.meta}
                 </span>
               ) : null}

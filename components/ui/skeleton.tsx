@@ -22,4 +22,40 @@ function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-export { Skeleton }
+/**
+ * Placeholder rows for a list that is loading, drawn at the size the real
+ * rows will take: each row is `--np-row-h` tall (52px on touch, 44px on a
+ * desk) with a title bar and a shorter meta bar, inset by the card padding.
+ * So the swap from skeleton to content does not shift the page. Hidden from
+ * assistive tech like every skeleton: the container that swaps (QueryPending)
+ * says what is loading.
+ */
+function SkeletonList({
+  rows = 3,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & { rows?: number }) {
+  return (
+    <div
+      data-slot="skeleton-list"
+      aria-hidden="true"
+      className={cn(
+        "flex flex-col divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface",
+        className
+      )}
+      {...props}
+    >
+      {Array.from({ length: rows }, (_, index) => (
+        <div
+          key={index}
+          className="flex min-h-(--np-row-h) flex-col justify-center gap-1.5 px-(--np-card-pad) py-2"
+        >
+          <Skeleton className="h-3.5 w-2/5" />
+          <Skeleton className="h-3 w-3/5" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export { Skeleton, SkeletonList }

@@ -5,7 +5,8 @@ import { isValidElement, type ReactElement, type ReactNode } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Empty } from "@/components/ui/empty"
+import { SkeletonList } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { cn } from "@/lib/utils"
@@ -14,6 +15,11 @@ import { cn } from "@/lib/utils"
  * The one way a query-backed surface renders pending / error / empty / ready.
  * Replaces the hand-rolled retry alerts that used to live in the inbox list,
  * the review detail pane and the locations tab shell (Sprint 4.4).
+ *
+ * One vocabulary with `Empty` (prim-14): the error state IS an
+ * `<Empty variant="error">`, announced, with the retry as its action, and
+ * an `empty` state should be an `<Empty>` too. Pending is a sentence plus
+ * `SkeletonList` rows at the row height the content will have.
  */
 
 export type QueryStatus = "pending" | "error" | "empty" | "ready"
@@ -60,8 +66,7 @@ export function QueryPending({
           {label}
         </p>
       ) : null}
-      <Skeleton className="h-7 w-48" />
-      <Skeleton className="h-40 w-full rounded-(--np-radius-card)" />
+      <SkeletonList rows={3} />
     </div>
   )
 }
@@ -73,8 +78,10 @@ export type QueryErrorContent = {
   description?: ReactNode
   /** The thrown error; only used to derive the default description. */
   cause?: unknown
-  /** Wrapper classes (padding around the alert). */
+  /** Wrapper classes (padding around the state). */
   className?: string
+  /** Draw the card box around the state (see `Empty`). */
+  framed?: boolean
 }
 
 export type QueryErrorProps = QueryErrorContent & {
@@ -83,9 +90,10 @@ export type QueryErrorProps = QueryErrorContent & {
 }
 
 /**
- * A failed load is NOT an empty state: an `Empty` for a failed fetch would
- * silently mask a real error with no way to retry. This renders a destructive
- * `Alert` (role="alert") with a "Try again" button whenever `onRetry` is given.
+ * A failed load is NOT a plain empty state: "nothing here" for a failed
+ * fetch would silently mask a real error with no way to retry. This renders
+ * `<Empty variant="error">` as an alert (it replaces content because the
+ * load just failed) with a 44px "Try again" whenever `onRetry` is given.
  */
 export function QueryError({
   title,
@@ -94,21 +102,25 @@ export function QueryError({
   onRetry,
   retryLabel = "Try again",
   className,
+  framed,
 }: QueryErrorProps) {
   return (
-    <div className={className}>
-      <Alert variant="destructive">
-        <AlertTitle>{title}</AlertTitle>
-        <AlertDescription className="flex flex-col items-start gap-2.5">
-          <span>{description ?? describeActionError(cause)}</span>
-          {onRetry ? (
-            <Button variant="outline" size="sm" onClick={onRetry}>
-              {retryLabel}
-            </Button>
-          ) : null}
-        </AlertDescription>
-      </Alert>
-    </div>
+    <Empty
+      role="alert"
+      variant="error"
+      size="sm"
+      framed={framed}
+      className={className}
+      title={title}
+      description={description ?? describeActionError(cause)}
+      action={
+        onRetry ? (
+          <Button variant="secondary" onClick={onRetry}>
+            {retryLabel}
+          </Button>
+        ) : null
+      }
+    />
   )
 }
 
@@ -181,19 +193,16 @@ export function RouteErrorState({
         className
       )}
     >
-      <Alert variant="destructive" className="text-left">
+      <Alert variant="destructive" live className="text-left">
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription>{description}</AlertDescription>
       </Alert>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button onClick={onReset}>Try again</Button>
         {/* A real <a> styled as a button, not Button+render — see the note in
-            app/not-found.tsx for why. cn() dedupes buttonVariants' own
-            conflicting base/variant utility classes (e.g. border-color). */}
-        <Link
-          href={homeHref}
-          className={cn(buttonVariants({ variant: "outline" }))}
-        >
+            app/not-found.tsx for why. buttonVariants() merges its own
+            classes, so no cn() is needed around it. */}
+        <Link href={homeHref} className={buttonVariants({ variant: "outline" })}>
           {homeLabel}
         </Link>
       </div>

@@ -2,7 +2,6 @@ import {
   Check,
   CircleAlert,
   CircleHelp,
-  Clock,
   HardDrive,
   Hourglass,
   Send,
@@ -19,8 +18,10 @@ import {
 import { describeOutcome, type OperationOutcome } from "@/lib/editors/outcome"
 
 /**
- * The glyph and the small round mark for each outcome, shared by this notice
- * and the publish step list so a state looks the same wherever it appears.
+ * The glyph and the small round mark for each outcome: the ONE map, read by
+ * this notice, the publish step list and OutcomeSummary, so a state looks
+ * the same wherever it appears (prim-20: the notice used to draw a clock
+ * where the steps drew an hourglass).
  */
 export const OUTCOME_VISUAL: Record<
   OperationOutcome,
@@ -65,15 +66,12 @@ const ALERT_VARIANT: Record<
   uncertain: "warning",
 }
 
-const ALERT_ICON: Record<OperationOutcome, React.ReactNode> = {
-  saved_locally: <HardDrive aria-hidden />,
-  awaiting_approval: <UserCheck aria-hidden />,
-  sent: <Send aria-hidden />,
-  awaiting_confirmation: <Clock aria-hidden />,
-  confirmed_applied: <Check aria-hidden />,
-  rejected: <CircleAlert aria-hidden />,
-  failed: <CircleAlert aria-hidden />,
-  uncertain: <CircleHelp aria-hidden />,
+/** The outcome's glyph from `OUTCOME_VISUAL`, hidden from assistive tech. */
+export function outcomeGlyph(outcome: OperationOutcome): React.ReactNode {
+  const icon = OUTCOME_VISUAL[outcome].icon
+  return React.isValidElement<{ "aria-hidden"?: boolean }>(icon)
+    ? React.cloneElement(icon, { "aria-hidden": true })
+    : icon
 }
 
 /**
@@ -107,7 +105,7 @@ function OperationOutcomeNotice({
   return (
     <Alert
       variant={ALERT_VARIANT[outcome]}
-      icon={ALERT_ICON[outcome]}
+      icon={outcomeGlyph(outcome)}
       data-outcome={outcome}
       {...props}
       role="status"
