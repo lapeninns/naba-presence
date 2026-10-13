@@ -17,7 +17,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { ClientAvatar } from "@/components/clients/client-avatar"
-import { ClientRecordList } from "@/components/clients/clients-index-cards"
 import { useDebouncedSearchParam } from "@/components/clients/clients-index-search"
 import {
   HealthFilterStrip,
@@ -344,111 +343,120 @@ function ClientsIndex({ role }: { role: string | null }) {
             />
           </Card>
         ) : (
-          <>
-            <ClientRecordList clients={rows} className="md:hidden" />
-            <DataTable
-              className="max-md:hidden"
-              caption="Clients, with their Google health and open review work"
-              rows={rows}
-              rowId={(client) => client.id}
-              onRowClick={(client) => router.push(`/clients/${client.id}`)}
-              surface
-              responsive
-              columns={[
-                {
-                  id: "name",
-                  header: "Client",
-                  span: true,
-                  label: "",
-                  cell: (client) => (
-                    <span className="flex min-w-0 items-center gap-2.5">
-                      <ClientAvatar name={client.name} colour={client.colour} />
-                      <span className="flex min-w-0 flex-col">
-                        <Link
-                          href={`/clients/${client.id}`}
-                          className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {client.name}
-                        </Link>
+          // One table for every width. Below 48rem of its own width each
+          // row is a record card: avatar and name as the headline, the open
+          // work trailing, the health word (and what is wrong) as the
+          // subtitle, linked listings and the last sync on one meta line,
+          // and a chevron. A tap anywhere on the card opens the client
+          // (onRowClick); keyboard and screen-reader users open it through
+          // the name link, whose name is just the client's.
+          <DataTable
+            caption="Clients, with their Google health and open review work"
+            rows={rows}
+            rowId={(client) => client.id}
+            onRowClick={(client) => router.push(`/clients/${client.id}`)}
+            surface
+            responsive
+            columns={[
+              {
+                id: "name",
+                header: "Client",
+                priority: "primary",
+                cell: (client) => (
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <ClientAvatar name={client.name} colour={client.colour} />
+                    <span className="flex min-w-0 flex-col">
+                      <Link
+                        href={`/clients/${client.id}`}
+                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {client.name}
+                      </Link>
+                      {/* A card says this in its meta line. */}
+                      <span className="text-caption text-ink-muted @max-3xl/table:hidden">
+                        {client.locationCount === 0
+                          ? "No listings"
+                          : `${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"}`}
+                      </span>
+                    </span>
+                  </span>
+                ),
+              },
+              {
+                id: "health",
+                header: "Health",
+                priority: "secondary",
+                cell: (client) => {
+                  const note = clientHealthNote(client)
+                  return (
+                    <span className="flex flex-col items-start gap-1">
+                      <StatusPill
+                        tone={healthTone(client.health)}
+                        dashed={client.health === "not_connected"}
+                      >
+                        {healthLabel(client.health)}
+                      </StatusPill>
+                      {note ? (
                         <span className="text-caption text-ink-muted">
-                          {client.locationCount === 0
-                            ? "No listings"
-                            : `${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"}`}
+                          {note}
                         </span>
-                      </span>
+                      ) : null}
                     </span>
-                  ),
+                  )
                 },
-                {
-                  id: "health",
-                  header: "Health",
-                  cell: (client) => {
-                    const note = clientHealthNote(client)
-                    return (
-                      <span className="flex flex-col items-start gap-1">
-                        <StatusPill
-                          tone={healthTone(client.health)}
-                          dashed={client.health === "not_connected"}
-                        >
-                          {healthLabel(client.health)}
-                        </StatusPill>
-                        {note ? (
-                          <span className="text-caption text-ink-muted">
-                            {note}
-                          </span>
-                        ) : null}
-                      </span>
-                    )
-                  },
-                },
-                {
-                  id: "locations",
-                  header: "Listings linked",
-                  numeric: true,
-                  cell: (client) => (
-                    <span>
-                      {formatNumber(client.linkedCount)}
-                      <span className="text-ink-muted">
-                        {" / "}
-                        {formatNumber(client.locationCount)}
-                      </span>
+              },
+              {
+                id: "locations",
+                header: "Listings linked",
+                priority: "meta",
+                label: "Linked",
+                numeric: true,
+                cell: (client) => (
+                  <span>
+                    {formatNumber(client.linkedCount)}
+                    <span className="text-ink-muted">
+                      {" / "}
+                      {formatNumber(client.locationCount)}
                     </span>
-                  ),
-                },
-                {
-                  id: "work",
-                  header: "Open reviews",
-                  numeric: true,
-                  cell: (client) => <OpenWork client={client} />,
-                },
-                {
-                  id: "sync",
-                  header: "Last sync",
-                  cell: (client) => (
-                    <span
-                      className={cn(
-                        "text-ui",
-                        client.health === "disconnected"
-                          ? "text-danger-ink"
-                          : "text-ink-muted"
-                      )}
-                    >
-                      {client.lastSyncAt
-                        ? formatRelativeTime(client.lastSyncAt)
-                        : "Not yet"}
-                    </span>
-                  ),
-                },
-                {
-                  id: "login",
-                  header: "Google login",
-                  span: true,
-                  cell: (client) => <LoginCell client={client} />,
-                },
-              ]}
-            />
-          </>
+                  </span>
+                ),
+              },
+              {
+                id: "work",
+                header: "Open reviews",
+                priority: "trailing",
+                numeric: true,
+                cell: (client) => <OpenWork client={client} />,
+              },
+              {
+                id: "sync",
+                header: "Last sync",
+                priority: "meta",
+                label: "Synced",
+                cell: (client) => (
+                  <span
+                    className={
+                      client.health === "disconnected"
+                        ? "text-danger-ink"
+                        : "text-ink-muted"
+                    }
+                  >
+                    {client.lastSyncAt
+                      ? formatRelativeTime(client.lastSyncAt)
+                      : "Not yet"}
+                  </span>
+                ),
+              },
+              {
+                id: "login",
+                header: "Google login",
+                // A card carries the broken login in its health note.
+                priority: "desk-only",
+                cell: (client) => <LoginCell client={client} />,
+              },
+            ]}
+          />
         )}
       </section>
 
@@ -605,8 +613,7 @@ function ArchivedClients({
             {
               id: "name",
               header: "Client",
-              span: true,
-              label: "",
+              priority: "primary",
               cell: (client) => (
                 <span className="flex min-w-0 items-center gap-2.5">
                   <ClientAvatar name={client.name} colour={client.colour} />
@@ -619,8 +626,9 @@ function ArchivedClients({
             {
               id: "archived",
               header: "Archived",
+              priority: "meta",
               cell: (client) => (
-                <span className="text-ui text-ink-muted">
+                <span className="text-ink-muted">
                   {client.archivedAt
                     ? formatDate(client.archivedAt, "Europe/London")
                     : "—"}
@@ -630,7 +638,7 @@ function ArchivedClients({
             {
               id: "restore",
               header: <span className="sr-only">Actions</span>,
-              label: "",
+              priority: "actions",
               className: "text-right",
               cell: (client) => (
                 <Button
@@ -716,7 +724,7 @@ function LoginCell({ client }: { client: ClientSummary }) {
  * The index's loading shape, drawn to the loaded page's measures so nothing
  * jumps on swap: the chip strip and search, the list heading with a line
  * saying what is loading, then record cards on a phone and table rows on a
- * wider screen (the same CSS switch the list uses). Exported so the route's
+ * wider screen (the record-card switch the table makes in CSS). Exported so the route's
  * `loading.tsx` draws exactly this instead of a copy that drifted.
  */
 function ClientsSkeleton() {

@@ -2,7 +2,6 @@
 
 import {
   BarChart3Icon,
-  ChevronRightIcon,
   CircleAlertIcon,
   EllipsisIcon,
   InboxIcon,
@@ -403,12 +402,11 @@ function LoginLine({
 }
 
 /**
- * One work count as a deep link into the filtered inbox (or listings).
- *
- * The figure is the shared `KpiTile`; this wrapper only makes the whole tile
- * one link, so it is a single tab stop whose accessible name starts with the
- * visible label ("Needs reply 5 Across this client's listings"). Once
- * `KpiTile` takes an `href` this wrapper goes away.
+ * One work count as a deep link into the filtered inbox (or listings): the
+ * shared `KpiTile` with an `href`, so the whole tile is one tab stop whose
+ * accessible name starts with the visible label ("Needs reply 5 Across this
+ * client's listings"). KpiTile has no tone of its own, so a failed-publish
+ * count says so in the danger ink in its hint.
  */
 function WorkTile({
   label,
@@ -424,30 +422,18 @@ function WorkTile({
   tone?: "bad"
 }) {
   return (
-    <Link
+    <KpiTile
+      label={label}
+      value={value}
       href={href}
-      className="group/work flex min-w-0 rounded-(--np-radius-card) text-ink no-underline focus-halo"
-    >
-      <KpiTile
-        label={label}
-        value={value}
-        hint={
-          tone === "bad" ? (
-            <span className="font-medium text-danger-ink">{hint}</span>
-          ) : (
-            hint
-          )
-        }
-        trailing={
-          <ChevronRightIcon
-            aria-hidden
-            strokeWidth={1.75}
-            className="size-4 shrink-0 text-ink-muted transition-transform duration-(--np-duration-fast) group-hover/work:translate-x-0.5"
-          />
-        }
-        className="w-full transition-[border-color,box-shadow] duration-(--np-duration-fast) group-hover/work:border-line-strong group-hover/work:shadow-np-raised"
-      />
-    </Link>
+      hint={
+        tone === "bad" ? (
+          <span className="font-medium text-danger-ink">{hint}</span>
+        ) : (
+          hint
+        )
+      }
+    />
   )
 }
 
@@ -517,9 +503,10 @@ function ListingsSection({
           />
         </Card>
       ) : (
-        // Below 720px of its own width the table becomes record cards: the
-        // name is the headline, the address its one meta line, and the
-        // Google and verification states are unlabelled status words.
+        // Below 48rem of its own width the table becomes record cards: the
+        // name is the headline with its Google state trailing, the address
+        // the subtitle, verification the one meta line, and More the row's
+        // actions.
         <DataTable
           caption={`${client.name}'s listings with their Google link and verification`}
           rows={listings}
@@ -530,28 +517,30 @@ function ListingsSection({
             {
               id: "listing",
               header: "Listing",
-              span: true,
-              label: "",
+              priority: "primary",
               cell: (listing) => (
-                <span className="flex min-w-0 flex-col">
-                  <Link
-                    href={`/listings/${listing.locationId}`}
-                    className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
-                  >
-                    {listing.name}
-                  </Link>
-                  {formatAddressLine(listing.address) ? (
-                    <span className="text-caption break-words text-ink-muted">
-                      {formatAddressLine(listing.address)}
-                    </span>
-                  ) : null}
+                <Link
+                  href={`/listings/${listing.locationId}`}
+                  className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                >
+                  {listing.name}
+                </Link>
+              ),
+            },
+            {
+              id: "address",
+              header: "Address",
+              priority: "secondary",
+              cell: (listing) => (
+                <span className="text-caption break-words text-ink-muted">
+                  {formatAddressLine(listing.address) ?? "No address"}
                 </span>
               ),
             },
             {
               id: "google",
               header: "Google",
-              label: "",
+              priority: "trailing",
               cell: (listing) =>
                 listing.linkId ? (
                   listing.accessLost ? (
@@ -572,10 +561,13 @@ function ListingsSection({
             {
               id: "verified",
               header: "Verified",
+              priority: "meta",
               label: "",
               cell: (listing) =>
                 !listing.linkId ? (
-                  <span className="text-ui text-ink-muted">—</span>
+                  <span className="text-ui text-ink-muted @max-3xl/table:hidden">
+                    —
+                  </span>
                 ) : listing.verified ? (
                   <StatusPill tone="ok">Verified</StatusPill>
                 ) : (
@@ -585,14 +577,13 @@ function ListingsSection({
             {
               id: "sections",
               header: <span className="sr-only">Sections</span>,
-              label: "",
-              span: true,
+              priority: "actions",
               className: "text-right",
               cell: (listing) => (
                 <>
                   <nav
                     aria-label={`${listing.name} sections`}
-                    className="flex flex-wrap justify-end gap-1 @max-[720px]/table:hidden"
+                    className="flex flex-wrap justify-end gap-1 @max-3xl/table:hidden"
                   >
                     {SECTIONS.map((section) => (
                       <Link
@@ -611,7 +602,7 @@ function ListingsSection({
                   </nav>
                   {/* On a narrow row four ghost links wrapped under the name;
                       one menu keeps the row to its name and its state. */}
-                  <div className="@min-[720px]/table:hidden">
+                  <div className="@3xl/table:hidden">
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={

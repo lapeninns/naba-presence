@@ -421,28 +421,30 @@ function SettingsBody({
                   {
                     id: "name",
                     header: "Listing",
-                    span: true,
-                    label: "",
+                    priority: "primary",
                     cell: (l) => (
-                      <span className="flex min-w-0 flex-col">
-                        <Link
-                          href={`/listings/${l.id}`}
-                          className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
-                        >
-                          {l.name}
-                        </Link>
-                        {formatAddressLine(l.address) ? (
-                          <span className="text-caption break-words text-ink-muted">
-                            {formatAddressLine(l.address)}
-                          </span>
-                        ) : null}
+                      <Link
+                        href={`/listings/${l.id}`}
+                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                      >
+                        {l.name}
+                      </Link>
+                    ),
+                  },
+                  {
+                    id: "address",
+                    header: "Address",
+                    priority: "secondary",
+                    cell: (l) => (
+                      <span className="text-caption break-words text-ink-muted">
+                        {formatAddressLine(l.address) ?? "No address"}
                       </span>
                     ),
                   },
                   {
                     id: "linked",
                     header: "Google",
-                    label: "",
+                    priority: "trailing",
                     cell: (l) =>
                       l.linked ? (
                         <StatusPill tone="ok">Linked</StatusPill>
@@ -455,7 +457,10 @@ function SettingsBody({
                   {
                     id: "action",
                     header: <span className="sr-only">Actions</span>,
-                    label: "",
+                    // Two buttons crowd a phone's title line, so on a card
+                    // they take their own full-width row under the address.
+                    priority: "detail",
+                    span: true,
                     className: "text-right",
                     cell: (l) => (
                       <span className="inline-flex flex-wrap justify-end gap-2">
@@ -518,11 +523,11 @@ function SettingsBody({
                       No unfiled listing matches “{unfiledQuery.trim()}”.
                     </p>
                   ) : (
-                    // Below 720px of its own width each row is a record
-                    // card: the name as the headline, the address as its
-                    // one meta line (two branches of one chain share a
-                    // name; the address tells them apart) and the Google
-                    // state as an unlabelled status word.
+                    // Below 48rem of its own width each row is a record
+                    // card: the checkbox in its leading slot, the name as
+                    // the headline with the Google state trailing, and the
+                    // address as the subtitle (two branches of one chain
+                    // share a name; the address tells them apart).
                     <DataTable
                       caption="Listings with no client, available to add"
                       rows={unfiledShown}
@@ -537,22 +542,27 @@ function SettingsBody({
                         {
                           id: "name",
                           header: "Listing",
-                          label: "",
+                          priority: "primary",
                           cell: (l) => (
-                            <span className="flex min-w-0 flex-col">
-                              <span className="font-semibold break-words text-ink">
-                                {l.name}
-                              </span>
-                              <span className="text-caption break-words text-ink-muted">
-                                {formatAddressLine(l.address) ?? "No address"}
-                              </span>
+                            <span className="font-semibold break-words text-ink">
+                              {l.name}
+                            </span>
+                          ),
+                        },
+                        {
+                          id: "address",
+                          header: "Address",
+                          priority: "secondary",
+                          cell: (l) => (
+                            <span className="text-caption break-words text-ink-muted">
+                              {formatAddressLine(l.address) ?? "No address"}
                             </span>
                           ),
                         },
                         {
                           id: "linked",
                           header: "Google",
-                          label: "",
+                          priority: "trailing",
                           cell: (l) =>
                             l.linked ? (
                               <StatusPill tone="ok">Linked</StatusPill>
