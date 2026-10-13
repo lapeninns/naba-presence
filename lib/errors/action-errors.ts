@@ -1,9 +1,6 @@
 import { ApiClientError } from "@/lib/api/client"
-import { LISTING_CHANGE_AWAITING_APPROVAL } from "@/lib/contracts/listing-changes"
-import {
-  operationOutcomeSchema,
-  type OperationOutcome,
-} from "@/lib/contracts/mutation-operations"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
+import { LISTING_CHANGE_AWAITING_APPROVAL } from "@/lib/contracts/wire-codes"
 
 /**
  * The single mapping layer from server error codes to GB-English user copy.
@@ -713,17 +710,17 @@ export function errorOutcome(
     if (error.code === LISTING_CHANGE_AWAITING_APPROVAL) {
       return "awaiting_approval"
     }
-    const named = operationOutcomeSchema.safeParse(
-      (error.details as { outcome?: unknown } | undefined)?.outcome
-    )
+    // Compared as literals rather than through the zod enum: this module
+    // is on nearly every page, and only these four outcomes apply here.
+    const named = (error.details as { outcome?: unknown } | undefined)
+      ?.outcome
     if (
-      named.success &&
-      (named.data === "uncertain" ||
-        named.data === "sent" ||
-        named.data === "rejected" ||
-        named.data === "failed")
+      named === "uncertain" ||
+      named === "sent" ||
+      named === "rejected" ||
+      named === "failed"
     ) {
-      return named.data
+      return named
     }
     if (UNCERTAIN_CODES.has(error.code)) return "uncertain"
     if (error.code.endsWith("_in_progress")) return "sent"
