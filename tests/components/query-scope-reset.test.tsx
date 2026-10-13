@@ -39,6 +39,18 @@ function setSession(client: QueryClient, session: SessionUser | null) {
   client.setQueryData<SessionResponse>(queryKeys.session, { session })
 }
 
+/**
+ * A session change as the hook sees it: the cache notifies its listener on
+ * TanStack's scheduler (a zero timeout), never mid-render, so the change is
+ * followed by that tick.
+ */
+async function changeSession(client: QueryClient, session: SessionUser | null) {
+  await act(async () => {
+    setSession(client, session)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+}
+
 function setup(session: SessionUser | null = BASE) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -75,10 +87,10 @@ describe("sessionScopeToken", () => {
 })
 
 describe("useScopeReset", () => {
-  it("keeps the cache while the scope stays the same", () => {
+  it("keeps the cache while the scope stays the same", async () => {
     const { client } = setup()
     client.setQueryData(queryKeys.locationHours("loc-1"), { hours: 1 })
-    act(() => setSession(client, { ...BASE, organisationName: "Renamed" }))
+    await changeSession(client, { ...BASE, organisationName: "Renamed" })
     expect(client.getQueryData(queryKeys.locationHours("loc-1"))).toEqual({ hours: 1 })
   })
 
@@ -87,11 +99,11 @@ describe("useScopeReset", () => {
     ["scope fingerprint", { scopeFingerprint: "fp-2" }],
     ["user", { userId: "u2" }],
     ["organisation", { organisationId: "o2" }],
-  ])("clears everything but the session when the %s changes", (_label, change) => {
+  ])("clears everything but the session when the %s changes", async (_label, change) => {
     const { client } = setup()
     client.setQueryData(queryKeys.locationHours("loc-1"), { hours: 1 })
     client.setQueryData(queryKeys.members, ["someone"])
-    act(() => setSession(client, { ...BASE, ...change }))
+    await changeSession(client, { ...BASE, ...change })
     expect(client.getQueryData(queryKeys.locationHours("loc-1"))).toBeUndefined()
     expect(client.getQueryData(queryKeys.members)).toBeUndefined()
     expect(
@@ -99,10 +111,10 @@ describe("useScopeReset", () => {
     ).toMatchObject(change)
   })
 
-  it("clears the cache when the session goes away", () => {
+  it("clears the cache when the session goes away", async () => {
     const { client } = setup()
     client.setQueryData(queryKeys.members, ["someone"])
-    act(() => setSession(client, null))
+    await changeSession(client, null)
     expect(client.getQueryData(queryKeys.members)).toBeUndefined()
   })
 
@@ -127,7 +139,7 @@ describe("useScopeReset", () => {
     )
     await screen.findByText("wide")
     answer = "narrow"
-    act(() => setSession(client, { ...BASE, scopeFingerprint: "fp-2" }))
+    await changeSession(client, { ...BASE, scopeFingerprint: "fp-2" })
     await screen.findByText("narrow")
   })
 
@@ -142,20 +154,20 @@ describe("useScopeReset", () => {
     expect(peekStashedDraft(theirs)).toBeNull()
   })
 
-  it("purges the previous identity's drafts when another person's session arrives", () => {
+  it("purges the previous identity's drafts when another person's session arrives", async () => {
     const { client } = setup()
     const scope = { resource: "inbox-reply", resourceId: "rev-1", schemaVersion: 1 }
     const first = draftKey({ userId: "u1", organisationId: "o1", ...scope })
     stashDraft(first, "half a reply")
-    act(() => setSession(client, { ...BASE, userId: "u2" }))
+    await changeSession(client, { ...BASE, userId: "u2" })
     expect(peekStashedDraft(first)).toBeNull()
   })
 
-  it("keeps drafts when the session only goes away", () => {
+  it("keeps drafts when the session only goes away", async () => {
     const { client } = setup()
     const key = draftKey({ userId: "u1", organisationId: "o1", resource: "x", schemaVersion: 1 })
     stashDraft(key, "kept for signing back in")
-    act(() => setSession(client, null))
+    await changeSession(client, null)
     expect(peekStashedDraft(key)).toBe("kept for signing back in")
   })
 })
