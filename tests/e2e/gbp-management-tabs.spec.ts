@@ -172,7 +172,10 @@ test("Additional address details omit unknown language and UK sorting controls",
   await expect(details.getByLabel("Postal sorting code (optional)", { exact: true })).toHaveCount(0)
   await expect(details.getByLabel("Address recipients (optional)", { exact: true })).toBeDisabled()
   await expect(details.getByRole("link", { name: "Manage address details in Google" })).toHaveAttribute("href", "https://business.google.com/locations")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // Nothing here is publishable while the unsupported data is protected: a
+  // clean profile editor draws no footer bar, so no Review or Publish action.
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Publish to Google", exact: true })).toHaveCount(0)
 })
 
 for (const width of [375, 768, 1280]) test(`Google Ads phone reviews an isolated change and clear at ${width}px`, async ({ page }, testInfo) => {
@@ -230,7 +233,10 @@ test("Google Ads phone protects unsupported advertising fields", async ({ page }
   const section = page.locator("#section-advertising")
   await expect(section.getByLabel("Google Ads phone number", { exact: true })).toBeDisabled()
   await expect(section.getByRole("link", { name: "Manage advertising details in Google" })).toHaveAttribute("href", "https://business.google.com/locations")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // Nothing here is publishable while the unsupported data is protected: a
+  // clean profile editor draws no footer bar, so no Review or Publish action.
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Publish to Google", exact: true })).toHaveCount(0)
 })
 
 for (const width of [375, 768, 1280]) test(`Chain affiliation searches, reviews and clears without replacing siblings at ${width}px`, async ({ page }, testInfo) => {
@@ -329,7 +335,10 @@ test("Chain affiliation protects an unsupported provider resource with a Google 
   await expect(section.getByLabel("Search Google chains", { exact: true })).toBeDisabled()
   await expect(section.getByRole("link", { name: "Manage it in Google" })).toHaveAttribute("href", "https://business.google.com/locations")
   await expect(section.getByRole("status")).toContainText("cannot be edited safely")
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // Nothing here is publishable while the unsupported data is protected: a
+  // clean profile editor draws no footer bar, so no Review or Publish action.
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Publish to Google", exact: true })).toHaveCount(0)
 })
 
 for (const width of [375, 768, 1280]) test(`Related businesses review exact parent and child changes at ${width}px`, async ({ page }, testInfo) => {
@@ -414,13 +423,41 @@ for (const width of [375, 768, 1280]) test(`Related businesses review exact pare
 
 test("Related businesses preserve an unsupported parent while allowing child edits", async ({ page }) => {
   await mockShell(page)
-  await mockServiceAreaRead(page, { relationshipData: { parentLocation: { placeId: "ChIJ_unknown", relationType: "DEPARTMENT_OF", futureField: "preserved" } } })
+  const baseline = { relationshipData: { parentLocation: { placeId: "ChIJ_unknown", relationType: "DEPARTMENT_OF", futureField: "preserved" } } }
+  await mockServiceAreaRead(page, baseline)
+  // The frozen review a child edit prepares (registered after the GET-only
+  // stub, so it wins for the PUT).
+  const frozen: Record<string, unknown>[] = []
+  await page.route(/\/api\/locations\/location-management\/business-information(?:\?.*)?$/, (route) => {
+    if (route.request().method() !== "PUT") return route.fallback()
+    const body = route.request().postDataJSON()
+    frozen.push(body)
+    return route.fulfill({ json: { changeSet: { id: "00000000-0000-4000-8000-000000000035", locationName: "Camden Hotel", payload: body.payload, updateMask: body.updateMask, baseline, baselineHash: body.expectedGoogleHash, payloadHash: "c".repeat(64), requestedBy: "owner", approvedBy: null, requiresSecondApprover: false, canApprove: true, expiresAt: "2027-01-01T00:00:00Z" } } })
+  })
   await page.goto("/listings/location-management/profile")
   const section = page.locator("#section-related-businesses")
   await expect(section.getByLabel("Parent business place ID", { exact: true })).toBeDisabled()
   await expect(section.getByRole("link", { name: "Manage parent businesses in Google" })).toHaveAttribute("href", "https://business.google.com/locations")
   await expect(section.getByLabel("New child business place ID", { exact: true })).toBeEnabled()
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // Clean, the protected parent alone gives nothing to publish: no footer bar.
+  const reviewButton = page.getByRole("button", { name: "Review changes", exact: true })
+  await expect(reviewButton).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Publish to Google", exact: true })).toHaveCount(0)
+  // A child edit is allowed, brings Review in, and its frozen review carries
+  // only the children: the unsupported parent is neither masked nor sent.
+  const child = section.getByRole("group", { name: "Child businesses", exact: true })
+  await child.getByLabel("New child business place ID", { exact: true }).fill("ChIJ_new_child")
+  await child.getByRole("combobox").click()
+  await page.getByRole("option", { name: "Department", exact: true }).click()
+  await child.getByRole("button", { name: "Add child business", exact: true }).click()
+  await expect(reviewButton).toBeEnabled()
+  await reviewButton.click()
+  const review = page.getByRole("dialog", { name: "Review changes" })
+  await expect(review.getByText(/ChIJ_new_child/)).toBeVisible()
+  await expect(review.getByText(/ChIJ_unknown/)).toHaveCount(0)
+  expect(frozen).toHaveLength(1)
+  expect(frozen[0].updateMask).toEqual(["relationshipData.childrenLocations"])
+  expect(frozen[0].payload).toEqual({ relationshipData: { childrenLocations: [{ placeId: "ChIJ_new_child", relationType: "DEPARTMENT_OF" }] } })
 })
 
 test("Related businesses restore exact IDs and relationship types", async ({ page }) => {
@@ -508,7 +545,10 @@ test("Service areas preserve unsupported provider data and offer a Google handof
   await expect(section.getByRole("link", { name: "Manage service areas in Google" })).toHaveAttribute("href", "https://business.google.com/locations")
   await expect(section.getByRole("status")).toContainText("cannot preserve")
   await expect(section.getByRole("button", { name: "Add service area", exact: true })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toBeDisabled()
+  // Nothing here is publishable while the unsupported data is protected: a
+  // clean profile editor draws no footer bar, so no Review or Publish action.
+  await expect(page.getByRole("button", { name: "Review changes", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Publish to Google", exact: true })).toHaveCount(0)
 })
 
 for (const width of [375, 768, 1280]) test(`Service areas review conversion and exact places at ${width}px`, async ({ page }, testInfo) => {
@@ -917,8 +957,14 @@ test("Business profile editor renders live Google data with humanised fields", a
   // never the raw Google enum ("OPEN").
   await expect(page.getByRole("combobox", { name: "Open status" })).toHaveText("Open")
   // One primary action for the whole listing; publishing happens inside the
-  // review sheet it opens.
+  // review sheet it opens. A clean editor draws no footer bar; the first edit
+  // brings that one "Review changes" in, with no Publish beside it.
+  const name = page.getByRole("textbox", { name: "Business name" })
+  await expect(page.getByRole("button", { name: "Review changes" })).toHaveCount(0)
+  await name.fill(`${await name.inputValue()} edited`)
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Review changes" })).toHaveCount(1)
+  await expect(page.getByRole("button", { name: "Publish to Google" })).toHaveCount(0)
   // serviceItems has no typed control (spec §12 pressure valve) -> a
   // read-only note naming it, never raw JSON.
   await expect(page.getByText(/can edit yet/i)).toBeVisible()
@@ -1059,10 +1105,13 @@ test("Repeated enum answers preserve siblings in the saved review", async ({ pag
     return route.fulfill({ json: { businessInformation: { location: {}, attributes: baseline, attributeMetadata: [{ parent: name, displayName: "Payments", valueType: "REPEATED_ENUM", valueMetadata: [{ value: "cash", displayName: "Cash" }, { value: "card", displayName: "Card" }, { value: "cheque", displayName: "Cheque" }] }], locationHash: "a".repeat(64), attributesHash: "b".repeat(64), canPublish: true, writesEnabled: true } } })
   })
   await page.goto("/listings/location-management/profile")
-  await page.getByRole("combobox", { name: "Payments: Card" }).click()
-  await page.getByRole("option", { name: "No", exact: true }).click()
-  await expect(page.getByRole("combobox", { name: "Payments: Cash" })).toHaveText("Yes")
-  await expect(page.getByRole("combobox", { name: "Payments: Cheque" })).toHaveText("No")
+  // Each option is a Yes / No / Not set radio group (TriState).
+  const answer = (option: string, value: string) => page.getByRole("radiogroup", { name: `Payments: ${option}`, exact: true }).getByRole("radio", { name: value, exact: true })
+  await expect(answer("Card", "Not set")).toBeChecked()
+  await answer("Card", "No").click()
+  await expect(answer("Card", "No")).toBeChecked()
+  await expect(answer("Cash", "Yes")).toBeChecked()
+  await expect(answer("Cheque", "No")).toBeChecked()
   await page.getByRole("button", { name: "Review changes", exact: true }).click()
   const review = page.getByRole("dialog", { name: "Review changes" })
   await expect(review.getByText("Cash: Yes; Card: Not set; Cheque: No", { exact: true })).toBeVisible()
@@ -1144,8 +1193,11 @@ test("Lodging publishes only the frozen reviewed change and preserves sibling am
   await page.goto("/listings/location-management/profile")
   await page.getByRole("searchbox", { name: "Find a lodging detail" }).fill("Pets allowed")
   const lodging = page.getByRole("region", { name: "Lodging details", exact: true })
-  await lodging.getByRole("combobox", { name: "Pets allowed", exact: true }).click()
-  await page.getByRole("option", { name: "Yes", exact: true }).click()
+  // A lodging yes/no detail is one Yes / No / Not recorded radio group.
+  const pets = lodging.getByRole("radiogroup", { name: "Pets allowed", exact: true })
+  await expect(pets.getByRole("radio", { name: "No", exact: true })).toBeChecked()
+  await pets.getByRole("radio", { name: "Yes", exact: true }).click()
+  await expect(pets.getByRole("radio", { name: "Yes", exact: true })).toBeChecked()
   await page.getByRole("button", { name: "Review lodging changes" }).click()
   const review = page.getByRole("dialog", { name: "Review changes" })
   await expect(review.getByText("No", { exact: true })).toBeVisible()
