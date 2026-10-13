@@ -23,6 +23,7 @@ export function OverwriteConfirmDialog({
   requireAcknowledgement,
   acknowledgementLabel,
   pending,
+  pendingLabel = "Working…",
   onConfirm,
   children,
 }: {
@@ -36,6 +37,14 @@ export function OverwriteConfirmDialog({
   requireAcknowledgement: boolean
   acknowledgementLabel?: string
   pending: boolean
+  /**
+   * What the confirm button says while `pending`, in words that match what
+   * the action really does: "Preparing review…" for a step that only builds
+   * a review, "Accepting…" for a change to NabaPresence's copy. Only an
+   * action that writes to Google may say "Sending to Google…". The neutral
+   * default never claims a send.
+   */
+  pendingLabel?: string
   onConfirm: () => void
   /** Optional preview content rendered between the description and controls. */
   children?: React.ReactNode
@@ -70,7 +79,7 @@ export function OverwriteConfirmDialog({
             onClick={onConfirm}
             disabled={requireAcknowledgement && !ack}
             pending={pending}
-            pendingLabel="Sending to Google…"
+            pendingLabel={pendingLabel}
           >
             {confirmLabel}
           </Button>

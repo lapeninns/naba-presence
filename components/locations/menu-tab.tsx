@@ -17,6 +17,7 @@ import {
 } from "@/components/locations/menu-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
@@ -30,7 +31,6 @@ import {
   usePublishFlow,
   type PublishStep,
 } from "@/lib/editors/use-publish-flow"
-import { formatNumber } from "@/lib/format"
 import { countFoodMenus } from "@/lib/locations/forms/food-menus"
 import type { TabGateReasons } from "@/lib/locations/gating"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
@@ -59,14 +59,14 @@ export function MenuTab({ locationId }: { locationId: string }) {
             publishReason={publishReason}
           />
         ) : (
-          <div className="rounded-lg border border-line bg-surface">
+          <Card flush>
             <Empty
               icon={<UtensilsCrossed aria-hidden />}
               titleAs="h2"
               title="This location can’t have a food menu"
               description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
             />
-          </div>
+          </Card>
         )
       }
     </LocationTab>
@@ -83,7 +83,11 @@ function MenuForm({
   const editor = useEditorDraft({
     initial: state.canonicalMenus,
     revision: state.canonicalResource.revision,
-    scope: { resource: "location-menu", resourceId: locationId, schemaVersion: 1 },
+    scope: {
+      resource: "location-menu",
+      resourceId: locationId,
+      schemaVersion: 1,
+    },
   })
   const { draft, setDraft, isDirty, discard, expectSave } = editor
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -226,20 +230,6 @@ function MenuForm({
   const googleHasMenu = state.googleCounts.sections > 0
   const noMenu = draftCounts.sections === 0
 
-  const changeCount = rows.length
-  const statusLabel =
-    noMenu && !isDirty
-      ? googleHasMenu
-        ? "Menu only on Google"
-        : "No menu"
-      : changeCount > 0
-        ? `${isDirty ? "Unsaved here · " : "Saved here · "}${formatNumber(changeCount)} ${changeCount === 1 ? "change" : "changes"} not on Google`
-        : state.status === "in_sync" && !isDirty
-          ? noMenu
-            ? "No menu"
-            : "In sync with Google"
-          : undefined
-
   function review() {
     const found = validateMenu(draft)
     setChecked(true)
@@ -274,27 +264,27 @@ function MenuForm({
   }
 
   return (
+    // The area header already carries the h1 and the status pill (fed by
+    // EditorFooter), so the frame keeps its title for assistive tech only and
+    // adds no second pill. "No menu yet" is said by the empty state below.
     <EditorFrame
       title="Food menu"
-      statusLabel={statusLabel}
-      tone={
-        noMenu && !isDirty
-          ? "neutral"
-          : changeCount > 0
-            ? "attention"
-            : "healthy"
-      }
+      titleHidden
       description={
-        <>
-          Publishing replaces the whole food menu on Google, every menu, not
-          only what you changed.{" "}
-          <span className="font-mono tabular-nums">{draftCounts.menus}</span>{" "}
-          {draftCounts.menus === 1 ? "menu" : "menus"},{" "}
-          <span className="font-mono tabular-nums">{draftCounts.sections}</span>{" "}
-          {draftCounts.sections === 1 ? "section" : "sections"},{" "}
-          <span className="font-mono tabular-nums">{draftCounts.items}</span>{" "}
-          {draftCounts.items === 1 ? "item" : "items"}.
-        </>
+        noMenu && !isDirty ? undefined : (
+          <>
+            Publishing replaces the whole food menu on Google, every menu, not
+            only what you changed.{" "}
+            <span className="font-mono tabular-nums">{draftCounts.menus}</span>{" "}
+            {draftCounts.menus === 1 ? "menu" : "menus"},{" "}
+            <span className="font-mono tabular-nums">
+              {draftCounts.sections}
+            </span>{" "}
+            {draftCounts.sections === 1 ? "section" : "sections"},{" "}
+            <span className="font-mono tabular-nums">{draftCounts.items}</span>{" "}
+            {draftCounts.items === 1 ? "item" : "items"}.
+          </>
+        )
       }
       gateReason={editReason}
       footer={
@@ -346,7 +336,7 @@ function MenuForm({
       />
 
       {noMenu ? (
-        <div className="rounded-lg border border-line bg-surface">
+        <Card flush>
           <Empty
             icon={<UtensilsCrossed aria-hidden />}
             titleAs="h3"
@@ -376,7 +366,7 @@ function MenuForm({
               )
             }
           />
-        </div>
+        </Card>
       ) : (
         <MenuEditor
           menus={draft}
