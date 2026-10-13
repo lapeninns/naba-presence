@@ -266,7 +266,10 @@ function NotificationRow({
             <span>{copy.label}</span>
             {!item.readAt ? <span className="sr-only">(unread)</span> : null}
           </span>
-          <StatusPill tone={item.status === "open" ? "attention" : "outline"} plain>
+          <StatusPill
+            tone={item.status === "open" ? "attention" : "outline"}
+            plain
+          >
             {item.status === "open" ? "Open" : "Resolved"}
           </StatusPill>
         </p>
@@ -303,7 +306,11 @@ function NotificationRow({
             variant="default"
             disabled={busy}
             onClick={onResolve}
-            aria-label={`Yes, resolve: ${copy.label}`}
+            // The name starts with the words on the button (WCAG 2.5.3),
+            // including while it says "Resolving…".
+            aria-label={
+              busy ? `Resolving… ${copy.label}` : `Yes, resolve: ${copy.label}`
+            }
           >
             {busy ? "Resolving…" : "Yes, resolve"}
           </Button>

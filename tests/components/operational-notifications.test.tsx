@@ -213,6 +213,39 @@ describe("NotificationsView interactions", () => {
     expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false)
   })
 
+  it("names the pending confirm by the words it shows", async () => {
+    let release: () => void = () => {}
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith("/resolve"))
+          await new Promise<void>((resolve) => (release = resolve))
+        return new Response(
+          JSON.stringify(
+            String(url).endsWith("/resolve")
+              ? { resolved: true }
+              : { items: [item({})], nextCursor: null, unreadCount: 1 }
+          ),
+          { headers: { "content-type": "application/json" } }
+        )
+      })
+    )
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    )
+    // WCAG 2.5.3: the accessible name starts with the visible "Resolving…".
+    const pending = await screen.findByRole("button", {
+      name: "Resolving… Publishing failed",
+    })
+    expect(pending).toHaveTextContent("Resolving…")
+    expect(pending).toBeDisabled()
+    release()
+  })
+
   it("disables only the row a pending change touches", async () => {
     let release: () => void = () => {}
     vi.stubGlobal(
@@ -232,7 +265,9 @@ describe("NotificationsView interactions", () => {
     )
     renderWith(<NotificationsView />)
     fireEvent.click(
-      await screen.findByRole("button", { name: "Mark read: Publishing failed" })
+      await screen.findByRole("button", {
+        name: "Mark read: Publishing failed",
+      })
     )
     await waitFor(() =>
       expect(
@@ -256,7 +291,7 @@ describe("NotificationsView interactions", () => {
           ? new Response(
               JSON.stringify({
                 error: "internal_error",
-                message: "relation \"x\" does not exist",
+                message: 'relation "x" does not exist',
               }),
               { status: 500, headers: { "content-type": "application/json" } }
             )
@@ -272,7 +307,9 @@ describe("NotificationsView interactions", () => {
     )
     renderWith(<NotificationsView />)
     fireEvent.click(
-      await screen.findByRole("button", { name: "Mark read: Publishing failed" })
+      await screen.findByRole("button", {
+        name: "Mark read: Publishing failed",
+      })
     )
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).not.toMatch(/relation/)
