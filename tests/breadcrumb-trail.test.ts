@@ -1,3 +1,6 @@
+import fs from "node:fs"
+import path from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import { breadcrumbTrail } from "@/lib/ui/breadcrumb-trail"
@@ -65,6 +68,58 @@ describe("breadcrumbTrail", () => {
     expect(trail("/settings")).toEqual(["Settings"])
     expect(trail("/inbox")).toEqual(["Inbox"])
     expect(trail("/team")).toEqual(["Team"])
+  })
+
+  it("names every real /settings/<section> route the way its tab does", () => {
+    // Every page directory under app/(dashboard)/settings, with the label
+    // its settings tab (lib/settings/areas.ts) gives it.
+    const sections: [string, string][] = [
+      ["billing", "Billing"],
+      ["connections", "Google connections"],
+      ["notifications", "Notifications"],
+      ["operations", "Operations"],
+      ["policy", "Reply policy"],
+      ["privacy", "Data and privacy"],
+      ["security", "Sign-in security"],
+      ["usage", "Usage"],
+    ]
+    for (const [segment, label] of sections) {
+      const crumbs = breadcrumbTrail({
+        pathname: `/settings/${segment}`,
+        clients,
+        locations,
+      })
+      expect(crumbs).toEqual([
+        { label: "Settings", href: "/settings" },
+        { label },
+      ])
+    }
+    // A step inside a section keeps the section's name.
+    expect(trail("/settings/billing/confirming")).toEqual([
+      "Settings",
+      "Billing",
+    ])
+  })
+
+  it("covers every settings page directory on disk", () => {
+    const dir = path.join(process.cwd(), "app/(dashboard)/settings")
+    const routes = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          fs.existsSync(path.join(dir, entry.name, "page.tsx"))
+      )
+      .map((entry) => entry.name)
+    expect(routes.length).toBeGreaterThan(0)
+    for (const segment of routes) {
+      expect(trail(`/settings/${segment}`), segment).toHaveLength(2)
+    }
+  })
+
+  it("does not name an unknown settings path from the object prototype", () => {
+    expect(trail("/settings/constructor")).toEqual(["Settings"])
+    expect(trail("/settings/nope")).toEqual(["Settings"])
   })
 
   it("renders nothing for a path it does not recognise", () => {

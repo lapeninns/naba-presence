@@ -18,6 +18,10 @@ import { useBillingScreensEnabled } from "@/components/settings/billing-screens"
 import { useSettingsFeatures } from "@/components/settings/settings-features"
 import { useSettingsCapabilities } from "@/lib/queries/use-settings-capabilities"
 import {
+  SETTINGS_AREA_DEFINITIONS,
+  type SettingsAreaDefinition,
+} from "@/lib/settings/areas"
+import {
   privacyGating,
   settingsGatingFromRole,
   type PrivacyAccess,
@@ -36,126 +40,36 @@ import {
 // admins as the operational recovery view (scheduler, sync freshness, queued
 // work, unresolved writes, email delivery) the GBP operations brief requires.
 
-export type SettingsAreaCapability =
-  | "always"
-  | "canManageConnections"
-  | "canManageTeam"
-  | "canViewPrivacy"
-  | "mfa"
-  | "owner"
+export type { SettingsAreaCapability } from "@/lib/settings/areas"
 
-export type SettingsArea = {
-  id: string
-  href: string
-  /** One name everywhere: the tab, the index row and the page's h1. */
-  label: string
-  /** The index row's one line of what is inside. */
-  description: string
-  /** Personal areas are the signed-in person's own; workspace areas are shared. */
-  group: "personal" | "workspace"
-  capability: SettingsAreaCapability
-  /** Shown only while billing is switched on (BillingScreensProvider). */
-  billing?: true
-  /** On the phone's index only, never a settings tab (it lives elsewhere). */
-  indexOnly?: true
-  icon: React.ReactNode
+/** A settings area as the tab row and the phone's index draw it. */
+export type SettingsArea = SettingsAreaDefinition & { icon: React.ReactNode }
+
+const AREA_ICONS: Record<SettingsAreaDefinition["id"], React.ReactNode> = {
+  policy: <MessageSquareText />,
+  notifications: <Bell />,
+  security: <ShieldCheck />,
+  team: <Users />,
+  connections: <Globe />,
+  operations: <Activity />,
+  privacy: <Database />,
+  usage: <Gauge />,
+  billing: <CreditCard />,
 }
 
 /**
- * Every settings area, in tab order, with the rule that decides who sees it.
- * The tab row (SettingsNav) and the phone's index (SettingsIndex) both read
- * this one list, so they can never disagree. Each page enforces the same
- * rule server-side (AccessDenied / notFound); this only mirrors it.
+ * Every settings area, in tab order, with the rule that decides who sees it
+ * and its icon. The names, addresses and rules live in lib/settings/areas.ts
+ * (plain data, so the breadcrumb trail reads the same names); the tab row
+ * (SettingsNav) and the phone's index (SettingsIndex) both read this one
+ * list, so they can never disagree. Each page enforces the same rule
+ * server-side (AccessDenied / notFound); this only mirrors it.
  */
-export const SETTINGS_AREAS: readonly SettingsArea[] = [
-  {
-    id: "policy",
-    href: "/settings/policy",
-    label: "Reply policy",
-    description: "Approval, review retention and the defaults new work uses",
-    group: "workspace",
-    capability: "always",
-    icon: <MessageSquareText />,
-  },
-  {
-    id: "notifications",
-    href: "/settings/notifications",
-    label: "Notifications",
-    description: "What you hear about, in the app and by email",
-    group: "personal",
-    capability: "always",
-    icon: <Bell />,
-  },
-  // Two-step verification is per person, so every role sees it once the
-  // MFA_ENABLED flag is on (P02-S8).
-  {
-    id: "security",
-    href: "/settings/security",
-    label: "Sign-in security",
-    description: "Two-step verification for your sign-in",
-    group: "personal",
-    capability: "mfa",
-    icon: <ShieldCheck />,
-  },
-  {
-    id: "team",
-    href: "/team",
-    label: "Team",
-    description: "People, their roles and what they can publish",
-    group: "workspace",
-    capability: "canManageTeam",
-    indexOnly: true,
-    icon: <Users />,
-  },
-  {
-    id: "connections",
-    href: "/settings/connections",
-    label: "Google connections",
-    description: "Google logins, and real-time review alerts",
-    group: "workspace",
-    capability: "canManageConnections",
-    icon: <Globe />,
-  },
-  {
-    id: "operations",
-    href: "/settings/operations",
-    label: "Operations",
-    description: "Scheduler, sync, queued work and email health",
-    group: "workspace",
-    capability: "canManageConnections",
-    icon: <Activity />,
-  },
-  {
-    id: "privacy",
-    href: "/settings/privacy",
-    label: "Data and privacy",
-    description: "Reviewers’ data requests, legal holds and exports",
-    group: "workspace",
-    capability: "canViewPrivacy",
-    icon: <Database />,
-  },
-  // Plan P07-S6: the shared Usage screen and the owner-only Billing screen.
-  {
-    id: "usage",
-    href: "/settings/usage",
-    label: "Usage",
-    description: "AI reply credits and the locations your plan covers",
-    group: "workspace",
-    capability: "always",
-    billing: true,
-    icon: <Gauge />,
-  },
-  {
-    id: "billing",
-    href: "/settings/billing",
-    label: "Billing",
-    description: "Your plan, payment details and invoices",
-    group: "workspace",
-    capability: "owner",
-    billing: true,
-    icon: <CreditCard />,
-  },
-]
+export const SETTINGS_AREAS: readonly SettingsArea[] =
+  SETTINGS_AREA_DEFINITIONS.map((area) => ({
+    ...area,
+    icon: AREA_ICONS[area.id],
+  }))
 
 /**
  * Whether `pathname` is inside `area`. Reply policy has two addresses:

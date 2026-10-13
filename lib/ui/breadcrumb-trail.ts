@@ -1,4 +1,5 @@
 import type { Crumb } from "@/components/ui/breadcrumb"
+import { SETTINGS_SECTION_LABELS } from "@/lib/settings/areas"
 
 export type TrailInput = {
   pathname: string
@@ -38,18 +39,11 @@ const TOP_LEVEL: Record<string, string> = {
   setup: "Setup",
 }
 
-// The section names the Settings tabs use (components/settings/settings-nav
-// AREAS), so the trail and the phone back control name a section the way
-// its tab does. The Policy tab is /settings itself.
-const SETTINGS_SECTIONS: Record<string, string> = {
-  notifications: "Notifications",
-  security: "Sign-in security",
-  connections: "Google connections",
-  operations: "Operations",
-  privacy: "Data and privacy",
-  usage: "Usage",
-  billing: "Billing",
-}
+// The section names the Settings tabs use, read from the one settings area
+// list (lib/settings/areas.ts), so the trail and the phone back control name
+// every /settings/<section> page the way its tab and h1 do, with no second
+// copy to fall out of step. /settings itself is just "Settings".
+const SETTINGS_SECTIONS = SETTINGS_SECTION_LABELS
 
 /**
  * The breadcrumb trail for a path.
@@ -122,7 +116,12 @@ export function breadcrumbTrail({
   }
 
   if (first === "settings") {
-    const section = second ? SETTINGS_SECTIONS[second] : undefined
+    // An own key only, so a stray /settings/constructor isn't "named" by
+    // the object prototype.
+    const section =
+      second && Object.hasOwn(SETTINGS_SECTIONS, second)
+        ? SETTINGS_SECTIONS[second]
+        : undefined
     return [
       { label: "Settings", href: section ? "/settings" : undefined },
       ...(section ? [{ label: section }] : []),
