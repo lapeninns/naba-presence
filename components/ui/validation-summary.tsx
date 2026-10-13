@@ -3,6 +3,7 @@
 import { CircleAlert } from "lucide-react"
 import * as React from "react"
 
+import { useFormErrorScope } from "@/components/ui/field"
 import { cn } from "@/lib/utils"
 
 export type ValidationError = {
@@ -27,6 +28,14 @@ export type ValidationError = {
  * Keep the per-field `FieldError` too: the summary is how a keyboard or
  * screen-reader user finds the problems, the field error is how everyone
  * fixes them. Form values are untouched.
+ *
+ * Inside a `FormErrorScope` the summary tells the scope it is present, and
+ * the field errors stay silent while it shows — one alert per submit, not
+ * one per field.
+ *
+ * On a phone the summary would otherwise focus straight under the sticky app
+ * bar; the scroll margin keeps its heading in view, and the links scroll
+ * their field to the centre of what is left above the keyboard.
  */
 function ValidationSummary({
   errors,
@@ -44,6 +53,14 @@ function ValidationSummary({
   const ref = React.useRef<HTMLDivElement>(null)
   const titleId = React.useId()
   const hasErrors = errors.length > 0
+  const scope = useFormErrorScope()
+  const registerSummary = scope?.registerSummary
+
+  React.useLayoutEffect(() => {
+    if (!hasErrors || !registerSummary) return
+    registerSummary(true)
+    return () => registerSummary(false)
+  }, [hasErrors, registerSummary])
 
   React.useEffect(() => {
     if (autoFocus && hasErrors) ref.current?.focus()
@@ -63,7 +80,7 @@ function ValidationSummary({
       aria-labelledby={titleId}
       data-slot="validation-summary"
       className={cn(
-        "grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-danger-ink bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+        "grid scroll-mt-[calc(var(--np-appbar-h)+env(safe-area-inset-top)+12px)] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-danger-ink bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-[0_0_0_3px_var(--np-danger-tint)]",
         className
       )}
     >
@@ -87,7 +104,7 @@ function ValidationSummary({
                 target.scrollIntoView({ block: "center" })
                 target.focus({ preventScroll: true })
               }}
-              className="rounded-(--np-radius-tag) font-medium text-danger-ink underline underline-offset-3 focus-halo hover:decoration-2"
+              className="inline-block rounded-(--np-radius-tag) py-0.5 font-medium text-danger-ink underline underline-offset-3 focus-halo hover:decoration-2"
             >
               {error.message}
             </a>
