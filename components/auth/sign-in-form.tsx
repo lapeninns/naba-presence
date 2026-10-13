@@ -33,7 +33,6 @@ import {
 } from "@/lib/api/auth-errors"
 import { stashResetEmail } from "@/lib/api/reset-email"
 import type { WorkspaceMode } from "@/lib/contracts/session"
-import { loginSchema, registerSchema } from "@/lib/domain/auth"
 
 type SignInMode = "sign-in" | "create-account"
 
@@ -92,6 +91,11 @@ function zodFieldErrors(
   }
   return errors
 }
+
+// The form's validation schemas pull in zod, which the sign-in page would
+// otherwise download before it can render. They load on the first focus
+// inside the form (well before a submit) and a submit awaits them.
+const loadAuthSchemas = () => import("@/lib/domain/auth")
 
 function SignInForm({
   initialMode,
@@ -158,10 +162,25 @@ function SignInForm({
     onModeChange?.(next)
   }
 
+  // Set while a submit waits for the schemas, so a second press in that
+  // window does not send twice.
+  const validating = useRef(false)
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending) return
+    if (pending || validating.current) return
+    validating.current = true
+    void loadAuthSchemas()
+      .then((schemas) => submitWith(schemas))
+      .finally(() => {
+        validating.current = false
+      })
+  }
 
+  function submitWith({
+    loginSchema,
+    registerSchema,
+  }: Awaited<ReturnType<typeof loadAuthSchemas>>) {
     if (mode === "sign-in") {
       const parsed = loginSchema.safeParse({ email, password, inviteToken })
       if (!parsed.success) {
@@ -295,7 +314,12 @@ function SignInForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+    <form
+      onSubmit={handleSubmit}
+      onFocusCapture={() => void loadAuthSchemas()}
+      noValidate
+      className="flex flex-col gap-4"
+    >
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} email={email} />
