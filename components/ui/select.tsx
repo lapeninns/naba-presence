@@ -1,20 +1,50 @@
 "use client"
 
+import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
 
 import { useFieldTriggerProps } from "@/components/ui/field"
+import {
+  MenuCloseProvider,
+  MenuSheetCancel,
+  MenuSheetTitle,
+  menuGroupLabelClassName,
+  menuItemClassName,
+  menuPopupClassName,
+  menuSeparatorClassName,
+  menuSheetListClassName,
+  menuSheetPopupClassName,
+  menuSheetPositionerClassName,
+  menuSheetScrimClassName,
+  useMenuActions,
+  useMenuSheet,
+} from "@/components/ui/menu-surface"
 import { cn } from "@/lib/utils"
+
+/** Kept here for the callers that imported the menu recipe from Select. */
+export { menuItemClassName, menuPopupClassName }
 
 /**
  * The pop-up button (reference `.select`). The trigger is drawn as a field:
  * white, the 3:1 control edge, a caret on the right, the accent edge and
- * halo while open or focused. The popup is the reference `.menu`: white,
- * hairline edge, pop shadow, rows that highlight on the hover fill, and a
- * checkmark column for the chosen value.
+ * halo while open or focused. The popup is the shared menu: a floating
+ * panel on the desk, a bottom action sheet on a phone (see menu-surface).
  */
-function Select<Value>(props: SelectPrimitive.Root.Props<Value>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
+function Select<Value>({
+  actionsRef,
+  ...props
+}: SelectPrimitive.Root.Props<Value>) {
+  const { actions, close } = useMenuActions(actionsRef)
+  return (
+    <MenuCloseProvider close={close}>
+      <SelectPrimitive.Root
+        data-slot="select"
+        actionsRef={actions}
+        {...props}
+      />
+    </MenuCloseProvider>
+  )
 }
 
 /** Shared by SelectTrigger and the Combobox trigger so both read as one control. */
@@ -67,31 +97,11 @@ function SelectValue(props: SelectPrimitive.Value.Props) {
   return <SelectPrimitive.Value data-slot="select-value" {...props} />
 }
 
-/**
- * The menu popup recipe shared with Combobox (reference `.menu`): surface,
- * hairline edge, 10px radius, pop shadow, 6px inset. Base UI's Select aligns
- * the popup with the trigger item by default (`data-side="none"`), in which
- * case nothing scales — the menu simply appears over the trigger.
- */
-export const menuPopupClassName = cn(
-  "rounded-[10px] border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none",
-  "origin-(--transform-origin) transition-[transform,opacity] duration-(--np-duration-overlay) ease-spring",
-  "data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
-  "data-[side=none]:data-starting-style:scale-100 data-[side=none]:data-starting-style:opacity-100 data-[side=none]:data-starting-style:transition-none"
-)
-
-/** A menu row: 32px, tag radius, checkmark column, the hover fill when highlighted. */
-export const menuItemClassName = cn(
-  "relative flex min-h-(--np-menu-item-h) cursor-default items-center gap-2 rounded-(--np-radius-tag) py-1 pr-2.5 pl-8 text-ui text-ink outline-none select-none pointer-coarse:min-h-(--np-touch)",
-  "data-highlighted:bg-fill data-selected:font-semibold",
-  "data-disabled:pointer-events-none data-disabled:text-ink-muted",
-  "[&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-)
-
 function SelectContent({
   className,
   children,
   alignItemWithTrigger = true,
+  title,
   ...props
 }: SelectPrimitive.Popup.Props & {
   /**
@@ -102,18 +112,50 @@ function SelectContent({
    * an overlaying menu covers the thing the operator is filtering, and while
    * that content is still laying out the menu lands somewhere neither of them
    * agreed on. Dropping it below the control keeps it clear of both.
+   *
+   * The phone's action sheet ignores it: the sheet is never by the trigger.
    */
   alignItemWithTrigger?: boolean
+  /** A heading for the phone's action sheet ("Sort by"). */
+  title?: React.ReactNode
 }) {
+  const sheet = useMenuSheet()
+  if (sheet) {
+    // The list carries the listbox role, so the title and Cancel can sit in
+    // the popup without being read as options.
+    return (
+      <SelectPrimitive.Portal>
+        <SelectPrimitive.Backdrop className={menuSheetScrimClassName} />
+        <SelectPrimitive.Positioner
+          alignItemWithTrigger={false}
+          className={menuSheetPositionerClassName}
+        >
+          <SelectPrimitive.Popup
+            data-slot="select-content"
+            data-presentation="sheet"
+            className={cn(menuSheetPopupClassName, className)}
+            {...props}
+          >
+            {title ? <MenuSheetTitle>{title}</MenuSheetTitle> : null}
+            <SelectPrimitive.List className={menuSheetListClassName}>
+              {children}
+            </SelectPrimitive.List>
+            <MenuSheetCancel />
+          </SelectPrimitive.Popup>
+        </SelectPrimitive.Positioner>
+      </SelectPrimitive.Portal>
+    )
+  }
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner
         sideOffset={6}
         alignItemWithTrigger={alignItemWithTrigger}
-        className="z-50"
+        className="z-popover"
       >
         <SelectPrimitive.Popup
           data-slot="select-content"
+          data-presentation="popover"
           className={cn(
             menuPopupClassName,
             "max-h-[min(24rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto",
@@ -160,10 +202,7 @@ function SelectGroupLabel({
   return (
     <SelectPrimitive.GroupLabel
       data-slot="select-group-label"
-      className={cn(
-        "px-2.5 pt-1.5 pb-0.5 text-[11.5px] font-medium text-ink-muted",
-        className
-      )}
+      className={cn(menuGroupLabelClassName, className)}
       {...props}
     />
   )
@@ -176,7 +215,7 @@ function SelectSeparator({
   return (
     <SelectPrimitive.Separator
       data-slot="select-separator"
-      className={cn("mx-0.5 my-1 h-px bg-line", className)}
+      className={cn(menuSeparatorClassName, className)}
       {...props}
     />
   )

@@ -4,10 +4,38 @@ import * as React from "react"
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { CheckIcon, ChevronRightIcon } from "lucide-react"
 
+import {
+  MenuCloseProvider,
+  MenuSheetCancel,
+  MenuSheetTitle,
+  menuGroupLabelClassName,
+  menuRowClassName,
+  menuSeparatorClassName,
+  menuSheetListClassName,
+  menuSheetPopupClassName,
+  menuSheetPositionerClassName,
+  menuSheetScrimClassName,
+  useMenuActions,
+  useMenuSheet,
+} from "@/components/ui/menu-surface"
 import { cn } from "@/lib/utils"
 
-function DropdownMenu(props: MenuPrimitive.Root.Props) {
-  return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+/**
+ * An action menu. A floating panel by its trigger on the desk; a bottom
+ * action sheet on a phone, with an optional `title` on the content and a
+ * Cancel under the rows (see menu-surface).
+ */
+function DropdownMenu({ actionsRef, ...props }: MenuPrimitive.Root.Props) {
+  const { actions, close } = useMenuActions(actionsRef)
+  return (
+    <MenuCloseProvider close={close}>
+      <MenuPrimitive.Root
+        data-slot="dropdown-menu"
+        actionsRef={actions}
+        {...props}
+      />
+    </MenuCloseProvider>
+  )
 }
 function DropdownMenuTrigger(props: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
@@ -19,8 +47,9 @@ type PositionProps = Pick<
 >
 
 /**
- * The popup (reference `.menu`): surface, hairline edge, 10px radius, pop
- * shadow, 6px inset, at least 200px wide (never wider than the viewport).
+ * The floating popup (reference `.menu`): surface, hairline edge, 10px
+ * radius, pop shadow, 6px inset, at least 200px wide (never wider than the
+ * viewport).
  */
 const popupClassName =
   "flex max-h-[min(var(--available-height),32rem)] max-w-[calc(100vw-24px)] min-w-[200px] origin-(--transform-origin) flex-col gap-px overflow-y-auto rounded-[10px] border border-line bg-surface p-1.5 text-ink shadow-np-pop outline-none transition-[opacity,scale] duration-(--np-duration-overlay) ease-spring data-starting-style:scale-[0.98] data-starting-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard"
@@ -32,8 +61,39 @@ function DropdownMenuContent({
   align = "end",
   sideOffset = 6,
   alignOffset,
+  title,
   ...props
-}: MenuPrimitive.Popup.Props & PositionProps) {
+}: MenuPrimitive.Popup.Props &
+  PositionProps & {
+    /** A heading for the phone's action sheet ("Reply actions"). */
+    title?: React.ReactNode
+  }) {
+  const sheet = useMenuSheet()
+  if (sheet) {
+    // `Menu.List` takes the menu role, leaving the title and Cancel outside
+    // the menu's rows. The desk placement props have nothing to place.
+    return (
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.Backdrop className={menuSheetScrimClassName} />
+        <MenuPrimitive.Positioner className={menuSheetPositionerClassName}>
+          <MenuPrimitive.Popup
+            data-slot="dropdown-menu-content"
+            data-presentation="sheet"
+            className={cn(menuSheetPopupClassName, className)}
+            {...props}
+          >
+            {title ? <MenuSheetTitle>{title}</MenuSheetTitle> : null}
+            <MenuPrimitive.List
+              className={cn(menuSheetListClassName, "flex flex-col gap-px")}
+            >
+              {children}
+            </MenuPrimitive.List>
+            <MenuSheetCancel />
+          </MenuPrimitive.Popup>
+        </MenuPrimitive.Positioner>
+      </MenuPrimitive.Portal>
+    )
+  }
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -41,10 +101,11 @@ function DropdownMenuContent({
         align={align}
         sideOffset={sideOffset}
         alignOffset={alignOffset}
-        className="z-50 outline-none"
+        className="z-popover outline-none"
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
+          data-presentation="popover"
           className={cn(popupClassName, className)}
           {...props}
         >
@@ -56,13 +117,14 @@ function DropdownMenuContent({
 }
 
 /**
- * A menu row (reference `.menu [role=menuitem]`): 32px (44px on coarse
- * pointers), the tag radius, label with an optional leading glyph and a
- * trailing shortcut. Highlight is the hover fill. Disabled rows stay
- * readable in muted ink so a reason under them can be read.
+ * A menu row (reference `.menu [role=menuitem]`): the shared menu row with
+ * a muted leading glyph and a trailing shortcut. Disabled rows stay
+ * focusable and readable so a reason under them can be read.
  */
-const itemClassName =
-  "group/item relative flex min-h-(--np-menu-item-h) cursor-default items-center gap-2.5 rounded-(--np-radius-tag) px-2.5 py-1 text-ui text-ink outline-none select-none pointer-coarse:min-h-(--np-touch) data-highlighted:bg-fill data-disabled:cursor-not-allowed data-disabled:text-ink-muted [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-ink-muted [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
+const itemClassName = cn(
+  menuRowClassName,
+  "data-disabled:cursor-not-allowed [&_svg]:text-ink-muted [&_svg]:[stroke-width:1.75]"
+)
 
 const destructiveItemClassName =
   "text-danger-ink data-highlighted:bg-danger-tint [&_svg]:text-danger-ink"
@@ -180,7 +242,7 @@ function DropdownMenuLabel({
   return (
     <MenuPrimitive.GroupLabel
       data-slot="dropdown-menu-label"
-      className={cn("px-2.5 pt-1.5 pb-0.5 text-[11.5px] font-medium text-ink-muted", className)}
+      className={cn(menuGroupLabelClassName, className)}
       {...props}
     />
   )
@@ -193,7 +255,7 @@ function DropdownMenuSeparator({
   return (
     <MenuPrimitive.Separator
       data-slot="dropdown-menu-separator"
-      className={cn("mx-0.5 my-1 border-t border-line", className)}
+      className={cn(menuSeparatorClassName, className)}
       {...props}
     />
   )
@@ -211,7 +273,7 @@ function DropdownMenuShortcut({
     <kbd
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "ml-auto pl-4 font-mono text-[11px] text-ink-muted",
+        "ml-auto pl-4 font-mono text-caption text-ink-muted",
         className
       )}
       {...props}
@@ -256,7 +318,7 @@ function DropdownMenuSubContent({
         align={align}
         sideOffset={sideOffset}
         alignOffset={alignOffset}
-        className="z-50 outline-none"
+        className="z-popover outline-none"
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-sub-content"
