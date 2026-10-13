@@ -243,6 +243,16 @@ describe("ReplyComposer — the editor", () => {
     ).toBeTruthy()
   })
 
+  // The shared segmented control, not a local copy: its track scrolls inside
+  // itself with a focusable radio in it, and the box grows with the reply.
+  it("draws the tone as the segmented control and grows the box with the text", () => {
+    mount()
+    expect(
+      screen.getByRole("radiogroup", { name: "Reply tone" })
+    ).toHaveAttribute("data-slot", "segmented-control-track")
+    expect(textbox()).toHaveAttribute("data-autosize", "true")
+  })
+
   it("ticks the reply guidance off as they type, without blocking anything", async () => {
     const user = userEvent.setup()
     mount()
@@ -303,18 +313,64 @@ describe("ReplyComposer — the editor", () => {
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "warm_professional" })
   })
 
-  it("regenerates in a tone chosen on the editor bar once there is a reply", async () => {
+  // A tone is a setting, not an action: choosing one never writes a reply
+  // or spends a credit. Generate then says which tone it will write in.
+  it("only sets the tone over a reply; Generate then regenerates in it", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
     await user.click(screen.getByRole("radio", { name: "Empathetic" }))
+    expect(screen.getByRole("radio", { name: "Empathetic" })).toBeChecked()
+    expect(mutateAsync).not.toHaveBeenCalled()
+    expect(textbox()).toHaveValue("Existing draft body")
+    await user.click(
+      screen.getByRole("button", { name: "Regenerate in Empathetic" })
+    )
     expect(mutateAsync).toHaveBeenCalledWith({ tone: "empathetic" })
+    // Written in that tone, the button goes back to its short name.
+    expect(
+      await screen.findByRole("button", { name: "Regenerate" })
+    ).toBeInTheDocument()
   })
 
-  it("confirms before a tone change replaces unsaved edits", async () => {
+  it("moves the tone with the arrow keys, from one tab stop, writing nothing", async () => {
+    const user = userEvent.setup()
+    const mutateAsync = mount(EXISTING)
+    const warm = screen.getByRole("radio", { name: "Warm" })
+    expect(warm).toHaveAttribute("tabindex", "0")
+    expect(screen.getByRole("radio", { name: "Concise" })).toHaveAttribute(
+      "tabindex",
+      "-1"
+    )
+    warm.focus()
+    await user.keyboard("{ArrowRight}")
+    const concise = screen.getByRole("radio", { name: "Concise" })
+    expect(concise).toHaveFocus()
+    expect(concise).toBeChecked()
+    await user.keyboard("{ArrowRight}")
+    expect(screen.getByRole("radio", { name: "Empathetic" })).toBeChecked()
+    await user.keyboard("{ArrowLeft}")
+    expect(concise).toBeChecked()
+    expect(mutateAsync).not.toHaveBeenCalled()
+  })
+
+  it("names each tone by its label and describes it, with no hover-only hint", () => {
+    mount()
+    for (const radio of screen.getAllByRole("radio")) {
+      expect(radio).not.toHaveAttribute("title")
+      expect(radio).toHaveAccessibleDescription(/\w/)
+    }
+  })
+
+  it("confirms before regenerating in a new tone over unsaved edits", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING)
     await user.type(textbox(), "!")
     await user.click(screen.getByRole("radio", { name: "Concise" }))
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    expect(textbox()).toHaveValue("Existing draft body!")
+    await user.click(
+      screen.getByRole("button", { name: "Regenerate in Concise" })
+    )
     expect(screen.getByRole("alertdialog")).toBeInTheDocument()
     expect(mutateAsync).not.toHaveBeenCalled()
     await user.click(
@@ -372,7 +428,9 @@ describe("ReplyComposer — the editor", () => {
     await waitFor(() => expect(textbox()).toHaveFocus())
   })
 
-  it("keeps the editor read-only, and unfocused, when the operator may not edit", async () => {
+  // A viewer reads the reply; nothing on screen looks typeable or pressable.
+  it("shows the reply as text, with no editor, to someone who may not edit", async () => {
+    const before = document.activeElement
     mount({
       ...SETTLED,
       capabilities: {
@@ -381,11 +439,44 @@ describe("ReplyComposer — the editor", () => {
         canRequestApproval: false,
       },
     })
-    expect(textbox()).toHaveAttribute("readonly")
-    expect(screen.getByRole("button", { name: "Regenerate" })).toBeDisabled()
+    const reply = document.querySelector('[data-slot="reply-readonly"]')
+    expect(reply).toHaveTextContent("Thanks for the kind words!")
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button")).not.toBeInTheDocument()
+    expect(screen.queryByRole("list", { name: "Reply guidance" })).toBeNull()
     fireEvent(window, new Event(REPLY_FOCUS_EVENT))
     await new Promise((resolve) => requestAnimationFrame(resolve))
-    expect(textbox()).not.toHaveFocus()
+    expect(document.activeElement).toBe(before)
+  })
+
+  it("says there is no reply yet to someone who may not edit", () => {
+    mount(
+      {
+        capabilities: {
+          canPublish: false,
+          canEdit: false,
+          canRequestApproval: false,
+        },
+      },
+      undefined,
+      { used: 0, remaining: 200 }
+    )
+    expect(
+      document.querySelector('[data-slot="reply-readonly"]')
+    ).toHaveTextContent("No reply yet.")
+    expect(screen.queryByText(/credits left/)).not.toBeInTheDocument()
+  })
+
+  // Not a viewer: an editor waits for Google, and the box stays read-only
+  // (not disabled) until the publish lands.
+  it("keeps the editor read-only while a publish is under way", () => {
+    mount({ ...EXISTING, workflowStatus: "publish_requested" })
+    expect(textbox()).toHaveAttribute("readonly")
+    expect(screen.getByRole("radio", { name: "Warm" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    )
   })
 
   // ⌘/Ctrl+Enter does exactly what the publish bar's button does, by asking
@@ -428,7 +519,7 @@ describe("ReplyComposer — AI credits", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 
-  it("does not regenerate from a tone change when out of credits", async () => {
+  it("does not write anything from a tone change when out of credits", async () => {
     const user = userEvent.setup()
     const mutateAsync = mount(EXISTING, undefined, { used: 200, remaining: 0 })
     await user.click(screen.getByRole("radio", { name: "Concise" }))
