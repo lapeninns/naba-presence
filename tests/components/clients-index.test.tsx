@@ -250,7 +250,9 @@ describe("ClientsIndex", () => {
     expect(card).toHaveAttribute("href", "/clients/c1")
     expect(card).toHaveTextContent("Action needed")
     expect(card).toHaveTextContent("3open reviews")
-    expect(card).toHaveTextContent("3 listings · Google login needs reconnecting")
+    expect(card).toHaveTextContent(
+      "3 listings · Google login needs reconnecting"
+    )
   })
 
   it("keeps the name search in the address, written once typing pauses", async () => {
@@ -337,10 +339,13 @@ describe("ClientsIndex", () => {
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
       if (init?.method === "PATCH")
-        return new Response(JSON.stringify({ client: { ...archived, archivedAt: null } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        })
+        return new Response(
+          JSON.stringify({ client: { ...archived, archivedAt: null } }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
       const items = url.includes("archived=1") ? [archived] : [base]
       return new Response(
         JSON.stringify({ items, unassignedLocationCount: 0 }),
@@ -359,7 +364,9 @@ describe("ClientsIndex", () => {
       await screen.findByRole("button", { name: "Restore Closed Inn" })
     )
     expect(await screen.findByText("Closed Inn restored")).toBeInTheDocument()
-    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH")
+    const patch = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === "PATCH"
+    )
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
       archived: false,
     })

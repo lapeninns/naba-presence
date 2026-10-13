@@ -314,7 +314,9 @@ describe("health filters", () => {
 
   it("does not promise automatic recovery for canonical comparison problems", () => {
     expect(healthLabel("attention")).toBe("Needs attention")
-    expect(healthDescription("attention")).not.toMatch(/nothing for you to do|retry on our own/i)
+    expect(healthDescription("attention")).not.toMatch(
+      /nothing for you to do|retry on our own/i
+    )
   })
 })
 
