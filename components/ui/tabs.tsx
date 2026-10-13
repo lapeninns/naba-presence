@@ -42,7 +42,7 @@ function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
  * to without drawing a scrollbar.
  */
 const tabsRowClassName = cn(
-  "relative flex min-w-0 items-end gap-1 overflow-x-auto border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+  "relative flex min-w-0 [scrollbar-width:none] items-end gap-1 overflow-x-auto border-b border-line [&::-webkit-scrollbar]:hidden",
   "data-[fade=end]:[mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)]",
   "data-[fade=start]:[mask-image:linear-gradient(to_left,#000_calc(100%-2.5rem),transparent)]",
   "data-[fade=both]:[mask-image:linear-gradient(to_right,transparent,#000_2.5rem,#000_calc(100%-2.5rem),transparent)]"
@@ -93,7 +93,10 @@ function scrollCurrentIntoRow(row: HTMLElement, current: HTMLElement | null) {
     start + box.width <= row.scrollLeft + row.clientWidth
   if (visible) return
   const left = start - (row.clientWidth - box.width) / 2
-  row.scrollLeft = Math.max(0, Math.min(left, row.scrollWidth - row.clientWidth))
+  row.scrollLeft = Math.max(
+    0,
+    Math.min(left, row.scrollWidth - row.clientWidth)
+  )
 }
 
 /**
@@ -141,7 +144,7 @@ function useCurrentInView(
 
 /** One tab or tab link. */
 const tabItemClassName = cn(
-  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover-fine:hover:text-ink disabled:pointer-events-none disabled:opacity-50 desk:h-10",
+  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
   "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
@@ -229,10 +232,15 @@ function TabsTab({
 }
 
 function TabsPanel({ className, ...props }: TabsPrimitive.Panel.Props) {
+  // The panel is a Tab stop (Base UI), so it shows where focus is (WCAG
+  // 2.4.7); the ring sits inside the box so a clipping parent cannot hide it.
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-panel"
-      className={cn("outline-none", className)}
+      className={cn(
+        "rounded-(--np-radius-card) outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset",
+        className
+      )}
       {...props}
     />
   )

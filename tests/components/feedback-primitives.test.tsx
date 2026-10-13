@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/outcome-summary"
 import { OperationOutcomeNotice } from "@/components/ui/operation-outcome"
 import { QueryStates } from "@/components/ui/query-states"
-import { TabNav, Tabs, TabsList, TabsTab } from "@/components/ui/tabs"
+import { TabNav, Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
 import {
   ERROR_TOAST_TIMEOUT,
   ACTION_TOAST_TIMEOUT,
@@ -470,6 +470,24 @@ describe("TabNav", () => {
     expect(tab.className).toContain("h-11")
     expect(tab.className).toContain("desk:h-10")
     expect(tab.className).not.toContain("pointer-coarse")
+  })
+
+  it("shows where focus is when its panel is the Tab stop (WCAG 2.4.7)", () => {
+    render(
+      <Tabs defaultValue="a">
+        <TabsList>
+          <TabsTab value="a">A</TabsTab>
+        </TabsList>
+        <TabsPanel value="a">Panel A</TabsPanel>
+      </Tabs>
+    )
+    const panel = screen.getByRole("tabpanel")
+    // Base UI makes the panel focusable; it must draw a focus indicator,
+    // inside its box so a clipping parent cannot hide it.
+    expect(panel).toHaveAttribute("tabindex", "0")
+    expect(panel.className).toContain("focus-visible:ring-2")
+    expect(panel.className).toContain("focus-visible:ring-inset")
+    expect(panel.className).toContain("focus-visible:ring-(--np-focus-ring)")
   })
 })
 
