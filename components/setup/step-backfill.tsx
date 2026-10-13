@@ -74,7 +74,7 @@ function StepBackfill({
       ) : (
         <BackfillCard externalLocationIds={externalLocationIds} />
       )}
-      <p className="text-caption text-ink-muted">
+      <p className="text-ui text-ink-muted">
         {business
           ? "The import keeps going if you move on. Listings shows how far it has got."
           : `The import keeps going if you move on. ${clientName}’s client page shows how far it has got.`}

@@ -26,13 +26,17 @@ function StepLocations({
 }) {
   return (
     <>
-      <p className="text-ui text-ink-muted">
+      <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink-muted">
         {business
           ? "Link the listings that belong to your business. A listing that was linked before keeps its review history."
           : `Listings you link here belong to ${clientName}. A listing already linked to another client keeps its review history when you move it.`}
       </p>
       <ImportCard clientId={clientId} connectionId={connectionId} />
-      <OnboardingDrafts clientId={clientId} connectionId={connectionId} onDirtyChange={onDirtyChange} />
+      <OnboardingDrafts
+        clientId={clientId}
+        connectionId={connectionId}
+        onDirtyChange={onDirtyChange}
+      />
     </>
   )
 }
