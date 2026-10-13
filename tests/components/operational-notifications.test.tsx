@@ -2,11 +2,42 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/notifications",
-  useSearchParams: () => new URLSearchParams(),
-}))
+// A working address bar: router.replace rewrites what useSearchParams reads.
+const nav = vi.hoisted(() => {
+  let search = ""
+  const listeners = new Set<() => void>()
+  return {
+    get search() {
+      return search
+    },
+    set(next: string) {
+      search = next
+      listeners.forEach((listener) => listener())
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => void listeners.delete(listener)
+    },
+  }
+})
+vi.mock("next/navigation", async () => {
+  const React = await import("react")
+  return {
+    useRouter: () => ({
+      replace: (url: string) => nav.set(url.split("?")[1] ?? ""),
+      push: vi.fn(),
+    }),
+    usePathname: () => "/notifications",
+    useSearchParams: () =>
+      new URLSearchParams(
+        React.useSyncExternalStore(
+          nav.subscribe,
+          () => nav.search,
+          () => nav.search
+        )
+      ),
+  }
+})
 
 import { NotificationsView } from "@/components/notifications/notifications-view"
 import { NotificationPreferences } from "@/components/settings/notification-preferences"
@@ -59,6 +90,7 @@ const renderWith = (node: React.ReactNode) =>
     </QueryClientProvider>
   )
 afterEach(() => {
+  nav.set("")
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -91,6 +123,11 @@ describe("NotificationsView", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Resolve: Publishing failed" })
     )
+    // Resolving closes it for everyone and cannot be undone: it asks first.
+    expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false)
+    fireEvent.click(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    )
     await waitFor(() =>
       expect(
         calls.some((call) =>
@@ -122,6 +159,124 @@ describe("NotificationsView", () => {
     expect(
       screen.getByRole("link", { name: "Open listing for Listing access lost" })
     ).toHaveAttribute("href", `/listings/${LOCATION}`)
+  })
+})
+
+describe("NotificationsView interactions", () => {
+  const second = item({
+    id: "33333333-3333-4333-8333-333333333333",
+    kind: "listing_access_lost",
+  })
+
+  it("keeps the filter in the URL and reads it back", async () => {
+    const calls = stub(() => ({
+      items: [item({})],
+      nextCursor: null,
+      unreadCount: 1,
+    }))
+    const first = renderWith(<NotificationsView />)
+    await screen.findByText("Publishing failed")
+    fireEvent.click(screen.getByRole("tab", { name: "Unread" }))
+    expect(nav.search).toBe("filter=unread")
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.includes("filter=unread"))).toBe(
+        true
+      )
+    )
+    first.unmount()
+    renderWith(<NotificationsView />)
+    expect(await screen.findByRole("tab", { name: "Unread" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
+    fireEvent.click(screen.getByRole("tab", { name: "All" }))
+    expect(nav.search).toBe("")
+  })
+
+  it("cancels a resolve without sending it", async () => {
+    const calls = stub(() => ({
+      items: [item({})],
+      nextCursor: null,
+      unreadCount: 1,
+    }))
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    expect(
+      screen.getByRole("button", { name: "Yes, resolve: Publishing failed" })
+    ).toHaveFocus()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(
+      screen.getByRole("button", { name: "Resolve: Publishing failed" })
+    ).toBeInTheDocument()
+    expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false)
+  })
+
+  it("disables only the row a pending change touches", async () => {
+    let release: () => void = () => {}
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).endsWith("/api/notifications/read"))
+          await new Promise<void>((resolve) => (release = resolve))
+        return new Response(
+          JSON.stringify(
+            String(url).endsWith("/read")
+              ? { updated: 1 }
+              : { items: [item({}), second], nextCursor: null, unreadCount: 2 }
+          ),
+          { headers: { "content-type": "application/json" } }
+        )
+      })
+    )
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark read: Publishing failed" })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Mark read: Publishing failed" })
+      ).toBeDisabled()
+    )
+    expect(
+      screen.getByRole("button", { name: "Mark read: Listing access lost" })
+    ).toBeEnabled()
+    expect(
+      screen.getByRole("button", { name: "Resolve: Listing access lost" })
+    ).toBeEnabled()
+    release()
+  })
+
+  it("explains a failed change in plain words", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).endsWith("/read")
+          ? new Response(
+              JSON.stringify({
+                error: "internal_error",
+                message: "relation \"x\" does not exist",
+              }),
+              { status: 500, headers: { "content-type": "application/json" } }
+            )
+          : new Response(
+              JSON.stringify({
+                items: [item({})],
+                nextCursor: null,
+                unreadCount: 1,
+              }),
+              { headers: { "content-type": "application/json" } }
+            )
+      )
+    )
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Mark read: Publishing failed" })
+    )
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).not.toMatch(/relation/)
+    expect(alert.textContent?.length).toBeGreaterThan(0)
   })
 })
 
