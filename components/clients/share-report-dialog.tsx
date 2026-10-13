@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
@@ -52,7 +53,7 @@ import {
 import { useCloseGuard } from "@/lib/editors/use-close-guard"
 import { useLeaveGuard, type LeavePrompt } from "@/lib/editors/use-leave-guard"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { useReportShares } from "@/lib/queries/use-report-shares"
 import { formatDay } from "@/lib/settings/roles"
@@ -541,9 +542,16 @@ function ExistingLinks({
                 <span className="text-caption text-ink-muted">
                   Created by {share.createdByName ?? "a former teammate"}{" "}
                   {formatDay(share.createdAt)} ·{" "}
-                  {share.viewCount === 0
-                    ? "Not opened yet"
-                    : `${formatNumber(share.viewCount)} ${share.viewCount === 1 ? "view" : "views"}, last ${formatRelativeTime(share.lastViewedAt ?? share.createdAt)}`}
+                  {share.viewCount === 0 ? (
+                    "Not opened yet"
+                  ) : (
+                    <>
+                      {`${formatNumber(share.viewCount)} ${share.viewCount === 1 ? "view" : "views"}, last `}
+                      <RelativeTime
+                        iso={share.lastViewedAt ?? share.createdAt}
+                      />
+                    </>
+                  )}
                 </span>
               </div>
               {share.status === "active" ? (

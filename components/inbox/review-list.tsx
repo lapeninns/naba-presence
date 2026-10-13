@@ -4,10 +4,11 @@ import { useEffect, useRef } from "react"
 import { GlobeIcon, ImageIcon } from "lucide-react"
 
 import { Checkbox } from "@/components/ui/checkbox"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { replyStatusPill } from "@/components/inbox/situation-tone"
-import { formatDate, formatDateTime, formatRelativeTime } from "@/lib/format"
+import { formatDate, formatDateTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
@@ -45,10 +46,24 @@ export function wasEdited(createTime: string, updateTime: string): boolean {
  * anything older, and the year only once it is not this year — so a backlog
  * from 2024 still says so instead of "2 years ago".
  */
-function listTime(iso: string, timezone: string): string {
-  const age = Date.now() - new Date(iso).getTime()
-  if (age >= 0 && age < ONE_DAY_MS) return formatRelativeTime(iso)
-  return formatDate(iso, timezone)
+function ListTime({
+  iso,
+  timezone,
+  edited,
+}: {
+  iso: string
+  timezone: string
+  edited: boolean
+}) {
+  return (
+    <RelativeTime
+      as="span"
+      aria-hidden
+      iso={iso}
+      within={{ ms: ONE_DAY_MS, otherwise: formatDate(iso, timezone) }}
+      suffix={edited ? " · edited" : ""}
+    />
+  )
 }
 
 /** The rating as the row names it: "4 stars", "1 star". */
@@ -355,12 +370,11 @@ function ReviewList({
                       title={exactTime}
                       className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
                     >
-                      {/* Relative, so the server and the hydrating browser
-                          can read the clock a minute apart. */}
-                      <span aria-hidden suppressHydrationWarning>
-                        {listTime(review.createTime, timezone)}
-                        {edited ? " · edited" : ""}
-                      </span>
+                      <ListTime
+                        iso={review.createTime}
+                        timezone={timezone}
+                        edited={edited}
+                      />
                       <span className="sr-only">{exactTime}</span>
                     </time>
                   </span>

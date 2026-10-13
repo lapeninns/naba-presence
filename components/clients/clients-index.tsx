@@ -35,6 +35,7 @@ import { DataTable } from "@/components/ui/data-table"
 import { Empty } from "@/components/ui/empty"
 import { SearchInput } from "@/components/ui/input"
 import { QueryError } from "@/components/ui/query-states"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
@@ -51,7 +52,7 @@ import {
 } from "@/lib/clients/health"
 import type { ClientSummary } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatDate, formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatDate, formatNumber } from "@/lib/format"
 import {
   useArchivedClients,
   useClientMutations,
@@ -445,9 +446,11 @@ function ClientsIndex({ role }: { role: string | null }) {
                         : "text-ink-muted"
                     }
                   >
-                    {client.lastSyncAt
-                      ? formatRelativeTime(client.lastSyncAt)
-                      : "Not yet"}
+                    {client.lastSyncAt ? (
+                      <RelativeTime iso={client.lastSyncAt} />
+                    ) : (
+                      "Not yet"
+                    )}
                   </span>
                 ),
               },

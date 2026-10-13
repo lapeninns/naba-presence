@@ -24,6 +24,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
@@ -36,7 +37,7 @@ import {
   TableSelectAllLabel,
 } from "@/components/ui/table"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import {
   googleChangedCount,
   listingHealth,
@@ -126,9 +127,11 @@ const HEALTH_ORDER: Record<ListingHealth, number> = {
 function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
   const freshness = summary?.freshness
   if (!freshness) return null
-  const checked = freshness.lastCheckedAt
-    ? `Reviews checked ${formatRelativeTime(freshness.lastCheckedAt)}`
-    : "Reviews not checked yet"
+  const checked = freshness.lastCheckedAt ? (
+    <RelativeTime iso={freshness.lastCheckedAt} prefix="Reviews checked " />
+  ) : (
+    "Reviews not checked yet"
+  )
   return (
     <span
       className={cn(
@@ -138,9 +141,8 @@ function FreshnessLine({ summary }: { summary: ListingSummary | undefined }) {
           : "text-ink-muted"
       )}
     >
-      {freshness.state === "data_delayed"
-        ? `${checked} · delayed, retrying`
-        : checked}
+      {checked}
+      {freshness.state === "data_delayed" ? " · delayed, retrying" : null}
     </span>
   )
 }
@@ -762,11 +764,13 @@ function ListingsBoard({
           ) : (
             <span className="font-mono text-caption text-ink-muted tabular-nums">
               {/* No summary means we don't know, not that it never happened. */}
-              {!row.summary
-                ? "—"
-                : row.summary.lastPublish
-                  ? formatRelativeTime(row.summary.lastPublish.at)
-                  : "Never"}
+              {!row.summary ? (
+                "—"
+              ) : row.summary.lastPublish ? (
+                <RelativeTime iso={row.summary.lastPublish.at} />
+              ) : (
+                "Never"
+              )}
             </span>
           )}
         </TableCell>

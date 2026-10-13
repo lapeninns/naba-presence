@@ -9,6 +9,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { RelativeTime } from "@/components/ui/relative-time"
 import {
   decideListingChangeRequest,
   type ListingChangeRequest,
@@ -17,7 +18,6 @@ import {
   LISTING_CHANGE_EDITOR,
   type ListingChangeEditor,
 } from "@/lib/contracts/listing-changes"
-import { formatRelativeTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { useListingChangeRequests } from "@/lib/queries/use-listing-change-requests"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
@@ -99,7 +99,7 @@ export function ListingChangeRequests({
                 {change.isOwn
                   ? "You asked"
                   : `${change.author.name ?? "A publisher"} asked`}{" "}
-                {formatRelativeTime(change.createdAt)}
+                <RelativeTime iso={change.createdAt} />
                 {change.fieldMask.length > 0
                   ? ` to change ${change.fieldMask.join(", ")}`
                   : ""}

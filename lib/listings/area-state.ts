@@ -8,7 +8,7 @@ import type {
   ListingSummary,
   SyncedArea,
 } from "@/lib/contracts/location-summary"
-import { formatNumber, formatRelativeTime } from "@/lib/format"
+import { formatNumber } from "@/lib/format"
 import type { ListingArea, ListingAreaKey } from "@/lib/listings/areas"
 import {
   googleUnreachable,
@@ -25,6 +25,13 @@ export type AreaState = {
   label: string
   /** One line of substance, or null when there is nothing to add. */
   line: string | null
+  /**
+   * When the line ends with how long ago something happened ("Checked
+   * against Google 4 minutes ago"), the instant, said as a relative time
+   * after `line` by the component that renders it: a gap computed here,
+   * during render, would differ between the server and the browser.
+   */
+  since?: string
 }
 
 /** Pending suggested updates across both inbound resources. */
@@ -49,12 +56,6 @@ export function uncheckedAreas(summary: ListingSummary): string[] {
     .map(({ name }) => name)
 }
 
-/** "Just now" / "2 h ago" / "5 Sep", readable mid-sentence. */
-function when(iso: string): string {
-  const text = formatRelativeTime(iso)
-  return text === "Just now" ? "just now" : text
-}
-
 function syncedState(area: SyncedArea, unreachable = false): AreaState {
   const dirty = area.status === "core_dirty" || area.status === "conflict"
   // With Google out of reach, only what is known locally can be said: edits
@@ -64,9 +65,9 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
     return {
       tone: "neutral",
       label: UNREACHABLE_LABEL,
-      line: area.observedAt
-        ? `Last compared with Google ${when(area.observedAt)}`
-        : "Not compared with Google yet",
+      ...(area.observedAt
+        ? { line: "Last compared with Google", since: area.observedAt }
+        : { line: "Not compared with Google yet" }),
     }
   const check = comparisonCheck(area)
   if (!dirty && check !== "checked")
@@ -78,20 +79,21 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
           : check === "stale"
             ? "Check overdue"
             : "Not checked yet",
-      line: area.observedAt
-        ? `Last compared with Google ${when(area.observedAt)}`
-        : "Not compared with Google yet",
+      ...(area.observedAt
+        ? { line: "Last compared with Google", since: area.observedAt }
+        : { line: "Not compared with Google yet" }),
     }
+  const since = !dirty && area.observedAt ? area.observedAt : undefined
   const line = dirty
     ? area.dirtyCount > 1
       ? `${formatNumber(area.dirtyCount)} fields not yet on Google`
       : "Edited here, not yet on Google"
     : area.status === "google_dirty"
-      ? area.observedAt
-        ? `Changed on Google · checked ${when(area.observedAt)}`
+      ? since
+        ? "Changed on Google · checked"
         : "Changed on Google"
-      : area.observedAt
-        ? `Checked against Google ${when(area.observedAt)}`
+      : since
+        ? "Checked against Google"
         : area.status === "unknown"
           ? "Not compared with Google yet"
           : null
@@ -104,6 +106,7 @@ function syncedState(area: SyncedArea, unreachable = false): AreaState {
           ? "In sync"
           : syncStatusLabel(area.status),
     line,
+    ...(since ? { since } : {}),
   }
 }
 
@@ -195,7 +198,10 @@ export function areaState(
       if (summary.lifecycleEnded)
         return {
           tone: "attention",
-          label: summary.lifecycleEnded === "delete_location" ? "Deleted from Google" : "Moved to another account",
+          label:
+            summary.lifecycleEnded === "delete_location"
+              ? "Deleted from Google"
+              : "Moved to another account",
           line: "This account no longer manages the listing on Google",
         }
       return {

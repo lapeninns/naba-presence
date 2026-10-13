@@ -19,6 +19,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
 import {
   fetchNotifications,
@@ -29,7 +30,6 @@ import {
 import type { NotificationItem } from "@/lib/contracts/operational-notifications"
 import { NOTIFICATION_EVENT_LABELS } from "@/lib/domain/notification-preferences"
 import { describeActionError } from "@/lib/errors/action-errors"
-import { formatRelativeTime } from "@/lib/format"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
@@ -278,16 +278,11 @@ function NotificationRow({
         </p>
         <p className="text-caption text-ink-muted">
           {title ? `${title} · ` : ""}
-          <time dateTime={item.openedAt}>
-            {formatRelativeTime(item.openedAt)}
-          </time>
+          <RelativeTime iso={item.openedAt} />
           {item.resolvedAt ? (
             <>
               {" "}
-              · resolved{" "}
-              <time dateTime={item.resolvedAt}>
-                {formatRelativeTime(item.resolvedAt)}
-              </time>
+              · resolved <RelativeTime iso={item.resolvedAt} />
             </>
           ) : null}
         </p>

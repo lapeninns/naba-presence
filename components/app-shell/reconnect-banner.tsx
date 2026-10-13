@@ -7,7 +7,7 @@ import * as React from "react"
 
 import { ReconnectDialogView } from "@/components/settings/connection-card"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { formatRelativeTime } from "@/lib/format"
+import { RelativeTime } from "@/components/ui/relative-time"
 import { useClients } from "@/lib/queries/use-clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import {
@@ -160,9 +160,16 @@ export function ReconnectBanner({ className }: { className?: string }) {
               {superseded
                 ? "A different Google account was used last time, so this login is still paused. Reconnect it, or disconnect it in Settings."
                 : "Reviews and profile changes it covers are paused until it is reconnected."}
-              {lastChecked
-                ? ` Last successful check ${formatRelativeTime(lastChecked)}.`
-                : ""}
+              {lastChecked ? (
+                <>
+                  {" "}
+                  <RelativeTime
+                    iso={lastChecked}
+                    prefix="Last successful check "
+                    suffix="."
+                  />
+                </>
+              ) : null}
               {others > 0
                 ? ` ${others} other Google ${others === 1 ? "login needs" : "logins need"} reconnecting too.`
                 : ""}

@@ -77,6 +77,39 @@ test.describe("client setup", () => {
     await expect(page.getByRole("link", { name: "New client" })).toBeVisible()
   })
 
+  // The import list's record cards once ran each listing name one letter per
+  // line on a phone: an empty actions cell (no import running) cancelled the
+  // title's flex basis. A name must read across the card.
+  for (const width of [320, 390]) {
+    test(`keeps each listing name readable in the import list at ${width}`, async ({
+      page,
+    }) => {
+      const state = await readJourneyState()
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(`/setup?client=${state.clientId}&step=backfill`)
+      const table = page.getByRole("table", {
+        name: "Import progress by listing",
+      })
+      const rows = table.locator("tbody tr")
+      await expect(rows.first()).toBeVisible()
+      const card = (await table.boundingBox())!
+      for (const row of await rows.all()) {
+        const title = row.locator("td").first()
+        const box = (await title.boundingBox())!
+        // Most of the card's width, not a sliver beside the line break.
+        expect(box.width).toBeGreaterThan(card.width / 2)
+        // A long stub name wraps to two lines at most, never a column.
+        const name = title.locator("span.font-semibold")
+        const lines = await name.evaluate(
+          (element) =>
+            element.getBoundingClientRect().height /
+            Number.parseFloat(getComputedStyle(element).lineHeight)
+        )
+        expect(lines).toBeLessThan(2.5)
+      }
+    })
+  }
+
   test("offers a way out that does not lose the setup", async ({ page }) => {
     const state = await readJourneyState()
     await page.goto(`/setup?client=${state.clientId}`)
