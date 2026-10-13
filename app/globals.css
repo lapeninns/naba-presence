@@ -33,6 +33,11 @@
    cannot be referenced from plain CSS. */
 @custom-variant desk (@media (min-width: 48rem) and (pointer: fine));
 
+/* While an on-screen keyboard covers the page (set on <html> by
+   components/app-shell/viewport-insets.tsx): `keyboard-open:hidden` drops
+   chrome that would otherwise ride up on the keyboard. */
+@custom-variant keyboard-open (&:where([data-keyboard="open"], [data-keyboard="open"] *));
+
 /* Named layout breakpoints. Tailwind's defaults stand (sm 40rem, md 48rem,
    lg 64rem, xl 80rem); `wide` is where the shell can afford the 240px
    sidebar beside a 940px work area. It replaces the `max-[1181px]:`
@@ -836,9 +841,15 @@
       var(--np-actionbar-h) + var(--np-dock-bottom)
     );
   }
-  body:has([data-docked="bottom"]) [data-slot="tab-bar"] {
+  body:has([data-docked="bottom"]) [data-slot="tab-bar"],
+  [data-keyboard="open"] [data-slot="tab-bar"] {
     display: none;
   }
+}
+/* Scrolled into view by focus, a control keeps a little air above and below
+   the scroll padding instead of touching the bar's edge. */
+:focus-visible {
+  scroll-margin-block: 0.5rem;
 }
 @media (width >= 48rem) {
   html {
@@ -910,6 +921,11 @@
 }
 @utility pb-dock {
   padding-bottom: var(--np-dock-bottom);
+}
+/* Exactly the visible area with the keyboard excluded, for a full-height
+   sheet on iOS; falls back to the dynamic viewport. */
+@utility h-visual {
+  height: var(--np-visual-viewport-height, 100dvh);
 }
 
 /* The hairline as a utility: a half-pixel edge that never changes layout. */

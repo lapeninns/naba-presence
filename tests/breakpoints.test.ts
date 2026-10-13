@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -50,25 +50,14 @@ describe("breakpoints mirror app/globals.css", () => {
     }
   )
 
-  it("sidebar matches @theme, or every wide arbitrary variant in the shell", () => {
-    const declared = ownBreakpoints.get("sidebar")
-    if (declared !== undefined) {
-      expect(BREAKPOINTS.sidebar.rem).toBe(declared)
-      return
-    }
-    // Until the lead promotes it to a token, the threshold lives in the
-    // shell as `min-[1181px]:` / `max-[1181px]:`. Any wide arbitrary width
-    // there (>= lg) is that threshold and must agree with the constant.
-    const shellDir = new URL("../components/app-shell/", import.meta.url)
-    const widths = new Set<number>()
-    for (const file of readdirSync(shellDir)) {
-      if (!file.endsWith(".tsx")) continue
-      const source = readFileSync(new URL(file, shellDir), "utf8")
-      for (const [, px] of source.matchAll(/(?:min|max)-\[(\d+)px\]/g)) {
-        if (Number(px) >= BREAKPOINTS.lg.px) widths.add(Number(px))
-      }
-    }
-    expect([...widths]).toEqual([BREAKPOINTS.sidebar.px])
+  it("wide matches the --breakpoint-wide token in @theme", () => {
+    const declared = ownBreakpoints.get("wide")
+    expect(declared).toBeDefined()
+    expect(BREAKPOINTS.wide.rem).toBe(declared)
+  })
+
+  it("desk is the custom variant's media query", () => {
+    expect(customVariantMedia("desk")).toBe(MEDIA_QUERIES.desk)
   })
 
   it("controls is the variant's media query, and capsules its exact negation", () => {

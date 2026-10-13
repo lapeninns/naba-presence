@@ -18,19 +18,18 @@
 const REM_PX = 16
 
 /**
- * Tailwind's named widths, plus `sidebar`: the shell's switch from the 64px
- * icon rail to the full 240px sidebar. The shell still writes `sidebar` as
- * the arbitrary `min-[1181px]:` / `max-[1181px]:` variants; once globals.css
- * declares `--breakpoint-sidebar: 73.8125rem` those become `sidebar:` and
- * `max-sidebar:` and the test reads the value from @theme instead.
+ * Tailwind's named widths, plus `wide`: the shell's switch from the 64px
+ * icon rail to the full 240px sidebar, declared in globals.css as
+ * `--breakpoint-wide` (so `wide:` / `max-wide:` exist as Tailwind
+ * variants).
  */
 const BREAKPOINT_REM = {
   sm: 40,
   md: 48,
   lg: 64,
+  wide: 73.75,
   xl: 80,
   "2xl": 96,
-  sidebar: 1181 / REM_PX,
 } as const
 
 export type BreakpointName = keyof typeof BREAKPOINT_REM
@@ -63,6 +62,14 @@ function minWidth(name: BreakpointName): string {
 const controls = `${minWidth("md")} and (min-height: ${CONTROLS_MIN_HEIGHT.rem}rem)`
 
 /**
+ * The `desk` custom variant: a fine pointer with at least `md` of width,
+ * where the size tokens step down to the operator's-desk scale. Behaviour
+ * that must agree with the density (a compact list, hover affordances)
+ * asks this, not a width.
+ */
+const DESK = `${minWidth("md")} and (pointer: fine)`
+
+/**
  * Media queries by name. Each breakpoint name means "at least this wide",
  * exactly like the Tailwind prefix of the same name; `controls` and
  * `capsules` are the custom variants, word for word.
@@ -76,10 +83,14 @@ export const MEDIA_QUERIES = {
   lg: minWidth("lg"),
   xl: minWidth("xl"),
   "2xl": minWidth("2xl"),
-  sidebar: minWidth("sidebar"),
+  wide: minWidth("wide"),
   controls,
+  desk: DESK,
   capsules: `not all and ${controls}`,
-} as const satisfies Record<BreakpointName | "controls" | "capsules", string>
+} as const satisfies Record<
+  BreakpointName | "controls" | "capsules" | "desk",
+  string
+>
 
 export type MediaQueryName = keyof typeof MEDIA_QUERIES
 
