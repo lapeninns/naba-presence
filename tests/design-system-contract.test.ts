@@ -391,9 +391,12 @@ describe("primitives read tokens, not literals", () => {
     expect(pageFrame).toContain(
       'width === "narrow" && "max-w-(--np-page-narrow-width)"'
     )
+    // The workspace frame takes the height the shell's column has left
+    // (flex), never a viewport calculation a notice could push past.
     expect(pageFrame).toContain(
-      "md:[@media(min-height:620px)]:h-[calc(100svh-var(--np-toolbar-h))]"
+      'width === "workspace" && "min-h-0 max-w-none flex-1'
     )
+    expect(pageFrame).not.toContain("100svh")
     expect(pageFrame).toContain("@container")
   })
 })

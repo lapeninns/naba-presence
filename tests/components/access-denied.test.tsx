@@ -36,8 +36,11 @@ describe("AccessDenied", () => {
     expect(container.querySelector("main")).toBeNull()
   })
 
-  it("brings its own frame when the route has none", () => {
+  it("brings its own frame when the route has none, still without a main", () => {
+    // The page frame is a div: AppShell owns the one <main id="main">.
     const { container } = render(<AccessDeniedPage area="Team access" />)
-    expect(container.querySelectorAll("main")).toHaveLength(1)
+    expect(container.querySelectorAll('[data-slot="page-frame"]')).toHaveLength(1)
+    expect(container.querySelector("main")).toBeNull()
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
   })
 })
