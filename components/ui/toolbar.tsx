@@ -30,6 +30,12 @@ import { cn } from "@/lib/utils"
  *   search mode and puts focus back where it was before (or on the filter
  *   button). Controlled with `searchMode` + `onSearchModeChange`.
  * - `resultsLabel` is announced politely (`role="status"`).
+ * - `searchRegionLabel` names the `role="search"` landmark ("Filter
+ *   listings"); unnamed by default. `search={false}` drops the field (and
+ *   search mode) for a toolbar of filters only.
+ * - The field keeps a 12rem basis: when the filter and view controls do
+ *   not fit beside it (a 320px phone), the `view` slot wraps onto its own
+ *   line below instead of squeezing the field.
  */
 export type ToolbarProps = Omit<React.ComponentProps<"div">, "children"> & {
   /** Header content inside the band (a `ViewHeader`), hidden in search mode. */
@@ -39,13 +45,18 @@ export type ToolbarProps = Omit<React.ComponentProps<"div">, "children"> & {
   onSearchChange?: (value: string) => void
   /** The search field's accessible name. */
   searchLabel?: string
+  /** Names the `role="search"` landmark. Unnamed by default. */
+  searchRegionLabel?: string
+  /** `false`: no search field (a toolbar of filters only). Default true. */
+  search?: boolean
   searchPlaceholder?: string
   /** Extra props for the `<input>` (`enterKeyHint`, `onKeyDown`, …). */
   searchInputProps?: Omit<
     React.ComponentProps<"input">,
     "value" | "defaultValue" | "type" | "ref"
   >
-  searchRef?: React.Ref<HTMLInputElement>
+  /** The search field; `null` when `search` is false. */
+  searchRef?: React.Ref<HTMLInputElement | null>
   /** Controlled search mode. */
   searchMode?: boolean
   onSearchModeChange?: (searchMode: boolean) => void
@@ -75,6 +86,8 @@ function Toolbar({
   defaultSearchValue = "",
   onSearchChange,
   searchLabel = "Search",
+  searchRegionLabel,
+  search = true,
   searchPlaceholder = "Search",
   searchInputProps,
   searchRef,
@@ -93,16 +106,17 @@ function Toolbar({
   const [innerValue, setInnerValue] = React.useState(defaultSearchValue)
   const value = searchValue ?? innerValue
   const [innerMode, setInnerMode] = React.useState(false)
-  const searchMode = searchModeProp ?? innerMode
+  // No field, no search mode.
+  const searchMode = search && (searchModeProp ?? innerMode)
 
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const filterRef = React.useRef<HTMLDivElement>(null)
   const returnFocusRef = React.useRef<HTMLElement | null>(null)
   const restorePendingRef = React.useRef(false)
 
-  React.useImperativeHandle(
+  React.useImperativeHandle<HTMLInputElement | null, HTMLInputElement | null>(
     searchRef,
-    () => inputRef.current as HTMLInputElement
+    () => inputRef.current
   )
 
   const setValue = (next: string) => {
@@ -169,39 +183,55 @@ function Toolbar({
           {header}
         </div>
       ) : null}
-      <div className="flex min-w-0 items-center gap-2">
-        <div role="search" className="min-w-0 flex-1">
-          <SearchInput
-            ref={inputRef}
-            aria-label={searchLabel}
-            placeholder={searchPlaceholder}
-            enterKeyHint="search"
-            autoCorrect="off"
-            spellCheck={false}
-            {...searchInputProps}
-            value={value}
-            onChange={(event) => {
-              setValue(event.target.value)
-              searchInputProps?.onChange?.(event)
-            }}
-            onFocus={(event) => {
-              searchInputProps?.onFocus?.(event)
-              if (searchMode || !searchModeOnFocus || !isTouchLayout()) return
-              const from = event.relatedTarget
-              returnFocusRef.current = from instanceof HTMLElement ? from : null
-              setMode(true)
-            }}
-            onKeyDown={(event) => {
-              searchInputProps?.onKeyDown?.(event)
-              if (event.defaultPrevented) return
-              if (event.key === "Escape" && searchMode) {
-                event.preventDefault()
-                exitSearchMode()
-              }
-            }}
-            className="h-(--np-touch) rounded-(--np-radius-pill) border-transparent bg-fill-secondary ps-3 hover:border-transparent desk:h-(--np-control-h)"
-          />
-        </div>
+      <div
+        data-slot="toolbar-row"
+        // Wraps so a view control drops below the field at 320px; never in
+        // search mode, where Cancel must stay beside the field.
+        className={cn(
+          "flex min-w-0 items-center gap-2",
+          searchMode ? "flex-nowrap" : "flex-wrap"
+        )}
+      >
+        {search ? (
+          <div
+            role="search"
+            aria-label={searchRegionLabel}
+            data-slot="toolbar-search"
+            className="min-w-0 flex-1 basis-48"
+          >
+            <SearchInput
+              ref={inputRef}
+              aria-label={searchLabel}
+              placeholder={searchPlaceholder}
+              enterKeyHint="search"
+              autoCorrect="off"
+              spellCheck={false}
+              {...searchInputProps}
+              value={value}
+              onChange={(event) => {
+                setValue(event.target.value)
+                searchInputProps?.onChange?.(event)
+              }}
+              onFocus={(event) => {
+                searchInputProps?.onFocus?.(event)
+                if (searchMode || !searchModeOnFocus || !isTouchLayout()) return
+                const from = event.relatedTarget
+                returnFocusRef.current =
+                  from instanceof HTMLElement ? from : null
+                setMode(true)
+              }}
+              onKeyDown={(event) => {
+                searchInputProps?.onKeyDown?.(event)
+                if (event.defaultPrevented) return
+                if (event.key === "Escape" && searchMode) {
+                  event.preventDefault()
+                  exitSearchMode()
+                }
+              }}
+              className="h-(--np-touch) rounded-(--np-radius-pill) border-transparent bg-fill-secondary ps-3 hover:border-transparent desk:h-(--np-control-h)"
+            />
+          </div>
+        ) : null}
         {searchMode ? (
           <Button
             variant="ghost"

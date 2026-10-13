@@ -1,6 +1,7 @@
 "use client"
 
 import { Toolbar as ToolbarPrimitive } from "@base-ui/react/toolbar"
+import Link from "next/link"
 import * as React from "react"
 
 import { DockSpacer } from "@/components/ui/action-bar"
@@ -18,9 +19,12 @@ import { cn } from "@/lib/utils"
  *   notes    optional words above the header ("2 of these are not ready for
  *            your approval"), for what the operator must know before acting.
  *
- * Tile tones: `default`; `danger` for a destructive local action; `charcoal`
- * for the one action that writes to Google (approve and publish). That tile
- * opens the charcoal reviewed-write step, never publishes directly.
+ * Tile tones: `default`; `danger` for a destructive local action; `accent`
+ * for the one local next step (a navigation, never a Google write);
+ * `charcoal` for the one action that writes to Google (approve and
+ * publish). That tile opens the charcoal reviewed-write step, never
+ * publishes directly. `SelectionBarLinkTile` is a tile that navigates
+ * ("Prepare bulk change" → `/listings/bulk?ids=…`), `accent` by default.
  *
  * Docking. On a phone (below `md`) the bar is fixed to the bottom edge and
  * renders `data-docked="bottom"`, the same CHROME CONTRACT attribute the
@@ -31,7 +35,10 @@ import { cn } from "@/lib/utils"
  * is published as `--np-dock-bar-h`, which the scroll padding and the toast
  * viewport read. From `md` the bar is an inline, sticky row at the foot of
  * the list. `dock={false}` keeps it inline at every width (a bar inside a
- * card or a dialog).
+ * card or a dialog). The spacer is `data-slot="selection-bar-spacer"`;
+ * `spacerSlot="action-bar-spacer"` gives it the shared ActionBar spacer's
+ * slot, for a screen that swaps a docked ActionBar for this bar and pins
+ * that slot.
  *
  * Adopting it from a bulk bar: pass the count and `onCancel` (clear and leave
  * select mode), one `SelectionBarTile` per action, and a tile as the render
@@ -48,6 +55,7 @@ function SelectionBar({
   notes,
   dock = true,
   visible = true,
+  spacerSlot = "selection-bar-spacer",
   className,
   children,
   ...props
@@ -67,6 +75,11 @@ function SelectionBar({
   dock?: boolean
   /** Default true. Pass "has a selection" to show the bar only then. */
   visible?: boolean
+  /**
+   * The docked spacer's `data-slot`. Default `"selection-bar-spacer"`;
+   * `"action-bar-spacer"` matches the shared ActionBar spacer.
+   */
+  spacerSlot?: "selection-bar-spacer" | "action-bar-spacer"
   /** The `SelectionBarTile`s. */
   children?: React.ReactNode
 }) {
@@ -133,7 +146,7 @@ function SelectionBar({
           scroll padding and the toast stack, without clearing another
           docked bar's. The fallback is a header row over the tiles. */}
       <DockSpacer
-        data-slot="selection-bar-spacer"
+        data-slot={spacerSlot}
         className="h-[var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-touch)+var(--np-dock-bottom)))] md:hidden"
       />
       {bar}
@@ -154,14 +167,24 @@ const DOCKED_CLASS = cn(
   "max-md:transition-transform max-md:duration-(--np-duration-sheet) max-md:ease-out max-md:starting:translate-y-full"
 )
 
-export type SelectionBarTileTone = "default" | "danger" | "charcoal"
+export type SelectionBarTileTone = "default" | "danger" | "accent" | "charcoal"
 
 const TILE_TONE: Record<SelectionBarTileTone, string> = {
   default: "bg-surface-alt text-ink hover-fine:hover:bg-fill",
   danger: "bg-surface-alt text-danger-ink hover-fine:hover:bg-danger-tint",
+  // accent-ink on accent-tint: the active chip's gated pair.
+  accent: "bg-accent-tint text-accent-ink font-semibold",
   // The on-charcoal ink and fill; the focus halo is the shared one.
   charcoal: "on-charcoal",
 }
+
+const TILE_CLASS = cn(
+  "relative inline-flex min-h-16 min-w-16 flex-1 shrink-0 flex-col items-center justify-center gap-1 rounded-(--np-radius-card) px-2 py-2 text-caption font-medium whitespace-nowrap no-underline focus-halo select-none",
+  "transition-colors duration-(--np-duration-fast) ease-standard",
+  "data-disabled:cursor-not-allowed data-disabled:opacity-50",
+  "[&_svg]:pointer-events-none [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:[stroke-width:1.5]",
+  "md:min-h-(--np-control-h) md:min-w-0 md:flex-none md:flex-row md:gap-1.5 md:rounded-(--np-radius-control) md:px-3 md:py-0 md:text-ui md:font-semibold md:[&_svg]:size-4"
+)
 
 /**
  * One action in a SelectionBar. Its visible label is its accessible name.
@@ -189,15 +212,7 @@ function SelectionBarTile({
     <ToolbarPrimitive.Button
       data-slot="selection-bar-tile"
       data-tone={tone}
-      className={cn(
-        "relative inline-flex min-h-16 min-w-16 flex-1 shrink-0 flex-col items-center justify-center gap-1 rounded-(--np-radius-card) px-2 py-2 text-caption font-medium whitespace-nowrap focus-halo select-none",
-        "transition-colors duration-(--np-duration-fast) ease-standard",
-        "data-disabled:cursor-not-allowed data-disabled:opacity-50",
-        "[&_svg]:pointer-events-none [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:[stroke-width:1.5]",
-        "md:min-h-(--np-control-h) md:min-w-0 md:flex-none md:flex-row md:gap-1.5 md:rounded-(--np-radius-control) md:px-3 md:py-0 md:text-ui md:font-semibold md:[&_svg]:size-4",
-        TILE_TONE[tone],
-        className
-      )}
+      className={cn(TILE_CLASS, TILE_TONE[tone], className)}
       {...props}
     >
       {icon}
@@ -207,4 +222,43 @@ function SelectionBarTile({
   )
 }
 
-export { SelectionBar, SelectionBarTile }
+/**
+ * A tile that navigates (a Next link inside the toolbar's arrow-key group):
+ * a LOCAL next step such as "Prepare bulk change", never a Google write.
+ * `accent` by default; the visible label is the link's name.
+ */
+function SelectionBarLinkTile({
+  href,
+  icon,
+  label,
+  tone = "accent",
+  className,
+  children,
+  ...props
+}: Omit<ToolbarPrimitive.Link.Props, "children" | "href" | "render"> & {
+  href: string
+  /** A lucide glyph, drawn at 20px. */
+  icon?: React.ReactNode
+  /** The visible words, which are also the accessible name. */
+  label: React.ReactNode
+  /** `charcoal` is for Google writes, which are never a plain link. */
+  tone?: Exclude<SelectionBarTileTone, "charcoal">
+  /** Extra content after the label (a count badge). */
+  children?: React.ReactNode
+}) {
+  return (
+    <ToolbarPrimitive.Link
+      render={<Link href={href} />}
+      data-slot="selection-bar-tile"
+      data-tone={tone}
+      className={cn(TILE_CLASS, TILE_TONE[tone], className)}
+      {...props}
+    >
+      {icon}
+      <span data-slot="selection-bar-tile-label">{label}</span>
+      {children}
+    </ToolbarPrimitive.Link>
+  )
+}
+
+export { SelectionBar, SelectionBarLinkTile, SelectionBarTile }
