@@ -12,6 +12,7 @@ import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { ClientAvatar } from "@/components/clients/client-avatar"
 import { FileUnderClient } from "@/components/listings/file-under-client"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
@@ -673,12 +674,12 @@ function ListingsBoard({
               {/* The whole row is this link's target: its ::after stretches
                   over the row (positioned), so a phone row is one tap and
                   never a 24px line of text. */}
-              <Link
+              <ShellLink
                 href={listingHref(row.entry.id)}
                 className="inline-flex min-h-(--np-control-h) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo after:absolute after:inset-0 after:content-[''] hover:underline @max-[720px]/table:text-body"
               >
                 {row.entry.name}
-              </Link>
+              </ShellLink>
               {address ? (
                 <span className="text-caption break-words text-ink-muted">
                   {address}

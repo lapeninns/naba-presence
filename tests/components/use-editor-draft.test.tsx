@@ -5,6 +5,8 @@ import {
   renderHook,
   screen,
 } from "@testing-library/react"
+import { hydrateRoot } from "react-dom/client"
+import { renderToString } from "react-dom/server"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { __resetDraftSources, takeStashedDraft } from "@/lib/api/draft-stash"
@@ -129,6 +131,30 @@ describe("useEditorDraft", () => {
     act(() => first.result.current.forget())
     first.unmount()
     expect(takeStashedDraft(TEST_KEY)).toBeNull()
+  })
+
+  it("offers a stash only after hydrating a server-rendered editor, without a mismatch", async () => {
+    // The hours, photos and posts editors are streamed into the first HTML.
+    // The server has no sessionStorage, so the hydrating render must not
+    // read it either; the offer appears on the render after.
+    function Editor() {
+      const draft = useDraft({ initial: { name: "A" }, revision: "1" })
+      return <p>{draft.stashed ? "stash offered" : "no stash"}</p>
+    }
+    const container = document.createElement("div")
+    container.innerHTML = renderToString(<Editor />)
+    expect(container.textContent).toBe("no stash")
+    sessionStorage.setItem(
+      "naba:draft:" + TEST_KEY,
+      JSON.stringify({ name: "Left behind" })
+    )
+    const onRecoverableError = vi.fn()
+    const root = await act(async () =>
+      hydrateRoot(container, <Editor />, { onRecoverableError })
+    )
+    expect(onRecoverableError).not.toHaveBeenCalled()
+    expect(container.textContent).toBe("stash offered")
+    act(() => root.unmount())
   })
 
   it("ignores a stash written under an older schema version", () => {

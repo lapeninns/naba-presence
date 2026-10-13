@@ -1,17 +1,28 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { settingsCapabilitiesSchema } from "@/lib/contracts/location-capabilities"
+import { hoursStateSchema } from "@/lib/contracts/location-hours"
+import { mediaStateSchema } from "@/lib/contracts/location-media"
+import { postsListResponseSchema } from "@/lib/contracts/location-posts"
 import {
   reviewCountsSchema,
   reviewsPageSchema,
   type ReviewCapabilities,
 } from "@/lib/contracts/reviews"
+import { parseInboxState, toReviewsFilters } from "@/lib/inbox/url-state"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
+  hoursTabPrefetch,
   inboxPrefetch,
   locationTabPrefetch,
+  photosTabPrefetch,
+  postsTabPrefetch,
   prefetch,
+  readHours,
+  readMediaFirstPage,
+  readPostsFirstPage,
+  readReviewsFirstPage,
   readSettingsCapabilities,
   throughWire,
 } from "@/lib/server/prefetch"
@@ -26,6 +37,18 @@ import type { Session } from "@/lib/server/session"
 vi.mock("@/lib/server/db", () => ({ withTenant: vi.fn() }))
 vi.mock("@/lib/server/logger", () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}))
+vi.mock("@/lib/server/review-reads", () => ({
+  readReviewsPage: vi.fn(),
+  readReviewDetail: vi.fn(),
+}))
+vi.mock("@/lib/server/listing-reads", () => ({
+  readHoursResponse: vi.fn(),
+  readMediaListResponse: vi.fn(),
+  readPostsListResponse: vi.fn(),
+}))
+vi.mock("@/lib/server/location-summary", () => ({
+  readListingSummaries: vi.fn(async () => []),
 }))
 
 const UUID = "00000000-0000-4000-8000-000000000001"
@@ -224,10 +247,69 @@ describe("prefetch", () => {
 })
 
 describe("page composers", () => {
-  it("inboxPrefetch targets the unscoped counts key the queue badges read", () => {
-    expect(inboxPrefetch()(session).map((entry) => entry.queryKey)).toEqual([
-      queryKeys.reviewCounts("organisation"),
+  // The keys must be the ones InboxView's hooks build from the same URL:
+  // useReviews(toReviewsFilters(state)), useReviewCounts({ clientId }) and
+  // useReviewDetail(selected). The unscoped counts are the layout's.
+  const inboxKeys = (search: string, who: Session = session) =>
+    inboxPrefetch(new URLSearchParams(search))(who).map(
+      (entry) => entry.queryKey
+    )
+  const listKey = (search: string, business = false) => {
+    const state = parseInboxState(new URLSearchParams(search))
+    return queryKeys.reviews(
+      "organisation",
+      toReviewsFilters(business ? { ...state, clientId: undefined } : state)
+    )
+  }
+  const CLIENT = "00000000-0000-4000-8000-000000000030"
+  const REVIEW = "00000000-0000-4000-8000-000000000040"
+  const agency: Session = { ...session, workspaceMode: "agency" }
+
+  it("inboxPrefetch hydrates the default queue's first page and nothing else", () => {
+    expect(inboxKeys("", agency)).toEqual([listKey("")])
+    expect(listKey("")[2]).toMatchObject({ queue: "needs_reply" })
+  })
+
+  it("inboxPrefetch follows the URL's queue and filters", () => {
+    const search = "queue=done&rating=1,2&search=cold&sort=rating_asc"
+    expect(inboxKeys(search, agency)).toEqual([listKey(search)])
+    expect(listKey(search)[2]).toMatchObject({
+      queue: "done",
+      ratings: [1, 2],
+      search: "cold",
+    })
+  })
+
+  it("inboxPrefetch scopes the list and counts to the URL's client", () => {
+    const search = `clientId=${CLIENT}`
+    expect(inboxKeys(search, agency)).toEqual([
+      listKey(search),
+      queryKeys.reviewCounts(`organisation:${CLIENT}`),
     ])
+  })
+
+  it("inboxPrefetch ignores a client scope in a business, as the view does", () => {
+    const search = `clientId=${CLIENT}`
+    expect(inboxKeys(search, session)).toEqual([listKey(search, true)])
+    expect(listKey(search, true)[2]).not.toHaveProperty("clientId", CLIENT)
+  })
+
+  it("inboxPrefetch hydrates an open review, and only a well-formed one", () => {
+    expect(inboxKeys(`selected=${REVIEW}`, agency)).toEqual([
+      listKey(`selected=${REVIEW}`),
+      queryKeys.reviewDetail(REVIEW),
+    ])
+    expect(inboxKeys("selected=not-a-uuid", agency)).toEqual([
+      listKey("selected=not-a-uuid"),
+    ])
+  })
+
+  it("inboxPrefetch leaves a relative age window to the browser", () => {
+    // Its range moves with the hour, so the server's key could miss the
+    // browser's and draw rows the hydrating render does not have.
+    expect(inboxKeys("age=7d", agency)).toEqual([])
+    const explicit = "age=7d&dateFrom=2026-09-01T00:00:00.000Z"
+    expect(inboxKeys(explicit, agency)).toEqual([listKey(explicit)])
   })
 
   it("locationTabPrefetch hydrates capabilities only", () => {
@@ -242,5 +324,231 @@ describe("page composers", () => {
 
   it("locationTabPrefetch is empty without a location", () => {
     expect(locationTabPrefetch(null)(session)).toEqual([])
+  })
+})
+
+describe("readReviewsFirstPage", () => {
+  it("decodes the filters as the route would and stores the infinite-query shape", async () => {
+    const { withTenant } = await import("@/lib/server/db")
+    const { readReviewsPage } = await import("@/lib/server/review-reads")
+    vi.mocked(withTenant).mockImplementationOnce(async (_org, fn) =>
+      fn({} as never)
+    )
+    const at = new Date("2026-09-01T10:00:00.000Z")
+    vi.mocked(readReviewsPage).mockResolvedValueOnce({
+      items: [row("r1", at)],
+      nextCursor: "cursor-1",
+    })
+    const data = await readReviewsFirstPage(session, {
+      queue: "needs_reply",
+      ratings: [1],
+    })
+    expect(data.pageParams).toEqual([null])
+    expect(data.pages).toHaveLength(1)
+    expect(data.pages[0].items[0].updateTime).toBe("2026-09-01T10:00:00.000Z")
+    expect(data.pages[0].nextCursor).toBe("cursor-1")
+    expect(reviewsPageSchema.safeParse(data.pages[0]).success).toBe(true)
+    const query = vi.mocked(readReviewsPage).mock.calls[0][2]
+    expect(query).toMatchObject({ queue: "needs_reply", ratings: [1] })
+    expect(query.pageSize).toBeGreaterThan(0)
+    expect(query.sort).toBeDefined()
+  })
+})
+
+// The hours, photos and posts pages stream their editor's first read
+// (components/listings/streamed-tab.tsx). The readers are the routes' own
+// (lib/server/listing-reads.ts, mocked here); what is pinned is the request
+// they are given (the one the browser's fetch would send), the key the
+// value lands under (the one the editor's hook reads on its first render)
+// and the value's shape after the wire.
+describe("streamed listing editors", () => {
+  const WEEK = { regular: [], special: [], moreHours: [] }
+  const hoursBody = {
+    hours: {
+      location: {
+        id: LOCATION,
+        name: "Riverside",
+        googleLocationName: "locations/1",
+        timezone: "Europe/London",
+      },
+      canonicalResource: {
+        revision: "3",
+        updatedAt: new Date("2026-09-01T10:00:00.000Z"),
+      },
+      status: "in_sync",
+      canonical: WEEK,
+      google: WEEK,
+      canonicalHash: "a",
+      googleHash: "a",
+      updateMask: [],
+      warnings: [],
+      canPublish: true,
+      writesEnabled: true,
+      lastReconciledAt: null,
+      latestAttempt: null,
+      partStatus: undefined,
+    },
+  }
+  const mediaBody = {
+    media: {
+      canPublish: true,
+      writesEnabled: true,
+      categories: [],
+      items: [],
+      total: 0,
+      pageSize: 12,
+      nextCursor: "next",
+      category: null,
+      ownership: null,
+      // unresolvedCreates omitted: the client schema defaults it to [].
+    },
+  }
+  const postsBody = {
+    posts: [],
+    counts: {
+      all: 0,
+      draft: 0,
+      awaiting: 0,
+      published: 0,
+      attention: 0,
+      live: 0,
+    },
+    filter: "all",
+    nextCursor: null,
+    timezone: "Europe/London",
+    writesEnabled: true,
+    reconciliationError: null,
+  }
+
+  it("hoursTabPrefetch hydrates useHours' key, then the summary the read refreshes", () => {
+    const keys = hoursTabPrefetch(LOCATION)(session).map(
+      (entry) => entry.queryKey
+    )
+    expect(keys).toEqual([
+      queryKeys.locationHours(LOCATION),
+      queryKeys.listingSummary(LOCATION),
+    ])
+  })
+
+  it("hoursTabPrefetch re-reads the summary only after the hours read settles, even a failed one", async () => {
+    const { readHoursResponse } = await import("@/lib/server/listing-reads")
+    const { readListingSummaries } = await import(
+      "@/lib/server/location-summary"
+    )
+    const { withTenant } = await import("@/lib/server/db")
+    vi.mocked(withTenant).mockImplementation(async (_org, fn) =>
+      fn({} as never)
+    )
+    vi.mocked(readListingSummaries).mockClear()
+    let fail!: (error: Error) => void
+    vi.mocked(readHoursResponse).mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        fail = reject
+      })
+    )
+    const [hours, summary] = hoursTabPrefetch(LOCATION)(session)
+    const hoursLoad = hours.load()
+    const summaryLoad = summary.load()
+    await Promise.resolve()
+    expect(readListingSummaries).not.toHaveBeenCalled()
+    fail(new Error("google down"))
+    await expect(hoursLoad).rejects.toThrow("google down")
+    await expect(summaryLoad).resolves.toBeNull()
+    expect(readListingSummaries).toHaveBeenCalledOnce()
+    expect(readHoursResponse).toHaveBeenCalledOnce()
+    vi.mocked(withTenant).mockReset()
+  })
+
+  it("readHours returns the route's hours through the wire", async () => {
+    const { readHoursResponse } = await import("@/lib/server/listing-reads")
+    vi.mocked(readHoursResponse).mockResolvedValueOnce(hoursBody as never)
+    const hours = await readHours(session, LOCATION)
+    expect(readHoursResponse).toHaveBeenLastCalledWith(session, LOCATION)
+    expect(hours.canonicalResource.updatedAt).toBe("2026-09-01T10:00:00.000Z")
+    expect("partStatus" in hours).toBe(false)
+    expect(hoursStateSchema.safeParse(hours).success).toBe(true)
+  })
+
+  it("photosTabPrefetch keys the first page by the URL's filters, as the tab does", () => {
+    const keys = (search: string) =>
+      photosTabPrefetch(LOCATION, new URLSearchParams(search))(session).map(
+        (entry) => entry.queryKey
+      )
+    expect(keys("")).toEqual([queryKeys.locationMedia(LOCATION)])
+    expect(keys("ownership=customer&category=INTERIOR")).toEqual([
+      queryKeys.locationMedia(LOCATION, {
+        ownership: "customer",
+        category: "INTERIOR",
+      }),
+    ])
+    // Unknown values fall back to the default view, as parsePhotosState does.
+    expect(keys("ownership=nobody")).toEqual([
+      queryKeys.locationMedia(LOCATION),
+    ])
+  })
+
+  it("readMediaFirstPage sends fetchMedia's query and stores the infinite-query shape", async () => {
+    const { readMediaListResponse } = await import("@/lib/server/listing-reads")
+    vi.mocked(readMediaListResponse).mockResolvedValueOnce(mediaBody as never)
+    const data = await readMediaFirstPage(session, LOCATION, {
+      category: "INTERIOR",
+      ownership: null,
+    })
+    expect(vi.mocked(readMediaListResponse).mock.lastCall).toEqual([
+      session,
+      LOCATION,
+      { pageSize: 12, category: "INTERIOR" },
+    ])
+    expect(data.pageParams).toEqual([null])
+    expect(data.pages).toHaveLength(1)
+    expect(data.pages[0].nextCursor).toBe("next")
+    expect(data.pages[0].unresolvedCreates).toEqual([])
+    expect(mediaStateSchema.safeParse(data.pages[0]).success).toBe(true)
+  })
+
+  it("postsTabPrefetch hydrates the 'all' view usePosts opens on", () => {
+    const keys = postsTabPrefetch(LOCATION)(session).map(
+      (entry) => entry.queryKey
+    )
+    expect(keys).toEqual([queryKeys.locationPostsView(LOCATION, "all")])
+  })
+
+  it("readPostsFirstPage sends no query, as fetchPosts does for 'all'", async () => {
+    const { readPostsListResponse } = await import("@/lib/server/listing-reads")
+    vi.mocked(readPostsListResponse).mockResolvedValueOnce(postsBody as never)
+    const data = await readPostsFirstPage(session, LOCATION)
+    expect(vi.mocked(readPostsListResponse).mock.lastCall).toEqual([
+      session,
+      LOCATION,
+      {},
+    ])
+    expect(data.pageParams).toEqual([null])
+    expect(data.pages).toEqual([postsBody])
+    expect(postsListResponseSchema.safeParse(data.pages[0]).success).toBe(true)
+  })
+
+  it("skips every streamed read for an id the routes would never be sent", () => {
+    for (const composer of [
+      hoursTabPrefetch("not-a-uuid"),
+      photosTabPrefetch("not-a-uuid", new URLSearchParams()),
+      postsTabPrefetch("not-a-uuid"),
+    ]) {
+      expect(composer(session)).toEqual([])
+    }
+  })
+
+  it("a failed Google read leaves the key empty for the browser to fetch", async () => {
+    const { readPostsListResponse } = await import("@/lib/server/listing-reads")
+    vi.mocked(readPostsListResponse).mockRejectedValueOnce(
+      Object.assign(new Error("google down"), { code: "google_unavailable" })
+    )
+    const client = makeQueryClient()
+    const state = await prefetch(session, postsTabPrefetch(LOCATION), client)
+    expect(state.queries).toEqual([])
+    const { log } = await import("@/lib/server/logger")
+    expect(log.warn).toHaveBeenLastCalledWith(
+      "prefetch_failed",
+      expect.objectContaining({ code: "google_unavailable" })
+    )
   })
 })

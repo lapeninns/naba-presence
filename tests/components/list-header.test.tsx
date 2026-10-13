@@ -114,6 +114,13 @@ describe("ListHeader", () => {
     expect(refreshed).toHaveTextContent(/from NabaPresence/)
   })
 
+  it("holds the refreshed time's place, hidden, until the viewer's clock is known", () => {
+    renderHeader({ refreshed: null })
+    const placeholder = screen.getByText(/Refreshed 00:00/)
+    expect(placeholder).toHaveClass("invisible")
+    expect(placeholder).toHaveAttribute("aria-hidden", "true")
+  })
+
   it("selects every loaded review and clears them again", async () => {
     const user = userEvent.setup()
     renderHeader()

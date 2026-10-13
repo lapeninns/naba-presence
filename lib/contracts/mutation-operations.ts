@@ -46,15 +46,8 @@ export const OPERATION_OUTCOMES = [
 export const operationOutcomeSchema = z.enum(OPERATION_OUTCOMES)
 export type OperationOutcome = z.infer<typeof operationOutcomeSchema>
 
-/**
- * The request header that carries a client-minted intent id: one UUID per
- * thing a person asked for, resent unchanged when the client retries after a
- * lost answer. It is the stable operation identity; `x-request-id` stays a
- * per-request correlation id. lib/api/client.ts sends it on every mutation and
- * lib/server/route.ts parses it (400 `invalid_intent_id` when it is not a
- * UUID).
- */
-export const INTENT_HEADER = "Idempotency-Key"
+/** The intent id request header (lib/contracts/wire-codes.ts). */
+export { INTENT_HEADER } from "@/lib/contracts/wire-codes"
 
 export const intentIdSchema = z.uuid()
 

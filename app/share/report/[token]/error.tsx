@@ -2,8 +2,7 @@
 
 import { CircleAlertIcon } from "lucide-react"
 
-import { Button } from "@/components/ui/button"
-
+import { boundaryButtonClass } from "@/components/app-shell/boundary"
 import { ShareStateCard } from "@/components/share/share-state-card"
 
 /**
@@ -17,9 +16,13 @@ export default function ShareReportError({ reset }: { reset: () => void }) {
       title="This report couldn’t be loaded"
       description="Something went wrong on our side. Try again in a moment."
       action={
-        <Button size="lg" className="w-full" onClick={() => reset()}>
+        <button
+          type="button"
+          className={boundaryButtonClass("primary", "lg", "w-full")}
+          onClick={() => reset()}
+        >
           Try again
-        </Button>
+        </button>
       }
     />
   )

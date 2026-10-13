@@ -242,3 +242,18 @@ export function nextIncompleteStep(
   if (!setup.teamInvited) return "team"
   return "done"
 }
+
+/** What creating or updating a client answers. */
+export const clientMutationResponseSchema = z.object({
+  client: clientSummarySchema,
+})
+
+/** POST `/api/clients/{id}/locations`: the location ids now assigned. */
+export const clientLocationsAssignedResponseSchema = z.object({
+  assigned: z.array(z.string()),
+})
+
+/** DELETE `/api/clients/{id}/locations`: the location ids now unassigned. */
+export const clientLocationsUnassignedResponseSchema = z.object({
+  unassigned: z.array(z.string()),
+})

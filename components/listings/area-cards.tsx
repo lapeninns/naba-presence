@@ -1,8 +1,8 @@
 "use client"
 
 import { EyeIcon, PencilIcon } from "lucide-react"
-import Link from "next/link"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -202,7 +202,7 @@ function AreaCards({
               ? "Check"
               : "Edit"
         const action = (
-          <Link
+          <ShellLink
             href={listingHref(locationId, area.segment)}
             className={cn(
               buttonVariants({ variant: "secondary", size: "sm" }),
@@ -216,7 +216,7 @@ function AreaCards({
               <EyeIcon aria-hidden strokeWidth={1.75} />
             ) : null}
             {verb}
-          </Link>
+          </ShellLink>
         )
 
         if (!summary) {

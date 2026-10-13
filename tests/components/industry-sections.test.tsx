@@ -1,11 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { renderWithProviders } from "../helpers/render"
 import { IndustrySections } from "@/components/locations/profile/sections/industry-sections"
 import { Toaster } from "@/components/ui/toast"
+
+// The lodging editor is loaded on demand (next/dynamic). Transforming its
+// module graph the first time can take longer than a query's wait on a
+// loaded machine, so it is imported once up front: the tests then wait only
+// for what the UI does.
+beforeAll(async () => {
+  await import("@/components/locations/profile/sections/industry-editor")
+})
 
 /** The checked answer of the Yes / No / Not recorded choice named `name`. */
 function answerIn(container: HTMLElement, name: string) {

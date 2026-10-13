@@ -1,18 +1,20 @@
+import type { SupportedIndustryMutation } from "@/lib/contracts/location-industry"
+// The light contract: the full one validates lodging payloads against the
+// Google discovery schema, which only the server needs.
 import {
   INDUSTRY_CONFIRMATION,
   industryMutationResultSchema,
   industryResponseSchema,
-  type SupportedIndustryMutation,
   type IndustryOperation,
   type IndustryState,
-} from "@/lib/contracts/location-industry"
+} from "@/lib/contracts/location-industry-state"
 
 import { apiFetch, type MutationOptions, type RequestOptions } from "./client"
 import { gbpChangeSetResponseSchema } from "@/lib/contracts/gbp-change-set"
 import { lodgingAttemptResponseSchema } from "@/lib/contracts/lodging-attempt"
 import { lodgingWorkflowsResponseSchema } from "@/lib/contracts/lodging-workflows"
 
-export type { IndustryOperation, IndustryState, SectionResult } from "@/lib/contracts/location-industry"
+export type { IndustryOperation, IndustryState, SectionResult } from "@/lib/contracts/location-industry-state"
 
 export function fetchIndustry(id: string, options?: RequestOptions): Promise<IndustryState> {
   return apiFetch(`/api/locations/${id}/industry`, {

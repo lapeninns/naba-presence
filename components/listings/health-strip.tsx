@@ -1,8 +1,8 @@
 "use client"
 
-import Link from "next/link"
 import { Fragment } from "react"
 
+import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -194,12 +194,12 @@ function HealthStrip({
         }
         action={
           linked && connectionBroken && clientId && canManageConsoles ? (
-            <Link
+            <ShellLink
               href={`/setup?client=${clientId}&step=connect`}
               className={ACTION}
             >
               Reconnect Google
-            </Link>
+            </ShellLink>
           ) : undefined
         }
       />
@@ -224,12 +224,12 @@ function HealthStrip({
         }
         action={
           linked && !summary.verified && canManageConsoles ? (
-            <Link
+            <ShellLink
               href={listingHref(locationId, "verification")}
               className={ACTION}
             >
               Verify
-            </Link>
+            </ShellLink>
           ) : undefined
         }
       />
@@ -279,16 +279,19 @@ function HealthStrip({
         }
         action={
           unpublished > 0 ? (
-            <Link href={listingHref(locationId, "changes")} className={ACTION}>
+            <ShellLink
+              href={listingHref(locationId, "changes")}
+              className={ACTION}
+            >
               Review &amp; publish
-            </Link>
+            </ShellLink>
           ) : changed > 0 ? (
-            <Link
+            <ShellLink
               href={listingHref(locationId, "suggestions")}
               className={ACTION}
             >
               Review
-            </Link>
+            </ShellLink>
           ) : undefined
         }
       />

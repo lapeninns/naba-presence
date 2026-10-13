@@ -1,20 +1,13 @@
 import { z } from "zod"
 
-export const MEMBER_ROLES = ["owner", "admin", "member", "viewer"] as const
-export type MemberRole = (typeof MEMBER_ROLES)[number]
+import { MEMBER_ROLES } from "@/lib/settings/member-roles"
 
-const ROLE_LABELS: Record<MemberRole, string> = {
-  owner: "Owner",
-  admin: "Admin",
-  member: "Member",
-  viewer: "Viewer",
-}
-
-export function roleLabel(role: MemberRole): string {
-  return ROLE_LABELS[role]
-}
-
-export const ROLE_OPTIONS = MEMBER_ROLES.map((value) => ({ value, label: ROLE_LABELS[value] }))
+export {
+  MEMBER_ROLES,
+  ROLE_OPTIONS,
+  roleLabel,
+  type MemberRole,
+} from "@/lib/settings/member-roles"
 
 export const invitationFormSchema = z.object({
   email: z

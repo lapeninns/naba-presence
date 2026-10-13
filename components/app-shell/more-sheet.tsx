@@ -1,7 +1,6 @@
 "use client"
 
 import { Building2, ChevronRight, Search } from "lucide-react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -30,6 +29,7 @@ import {
   notificationsName,
   useUnreadNotificationCount,
 } from "./notifications-link"
+import { ShellLink } from "./shell-link"
 
 /** A sheet row: 44px or more, icon, label, optional trailing detail. */
 const ROW_CLASS = cn(
@@ -171,7 +171,7 @@ function MoreSheetContent({
           <li>
             {/* Health in words, never a dot alone: the dot repeats the tone
                 for a glance, the label says what it means. */}
-            <Link
+            <ShellLink
               href={health.href}
               onClick={onClose}
               data-slot="health-row"
@@ -204,7 +204,7 @@ function MoreSheetContent({
                   ? `Connection status for ${health.scopedName}`
                   : "Connection status"}
               </span>
-            </Link>
+            </ShellLink>
           </li>
         )}
       </ul>
@@ -216,7 +216,7 @@ function MoreSheetContent({
             const count = destination.id === "notifications" ? unread : 0
             return (
               <li key={destination.id}>
-                <Link
+                <ShellLink
                   href={destination.href}
                   onClick={onClose}
                   aria-current={
@@ -248,7 +248,7 @@ function MoreSheetContent({
                     strokeWidth={1.75}
                     aria-hidden
                   />
-                </Link>
+                </ShellLink>
               </li>
             )
           })}

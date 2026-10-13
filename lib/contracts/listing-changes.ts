@@ -81,8 +81,7 @@ export const LISTING_CHANGE_LABEL: Record<ListingChangeKind, string> = {
  * (lib/api/client.ts), so every editor's error path can tell "sent for
  * approval" from a failure.
  */
-export const LISTING_CHANGE_AWAITING_APPROVAL =
-  "listing_change_awaiting_approval"
+export { LISTING_CHANGE_AWAITING_APPROVAL } from "@/lib/contracts/wire-codes"
 
 /**
  * One value the approver reads before deciding: a content field of the

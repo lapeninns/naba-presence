@@ -1,8 +1,7 @@
-import { reviewCountsSchema } from "@/lib/contracts/reviews"
-
 import { apiFetch, type RequestOptions } from "./client"
 
-export { reviewCountsSchema } from "@/lib/contracts/reviews"
+// The schema loads on demand (see `ResponseSchema` in ./client): the shell's
+// badge reads counts on every page, and the contract pulls in zod.
 export type { ReviewCounts } from "@/lib/contracts/reviews"
 
 export function fetchReviewCounts(
@@ -17,5 +16,9 @@ export function fetchReviewCounts(
   if (scoped.clientId) params.set("client_id", scoped.clientId)
   if (scoped.groupBy) params.set("group_by", scoped.groupBy)
   const query = params.size > 0 ? `?${params}` : ""
-  return apiFetch(`/api/reviews/counts${query}`, { schema: reviewCountsSchema, ...options })
+  return apiFetch(`/api/reviews/counts${query}`, {
+    schema: () =>
+      import("@/lib/contracts/reviews").then((m) => m.reviewCountsSchema),
+    ...options,
+  })
 }

@@ -1,7 +1,6 @@
 "use client"
 
 import { ChevronLeft } from "lucide-react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -15,6 +14,7 @@ import { ClientScopeChip, useClientScopeLabel } from "./client-switcher"
 import { CommandPaletteButton } from "./command-palette"
 import { NotificationsLink } from "./notifications-link"
 import { usePageChromeOverride } from "./page-chrome"
+import { ShellLink } from "./shell-link"
 
 /**
  * The labelled way up from a deep page: "‹ Listings". Its name is "Back to
@@ -30,7 +30,7 @@ function ShellBackLink({
   className?: string
 }) {
   return (
-    <Link
+    <ShellLink
       href={target.href}
       data-slot="back-control"
       title={target.label}
@@ -48,7 +48,7 @@ function ShellBackLink({
           row a whitespace-only text node draws nothing. */}
       <span className="sr-only">Back to</span>{" "}
       <span className="min-w-0 truncate">{target.label}</span>
-    </Link>
+    </ShellLink>
   )
 }
 

@@ -526,6 +526,7 @@ function HoursForm({
         google={hours.google}
         errors={fieldErrors}
         supportedHoursTypes={hours.supportedHoursTypes}
+        timeZone={hours.location.timezone}
       />
 
       <DiscardDialog

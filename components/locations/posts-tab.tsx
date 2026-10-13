@@ -356,7 +356,7 @@ function PostsList({
                     ? `${postActionLabel(post)} button`
                     : "",
                   changedAt
-                    ? `Changed ${formatPostTimestamp(changedAt)}`
+                    ? `Changed ${formatPostTimestamp(changedAt, timezone)}`
                     : "Date unavailable",
                 ]
                   .filter(Boolean)
