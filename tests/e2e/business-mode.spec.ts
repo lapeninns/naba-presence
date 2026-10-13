@@ -1,14 +1,16 @@
-import { expect, test } from "@playwright/test"
+import { expect } from "@playwright/test"
 
+import { NO_BUSINESS_TENANT, test } from "./helpers/business-tenant"
 import { pageWorkspaceMode } from "./helpers/workspace-mode"
 
 /**
  * A business-mode owner never sees the client or agency layer.
  *
- * Written for the port-3100 harness and NOT run in the stage that added it
- * (unit tests only there). It assumes the harness tenant is a business-mode
- * organisation, which is what a new organisation is; against an agency
- * tenant it skips instead of failing.
+ * Written for the port-3100 harness. The shared harness tenants (the
+ * cookie-less local bootstrap organisation and the journey tenant) are agency
+ * organisations, so each test signs its page in to a dedicated business-mode
+ * organisation it creates and destroys (helpers/business-tenant.ts). It skips
+ * only when that tenant cannot be created.
  *
  * The scan reads the visible text of each page and fails on the words
  * "client" and "agency". The allowlist is for text that is not the
@@ -29,18 +31,19 @@ const PAGES = [
   { path: "/setup", heading: null },
 ] as const
 
-// Reads the mode through the page's own cookie jar, so the page is signed in
-// to the bootstrap session before its first navigation.
+// Reads the mode through the page's own cookie jar, so the page's first
+// navigation renders as the signed-in business session.
 async function isBusinessTenant(page: import("@playwright/test").Page) {
   return (await pageWorkspaceMode(page)) === "business"
 }
 
 for (const { path, heading } of PAGES) {
-  test(`${path} never says client or agency`, async ({ page }) => {
-    test.skip(
-      !(await isBusinessTenant(page)),
-      "The harness tenant is not in business mode."
-    )
+  test(`${path} never says client or agency`, async ({
+    page,
+    businessTenant,
+  }) => {
+    test.skip(!businessTenant, NO_BUSINESS_TENANT)
+    expect(await isBusinessTenant(page)).toBe(true)
     await page.goto(path)
     if (heading) {
       await expect(
@@ -83,11 +86,10 @@ for (const step of [
 ]) {
   test(`/setup?step=${step} never says client or agency`, async ({
     page,
+    businessTenant,
   }) => {
-    test.skip(
-      !(await isBusinessTenant(page)),
-      "The harness tenant is not in business mode."
-    )
+    test.skip(!businessTenant, NO_BUSINESS_TENANT)
+    expect(await isBusinessTenant(page)).toBe(true)
     await page.goto(`/setup?step=${step}`)
     await page.waitForLoadState("networkidle")
     await expect(
@@ -117,11 +119,10 @@ for (const step of [
 
 test("the client pages redirect a business to Listings and Settings", async ({
   page,
+  businessTenant,
 }) => {
-  test.skip(
-    !(await isBusinessTenant(page)),
-    "The harness tenant is not in business mode."
-  )
+  test.skip(!businessTenant, NO_BUSINESS_TENANT)
+  expect(await isBusinessTenant(page)).toBe(true)
   for (const [from, to] of [
     ["/clients", "/listings"],
     ["/clients/new", "/listings"],
@@ -137,11 +138,10 @@ test("the client pages redirect a business to Listings and Settings", async ({
 
 test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async ({
   page,
+  businessTenant,
 }) => {
-  test.skip(
-    !(await isBusinessTenant(page)),
-    "The harness tenant is not in business mode."
-  )
+  test.skip(!businessTenant, NO_BUSINESS_TENANT)
+  expect(await isBusinessTenant(page)).toBe(true)
   // The desk sidebar (from 1180px): its More disclosure is open on /team.
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto("/team")
@@ -160,11 +160,10 @@ test("the primary navigation is Inbox, Listings, Reports, Team, Settings", async
 
 test("a phone's tabs have no Clients, and More holds Team and Settings", async ({
   page,
+  businessTenant,
 }) => {
-  test.skip(
-    !(await isBusinessTenant(page)),
-    "The harness tenant is not in business mode."
-  )
+  test.skip(!businessTenant, NO_BUSINESS_TENANT)
+  expect(await isBusinessTenant(page)).toBe(true)
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/reports")
   await expect(

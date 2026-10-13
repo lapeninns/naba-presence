@@ -353,7 +353,7 @@ function ReviewList({
                     <time
                       dateTime={review.createTime}
                       title={exactTime}
-                      className="ml-auto shrink-0 font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums"
+                      className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
                     >
                       {/* Relative, so the server and the hydrating browser
                           can read the clock a minute apart. */}

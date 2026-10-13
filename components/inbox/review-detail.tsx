@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 
+import { ActionBar } from "@/components/ui/action-bar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { QueryError } from "@/components/ui/query-states"
@@ -323,6 +324,13 @@ export type ReviewDetailBack = {
   label: string
   onBack: () => void
   ref: Ref<HTMLButtonElement>
+  /**
+   * The shell's app bar already draws this way back ("‹ Inbox", the
+   * inbox's `<PageChrome back>` on a pushed review), so the head leaves its
+   * own button out: one back control on the screen. The title, position
+   * and steps stay.
+   */
+  inAppBar?: boolean
 }
 
 /** Where this review sits in the loaded list, and the steps either side. */
@@ -338,7 +346,8 @@ export type ReviewDetailNav = {
 }
 
 /**
- * The phone head (below lg): back to the list, whose review this is, where
+ * The phone head (below lg): back to the list (unless the app bar already
+ * draws it, `back.inAppBar`), whose review this is, where
  * it sits in the queue and a step either way. Shared by the loading, error
  * and loaded pane so the back control is the SAME element throughout: it
  * takes focus when a review opens from the list, and a control swapped for
@@ -359,25 +368,31 @@ function HeadFrame({
 }) {
   if (!back) return null
   const Title = titleIsHeading ? "h1" : "p"
-  const { ref: backRef, label: backLabel, onBack } = back
+  const { ref: backRef, label: backLabel, onBack, inAppBar = false } = back
   const total = `${nav?.total ?? 0}${nav?.more ? "+" : ""}`
   return (
     <div
       data-slot="review-head"
-      className="flex min-w-0 shrink-0 items-center gap-1 border-b border-line px-1 py-1 lg:hidden"
+      className={cn(
+        "flex min-w-0 shrink-0 items-center gap-1 border-b border-line px-1 py-1 lg:hidden",
+        // Without the back button the title starts at the page gutter.
+        inAppBar && "pl-3"
+      )}
     >
       {/* The visible word is part of the name ("Back to Inbox" contains
           "Inbox"), so a voice user can say what they see. */}
-      <Button
-        ref={backRef}
-        variant="ghost"
-        aria-label={`Back to ${backLabel}`}
-        onClick={onBack}
-        className="h-11 shrink-0 gap-0.5 pr-2.5 pl-1.5 text-ui"
-      >
-        <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
-        {backLabel}
-      </Button>
+      {inAppBar ? null : (
+        <Button
+          ref={backRef}
+          variant="ghost"
+          aria-label={`Back to ${backLabel}`}
+          onClick={onBack}
+          className="h-11 shrink-0 gap-0.5 pr-2.5 pl-1.5 text-ui"
+        >
+          <ChevronLeftIcon aria-hidden strokeWidth={1.75} className="size-5" />
+          {backLabel}
+        </Button>
+      )}
       <Title
         data-slot="review-title"
         className="min-w-0 flex-1 truncate px-1 font-display text-title font-semibold text-ink"
@@ -898,19 +913,25 @@ function ReviewThread({
   )
 }
 
-// The publish bar (reference `.publish`). Below lg it is the docked action
-// bar: sticky at the foot of the screen, riding the keyboard (`pb-dock`), and
-// `data-docked` tells the shell's tab bar to step aside so one bar owns the
-// edge. One row: the status words, then the actions. From lg, where the
-// workspace is locked to the window, it is a static last row of the pane. A
-// raised band rather than a dark one, so the accent Publish button is the one
-// strong thing in it. Not the shared components/ui ActionBar: that is the
-// dark, wrapping, safe-area-only bar, and this one must stay one row, ride
-// the keyboard and carry the docking contract.
-const FOOTER_CLASS =
-  "sticky bottom-0 z-chrome flex shrink-0 flex-col rounded-b-(--np-radius-card) border-t border-line bg-surface-alt pb-dock max-md:rounded-none lg:[@media(min-height:620px)]:static"
-const FOOTER_ROW_CLASS =
-  "flex min-h-(--np-actionbar-h) min-w-0 items-center gap-3 px-4 py-2.5"
+// The publish bar (reference `.publish`): the shared ActionBar, docked.
+// Below md it is fixed to the foot of the screen, riding the keyboard, and
+// its `data-docked` tells the shell's tab bar to step aside so one bar owns
+// the edge (the CHROME CONTRACT in globals.css); from md to lg, where the
+// review is still the whole page, it sticks to the foot of the pane; from lg,
+// where the workspace is locked to the window, it is a static last row of
+// the pane. A raised band (the surface tone on the alternate surface) rather
+// than a dark one, so the accent Publish button is the one strong thing in
+// it. One row at every width: the status words take what the actions leave.
+// The padding and edges here restyle the bar as the pane's last row; the
+// docking itself (position, spacer, keyboard edge) is the primitive's.
+const FOOTER_CLASS = cn(
+  "shrink-0 flex-nowrap rounded-none rounded-b-(--np-radius-card) border-x-0 border-t border-b-0 border-line bg-surface-alt shadow-none max-md:rounded-none lg:[@media(min-height:620px)]:static",
+  // At least the action-bar height in flow; on a phone the dock adds the
+  // keyboard or home-indicator edge under it.
+  "min-h-(--np-actionbar-h) py-2.5 md:pb-[max(--spacing(2.5),var(--np-dock-bottom))]",
+  // The actions keep their width and one line; the status words give way.
+  "[&>[data-slot=action-bar-actions]]:shrink-0 [&>[data-slot=action-bar-actions]]:flex-nowrap"
+)
 
 // Only this middle row scrolls where the workspace is locked; everywhere
 // else the page does. The thread keeps a reading measure and centres in a
@@ -1026,42 +1047,44 @@ function ReviewDetail({
         )}
 
         {review && !viewOnly ? (
-          <footer
+          <ActionBar
+            // The pane's own hook (journeys, useKeepFocusClear above).
             data-slot="composer-footer"
-            data-docked={actions ? "bottom" : undefined}
+            label="Reply actions"
+            tone="surface"
+            dock={Boolean(actions)}
+            safeArea={false}
             className={FOOTER_CLASS}
+            actions={actions ?? undefined}
           >
-            <div className={FOOTER_ROW_CLASS}>
-              {/* Folds away while the reply is typed on a touch screen, so
-                  the keyboard leaves the words being written in view. */}
-              <div
-                className={cn(
-                  "line-clamp-2 min-w-0 flex-1 text-caption",
-                  TYPING_COLLAPSE_CLASS
-                )}
-              >
-                <ReplyStatusStrip review={review} />
-              </div>
-              {actions ? (
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                  {actions}
-                </div>
-              ) : null}
+            {/* The strip is its own `role="status"`, so it goes in as
+                content rather than the bar's live status slot (one
+                announcement, not two). Folds away while the reply is typed
+                on a touch screen, so the keyboard leaves the words being
+                written in view. */}
+            <div
+              className={cn(
+                "line-clamp-2 min-w-0 flex-1 text-caption",
+                TYPING_COLLAPSE_CLASS
+              )}
+            >
+              <ReplyStatusStrip review={review} />
             </div>
-          </footer>
+          </ActionBar>
         ) : pending && actions ? (
           // Docked already, as the loaded bar will be: the tab bar does not
           // show for a moment and then step aside.
-          <footer
+          <ActionBar
             aria-hidden
             data-slot="composer-footer"
-            data-docked="bottom"
+            label="Reply actions"
+            tone="surface"
+            dock
+            safeArea={false}
             className={FOOTER_CLASS}
           >
-            <div className={FOOTER_ROW_CLASS}>
-              <ActionFooterSkeleton />
-            </div>
-          </footer>
+            <ActionFooterSkeleton />
+          </ActionBar>
         ) : null}
       </DetailErrorBoundary>
     </div>

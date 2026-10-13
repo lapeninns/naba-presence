@@ -341,7 +341,7 @@ describe("ListingsBoard", () => {
       ).toBeInTheDocument()
   })
 
-  it("selects every listing shown from a bar outside the table header, and docks the selection bar", async () => {
+  it("selects every listing shown from the table header's select-all bar, and docks the selection bar", async () => {
     stub({
       entries,
       summaries: entries.map((entry) => summary({ locationId: entry.id })),
@@ -351,16 +351,24 @@ describe("ListingsBoard", () => {
     expect(
       screen.queryByRole("region", { name: "Bulk change selection" })
     ).not.toBeInTheDocument()
-    const all = screen.getByRole("checkbox", { name: "Select all shown (3)" })
-    expect(
-      within(screen.getByRole("table")).queryByRole("checkbox", {
-        name: /Select all/,
-      })
-    ).not.toBeInTheDocument()
+    // In the header's selection column, so record cards keep it as the
+    // select-all bar above them (TableSelectAllLabel), named by its words.
+    const all = within(screen.getByRole("table")).getByRole("checkbox", {
+      name: "Select all shown (3)",
+    })
+    expect(all.closest("thead")).not.toBeNull()
+    const words = document.querySelector('[data-slot="table-select-all-label"]')
+    expect(words).toHaveTextContent(/^Select all shown \(3\)$/)
+    expect(words).toHaveAttribute("aria-hidden")
     await user.click(all)
     const bar = screen.getByRole("region", { name: "Bulk change selection" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
     expect(bar).toHaveTextContent("3 selected")
+    expect(words).toHaveTextContent("Select all shown (3) · 3 selected")
     const link = within(bar).getByRole("link", { name: "Prepare bulk change" })
     expect(link.getAttribute("href")).toMatch(/^\/listings\/bulk\?ids=/)
     expect(
@@ -372,6 +380,7 @@ describe("ListingsBoard", () => {
     expect(
       screen.queryByRole("region", { name: "Bulk change selection" })
     ).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
   })
 
   it("refuses to select all shown past 50 listings instead of trimming", () => {
@@ -388,6 +397,8 @@ describe("ListingsBoard", () => {
     const all = screen.getByRole("checkbox", { name: "Select all shown (51)" })
     expect(all).toHaveAttribute("aria-disabled", "true")
     expect(all).toHaveAccessibleDescription(/at most 50 listings/)
+    // The reason is on screen too, not only in the description.
+    expect(screen.getByText(/at most 50 listings/)).toBeVisible()
   })
 
   it("says reviews were checked, not the whole listing", () => {

@@ -503,9 +503,9 @@ export function PrivacyRequestsPanel({ gating }: { gating: PrivacyGating }) {
                         <span className="text-ink-muted">—</span>
                       )}
                     </TableCell>
-                    <TableCell data-actions="" className="text-right">
+                    <TableCell actions className="text-right">
                       {open && gating.canManagePrivacy ? (
-                        <span className="grid grid-cols-2 gap-2 @min-[720px]/table:inline-flex @min-[720px]/table:justify-end @min-[720px]/table:gap-1.5">
+                        <span className="grid grid-cols-2 gap-2 @3xl/table:inline-flex @3xl/table:justify-end @3xl/table:gap-1.5">
                           <Button
                             variant="secondary"
                             size="sm"

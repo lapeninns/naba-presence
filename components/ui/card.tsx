@@ -102,7 +102,7 @@ function Card({
 }: CardProps) {
   const classes = cn(
     cardClassName({ surface, interactive: interactive || Boolean(href) }),
-    "group/card flex min-w-0 flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-body [--card-spacing:var(--np-card-pad)] [--card-pt:var(--card-spacing)] data-[flush]:[--card-pt:0px] data-[inset]:[--card-pt:0px] has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(4)] data-[inset]:gap-0 data-[inset]:divide-y data-[inset]:divide-line data-[inset]:py-0 data-[flush]:gap-0 data-[flush]:py-0 *:[img:first-child]:rounded-t-(--np-radius-card) *:[img:last-child]:rounded-b-(--np-radius-card)",
+    "group/card flex min-w-0 flex-col gap-(--card-spacing) overflow-hidden py-(--card-spacing) text-body [--card-pt:var(--card-spacing)] [--card-spacing:var(--np-card-pad)] has-[>img:first-child]:pt-0 data-[flush]:gap-0 data-[flush]:py-0 data-[flush]:[--card-pt:0px] data-[inset]:gap-0 data-[inset]:divide-y data-[inset]:divide-line data-[inset]:py-0 data-[inset]:[--card-pt:0px] data-[size=sm]:[--card-spacing:--spacing(4)] *:[img:first-child]:rounded-t-(--np-radius-card) *:[img:last-child]:rounded-b-(--np-radius-card)",
     href && "no-underline focus-halo focus-visible:outline-none",
     interactive &&
       cn(
@@ -142,20 +142,22 @@ function Card({
  * text (the title), not every word on the card. Focus draws on the card's
  * outline, inset, because the card clips its overflow.
  */
-function CardLink({
-  className,
-  ...props
-}: React.ComponentProps<typeof Link>) {
+/**
+ * The card link's classes, for a link component other than `next/link` (the
+ * shell's intent-prefetch `ShellLink`). Render it with `data-slot="card-link"`.
+ */
+const cardLinkClassName = cn(
+  "text-ink no-underline outline-none",
+  "after:absolute after:inset-0 after:rounded-(--np-radius-card) after:content-['']",
+  "focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--np-focus-ring)",
+  "hover-fine:hover:underline hover-fine:hover:underline-offset-4"
+)
+
+function CardLink({ className, ...props }: React.ComponentProps<typeof Link>) {
   return (
     <Link
       data-slot="card-link"
-      className={cn(
-        "text-ink no-underline outline-none",
-        "after:absolute after:inset-0 after:rounded-(--np-radius-card) after:content-['']",
-        "focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-(--np-focus-ring)",
-        "hover-fine:hover:underline hover-fine:hover:underline-offset-4",
-        className
-      )}
+      className={cn(cardLinkClassName, className)}
       {...props}
     />
   )
@@ -175,8 +177,7 @@ function CardHeader({
       data-divided={divided || undefined}
       className={cn(
         "group/card-header @container/card-header grid auto-rows-min items-start gap-0.5 px-(--card-spacing) group-data-[inset]/card:py-(--card-spacing) has-data-[slot=card-action]:grid-cols-[minmax(0,1fr)_auto] has-data-[slot=card-action]:gap-x-3 has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:border-line [.border-b]:pb-(--card-spacing)",
-        divided &&
-          "-mt-(--card-pt) border-b border-line py-4",
+        divided && "-mt-(--card-pt) border-b border-line py-4",
         className
       )}
       {...props}
@@ -192,7 +193,10 @@ function CardTitle({
   return (
     <Heading
       data-slot="card-title"
-      className={cn("text-title font-semibold text-balance text-ink", className)}
+      className={cn(
+        "text-title font-semibold text-balance text-ink",
+        className
+      )}
       {...props}
     />
   )
@@ -257,6 +261,7 @@ function CardFooter({
 export {
   Card,
   CardLink,
+  cardLinkClassName,
   cardClassName,
   type CardProps,
   CardHeader,

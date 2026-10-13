@@ -8,6 +8,7 @@ import { Empty } from "@/components/ui/empty"
 import { listingHref } from "@/lib/listings/areas"
 import { GATED_SECTION_TITLE } from "@/lib/locations/gating"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 export type ConsoleKind = "people" | "verification"
 
@@ -42,7 +43,7 @@ export function AdministrationDenied({
   const request = `Hi — could you give me access to ${area}${locationName ? ` for ${locationName}` : ""} in NabaPresence? It’s limited to owners and admins.`
 
   return (
-    <div className="rounded-(--np-radius-card) border border-line bg-surface">
+    <div className={cardClassName()}>
       <Empty
         icon={<LockIcon />}
         titleAs="h2"

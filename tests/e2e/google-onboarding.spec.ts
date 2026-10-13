@@ -1113,20 +1113,20 @@ for (const width of [375, 768, 1280])
       .getByRole("button", { name: "Find categories", exact: true })
       .click()
     await categoryGroup
-      .getByRole("button", { name: /Set primary\s*:\s*Shop/, exact: true })
+      .getByRole("button", { name: "Set primary: Shop", exact: true })
       .click()
     await categoryGroup
-      .getByRole("button", { name: /Add category\s*:\s*Florist/, exact: true })
+      .getByRole("button", { name: "Add category: Florist", exact: true })
       .click()
     await categoryGroup
       .getByRole("button", { name: "Load more categories" })
       .click()
     await categoryGroup
-      .getByRole("button", { name: /Set primary\s*:\s*Bakery/, exact: true })
+      .getByRole("button", { name: "Set primary: Bakery", exact: true })
       .click()
     await expect(
       categoryGroup.getByRole("button", {
-        name: /Add category\s*:\s*Florist/,
+        name: "Add category: Florist",
         exact: true,
       })
     ).toBeDisabled()

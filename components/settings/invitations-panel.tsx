@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, cardClassName } from "@/components/ui/card"
 import {
   Dialog,
   DialogBody,
@@ -646,7 +646,12 @@ function InviteForm({
 
   if (created) {
     return (
-      <div className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
+      <div
+        className={cardClassName({
+          pad: true,
+          className: "flex flex-col gap-4",
+        })}
+      >
         <CreatedInvite created={created} />
         <div className="flex justify-end">{inviteAnother}</div>
       </div>
@@ -669,7 +674,7 @@ function InviteForm({
     <form
       noValidate
       onSubmit={onSubmit}
-      className="flex flex-col gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
+      className={cardClassName({ pad: true, className: "flex flex-col gap-4" })}
     >
       {fields}
       <div className="flex justify-end">{submit}</div>
@@ -756,7 +761,7 @@ function InvitationActions({
   const url = invitation.inviteUrl
   const canShare = useCanShareLink(url ?? "")
   return (
-    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:flex @max-[720px]/table:justify-start">
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-3xl/table:flex @max-3xl/table:justify-start">
       {emailDelivery ? (
         <Button
           variant="secondary"
@@ -839,7 +844,7 @@ function InvitationActions({
  * works, and Copy link / Revoke. When the organisation emails its
  * invitations, each row also says where its email stands and offers Resend
  * (not while a send is queued, nor once the link has expired). Copy link
- * stays the fallback whatever the email did. Labelled rows under 720px.
+ * stays the fallback whatever the email did. Record cards below 48rem of the table's width.
  */
 export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
   const query = useInvitations()
@@ -1006,7 +1011,7 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                     />
                   </TableCell>
                 ) : null}
-                <TableCell data-actions="" className="text-right">
+                <TableCell actions className="text-right">
                   <InvitationActions
                     invitation={invitation}
                     expired={expired}

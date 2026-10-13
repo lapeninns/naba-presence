@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import { Checkbox } from "@/components/ui/checkbox"
+import { cardClassName } from "@/components/ui/card"
 
 /**
  * The explicit consent before a send: one checkbox naming exactly what will
@@ -23,7 +24,10 @@ export function ConsentSlot({
   return (
     <div
       data-slot="consent"
-      className="flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface-alt p-3"
+      className={cardClassName({
+        surface: "sunken",
+        className: "flex min-w-0 flex-col gap-3 p-3",
+      })}
     >
       {children}
       <Checkbox

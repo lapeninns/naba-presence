@@ -63,7 +63,7 @@ function Stepper({
           <span
             aria-hidden
             className={cn(
-              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-[11px] tabular-nums",
+              "grid size-[22px] shrink-0 place-items-center rounded-full border-[1.5px] font-mono text-count leading-none tabular-nums",
               step.state === "done" &&
                 "border-success-ink bg-success-tint text-success-ink",
               step.state === "current" &&
@@ -99,7 +99,7 @@ function Stepper({
                 className={cn(
                   "ml-auto shrink-0",
                   !vertical && step.state !== "current" && "max-md:sr-only",
-                  "text-[11.5px] font-normal text-ink-muted"
+                  "text-caption font-normal text-ink-muted"
                 )}
               >
                 {step.note}

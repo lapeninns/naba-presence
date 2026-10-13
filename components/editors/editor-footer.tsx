@@ -42,8 +42,9 @@ function countWords(count: number) {
  * page never shows controls that can't be used without saying why.
  *
  * Phones (under 48rem): a clean editor shows no bar; with the first change
- * it docks edge to edge at the bottom of the screen (`data-docked`, so the
- * tab bar steps aside and scroll padding follows it), riding the keyboard.
+ * it docks edge to edge at the bottom of the screen (the ActionBar's `dock`:
+ * the tab bar steps aside and scroll padding follows it), riding the
+ * keyboard.
  * Desk: `EditorFrame` pins it to the bottom of the scrolling pane. The
  * view-only bar is never docked: it sits inline and says why.
  */
@@ -148,22 +149,30 @@ function EditorFooter({
     status === "conflict" ? CircleAlert : isDirty ? Clock : CircleCheck
   // Nothing to save, publish or resolve. A phone then shows no bar at all
   // (the header's pill already says where the area stands); it appears,
-  // docked to the bottom edge, with the first change. The desk keeps it.
+  // docked to the bottom edge, with the first change. The desk keeps the
+  // clean bar inline, its buttons disabled, so the bar is drawn (`visible`
+  // stays on) and only a phone hides it.
   const idle = !isDirty && !localEdits && status !== "conflict"
 
   return (
     <ActionBar
       data-slot="editor-footer"
-      data-docked={idle ? undefined : "bottom"}
+      // Docked on a phone once there is something to do: fixed to the
+      // bottom edge, riding the keyboard, the tab bar stepping aside (the
+      // primitive's docking contract). Three buttons don't fit beside the
+      // status on a phone, so the docked bar keeps two rows here, status
+      // over a full-width row of buttons; the ActionBar's spacer and the
+      // document's scroll padding follow its measured height, and
+      // useKeepFocusClear measures the bar itself, so neither the last field
+      // nor a focused one is left under it.
+      dock={!idle}
       sticky={false}
       safeArea={false}
       label="Editor actions"
       className={cn(
         idle
           ? "max-md:hidden"
-          : // Docked edge to edge on a phone, riding the keyboard and
-            // clearing the home indicator (the tab bar steps aside for it).
-            "max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-chrome max-md:gap-2 max-md:rounded-none max-md:px-3 max-md:pb-[calc(--spacing(3)+var(--np-dock-bottom))] max-md:[&>[data-slot=action-bar-actions]]:w-full",
+          : "max-md:flex-wrap max-md:gap-2 max-md:[&>[data-slot=action-bar-actions]]:w-full max-md:[&>[data-slot=action-bar-actions]]:flex-nowrap",
         className
       )}
       status={

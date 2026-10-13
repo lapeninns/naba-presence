@@ -253,7 +253,7 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
   // overlay and form-control geometry, and the field rings, whose colour comes
   // from a themed role).
   const themeIndependent =
-    /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|material-blur|material-saturate|measure|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
+    /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|material-blur|material-saturate|measure|form-rail|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
   const lightNames = semanticTokenNames(parsed.light)
   const darkOwn = new Set(
     Object.keys(parsed.dark).filter((name) => parsed.dark[name] !== parsed.light[name])

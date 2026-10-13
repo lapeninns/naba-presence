@@ -147,11 +147,10 @@ function ActionBar({
             "flex min-w-0 grow basis-60 items-center gap-2.5 text-ui [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:[stroke-width:1.75]",
             // On a docked phone bar the status shares one line with the
             // actions: it takes what they leave and wraps within it, to at
-            // most two lines (2 x 20px, under the 44px buttons). The bar
-            // must stay --np-actionbar-h tall, because the spacer below and
-            // the document's scroll padding (globals.css) both assume it:
-            // a taller bar would cover the page's last line and a focused
-            // field. The clamp is visual only; the full words stay in the
+            // most two lines (2 x 20px, under the 44px buttons), so the bar
+            // stays one --np-actionbar-h row. (A bar whose own content
+            // wraps to more rows is still covered: DockSpacer measures it.)
+            // The clamp is visual only; the full words stay in the
             // accessibility tree and in the polite announcement.
             dock && "max-md:basis-0 max-md:[&>:not(svg)]:line-clamp-2"
           )}
@@ -190,18 +189,67 @@ function ActionBar({
   if (!dock) return bar
   return (
     <>
-      {/* Keeps the page's last line reachable above the fixed bar: the
-          bar's whole height, which is the action-bar height plus the dock
-          edge (home indicator or keyboard), the same sum the CHROME
-          CONTRACT uses for scroll padding. Phone only; from `md` the bar is
-          back in flow. */}
-      <div
-        aria-hidden
-        data-slot="action-bar-spacer"
-        className="h-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))] md:hidden"
-      />
+      <DockSpacer />
       {bar}
     </>
+  )
+}
+
+/** The document property a docked bar publishes its measured height on. */
+const DOCK_BAR_HEIGHT = "--np-dock-bar-h"
+
+/**
+ * Keeps the page's last line reachable above a docked (fixed) bar: an
+ * in-flow box the bar's whole height. Phone only; from `md` the bar is back
+ * in flow.
+ *
+ * The height is measured, not assumed. A docked bar is one
+ * `--np-actionbar-h` row plus the dock edge (home indicator or keyboard)
+ * until its content wraps: the editor footer's status over its buttons, the
+ * setup wizard's blocked reason over Back and Continue. While the bar is
+ * fixed, its border-box height is published on the document as
+ * `--np-dock-bar-h`, which this spacer and the CHROME CONTRACT's scroll
+ * padding (globals.css) read, so a two-row bar covers neither the page's
+ * last line nor a field the browser scrolls into view. Before the first
+ * measurement, and once the bar is gone, both fall back to the one-row sum.
+ */
+function DockSpacer() {
+  const ref = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    const bar = ref.current?.nextElementSibling
+    if (!(bar instanceof HTMLElement)) return
+    const root = document.documentElement
+    const publish = () => {
+      // Fixed only below md; in flow (from md) it needs no reservation.
+      if (getComputedStyle(bar).position === "fixed") {
+        root.style.setProperty(
+          DOCK_BAR_HEIGHT,
+          `${bar.getBoundingClientRect().height}px`
+        )
+      } else {
+        root.style.removeProperty(DOCK_BAR_HEIGHT)
+      }
+    }
+    publish()
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(publish)
+    observer?.observe(bar)
+    window.addEventListener("resize", publish)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener("resize", publish)
+      root.style.removeProperty(DOCK_BAR_HEIGHT)
+    }
+  }, [])
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      data-slot="action-bar-spacer"
+      className="h-[var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))] md:hidden"
+    />
   )
 }
 

@@ -425,7 +425,10 @@ function SettingsBody({
                     cell: (l) => (
                       <Link
                         href={`/listings/${l.id}`}
-                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                        // The record card's way in: a full touch-height row
+                        // on touch (the name alone is an 18px line), the
+                        // compact text link at the desk.
+                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
                       >
                         {l.name}
                       </Link>
@@ -576,43 +579,44 @@ function SettingsBody({
                     />
                   )}
                 </Card>
-                {selected.size > 0 ? (
-                  // Docked to the bottom of a phone while the unfiled list is
-                  // on screen (the tab bar steps aside for it); inline under
-                  // the list on a desk. Only there while something is picked.
-                  <ActionBar
-                    data-docked="bottom"
-                    label="Unfiled listing actions"
-                    className="desk:static"
-                    status={`${formatNumber(selected.size)} selected`}
-                    actions={
-                      <>
-                        <Button
-                          variant="ghost-dark"
-                          size="sm"
-                          disabled={assignLocations.isPending}
-                          onClick={() => setSelected(new Set())}
-                        >
-                          Clear
-                        </Button>
-                        <Button
-                          size="sm"
-                          pending={assignLocations.isPending}
-                          pendingLabel="Adding…"
-                          onClick={() => {
-                            if (selected.size > BULK_FILE_CONFIRM_THRESHOLD) {
-                              setConfirmBulk(true)
-                            } else {
-                              void assign()
-                            }
-                          }}
-                        >
-                          Add {formatNumber(selected.size)} to this client
-                        </Button>
-                      </>
-                    }
-                  />
-                ) : null}
+                {/* Docked to the bottom of a phone while the unfiled list is
+                    on screen (the tab bar steps aside for it, and a spacer
+                    keeps the list's last row reachable above it); inline
+                    under the list on a desk. Only there while something is
+                    picked. */}
+                <ActionBar
+                  dock
+                  visible={selected.size > 0}
+                  label="Unfiled listing actions"
+                  className="desk:static"
+                  status={`${formatNumber(selected.size)} selected`}
+                  actions={
+                    <>
+                      <Button
+                        variant="ghost-dark"
+                        size="sm"
+                        disabled={assignLocations.isPending}
+                        onClick={() => setSelected(new Set())}
+                      >
+                        Clear
+                      </Button>
+                      <Button
+                        size="sm"
+                        pending={assignLocations.isPending}
+                        pendingLabel="Adding…"
+                        onClick={() => {
+                          if (selected.size > BULK_FILE_CONFIRM_THRESHOLD) {
+                            setConfirmBulk(true)
+                          } else {
+                            void assign()
+                          }
+                        }}
+                      >
+                        Add {formatNumber(selected.size)} to this client
+                      </Button>
+                    </>
+                  }
+                />
                 <AlertDialog open={confirmBulk} onOpenChange={setConfirmBulk}>
                   <AlertDialogContent>
                     <AlertDialogTitle className="[overflow-wrap:anywhere]">

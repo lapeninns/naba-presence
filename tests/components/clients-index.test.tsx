@@ -98,6 +98,14 @@ describe("ClientsIndex", () => {
     expect(links[0]).toHaveTextContent("Zebra Bistro")
   })
 
+  it("gives each client's name link a full touch height on a phone", async () => {
+    stub([{ ...base, id: "a", name: "Aardvark Cafe" }])
+    renderIndex()
+    const link = await screen.findByRole("link", { name: "Aardvark Cafe" })
+    // The record card's way in: a 44px row on touch, a text link at the desk.
+    expect(link).toHaveClass("min-h-(--np-touch)", "desk:min-h-0")
+  })
+
   it("shows health as a word beside every client", async () => {
     stub([{ ...base, health: "disconnected" }])
     renderIndex()

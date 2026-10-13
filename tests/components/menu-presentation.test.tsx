@@ -197,6 +197,17 @@ describe("Combobox", () => {
     expect(input).not.toHaveAttribute("inputmode")
   })
 
+  // The chevron was a 24px button at every width; on touch it is a 44px
+  // square (the project's touch floor) and the field leaves room for it.
+  it("sizes the options button to the touch floor, compact only at the desk", () => {
+    render(<Switcher items={short} />)
+    const trigger = screen.getByRole("button", { name: "Show options" })
+    expect(trigger).toHaveClass("size-(--np-touch)", "desk:size-6")
+    expect(trigger.className).not.toMatch(/(^|\s)size-6(\s|$)/)
+    const input = screen.getByRole("combobox", { name: "Switch listing" })
+    expect(input).toHaveClass("pr-(--np-touch)", "desk:pr-8")
+  })
+
   it("types freely on the desk", () => {
     asDevice("desk")
     render(<Switcher items={short} />)

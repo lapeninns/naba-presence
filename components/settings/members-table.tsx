@@ -104,7 +104,11 @@ type PublishOutcome =
  * dialog from the row's menu (an action sheet on a phone). Publishing is a
  * switch in its own cell that saves at once and says so beside it: saving,
  * saved, or why it wasn't changed.
- * Under 720px of width the table becomes labelled rows.
+ * Below 48rem of its own width each member is a record card (see
+ * `TableCellPriority`): the member, their role badge and the menu on the
+ * title line, when they joined on the muted line under it, then access and
+ * publishing each across the card, where a long access summary or a switch
+ * with its status can wrap.
  */
 export function MembersTable({
   actorRole,
@@ -268,13 +272,11 @@ function MemberRows({
             const outcome =
               publishOutcome?.userId === m.userId ? publishOutcome : null
             return (
-              // Labelled rows (under 720px): the member across the top with
-              // the menu in its corner, Role beside Joined (both short, so
-              // neither column can squeeze the other), then access and
-              // publishing each across the full width, where a long access
-              // summary or a switch with its status can wrap.
-              <TableRow key={m.userId} className="@max-[720px]/table:relative">
-                <TableCell label="Member" className="@max-[720px]/table:pr-12">
+              // The menu is a flex item of the card's title line, after the
+              // role badge, so a long name wraps beside it instead of running
+              // under a pinned button (the old 360px overlap).
+              <TableRow key={m.userId}>
+                <TableCell label="Member" priority="primary">
                   <div className="flex min-w-0 items-center gap-2.5">
                     <Avatar>
                       <AvatarFallback>{initials(m.displayName)}</AvatarFallback>
@@ -292,14 +294,10 @@ function MemberRows({
                     </span>
                   </div>
                 </TableCell>
-                <TableCell label="Role">
+                <TableCell label="Role" priority="trailing">
                   <Badge variant="role">{roleLabel(m.role)}</Badge>
                 </TableCell>
-                <TableCell
-                  label={terms.access}
-                  span
-                  className="@max-[720px]/table:order-1"
-                >
+                <TableCell label={terms.access} span>
                   <span className="flex min-w-0 flex-col">
                     <span className="[overflow-wrap:anywhere]">
                       {access.label}
@@ -311,11 +309,7 @@ function MemberRows({
                     ) : null}
                   </span>
                 </TableCell>
-                <TableCell
-                  label="Publishing"
-                  span
-                  className="@max-[720px]/table:order-1"
-                >
+                <TableCell label="Publishing" span>
                   {pubReason === null ? (
                     <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="flex min-h-(--np-touch) items-center gap-2.5 desk:min-h-8">
@@ -380,15 +374,12 @@ function MemberRows({
                     </span>
                   )}
                 </TableCell>
-                <TableCell label="Joined">
+                <TableCell label="Joined" priority="meta">
                   <span className="font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums">
                     {formatDay(m.createdAt)}
                   </span>
                 </TableCell>
-                <TableCell
-                  data-actions=""
-                  className="text-right @max-[720px]/table:absolute @max-[720px]/table:top-2 @max-[720px]/table:right-2"
-                >
+                <TableCell actions className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       render={

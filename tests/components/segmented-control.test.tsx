@@ -63,6 +63,34 @@ describe("SegmentedControl semantics=tabs (default)", () => {
   })
 })
 
+describe("SegmentedControl sizing", () => {
+  // Each segment's own box is a 44px target on touch (the track grows to
+  // 50px around it); only the desk returns to the control-height track.
+  it("makes every segment a 44px touch target, compact only at the desk", () => {
+    render(<Control />)
+    for (const segment of screen.getAllByRole("tab")) {
+      expect(segment).toHaveClass(
+        "h-(--np-touch)",
+        "desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))]"
+      )
+    }
+  })
+
+  it("sets the count in the count role", () => {
+    render(
+      <SegmentedControl aria-label="Filter by health" defaultValue="all">
+        <SegmentedControlItem value="all" count={2}>
+          All
+        </SegmentedControlItem>
+      </SegmentedControl>
+    )
+    const count = screen.getByText("2")
+    expect(count).toHaveAttribute("data-slot", "segmented-control-count")
+    expect(count).toHaveClass("text-count", "text-ink-muted")
+    expect(count.className).not.toMatch(/text-\[/)
+  })
+})
+
 describe("SegmentedControl semantics=radio", () => {
   it("renders a radiogroup with one tab stop and arrow-key roving", async () => {
     const user = userEvent.setup()

@@ -17,6 +17,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useDecideImportProposal } from "@/lib/queries/use-import-review"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 const KIND_LABELS: Record<ImportProposal["kind"], string> = {
   field_changed: "Changed on Google",
@@ -254,7 +255,7 @@ export function SuggestionList({
     <section
       aria-labelledby={headingId}
       data-slot="suggestion-list"
-      className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+      className={cardClassName({ className: "flex flex-col overflow-hidden" })}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3">
         <h2 id={headingId} className="text-title font-semibold text-ink">

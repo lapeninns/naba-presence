@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import type { ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -15,6 +21,13 @@ vi.mock("next/link", () => ({
       {children}
     </a>
   ),
+}))
+
+// The keyboard-safety hook is the editors' own (tested in
+// keep-focus-clear.test.tsx); here only its wiring to the step is checked.
+const keepFocusClear = vi.hoisted(() => vi.fn())
+vi.mock("@/lib/editors/use-keep-focus-clear", () => ({
+  useKeepFocusClear: keepFocusClear,
 }))
 
 import { SetupWizard } from "@/components/setup/setup-wizard"
@@ -103,6 +116,49 @@ describe("SetupWizard", () => {
     expect(rail.querySelector("[aria-current='step']")).toHaveTextContent(
       "Connect"
     )
+  })
+
+  it("docks the step's actions to the bottom edge as a surface ActionBar", async () => {
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    const bar = screen.getByRole("region", { name: "Step actions" })
+    expect(bar).toHaveAttribute("data-slot", "setup-footer")
+    expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar).toHaveAttribute("data-bar-tone", "surface")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+    // Connect is not the first step, so Back is live.
+    expect(within(bar).getByRole("button", { name: "Back" })).toBeEnabled()
+    const next = within(bar).getByRole("button", { name: "Continue" })
+    // The blocked reason stays Continue's description, in words.
+    expect(next).toHaveAccessibleDescription(
+      "Connect a Google account to continue."
+    )
+  })
+
+  it("keeps a focused field clear of the step bar's measured top", async () => {
+    stub(fresh)
+    renderWizard()
+    await screen.findByRole("heading", { name: "Connect Google", level: 2 })
+    const section = screen
+      .getByRole("heading", { name: "Connect Google", level: 2 })
+      .closest("section")
+    // Wired to the step's section (once it has mounted past the loading
+    // states) and to the docked bar inside it, whose measured top it clears:
+    // two rows when a blocked reason sits over Back and Continue.
+    const wired = keepFocusClear.mock.calls.filter(
+      ([ref]) => (ref as { current: Element | null }).current === section
+    )
+    expect(section).not.toBeNull()
+    expect(wired.length).toBeGreaterThan(0)
+    expect(wired.at(-1)?.[1]).toBe("[data-slot=setup-footer]")
+    expect(section?.querySelector('[data-slot="setup-footer"]')).not.toBeNull()
+    // The bar's own spacer reserves its measured height; no fixed-height
+    // stand-in for the reason row is left behind it.
+    expect(section?.querySelector(".h-6.md\\:hidden")).toBeNull()
   })
 
   it("says why a deep-linked step is not available yet", async () => {

@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { chipClassName } from "@/components/ui/chip"
 import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Field,
@@ -198,10 +200,10 @@ describe("Checkbox and radio touch targets", () => {
     render(<Checkbox aria-label="Select review" />)
     const box = screen.getByRole("checkbox", { name: "Select review" })
     expect(box.className).toContain(
-      "after:inset-[calc((var(--np-selection-box)-var(--np-touch))/2)]"
+      "after:inset-[calc((100%-var(--np-touch))/2)]"
     )
     expect(box.className).toContain(
-      "desk:after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)]"
+      "desk:after:inset-[calc((100%-var(--np-touch-min))/2)]"
     )
   })
 
@@ -234,7 +236,7 @@ describe("Checkbox and radio touch targets", () => {
       screen.getByRole("radio", { name: "Warm" }).closest("label")!.className
     ).toContain("min-h-(--np-touch)")
     expect(screen.getByRole("radio", { name: "Brief" }).className).toContain(
-      "after:inset-[calc((var(--np-selection-box)-var(--np-touch))/2)]"
+      "after:inset-[calc((100%-var(--np-touch))/2)]"
     )
   })
 })
@@ -363,5 +365,32 @@ describe("Input hints", () => {
     const input = screen.getByRole("textbox", { name: "Name" })
     expect(input.className).toContain("text-body")
     expect(input.className).not.toContain("pointer-coarse:text-base")
+  })
+})
+
+describe("touch overhangs measure from the padding box", () => {
+  // A fixed -4px overhang on a 36px control with a 1px border reached only
+  // 34 + 8 = 42px (pseudo-element insets resolve against the padding box);
+  // a percentage of that same box always comes to --np-touch.
+  it("gives a small button and a small icon button a 44px touch band", () => {
+    render(
+      <>
+        <Button size="sm">Show values</Button>
+        <Button size="icon-sm" aria-label="More" />
+      </>
+    )
+    expect(screen.getByRole("button", { name: "Show values" })).toHaveClass(
+      "after:inset-y-[calc((100%-var(--np-touch))/2)]",
+      "desk:after:hidden"
+    )
+    expect(screen.getByRole("button", { name: "More" })).toHaveClass(
+      "after:inset-[calc((100%-var(--np-touch))/2)]"
+    )
+  })
+
+  it("gives a chip a 44px touch band", () => {
+    expect(chipClassName()).toContain(
+      "after:inset-y-[calc((100%-var(--np-touch))/2)]"
+    )
   })
 })

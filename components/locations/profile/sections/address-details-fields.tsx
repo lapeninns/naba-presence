@@ -23,7 +23,9 @@ export function AddressDetailsFields({ draft, setDraft, location, disabled, erro
   const unsupported = unsupportedAddressDetails(address, ["languageCode", "organization", "recipients", "sortingCode"].map((field) => `storefrontAddress.${field}`))
   const showSorting = Boolean(draft.addressSortingCode) || typeof asRecord(address).sortingCode === "string" || ["FR", "JM", "MW", "CI"].includes(draft.regionCode)
   return <details className="rounded-(--np-radius-control) border border-line p-4" id="profile-address-details">
-    <summary className="cursor-pointer text-ui font-medium">Additional address details</summary>
+    {/* A 44px touch row on a phone (its 20px line alone is under the touch
+        floor); padding, not flex, so the disclosure marker stays. */}
+    <summary className="cursor-pointer py-3 text-ui font-medium desk:py-0">Additional address details</summary>
     <div className="mt-4 flex flex-col gap-4">
       {unsupported && <p role="status" className="text-ui text-ink-muted">Some address details cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage address details in Google</a>, then refresh.</p>}
       <Field><FieldLabel htmlFor="profile-address-organization">Address organisation (optional)</FieldLabel>

@@ -130,7 +130,7 @@ function PageHeader({
 
 /** The mono, upper-case context line above a title (reference `.eyebrow`). */
 const EYEBROW_CLASS =
-  "font-mono text-[0.71875rem] leading-4 font-medium tracking-[0.06em] text-ink-muted uppercase"
+  "font-mono text-count font-medium tracking-[0.06em] text-ink-muted uppercase"
 
 /**
  * A whole page that is one message: access denied, not found, an error

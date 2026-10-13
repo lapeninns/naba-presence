@@ -25,7 +25,14 @@ const dashboardRoutes = [
   // More opens itself while Team or Settings is the current page, so the
   // link is in the tree and marked current without a click.
   { path: "/team", label: "Team", heading: /^Team$/ },
-  { path: "/settings", label: "Settings", heading: /^Reply policy$/ },
+  // /settings is Reply policy from md; on a phone it is the grouped
+  // settings index, its one h1 "Settings" (the mobile-first spec).
+  {
+    path: "/settings",
+    label: "Settings",
+    heading: /^Reply policy$/,
+    phoneHeading: /^Settings$/,
+  },
 ]
 
 // The shell draws the Primary nav three ways (components/app-shell): the
@@ -77,7 +84,10 @@ test("dashboard pages mark their tab, or More, as current on a phone", async ({
     await page.goto(route.path)
     expect(new URL(page.url()).pathname).toBe(route.path)
     await expect(
-      page.getByRole("heading", { name: route.heading, level: 1 })
+      page.getByRole("heading", {
+        name: ("phoneHeading" in route && route.phoneHeading) || route.heading,
+        level: 1,
+      })
     ).toBeVisible()
     const tabs = page.getByRole("navigation", { name: "Primary" })
     await expect(tabs).toHaveAttribute("data-slot", "tab-bar")

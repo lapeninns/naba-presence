@@ -247,6 +247,7 @@ describe("type roles", () => {
   it("reads every named role from the touch-first type scale", () => {
     for (const role of [
       "caption",
+      "count",
       "ui",
       "body",
       "title",
@@ -266,6 +267,8 @@ describe("type roles", () => {
     const touch = globals.slice(0, globals.indexOf("/* DESK."))
     for (const [token, touchValue, deskValue] of [
       ["--np-text-caption", "0.8125rem", "0.75rem"], // 13px → 12px
+      ["--np-text-count", "0.8125rem", "0.75rem"], // 13px → 12px
+      ["--np-text-count-lh", "1rem", "1rem"], // 16px line at both sizes
       ["--np-text-ui", "0.9375rem", "0.8125rem"], // 15px → 13px
       ["--np-text-body", "1rem", "0.875rem"], // 16px → 14px
       ["--np-text-title", "1.0625rem", "1rem"], // 17px → 16px
@@ -299,6 +302,7 @@ describe("type roles", () => {
   it("gives every type role a line height", () => {
     for (const role of [
       "caption",
+      "count",
       "ui",
       "body",
       "title",
@@ -313,6 +317,7 @@ describe("type roles", () => {
   it("gives every type role a tracking value", () => {
     for (const role of [
       "caption",
+      "count",
       "ui",
       "body",
       "title",

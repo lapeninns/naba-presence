@@ -529,7 +529,7 @@ function FieldCounter({
       data-near={isNear || undefined}
       aria-live={isOver || isNear ? "polite" : "off"}
       className={cn(
-        "font-mono text-[11.5px] text-ink-muted tabular-nums",
+        "font-mono text-count text-ink-muted tabular-nums",
         isOver && "font-semibold text-danger-ink",
         className
       )}

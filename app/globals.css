@@ -104,6 +104,12 @@
   --text-caption: var(--np-text-caption);
   --text-caption--line-height: var(--np-text-caption-lh);
   --text-caption--letter-spacing: 0;
+  /* Counts and badges: a number beside a label (a tab's queue size, a
+     field's character count, a key cap). Caption's size on a tighter 16px
+     line so a count fits a pill or a tab without growing its row. */
+  --text-count: var(--np-text-count);
+  --text-count--line-height: var(--np-text-count-lh);
+  --text-count--letter-spacing: 0;
   --text-ui: var(--np-text-ui);
   --text-ui--line-height: var(--np-text-ui-lh);
   --text-ui--letter-spacing: 0;
@@ -496,6 +502,8 @@
      customer's words stay 17/28 everywhere. */
   --np-text-caption: 0.8125rem; /* 13 */
   --np-text-caption-lh: 1.125rem;
+  --np-text-count: 0.8125rem; /* 13 */
+  --np-text-count-lh: 1rem;
   --np-text-ui: 0.9375rem; /* 15 */
   --np-text-ui-lh: 1.25rem;
   --np-text-body: 1rem; /* 16 */
@@ -530,6 +538,10 @@
   --np-card-pad: 16px;
   --np-panel-pad: 16px;
   --np-measure-reading: 72ch;
+  /* A long form's desk side column: the section nav beside the business
+     profile's fields (and the action bar inset to start at the fields).
+     Not the shell's icon rail, which is --np-rail-width. */
+  --np-form-rail-w: 12.5rem;
 
   /* Safe areas and the on-screen keyboard. The insets need
      `viewport-fit=cover` (app/layout.tsx). `--np-keyboard-inset` is written
@@ -768,6 +780,8 @@
   :root {
     --np-text-caption: 0.75rem; /* 12 */
     --np-text-caption-lh: 1rem;
+    --np-text-count: 0.75rem; /* 12 */
+    --np-text-count-lh: 1rem;
     --np-text-ui: 0.8125rem; /* 13 */
     --np-text-ui-lh: 1.25rem;
     --np-text-body: 0.875rem; /* 14 */
@@ -888,8 +902,13 @@
     scroll-padding-top: calc(var(--np-appbar-h) + var(--np-safe-top));
     scroll-padding-bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
   }
+  /* A docked bar's measured height (DockSpacer in action-bar.tsx), which
+     covers a bar that wraps to two rows; the one-row sum until measured. */
   html:has([data-docked="bottom"]) {
-    scroll-padding-bottom: calc(var(--np-actionbar-h) + var(--np-dock-bottom));
+    scroll-padding-bottom: var(
+      --np-dock-bar-h,
+      calc(var(--np-actionbar-h) + var(--np-dock-bottom))
+    );
   }
   body:has([data-docked="bottom"]) [data-slot="tab-bar"],
   [data-keyboard="open"] [data-slot="tab-bar"] {

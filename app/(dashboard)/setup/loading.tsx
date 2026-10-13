@@ -1,9 +1,12 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { cardClassName } from "@/components/ui/card"
 
 /**
  * The shape of setup while it loads: the title block, then the step rail
- * beside the step card (the rail folds away on a narrow screen, as the page
- * does). A plain `div`, not `PageFrame`: the page owns the one `<main>`.
+ * beside the step card (the rail folds away below 48rem of the container,
+ * the named `@3xl` step; the wizard's own `@container/setup` should switch
+ * at the same width). A plain `div`, not `PageFrame`: the page owns the one
+ * `<main>`.
  */
 export default function Loading() {
   return (
@@ -18,13 +21,18 @@ export default function Loading() {
         <Skeleton className="h-8 w-56 max-w-full" />
         <Skeleton className="h-4 w-96 max-w-full" />
       </div>
-      <div className="grid items-start gap-6 @min-[720px]:grid-cols-[13.75rem_minmax(0,1fr)]">
-        <div className="hidden flex-col gap-2 @min-[720px]:flex">
+      <div className="grid items-start gap-6 @3xl:grid-cols-[13.75rem_minmax(0,1fr)]">
+        <div className="hidden flex-col gap-2 @3xl:flex">
           {Array.from({ length: 9 }, (_, index) => (
             <Skeleton key={index} className="h-8" />
           ))}
         </div>
-        <div className="flex flex-col gap-3.5 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)">
+        <div
+          className={cardClassName({
+            pad: true,
+            className: "flex flex-col gap-3.5",
+          })}
+        >
           <Skeleton className="h-3.5 w-24" />
           <Skeleton className="h-6 w-64 max-w-full" />
           <Skeleton className="h-4 w-80 max-w-full" />

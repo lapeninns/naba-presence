@@ -369,7 +369,9 @@ function ClientsIndex({ role }: { role: string | null }) {
                     <span className="flex min-w-0 flex-col">
                       <ShellLink
                         href={`/clients/${client.id}`}
-                        className="rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline"
+                        // A full touch-height row on touch, as the bulk and
+                        // client settings record cards do; a text link at the desk.
+                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
                         onClick={(event) => event.stopPropagation()}
                       >
                         {client.name}

@@ -104,7 +104,10 @@ export function WorkspaceModeCard() {
         : changeWorkspaceMode(target),
     onSuccess: () => {
       setConfirming(false)
-      hardNavigate("/settings")
+      // Back to Reply policy, where this card lives, at every width: on a
+      // phone /settings is the settings index, not this page. A full load,
+      // so the shell's nav and wording are drawn again for the new mode.
+      hardNavigate("/settings/policy")
     },
     onError: (caught) => {
       const shares = reportShareExposure(caught)

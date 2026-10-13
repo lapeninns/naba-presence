@@ -190,7 +190,7 @@ function NavRow({
           <span
             aria-hidden
             className={cn(
-              "ml-auto font-mono text-[0.71875rem] tabular-nums md:max-wide:hidden",
+              "ml-auto font-mono text-count tabular-nums md:max-wide:hidden",
               active ? "text-accent-ink" : "text-ink-muted"
             )}
           >

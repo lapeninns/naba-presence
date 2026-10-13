@@ -157,7 +157,14 @@ describe("BulkActionBar", () => {
     renderBar([row("a")], ["a"])
     const bar = await screen.findByRole("region", { name: "Selected reviews" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
-    expect(bar).toHaveClass("sticky", "bottom-0", "z-chrome", "pb-dock")
+    expect(bar).toHaveAttribute("data-slot", "bulk-action-bar")
+    // The shared ActionBar's dock: fixed on a phone, sticky from md, riding
+    // the keyboard, with a spacer keeping the last row reachable above it.
+    expect(bar).toHaveClass("sticky", "z-chrome", "max-md:fixed")
+    expect(bar.className).toContain("pb-[var(--np-dock-bottom)]")
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
   })
 
   it("keeps one primary and puts the rest in the overflow menu", async () => {

@@ -155,9 +155,17 @@ function useScrollsHorizontally(ref: React.RefObject<HTMLElement | null>) {
  * of labelled values. Give each `TableCell` a `label` (DataTable does this
  * from the column header).
  *
- * The scroll container is a tab stop (axe `scrollable-region-focusable`)
- * only while it actually scrolls sideways; a card list that fits is not an
- * empty stop before the first record (listing-admin-profile-23).
+ * `scrollFocus` decides when the scroll container is a tab stop, so a
+ * keyboard user can scroll a wide table (axe `scrollable-region-focusable`):
+ * - `"auto"` (the default): only while it actually scrolls sideways; a card
+ *   list that fits is not an empty stop before the first record
+ *   (listing-admin-profile-23).
+ * - `"always"`: whenever it renders, for a table that must keep one stable
+ *   tab order whatever its width.
+ * - `"never"`: not a tab stop. Only for a table whose every row holds a
+ *   focusable control (a link, a checkbox, a menu button), which the browser
+ *   scrolls into view as focus moves; axe accepts a scroll region with
+ *   focusable content.
  *
  * `containerClassName` reaches the scroll box, for bounding the scroll port.
  */
@@ -166,15 +174,20 @@ function Table({
   surface = false,
   responsive = false,
   containerClassName,
+  scrollFocus = "auto",
   ...props
 }: React.ComponentProps<"table"> & {
   surface?: boolean
   /** Record cards below 48rem of container width. */
   responsive?: boolean
   containerClassName?: string
+  /** When the scroll container is a tab stop; see above. */
+  scrollFocus?: "auto" | "always" | "never"
 }) {
   const ref = React.useRef<HTMLDivElement>(null)
   const scrolls = useScrollsHorizontally(ref)
+  const focusable =
+    scrollFocus === "always" || (scrollFocus === "auto" && scrolls)
   return (
     <div
       ref={ref}
@@ -185,7 +198,7 @@ function Table({
         surface && "rounded-(--np-radius-card) border border-line bg-surface",
         containerClassName
       )}
-      tabIndex={scrolls ? 0 : undefined}
+      tabIndex={focusable ? 0 : undefined}
     >
       <table
         data-slot="table"

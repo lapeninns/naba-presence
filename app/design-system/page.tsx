@@ -262,6 +262,11 @@ const TYPE_ROLES: Array<[string, string, string]> = [
     "Synced 12 min ago · Sample figures",
   ],
   [
+    "Count · 12/16",
+    "text-count font-medium tabular-nums text-ink-muted",
+    "Needs reply 12 · 140 / 1,500",
+  ],
+  [
     "Meta · mono 12",
     "font-mono text-caption text-ink-muted",
     "PROVIDER_PERMISSION_DENIED · 17 Sep, 18:02",
@@ -930,7 +935,7 @@ export default function Page() {
           <div id="ds-data" className="flex scroll-mt-4 flex-col gap-4">
             <Specimen
               title="Tables"
-              note="Labelled rows below 720px of the table’s own width. Figures are mono and right-aligned."
+              note="Labelled rows below 48rem of the table’s own width. Figures are mono and right-aligned."
             >
               <Table surface responsive>
                 <caption className="sr-only">Locations, sample</caption>
