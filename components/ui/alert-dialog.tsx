@@ -4,45 +4,79 @@ import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
 
 import { cn } from "@/lib/utils"
+import {
+  alertPopupClassName,
+  overlayFooterBarClassName,
+  overlayFooterClassName,
+  overlayScrimClassName,
+  overlayScrollPaddingClassName,
+  useOverlayPresentation,
+  type OverlayPresentation,
+} from "@/components/ui/overlay"
 
 function AlertDialog(props: AlertDialogPrimitive.Root.Props) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
 }
 function AlertDialogTrigger(props: AlertDialogPrimitive.Trigger.Props) {
-  return <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
+  return (
+    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
+  )
 }
 function AlertDialogClose(props: AlertDialogPrimitive.Close.Props) {
-  return <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />
+  return (
+    <AlertDialogPrimitive.Close data-slot="alert-dialog-close" {...props} />
+  )
 }
 
+const AlertPresentationContext = React.createContext<"dialog" | "sheet">(
+  "dialog"
+)
+
 /**
- * A narrow, centred panel for one question. There is no close button: the
- * answer is one of the footer buttons, and the destructive confirmation
- * names the object it acts on ("Delete reply", never "OK").
+ * One question. A narrow centred card from `sm`; on a phone a card anchored
+ * to the bottom edge, so the answer is under the thumb. There is no close
+ * button and no swipe: the answer is one of the footer buttons, and the
+ * destructive confirmation names the object it acts on ("Delete reply",
+ * never "OK"). Base UI's AlertDialog never closes on an outside press.
  */
-function AlertDialogContent({ className, children, ...props }: AlertDialogPrimitive.Popup.Props) {
+function AlertDialogContent({
+  className,
+  children,
+  presentation = "auto",
+  ...props
+}: AlertDialogPrimitive.Popup.Props & {
+  /** `auto`: a bottom card on a phone, centred from `sm`. */
+  presentation?: OverlayPresentation
+}) {
+  const resolved = useOverlayPresentation(presentation)
   return (
     <AlertDialogPrimitive.Portal>
       <AlertDialogPrimitive.Backdrop
         data-slot="alert-dialog-overlay"
-        className="fixed inset-0 isolate z-50 bg-scrim transition-opacity duration-(--np-duration-standard) ease-standard data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast)"
+        className={overlayScrimClassName}
       />
       <AlertDialogPrimitive.Popup
         data-slot="alert-dialog-content"
+        data-presentation={resolved}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[min(86dvh,760px)] w-full max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-y-auto overscroll-contain rounded-(--np-radius-modal) bg-surface p-(--dlg-pad) text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px] sm:max-w-[520px]",
-          "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-spring data-starting-style:translate-y-[calc(-50%+8px)] data-starting-style:scale-[0.985] data-starting-style:opacity-0 data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard",
+          alertPopupClassName[resolved],
+          overlayScrollPaddingClassName,
           className
         )}
         {...props}
       >
-        {children}
+        <AlertPresentationContext.Provider value={resolved}>
+          {children}
+        </AlertPresentationContext.Provider>
       </AlertDialogPrimitive.Popup>
     </AlertDialogPrimitive.Portal>
   )
 }
 
-function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Props) {
+function AlertDialogTitle({
+  className,
+  ...props
+}: AlertDialogPrimitive.Title.Props) {
   return (
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
@@ -51,7 +85,10 @@ function AlertDialogTitle({ className, ...props }: AlertDialogPrimitive.Title.Pr
     />
   )
 }
-function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.Description.Props) {
+function AlertDialogDescription({
+  className,
+  ...props
+}: AlertDialogPrimitive.Description.Props) {
   return (
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
@@ -62,21 +99,24 @@ function AlertDialogDescription({ className, ...props }: AlertDialogPrimitive.De
 }
 
 /**
- * The reference `.dialog-foot` bar: sunken surface under a hairline, pulled
- * to the panel's edges. Stacked full-width buttons on small screens (primary
- * on top, because it is last in source order and the column is reversed); a
- * right-aligned row from `sm` up with the primary on the right. Below `sm`
- * it sticks to the bottom of the scrolling panel.
+ * The dialog's footer bar (sunken surface under a hairline, pinned to the
+ * bottom, clear of the keyboard). Centred: a right-aligned row, primary on
+ * the right. Phone: full-width buttons stacked with the primary (last in
+ * source order) at the bottom, nearest the thumb.
  */
-function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">) {
+function AlertDialogFooter({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  const presentation = React.useContext(AlertPresentationContext)
   return (
     <div
       data-slot="alert-dialog-footer"
+      data-docked=""
       className={cn(
-        "-mx-(--dlg-pad) mt-2 -mb-(--dlg-pad) flex flex-col-reverse gap-2 rounded-b-[inherit] border-t border-line bg-surface-alt px-(--dlg-pad) py-3 *:w-full sm:flex-row sm:flex-wrap sm:justify-end sm:*:w-auto",
-        // Sticky on a phone, so the answer stays on screen when the question
-        // (a long list of consequences, a checkbox) scrolls.
-        "max-sm:sticky max-sm:-bottom-(--dlg-pad) max-sm:z-10",
+        overlayFooterClassName[presentation],
+        overlayFooterBarClassName,
+        "mt-2",
         className
       )}
       {...props}
