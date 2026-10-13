@@ -595,7 +595,8 @@ test.describe("touch: critical journeys at 390x844", () => {
     ).toBeVisible()
     const bar = page.locator("[data-slot=setup-footer]")
     const next = bar.getByRole("button", { name: "Continue", exact: true })
-    await expect(next).toBeVisible()
+    // The docked bar slides up on mount; sample it once it has arrived.
+    await expect(next).toBeInViewport({ ratio: 1 })
     await expectNotCovered(next, "Continue")
 
     const agency = page.getByRole("textbox", { name: "Agency name" })
