@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AdministrationProvider } from "@/components/locations/administration/context"
@@ -32,6 +32,15 @@ function PreviewControl() {
 function render(blocked = false) { return renderWithProviders(<AdministrationProvider locationId={id} locationName="Camden Hotel" disabled={false} publishReason={blocked ? "Publishing paused" : null}><AdministrationAccessWorkspace><PreviewControl /><DangerZone /></AdministrationAccessWorkspace></AdministrationProvider>) }
 async function approve() { await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" })); await userEvent.click(await screen.findByRole("button", { name: "Approve access request" })); return screen.findByRole("button", { name: "Send approved access request" }) }
 async function send() { const button = await approve(); await userEvent.click(screen.getByRole("checkbox")); await userEvent.click(button) }
+/** The exact Google resource name sits under the collapsed "Technical details", never in the human summary. */
+function technicalReference(value: string) {
+  const reference = screen.getByText(value, { exact: true })
+  const details = reference.closest("details")
+  expect(details).not.toBeNull(); expect(details).not.toHaveAttribute("open")
+  expect(within(details as HTMLElement).getByText("Google reference")).toBeInTheDocument()
+  expect(reference).toHaveClass("font-mono", "break-all")
+  return reference
+}
 
 describe("administration review, consent and saved outcome controls", () => {
   it("requires approval and explicit consent before one exact send and reports pending invitation truthfully", async () => {
@@ -45,15 +54,13 @@ describe("administration review, consent and saved outcome controls", () => {
   it("describes the Google target for people and keeps the exact resource name as a secondary reference", async () => {
     render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
     expect(await screen.findByText("New invitation for new@example.test on this listing")).toBeInTheDocument()
-    const reference = screen.getByText("Google reference: locations/camden/admins")
-    expect(reference).toHaveClass("text-caption", "text-ink-muted", "break-all")
-    expect(screen.queryByText("locations/camden/admins", { exact: true })).not.toBeInTheDocument()
+    technicalReference("locations/camden/admins")
     await userEvent.click(await screen.findByRole("button", { name: "Approve access request" }))
     await userEvent.click(await screen.findByRole("checkbox"))
     await userEvent.click(screen.getByRole("button", { name: "Send approved access request" }))
     await screen.findByText("Independently confirmed")
     expect(screen.getByText("New invitation for new@example.test on this listing")).toBeInTheDocument()
-    expect(screen.getByText("Google reference: locations/camden/admins")).toBeInTheDocument()
+    technicalReference("locations/camden/admins")
   })
   it("names the listed administrator for a removal and labels an invitation's role as offered, not held", async () => {
     const removal = administrationReviewFixture({ operation: "delete_admin", payload: { name: "locations/camden/admins/manager" } })
@@ -61,7 +68,7 @@ describe("administration review, consent and saved outcome controls", () => {
     vi.mocked(access.previewAdministrationAccess).mockResolvedValueOnce(listedAdmin)
     const view = render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
     expect(await screen.findByText("Administrator manager@example.test on this listing")).toBeInTheDocument()
-    expect(screen.getByText("Google reference: locations/camden/admins/manager")).toBeInTheDocument()
+    technicalReference("locations/camden/admins/manager")
     expect(screen.getByText("Current role")).toBeInTheDocument()
     view.unmount()
 
@@ -70,7 +77,7 @@ describe("administration review, consent and saved outcome controls", () => {
     vi.mocked(access.previewAdministrationAccess).mockResolvedValueOnce(invited)
     render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
     expect(await screen.findByText("Invitation to manage Camden Hotel")).toBeInTheDocument()
-    expect(screen.getByText("Google reference: accounts/stub-1/invitations/pending")).toBeInTheDocument()
+    technicalReference("accounts/stub-1/invitations/pending")
     expect(screen.getByText("Invited role")).toBeInTheDocument()
     expect(screen.queryByText("Current role")).not.toBeInTheDocument()
   })
@@ -92,7 +99,7 @@ describe("administration review, consent and saved outcome controls", () => {
   })
   it("keeps unresolved work from enabling a new review or abandoning the recorded outcome", async () => {
     vi.mocked(access.executeAdministrationAccess).mockResolvedValue({ ...outcome, status: "ambiguous", executionState: "unknown", confirmationState: "unresolved", postcondition: "unknown", error: "outcome_unresolved" })
-    render(); await send(); await screen.findByText("Outcome unresolved")
+    render(); await send(); await screen.findByText("Independent confirmation unresolved")
     expect(screen.getByRole("button", { name: "Preview fixture access" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Back to access" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Transfer this location" })).toBeDisabled()
@@ -125,5 +132,38 @@ describe("administration review, consent and saved outcome controls", () => {
     complete?.(outcome)
     expect(await screen.findByText("Independently confirmed")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Transfer this location" })).toBeEnabled()
+  })
+  it("moves focus to the review when it opens, and to the outcome when it is recorded", async () => {
+    render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    const heading = await screen.findByRole("heading", { name: "Review access request" })
+    await waitFor(() => expect(heading).toHaveFocus())
+    expect(heading.closest("section")).toHaveAttribute("aria-labelledby", "access-review-workspace")
+    await userEvent.click(await screen.findByRole("button", { name: "Approve access request" }))
+    // Approval keeps the person where they are.
+    expect(await screen.findByRole("button", { name: "Send approved access request" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Review access request" })).not.toHaveFocus()
+    await userEvent.click(screen.getByRole("checkbox")); await userEvent.click(screen.getByRole("button", { name: "Send approved access request" }))
+    const outcomeHeading = await screen.findByRole("heading", { name: "Saved access outcome" })
+    await waitFor(() => expect(outcomeHeading).toHaveFocus())
+  })
+  it("asks for the exact listing name, trimmed, at the send step of an administrator removal", async () => {
+    const removal = administrationReviewFixture({ operation: "delete_admin", payload: { name: "locations/camden/admins/manager" } })
+    vi.mocked(access.previewAdministrationAccess).mockResolvedValueOnce(removal)
+    vi.mocked(access.approveAdministrationAccess).mockResolvedValueOnce({ ...removal, changeSet: { ...removal.changeSet, approvedBy: "manager" } })
+    vi.mocked(access.executeAdministrationAccess).mockResolvedValueOnce({ ...outcome, request: removal.request, target: removal.target, postcondition: "administrator_absent", pendingInvitation: null })
+    render(); await userEvent.click(screen.getByRole("button", { name: "Preview fixture access" }))
+    // Saving the review asked for nothing; approval asks for nothing either.
+    expect(screen.queryByLabelText(/Type the listing name/)).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole("button", { name: "Approve access request" }))
+    const button = await screen.findByRole("button", { name: "Send approved access request" })
+    const name = screen.getByLabelText("Type the listing name: Camden Hotel")
+    expect(name).toHaveAttribute("autocapitalize", "none"); expect(name).toHaveAttribute("autocorrect", "off"); expect(name).toHaveAttribute("spellcheck", "false")
+    await userEvent.click(screen.getByRole("checkbox")); expect(button).toBeDisabled()
+    await userEvent.type(name, "camden hotel"); expect(button).toBeDisabled()
+    await userEvent.clear(name); await userEvent.type(name, "Camden Hotel "); expect(button).toBeEnabled()
+    expect(access.executeAdministrationAccess).not.toHaveBeenCalled()
+    await userEvent.click(button)
+    expect(await screen.findByText("Reviewed administrator no longer listed")).toBeInTheDocument()
+    expect(access.executeAdministrationAccess).toHaveBeenCalledExactlyOnceWith(id, id, removal.changeSet.payloadHash)
   })
 })

@@ -1,9 +1,7 @@
 "use client"
 
 import { LockIcon } from "lucide-react"
-import { useState } from "react"
 
-import { DangerZoneDialog } from "@/components/locations/danger-zone-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -79,12 +77,11 @@ export function AdminsSection({
   return (
     <AdminsTable
       admins={admins}
-      invitations={[]}
       caption={caption}
       renderActions={(admin) => {
         const locked = ownerLockReason(admin, admins)
         return locked ? (
-          <span className="inline-flex max-w-[22rem] items-start gap-1.5 text-left text-caption text-ink-muted">
+          <span className="inline-flex max-w-sm items-start gap-1.5 text-left text-caption text-ink-muted">
             <LockIcon
               className="mt-0.5 size-3.5 shrink-0"
               strokeWidth={1.75}
@@ -109,6 +106,12 @@ function AdminRowActions({ admin }: { admin: AdminRow }) {
   )
 }
 
+/**
+ * The row's role as one control: choosing a different role saves a review of
+ * that exact change straight away (nothing is sent; the review opens at the
+ * top of the page and takes focus). The select otherwise shows Google's
+ * listed role.
+ */
 function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
   const { locationId, writeBlocked } = useAdministrationSection()
   const access = useAdministrationAccess()
@@ -118,18 +121,18 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
     currentRole && (EDITABLE_ROLES as readonly string[]).includes(currentRole)
       ? currentRole
       : "MANAGER"
-  // The select shows Google's listed role. A role chosen for review is carried
-  // by the saved review, so a new selection, a confirmed change or a newer
-  // Google list puts the select back on the listed role rather than leaving
-  // a reviewed-but-unlisted role beside the listed badge.
+  // A role chosen for review is carried by the saved review, so a new
+  // selection, a confirmed change or a newer Google list puts the select
+  // back on the listed role rather than leaving a reviewed-but-unlisted role
+  // beside the listed badge.
   const [role, setRole] = useResetOnRevision(
     initialRole,
     `${initialRole}:${access.selectionRevision}:${access.confirmedAt ?? ""}`
   )
 
   const update = useResourceMutation({
-    mutationFn: () => {
-      const values = updateAdminSchema.parse({ name, role })
+    mutationFn: (next: string) => {
+      const values = updateAdminSchema.parse({ name, role: next })
       return access.preview(administrationAccessRequestSchema.parse({
         operation: "update_admin",
         payload: values,
@@ -137,6 +140,8 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
     },
     invalidate: [queryKeys.locationAdministration(locationId)],
     successToast: "Administrator role review saved",
+    // Nothing was saved: show Google's listed role again.
+    onError: () => setRole(initialRole),
   })
 
   // Google does not allow changing the primary owner's role here, and a row
@@ -144,53 +149,50 @@ function UpdateAdminRoleControl({ admin }: { admin: AdminRow }) {
   if (!name || currentRole === "PRIMARY_OWNER") return null
 
   return (
-    <span className="flex flex-wrap items-center gap-2">
-      <Select
-        value={role}
-        onValueChange={(value: string | null) => value && setRole(value)}
-        disabled={writeBlocked}
+    <Select
+      value={role}
+      onValueChange={(value: string | null) => {
+        if (!value || value === role) return
+        setRole(value)
+        if (value !== currentRole) update.mutate(value)
+      }}
+      disabled={writeBlocked || update.isPending || access.busy || Boolean(access.unresolved)}
+    >
+      <SelectTrigger
+        className="w-36"
+        aria-label={`Role for ${admin.admin ?? name}`}
       >
-        <SelectTrigger
-          className="w-32"
-          aria-label={`Role for ${admin.admin ?? name}`}
-        >
-          <SelectValue>
-            {(value: string | null) => (value ? adminRoleLabel(value) : "")}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {EDITABLE_ROLES.map((r) => (
-            <SelectItem key={r} value={r}>
-              {adminRoleLabel(r)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button
-        size="sm"
-        variant="secondary"
-        onClick={() => update.mutate()}
-        disabled={writeBlocked || role === currentRole || update.isPending || access.busy || Boolean(access.unresolved)}
-      >
-        {update.isPending ? "Reviewing…" : "Review role change"}
-      </Button>
-    </span>
+        <SelectValue>
+          {(value: string | null) => (value ? adminRoleLabel(value) : "")}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {EDITABLE_ROLES.map((r) => (
+          <SelectItem key={r} value={r}>
+            {adminRoleLabel(r)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 
+/**
+ * Starts the removal review. Creating a review sends nothing, so there is no
+ * confirmation here: the typed listing name is asked for at the review's
+ * send step, where the removal would actually reach Google.
+ */
 function RemoveAdminAction({ admin }: { admin: AdminRow }) {
   const { locationId, locationName, writeBlocked } = useAdministrationSection()
   const access = useAdministrationAccess()
   const name = admin.name
   const currentRole = admin.role
-  const [open, setOpen] = useState(false)
 
   const remove = useResourceMutation({
     mutationFn: () =>
       access.preview(administrationAccessRequestSchema.parse({ operation: "delete_admin", payload: { name } })),
     invalidate: [queryKeys.locationAdministration(locationId)],
     successToast: "Administrator removal review saved",
-    onSuccess: () => setOpen(false),
   })
 
   // Same guard as UpdateAdminRoleControl: Google will not let the primary
@@ -199,26 +201,17 @@ function RemoveAdminAction({ admin }: { admin: AdminRow }) {
   if (!name || currentRole === "PRIMARY_OWNER") return null
 
   return (
-    <>
-      <Button
-        size="sm"
-        variant="ghost"
-        aria-label={`Remove ${admin.admin ?? name}`}
-        onClick={() => setOpen(true)}
-        disabled={writeBlocked || !locationName || access.busy || Boolean(access.unresolved)}
-      >
-        Remove
-      </Button>
-      <DangerZoneDialog
-        open={open}
-        onOpenChange={setOpen}
-        title="Remove this administrator?"
-        description={`Review removing ${admin.admin ?? "this person"} from Google access. Approval and sending follow the review. Their earlier replies and edits stay.`}
-        expectedName={locationName}
-        confirmLabel="Review administrator removal"
-        pending={remove.isPending}
-        onConfirm={() => remove.mutate()}
-      />
-    </>
+    <Button
+      size="sm"
+      variant="danger-outline"
+      aria-label={`Remove ${admin.admin ?? name}`}
+      onClick={() => remove.mutate()}
+      pending={remove.isPending}
+      // The send step needs the listing name to confirm, so a removal can't
+      // start while it is unknown.
+      disabled={writeBlocked || !locationName || access.busy || Boolean(access.unresolved)}
+    >
+      Remove
+    </Button>
   )
 }

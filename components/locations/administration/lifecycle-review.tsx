@@ -1,75 +1,255 @@
 "use client"
 
 import { useState } from "react"
+import {
+  ConsentSlot,
+  Expiry,
+  Instant,
+  ReviewedWritePanel,
+  reviewedWriteStage,
+  SendBar,
+  SummaryList,
+  type SummaryRow,
+} from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { ReviewTime } from "@/components/editors/change-diff"
+import { useDeadline } from "@/lib/editors/use-deadline"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
-import { ReviewExpiry } from "./review-expiry"
-import { useVerificationExpiry } from "./use-verification-expiry"
+import {
+  IDENTIFIER_INPUT_PROPS,
+  typedNameMatches,
+} from "@/lib/locations/forms/administration"
 import type { LifecycleBlock, useLifecycle } from "./use-lifecycle"
 
 function roleText(role: string | null | undefined) {
   return role ? adminRoleLabel(role) : "Role unknown"
 }
 
-function blockMessage(block: LifecycleBlock | null, expired: boolean, transfer: boolean, approved: boolean): string {
-  if (expired || block === "expired") return `This ${approved ? "approval" : "review"} has expired, so the request can no longer be ${approved ? "sent" : "approved"}. Start a fresh review to check Google again.`
-  if (block === "destination_changed") return "The destination account's access on Google changed since this review, so the reviewed destination role is no longer current. Start a fresh review to check it again."
-  if (block === "access_changed") return transfer
-    ? "The destination or source account's access on Google changed since this review, so the reviewed roles are no longer current. Start a fresh review to check them again."
-    : "Google account access or location membership changed since this review. Start a fresh review to check it again."
+function blockMessage(
+  block: LifecycleBlock | null,
+  expired: boolean,
+  transfer: boolean,
+  approved: boolean
+): string {
+  if (expired || block === "expired")
+    return `This ${approved ? "approval" : "review"} has expired, so the request can no longer be ${approved ? "sent" : "approved"}. Start a fresh review to check Google again.`
+  if (block === "destination_changed")
+    return "The destination account's access on Google changed since this review, so the reviewed destination role is no longer current. Start a fresh review to check it again."
+  if (block === "access_changed")
+    return transfer
+      ? "The destination or source account's access on Google changed since this review, so the reviewed roles are no longer current. Start a fresh review to check them again."
+      : "Google account access or location membership changed since this review. Start a fresh review to check it again."
   return "This review no longer matches Google. Start a fresh review before sending."
 }
 
-export function LifecycleReview({ workflow, locationName, disabled }: {
-  readonly workflow: ReturnType<typeof useLifecycle>; readonly locationName: string; readonly disabled: boolean
+export function LifecycleReview({
+  workflow,
+  locationName,
+  disabled,
+  focusKey,
+}: {
+  readonly workflow: ReturnType<typeof useLifecycle>
+  readonly locationName: string
+  readonly disabled: boolean
+  /** Moves focus to the panel when a review opens (see ReviewedWritePanel). */
+  readonly focusKey?: string | null
 }) {
   const review = workflow.review
-  const clockExpired = useVerificationExpiry(review?.changeSet.expiresAt ?? "1970-01-01T00:00:00Z")
+  const clockExpired = useDeadline(
+    review?.changeSet.expiresAt ?? "1970-01-01T00:00:00Z"
+  )
   const token = `${review?.changeSet.id}:${review?.changeSet.approvedBy}:${workflow.revision}:${disabled}`
-  const [key, setKey] = useState(token), [consent, setConsent] = useState(false), [typedName, setTypedName] = useState("")
-  if (key !== token) { setKey(token); setConsent(false); setTypedName("") }
+  const [key, setKey] = useState(token),
+    [consent, setConsent] = useState(false),
+    [typedName, setTypedName] = useState("")
+  if (key !== token) {
+    setKey(token)
+    setConsent(false)
+    setTypedName("")
+  }
   if (!review) return null
   const transfer = review.request.operation === "transfer_location"
+  const approved = Boolean(review.changeSet.approvedBy)
   const reportedExpired = workflow.block === "expired"
   const expired = clockExpired || reportedExpired
   // Once access drift is reported, the reviewed roles are a record of the
   // review, not Google's current state.
-  const drifted = workflow.block === "destination_changed" || workflow.block === "access_changed"
-  const reviewedRole = (role: string | null | undefined) => drifted ? `${roleText(role)} at review, no longer current` : roleText(role)
-  const blocked = disabled || workflow.busy || workflow.stale || expired || workflow.unresolved
+  const drifted =
+    workflow.block === "destination_changed" ||
+    workflow.block === "access_changed"
+  const reviewedRole = (role: string | null | undefined) =>
+    drifted ? `${roleText(role)} at review, no longer current` : roleText(role)
+  const blocked =
+    disabled ||
+    workflow.busy ||
+    workflow.stale ||
+    expired ||
+    workflow.unresolved
   const listingName = review.changeSet.locationName || locationName
-  return <section aria-labelledby="lifecycle-review-title" className="flex min-w-0 flex-col gap-4 rounded-(--np-radius-card) border border-danger-ink bg-surface p-4">
-    <h2 id="lifecycle-review-title" className="text-title font-semibold text-ink">Review {transfer ? "account transfer" : "managed-location deletion"}</h2>
-    <p className="text-ui text-ink-secondary">Approval records this exact request. Sending is a separate action and can change your management access.</p>
-    <dl className="grid min-w-0 gap-2 text-ui">
-      <div><dt className="font-semibold">Exact Google location</dt><dd className="flex min-w-0 flex-col"><span>{listingName || "Name unavailable"}</span><span className="break-all text-caption text-ink-muted">Google location: {review.baseline.location.name}</span></dd></div>
-      <div><dt className="font-semibold">Source account</dt><dd className="break-all">{review.baseline.source.account.name} · {transfer ? reviewedRole(review.baseline.source.account.role) : roleText(review.baseline.source.account.role)}</dd></div>
-      {review.request.operation === "transfer_location" ? <div><dt className="font-semibold">Destination account</dt><dd className="break-all">{review.request.payload.destinationAccount} · {reviewedRole(review.baseline.destination?.account.role)}</dd></div> : null}
-      <div><dt className="font-semibold">Identity checked</dt><dd className="flex min-w-0 flex-col"><span>Checked on Google <ReviewTime value={review.baseline.observedAt} /></span><span className="break-all text-caption text-ink-muted">Google place ID: {review.baseline.location.placeId ?? "not supplied"}</span></dd></div>
-    </dl>
-    {reportedExpired && !clockExpired && workflow.blockedAt
-      // The server refused an expiry the local clock had not reached; state
-      // when that was reported rather than the earlier, future-looking deadline.
-      ? <p className="text-ui font-semibold text-danger-ink">{review.changeSet.approvedBy ? "Approval" : "Review"} expired · checked <ReviewTime value={workflow.blockedAt} /></p>
-      : <ReviewExpiry format="instant" className={expired ? "text-ui font-semibold text-danger-ink" : "text-caption text-ink-muted"} expiresAt={review.changeSet.expiresAt} approved={Boolean(review.changeSet.approvedBy)} clockExpired={clockExpired} reportedExpired={reportedExpired} />}
-    {!transfer ? <p className="text-ui text-ink-secondary">This requests deletion of the managed Business Profile location. It does not guarantee removal from Search or Maps; customer reviews may remain.</p> : null}
-    {expired || workflow.stale ? <div className="flex min-w-0 flex-col items-start gap-2 rounded-(--np-radius-card) border border-line p-3">
-      <p role="status" className="text-ui text-danger-ink">{blockMessage(workflow.block, expired, transfer, Boolean(review.changeSet.approvedBy))}</p>
-      <Button variant="secondary" size="sm" disabled={disabled || workflow.busy || workflow.unresolved} pending={workflow.busy} onClick={workflow.refreshReview}>Start a fresh review</Button>
-    </div> : null}
-    {review.changeSet.requiresSecondApprover && !review.changeSet.approvedBy ? <p className="text-ui text-ink-secondary">A different current owner or administrator must approve this exact request.</p> : null}
-    {workflow.uncertain ? <p role="status" className="text-ui text-ink-secondary">The send response is unavailable. Read the saved outcome before another lifecycle write.</p> : null}
-    {review.changeSet.approvedBy && !workflow.uncertain ? <>
-      <Field><FieldLabel htmlFor="lifecycle-typed-name">Type the listing name: {locationName || "Name unavailable"}</FieldLabel><Input id="lifecycle-typed-name" value={typedName} onChange={(event) => setTypedName(event.target.value)} disabled={blocked} autoComplete="off" /></Field>
-      <Checkbox checked={consent} onCheckedChange={(value) => setConsent(value === true)} disabled={blocked} label="Send this exact approved lifecycle request to Google." />
-    </> : null}
-    <div className="flex flex-wrap gap-2">
-      <Button variant="ghost" disabled={workflow.busy || workflow.unresolved} onClick={workflow.reset}>Keep this location unchanged</Button>
-      {workflow.uncertain ? <Button variant="secondary" disabled={workflow.busy} onClick={() => workflow.check()}>Read saved lifecycle outcome</Button> : review.changeSet.approvedBy ? <Button variant="danger" disabled={blocked || !consent || !locationName || typedName !== locationName} pending={workflow.busy} onClick={workflow.execute}>Send approved {transfer ? "transfer" : "deletion"}</Button> : <Button disabled={blocked || !review.changeSet.canApprove} pending={workflow.busy} onClick={workflow.approve}>Approve lifecycle request</Button>}
-    </div>
-  </section>
+  const nameMatches = typedNameMatches(typedName, locationName)
+  const rows: SummaryRow[] = [
+    { label: "Location", value: listingName || "Name unavailable" },
+    {
+      label: "Source account",
+      value: `${review.baseline.source.account.name} · ${transfer ? reviewedRole(review.baseline.source.account.role) : roleText(review.baseline.source.account.role)}`,
+    },
+    ...(review.request.operation === "transfer_location"
+      ? [
+          {
+            label: "Destination account",
+            value: `${review.request.payload.destinationAccount} · ${reviewedRole(review.baseline.destination?.account.role)}`,
+          },
+        ]
+      : []),
+    {
+      label: "Identity checked",
+      value: (
+        <>
+          Checked on Google <Instant value={review.baseline.observedAt} />
+        </>
+      ),
+    },
+    {
+      label: "Google location",
+      value: review.baseline.location.name,
+      technical: true,
+    },
+    {
+      label: "Google place ID",
+      value: review.baseline.location.placeId ?? "not supplied",
+      technical: true,
+    },
+  ]
+  const sendStatus = workflow.uncertain
+    ? "Read the saved outcome before sending again."
+    : workflow.stale || expired
+      ? "This request can no longer be sent."
+      : disabled
+        ? "Sending is paused until the other Google change is resolved."
+        : !locationName
+          ? "The listing name is unavailable, so this can’t be confirmed."
+          : !nameMatches
+            ? "Type the listing name exactly to confirm."
+            : !consent
+              ? "Tick the box to send this exact request."
+              : "Ready to send once to Google. This can’t be undone here."
+  return (
+    <ReviewedWritePanel
+      id="lifecycle-review-title"
+      tone="danger"
+      title={`Review ${transfer ? "account transfer" : "managed-location deletion"}`}
+      description="Approval records this exact request. Sending is a separate action and can change your management access."
+      stage={reviewedWriteStage({ approved, recorded: false })}
+      secondApprover={review.changeSet.requiresSecondApprover}
+      focusKey={focusKey}
+    >
+      <SummaryList rows={rows} aria-label="Reviewed lifecycle request" />
+      {/* The server refused an expiry the local clock had not reached: say when
+        that was reported rather than the earlier, future-looking deadline. */}
+      <Expiry
+        expiresAt={review.changeSet.expiresAt}
+        approved={approved}
+        clockExpired={clockExpired}
+        reportedExpired={reportedExpired}
+        reportedAt={workflow.blockedAt}
+      />
+      {!transfer ? (
+        <p className="text-ui text-ink-secondary">
+          This requests deletion of the managed Business Profile location. It
+          does not guarantee removal from Search or Maps; customer reviews may
+          remain.
+        </p>
+      ) : null}
+      {expired || workflow.stale ? (
+        <div className="flex min-w-0 flex-col items-start gap-2 rounded-(--np-radius-card) border border-line p-3">
+          <p role="status" className="text-ui text-danger-ink">
+            {blockMessage(workflow.block, expired, transfer, approved)}
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={disabled || workflow.busy || workflow.unresolved}
+            pending={workflow.busy}
+            onClick={workflow.refreshReview}
+          >
+            Start a fresh review
+          </Button>
+        </div>
+      ) : null}
+      {review.changeSet.requiresSecondApprover && !approved ? (
+        <p className="text-ui text-ink-secondary">
+          A different current owner or administrator must approve this exact
+          request.
+        </p>
+      ) : null}
+      {workflow.uncertain ? (
+        <p role="status" className="text-ui text-ink-secondary">
+          The send response is unavailable. Read the saved outcome before
+          another lifecycle write.
+        </p>
+      ) : null}
+      {approved && !workflow.uncertain ? (
+        <ConsentSlot
+          label="Send this exact approved lifecycle request to Google."
+          checked={consent}
+          onCheckedChange={setConsent}
+          disabled={blocked}
+        >
+          <Field>
+            <FieldLabel htmlFor="lifecycle-typed-name">
+              Type the listing name: {locationName || "Name unavailable"}
+            </FieldLabel>
+            <Input
+              id="lifecycle-typed-name"
+              value={typedName}
+              onChange={(event) => setTypedName(event.target.value)}
+              disabled={blocked}
+              {...IDENTIFIER_INPUT_PROPS}
+            />
+          </Field>
+        </ConsentSlot>
+      ) : null}
+      {/* Stays mounted (disabled) while a send's answer is unknown, so the
+          send control never jumps around while the outcome is read. */}
+      {approved ? (
+        <SendBar label="Approved lifecycle request actions" status={sendStatus}>
+          <Button
+            variant="danger"
+            disabled={blocked || !consent || !nameMatches}
+            pending={workflow.busy}
+            onClick={workflow.execute}
+          >
+            Send approved {transfer ? "transfer" : "deletion"}
+          </Button>
+        </SendBar>
+      ) : null}
+      <div className="flex flex-wrap gap-2">
+        {workflow.uncertain ? (
+          <Button
+            variant="secondary"
+            disabled={workflow.busy}
+            onClick={() => workflow.check()}
+          >
+            Read saved lifecycle outcome
+          </Button>
+        ) : !approved ? (
+          <Button
+            disabled={blocked || !review.changeSet.canApprove}
+            pending={workflow.busy}
+            onClick={workflow.approve}
+          >
+            Approve lifecycle request
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          disabled={workflow.busy || workflow.unresolved}
+          onClick={workflow.reset}
+        >
+          Keep this location unchanged
+        </Button>
+      </div>
+    </ReviewedWritePanel>
+  )
 }

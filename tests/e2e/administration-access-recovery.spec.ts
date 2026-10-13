@@ -11,7 +11,6 @@ const panel = (page: Page) => page.locator('section[aria-labelledby="access-revi
 async function reviewRole(page: Page) {
   await page.getByRole("combobox", { name: "Role for manager@example.test", exact: true }).click()
   await page.getByRole("option", { name: "Owner", exact: true }).click()
-  await page.getByRole("button", { name: "Review role change", exact: true }).click()
   await expect(panel(page).getByRole("button", { name: "Approve access request" })).toBeEnabled()
 }
 async function send(page: Page) {
@@ -40,7 +39,7 @@ for (const width of [375, 768, 1280]) test.describe(`Administration recovery at 
     const fixture = await backend.accessFixture(page); await fixture.open(); await reviewRole(page)
     fixture.state.status = 503; fixture.state.apply = false
     await send(page)
-    await expect(panel(page).getByText("Outcome unresolved", { exact: true })).toBeVisible()
+    await expect(panel(page).getByText("Independent confirmation unresolved", { exact: true })).toBeVisible()
     await expect(panel(page).getByRole("button", { name: "Back to access" })).toBeDisabled()
     await expect(page.getByRole("button", { name: "Add administrator" })).toBeDisabled()
     await expect(page.getByRole("button", { name: "Transfer this location", exact: true })).toBeDisabled()
@@ -80,7 +79,7 @@ for (const width of [375, 768, 1280]) test.describe(`Administration recovery at 
     await backend.admin`update organisation set require_two_person_approval = true where id = ${fixture.owner.organisationId}`
     const manager = await seedMemberUser(backend.admin, { organisationId: fixture.owner.organisationId })
     await backend.admin`update member set role = 'admin' where organisation_id = ${fixture.owner.organisationId} and user_id = ${manager.userId}`
-    await fixture.open(); await page.getByRole("combobox", { name: "Role for manager@example.test", exact: true }).click(); await page.getByRole("option", { name: "Owner", exact: true }).click(); await page.getByRole("button", { name: "Review role change" }).click()
+    await fixture.open(); await page.getByRole("combobox", { name: "Role for manager@example.test", exact: true }).click(); await page.getByRole("option", { name: "Owner", exact: true }).click()
     await expect(panel(page).getByRole("button", { name: "Approve access request" })).toBeDisabled()
     await capture(page, info, "second-manager-required")
     await page.context().clearCookies(); await page.context().addCookies([{ name: "naba_session", value: manager.cookie.slice("naba_session=".length), url: backend.server.baseUrl }]); await page.reload()

@@ -6,6 +6,7 @@ import Link from "next/link"
 import { useEffect, useRef } from "react"
 
 import { SectionLoadError } from "@/components/locations/section-panel"
+import { Instant } from "@/components/reviewed-write"
 import type { AdministrationFailure } from "@/lib/contracts/location-administration"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { LocationTab } from "@/components/locations/location-tab"
@@ -303,8 +304,10 @@ function PeopleSummary({ state, locationId }: { state: AdministrationState; loca
     : peopleFailed || invitationsFailed
       ? "Part of this list could not be read from Google"
       : readAt
-        ? `Read from Google at ${new Date(readAt).toLocaleTimeString("en-GB")}`
+        ? null
         : "Read from Google when this page opened"
+  if (source === null && readAt)
+    return <>{`${people} · ${invitations} · Read from Google at `}<Instant value={new Date(readAt).toISOString()} /></>
   return <>{`${people} · ${invitations} · ${source}`}</>
 }
 
@@ -347,25 +350,6 @@ export function AccessTab({
         return (
           <AdministrationAccessWorkspace><div className="flex flex-col gap-6">
             <AccessNotice editReason={editReason} publishReason={publishReason} />
-
-            <p className="text-caption text-ink-muted">
-              These are the people Google lets manage this listing. Who can see
-              it in NabaPresence is usually managed per {terms.scope}, from{" "}
-              <Link href="/team" className="font-semibold text-ink underline">
-                Team → {terms.access}
-              </Link>
-              .
-            </p>
-
-            <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
-              <AlertTitle>Primary owner rules</AlertTitle>
-              <AlertDescription>
-                Google keeps exactly one primary owner per listing. The primary
-                owner can’t be removed or demoted here, and a listing is never
-                left without an owner. To hand over primary ownership, make
-                someone an owner first, then transfer it on Google.
-              </AlertDescription>
-            </Alert>
 
             <section
               aria-labelledby="people-location"
@@ -426,6 +410,26 @@ export function AccessTab({
                 {(data) => <InvitationsList data={data} />}
               </Sub>
             </section>
+
+            {/* The rules that explain the roster, after it: the roster and
+                "Add administrator" come first on a phone. */}
+            <Alert variant="info" icon={<ShieldIcon aria-hidden />}>
+              <AlertTitle>Primary owner rules</AlertTitle>
+              <AlertDescription>
+                Google keeps exactly one primary owner per listing. The primary
+                owner can’t be removed or demoted here, and a listing is never
+                left without an owner. To hand over primary ownership, make
+                someone an owner first, then transfer it on Google.
+              </AlertDescription>
+            </Alert>
+            <p className="text-caption text-ink-muted">
+              These are the people Google lets manage this listing. Who can see
+              it in NabaPresence is usually managed per {terms.scope}, from{" "}
+              <Link href="/team" className="font-semibold text-ink underline">
+                Team → {terms.access}
+              </Link>
+              .
+            </p>
 
             <DangerZone />
           </div></AdministrationAccessWorkspace>

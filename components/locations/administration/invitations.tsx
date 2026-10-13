@@ -1,7 +1,7 @@
 "use client"
 
 import { UserPlusIcon } from "lucide-react"
-import { useId, useState } from "react"
+import { useState } from "react"
 
 import { StatusPill } from "@/components/ui/status-pill"
 import { Button } from "@/components/ui/button"
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/select"
 import { administrationAccessRequestSchema } from "@/lib/contracts/google-administration-review"
 import { adminRoleLabel } from "@/lib/locations/console-labels"
-import { createAdminSchema } from "@/lib/locations/forms/administration"
+import { createAdminSchema, IDENTIFIER_INPUT_PROPS } from "@/lib/locations/forms/administration"
 import {
   asArray,
   asRecord,
@@ -38,6 +38,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 import { EDITABLE_ROLES } from "./admins"
+import { invitationPlace } from "./access-target"
 import { useAdministrationSection } from "./context"
 import { StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
 
@@ -78,6 +79,8 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
   const access = useAdministrationAccess()
   const name = asString(invitation.name)
   const role = asString(invitation.role)
+  // What accepting would grant: the role, and the location or account it is for.
+  const place = invitationPlace(invitation)
 
   const respond = useResourceMutation({
     mutationFn: (operation: InvitationResponse) =>
@@ -95,8 +98,8 @@ function InvitationRow({ invitation }: { invitation: RawRecord }) {
 
   return (
     <GroupedListItem
-      label={role ? adminRoleLabel(role) : "Invitation"}
-      description="Waiting for a reply on Google"
+      label={role ? `${adminRoleLabel(role)} invitation` : "Invitation"}
+      description={`${place ? `To manage ${place}` : "For the connected Google account"} · waiting for a reply on Google`}
       trailing={
         <>
           <StatusPill tone="pending">Invited</StatusPill>
@@ -140,8 +143,6 @@ export function CreateAdminDialog() {
   const [scope, setScope] = useState("location")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState("MANAGER")
-  const scopeLabelId = useId()
-  const roleLabelId = useId()
 
   const parsed = createAdminSchema.safeParse({ scope, admin: email, role })
   const emailError =
@@ -165,6 +166,9 @@ export function CreateAdminDialog() {
     },
   })
 
+  const cannotSubmit =
+    !parsed.success || Boolean(publishReason) || create.isPending || access.busy || Boolean(access.unresolved)
+
   return (
     <Dialog
       open={open}
@@ -182,23 +186,57 @@ export function CreateAdminDialog() {
           <DialogTitle>Add an administrator</DialogTitle>
           <DialogDescription>
             Google emails them an invitation. They get access once they
-            accept it on Google.
+            accept it on Google. Reviewing sends nothing yet.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <span id={scopeLabelId} className="text-ui font-medium text-ink">
-              Scope
-            </span>
+        {/* A real form: Enter in the email field reviews the invitation. */}
+        <form
+          className="flex min-w-0 flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!cannotSubmit) create.mutate()
+          }}
+        >
+          <Field error={emailError}>
+            <FieldLabel>Email address</FieldLabel>
+            <Input
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              {...IDENTIFIER_INPUT_PROPS}
+            />
+            <FieldError />
+          </Field>
+          <Field>
+            <FieldLabel>Role</FieldLabel>
+            <Select
+              value={role}
+              onValueChange={(value: string | null) => value && setRole(value)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(value: string | null) =>
+                    value ? adminRoleLabel(value) : ""
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {EDITABLE_ROLES.map((r) => (
+                  <SelectItem key={r} value={r}>
+                    {adminRoleLabel(r)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel>Scope</FieldLabel>
             <Select
               value={scope}
               onValueChange={(value: string | null) => value && setScope(value)}
             >
-              <SelectTrigger
-                className="w-full"
-                aria-label="Scope"
-                aria-describedby={scopeLabelId}
-              >
+              <SelectTrigger className="w-full">
                 <SelectValue>
                   {(value: string | null) =>
                     value ? (ADMIN_SCOPE_LABELS[value] ?? value) : ""
@@ -214,58 +252,16 @@ export function CreateAdminDialog() {
                 </SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          <Field error={emailError}>
-            <FieldLabel>Email address</FieldLabel>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <FieldError />
           </Field>
-          <div className="flex flex-col gap-1.5">
-            <span id={roleLabelId} className="text-ui font-medium text-ink">
-              Role
-            </span>
-            <Select
-              value={role}
-              onValueChange={(value: string | null) => value && setRole(value)}
-            >
-              <SelectTrigger
-                className="w-full"
-                aria-label="Role"
-                aria-describedby={roleLabelId}
-              >
-                <SelectValue>
-                  {(value: string | null) =>
-                    value ? adminRoleLabel(value) : ""
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {EDITABLE_ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {adminRoleLabel(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <DialogClose render={<Button variant="secondary" />}>
-            Cancel
-          </DialogClose>
-          <Button
-            onClick={() => create.mutate()}
-            disabled={
-              !parsed.success || Boolean(publishReason) || create.isPending || access.busy || Boolean(access.unresolved)
-            }
-          >
-            {create.isPending ? "Reviewing…" : "Review invitation"}
-          </Button>
-        </DialogFooter>
+          <DialogFooter>
+            <DialogClose render={<Button variant="secondary" />}>
+              Cancel
+            </DialogClose>
+            <Button type="submit" disabled={cannotSubmit}>
+              {create.isPending ? "Reviewing…" : "Review invitation"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   )
