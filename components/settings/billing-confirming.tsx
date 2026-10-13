@@ -10,6 +10,7 @@ import {
   confirmationPhase,
   describeBilling,
 } from "@/lib/billing/presentation"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useBilling } from "@/lib/queries/use-billing"
 
 const BILLING_PATH = "/settings/billing"
@@ -45,7 +46,12 @@ export function BillingConfirming({
         ? false
         : CONFIRMATION_POLL_MS,
   })
-  const data = billing.data
+  // The server never has billing, so it renders "Checking with Stripe…".
+  // The shell's billing banner reads the same query and can fill the cache
+  // before this page hydrates; the hydration render must still match the
+  // server's (React #418), so the record lands one render later.
+  const hydrated = useHydrated()
+  const data = hydrated ? billing.data : undefined
   const phase = confirmationPhase({
     state: data?.state ?? null,
     providerSyncedAt: data?.providerSyncedAt ?? null,
@@ -111,7 +117,7 @@ export function BillingConfirming({
             </p>
           )}
         </div>
-        {billing.isError && !data ? (
+        {hydrated && billing.isError && !data ? (
           <p role="alert" className="m-0 text-caption text-danger-ink">
             Billing could not be loaded. We will keep trying.
           </p>
