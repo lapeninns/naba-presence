@@ -62,10 +62,49 @@ function hasOwnGlyph(children: React.ReactNode) {
   )
 }
 
+/**
+ * Whether an Alert is a live region (prim-19). A banner that is simply part
+ * of the page when it loads ("Heads up: these hours are not on Google yet")
+ * is static content and must not interrupt anyone: it has no role and is
+ * read in document order like the rest of the page. Only an alert that
+ * APPEARS or CHANGES because of something that just happened — a failed
+ * save, a load that broke, a result coming back — is announced:
+ *
+ *   live            the variant decides: destructive and warning interrupt
+ *                   (`role="alert"`, assertive), the rest are polite
+ *                   (`role="status"`).
+ *   live="polite"   always `role="status"`.
+ *   live="assertive" always `role="alert"`.
+ *   live={false}    static: no role.
+ *
+ * The default is static for every variant except `destructive`. A
+ * destructive alert is, in this app, the report of a failure that just
+ * happened (a save refused, a load broken), so it stays announced unless
+ * the caller says `live={false}` for a destructive banner that is present
+ * on load. Warnings, info, success and the neutral panel are static by
+ * default and need `live` to be announced.
+ *
+ * An explicit `role` still wins. For a page-wide condition use `Banner`
+ * (CapabilityBanner-style: "Reviews are not enabled for this listing").
+ */
+export type AlertLive = boolean | "polite" | "assertive"
+
+function liveRole(
+  live: AlertLive | undefined,
+  variant: AlertVariant | null | undefined
+): "alert" | "status" | undefined {
+  const resolved = live ?? variant === "destructive"
+  if (!resolved) return undefined
+  if (resolved === "assertive") return "alert"
+  if (resolved === "polite") return "status"
+  return variant === "destructive" || variant === "warning" ? "alert" : "status"
+}
+
 function Alert({
   className,
   variant,
   icon,
+  live,
   children,
   ...props
 }: React.ComponentProps<"div"> &
@@ -77,12 +116,13 @@ function Alert({
      * replaces the default, so existing callers keep their icon.
      */
     icon?: React.ReactNode
+    /**
+     * Announce this alert (see `AlertLive`). Default: announced for
+     * `destructive`, static for every other variant.
+     */
+    live?: AlertLive
   }) {
-  // destructive/warning interrupt and should be announced as role="alert";
-  // neutral default/success/info are informational, so role="status" (polite)
-  // avoids over-announcing them.
-  const role =
-    variant === "destructive" || variant === "warning" ? "alert" : "status"
+  const role = liveRole(live, variant)
   const DefaultIcon = DEFAULT_ICONS[variant ?? "default"]
   const glyph =
     icon !== undefined ? (
@@ -169,8 +209,9 @@ const BANNER_TONE: Record<BannerTone, string> = {
  * The full-width banner under the toolbar (reference `.banner`): a page-wide
  * strip on a status tint, page-gutter padding, glyph + words + optional
  * action, wrapping on a phone. For a condition that affects the whole page
- * (a Google login needs reconnecting). Announced politely by default; pass
- * `role="alert"` for a condition that just appeared and blocks work.
+ * (a Google login needs reconnecting). Announced politely by default (a
+ * banner usually arrives with data after the page); pass `role="alert"` for
+ * a condition that just appeared and blocks work.
  */
 function Banner({
   tone = "warn",

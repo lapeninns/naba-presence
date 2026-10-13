@@ -76,7 +76,7 @@ export function SectionLoadError({
   className?: string
 }) {
   return (
-    <Alert variant="warning" className={className}>
+    <Alert variant="warning" live className={className}>
       <AlertDescription>
         {description ??
           `We couldn't load ${title.toLowerCase()} from Google right now. Try refreshing in a moment.`}

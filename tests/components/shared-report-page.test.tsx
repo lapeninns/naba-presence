@@ -400,9 +400,13 @@ describe("SharedClientReportView", () => {
         report={{ ...REPORT, replies: { ...REPORT.replies, incomplete: true } }}
       />
     )
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      /may not be counted yet/
-    )
+    // A static warning on the shared page: read in place, not an alert.
+    expect(
+      screen.getByText("These figures may be incomplete").closest(
+        '[data-slot="alert"]'
+      )
+    ).toHaveTextContent(/may not be counted yet/)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     expect(screen.getAllByText("These figures may be incomplete")).toHaveLength(
       1
     )

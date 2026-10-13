@@ -54,7 +54,7 @@ describe("status variants", () => {
   })
   it("Alert announces and carries a title", () => {
     render(
-      <Alert variant="warning">
+      <Alert variant="warning" live>
         <AlertTitle>Data may be out of date</AlertTitle>
         <AlertDescription>Retry to refresh.</AlertDescription>
       </Alert>
@@ -63,17 +63,35 @@ describe("status variants", () => {
       "Data may be out of date"
     )
   })
-  it("uses role=alert only for interrupting variants, role=status otherwise", () => {
-    const { rerender } = render(<Alert variant="destructive">Destructive</Alert>)
+  it("when live, uses role=alert only for interrupting variants, role=status otherwise", () => {
+    const { rerender } = render(<Alert variant="destructive" live>Destructive</Alert>)
     expect(screen.getByRole("alert")).toHaveTextContent("Destructive")
-    rerender(<Alert variant="warning">Warning</Alert>)
+    rerender(<Alert variant="warning" live>Warning</Alert>)
     expect(screen.getByRole("alert")).toHaveTextContent("Warning")
-    rerender(<Alert variant="info">Info</Alert>)
+    rerender(<Alert variant="info" live>Info</Alert>)
     expect(screen.getByRole("status")).toHaveTextContent("Info")
-    rerender(<Alert variant="success">Success</Alert>)
+    rerender(<Alert variant="success" live>Success</Alert>)
     expect(screen.getByRole("status")).toHaveTextContent("Success")
-    rerender(<Alert variant="default">Default</Alert>)
+    rerender(<Alert variant="default" live>Default</Alert>)
     expect(screen.getByRole("status")).toHaveTextContent("Default")
+  })
+
+  // prim-19: a banner present on load is page content, not an interruption.
+  it("is static by default, except a destructive alert, which reports a failure", () => {
+    const { container, rerender } = render(<Alert variant="warning">Heads up</Alert>)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    expect(container.querySelector('[data-slot="alert"]')).toHaveTextContent("Heads up")
+    rerender(<Alert variant="info">Note</Alert>)
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    rerender(<Alert variant="destructive">Failed</Alert>)
+    expect(screen.getByRole("alert")).toHaveTextContent("Failed")
+    rerender(<Alert variant="destructive" live={false}>Static failure</Alert>)
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    rerender(<Alert variant="success" live="assertive">Forced</Alert>)
+    expect(screen.getByRole("alert")).toHaveTextContent("Forced")
+    rerender(<Alert variant="warning" live="polite">Polite</Alert>)
+    expect(screen.getByRole("status")).toHaveTextContent("Polite")
   })
 })
 
