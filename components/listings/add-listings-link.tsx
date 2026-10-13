@@ -1,8 +1,8 @@
 "use client"
 
 import { PlusIcon } from "lucide-react"
+import Link from "next/link"
 
-import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -16,15 +16,12 @@ import { cn } from "@/lib/utils"
  * references resolved to the `/listings` page chunks on every child route, so
  * each listing page downloaded the listings board. Wrapping them here keeps
  * the page's only client references to modules no child route renders.
- *
- * Prefetched on intent only: /setup is a heavy page, and this action sits
- * in view on every visit to the board.
  */
 export function AddListingsLink() {
   return (
-    <ShellLink href="/setup" className={cn(buttonVariants())}>
+    <Link href="/setup" className={cn(buttonVariants())}>
       <PlusIcon aria-hidden strokeWidth={1.75} />
       Add listings from Google
-    </ShellLink>
+    </Link>
   )
 }
