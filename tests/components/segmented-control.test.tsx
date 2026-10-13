@@ -71,7 +71,10 @@ describe("SegmentedControl sizing", () => {
     for (const segment of screen.getAllByRole("tab")) {
       expect(segment).toHaveClass(
         "h-(--np-touch)",
-        "desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))]"
+        "desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))]",
+        // 44 wide too: a one-word label ("All") was 42.7px wide at 320.
+        "min-w-(--np-touch)",
+        "desk:min-w-0"
       )
     }
   })

@@ -92,7 +92,7 @@ const segmentedItemClassName = cn(
   // is what truncated "Needs attention" to "N" at 360px; now the track
   // scrolls instead. Written as the `flex` shorthand so a caller's
   // `flex-none` still replaces it through tailwind-merge.
-  "relative z-10 inline-flex h-(--np-touch) flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))]",
+  "relative z-10 inline-flex h-(--np-touch) min-w-(--np-touch) flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none desk:h-[calc(var(--np-control-h)-2*var(--np-segment-inset))] desk:min-w-0",
   // The hit area: the visible segment is 6px shorter than the track, so a
   // transparent pseudo-element reaches over the track's padding and the
   // whole track height is tappable, at the desk as on touch. It stays inside the
