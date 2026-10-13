@@ -11,22 +11,35 @@ import { cn } from "@/lib/utils"
 // globals.css, so no web font is needed for either. JetBrains Mono is the
 // one self-hosted family (OFL, licence beside the files in public/fonts):
 // counts, timestamps, IDs and keycaps. `--font-mono` reads this variable.
+//
+// Both faces are Latin WOFF2 subsets (public/fonts/jetbrains-mono/README.md),
+// about 21 KB each instead of the 190 KB TTFs. The two calls share one
+// family name, so italic mono text still finds its face. Only the upright
+// face is preloaded: nothing sets mono italic today, and a preload would
+// spend phone bandwidth on it ahead of the page's own scripts.
+const MONO_FAMILY = "JetBrains Mono NP"
+
 const jetbrainsMono = localFont({
-  src: [
-    {
-      path: "../public/fonts/jetbrains-mono/JetBrainsMono[wght].ttf",
-      weight: "100 800",
-      style: "normal",
-    },
-    {
-      path: "../public/fonts/jetbrains-mono/JetBrainsMono-Italic[wght].ttf",
-      weight: "100 800",
-      style: "italic",
-    },
-  ],
+  src: "../public/fonts/jetbrains-mono/JetBrainsMono-Latin[wght].woff2",
+  weight: "100 800",
+  style: "normal",
+  declarations: [{ prop: "font-family", value: MONO_FAMILY }],
   display: "swap",
   variable: "--font-jetbrains-mono",
   fallback: ["ui-monospace", "Menlo", "monospace"],
+  adjustFontFallback: false,
+})
+
+const jetbrainsMonoItalic = localFont({
+  src: "../public/fonts/jetbrains-mono/JetBrainsMono-Latin-Italic[wght].woff2",
+  weight: "100 800",
+  style: "italic",
+  declarations: [{ prop: "font-family", value: MONO_FAMILY }],
+  display: "swap",
+  preload: false,
+  // Unused by any rule; declaring it keeps this call's @font-face in the
+  // stylesheet alongside the upright one.
+  variable: "--font-jetbrains-mono-italic",
   adjustFontFallback: false,
 })
 
@@ -70,7 +83,11 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("font-sans antialiased", jetbrainsMono.variable)}
+      className={cn(
+        "font-sans antialiased",
+        jetbrainsMono.variable,
+        jetbrainsMonoItalic.variable
+      )}
     >
       <body>
         <ViewportInsets />
