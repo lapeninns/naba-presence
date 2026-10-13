@@ -422,3 +422,72 @@ describe("Timeline tones", () => {
     expect(marks[1]).toHaveClass(TONE_CLASSES["at-risk"].tint)
   })
 })
+
+// The e2e suites find record-card values by `td[data-label="<column>"]`
+// (accessibility.spec.ts, place-actions-backend, lodging-recovery-backend):
+// a record card is the same `tr`/`td` restyled, never a separate tree, and
+// every labelled cell keeps its column name whatever its priority.
+describe("record cards keep the td[data-label] contract", () => {
+  it("labels every DataTable cell with its column header, primary and meta included", () => {
+    render(
+      <DataTable
+        caption="Response by listing"
+        rows={[{ id: "a", name: "Old Crown", rate: "80%", replied: "4" }]}
+        rowId={(row) => row.id}
+        responsive
+        columns={[
+          {
+            id: "name",
+            header: "Listing",
+            priority: "primary",
+            cell: (row) => row.name,
+          },
+          {
+            id: "rate",
+            header: "Response rate",
+            priority: "trailing",
+            cell: (row) => row.rate,
+          },
+          {
+            id: "replied",
+            header: "Replied",
+            priority: "meta",
+            cell: (row) => row.replied,
+          },
+        ]}
+      />
+    )
+    const cells = screen.getAllByRole("cell")
+    expect(cells.every((cell) => cell.tagName === "TD")).toBe(true)
+    expect(cells.map((cell) => cell.getAttribute("data-label"))).toEqual([
+      "Listing",
+      "Response rate",
+      "Replied",
+    ])
+    // The column headers are still real header cells for the desk layout.
+    expect(
+      screen.getByRole("columnheader", { name: "Response rate" })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps a hand-composed table's labels on its cells", () => {
+    render(
+      <Table responsive>
+        <TableBody>
+          <TableRow>
+            <TableCell label="Listing">Old Crown</TableCell>
+            <TableCell label="Health" priority="trailing">
+              Healthy
+            </TableCell>
+            <TableCell label="Last published" priority="desk-only">
+              2 days ago
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>
+    )
+    expect(
+      screen.getAllByRole("cell").map((cell) => cell.getAttribute("data-label"))
+    ).toEqual(["Listing", "Health", "Last published"])
+  })
+})
