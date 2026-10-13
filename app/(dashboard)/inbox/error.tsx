@@ -3,9 +3,11 @@
 import { useRouter } from "next/navigation"
 import { startTransition } from "react"
 
-import { PageFrame } from "@/components/app-shell/page-frame"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
+import {
+  BoundaryAlert,
+  BoundaryFrame,
+  boundaryButtonClass,
+} from "@/components/app-shell/boundary"
 
 // The inbox page owns its <main> via PageFrame, so the boundary that replaces
 // it must supply the landmark too.
@@ -14,6 +16,9 @@ import { Button } from "@/components/ui/button"
 // URL (`?selected=`), and Next keeps this boundary up across a navigation
 // that stays on /inbox. So the way back drops the review from the URL and
 // resets the boundary in one go, landing on the list on every screen size.
+//
+// Light helpers only (components/app-shell/boundary.tsx): this file is its
+// own chunk.
 export default function InboxError({
   reset,
 }: {
@@ -22,19 +27,23 @@ export default function InboxError({
 }) {
   const router = useRouter()
   return (
-    <PageFrame width="workspace" className="min-h-0 flex-1">
+    <BoundaryFrame width="workspace">
       <div className="mx-auto flex min-h-[60svh] w-full max-w-md flex-col items-center justify-center gap-4 px-5 py-6">
-        <Alert variant="destructive">
-          <AlertTitle>The inbox hit an error</AlertTitle>
-          <AlertDescription>
-            Your reviews and drafts are safe, and the rest of NabaPresence is
-            still working. Try again, or go back to Inbox.
-          </AlertDescription>
-        </Alert>
+        <BoundaryAlert title="The inbox hit an error">
+          Your reviews and drafts are safe, and the rest of NabaPresence is
+          still working. Try again, or go back to Inbox.
+        </BoundaryAlert>
         <div className="flex flex-wrap items-center justify-center gap-2">
-          <Button onClick={() => reset()}>Try again</Button>
-          <Button
-            variant="outline"
+          <button
+            type="button"
+            className={boundaryButtonClass("primary")}
+            onClick={() => reset()}
+          >
+            Try again
+          </button>
+          <button
+            type="button"
+            className={boundaryButtonClass("outline")}
             onClick={() =>
               startTransition(() => {
                 router.replace("/inbox")
@@ -43,9 +52,9 @@ export default function InboxError({
             }
           >
             Back to Inbox
-          </Button>
+          </button>
         </div>
       </div>
-    </PageFrame>
+    </BoundaryFrame>
   )
 }
