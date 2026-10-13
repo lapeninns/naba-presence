@@ -370,10 +370,12 @@ describe("SheetHeader focus on a remounted pushed page (Drop 1 nit)", () => {
 describe("OptionRowGroup roving tabindex (Drop 1 nit)", () => {
   function Group({
     menu = false,
-    chooseOnArrow = false,
+    applyOnChoose = false,
+    chooseOnArrow,
     onChoose,
   }: {
     menu?: boolean
+    applyOnChoose?: boolean
     chooseOnArrow?: boolean
     onChoose?: (value: string) => void
   }) {
@@ -388,6 +390,7 @@ describe("OptionRowGroup roving tabindex (Drop 1 nit)", () => {
         <OptionRowGroup
           label="Remind me"
           menu={menu}
+          applyOnChoose={applyOnChoose}
           chooseOnArrow={chooseOnArrow}
         >
           {["today", "tomorrow", "monday"].map((option) => (
@@ -421,24 +424,37 @@ describe("OptionRowGroup roving tabindex (Drop 1 nit)", () => {
     expect(tomorrow).toHaveFocus()
   })
 
-  it("only moves focus by default, so an apply-on-choose sheet is safe", async () => {
+  it("is a listbox whose arrows only move focus with applyOnChoose, so an apply-on-choose sheet is safe", async () => {
     const user = userEvent.setup()
     const onChoose = vi.fn()
-    render(<Group onChoose={onChoose} />)
-    const [, tomorrow, monday] = screen.getAllByRole("radio")
+    render(<Group applyOnChoose onChoose={onChoose} />)
+    screen.getByRole("listbox", { name: "Remind me" })
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument()
+    const [today, tomorrow, monday] = screen.getAllByRole("option")
+    expect(tomorrow).toHaveAttribute("aria-selected", "true")
+    expect(tomorrow).not.toHaveAttribute("aria-checked")
+    expect(tomorrow).toHaveAttribute("tabindex", "0")
+    expect(today).toHaveAttribute("tabindex", "-1")
     tomorrow!.focus()
     await user.keyboard("{ArrowDown}")
     expect(monday).toHaveFocus()
-    expect(monday).toHaveAttribute("aria-checked", "false")
+    expect(monday).toHaveAttribute("aria-selected", "false")
+    await user.keyboard("{ArrowRight}")
+    expect(today).toHaveFocus()
+    await user.keyboard("{ArrowLeft}")
+    expect(monday).toHaveFocus()
     expect(onChoose).not.toHaveBeenCalled()
     await user.keyboard("{Enter}")
     expect(onChoose).toHaveBeenCalledWith("monday")
+    await user.keyboard("{ArrowUp} ")
+    expect(onChoose).toHaveBeenLastCalledWith("tomorrow")
   })
 
-  it("chooses the row the arrow keys land on with chooseOnArrow (ARIA radio pattern)", async () => {
+  it("chooses the row the arrow keys land on by default (APG radio pattern)", async () => {
     const user = userEvent.setup()
     const onChoose = vi.fn()
-    render(<Group chooseOnArrow onChoose={onChoose} />)
+    render(<Group onChoose={onChoose} />)
+    screen.getByRole("radiogroup", { name: "Remind me" })
     const [today, tomorrow, monday] = screen.getAllByRole("radio")
     tomorrow!.focus()
     await user.keyboard("{ArrowDown}")
@@ -455,6 +471,20 @@ describe("OptionRowGroup roving tabindex (Drop 1 nit)", () => {
     // Home and End move without choosing.
     onChoose.mockClear()
     await user.keyboard("{Home}")
+    expect(today).toHaveFocus()
+    expect(onChoose).not.toHaveBeenCalled()
+  })
+
+  it("only moves focus when chooseOnArrow is turned off", async () => {
+    const user = userEvent.setup()
+    const onChoose = vi.fn()
+    render(<Group chooseOnArrow={false} onChoose={onChoose} />)
+    const [today, tomorrow, monday] = screen.getAllByRole("radio")
+    tomorrow!.focus()
+    await user.keyboard("{ArrowDown}")
+    expect(monday).toHaveFocus()
+    // Left and Right move too, even without choosing.
+    await user.keyboard("{ArrowRight}")
     expect(today).toHaveFocus()
     expect(onChoose).not.toHaveBeenCalled()
   })

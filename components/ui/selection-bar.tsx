@@ -119,7 +119,7 @@ function SelectionBar({
       <ToolbarPrimitive.Root
         aria-label="Actions"
         data-slot="selection-bar-actions"
-        className="flex gap-2 overflow-x-auto md:order-2 md:ml-auto md:overflow-visible"
+        className="-my-1 flex gap-2 overflow-x-auto py-1 md:order-2 md:ml-auto md:overflow-visible"
       >
         {children}
       </ToolbarPrimitive.Root>

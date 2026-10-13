@@ -332,8 +332,18 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
     )
   }
 
+  const close = closeButton ? <OverlayCloseButton className="static" /> : null
+  // With an action, Close moves: to the leading slot, or beside the action
+  // when a back control holds that slot. Never gone (WCAG 2.5.7).
   const trailing =
-    action ?? (closeButton ? <OverlayCloseButton className="static" /> : null)
+    action && hasBack && close ? (
+      <span className="flex items-center gap-1">
+        {action}
+        {close}
+      </span>
+    ) : (
+      (action ?? close)
+    )
 
   return (
     <div
@@ -355,7 +365,14 @@ const SheetHeader = markOverlayHeader(function SheetHeader({
         )}
       >
         <div className="flex min-w-0 justify-start">
-          {hasBack ? back : null}
+          {hasBack ? (
+            back
+          ) : action && closeButton ? (
+            // The header's action replaces the trailing close, so Close moves
+            // to the leading slot: the button alternative to every dismissal
+            // gesture (WCAG 2.5.7) must survive a "Done" or "Schedule".
+            <OverlayCloseButton className="static" />
+          ) : null}
         </div>
         <div
           data-slot="sheet-header-title"
@@ -446,7 +463,6 @@ function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
-  const variant = React.useContext(SheetVariantContext)
   return (
     <DialogPrimitive.Title
       data-slot="sheet-title"
@@ -454,8 +470,8 @@ function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
       // variant: an edge sheet can push a page too).
       tabIndex={-1}
       className={cn(
-        "text-title font-semibold text-ink",
-        variant !== "edge" && "outline-none",
+        // A keyboard user who lands here after a push sees an inset ring.
+        "rounded-(--np-radius-tag) text-title font-semibold text-ink outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) focus-visible:ring-inset forced-colors:focus-visible:outline-2 forced-colors:focus-visible:-outline-offset-2",
         className
       )}
       {...props}

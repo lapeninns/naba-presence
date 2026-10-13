@@ -1,6 +1,8 @@
 "use client"
 
+import { useRender } from "@base-ui/react/use-render"
 import { CheckIcon, ChevronRightIcon } from "lucide-react"
+import Link from "next/link"
 import * as React from "react"
 
 import { radioClassName } from "@/components/ui/radio-group"
@@ -25,6 +27,14 @@ import { cn } from "@/lib/utils"
  * `chevron`/`none`. Put single-choice rows in an `OptionRowGroup` so they
  * have their radiogroup, and arrow keys move between them.
  *
+ * Link mode: with `href` the row is a Next `<Link>` (or any element via
+ * `render`, Base UI's `useRender` idiom, e.g. a `ShellLink`) drawn the same
+ * way, so a leave guard that intercepts real links still sees it. A link
+ * row is a link: no radio/checkbox role, no `aria-checked`. `selected`
+ * becomes `aria-current="page"` (pass `aria-current` yourself for another
+ * token, e.g. `"location"`), and the indicator still draws (a ✓ on the
+ * current area). `disabled` drops the href and marks it `aria-disabled`.
+ *
  * A destructive row (`tone="destructive"`) uses the danger ink and goes
  * last, after an `OptionSeparator`.
  *
@@ -38,10 +48,17 @@ import { cn } from "@/lib/utils"
 export type OptionIndicator =
   "check" | "radio" | "checkbox" | "chevron" | "none"
 
-/** Whether the rows sit in a sheet (radio/checkbox) or a menu (menuitem*). */
-const OptionContext = React.createContext<{ menu: boolean }>({ menu: false })
+/**
+ * Whether the rows sit in a sheet (radio/checkbox), a menu (menuitem*) or
+ * an apply-on-choose listbox (option + aria-selected).
+ */
+const OptionContext = React.createContext<{ menu: boolean; listbox: boolean }>({
+  menu: false,
+  listbox: false,
+})
 
-function roleFor(indicator: OptionIndicator, menu: boolean) {
+function roleFor(indicator: OptionIndicator, menu: boolean, listbox: boolean) {
+  if (listbox && !menu) return "option"
   if (indicator === "checkbox") return menu ? "menuitemcheckbox" : "checkbox"
   if (indicator === "radio" || indicator === "check") {
     return menu ? "menuitemradio" : "radio"
@@ -50,7 +67,7 @@ function roleFor(indicator: OptionIndicator, menu: boolean) {
 }
 
 export const optionRowClassName = cn(
-  "group/option relative flex min-h-(--np-touch) w-full cursor-pointer items-center gap-3 rounded-(--np-radius-field) px-3 py-2 text-left text-body text-ink focus-halo outline-none select-none",
+  "group/option relative flex min-h-(--np-touch) w-full cursor-pointer items-center gap-3 rounded-(--np-radius-field) px-3 py-2 text-left text-body text-ink no-underline focus-ring-inset outline-none select-none",
   "transition-[background-color] duration-(--np-duration-fast) ease-standard",
   "active:bg-fill hover-fine:hover:bg-fill",
   "disabled:cursor-not-allowed disabled:text-ink-muted aria-disabled:cursor-not-allowed aria-disabled:text-ink-muted",
@@ -59,7 +76,7 @@ export const optionRowClassName = cn(
 )
 
 export type OptionRowProps = Omit<
-  React.ComponentProps<"button">,
+  useRender.ComponentProps<"button">,
   "children" | "role"
 > & {
   label: React.ReactNode
@@ -68,9 +85,14 @@ export type OptionRowProps = Omit<
   /** A 20px leading icon (decorative; the label names the row). */
   icon?: React.ReactNode
   indicator?: OptionIndicator
-  /** The row's checked state, for `check`, `radio` and `checkbox`. */
+  /**
+   * The row's checked state, for `check`, `radio` and `checkbox`. In link
+   * mode, the current link (`aria-current="page"`).
+   */
   selected?: boolean
   tone?: "default" | "destructive"
+  /** Link mode: renders a Next `<Link>` with the same look. */
+  href?: string
 }
 
 function OptionRow({
@@ -82,50 +104,102 @@ function OptionRow({
   tone = "default",
   className,
   type = "button",
+  href,
+  render,
+  disabled,
   ...props
 }: OptionRowProps) {
-  const { menu } = React.useContext(OptionContext)
+  const { menu, listbox } = React.useContext(OptionContext)
   const id = React.useId()
-  const role = roleFor(indicator, menu)
+  const isLink = href !== undefined || render !== undefined
   const checkable =
     indicator === "check" || indicator === "radio" || indicator === "checkbox"
+  const option = listbox && !menu
 
-  return (
-    <button
-      type={type}
-      data-slot="option-row"
-      data-indicator={indicator}
-      data-tone={tone}
-      data-selected={checkable && selected ? "" : undefined}
-      role={role}
-      aria-checked={checkable ? selected : undefined}
-      aria-labelledby={`${id}-label`}
-      aria-describedby={description ? `${id}-desc` : undefined}
-      className={cn(optionRowClassName, className)}
-      {...props}
-    >
-      {icon ? (
-        <span
-          aria-hidden="true"
-          data-slot="option-row-icon"
-          className="flex size-5 shrink-0 items-center justify-center text-ink-secondary group-data-[tone=destructive]/option:text-danger-ink [&_svg]:size-5 [&_svg]:[stroke-width:1.5]"
-        >
-          {icon}
-        </span>
-      ) : null}
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span id={`${id}-label`} className="text-body">
-          {label}
-        </span>
-        {description ? (
-          <span id={`${id}-desc`} className="text-caption text-ink-muted">
-            {description}
+  let stateProps: Record<string, unknown>
+  if (isLink) {
+    // A link is a link: no checkable role. In a menu it is a menuitem.
+    stateProps = {
+      // An `<a>` without an href has no implicit role: name it a link.
+      role: menu ? "menuitem" : disabled ? "link" : undefined,
+      "aria-current": selected ? "page" : undefined,
+      "aria-disabled": disabled ? true : undefined,
+    }
+  } else if (option) {
+    stateProps = {
+      type,
+      disabled,
+      role: "option",
+      "aria-selected": selected,
+    }
+  } else {
+    stateProps = {
+      type,
+      disabled,
+      role: roleFor(indicator, menu, listbox),
+      "aria-checked": checkable ? selected : undefined,
+    }
+  }
+
+  const disabledLink = isLink && disabled
+  const linkRender =
+    render ??
+    (href !== undefined && !disabled ? (
+      <Link href={href} />
+    ) : href !== undefined ? (
+      // A disabled link: no href (not followable, not focusable).
+      <a />
+    ) : undefined)
+
+  return useRender({
+    defaultTagName: "button",
+    render: linkRender,
+    props: {
+      ...stateProps,
+      ...props,
+      "data-slot": "option-row",
+      "data-indicator": indicator,
+      "data-tone": tone,
+      "data-selected":
+        (checkable || isLink || option) && selected ? "" : undefined,
+      "data-disabled": disabledLink ? "" : undefined,
+      // A disabled link given through `render` may still carry its own href:
+      // take it out of the Tab order and refuse the navigation.
+      ...(disabledLink
+        ? {
+            tabIndex: -1,
+            onClick: (event: React.MouseEvent) => event.preventDefault(),
+          }
+        : {}),
+      "aria-labelledby": `${id}-label`,
+      "aria-describedby": description ? `${id}-desc` : undefined,
+      className: cn(optionRowClassName, className),
+      children: (
+        <>
+          {icon ? (
+            <span
+              aria-hidden="true"
+              data-slot="option-row-icon"
+              className="flex size-5 shrink-0 items-center justify-center text-ink-secondary group-data-[tone=destructive]/option:text-danger-ink [&_svg]:size-5 [&_svg]:[stroke-width:1.5]"
+            >
+              {icon}
+            </span>
+          ) : null}
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span id={`${id}-label`} className="text-body">
+              {label}
+            </span>
+            {description ? (
+              <span id={`${id}-desc`} className="text-caption text-ink-muted">
+                {description}
+              </span>
+            ) : null}
           </span>
-        ) : null}
-      </span>
-      <OptionIndicatorMark indicator={indicator} selected={selected} />
-    </button>
-  )
+          <OptionIndicatorMark indicator={indicator} selected={selected} />
+        </>
+      ),
+    },
+  })
 }
 
 /** The trailing mark. Decorative: the role and `aria-checked` carry state. */
@@ -182,7 +256,8 @@ function OptionIndicatorMark({
   )
 }
 
-const ROW_SELECTOR = '[data-slot="option-row"]:not(:disabled)'
+const ROW_SELECTOR =
+  '[data-slot="option-row"]:not(:disabled):not([aria-disabled="true"])'
 const GROUP_SELECTOR = '[data-slot="option-row-group"]'
 
 /** This group's own enabled rows (not those of a group nested inside it). */
@@ -193,24 +268,33 @@ function rowsOf(group: HTMLElement) {
 }
 
 /**
- * A run of option rows. `type="single"` (the default) is a `radiogroup`,
- * `multiple` a plain group; `menu` switches the rows to the menuitem roles
- * for use inside a `role="menu"`. Arrow keys, Home and End move focus
- * between the rows; Enter and Space choose (they are buttons).
+ * A run of option rows. Which pattern it follows, by props:
  *
- * A `single` group (and any `menu` group) is one Tab stop, by roving
- * tabindex: the focused row, else the selected one, else the first. Arrow
- * keys move focus; Enter or Space chooses. With `chooseOnArrow` (a `single`
- * group outside a menu) the arrows also choose the row they land on, as a
- * native radio group does. Leave it off where choosing applies and closes
- * the sheet, or an arrow press would apply the next option. Home and End
- * only move. A `multiple` group keeps every checkbox in the Tab order.
+ * - default (`type="single"`): the APG radio group. `role="radiogroup"`,
+ *   one Tab stop (roving tabindex: the focused row, else the selected one,
+ *   else the first), and the arrow keys (Up/Down/Left/Right) move focus AND
+ *   choose the row they land on (they call its `onClick`), as a native radio
+ *   group does. Use it where choosing only changes the form's value.
+ * - `applyOnChoose`: for a sheet that applies and closes on a choice, where
+ *   arrow-choosing would apply on every key press. `role="listbox"` with
+ *   rows as `role="option"` + `aria-selected`; the arrows only move focus,
+ *   and Enter or Space (or a tap) chooses. `type="multiple"` adds
+ *   `aria-multiselectable`.
+ * - `menu`: inside a `role="menu"`; rows take the menuitem roles, one Tab
+ *   stop, Up/Down only move (Left/Right stay with the menu, for submenus).
+ * - `type="multiple"`: a plain group of checkboxes, each in the Tab order;
+ *   the arrows move between them.
+ *
+ * In every mode Enter and Space choose (the rows are buttons), and Home and
+ * End move without choosing. `chooseOnArrow={false}` keeps a radio group
+ * but stops the arrows choosing (prefer `applyOnChoose`).
  */
 function OptionRowGroup({
   label,
   type = "single",
   menu = false,
-  chooseOnArrow = false,
+  applyOnChoose = false,
+  chooseOnArrow = true,
   className,
   children,
   onKeyDown,
@@ -221,13 +305,19 @@ function OptionRowGroup({
   label?: string
   type?: "single" | "multiple"
   menu?: boolean
-  /** Arrow keys also choose (ARIA radio pattern). Off by default. */
+  /**
+   * A listbox for choices that apply at once: arrows only move focus, and
+   * rows are `option`s with `aria-selected`.
+   */
+  applyOnChoose?: boolean
+  /** Arrow keys also choose in a radio group (APG). On by default. */
   chooseOnArrow?: boolean
 }) {
-  const value = React.useMemo(() => ({ menu }), [menu])
+  const listbox = applyOnChoose && !menu
+  const value = React.useMemo(() => ({ menu, listbox }), [menu, listbox])
   const ref = React.useRef<HTMLDivElement>(null)
   const roving = type === "single" || menu
-  const chooseOnMove = chooseOnArrow && type === "single" && !menu
+  const chooseOnMove = chooseOnArrow && type === "single" && !menu && !listbox
 
   /** Make `focused` (or the selected row, or the first) the one Tab stop. */
   const syncTabStop = React.useCallback(
@@ -250,17 +340,26 @@ function OptionRowGroup({
     syncTabStop(ref.current?.contains(active) ? active : null)
   })
 
-  const keys = chooseOnMove
-    ? ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"]
-    : ["ArrowDown", "ArrowUp", "Home", "End"]
+  const keys = menu
+    ? ["ArrowDown", "ArrowUp", "Home", "End"]
+    : ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"]
+
+  const role = menu
+    ? "group"
+    : listbox
+      ? "listbox"
+      : type === "single"
+        ? "radiogroup"
+        : "group"
 
   return (
     <OptionContext.Provider value={value}>
       <div
         ref={ref}
         data-slot="option-row-group"
-        role={menu ? "group" : type === "single" ? "radiogroup" : "group"}
+        role={role}
         aria-label={label}
+        aria-multiselectable={listbox && type === "multiple" ? true : undefined}
         className={cn("flex flex-col gap-1", className)}
         onFocus={(event) => {
           onFocus?.(event)

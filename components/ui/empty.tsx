@@ -37,9 +37,19 @@ import { cn } from "@/lib/utils"
  * with no results): it fills the space and sits at about 35% of its height,
  * not dead centre. The title is a `p`
  * unless `titleAs` asks for a heading, so an empty state never disturbs the
- * page outline by accident. Pass `role="alert"` (or `"status"`) only when
- * the state replaces content because something just happened; QueryStates
- * does that for its error state.
+ * page outline by accident. `titleAs="h1"` is only for a state that IS the
+ * page (PageEmptyState): its title is then the page's one h1. Pass
+ * `role="alert"` (or `"status"`) only when the state replaces content
+ * because something just happened; QueryStates does that for its error
+ * state.
+ *
+ * `actions` is the way to offer "Try again" on an announced error. With
+ * `actions` set, the live-region props (`role`, `aria-live`, `aria-atomic`,
+ * `aria-relevant`) go on an inner `empty-message` wrapper around the mark,
+ * title and description, and the actions (`action` first, then `actions`)
+ * sit after it, outside the announced region: the alert reads what
+ * happened, not the button labels. Every other prop stays on the outer
+ * `data-slot="empty"` element, which keeps the layout.
  */
 export type EmptyVariant =
   "empty" | "error" | "forbidden" | "offline" | "not-enabled"
@@ -76,14 +86,25 @@ function Empty({
   illustration,
   placement = "inline",
   titleAs: Title = "p",
+  actions,
   className,
   children,
+  role,
+  "aria-live": ariaLive,
+  "aria-atomic": ariaAtomic,
+  "aria-relevant": ariaRelevant,
   ...props
 }: Omit<React.ComponentProps<"div">, "title"> & {
   title: React.ReactNode
   description?: React.ReactNode
   /** The next step. One primary action; a second is at most secondary. */
   action?: React.ReactNode
+  /**
+   * Actions drawn OUTSIDE the announced region (see above): for an error
+   * with `role="alert"`, "Try again" and the way out go here so the alert
+   * announces only what happened. With `action` too, `action` leads.
+   */
+  actions?: React.ReactNode
   /** A lucide glyph, drawn at 20px inside the mark. `null` for none. */
   icon?: React.ReactNode
   variant?: EmptyVariant
@@ -93,7 +114,8 @@ function Empty({
   framed?: boolean
   /** `sm`: less padding, for a panel or a list section. */
   size?: "default" | "sm"
-  titleAs?: "p" | "h2" | "h3"
+  /** `h1` only when this state is the whole page (see above). */
+  titleAs?: "p" | "h1" | "h2" | "h3" | "h4"
   /**
    * A line drawing in place of the glyph mark (`<EmptyIllustration
    * name="inbox-zero" />`, or any SVG drawn with `currentColor`). Decorative:
@@ -106,25 +128,8 @@ function Empty({
   const defaults = VARIANT_DEFAULTS[variant]
   const resolvedTone = tone ?? defaults.tone
   const glyph = icon === undefined ? defaults.icon : icon
-  return (
-    <div
-      data-slot="empty"
-      data-variant={variant}
-      data-tone={resolvedTone}
-      data-placement={placement}
-      className={cn(
-        "flex flex-col items-center justify-center gap-2.5 px-5 text-center",
-        size === "sm" ? "py-6" : "py-8 sm:py-12 lg:py-16",
-        // Two weighted spacers (35 : 65) put the content's centre at about
-        // 35% of the page's height rather than its middle.
-        placement === "page" &&
-          "min-h-[60dvh] flex-1 justify-start before:grow-35 before:content-[''] after:grow-65 after:content-['']",
-        framed &&
-          "rounded-(--np-radius-card) border border-line bg-surface",
-        className
-      )}
-      {...props}
-    >
+  const message = (
+    <>
       {illustration ? (
         <span
           aria-hidden
@@ -153,11 +158,63 @@ function Empty({
           {description}
         </div>
       ) : null}
-      {action ? (
-        <div className="mt-1.5 flex flex-wrap justify-center gap-2">
-          {action}
-        </div>
-      ) : null}
+    </>
+  )
+  const actionRow = action ? (
+    <div className="mt-1.5 flex flex-wrap justify-center gap-2">{action}</div>
+  ) : null
+  return (
+    <div
+      data-slot="empty"
+      data-variant={variant}
+      data-tone={resolvedTone}
+      data-placement={placement}
+      className={cn(
+        "flex flex-col items-center justify-center gap-2.5 px-5 text-center",
+        size === "sm" ? "py-6" : "py-8 sm:py-12 lg:py-16",
+        // Two weighted spacers (35 : 65) put the content's centre at about
+        // 35% of the page's height rather than its middle.
+        placement === "page" &&
+          "min-h-[60dvh] flex-1 justify-start before:grow-35 before:content-[''] after:grow-65 after:content-['']",
+        framed && "rounded-(--np-radius-card) border border-line bg-surface",
+        className
+      )}
+      {...(actions
+        ? null
+        : {
+            role,
+            "aria-live": ariaLive,
+            "aria-atomic": ariaAtomic,
+            "aria-relevant": ariaRelevant,
+          })}
+      {...props}
+    >
+      {actions ? (
+        <>
+          <div
+            data-slot="empty-message"
+            role={role}
+            aria-live={ariaLive}
+            aria-atomic={ariaAtomic}
+            aria-relevant={ariaRelevant}
+            className="flex flex-col items-center gap-2.5"
+          >
+            {message}
+          </div>
+          <div
+            data-slot="empty-actions"
+            className="mt-1.5 flex flex-wrap justify-center gap-2"
+          >
+            {action}
+            {actions}
+          </div>
+        </>
+      ) : (
+        <>
+          {message}
+          {actionRow}
+        </>
+      )}
     </div>
   )
 }

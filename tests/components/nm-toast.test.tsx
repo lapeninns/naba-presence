@@ -147,7 +147,9 @@ describe("Google writes (D5)", () => {
       )
     })
     expect(toastEl()).toHaveAttribute("data-kind", "google")
-    const link = screen.getByRole("link", { name: "View on Google" })
+    const link = screen.getByRole("link", {
+      name: "View on Google (opens in a new tab)",
+    })
     expect(link).toHaveAttribute("href", "https://business.google.com/r/1")
     expect(link).toHaveAttribute("target", "_blank")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
@@ -234,7 +236,7 @@ describe("Phases", () => {
     expect(screen.queryByText("Publishing reply…")).not.toBeInTheDocument()
     expect(root.querySelector(".text-success-solid")).not.toBeNull()
     expect(
-      screen.getByRole("link", { name: "View on Google" })
+      screen.getByRole("link", { name: "View on Google (opens in a new tab)" })
     ).toBeInTheDocument()
 
     // The link's toast stays for the action timeout, then goes.

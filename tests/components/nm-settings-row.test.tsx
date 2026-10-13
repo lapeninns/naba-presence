@@ -286,7 +286,9 @@ describe("SettingsRow", () => {
     )
     const link = screen.getByRole("link", { name: "Notifications" })
     expect(link).toHaveAttribute("href", "/settings/notifications")
-    expect(link).toHaveClass("min-h-(--np-settings-row-h)", "focus-halo")
+    // Inset ring (R1 S5 / R2 A-S3): a desk card group clips an outer halo.
+    expect(link).toHaveClass("min-h-(--np-settings-row-h)", "focus-ring-inset")
+    expect(link).not.toHaveClass("focus-halo")
     expect(
       link.querySelector('[data-slot="settings-row-chevron"]')
     ).toBeInTheDocument()

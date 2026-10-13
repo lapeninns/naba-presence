@@ -254,20 +254,30 @@ const TOAST_TRAILING_ACTION =
  * may carry ("View on Google", D5). It opens in a new tab, so the result the
  * toast reports is still here when the operator comes back.
  */
+/** Only https links reach a toast (never javascript:, data: or http:). */
+function isSafeToastHref(href: unknown): href is string {
+  return typeof href === "string" && /^https:\/\//i.test(href)
+}
+
 function ToastLink({
   className,
   children = "View on Google",
+  href,
   ...props
 }: React.ComponentProps<"a">) {
+  // Only https links: an href mapped from an API field must never become a
+  // javascript: or data: URL in a toast.
+  if (!isSafeToastHref(href)) return null
   return (
     <a
       data-slot="toast-link"
       target="_blank"
       rel="noopener noreferrer"
+      href={href}
       className={cn(TOAST_TRAILING_ACTION, className)}
       {...props}
     >
-      {children}
+      {children} <span className="sr-only">(opens in a new tab)</span>
     </a>
   )
 }
@@ -532,7 +542,8 @@ function readToastData(data: unknown): ToastData {
     result.kind === "google" &&
     link &&
     typeof link === "object" &&
-    typeof (link as ToastGoogleLink).href === "string"
+    typeof (link as ToastGoogleLink).href === "string" &&
+    isSafeToastHref((link as ToastGoogleLink).href)
   ) {
     result.link = { href: (link as ToastGoogleLink).href }
   }
@@ -579,7 +590,9 @@ function outcomeToManagerOptions(
     onClose,
   } = options
   const data: ToastData =
-    kind === "google" && link ? { kind, link: { href: link.href } } : { kind }
+    kind === "google" && link && isSafeToastHref(link.href)
+      ? { kind, link: { href: link.href } }
+      : { kind }
   const actionProps =
     kind === "local" && undo
       ? {
@@ -593,7 +606,9 @@ function outcomeToManagerOptions(
   // A link, like an action, needs time to be read, decided on and reached.
   const timeout =
     options.timeout ??
-    (kind === "google" && link ? ACTION_TOAST_TIMEOUT : undefined)
+    (kind === "google" && link && isSafeToastHref(link.href)
+      ? ACTION_TOAST_TIMEOUT
+      : undefined)
   const resolved = withToastDefaults({
     title,
     description,

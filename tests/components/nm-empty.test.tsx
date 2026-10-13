@@ -94,4 +94,49 @@ describe("Empty (NM restyle)", () => {
       screen.getByRole("button", { name: "Schedule a post" })
     ).toBeInTheDocument()
   })
+
+  it("takes an h1 title for a state that is the whole page", () => {
+    render(<Empty titleAs="h1" placement="page" title="Page not found" />)
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Page not found" })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps actions outside the alert, so it announces only what happened", () => {
+    const { container } = render(
+      <Empty
+        variant="error"
+        role="alert"
+        title="We couldn't load this listing"
+        description="Google didn't answer in time."
+        actions={<Button>Try again</Button>}
+      />
+    )
+    const alert = screen.getByRole("alert")
+    expect(alert).toHaveAttribute("data-slot", "empty-message")
+    expect(alert).toHaveTextContent("We couldn't load this listing")
+    expect(alert).toHaveTextContent("Google didn't answer in time.")
+    const retry = screen.getByRole("button", { name: "Try again" })
+    expect(alert).not.toContainElement(retry)
+    // The outer element keeps the layout and the slot, and is not live.
+    expect(root(container)).not.toHaveAttribute("role")
+    expect(root(container)).toContainElement(retry)
+    expect(retry.closest('[data-slot="empty-actions"]')).not.toBeNull()
+  })
+
+  it("keeps the old shape without actions: role and action on the one element", () => {
+    const { container } = render(
+      <Empty
+        variant="error"
+        role="alert"
+        title="Failed"
+        action={<Button>Retry</Button>}
+      />
+    )
+    expect(root(container)).toHaveAttribute("role", "alert")
+    expect(container.querySelector('[data-slot="empty-message"]')).toBeNull()
+    expect(root(container)).toContainElement(
+      screen.getByRole("button", { name: "Retry" })
+    )
+  })
 })

@@ -18,9 +18,12 @@ function GroupedList({
   header,
   footer,
   className,
+  listClassName,
   children,
   ...props
 }: Omit<React.ComponentProps<"ul">, "children"> & {
+  /** Classes for the `ul` card (`className` goes on the outer wrapper). */
+  listClassName?: string
   /** A short caption above the group, e.g. "Notifications". */
   header?: React.ReactNode
   /** A footnote below the group, e.g. what a switch controls. */
@@ -46,7 +49,10 @@ function GroupedList({
       <ul
         aria-labelledby={headerId}
         aria-describedby={footerId}
-        className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+        className={cn(
+          "overflow-hidden rounded-(--np-radius-card) border border-line bg-surface",
+          listClassName
+        )}
         {...props}
       >
         {children}
@@ -92,6 +98,55 @@ type GroupedListItemProps = GroupedListItemBase & {
 }
 
 /**
+ * The hairline above every row but the first: indented to the label's
+ * edge, past a 20px icon slot when the row has one.
+ */
+const SEPARATOR_CLASS =
+  "relative before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--gl-inset) before:h-px before:bg-line-subtle before:content-[''] first:before:hidden"
+
+function separatorStyle(icon: boolean) {
+  return {
+    "--gl-inset": icon
+      ? "calc(var(--np-card-pad) + 1.25rem + 0.75rem)"
+      : "var(--np-card-pad)",
+  } as React.CSSProperties
+}
+
+/**
+ * A row of a `GroupedList` with arbitrary content (a typed attribute
+ * control, a row with its own buttons): the `li` with the group's inset
+ * hairline, so callers never copy the separator. `padded` (default) gives
+ * it a row's padding and minimum height; `icon` indents the hairline past
+ * an icon slot as `GroupedListItem` does. Focusable children inside should
+ * use `focus-ring-inset`: the group clips an outer halo.
+ */
+function GroupedListRow({
+  icon = false,
+  padded = true,
+  className,
+  ...props
+}: Omit<React.ComponentProps<"li">, "style"> & {
+  /** Indent the hairline past a 20px leading icon slot. */
+  icon?: boolean
+  /** Row padding and `--np-row-h` minimum height (default true). */
+  padded?: boolean
+}) {
+  return (
+    <li
+      data-slot="grouped-list-row"
+      style={separatorStyle(icon)}
+      className={cn(
+        SEPARATOR_CLASS,
+        padded &&
+          "flex min-h-(--np-row-h) items-center gap-3 px-(--np-card-pad) py-2 max-sm:flex-wrap",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/**
  * One row of a `GroupedList`.
  *
  * The row is a Link when `href` is given, a button when `onClick` is given
@@ -99,8 +154,9 @@ type GroupedListItemProps = GroupedListItemBase & {
  * tab stop. The separator is a pseudo-element indented to the label's left
  * edge, past the icon when there is one, the way the platform draws it.
  *
- * The focus halo is drawn inset: the group clips its corners, so an outer
- * halo would be cut off at the card's edge.
+ * The focus ring is drawn inset (`focus-ring-inset`, with a forced-colours
+ * outline inside the row): the group clips its corners, so an outer halo
+ * would be cut off at the card's edge.
  *
  * A row is `--np-row-h` tall at least (52px on touch, 44px on a desk), so
  * every row clears the 44px touch floor. The label wraps rather than
@@ -169,23 +225,17 @@ function GroupedListItem({
   const rowClass = cn(
     "flex min-h-(--np-row-h) w-full items-center gap-3 px-(--np-card-pad) py-2 text-left max-sm:flex-wrap",
     interactive &&
-      "transition-colors duration-(--np-duration-fast) ease-spring-snappy focus-visible:[box-shadow:inset_var(--np-focus-halo)] focus-visible:outline-none active:bg-fill hover-fine:hover:bg-surface-alt",
+      "focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy outline-none active:bg-fill hover-fine:hover:bg-surface-alt",
     disabled && "pointer-events-none opacity-50",
     className
   )
-
-  // The hairline: indented to the label's edge, past the icon when one is
-  // present, and absent on the first row.
-  const inset = icon
-    ? "calc(var(--np-card-pad) + 1.25rem + 0.75rem)"
-    : "var(--np-card-pad)"
 
   return (
     <li
       data-slot="grouped-list-item"
       data-tone={tone}
-      style={{ "--gl-inset": inset } as React.CSSProperties}
-      className="relative before:pointer-events-none before:absolute before:top-0 before:right-0 before:left-(--gl-inset) before:h-px before:bg-line-subtle before:content-[''] first:before:hidden"
+      style={separatorStyle(Boolean(icon))}
+      className={SEPARATOR_CLASS}
     >
       {href ? (
         <Link
@@ -216,4 +266,9 @@ function GroupedListItem({
   )
 }
 
-export { GroupedList, GroupedListItem, type GroupedListItemProps }
+export {
+  GroupedList,
+  GroupedListItem,
+  GroupedListRow,
+  type GroupedListItemProps,
+}
