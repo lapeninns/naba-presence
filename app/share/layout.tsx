@@ -29,7 +29,7 @@ export default function ShareLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-h-svh bg-canvas text-ink print:bg-white">
+    <div className="min-h-svh bg-canvas text-ink print:bg-surface">
       {children}
     </div>
   )

@@ -4,6 +4,7 @@ import { useId } from "react"
 
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
 import { kpiDelta } from "@/components/reporting/delta-badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { KpiTile } from "@/components/ui/kpi-tile"
 import {
   ReportBarChart,
@@ -94,7 +95,7 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
           filename={csvFilename("google profile totals", data.from, data.to)}
           rows={() => presenceTotalsCsv(data)}
           label="Download totals CSV"
-          accessibleLabel="Download Google profile totals as CSV"
+          subject="the Google profile"
         />
       </div>
       <div className={reportTileGridClassName(5)}>
@@ -117,26 +118,30 @@ export function PresenceFigures({ data }: { data: PresenceResponse }) {
         ))}
       </div>
 
-      <section
+      <Card
+        size="sm"
+        role="region"
         aria-labelledby={otherId}
-        className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3.5"
+        className="break-inside-avoid"
       >
-        <h3 id={otherId} className="text-ui font-semibold text-ink">
-          Other actions on the profile
-        </h3>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 @[40rem]/report:grid-cols-4">
-          {OTHER_ACTION_METRICS.map((metric) => (
-            <div key={metric} className="flex min-w-0 flex-col gap-0.5">
-              <dt className="text-caption text-ink-muted">
-                {metricLabel(metric)}
-              </dt>
-              <dd className="font-mono text-body font-semibold text-ink tabular-nums">
-                {formatFigure(data.totals[metric])}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+        <CardHeader>
+          <CardTitle id={otherId}>Other actions on the profile</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 @[40rem]/report:grid-cols-4">
+            {OTHER_ACTION_METRICS.map((metric) => (
+              <div key={metric} className="flex min-w-0 flex-col gap-0.5">
+                <dt className="text-caption text-ink-muted">
+                  {metricLabel(metric)}
+                </dt>
+                <dd className="font-mono text-body font-semibold text-ink tabular-nums">
+                  {formatFigure(data.totals[metric])}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-(--np-gap-card) @[60rem]/report:grid-cols-2">
         <ReportChartCard title="Views: Search and Maps">

@@ -1,6 +1,6 @@
 "use client"
 
-import { Building2Icon, Link2OffIcon } from "lucide-react"
+import { Link2OffIcon } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
@@ -8,10 +8,12 @@ import { ShareReportButton } from "@/components/clients/share-report-dialog"
 import { ClientSelect } from "@/components/performance/client-select"
 import { LocationReport } from "@/components/performance/location-report"
 import { LocationSelect } from "@/components/performance/location-select"
+import { RangeSelect } from "@/components/performance/range-select"
+import { NotInDirectory } from "@/components/performance/report-scope"
 import {
-  NotInDirectory,
-  ReportScope,
-} from "@/components/performance/report-scope"
+  ReportToolbar,
+  reportToolbarFieldProps,
+} from "@/components/reporting/report-toolbar"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { buttonVariants } from "@/components/ui/button"
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs"
@@ -25,17 +27,44 @@ import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import {
   DEFAULT_RANGES,
+  formatPeriod,
+  KEYWORD_RANGES,
   parseRange,
+  PRESENCE_RANGES,
+  REPLY_RANGES,
+  resolvedPeriod,
   type ReportTab,
 } from "@/lib/reporting/ranges"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
+/**
+ * `lead` is what a phone shows; `rest` completes the label from `sm` and is
+ * read to screen readers at every width, so the accessible name always
+ * starts with the visible words (WCAG 2.5.3 label in name).
+ */
 const TABS = [
-  { value: "reply", label: "Reply performance", compactLabel: "Replies" },
-  { value: "google", label: "Google performance", compactLabel: "Google" },
-  { value: "keywords", label: "Keywords", compactLabel: "Keywords" },
+  { value: "reply", lead: "Reply", rest: "performance" },
+  { value: "google", lead: "Google", rest: "performance" },
+  { value: "keywords", lead: "Keywords", rest: "" },
 ] as const
+
+/** Each tab's periods; the toolbar offers the active tab's. */
+const RANGE_OPTIONS: Record<
+  ReportTab,
+  ReadonlyArray<{ id: string; label: string }>
+> = {
+  reply: REPLY_RANGES,
+  google: PRESENCE_RANGES,
+  keywords: KEYWORD_RANGES,
+}
+
+/** The zone a period's dates are told in, as each tab tells them. */
+const PERIOD_ZONE: Record<ReportTab, string> = {
+  reply: "Europe/London",
+  google: "UTC",
+  keywords: "UTC",
+}
 
 type TabValue = (typeof TABS)[number]["value"]
 
@@ -136,9 +165,30 @@ export function PerformanceView() {
       })
   }
 
+  const activeRange = parseRange(active, rawRange)
+  // Day-precision dates, so resolving "now" on each render is stable.
+  const periodDates = formatPeriod(
+    resolvedPeriod(active, activeRange),
+    PERIOD_ZONE[active]
+  )
+
   // One location is a different report — its own figures, no client tabs —
   // reached from the workspace, the hub, or the Location field below.
-  if (locationId) return <LocationReport locationId={locationId} />
+  if (locationId)
+    return (
+      <LocationReport
+        locationId={locationId}
+        // One period for the whole location report, from `?range=` like the
+        // tabs; its default (the reply default) is never written.
+        rangeId={parseRange("reply", rawRange)}
+        onRangeChange={(next) =>
+          replaceParams((params) => {
+            if (next === DEFAULT_RANGES.reply) params.delete("range")
+            else params.set("range", next)
+          })
+        }
+      />
+    )
 
   // An id the directory does not hold: say so, never fall back to another
   // client's (or everyone's) figures under that client's name.
@@ -150,64 +200,95 @@ export function PerformanceView() {
     ? items.reduce((sum, entry) => sum + entry.locationCount, 0) +
       clients.data.unassignedLocationCount
     : null
-  const caption = business
-    ? totalLocations === null
-      ? "All locations"
-      : `All locations · ${locationsPhrase(totalLocations)}`
-    : client
-      ? `${client.name} · ${locationsPhrase(client.locationCount)}`
-      : clients.isError
-        ? "Client names couldn’t be loaded"
-        : clientId
-          ? "Loading client…"
-          : totalLocations === null
-            ? "All clients"
-            : `All clients · ${locationsPhrase(totalLocations)}`
+  const scopeCount = client
+    ? client.locationCount
+    : clientId
+      ? null
+      : totalLocations
+  const locationsPart =
+    scopeCount === null
+      ? business
+        ? "All locations"
+        : "Every location"
+      : locationsPhrase(scopeCount)
+  const clientPart = client
+    ? client.name
+    : clientId
+      ? clients.isError
+        ? "Selected client"
+        : "Loading client…"
+      : "All clients"
+  const periodLabel =
+    RANGE_OPTIONS[active].find((option) => option.id === activeRange)?.label ??
+    ""
   const empty = client && client.locationCount === 0
 
   return (
     // Browser "Save as PDF": controls drop out, figures and charts stay whole.
     <div className="flex flex-col gap-(--np-gap-section) print:gap-6 print:[&_button]:hidden print:[&_figure]:break-inside-avoid print:[&_section]:break-inside-avoid">
-      {/* The client scope belongs above the tabs: it applies to all three, and
-          picking it per tab would let two of them disagree about whose numbers
-          are on screen. */}
-      <ReportScope
-        icon={<Building2Icon />}
-        title="Reporting scope"
-        caption={caption}
-        controls={
-          <>
-            {business ? null : (
-              <ClientSelect
-                clients={items}
-                value={clientId}
-                onChange={(next) =>
-                  replaceParams((params) => {
-                    if (next) params.set("clientId", next)
-                    else params.delete("clientId")
-                  })
-                }
+      {/* One row above the tabs: the scope and the period apply to the tab on
+          screen, and picking the client per tab would let two of them
+          disagree about whose numbers are shown. */}
+      <ReportToolbar
+        summary={
+          business
+            ? [locationsPart, periodLabel]
+            : [clientPart, locationsPart, periodLabel]
+        }
+        meta={
+          [scopeCount === null ? null : locationsPart, periodDates]
+            .filter(Boolean)
+            .join(" · ") || undefined
+        }
+        fields={(placement) => {
+          const field = reportToolbarFieldProps(placement)
+          return (
+            <>
+              {business ? null : (
+                <ClientSelect
+                  {...field}
+                  clients={items}
+                  value={clientId}
+                  onChange={(next) =>
+                    replaceParams((params) => {
+                      if (next) params.set("clientId", next)
+                      else params.delete("clientId")
+                    })
+                  }
+                />
+              )}
+              {business || client ? (
+                <LocationSelect
+                  {...field}
+                  locations={clientLocations}
+                  value={undefined}
+                  onChange={(next) =>
+                    replaceParams((params) => {
+                      if (next) params.set("locationId", next)
+                      else params.delete("locationId")
+                    })
+                  }
+                />
+              ) : null}
+              <RangeSelect
+                {...field}
+                className={placement === "bar" ? "w-44" : field.className}
+                value={activeRange}
+                onChange={setRange(active)}
+                options={RANGE_OPTIONS[active]}
+                // In the bar the dates sit in the caption beside the fields.
+                period={placement === "sheet" ? periodDates : undefined}
               />
-            )}
-            {business || client ? (
-              <LocationSelect
-                locations={clientLocations}
-                value={undefined}
-                onChange={(next) =>
-                  replaceParams((params) => {
-                    if (next) params.set("locationId", next)
-                    else params.delete("locationId")
-                  })
-                }
-              />
-            ) : null}
-            {shareClient && canShare ? (
-              <ShareReportButton
-                clientId={shareClient.id}
-                clientName={shareClient.name}
-              />
-            ) : null}
-          </>
+            </>
+          )
+        }}
+        actions={
+          shareClient && canShare ? (
+            <ShareReportButton
+              clientId={shareClient.id}
+              clientName={shareClient.name}
+            />
+          ) : null
         }
       />
       {clients.isError ? (
@@ -230,9 +311,14 @@ export function PerformanceView() {
             the same narrow-screen behaviour without restating it. */}
         <TabsList fill>
           {TABS.map((tab) => (
-            <TabsTab key={tab.value} value={tab.value} aria-label={tab.label}>
-              <span className="sm:hidden">{tab.compactLabel}</span>
-              <span className="hidden sm:inline">{tab.label}</span>
+            <TabsTab key={tab.value} value={tab.value}>
+              {tab.lead}
+              {tab.rest ? (
+                <>
+                  {" "}
+                  <span className="sr-only sm:not-sr-only">{tab.rest}</span>
+                </>
+              ) : null}
             </TabsTab>
           ))}
         </TabsList>
@@ -265,7 +351,6 @@ export function PerformanceView() {
             <KeywordsTab
               clientId={clientId}
               range={parseRange("keywords", rawRange)}
-              onRangeChange={setRange("keywords")}
             />
           )}
         </TabsPanel>

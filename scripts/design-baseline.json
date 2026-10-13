@@ -1,13 +1,13 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 111,
-    "R2": 15,
-    "R3": 256,
-    "R4": 86,
-    "R5": 7,
-    "R6": 11,
-    "R7": 54
+    "R1": 95,
+    "R2": 9,
+    "R3": 236,
+    "R4": 84,
+    "R5": 6,
+    "R6": 5,
+    "R7": 53
   },
   "files": {
     "app/(auth)/layout.tsx": {
@@ -93,20 +93,6 @@
         }
       }
     },
-    "app/(dashboard)/reports/loading.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_17.5rem]": 1
-        }
-      },
-      "R7": {
-        "total": 1,
-        "patterns": {
-          "min-[360px]:": 1
-        }
-      }
-    },
     "app/(dashboard)/setup/loading.tsx": {
       "R3": {
         "total": 1,
@@ -182,32 +168,6 @@
       }
     },
     "app/not-found.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "max-w-[460px]": 1,
-          "p-[clamp(20px,5vw,32px)]": 1
-        }
-      }
-    },
-    "app/share/layout.tsx": {
-      "R2": {
-        "total": 1,
-        "patterns": {
-          "bg-white": 1
-        }
-      }
-    },
-    "app/share/report/[token]/error.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "max-w-[460px]": 1,
-          "p-[clamp(20px,5vw,32px)]": 1
-        }
-      }
-    },
-    "app/share/report/[token]/not-found.tsx": {
       "R3": {
         "total": 2,
         "patterns": {
@@ -518,121 +478,6 @@
           "grid-cols-[1fr_10rem_auto]": 2,
           "grid-cols-[1fr_14rem]": 1,
           "grid-cols-[7rem_auto_1fr_1fr]": 1
-        }
-      }
-    },
-    "components/calendar/publication-calendar.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-4": 1,
-          "text-[11px]": 1
-        }
-      },
-      "R5": {
-        "total": 1,
-        "patterns": {
-          "<table>": 1
-        }
-      }
-    },
-    "components/clients/client-avatar.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[10px]": 1
-        }
-      },
-      "R2": {
-        "total": 5,
-        "patterns": {
-          "#1A1714": 2,
-          "#FFFFFF": 3
-        }
-      },
-      "R6": {
-        "total": 1,
-        "patterns": {
-          "style={{…}}": 1
-        }
-      }
-    },
-    "components/clients/client-colour-field.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "leading-5": 1
-        }
-      },
-      "R6": {
-        "total": 1,
-        "patterns": {
-          "style={{…}}": 1
-        }
-      }
-    },
-    "components/clients/client-form.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[1.375rem_minmax(0,1fr)]": 1,
-          "size-[22px]": 1
-        }
-      }
-    },
-    "components/clients/client-hub.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-8": 1,
-          "text-[26px]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_minmax(16rem,21rem)]": 1
-        }
-      }
-    },
-    "components/clients/client-settings.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-5": 2,
-          "text-[12.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 5,
-        "patterns": {
-          "flex-[1_1_16rem]": 1,
-          "grid-cols-[minmax(11rem,13.75rem)_minmax(0,1fr)]": 1,
-          "h-[30px]": 1,
-          "min-h-[34px]": 1,
-          "top-[calc(var(--np-toolbar-h)+16px)]": 1
-        }
-      }
-    },
-    "components/clients/clients-index.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-7": 1,
-          "text-[11px]": 1,
-          "text-[22px]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "translate-y-[-1px]": 1
         }
       }
     },
@@ -1187,66 +1032,6 @@
         }
       }
     },
-    "components/performance/client-select.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_11rem]": 1
-        }
-      }
-    },
-    "components/performance/keywords-tab.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_14rem]": 1
-        }
-      }
-    },
-    "components/performance/location-select.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_11rem]": 1
-        }
-      }
-    },
-    "components/performance/report-scope.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_17.5rem]": 1
-        }
-      }
-    },
-    "components/reporting/report-bar-chart.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "text-[11px]": 3
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-t-[2px]": 2
-        }
-      },
-      "R6": {
-        "total": 4,
-        "patterns": {
-          "style={{…}}": 4
-        }
-      }
-    },
-    "components/reporting/report-tab-head.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_14rem]": 1
-        }
-      }
-    },
     "components/settings/connection-card.tsx": {
       "R3": {
         "total": 2,
@@ -1347,14 +1132,6 @@
         "patterns": {
           "grid-cols-[minmax(0,14rem)_minmax(0,1fr)]": 1,
           "max-w-[56ch]": 1
-        }
-      }
-    },
-    "components/share/shared-client-report.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "max-w-[1080px]": 1
         }
       }
     },

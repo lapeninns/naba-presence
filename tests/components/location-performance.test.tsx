@@ -30,6 +30,20 @@ describe("LocationPerformance", () => {
     expect(await screen.findByText("Reviews")).toBeInTheDocument()
     expect(screen.getByText("12")).toBeInTheDocument()
     expect(screen.getByText("4.5")).toBeInTheDocument()
+    // The page's default period, not a fixed 30 days.
+    expect(screen.getAllByText(/^Last 28 days/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/30 days/)).not.toBeInTheDocument()
+  })
+
+  it("reads the reply window from the page's range", async () => {
+    const fetchMock = vi.fn(async (url: string) => new Response(JSON.stringify(routeBody(url)), { headers: { "content-type": "application/json" } }))
+    vi.stubGlobal("fetch", fetchMock)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><LocationPerformance locationId="loc-1" rangeId="90d" /></QueryClientProvider>)
+    expect(await screen.findByText("12")).toBeInTheDocument()
+    const urls = fetchMock.mock.calls.map(([url]) => String(url))
+    expect(urls.some((url) => url.startsWith("/api/analytics/overview") && url.includes("granularity=week"))).toBe(true)
+    expect(urls.some((url) => url.startsWith("/api/analytics/presence?") && url.includes("range=90d"))).toBe(true)
   })
 
   it("shows an honest no-activity panel when the location is absent from overview", async () => {
@@ -41,6 +55,9 @@ describe("LocationPerformance", () => {
     }))
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><LocationPerformance locationId="loc-1" /></QueryClientProvider>)
-    expect(await screen.findByText(/no review activity/i)).toBeInTheDocument()
+    expect(
+      await screen.findByText("No reviews in this window yet")
+    ).toBeInTheDocument()
+    expect(screen.getByText(/for this location in the last 28 days/)).toBeInTheDocument()
   })
 })

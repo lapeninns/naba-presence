@@ -129,8 +129,15 @@ describe("Share report dialog", () => {
     ).toBeInTheDocument()
     expect(within(dialog).getByText(/shown only this once/)).toBeInTheDocument()
 
-    // Closing ends it: reopening starts a fresh link, not the old URL.
+    // Closing ends it: reopening starts a fresh link, not the old URL. The
+    // link was never copied, so closing asks first.
     await user.click(within(dialog).getByRole("button", { name: "Close" }))
+    const discard = await screen.findByRole("alertdialog", {
+      name: "Discard this link?",
+    })
+    await user.click(
+      within(discard).getByRole("button", { name: "Discard link" })
+    )
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     )
@@ -142,6 +149,152 @@ describe("Share report dialog", () => {
     expect(
       within(reopened).getByRole("button", { name: "Create link" })
     ).toBeInTheDocument()
+  })
+
+  it("asks before Escape or the close button throws away an unshared link", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(reportSharesApi, "createReportShare").mockResolvedValue({
+      url: "https://app.example.test/share/report/secret-token",
+      share: share({}),
+    })
+    renderButton()
+    await user.click(screen.getByRole("button", { name: "Share report" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Create link" })
+    )
+    await within(dialog).findByRole("textbox", { name: "Report link" })
+
+    await user.keyboard("{Escape}")
+    const discard = await screen.findByRole("alertdialog", {
+      name: "Discard this link?",
+    })
+    expect(within(discard).getByText(/shown only once/)).toBeInTheDocument()
+    await user.click(
+      within(discard).getByRole("button", { name: "Keep the link" })
+    )
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("alertdialog", { name: "Discard this link?" })
+      ).not.toBeInTheDocument()
+    )
+    // Still there, still the same link.
+    expect(screen.getByRole("textbox", { name: "Report link" })).toHaveValue(
+      "https://app.example.test/share/report/secret-token"
+    )
+  })
+
+  it("copies without native share, says Copied, then closes without asking", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(reportSharesApi, "createReportShare").mockResolvedValue({
+      url: "https://app.example.test/share/report/secret-token",
+      share: share({}),
+    })
+    renderButton()
+    await user.click(screen.getByRole("button", { name: "Share report" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Create link" })
+    )
+    await within(dialog).findByRole("textbox", { name: "Report link" })
+    const writeText = vi.spyOn(navigator.clipboard, "writeText")
+    // No navigator.share in this browser: copy is the only way out.
+    expect(
+      within(dialog).queryByRole("button", { name: "Share link" })
+    ).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "Copy link" }))
+    expect(
+      await within(dialog).findByRole("button", { name: "Copied" })
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText(/Link copied/)).toBeInTheDocument()
+    expect(writeText).toHaveBeenCalledWith(
+      "https://app.example.test/share/report/secret-token"
+    )
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    )
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  })
+
+  it("offers the native share sheet when the browser has one", async () => {
+    const user = userEvent.setup()
+    const shareSpy = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "share", {
+      value: shareSpy,
+      configurable: true,
+    })
+    Object.defineProperty(navigator, "canShare", {
+      value: () => true,
+      configurable: true,
+    })
+    try {
+      vi.spyOn(reportSharesApi, "createReportShare").mockResolvedValue({
+        url: "https://app.example.test/share/report/secret-token",
+        share: share({}),
+      })
+      renderButton()
+      await user.click(screen.getByRole("button", { name: "Share report" }))
+      const dialog = await screen.findByRole("dialog")
+      await user.click(
+        within(dialog).getByRole("button", { name: "Create link" })
+      )
+      await within(dialog).findByRole("textbox", { name: "Report link" })
+      // Copy stays as the fallback beside it.
+      expect(
+        within(dialog).getByRole("button", { name: "Copy link" })
+      ).toBeInTheDocument()
+      await user.click(
+        within(dialog).getByRole("button", { name: "Share link" })
+      )
+      expect(shareSpy).toHaveBeenCalledWith({
+        title: "Old Crown Group review report",
+        url: "https://app.example.test/share/report/secret-token",
+      })
+      expect(await within(dialog).findByText(/Link shared/)).toBeInTheDocument()
+
+      // Shared, so closing no longer asks.
+      await user.keyboard("{Escape}")
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      )
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+    } finally {
+      delete (navigator as { share?: unknown }).share
+      delete (navigator as { canShare?: unknown }).canShare
+    }
+  })
+
+  it("keeps asking when the share sheet is dismissed without sharing", async () => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, "share", {
+      value: vi
+        .fn()
+        .mockRejectedValue(new DOMException("cancelled", "AbortError")),
+      configurable: true,
+    })
+    try {
+      vi.spyOn(reportSharesApi, "createReportShare").mockResolvedValue({
+        url: "https://app.example.test/share/report/secret-token",
+        share: share({}),
+      })
+      renderButton()
+      await user.click(screen.getByRole("button", { name: "Share report" }))
+      const dialog = await screen.findByRole("dialog")
+      await user.click(
+        within(dialog).getByRole("button", { name: "Create link" })
+      )
+      await user.click(
+        await within(dialog).findByRole("button", { name: "Share link" })
+      )
+      await user.click(within(dialog).getByRole("button", { name: "Close" }))
+      expect(
+        await screen.findByRole("alertdialog", { name: "Discard this link?" })
+      ).toBeInTheDocument()
+    } finally {
+      delete (navigator as { share?: unknown }).share
+    }
   })
 
   it("lists existing links with who made them, expiry, views and status", async () => {

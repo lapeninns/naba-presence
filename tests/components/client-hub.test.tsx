@@ -80,10 +80,11 @@ describe("ClientHub", () => {
     expect(screen.getByText("Needs reply")).toBeInTheDocument()
     expect(screen.getByText("5")).toBeInTheDocument()
     // Each work tile opens the inbox already filtered to this client.
-    expect(screen.getByRole("link", { name: /Needs reply/ })).toHaveAttribute(
-      "href",
-      "/inbox?clientId=c1&queue=needs_reply"
-    )
+    const tile = screen.getByRole("link", { name: /^Needs reply 5/ })
+    expect(tile).toHaveAttribute("href", "/inbox?clientId=c1&queue=needs_reply")
+    // The shared KpiTile inside one link: one tab stop per tile.
+    expect(tile.querySelector("[data-slot=kpi-tile]")).not.toBeNull()
+    expect(tile.querySelectorAll("a, button")).toHaveLength(0)
   })
 
   it("links each location straight into its sections", async () => {

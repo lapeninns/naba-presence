@@ -1,15 +1,10 @@
 "use client"
 
-import { Field, FieldLabel } from "@/components/ui/field"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-
-const ALL = "__all__"
+  ScopeSelect,
+  scopeFieldInRowClassName,
+  scopeTriggerInRowClassName,
+} from "@/components/performance/scope-select"
 
 /**
  * Which of a client's listings a report covers (the scope's `Location`
@@ -18,46 +13,36 @@ const ALL = "__all__"
  *
  * Without it, a single listing's report could only be reached from the
  * listing itself or the hub, never from the report you were already on.
+ * With fewer than two locations there is nothing to choose, so nothing
+ * renders.
  */
 export function LocationSelect({
   locations,
   value,
   onChange,
+  className = scopeFieldInRowClassName,
+  triggerClassName = scopeTriggerInRowClassName,
 }: {
   locations: Array<{ id: string; name: string }>
   value: string | undefined
   onChange: (locationId: string | undefined) => void
+  className?: string
+  triggerClassName?: string
 }) {
   if (locations.length < 2) return null
 
   return (
-    <Field className="min-w-44 flex-[1_1_11rem] sm:flex-none">
-      <FieldLabel>Location</FieldLabel>
-      <Select
-        value={value ?? ALL}
-        onValueChange={(next: string | null) =>
-          onChange(next && next !== ALL ? next : undefined)
-        }
-      >
-        <SelectTrigger className="w-full sm:w-56">
-          <SelectValue>
-            {(selected: string | null) =>
-              selected && selected !== ALL
-                ? (locations.find((location) => location.id === selected)
-                    ?.name ?? "Every location")
-                : "Every location"
-            }
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={ALL}>Every location</SelectItem>
-          {locations.map((location) => (
-            <SelectItem key={location.id} value={location.id}>
-              {location.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </Field>
+    <ScopeSelect
+      label="Location"
+      allLabel="Every location"
+      value={value}
+      onChange={onChange}
+      options={locations.map((location) => ({
+        id: location.id,
+        label: location.name,
+      }))}
+      className={className}
+      triggerClassName={triggerClassName}
+    />
   )
 }

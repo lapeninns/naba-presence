@@ -1,12 +1,14 @@
 "use client"
 
 import { Link2OffIcon, SearchIcon } from "lucide-react"
-import { useState } from "react"
+import { useMemo } from "react"
 
-import { KpiTile } from "@/components/ui/kpi-tile"
 import { SectionHeader } from "@/components/ui/section-header"
 import { PresenceProvenance } from "@/components/reporting/presence-provenance"
-import { reportTileGridClassName } from "@/components/reporting/report-tab-head"
+import {
+  ReplyFigures,
+  type ReplySummaryFigures,
+} from "@/components/reporting/reply-figures"
 import { ReportingPanel } from "@/components/reporting/reporting-states"
 import { UnavailableAlert } from "@/components/reporting/unavailable-alert"
 import { KeywordsTable } from "@/components/performance/keywords-table"
@@ -16,29 +18,93 @@ import { ApiClientError } from "@/lib/api/client"
 import { useAnalyticsKeywords } from "@/lib/queries/use-analytics-keywords"
 import { useAnalyticsOverview } from "@/lib/queries/use-analytics-overview"
 import { useAnalyticsPresence } from "@/lib/queries/use-analytics-presence"
-import { PRESENCE_RANGES } from "@/lib/reporting/ranges"
-import { formatDuration, formatNumber, formatPercent } from "@/lib/format"
+import type { AnalyticsLocation } from "@/lib/contracts/analytics"
+import {
+  DEFAULT_RANGES,
+  formatPeriod,
+  REPLY_RANGES,
+  resolveReplyRange,
+  type ReplyRangeId,
+} from "@/lib/reporting/ranges"
 
-type PresenceRangeId = (typeof PRESENCE_RANGES)[number]["id"]
+/**
+ * One location's row of the overview as reply figures. A location with no
+ * reviews in the window has no row: that is zero reviews and every other
+ * figure missing, never a made-up zero.
+ */
+function locationFigures(
+  locations: AnalyticsLocation[],
+  locationId: string
+): ReplySummaryFigures {
+  const row = locations.find((location) => location.id === locationId)
+  return {
+    reviewVolume: row?.reviews ?? 0,
+    averageRating: row?.averageRating ?? null,
+    responseRate: row?.responseRate ?? null,
+    medianFirstResponseSeconds: row?.medianFirstResponseSeconds ?? null,
+  }
+}
 
-export function LocationPerformance({ locationId }: { locationId: string }) {
-  const [rangeId, setRangeId] = useState<PresenceRangeId>("28d")
-  const overview = useAnalyticsOverview()
+/**
+ * One location's report body: review activity, Google visibility and search
+ * keywords. The period is the page's (`?range=`, passed as `rangeId`), the
+ * same presets and default as Reports: reply figures over the rolling window
+ * with the equal window before it for deltas, Google figures over the same
+ * preset. The page owns the picker; pass `onRangeChange` to draw one here.
+ */
+export function LocationPerformance({
+  locationId,
+  rangeId = DEFAULT_RANGES.reply,
+  onRangeChange,
+}: {
+  locationId: string
+  rangeId?: ReplyRangeId
+  onRangeChange?: (range: ReplyRangeId) => void
+}) {
+  // Memoised per range id: resolveReplyRange reads the clock, and fresh
+  // from/to strings on every render would mint new query keys and refetch
+  // forever.
+  const { current, previous } = useMemo(
+    () => resolveReplyRange(rangeId),
+    [rangeId]
+  )
+  const overview = useAnalyticsOverview(current)
+  const prior = useAnalyticsOverview(previous)
   const presence = useAnalyticsPresence({ range: rangeId, locationId })
   const keywords = useAnalyticsKeywords({ range: "6m", locationId })
+  const rangeLabel =
+    REPLY_RANGES.find((option) => option.id === rangeId)?.label ?? ""
+  const period = formatPeriod(
+    current,
+    overview.data?.timezone ?? "Europe/London"
+  )
   const keywordsPaused =
     keywords.error instanceof ApiClientError &&
     keywords.error.code === "keywords_paused"
 
   return (
     <div className="@container/report flex flex-col gap-(--np-gap-section)">
-      {/* Review metrics — filtered from the org-wide overview.locations[] */}
+      {/* Review metrics: this location's row of the overview, for the
+          page's period and the one before it. */}
       <section className="flex flex-col gap-3">
         {/* "Review activity" (not "Reviews") — the tile below is literally
             labelled "Reviews"; a heading with identical text would either
             resolve findByText("Reviews") before the query settles, or collide
             with the tile once it has (both break the pinned test). */}
-        <SectionHeader title="Review activity" description="Last 30 days" />
+        <SectionHeader
+          title="Review activity"
+          description={[rangeLabel, period].filter(Boolean).join(" · ")}
+          actions={
+            onRangeChange ? (
+              <RangeSelect
+                value={rangeId}
+                onChange={onRangeChange}
+                options={REPLY_RANGES}
+                period={period}
+              />
+            ) : undefined
+          }
+        />
         {overview.isPending ? (
           <ReportingPanel variant="loading" title="Loading review activity…" />
         ) : overview.isError ? (
@@ -48,64 +114,31 @@ export function LocationPerformance({ locationId }: { locationId: string }) {
             onRetry={() => void overview.refetch()}
           />
         ) : (
-          (() => {
-            const row = overview.data.locations.find(
-              (location) => location.id === locationId
-            )
-            if (!row) {
-              return (
-                <ReportingPanel
-                  framed
-                  variant="empty"
-                  title="No review activity"
-                  description="This location has no reviews in the last 30 days."
-                />
-              )
+          <ReplyFigures
+            audience="internal"
+            summary={locationFigures(overview.data.locations, locationId)}
+            previous={
+              prior.isPending
+                ? "pending"
+                : prior.data
+                  ? locationFigures(prior.data.locations, locationId)
+                  : null
             }
-            return (
-              <div className={reportTileGridClassName()}>
-                <KpiTile label="Reviews" value={formatNumber(row.reviews)} />
-                <KpiTile
-                  label="Response rate"
-                  value={
-                    row.responseRate === null
-                      ? "—"
-                      : formatPercent(row.responseRate)
-                  }
-                  hint="Published or accepted replies"
-                />
-                <KpiTile
-                  label="Median response time"
-                  value={formatDuration(row.medianFirstResponseSeconds)}
-                  hint="Review received to first reply"
-                />
-                <KpiTile
-                  label="Average rating"
-                  value={
-                    row.averageRating === null
-                      ? "—"
-                      : row.averageRating.toFixed(1)
-                  }
-                  hint="Out of 5"
-                />
-              </div>
-            )
-          })()
+            // The overview's series is the whole scope's, not this
+            // location's: no charts rather than someone else's bars.
+            series={null}
+            timezone={overview.data.timezone}
+            unit={current.granularity}
+            rangeLabel={rangeLabel}
+            periodText={period}
+            scope="this location"
+          />
         )}
       </section>
 
       {/* Google visibility — presence scoped by locationId */}
       <section className="flex flex-col gap-3">
-        <SectionHeader
-          title="Visibility on Google"
-          actions={
-            <RangeSelect
-              value={rangeId}
-              onChange={setRangeId}
-              options={PRESENCE_RANGES}
-            />
-          }
-        />
+        <SectionHeader title="Visibility on Google" description={rangeLabel} />
         {presence.isPending ? (
           <ReportingPanel
             variant="loading"
