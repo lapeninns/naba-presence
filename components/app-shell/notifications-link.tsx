@@ -8,6 +8,7 @@ import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
 
+import { CountBadge } from "./count-badge"
 import { ShellLink } from "./shell-link"
 
 /**
@@ -48,12 +49,11 @@ export function NotificationsLink({ className }: { className?: string }) {
     >
       <Bell className="size-5 desk:size-4" strokeWidth={1.75} aria-hidden />
       {count ? (
-        <span
-          aria-hidden
-          className="absolute top-1 right-1 min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 font-semibold text-primary-foreground tabular-nums"
-        >
-          {count > 99 ? "99+" : count}
-        </span>
+        <CountBadge
+          count={count}
+          slot="notifications-count"
+          className="absolute top-0.5 right-0.5"
+        />
       ) : null}
     </ShellLink>
   )

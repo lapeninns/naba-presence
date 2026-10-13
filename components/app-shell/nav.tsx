@@ -17,6 +17,7 @@ import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
+import { CountBadge } from "./count-badge"
 import { ShellLink } from "./shell-link"
 
 /**
@@ -68,7 +69,7 @@ const ROW_CLASS = cn(
   "md:max-wide:min-h-14 md:max-wide:flex-col md:max-wide:justify-center md:max-wide:gap-1 md:max-wide:px-0.5 md:max-wide:py-1.5 md:max-wide:text-center md:max-wide:text-caption md:max-wide:aria-[current=page]:before:-left-1"
 )
 
-const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full md:max-wide:leading-4"
+const LABEL_CLASS = "min-w-0 truncate md:max-wide:w-full"
 
 /**
  * The operator's last choice for the More disclosure, kept for the session.
@@ -177,13 +178,11 @@ function NavRow({
           {showCount ? (
             // The rail has no count column, so the number rides on the
             // icon as a badge there instead of disappearing.
-            <span
-              aria-hidden
-              data-slot="rail-count"
-              className="absolute -top-1.5 left-3 hidden h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 font-mono text-[10px] leading-none text-primary-foreground tabular-nums md:max-wide:inline-flex"
-            >
-              {count > 99 ? "99+" : count}
-            </span>
+            <CountBadge
+              count={count}
+              slot="rail-count"
+              className="absolute -top-2 left-3 hidden md:max-wide:inline-flex"
+            />
           ) : null}
         </span>
         <span className={LABEL_CLASS}>{label}</span>
