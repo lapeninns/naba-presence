@@ -13,6 +13,13 @@ export type Crumb = {
  * Wayfinding for the nested surfaces the agency IA introduces
  * (Clients › Client › Location › Section).
  *
+ * A desk presentation (spec "Shell and navigation"): breadcrumbs show in
+ * the desk toolbar; a phone uses the app bar's labelled back control
+ * ("‹ Listings") instead, because a trail of 24px links is neither
+ * readable nor tappable at 360px. `deskOnly` hides the trail below `md`
+ * in CSS, for a page that renders it inline while the shell provides the
+ * back control.
+ *
  * Deliberately a `nav > ol > li` of LINKS, with no heading of any kind: the
  * axe suite pins `heading-order` and `page-has-heading-one`, and a heading
  * here would land above the page's own `h1`.
@@ -20,11 +27,16 @@ export type Crumb = {
 function Breadcrumbs({
   crumbs,
   className,
+  deskOnly = false,
   ...props
-}: React.ComponentProps<"nav"> & { crumbs: Crumb[] }) {
+}: React.ComponentProps<"nav"> & { crumbs: Crumb[]; deskOnly?: boolean }) {
   if (crumbs.length === 0) return null
   return (
-    <nav aria-label="Breadcrumb" className={cn("min-w-0", className)} {...props}>
+    <nav
+      aria-label="Breadcrumb"
+      className={cn("min-w-0", deskOnly && "max-md:hidden", className)}
+      {...props}
+    >
       <ol className="flex min-w-0 items-center gap-1.5 text-ui">
         {crumbs.map((crumb, index) => {
           const isLast = index === crumbs.length - 1
