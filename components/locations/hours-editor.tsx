@@ -48,9 +48,27 @@ import { cn } from "@/lib/utils"
 
 type Day = NormalizedHours["regular"][number]
 
-/** Today as YYYY-MM-DD in the browser's own calendar, for "past" marks. */
-function localToday(): string {
+/**
+ * Today as YYYY-MM-DD, for "past" marks: on the listing's clock when its
+ * IANA zone is known (a special day ends at the venue's midnight, and the
+ * server-rendered editor and the hydrating browser then agree on the date),
+ * else in the browser's own calendar.
+ */
+function localToday(timeZone?: string): string {
   const now = new Date()
+  if (timeZone) {
+    try {
+      // en-CA formats as YYYY-MM-DD.
+      return new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(now)
+    } catch {
+      // An unknown zone falls back to the browser's calendar.
+    }
+  }
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
@@ -173,6 +191,7 @@ export function HoursEditor({
   scheduleName = "Regular hours",
   serviceId,
   weeklyOnly = false,
+  timeZone,
 }: {
   value: NormalizedHours
   onChange: (next: NormalizedHours) => void
@@ -187,6 +206,8 @@ export function HoursEditor({
   scheduleName?: string
   serviceId?: string
   weeklyOnly?: boolean
+  /** The listing's IANA zone, for which special days have passed. */
+  timeZone?: string
 }) {
   const fieldId = (id: string) =>
     serviceId ? `service-${encodeURIComponent(serviceId)}-${id}` : id
@@ -215,7 +236,7 @@ export function HoursEditor({
   const [closedPeriods, setClosedPeriods] = useState<
     Record<number, Day["periods"]>
   >({})
-  const today = localToday()
+  const today = localToday(timeZone)
 
   function setDay(next: Day) {
     const regular = value.regular.map((day) =>

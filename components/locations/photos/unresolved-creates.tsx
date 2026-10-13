@@ -57,7 +57,13 @@ export function UnresolvedCreates({
             <AlertTitle>Google did not confirm an upload</AlertTitle>
             <AlertDescription>
               {describeCreate(create)} was sent{" "}
-              {formatRelativeTime(create.startedAt)}, but Google did not say
+              {/* Relative: the server (the library is streamed into the
+                  first HTML) and the hydrating browser may read the clock
+                  a minute apart. */}
+              <span suppressHydrationWarning>
+                {formatRelativeTime(create.startedAt)}
+              </span>
+              , but Google did not say
               whether it was added and it is not among the listing’s photos yet.
               Check the listing on Google, then record what you find. Adding it
               again is blocked until then.

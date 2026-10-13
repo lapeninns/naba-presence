@@ -7,8 +7,22 @@ import {
   type InfiniteData,
   type QueryKey,
 } from "@tanstack/react-query"
-import type { ZodType } from "zod"
+import { z, type ZodType } from "zod"
 
+import {
+  hoursResponseSchema,
+  type HoursState,
+} from "@/lib/contracts/location-hours"
+import {
+  mediaListQuerySchema,
+  mediaListResponseSchema,
+  type MediaState,
+} from "@/lib/contracts/location-media"
+import {
+  postsListQuerySchema,
+  postsListResponseSchema,
+  type PostsListResponse,
+} from "@/lib/contracts/location-posts"
 import {
   listingSummarySchema,
   type ListingSummary,
@@ -35,6 +49,11 @@ import {
   type ReviewsPage,
 } from "@/lib/contracts/reviews"
 import { parseInboxState, toReviewsFilters } from "@/lib/inbox/url-state"
+import {
+  parsePhotosState,
+  toMediaQuery,
+} from "@/lib/locations/photos-url-state"
+import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { queryKeys } from "@/lib/queries/keys"
 import { makeQueryClient } from "@/lib/queries/query-client"
 import {
@@ -45,6 +64,11 @@ import {
   settingsFeaturesApply,
 } from "@/lib/server/capabilities"
 import { withTenant } from "@/lib/server/db"
+import {
+  readHoursResponse,
+  readMediaListResponse,
+  readPostsListResponse,
+} from "@/lib/server/listing-reads"
 import { readListingSummaries } from "@/lib/server/location-summary"
 import { log } from "@/lib/server/logger"
 import { loadPauseSnapshot } from "@/lib/server/pause-controls"
@@ -236,6 +260,59 @@ export async function readSettingsCapabilities(
   return throughWire(settingsCapabilitiesResponseSchema, payload).capabilities
 }
 
+/** What `useHours(id)` fetches: `GET /api/locations/{id}/hours`. */
+export async function readHours(
+  session: Session,
+  locationId: string
+): Promise<HoursState> {
+  const payload = await readHoursResponse(session, locationId)
+  return throughWire(hoursResponseSchema, payload).hours
+}
+
+/** The photos filters the URL carries, as `useMedia` keys them. */
+export type MediaFilters = ReturnType<typeof toMediaQuery>
+
+/**
+ * What `useMedia(id, filters)` holds after its first page: the
+ * infinite-query shape around what `GET /api/locations/{id}/media` answers.
+ * The query takes the browser's path to the route: the parameters
+ * `fetchMedia` sends (the photos tab's page size and the URL's filters),
+ * parsed by the route's own query schema.
+ */
+export async function readMediaFirstPage(
+  session: Session,
+  locationId: string,
+  filters: MediaFilters
+): Promise<InfiniteData<MediaState, string | null>> {
+  const query = mediaListQuerySchema.parse({
+    pageSize: String(DEFAULT_MEDIA_PAGE_SIZE),
+    ...(filters.category ? { category: filters.category } : {}),
+    ...(filters.ownership ? { ownership: filters.ownership } : {}),
+  })
+  const payload = await readMediaListResponse(session, locationId, query)
+  return {
+    pages: [throughWire(mediaListResponseSchema, payload).media],
+    pageParams: [null],
+  }
+}
+
+/**
+ * What `usePosts(id)` holds after its first page of the default "all" view
+ * (the posts tab's initial filter): `GET /api/locations/{id}/posts` with no
+ * query string, exactly the request `fetchPosts` sends for it.
+ */
+export async function readPostsFirstPage(
+  session: Session,
+  locationId: string
+): Promise<InfiniteData<PostsListResponse, string | null>> {
+  const query = postsListQuerySchema.parse({})
+  const payload = await readPostsListResponse(session, locationId, query)
+  return {
+    pages: [throughWire(postsListResponseSchema, payload)],
+    pageParams: [null],
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Page composers
 // ---------------------------------------------------------------------------
@@ -243,8 +320,10 @@ export async function readSettingsCapabilities(
 /**
  * A listing page: its capabilities and its DB-only summary. Both are pure
  * SQL, so the overview's health strip and cards, and an area page's status
- * pill, paint on the first render. The editors' own resources are NOT
- * prefetched: they read Google live (see `locationTabPrefetch`).
+ * pill, paint on the first render. The editors' own resources read Google
+ * live, so they are never part of this (blocking) prefetch: the hours,
+ * photos and posts pages stream theirs behind a Suspense boundary instead
+ * (`hoursTabPrefetch`, `photosTabPrefetch`, `postsTabPrefetch`).
  */
 export function listingPagePrefetch(
   locationId: string
@@ -314,12 +393,12 @@ export function inboxPrefetch(
 /**
  * One per-location tab: its capabilities only. Every tab reads them and the
  * LocationTab shell waits on them before mounting the resource hook, so this
- * removes that waterfall. Tab state itself is NOT prefetched: hours, profile,
- * photos, booking, menu, business profile, industry and administration
- * read Google live, and posts reconciles against Google on every list
- * (lib/server/posts.ts), so any of them inside the RSC render would gate first
- * paint (and every <Link prefetch> to the page) on Google for seconds. `search` is the page's URL
- * query, for tabs whose key depends on it (photos).
+ * removes that waterfall. Tab state itself is NOT part of this prefetch:
+ * hours, profile, photos, booking, menu, business profile, industry and
+ * administration read Google live, and posts reconciles against Google on
+ * every list (lib/server/posts.ts), so any of them awaited by the page would
+ * gate first paint on Google for seconds. The hours, photos and posts pages
+ * stream theirs instead (see `hoursTabPrefetch` below).
  */
 export function locationTabPrefetch(
   locationId: string | null
@@ -344,4 +423,91 @@ export function settingsPrefetch(): (session: Session) => PrefetchEntry[] {
       load: () => readSettingsCapabilities(session),
     },
   ]
+}
+
+// ---------------------------------------------------------------------------
+// Streamed editor prefetch (components/listings/streamed-tab.tsx)
+// ---------------------------------------------------------------------------
+//
+// The hours, photos and posts editors' first reads reach Google, so a page
+// never awaits them: it renders its shell (header, tabs, the tab's pending
+// state) at once and awaits these inside a Suspense boundary that streams
+// the editor, with its own <HydrationBoundary>, when the read lands. A read
+// that fails is left out (`prefetch` never throws), and the editor fetches
+// and shows its error exactly as it did before.
+//
+// Every route here parses the location id itself and refuses a bad one; the
+// prefetch is skipped for anything but a UUID (the listing pages' ids), so
+// it never asks a reader for something the client would not have sent.
+
+const locationIdSchema = z.uuid()
+
+function streamable(locationId: string): boolean {
+  return locationIdSchema.safeParse(locationId).success
+}
+
+/**
+ * /listings/{id}/hours: what `useHours(id)` reads on its first render.
+ *
+ * The hours read refreshes what the listing summary holds (Google's hours,
+ * the reconcile time), which is why `useHours` invalidates the summary after
+ * every fetch. The summary is re-read once the hours read has settled and
+ * hydrated after it, so the header's status pill follows the hours read as
+ * it did when the browser fetched it. (An existing query hydrates only from
+ * newer data, so it never moves the pill backwards.)
+ */
+export function hoursTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    let hours: Promise<HoursState> | undefined
+    const loadHours = () => (hours ??= readHours(session, locationId))
+    return [
+      { queryKey: queryKeys.locationHours(locationId), load: loadHours },
+      {
+        queryKey: queryKeys.listingSummary(locationId),
+        load: async () => {
+          await loadHours().catch(() => undefined)
+          return readListingSummary(session, locationId)
+        },
+      },
+    ]
+  }
+}
+
+/**
+ * /listings/{id}/photos: the first page of `useMedia(id, filters)` for the
+ * filters in the request's query string, read with `parsePhotosState` →
+ * `toMediaQuery` as the photos tab reads its URL.
+ */
+export function photosTabPrefetch(
+  locationId: string,
+  search: URLSearchParams
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    const filters = toMediaQuery(parsePhotosState(search))
+    return [
+      {
+        queryKey: queryKeys.locationMedia(locationId, filters),
+        load: () => readMediaFirstPage(session, locationId, filters),
+      },
+    ]
+  }
+}
+
+/** /listings/{id}/posts: the first page of the "all" view `usePosts(id)` opens on. */
+export function postsTabPrefetch(
+  locationId: string
+): (session: Session) => PrefetchEntry[] {
+  return (session) => {
+    if (!streamable(locationId)) return []
+    return [
+      {
+        queryKey: queryKeys.locationPostsView(locationId, "all"),
+        load: () => readPostsFirstPage(session, locationId),
+      },
+    ]
+  }
 }

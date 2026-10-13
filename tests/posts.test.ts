@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 
-import { postContentTimestamp } from "@/lib/locations/post-display"
+import {
+  formatPostTimestamp,
+  postContentTimestamp,
+} from "@/lib/locations/post-display"
 import { localPostInputSchema } from "@/lib/contracts/location-posts"
 
 describe("Local Posts validation", () => {
@@ -136,4 +139,24 @@ it("uses provider dates for an imported rejection with no authoring audit, but p
   const row = { status: "failed" as const, googleState: "REJECTED", googlePostName: "accounts/a/locations/l/localPosts/p", lastErrorCode: null, updatedAt: "2026-09-27T12:00:00Z", localEditedAt: null, providerUpdatedAt: "2026-08-02T09:00:00Z", providerCreatedAt: null }
   expect(postContentTimestamp(row)).toBe("2026-08-02T09:00:00Z")
   expect(postContentTimestamp({ ...row, lastErrorCode: "google_timeout", localEditedAt: "2026-09-26T09:00:00Z" })).toBe("2026-09-26T09:00:00Z")
+})
+
+describe("formatPostTimestamp", () => {
+  it("reads the time on the listing's clock, whatever the runtime's zone", () => {
+    // The list is server-rendered and then hydrated: both sides must print
+    // the same wall time, so it is the listing's, not the machine's.
+    expect(formatPostTimestamp("2026-07-01T22:30:00Z", "Europe/London")).toBe(
+      "1 Jul 2026, 23:30"
+    )
+    expect(formatPostTimestamp("2026-07-01T22:30:00Z", "Asia/Kathmandu")).toBe(
+      "2 Jul 2026, 04:15"
+    )
+  })
+
+  it("falls back to the runtime's zone for a zone Intl does not know", () => {
+    expect(formatPostTimestamp("2026-07-01T22:30:00Z", "Not/AZone")).toBe(
+      formatPostTimestamp("2026-07-01T22:30:00Z")
+    )
+    expect(formatPostTimestamp("not a date", "Europe/London")).toBe("")
+  })
 })

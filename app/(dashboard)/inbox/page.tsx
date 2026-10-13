@@ -1,33 +1,17 @@
 import { HydrationBoundary } from "@tanstack/react-query"
-import { headers } from "next/headers"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { ShortcutsButton } from "@/components/inbox/shortcuts-button"
 import { SyncReviewsButton } from "@/components/inbox/sync-reviews-button"
-import { REQUEST_PATH_HEADER } from "@/lib/api/next-path"
 import { canTriggerSync } from "@/lib/reporting/sync-permission"
 import { bulkActionsEnabled } from "@/lib/server/bulk-listings"
 import { inboxPrefetch, prefetch } from "@/lib/server/prefetch"
 import { resolvePrimaryLocation } from "@/lib/server/primary-location"
+import { requestSearch } from "@/lib/server/request-search"
 import { getSession } from "@/lib/server/session"
 
 export const metadata = { title: "Inbox · NabaPresence" }
-
-/**
- * The query string this request was made with, from the header proxy.ts sets
- * (path + search). Empty when the header is missing, which only costs the
- * prefetch: the view still reads its state from the URL.
- */
-async function requestSearch(): Promise<URLSearchParams> {
-  const requested = (await headers()).get(REQUEST_PATH_HEADER)
-  if (!requested) return new URLSearchParams()
-  try {
-    return new URL(requested, "https://placeholder.invalid").searchParams
-  } catch {
-    return new URLSearchParams()
-  }
-}
 
 // The landing page. Deliberately no `searchParams` prop: the inbox keeps its
 // filters, queue and selection in the URL, and Next tracks which segments
