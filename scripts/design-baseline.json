@@ -1,13 +1,13 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 89,
+    "R1": 77,
     "R2": 9,
-    "R3": 213,
-    "R4": 61,
-    "R5": 6,
+    "R3": 169,
+    "R4": 56,
+    "R5": 4,
     "R6": 5,
-    "R7": 53
+    "R7": 48
   },
   "files": {
     "app/(auth)/layout.tsx": {
@@ -67,14 +67,6 @@
         "total": 1,
         "patterns": {
           "[@media(min-height:620px)]:": 1
-        }
-      }
-    },
-    "app/(dashboard)/listings/[id]/loading.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "h-[22px]": 1
         }
       }
     },
@@ -467,39 +459,11 @@
         }
       }
     },
-    "components/bulk/bulk-compose.tsx": {
-      "R3": {
-        "total": 7,
-        "patterns": {
-          "grid-cols-[10rem_10rem_1fr_1fr_auto]": 1,
-          "grid-cols-[10rem_1fr]": 1,
-          "grid-cols-[14rem_1fr]": 1,
-          "grid-cols-[1fr_10rem_auto]": 2,
-          "grid-cols-[1fr_14rem]": 1,
-          "grid-cols-[7rem_auto_1fr_1fr]": 1
-        }
-      }
-    },
-    "components/editors/editor-footer.tsx": {
-      "R7": {
-        "total": 4,
-        "patterns": {
-          "max-[359px]:": 3,
-          "min-[360px]:": 1
-        }
-      }
-    },
     "components/editors/editor-frame.tsx": {
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-20": 1
-        }
-      },
       "R7": {
-        "total": 3,
+        "total": 2,
         "patterns": {
-          "[@media(min-height:620px)]:": 3
+          "[@media(min-height:620px)]:": 2
         }
       }
     },
@@ -760,81 +724,11 @@
         }
       }
     },
-    "components/listings/area-cards.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[1_1_9rem]": 1,
-          "h-[30px]": 1
-        }
-      }
-    },
     "components/listings/area-frame.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11px]": 1
-        }
-      },
-      "R3": {
-        "total": 6,
-        "patterns": {
-          "flex-[1_1_20rem]": 1,
-          "h-[18px]": 1,
-          "h-[22px]": 1,
-          "max-w-[70ch]": 1,
-          "min-w-[18px]": 1,
-          "min-w-[min(22rem,calc(100vw-40px))]": 1
-        }
-      },
       "R7": {
         "total": 3,
         "patterns": {
           "[@media(min-height:620px)]:": 3
-        }
-      }
-    },
-    "components/listings/health-strip.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "h-[22px]": 1,
-          "min-h-[26px]": 1
-        }
-      }
-    },
-    "components/listings/listings-board.tsx": {
-      "R3": {
-        "total": 7,
-        "patterns": {
-          "flex-[1_1_220px]": 1,
-          "h-[22px]": 4,
-          "max-w-[16rem]": 1,
-          "max-w-[560px]": 1
-        }
-      },
-      "R4": {
-        "total": 2,
-        "patterns": {
-          "rounded-[10px]": 1,
-          "z-20": 1
-        }
-      }
-    },
-    "components/listings/recent-activity.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      }
-    },
-    "components/listings/review-publish.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[1_1_16rem]": 1,
-          "h-[18px]": 1
         }
       }
     },
@@ -846,95 +740,11 @@
         }
       }
     },
-    "components/locations/booking-tab.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[12.5px]": 2
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "grid-cols-[minmax(0,15rem)_minmax(0,1fr)]": 1,
-          "grid-cols-[minmax(0,1fr)_20rem]": 1,
-          "h-[34px]": 1
-        }
-      }
-    },
-    "components/locations/hours-editor.tsx": {
-      "R1": {
-        "total": 3,
-        "patterns": {
-          "leading-[30px]": 1,
-          "text-[10.5px]": 1,
-          "text-[20px]": 1
-        }
-      },
-      "R3": {
-        "total": 3,
-        "patterns": {
-          "grid-cols-[3.5rem_minmax(0,1fr)]": 1,
-          "grid-cols-[3.5rem_minmax(0,1fr)_auto]": 1,
-          "grid-cols-[7rem_8rem_minmax(0,1fr)_auto]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "rounded-[10px]": 1
-        }
-      },
-      "R5": {
-        "total": 2,
-        "patterns": {
-          "<select>": 2
-        }
-      }
-    },
     "components/locations/menu-editor.tsx": {
       "R5": {
         "total": 1,
         "patterns": {
           "<select>": 1
-        }
-      }
-    },
-    "components/locations/menu/item-editor.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-4": 1,
-          "text-[11.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_8rem_auto]": 1,
-          "left-[11px]": 1
-        }
-      }
-    },
-    "components/locations/menu/section-editor.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "flex-[1_1_12rem]": 1
-        }
-      }
-    },
-    "components/locations/photos/media-card.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[11.5px]": 1
-        }
-      },
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "h-[22px]": 1
         }
       }
     },
@@ -954,37 +764,19 @@
         }
       }
     },
-    "components/locations/photos/upload-dialog.tsx": {
+    "components/locations/posts/post-card.tsx": {
       "R3": {
         "total": 1,
         "patterns": {
-          "grid-cols-[repeat(auto-fill,minmax(4.5rem,1fr))]": 1
-        }
-      }
-    },
-    "components/locations/posts/post-card.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[112px_minmax(0,1fr)]": 1,
-          "h-[22px]": 1
+          "grid-cols-[112px_minmax(0,1fr)]": 1
         }
       }
     },
     "components/locations/posts/post-composer-sheet.tsx": {
       "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[minmax(0,1fr)_300px]": 1,
-          "max-w-[30ch]": 1
-        }
-      }
-    },
-    "components/locations/profile-nav.tsx": {
-      "R4": {
         "total": 1,
         "patterns": {
-          "rounded-[calc(var(--np-radius-control)-2px)]": 1
+          "grid-cols-[minmax(0,1fr)_300px]": 1
         }
       }
     },
@@ -1004,30 +796,6 @@
           "leading-4": 1,
           "leading-[18px]": 1,
           "text-[11.5px]": 2
-        }
-      }
-    },
-    "components/locations/suggestions/suggestion-list.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[1_1_16rem]": 2
-        }
-      }
-    },
-    "components/locations/suggestions/suggestions-page.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-[26px]": 1,
-          "text-[22px]": 1
-        }
-      },
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "flex-[1_1_12rem]": 1,
-          "h-[30px]": 1
         }
       }
     },
