@@ -148,7 +148,7 @@ describe("ListHeader", () => {
     expect(box).toHaveClass(...selectionHitAreaClassName.split(" "))
   })
 
-  it("toggles select mode with Select and Done", async () => {
+  it("toggles select mode with Select and Cancel", async () => {
     const user = userEvent.setup()
     renderHeader()
     await user.click(screen.getByRole("button", { name: "Select" }))
@@ -156,10 +156,35 @@ describe("ListHeader", () => {
     await user.click(
       screen.getByRole("checkbox", { name: "Select every review in this view" })
     )
-    // Done ends the mode and drops what was ticked.
-    await user.click(screen.getByRole("button", { name: "Done" }))
+    // Cancel ends the mode and drops what was ticked.
+    const cancel = screen.getByRole("button", { name: "Cancel selection" })
+    // The visible word is part of the name (WCAG 2.5.3).
+    expect(cancel).toHaveTextContent("Cancel")
+    await user.click(cancel)
     expect(readout()).toBe("none · off")
     expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument()
+  })
+
+  it("reads 'N selected' on touch in select mode, in place of the count", async () => {
+    const user = userEvent.setup()
+    const { container } = renderHeader()
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Select" }))
+    const selected = container.querySelector<HTMLElement>(
+      "[data-slot=inbox-selected-count]"
+    )!
+    expect(selected).toHaveTextContent("0 selected")
+    // Touch only: a desk keeps its count, as its boxes are always there.
+    expect(selected).toHaveClass("desk:hidden")
+    expect(
+      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
+    ).toHaveClass("hidden", "desk:inline")
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select every review in this view" })
+    )
+    expect(selected).toHaveTextContent("2 selected")
   })
 
   it("shows the select-all box on touch only in select mode", async () => {

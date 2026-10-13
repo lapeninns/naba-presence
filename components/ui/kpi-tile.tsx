@@ -83,7 +83,7 @@ const DIRECTION_WORD: Record<NonNullable<KpiDelta["direction"]>, string> = {
 
 /**
  * A single headline figure (reference `.stat`): a bordered white tile, the
- * label in muted UI text, the figure in large mono tabular numerals, and a
+ * label in muted UI text, the figure in large sans tabular numerals, and a
  * delta row whose direction is spoken as well as drawn. A missing figure is
  * "—" with the reason in `hint`; missing is not zero.
  *
@@ -171,7 +171,7 @@ function KpiTile({
       </Row>
       <Line
         className={cn(
-          "block font-mono font-semibold tracking-[-0.02em] break-words text-ink tabular-nums",
+          "block font-semibold tracking-[-0.02em] break-words text-ink tabular-nums",
           compact ? "text-section" : "text-page-title"
         )}
       >

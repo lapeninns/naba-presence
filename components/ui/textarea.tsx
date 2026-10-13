@@ -18,6 +18,14 @@ function rowsToPx(rows: number) {
 }
 
 /**
+ * The touch field height (`--np-field-h` on touch). A growing field whose
+ * `minRows` draws shorter than this (one line: 38px) is floored at the
+ * field token instead, so a one-line description is a 44px target on touch
+ * and lines up with the Inputs beside it, without a caller's `min-h-…!`.
+ */
+const FIELD_TOUCH_PX = 44
+
+/**
  * `field-sizing: content` grows the box with its text in CSS alone (Chromium
  * 123+, Safari 26+). Older engines get the classic fallback: measure
  * `scrollHeight` after each change and set the height, clamped to the rows.
@@ -38,7 +46,11 @@ export type TextareaProps = React.ComponentProps<"textarea"> & {
    * `field-sizing-content` classes in the menu editors.
    */
   autoSize?: boolean
-  /** With `autoSize`: the starting height in lines. Default 3. */
+  /**
+   * With `autoSize`: the starting height in lines. Default 3. Never drawn
+   * shorter than the field height (`--np-field-h`: 44px on touch), so
+   * `minRows={1}` is a one-line field that is still a full touch target.
+   */
   minRows?: number
   /** With `autoSize`: the tallest it grows, in lines. Default 12. */
   maxRows?: number
@@ -80,6 +92,10 @@ function Textarea({
     el.style.height = `${next}px`
   }, [autoSize, minRows, maxRows])
 
+  // One line (38px) is shorter than a touch field: floor it at the field
+  // token in CSS, so the desk keeps its natural 38px and touch gets 44px.
+  const floorToField = rowsToPx(minRows) < FIELD_TOUCH_PX
+
   // Controlled values change without an input event (a draft restored, a
   // suggestion inserted), so measure after every render, not only on typing.
   React.useLayoutEffect(fit)
@@ -95,12 +111,15 @@ function Textarea({
         autoSize
           ? "field-sizing-content resize-none overflow-y-auto"
           : "min-h-24 resize-none desk:resize-y",
+        autoSize && floorToField && "min-h-(--np-field-h)",
         className
       )}
       style={
         autoSize
           ? {
-              minHeight: rowsToPx(minRows),
+              // Inline styles beat classes, so the field floor leaves the
+              // minimum to its class rather than to this.
+              ...(floorToField ? null : { minHeight: rowsToPx(minRows) }),
               maxHeight: rowsToPx(maxRows),
               ...style,
             }

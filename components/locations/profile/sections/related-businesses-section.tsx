@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { googleRelevantLocationSchema, unsupportedRelationshipBaseline } from "@/lib/domain/google-relationships"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
 import { SectionCard } from "../section-card"
+import { HandoffNote, InlineError, ItemRow, RowList, SettingsGroupLabel } from "./setting-rows"
 
 const relationLabels = {
   DEPARTMENT_OF: "Department",
@@ -27,7 +28,7 @@ export function RelatedBusinessesSection(props: Props) {
   return <SectionCard id="section-related-businesses" model="google" title="Related businesses" description="Manage parent and child business relationships using exact Google place IDs." changed={props.changed}>
     <RelationshipControl {...props} kind="parent" />
     <RelationshipControl {...props} kind="child" />
-    {props.error && <p role="alert" className="text-ui text-danger-ink">{props.error}</p>}
+    {props.error && <InlineError>{props.error}</InlineError>}
   </SectionCard>
 }
 
@@ -57,15 +58,13 @@ function RelationshipControl({ draft, setDraft, location, disabled, kind }: Prop
   }
   // A sub-heading of the section's h3, labelling the group it heads.
   return <div className="flex flex-col gap-3" role="group" aria-labelledby={`profile-${kind}-heading`}>
-    <h4 id={`profile-${kind}-heading`} className="text-ui font-semibold text-ink">{label}</h4>
-    {unsupported ? <p role="status" className="text-ui text-ink-muted">The existing {kind} business data cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage {kind} businesses in Google</a>, then refresh.</p> : <>
+    <SettingsGroupLabel as="h4" id={`profile-${kind}-heading`}>{label}</SettingsGroupLabel>
+    {unsupported ? <HandoffNote>The existing {kind} business data cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage {kind} businesses in Google</a>, then refresh.</HandoffNote> : <>
       {related.length === 0 && <p className="text-ui text-ink-muted">No {kind} business in this draft.</p>}
-      {related.map((item) => <div key={item.placeId} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
-        <div className="min-w-0"><p className="text-ui break-words">{relationLabels[item.relationType]}</p><p className="text-caption font-mono text-ink-muted break-all">{item.placeId}</p></div>
-        <Button type="button" variant="outline" disabled={blocked} aria-label={`Remove ${kind} business ${item.placeId}`} onClick={() => setDraft((current) => ({ ...current, relationshipData: { ...current.relationshipData,
+      {related.length > 0 && <RowList>{related.map((item) => <ItemRow key={item.placeId} title={relationLabels[item.relationType]} detail={item.placeId}
+        trailing={<Button type="button" variant="ghost" disabled={blocked} aria-label={`Remove ${kind} business ${item.placeId}`} onClick={() => setDraft((current) => ({ ...current, relationshipData: { ...current.relationshipData,
           ...(kind === "parent" ? { parentLocation: {} } : { childrenLocations: (current.relationshipData?.childrenLocations ?? []).filter((child) => child.placeId !== item.placeId) }),
-        } }))}>Remove</Button>
-      </div>)}
+        } }))}>Remove</Button>} />)}</RowList>}
     </>}
     <Field error={entryError}>
       <FieldLabel htmlFor={`profile-${kind}-place-id`}>{kind === "parent" ? "Parent business place ID" : "New child business place ID"}</FieldLabel>

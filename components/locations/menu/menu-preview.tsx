@@ -12,9 +12,9 @@ export function MenuPreview({ menu }: { menu: EditorMenu }) {
   return (
     <section
       aria-label="Menu preview"
-      className="mx-auto flex w-full max-w-3xl flex-col gap-8 rounded-(--np-radius-card) bg-surface p-(--np-card-pad) sm:p-8"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-6 rounded-(--np-radius-card) border border-line-subtle bg-surface p-(--np-card-pad) sm:p-8"
     >
-      <header className="flex flex-col gap-2 border-b border-line-subtle pb-6">
+      <header className="flex flex-col gap-2 border-b border-line-subtle pb-5">
         <h3 className="text-page-title font-semibold break-words text-ink">
           {label.displayName || "Untitled menu"}
         </h3>
@@ -32,9 +32,9 @@ export function MenuPreview({ menu }: { menu: EditorMenu }) {
         menu.sections.map((section) => {
           const sectionLabel = readLabel(section.data)
           return (
-            <section key={section.id} className="flex flex-col gap-4">
+            <section key={section.id} className="flex flex-col gap-2">
               <div className="flex flex-col gap-1">
-                <h4 className="text-section font-semibold break-words text-ink">
+                <h4 className="text-title font-semibold break-words text-ink">
                   {sectionLabel.displayName || "Untitled section"}
                 </h4>
                 {sectionLabel.description ? (
@@ -43,14 +43,14 @@ export function MenuPreview({ menu }: { menu: EditorMenu }) {
                   </p>
                 ) : null}
               </div>
-              <ul className="flex flex-col gap-5">
+              <ul className="flex flex-col divide-y divide-line-subtle">
                 {section.items.map((item) => {
                   const itemLabel = readLabel(item.data)
                   const price = readPrice(item.data)
                   return (
                     <li
                       key={item.id}
-                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1"
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-0.5 py-3"
                     >
                       <p className="text-body font-medium break-words text-ink">
                         {itemLabel.displayName || "Untitled item"}
@@ -67,7 +67,7 @@ export function MenuPreview({ menu }: { menu: EditorMenu }) {
                         <span />
                       )}
                       {itemLabel.description ? (
-                        <p className="col-span-2 text-body whitespace-pre-line text-ink-muted">
+                        <p className="col-span-2 text-ui whitespace-pre-line text-ink-secondary">
                           {itemLabel.description}
                         </p>
                       ) : null}
@@ -85,6 +85,7 @@ export function MenuPreview({ menu }: { menu: EditorMenu }) {
         })
       ) : (
         <Empty
+          size="sm"
           title="Your preview is empty"
           description="Switch to Edit menu and add your first section."
         />

@@ -6,8 +6,6 @@ import { usePathname } from "next/navigation"
 import * as React from "react"
 
 import {
-  BOUNDARY_EYEBROW_CLASS,
-  BOUNDARY_TITLE_CLASS,
   BoundaryCode,
   BoundaryFrame,
   boundaryButtonClass,
@@ -100,24 +98,24 @@ export default function DashboardError({
     <BoundaryFrame>
       <div
         data-slot="page-empty-state"
-        className="flex flex-wrap items-end justify-between gap-4"
+        className="flex flex-col items-center gap-2 pt-6 text-center sm:pt-12 lg:pt-16"
       >
-        <div className="flex min-w-0 flex-1 basis-80 flex-col gap-1.5">
-          <span
-            aria-hidden
-            className="mb-1.5 flex size-11 items-center justify-center rounded-lg bg-danger-tint text-danger-ink"
-          >
-            <TriangleAlert className="size-5" strokeWidth={1.75} />
-          </span>
-          <p className={BOUNDARY_EYEBROW_CLASS}>Page error</p>
-          <h1 tabIndex={-1} className={BOUNDARY_TITLE_CLASS}>
-            {`${area} hit an error`}
-          </h1>
-          <p className="max-w-prose text-body text-pretty text-ink-muted">
-            The rest of NabaPresence is still working. Your data is unaffected.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 @max-md:w-full @max-md:*:flex-1">
+        <span
+          aria-hidden
+          className="mb-1 grid size-11 place-items-center rounded-lg bg-danger-tint text-danger-ink"
+        >
+          <TriangleAlert className="size-5" strokeWidth={1.5} />
+        </span>
+        <h1
+          tabIndex={-1}
+          className="text-title font-medium text-balance text-ink outline-none"
+        >
+          {`${area} hit an error`}
+        </h1>
+        <p className="max-w-md text-ui text-pretty text-ink-muted">
+          The rest of NabaPresence is still working. Your data is unaffected.
+        </p>
+        <div className="mt-3 flex w-full max-w-sm flex-col items-stretch gap-1 sm:w-auto sm:items-center">
           <button
             type="button"
             onClick={retry}
@@ -135,9 +133,9 @@ export default function DashboardError({
           <Link
             href="/inbox"
             className={boundaryButtonClass(
-              "outline",
+              "ghost",
               "default",
-              "pointer-coarse:min-h-11"
+              "text-ink-secondary pointer-coarse:min-h-11"
             )}
           >
             Back to Inbox
@@ -145,14 +143,14 @@ export default function DashboardError({
         </div>
       </div>
 
-      <div className="grid gap-4 @4xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-(--np-gap-section)">
         <section
           aria-labelledby="error-what-failed"
-          className="flex min-w-0 flex-col gap-3.5 rounded-lg border border-line bg-surface p-4 sm:p-5"
+          className="flex min-w-0 flex-col gap-3"
         >
           <h2
             id="error-what-failed"
-            className="text-title font-semibold text-ink"
+            className="text-ui font-medium text-ink-muted"
           >
             What failed
           </h2>
@@ -195,13 +193,13 @@ export default function DashboardError({
             </p>
           </div>
         </section>
-        <aside
+        <section
           aria-labelledby="error-next-steps"
-          className="flex flex-col gap-2.5 rounded-lg bg-surface-alt p-4"
+          className="flex flex-col gap-2"
         >
           <h2
             id="error-next-steps"
-            className="text-body font-semibold text-ink"
+            className="text-ui font-medium text-ink-muted"
           >
             If it keeps happening
           </h2>
@@ -215,7 +213,7 @@ export default function DashboardError({
               {orgLower}.
             </li>
           </ol>
-        </aside>
+        </section>
       </div>
     </BoundaryFrame>
   )

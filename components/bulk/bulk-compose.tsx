@@ -15,6 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useRef, useState } from "react"
 
 import { PageHeader } from "@/components/app-shell/page-frame"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -723,307 +724,130 @@ export function BulkCompose() {
       />
       <TargetList ids={ids} names={names} />
       <FormErrorScope>
-        <section
-          aria-labelledby="bulk-change"
-          className={cardClassName({
-            className: "flex min-w-0 flex-col gap-4 p-4",
-          })}
-        >
-          <h2 id="bulk-change" className="text-title font-semibold text-ink">
+        <section aria-labelledby="bulk-change" className={GROUP_CLASS}>
+          <h2 id="bulk-change" className={GROUP_LABEL_CLASS}>
             Change
           </h2>
-          {/* Eleven kinds of change: a pop-up list (an action sheet on a
+          <div
+            className={cardClassName({
+              className: "flex min-w-0 flex-col gap-4 p-4",
+            })}
+          >
+            {/* Eleven kinds of change: a pop-up list (an action sheet on a
               phone), not a track that hides most of them behind a scroll. */}
-          <Field className="max-w-md">
-            <FieldLabel>What to change</FieldLabel>
-            <Select
-              value={operation}
-              onValueChange={(value) =>
-                value && setOperation(value as BulkOperation)
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(value: string | null) =>
-                    OPERATION_NAME.get(value as BulkOperation) ?? ""
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {OPERATIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {operationInfo ? (
-              <FieldDescription>{operationInfo.description}</FieldDescription>
-            ) : null}
-          </Field>
-          {operation === "special_hours" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Only these dates change on each listing; its other special dates
-                stay as they are.
-              </FieldsetLegend>
-              {special.map((row, index) => {
-                const issues = specialProblems[index]
-                return (
-                  <Fieldset
-                    key={index}
-                    className="@container/date rounded-(--np-radius-control) border border-line p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <FieldsetLegend variant="label">
-                        Date {index + 1}
-                      </FieldsetLegend>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        disabled={special.length === 1}
-                        onClick={() =>
-                          setSpecial(special.filter((_, i) => i !== index))
-                        }
-                        aria-label={`Remove date ${index + 1}`}
-                      >
-                        <Trash2 aria-hidden />
-                      </Button>
-                    </div>
-                    <div className="grid gap-3 @md/date:grid-cols-2">
-                      <Field>
-                        <FieldLabel>Date</FieldLabel>
-                        <Input
-                          type="date"
-                          enterKeyHint="next"
-                          value={row.date}
-                          onChange={(e) =>
-                            updateSpecial(index, { date: e.target.value })
-                          }
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel>Set to</FieldLabel>
-                        <Select
-                          value={row.action}
-                          onValueChange={(value) =>
-                            value &&
-                            updateSpecial(index, {
-                              action: value as SpecialRow["action"],
-                            })
-                          }
-                        >
-                          <SelectTrigger
-                            className="w-full"
-                            aria-label={`Set to, date ${index + 1}`}
-                          >
-                            <SelectValue>
-                              {(v: string | null) =>
-                                v === "open"
-                                  ? "Open"
-                                  : v === "clear"
-                                    ? "Remove this date"
-                                    : "Closed"
-                              }
-                            </SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="closed">Closed</SelectItem>
-                            <SelectItem value="open">Open</SelectItem>
-                            <SelectItem value="clear">
-                              Remove this date
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    </div>
-                    {row.action === "open" ? (
-                      <div className="flex flex-wrap gap-3">
-                        <Field>
-                          <FieldLabel>Opens</FieldLabel>
-                          <TimeField
-                            allowEndOfDay={false}
-                            aria-label={`Opens, date ${index + 1}`}
-                            value={row.opensAt}
-                            onValueChange={(next) =>
-                              updateSpecial(index, { opensAt: next })
-                            }
-                          />
-                          <FieldError>{issues.opens}</FieldError>
-                        </Field>
-                        <Field className="min-w-0 flex-1">
-                          <FieldLabel>Closes</FieldLabel>
-                          <TimeField
-                            allowEndOfDay={false}
-                            aria-label={`Closes, date ${index + 1}`}
-                            value={row.closesAt}
-                            onValueChange={(next) =>
-                              updateSpecial(index, { closesAt: next })
-                            }
-                          />
-                          <FieldError>{issues.closes}</FieldError>
-                        </Field>
-                      </div>
-                    ) : null}
-                  </Fieldset>
-                )
-              })}
-              <Button
-                variant="secondary"
-                size="sm"
-                className="self-start"
-                disabled={special.length >= 31}
-                onClick={() =>
-                  setSpecial([
-                    ...special,
-                    {
-                      date: "",
-                      action: "closed",
-                      opensAt: "10:00",
-                      closesAt: "16:00",
-                    },
-                  ])
+            <Field className="max-w-md">
+              <FieldLabel>What to change</FieldLabel>
+              <Select
+                value={operation}
+                onValueChange={(value) =>
+                  value && setOperation(value as BulkOperation)
                 }
               >
-                <Plus aria-hidden /> Add a date
-              </Button>
-            </Fieldset>
-          ) : operation === "regular_hours" || operation === "more_hours" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                {operation === "regular_hours"
-                  ? "Only the ticked weekdays change; each listing keeps its other days. Tick all seven to replace the whole week. Special and service hours are untouched."
-                  : "Replaces one service-hours type on each listing that Google offers it for. Other types stay as they are."}
-              </FieldsetLegend>
-              {operation === "more_hours" ? (
-                <Field className="max-w-md">
-                  <FieldLabel>Service</FieldLabel>
-                  {pickingHoursType ? (
-                    <Select
-                      value={
-                        hoursTypes.some(
-                          (type) => type.hoursTypeId === hoursTypeId
-                        )
-                          ? hoursTypeId
-                          : null
-                      }
-                      onValueChange={(value) => {
-                        if (!value) return
-                        if (value === OTHER_HOURS_TYPE) {
-                          setTypedHoursType(true)
-                          setHoursTypeId("")
-                        } else setHoursTypeId(value)
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue>
-                          {(value: string | null) =>
-                            hoursTypes.find(
-                              (type) => type.hoursTypeId === value
-                            )?.displayName ?? "Choose a service"
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        {hoursTypes.map((type) => (
-                          <SelectItem
-                            key={type.hoursTypeId}
-                            value={type.hoursTypeId}
-                          >
-                            {type.displayName}
-                          </SelectItem>
-                        ))}
-                        <SelectItem value={OTHER_HOURS_TYPE}>
-                          Another service (type its Google ID)
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      {...inputHints.identifier}
-                      autoCapitalize="characters"
-                      enterKeyHint="next"
-                      value={hoursTypeId}
-                      placeholder="For example DELIVERY"
-                      onChange={(e) => setHoursTypeId(e.target.value)}
-                    />
-                  )}
-                  <FieldDescription>
-                    {pickingHoursType
-                      ? "Services Google offers on the selected listings opened here. A listing Google doesn’t offer it for is skipped."
-                      : "Google’s ID for the service, such as DELIVERY, TAKEOUT or HAPPY_HOURS. A listing Google doesn’t offer it for is skipped."}
-                  </FieldDescription>
-                </Field>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(value: string | null) =>
+                      OPERATION_NAME.get(value as BulkOperation) ?? ""
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {OPERATIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {operationInfo ? (
+                <FieldDescription>{operationInfo.description}</FieldDescription>
               ) : null}
-              <div className="@container/week flex min-w-0 flex-col divide-y divide-line rounded-(--np-radius-control) border border-line">
-                {WEEK.map((dayOfWeek) => {
-                  const day = weekly[dayOfWeek]
-                  const issues = weeklyProblems[dayOfWeek]
-                  const regular = operation === "regular_hours"
-                  const changing = regular ? day.selected === true : true
-                  const note = closingNote(dayOfWeek, day)
+            </Field>
+            {operation === "special_hours" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Only these dates change on each listing; its other special
+                  dates stay as they are.
+                </FieldsetLegend>
+                {special.map((row, index) => {
+                  const issues = specialProblems[index]
                   return (
-                    <div
-                      key={DAYS[dayOfWeek]}
-                      role="group"
-                      aria-label={DAYS[dayOfWeek]}
-                      className="flex min-w-0 flex-col gap-2 px-3 py-2 @xl/week:flex-row @xl/week:items-start @xl/week:gap-4"
+                    <Fieldset
+                      key={index}
+                      className="@container/date rounded-(--np-radius-control) border border-line p-3"
                     >
-                      {/* Day and open switch share one line at every
-                          width; the times sit under them on a phone and
-                          beside them once the list has the room. */}
-                      <div className="flex min-w-0 items-center justify-between gap-3 @xl/week:w-72 @xl/week:shrink-0">
-                        {regular ? (
-                          <Checkbox
-                            label={DAYS[dayOfWeek]}
-                            labelClassName="min-w-0 flex-1"
-                            checked={day.selected === true}
-                            onCheckedChange={(checked) =>
-                              updateDay(dayOfWeek, {
-                                selected: checked === true,
-                              })
+                      <div className="flex items-center justify-between gap-2">
+                        <FieldsetLegend variant="label">
+                          Date {index + 1}
+                        </FieldsetLegend>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          disabled={special.length === 1}
+                          onClick={() =>
+                            setSpecial(special.filter((_, i) => i !== index))
+                          }
+                          aria-label={`Remove date ${index + 1}`}
+                        >
+                          <Trash2 aria-hidden />
+                        </Button>
+                      </div>
+                      <div className="grid gap-3 @md/date:grid-cols-2">
+                        <Field>
+                          <FieldLabel>Date</FieldLabel>
+                          <Input
+                            type="date"
+                            enterKeyHint="next"
+                            value={row.date}
+                            onChange={(e) =>
+                              updateSpecial(index, { date: e.target.value })
                             }
                           />
-                        ) : (
-                          <span className="min-w-0 flex-1 text-body text-ink">
-                            {DAYS[dayOfWeek]}
-                          </span>
-                        )}
-                        <Switch
-                          label={
-                            <>
-                              {regular ? "Open" : "Offered"}{" "}
-                              <span className="sr-only">
-                                on {DAYS[dayOfWeek]}
-                              </span>
-                            </>
-                          }
-                          labelClassName="gap-3 text-ui"
-                          disabled={!changing}
-                          checked={!day.isClosed}
-                          onCheckedChange={(checked) =>
-                            updateDay(dayOfWeek, { isClosed: !checked })
-                          }
-                        />
+                        </Field>
+                        <Field>
+                          <FieldLabel>Set to</FieldLabel>
+                          <Select
+                            value={row.action}
+                            onValueChange={(value) =>
+                              value &&
+                              updateSpecial(index, {
+                                action: value as SpecialRow["action"],
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              className="w-full"
+                              aria-label={`Set to, date ${index + 1}`}
+                            >
+                              <SelectValue>
+                                {(v: string | null) =>
+                                  v === "open"
+                                    ? "Open"
+                                    : v === "clear"
+                                      ? "Remove this date"
+                                      : "Closed"
+                                }
+                              </SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="closed">Closed</SelectItem>
+                              <SelectItem value="open">Open</SelectItem>
+                              <SelectItem value="clear">
+                                Remove this date
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </Field>
                       </div>
-                      {!changing ? (
-                        <p className="text-caption text-ink-muted @xl/week:self-center">
-                          Left as each listing has it.
-                        </p>
-                      ) : day.isClosed ? (
-                        <p className="text-caption text-ink-muted @xl/week:self-center">
-                          {regular ? "Closed all day." : "Not offered."}
-                        </p>
-                      ) : (
-                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-2">
+                      {row.action === "open" ? (
+                        <div className="flex flex-wrap gap-3">
                           <Field>
                             <FieldLabel>Opens</FieldLabel>
                             <TimeField
                               allowEndOfDay={false}
-                              aria-label={`${DAYS[dayOfWeek]} opens`}
-                              value={day.opensAt}
+                              aria-label={`Opens, date ${index + 1}`}
+                              value={row.opensAt}
                               onValueChange={(next) =>
-                                updateDay(dayOfWeek, { opensAt: next })
+                                updateSpecial(index, { opensAt: next })
                               }
                             />
                             <FieldError>{issues.opens}</FieldError>
@@ -1031,758 +855,976 @@ export function BulkCompose() {
                           <Field className="min-w-0 flex-1">
                             <FieldLabel>Closes</FieldLabel>
                             <TimeField
-                              aria-label={`${DAYS[dayOfWeek]} closes`}
-                              value={day.closesAt}
+                              allowEndOfDay={false}
+                              aria-label={`Closes, date ${index + 1}`}
+                              value={row.closesAt}
                               onValueChange={(next) =>
-                                updateDay(dayOfWeek, { closesAt: next })
+                                updateSpecial(index, { closesAt: next })
                               }
                             />
-                            {issues.closes ? (
-                              <FieldError>{issues.closes}</FieldError>
-                            ) : note ? (
-                              <FieldDescription>{note}</FieldDescription>
-                            ) : null}
+                            <FieldError>{issues.closes}</FieldError>
                           </Field>
                         </div>
-                      )}
-                    </div>
+                      ) : null}
+                    </Fieldset>
                   )
                 })}
-              </div>
-              <FieldsetDescription className="mt-0">
-                A closing time at or before the opening time closes the next
-                day. 24:00 closes at midnight.
-              </FieldsetDescription>
-            </Fieldset>
-          ) : operation === "attributes" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Only these attributes change. Listings whose category does not
-                offer one are skipped.
-              </FieldsetLegend>
-              {attributes.map((row, index) => (
-                <div
-                  key={index}
-                  className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-start"
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="self-start"
+                  disabled={special.length >= 31}
+                  onClick={() =>
+                    setSpecial([
+                      ...special,
+                      {
+                        date: "",
+                        action: "closed",
+                        opensAt: "10:00",
+                        closesAt: "16:00",
+                      },
+                    ])
+                  }
                 >
-                  <Field>
-                    <FieldLabel>Google attribute</FieldLabel>
+                  <Plus aria-hidden /> Add a date
+                </Button>
+              </Fieldset>
+            ) : operation === "regular_hours" || operation === "more_hours" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  {operation === "regular_hours"
+                    ? "Only the ticked weekdays change; each listing keeps its other days. Tick all seven to replace the whole week. Special and service hours are untouched."
+                    : "Replaces one service-hours type on each listing that Google offers it for. Other types stay as they are."}
+                </FieldsetLegend>
+                {operation === "more_hours" ? (
+                  <Field className="max-w-md">
+                    <FieldLabel>Service</FieldLabel>
+                    {pickingHoursType ? (
+                      <Select
+                        value={
+                          hoursTypes.some(
+                            (type) => type.hoursTypeId === hoursTypeId
+                          )
+                            ? hoursTypeId
+                            : null
+                        }
+                        onValueChange={(value) => {
+                          if (!value) return
+                          if (value === OTHER_HOURS_TYPE) {
+                            setTypedHoursType(true)
+                            setHoursTypeId("")
+                          } else setHoursTypeId(value)
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue>
+                            {(value: string | null) =>
+                              hoursTypes.find(
+                                (type) => type.hoursTypeId === value
+                              )?.displayName ?? "Choose a service"
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {hoursTypes.map((type) => (
+                            <SelectItem
+                              key={type.hoursTypeId}
+                              value={type.hoursTypeId}
+                            >
+                              {type.displayName}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value={OTHER_HOURS_TYPE}>
+                            Another service (type its Google ID)
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        {...inputHints.identifier}
+                        autoCapitalize="characters"
+                        enterKeyHint="next"
+                        value={hoursTypeId}
+                        placeholder="For example DELIVERY"
+                        onChange={(e) => setHoursTypeId(e.target.value)}
+                      />
+                    )}
+                    <FieldDescription>
+                      {pickingHoursType
+                        ? "Services Google offers on the selected listings opened here. A listing Google doesn’t offer it for is skipped."
+                        : "Google’s ID for the service, such as DELIVERY, TAKEOUT or HAPPY_HOURS. A listing Google doesn’t offer it for is skipped."}
+                    </FieldDescription>
+                  </Field>
+                ) : null}
+                <div className="@container/week flex min-w-0 flex-col divide-y divide-line rounded-(--np-radius-control) border border-line">
+                  {WEEK.map((dayOfWeek) => {
+                    const day = weekly[dayOfWeek]
+                    const issues = weeklyProblems[dayOfWeek]
+                    const regular = operation === "regular_hours"
+                    const changing = regular ? day.selected === true : true
+                    const note = closingNote(dayOfWeek, day)
+                    return (
+                      <div
+                        key={DAYS[dayOfWeek]}
+                        role="group"
+                        aria-label={DAYS[dayOfWeek]}
+                        className="flex min-w-0 flex-col gap-2 px-3 py-2 @xl/week:flex-row @xl/week:items-start @xl/week:gap-4"
+                      >
+                        {/* Day and open switch share one line at every
+                          width; the times sit under them on a phone and
+                          beside them once the list has the room. */}
+                        <div className="flex min-w-0 items-center justify-between gap-3 @xl/week:w-72 @xl/week:shrink-0">
+                          {regular ? (
+                            <Checkbox
+                              label={DAYS[dayOfWeek]}
+                              labelClassName="min-w-0 flex-1"
+                              checked={day.selected === true}
+                              onCheckedChange={(checked) =>
+                                updateDay(dayOfWeek, {
+                                  selected: checked === true,
+                                })
+                              }
+                            />
+                          ) : (
+                            <span className="min-w-0 flex-1 text-body text-ink">
+                              {DAYS[dayOfWeek]}
+                            </span>
+                          )}
+                          <Switch
+                            label={
+                              <>
+                                {regular ? "Open" : "Offered"}{" "}
+                                <span className="sr-only">
+                                  on {DAYS[dayOfWeek]}
+                                </span>
+                              </>
+                            }
+                            labelClassName="gap-3 text-ui"
+                            disabled={!changing}
+                            checked={!day.isClosed}
+                            onCheckedChange={(checked) =>
+                              updateDay(dayOfWeek, { isClosed: !checked })
+                            }
+                          />
+                        </div>
+                        {!changing ? (
+                          <p className="text-caption text-ink-muted @xl/week:self-center">
+                            Left as each listing has it.
+                          </p>
+                        ) : day.isClosed ? (
+                          <p className="text-caption text-ink-muted @xl/week:self-center">
+                            {regular ? "Closed all day." : "Not offered."}
+                          </p>
+                        ) : (
+                          <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-2">
+                            <Field>
+                              <FieldLabel>Opens</FieldLabel>
+                              <TimeField
+                                allowEndOfDay={false}
+                                aria-label={`${DAYS[dayOfWeek]} opens`}
+                                value={day.opensAt}
+                                onValueChange={(next) =>
+                                  updateDay(dayOfWeek, { opensAt: next })
+                                }
+                              />
+                              <FieldError>{issues.opens}</FieldError>
+                            </Field>
+                            <Field className="min-w-0 flex-1">
+                              <FieldLabel>Closes</FieldLabel>
+                              <TimeField
+                                aria-label={`${DAYS[dayOfWeek]} closes`}
+                                value={day.closesAt}
+                                onValueChange={(next) =>
+                                  updateDay(dayOfWeek, { closesAt: next })
+                                }
+                              />
+                              {issues.closes ? (
+                                <FieldError>{issues.closes}</FieldError>
+                              ) : note ? (
+                                <FieldDescription>{note}</FieldDescription>
+                              ) : null}
+                            </Field>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <FieldsetDescription className="mt-0">
+                  A closing time at or before the opening time closes the next
+                  day. 24:00 closes at midnight.
+                </FieldsetDescription>
+              </Fieldset>
+            ) : operation === "attributes" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Only these attributes change. Listings whose category does not
+                  offer one are skipped.
+                </FieldsetLegend>
+                {attributes.map((row, index) => (
+                  <div
+                    key={index}
+                    className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-start"
+                  >
+                    <Field>
+                      <FieldLabel>Google attribute</FieldLabel>
+                      <Input
+                        {...inputHints.identifier}
+                        enterKeyHint="next"
+                        aria-label={`Google attribute ${index + 1}`}
+                        value={row.name}
+                        onChange={(e) =>
+                          setAttributes(
+                            attributes.map((r, i) =>
+                              i === index ? { ...r, name: e.target.value } : r
+                            )
+                          )
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <FieldLabel>Value</FieldLabel>
+                      <Select
+                        value={row.value}
+                        onValueChange={(value) =>
+                          value &&
+                          setAttributes(
+                            attributes.map((r, i) =>
+                              i === index ? { ...r, value } : r
+                            )
+                          )
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          aria-label={`Value for attribute ${index + 1}`}
+                        >
+                          <SelectValue>
+                            {(v: string | null) =>
+                              v === "true" ? "Yes" : "No"
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Yes</SelectItem>
+                          <SelectItem value="false">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="self-end sm:mt-7"
+                      disabled={attributes.length === 1}
+                      onClick={() =>
+                        setAttributes(attributes.filter((_, i) => i !== index))
+                      }
+                      aria-label={`Remove attribute ${index + 1}`}
+                    >
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="self-start"
+                  onClick={() =>
+                    setAttributes([
+                      ...attributes,
+                      { name: "attributes/", value: "true" },
+                    ])
+                  }
+                >
+                  <Plus aria-hidden /> Add an attribute
+                </Button>
+              </Fieldset>
+            ) : operation === "business_info" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Only the fields you change are sent; everything else on each
+                  listing stays as it is. Names, addresses and phone numbers are
+                  changed per listing.
+                </FieldsetLegend>
+                {(
+                  [
+                    ["Website", website, setWebsite],
+                    ["Description", description, setDescription],
+                    ["Labels", labels, setLabels],
+                  ] as const
+                ).map(([label, edit, setEdit]) => (
+                  <div key={label} className="grid gap-3 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel>{label}</FieldLabel>
+                      <Select
+                        value={edit.mode}
+                        onValueChange={(value) =>
+                          value &&
+                          setEdit({ ...edit, mode: value as FieldEdit["mode"] })
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          aria-label={`${label} change`}
+                        >
+                          <SelectValue>
+                            {(v: string | null) =>
+                              v === "set"
+                                ? "Set to"
+                                : v === "clear"
+                                  ? "Remove"
+                                  : "Leave as is"
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keep">Leave as is</SelectItem>
+                          <SelectItem value="set">Set to</SelectItem>
+                          <SelectItem value="clear">Remove</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    {edit.mode === "set" ? (
+                      <Field>
+                        <FieldLabel>New {label.toLowerCase()}</FieldLabel>
+                        {label === "Description" ? (
+                          <Textarea
+                            autoSize
+                            minRows={3}
+                            value={edit.value}
+                            onChange={(e) =>
+                              setEdit({ ...edit, value: e.target.value })
+                            }
+                          />
+                        ) : label === "Website" ? (
+                          <Input
+                            {...inputHints.url}
+                            enterKeyHint="next"
+                            placeholder="https://…"
+                            value={edit.value}
+                            onChange={(e) =>
+                              setEdit({ ...edit, value: e.target.value })
+                            }
+                          />
+                        ) : (
+                          <Input
+                            autoComplete="off"
+                            enterKeyHint="next"
+                            value={edit.value}
+                            onChange={(e) =>
+                              setEdit({ ...edit, value: e.target.value })
+                            }
+                          />
+                        )}
+                        {label === "Labels" ? (
+                          <FieldDescription>
+                            Separate labels with commas, up to 10.
+                          </FieldDescription>
+                        ) : null}
+                      </Field>
+                    ) : null}
+                  </div>
+                ))}
+                <Field className="max-w-md">
+                  <FieldLabel>Open status</FieldLabel>
+                  <Select
+                    value={openStatus}
+                    onValueChange={(value) =>
+                      value && setOpenStatus(value as typeof openStatus)
+                    }
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      aria-label="Open status change"
+                    >
+                      <SelectValue>
+                        {(v: string | null) =>
+                          v === "OPEN"
+                            ? "Open"
+                            : v === "CLOSED_TEMPORARILY"
+                              ? "Temporarily closed"
+                              : "Leave as is"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="keep">Leave as is</SelectItem>
+                      <SelectItem value="OPEN">Open</SelectItem>
+                      <SelectItem value="CLOSED_TEMPORARILY">
+                        Temporarily closed
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </Fieldset>
+            ) : operation === "categories" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Google category IDs, such as gcid:pub. Additional categories
+                  you don’t name stay as each listing has them. Listings whose
+                  country doesn’t offer a category are skipped.
+                </FieldsetLegend>
+                {(
+                  [
+                    ["primary", "New primary category", "gcid:pub"],
+                    [
+                      "add",
+                      "Add additional categories",
+                      "gcid:bar, gcid:restaurant",
+                    ],
+                    [
+                      "remove",
+                      "Remove additional categories",
+                      "gcid:bar, gcid:restaurant",
+                    ],
+                  ] as const
+                ).map(([key, label, example]) => (
+                  <Field
+                    key={key}
+                    className="max-w-120"
+                    error={
+                      key === "primary"
+                        ? (primaryProblem ?? undefined)
+                        : undefined
+                    }
+                  >
+                    <FieldLabel optional={key === "primary"}>
+                      {label}
+                    </FieldLabel>
                     <Input
                       {...inputHints.identifier}
                       enterKeyHint="next"
-                      aria-label={`Google attribute ${index + 1}`}
-                      value={row.name}
+                      value={categories[key]}
+                      placeholder={example}
                       onChange={(e) =>
-                        setAttributes(
-                          attributes.map((r, i) =>
-                            i === index ? { ...r, name: e.target.value } : r
-                          )
-                        )
+                        setCategories({ ...categories, [key]: e.target.value })
                       }
                     />
+                    {key === "primary" ? null : (
+                      <FieldDescription>
+                        Separate IDs with commas.
+                      </FieldDescription>
+                    )}
+                    <FieldError />
                   </Field>
-                  <Field>
-                    <FieldLabel>Value</FieldLabel>
-                    <Select
-                      value={row.value}
-                      onValueChange={(value) =>
-                        value &&
-                        setAttributes(
-                          attributes.map((r, i) =>
-                            i === index ? { ...r, value } : r
-                          )
-                        )
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label={`Value for attribute ${index + 1}`}
-                      >
-                        <SelectValue>
-                          {(v: string | null) => (v === "true" ? "Yes" : "No")}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="true">Yes</SelectItem>
-                        <SelectItem value="false">No</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="self-end sm:mt-7"
-                    disabled={attributes.length === 1}
-                    onClick={() =>
-                      setAttributes(attributes.filter((_, i) => i !== index))
-                    }
-                    aria-label={`Remove attribute ${index + 1}`}
+                ))}
+              </Fieldset>
+            ) : operation === "lodging" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Only these lodging details change. Listings Google keeps no
+                  lodging details for are skipped.
+                </FieldsetLegend>
+                <datalist id="bulk-lodging-paths">
+                  {GOOGLE_LODGING_BOOLEAN_PATHS.map((path) => (
+                    <option key={path} value={path} />
+                  ))}
+                </datalist>
+                {lodging.map((row, index) => (
+                  <div
+                    key={index}
+                    className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-start"
                   >
-                    <Trash2 aria-hidden />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="secondary"
-                size="sm"
-                className="self-start"
-                onClick={() =>
-                  setAttributes([
-                    ...attributes,
-                    { name: "attributes/", value: "true" },
-                  ])
-                }
-              >
-                <Plus aria-hidden /> Add an attribute
-              </Button>
-            </Fieldset>
-          ) : operation === "business_info" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Only the fields you change are sent; everything else on each
-                listing stays as it is. Names, addresses and phone numbers are
-                changed per listing.
-              </FieldsetLegend>
-              {(
-                [
-                  ["Website", website, setWebsite],
-                  ["Description", description, setDescription],
-                  ["Labels", labels, setLabels],
-                ] as const
-              ).map(([label, edit, setEdit]) => (
-                <div key={label} className="grid gap-3 sm:grid-cols-2">
-                  <Field>
-                    <FieldLabel>{label}</FieldLabel>
-                    <Select
-                      value={edit.mode}
-                      onValueChange={(value) =>
-                        value &&
-                        setEdit({ ...edit, mode: value as FieldEdit["mode"] })
-                      }
-                    >
-                      <SelectTrigger
-                        className="w-full"
-                        aria-label={`${label} change`}
-                      >
-                        <SelectValue>
-                          {(v: string | null) =>
-                            v === "set"
-                              ? "Set to"
-                              : v === "clear"
-                                ? "Remove"
-                                : "Leave as is"
-                          }
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="keep">Leave as is</SelectItem>
-                        <SelectItem value="set">Set to</SelectItem>
-                        <SelectItem value="clear">Remove</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {edit.mode === "set" ? (
                     <Field>
-                      <FieldLabel>New {label.toLowerCase()}</FieldLabel>
-                      {label === "Description" ? (
-                        <Textarea
-                          autoSize
-                          minRows={3}
-                          value={edit.value}
-                          onChange={(e) =>
-                            setEdit({ ...edit, value: e.target.value })
-                          }
-                        />
-                      ) : label === "Website" ? (
-                        <Input
-                          {...inputHints.url}
-                          enterKeyHint="next"
-                          placeholder="https://…"
-                          value={edit.value}
-                          onChange={(e) =>
-                            setEdit({ ...edit, value: e.target.value })
-                          }
-                        />
-                      ) : (
-                        <Input
-                          autoComplete="off"
-                          enterKeyHint="next"
-                          value={edit.value}
-                          onChange={(e) =>
-                            setEdit({ ...edit, value: e.target.value })
-                          }
-                        />
-                      )}
-                      {label === "Labels" ? (
-                        <FieldDescription>
-                          Separate labels with commas, up to 10.
-                        </FieldDescription>
-                      ) : null}
+                      <FieldLabel>Lodging field</FieldLabel>
+                      <Input
+                        {...inputHints.identifier}
+                        enterKeyHint="next"
+                        list="bulk-lodging-paths"
+                        aria-label={`Lodging field ${index + 1}`}
+                        value={row.path}
+                        placeholder="For example pools.pool"
+                        onChange={(e) =>
+                          setLodging(
+                            lodging.map((r, i) =>
+                              i === index
+                                ? { ...r, path: e.target.value.trim() }
+                                : r
+                            )
+                          )
+                        }
+                      />
                     </Field>
-                  ) : null}
-                </div>
-              ))}
-              <Field className="max-w-md">
-                <FieldLabel>Open status</FieldLabel>
-                <Select
-                  value={openStatus}
-                  onValueChange={(value) =>
-                    value && setOpenStatus(value as typeof openStatus)
-                  }
-                >
-                  <SelectTrigger
-                    className="w-full"
-                    aria-label="Open status change"
-                  >
-                    <SelectValue>
-                      {(v: string | null) =>
-                        v === "OPEN"
-                          ? "Open"
-                          : v === "CLOSED_TEMPORARILY"
-                            ? "Temporarily closed"
-                            : "Leave as is"
+                    <Field>
+                      <FieldLabel>Value</FieldLabel>
+                      <Select
+                        value={row.value}
+                        onValueChange={(value) =>
+                          value &&
+                          setLodging(
+                            lodging.map((r, i) =>
+                              i === index
+                                ? { ...r, value: value as LodgingRow["value"] }
+                                : r
+                            )
+                          )
+                        }
+                      >
+                        <SelectTrigger
+                          className="w-full"
+                          aria-label={`Value for lodging field ${index + 1}`}
+                        >
+                          <SelectValue>
+                            {(v: string | null) =>
+                              v === "true"
+                                ? "Yes"
+                                : v === "false"
+                                  ? "No"
+                                  : "Not set"
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Yes</SelectItem>
+                          <SelectItem value="false">No</SelectItem>
+                          <SelectItem value="clear">Not set</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="self-end sm:mt-7"
+                      disabled={lodging.length === 1}
+                      onClick={() =>
+                        setLodging(lodging.filter((_, i) => i !== index))
                       }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="keep">Leave as is</SelectItem>
-                    <SelectItem value="OPEN">Open</SelectItem>
-                    <SelectItem value="CLOSED_TEMPORARILY">
-                      Temporarily closed
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </Fieldset>
-          ) : operation === "categories" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Google category IDs, such as gcid:pub. Additional categories you
-                don’t name stay as each listing has them. Listings whose country
-                doesn’t offer a category are skipped.
-              </FieldsetLegend>
-              {(
-                [
-                  ["primary", "New primary category", "gcid:pub"],
-                  [
-                    "add",
-                    "Add additional categories",
-                    "gcid:bar, gcid:restaurant",
-                  ],
-                  [
-                    "remove",
-                    "Remove additional categories",
-                    "gcid:bar, gcid:restaurant",
-                  ],
-                ] as const
-              ).map(([key, label, example]) => (
-                <Field
-                  key={key}
-                  className="max-w-120"
-                  error={
-                    key === "primary"
-                      ? (primaryProblem ?? undefined)
-                      : undefined
+                      aria-label={`Remove lodging field ${index + 1}`}
+                    >
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="self-start"
+                  onClick={() =>
+                    setLodging([...lodging, { path: "", value: "true" }])
                   }
                 >
-                  <FieldLabel optional={key === "primary"}>{label}</FieldLabel>
-                  <Input
-                    {...inputHints.identifier}
-                    enterKeyHint="next"
-                    value={categories[key]}
-                    placeholder={example}
+                  <Plus aria-hidden /> Add a lodging field
+                </Button>
+              </Fieldset>
+            ) : operation === "food_menus" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Replaces every other listing’s menus with the menus Google
+                  shows for one listing. The preview lists every menu entry each
+                  listing loses before anything can be approved.
+                </FieldsetLegend>
+                <Field className="max-w-md">
+                  <FieldLabel>Copy the menus of</FieldLabel>
+                  <Select
+                    value={menuSource}
+                    onValueChange={(value) => setMenuSource(value ?? "")}
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      aria-label="Listing whose menus to copy"
+                    >
+                      <SelectValue>
+                        {(v: string | null) =>
+                          v ? (names.get(v) ?? "Listing") : "Choose a listing"
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ids.map((id) => (
+                        <SelectItem key={id} value={id}>
+                          {names.get(id) ?? "Listing"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {sourceMenus.data ? (
+                    <FieldDescription>
+                      {`${sourceMenus.data.googleCounts.menus} menus, ${sourceMenus.data.googleCounts.sections} sections, ${sourceMenus.data.googleCounts.items} items.`}
+                    </FieldDescription>
+                  ) : null}
+                </Field>
+              </Fieldset>
+            ) : operation === "post_draft" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Creates a separate draft on each listing. Nothing is
+                  published: each draft is published from that listing’s posts,
+                  with its own approval when two-person approval is on.
+                </FieldsetLegend>
+                <Field>
+                  <FieldLabel>Post text</FieldLabel>
+                  <Textarea
+                    autoSize
+                    minRows={4}
+                    maxLength={1500}
+                    enterKeyHint="enter"
+                    value={post.summary}
                     onChange={(e) =>
-                      setCategories({ ...categories, [key]: e.target.value })
+                      setPost({ ...post, summary: e.target.value })
                     }
                   />
-                  {key === "primary" ? null : (
-                    <FieldDescription>
-                      Separate IDs with commas.
-                    </FieldDescription>
-                  )}
-                  <FieldError />
+                  <FieldDescription>
+                    {`${post.summary.length} of 1,500 characters.`}
+                  </FieldDescription>
                 </Field>
-              ))}
-            </Fieldset>
-          ) : operation === "lodging" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Only these lodging details change. Listings Google keeps no
-                lodging details for are skipped.
-              </FieldsetLegend>
-              <datalist id="bulk-lodging-paths">
-                {GOOGLE_LODGING_BOOLEAN_PATHS.map((path) => (
-                  <option key={path} value={path} />
-                ))}
-              </datalist>
-              {lodging.map((row, index) => (
-                <div
-                  key={index}
-                  className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-start"
-                >
+              </Fieldset>
+            ) : operation === "photos" ? (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Adds one photo to each listing as a new photo. Photos are
+                  stored privately; a listing that already shows the photo is
+                  skipped. Up to {BULK_MAX_NEW_PHOTOS_PER_LOCATION} new photos
+                  per batch.
+                </FieldsetLegend>
+                <Fieldset disabled={uploading.isPending || storageMissing}>
+                  <FieldsetLegend>Upload a photo</FieldsetLegend>
+                  <FieldsetDescription>
+                    JPEG or PNG, 10 KB to 5 MB, at least 250 × 250 pixels.
+                    Checked when uploaded.
+                  </FieldsetDescription>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      disabled={uploading.isPending || storageMissing}
+                      onClick={() => cameraInput.current?.click()}
+                    >
+                      <Camera aria-hidden /> Take photo
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={uploading.isPending || storageMissing}
+                      onClick={() => libraryInput.current?.click()}
+                    >
+                      <ImagePlus aria-hidden /> Choose from library
+                    </Button>
+                  </div>
+                  {/* The buttons are the controls; these inputs only open the
+                    camera or the photo library. */}
+                  <input
+                    ref={cameraInput}
+                    type="file"
+                    accept={ASSET_PHOTO_CONTENT_TYPES.join(",")}
+                    capture="environment"
+                    hidden
+                    aria-label="Take photo"
+                    disabled={uploading.isPending || storageMissing}
+                    onChange={(e) => takeFile(e.currentTarget)}
+                  />
+                  <input
+                    ref={libraryInput}
+                    type="file"
+                    accept={ASSET_PHOTO_CONTENT_TYPES.join(",")}
+                    hidden
+                    aria-label="Choose from library"
+                    disabled={uploading.isPending || storageMissing}
+                    onChange={(e) => takeFile(e.currentTarget)}
+                  />
+                  {upload?.failed ? (
+                    <FormError announce="polite">{upload.text}</FormError>
+                  ) : upload || storageMissing ? (
+                    <p role="status" className="text-ui text-ink-secondary">
+                      {upload?.text ?? STORAGE_MISSING}
+                    </p>
+                  ) : null}
+                </Fieldset>
+                <div className="grid gap-3 sm:grid-cols-2">
                   <Field>
-                    <FieldLabel>Lodging field</FieldLabel>
-                    <Input
-                      {...inputHints.identifier}
-                      enterKeyHint="next"
-                      list="bulk-lodging-paths"
-                      aria-label={`Lodging field ${index + 1}`}
-                      value={row.path}
-                      placeholder="For example pools.pool"
-                      onChange={(e) =>
-                        setLodging(
-                          lodging.map((r, i) =>
-                            i === index
-                              ? { ...r, path: e.target.value.trim() }
-                              : r
-                          )
-                        )
-                      }
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel>Value</FieldLabel>
+                    <FieldLabel>Photo</FieldLabel>
                     <Select
-                      value={row.value}
+                      value={photo.assetId}
                       onValueChange={(value) =>
-                        value &&
-                        setLodging(
-                          lodging.map((r, i) =>
-                            i === index
-                              ? { ...r, value: value as LodgingRow["value"] }
-                              : r
-                          )
-                        )
+                        setPhoto({ ...photo, assetId: value ?? "" })
                       }
                     >
                       <SelectTrigger
                         className="w-full"
-                        aria-label={`Value for lodging field ${index + 1}`}
+                        aria-label="Uploaded photo to add"
                       >
                         <SelectValue>
                           {(v: string | null) =>
-                            v === "true"
-                              ? "Yes"
-                              : v === "false"
-                                ? "No"
-                                : "Not set"
+                            (assets.data ?? []).find((asset) => asset.id === v)
+                              ?.fileName ??
+                            (storageMissing
+                              ? STORAGE_MISSING
+                              : assets.isError
+                                ? "Uploads couldn’t be read"
+                                : "Choose an uploaded photo")
                           }
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="true">Yes</SelectItem>
-                        <SelectItem value="false">No</SelectItem>
-                        <SelectItem value="clear">Not set</SelectItem>
+                        {(assets.data ?? []).map((asset) => (
+                          <SelectItem key={asset.id} value={asset.id}>
+                            {`${asset.fileName} (${asset.width ?? "?"} × ${asset.height ?? "?"})`}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="self-end sm:mt-7"
-                    disabled={lodging.length === 1}
-                    onClick={() =>
-                      setLodging(lodging.filter((_, i) => i !== index))
-                    }
-                    aria-label={`Remove lodging field ${index + 1}`}
-                  >
-                    <Trash2 aria-hidden />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                variant="secondary"
-                size="sm"
-                className="self-start"
-                onClick={() =>
-                  setLodging([...lodging, { path: "", value: "true" }])
-                }
-              >
-                <Plus aria-hidden /> Add a lodging field
-              </Button>
-            </Fieldset>
-          ) : operation === "food_menus" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Replaces every other listing’s menus with the menus Google shows
-                for one listing. The preview lists every menu entry each listing
-                loses before anything can be approved.
-              </FieldsetLegend>
-              <Field className="max-w-md">
-                <FieldLabel>Copy the menus of</FieldLabel>
-                <Select
-                  value={menuSource}
-                  onValueChange={(value) => setMenuSource(value ?? "")}
-                >
-                  <SelectTrigger
-                    className="w-full"
-                    aria-label="Listing whose menus to copy"
-                  >
-                    <SelectValue>
-                      {(v: string | null) =>
-                        v ? (names.get(v) ?? "Listing") : "Choose a listing"
+                  <Field>
+                    <FieldLabel>Category</FieldLabel>
+                    <Select
+                      value={photo.category}
+                      onValueChange={(value) =>
+                        value &&
+                        setPhoto({
+                          ...photo,
+                          category: value as BulkPhotoCategory,
+                        })
                       }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ids.map((id) => (
-                      <SelectItem key={id} value={id}>
-                        {names.get(id) ?? "Listing"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {sourceMenus.data ? (
-                  <FieldDescription>
-                    {`${sourceMenus.data.googleCounts.menus} menus, ${sourceMenus.data.googleCounts.sections} sections, ${sourceMenus.data.googleCounts.items} items.`}
-                  </FieldDescription>
-                ) : null}
-              </Field>
-            </Fieldset>
-          ) : operation === "post_draft" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Creates a separate draft on each listing. Nothing is published:
-                each draft is published from that listing’s posts, with its own
-                approval when two-person approval is on.
-              </FieldsetLegend>
-              <Field>
-                <FieldLabel>Post text</FieldLabel>
-                <Textarea
-                  autoSize
-                  minRows={4}
-                  maxLength={1500}
-                  enterKeyHint="enter"
-                  value={post.summary}
-                  onChange={(e) =>
-                    setPost({ ...post, summary: e.target.value })
-                  }
-                />
-                <FieldDescription>
-                  {`${post.summary.length} of 1,500 characters.`}
-                </FieldDescription>
-              </Field>
-            </Fieldset>
-          ) : operation === "photos" ? (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Adds one photo to each listing as a new photo. Photos are stored
-                privately; a listing that already shows the photo is skipped. Up
-                to {BULK_MAX_NEW_PHOTOS_PER_LOCATION} new photos per batch.
-              </FieldsetLegend>
-              <Fieldset disabled={uploading.isPending || storageMissing}>
-                <FieldsetLegend>Upload a photo</FieldsetLegend>
-                <FieldsetDescription>
-                  JPEG or PNG, 10 KB to 5 MB, at least 250 × 250 pixels. Checked
-                  when uploaded.
-                </FieldsetDescription>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    disabled={uploading.isPending || storageMissing}
-                    onClick={() => cameraInput.current?.click()}
-                  >
-                    <Camera aria-hidden /> Take photo
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={uploading.isPending || storageMissing}
-                    onClick={() => libraryInput.current?.click()}
-                  >
-                    <ImagePlus aria-hidden /> Choose from library
-                  </Button>
+                    >
+                      <SelectTrigger
+                        className="w-full"
+                        aria-label="Photo category"
+                      >
+                        <SelectValue>
+                          {(v: string | null) =>
+                            v
+                              ? PHOTO_CATEGORY_LABEL[v as BulkPhotoCategory]
+                              : ""
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BULK_PHOTO_CATEGORIES.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {PHOTO_CATEGORY_LABEL[category]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
                 </div>
-                {/* The buttons are the controls; these inputs only open the
-                    camera or the photo library. */}
-                <input
-                  ref={cameraInput}
-                  type="file"
-                  accept={ASSET_PHOTO_CONTENT_TYPES.join(",")}
-                  capture="environment"
-                  hidden
-                  aria-label="Take photo"
-                  disabled={uploading.isPending || storageMissing}
-                  onChange={(e) => takeFile(e.currentTarget)}
-                />
-                <input
-                  ref={libraryInput}
-                  type="file"
-                  accept={ASSET_PHOTO_CONTENT_TYPES.join(",")}
-                  hidden
-                  aria-label="Choose from library"
-                  disabled={uploading.isPending || storageMissing}
-                  onChange={(e) => takeFile(e.currentTarget)}
-                />
-                {upload?.failed ? (
-                  <FormError announce="polite">{upload.text}</FormError>
-                ) : upload || storageMissing ? (
-                  <p role="status" className="text-ui text-ink-secondary">
-                    {upload?.text ?? STORAGE_MISSING}
-                  </p>
+                <Field>
+                  <FieldLabel optional>Description</FieldLabel>
+                  <Textarea
+                    autoSize
+                    minRows={2}
+                    maxLength={1500}
+                    value={photo.description}
+                    onChange={(e) =>
+                      setPhoto({ ...photo, description: e.target.value })
+                    }
+                  />
+                </Field>
+              </Fieldset>
+            ) : (
+              <Fieldset>
+                <FieldsetLegend variant="muted">
+                  Adds or updates the link on each listing, or removes the exact
+                  matching link. Links a booking provider owns are never
+                  changed.
+                </FieldsetLegend>
+                <SegmentedControl
+                  semantics="radio"
+                  value={link.action}
+                  onValueChange={(value) =>
+                    setLink({ ...link, action: value as "upsert" | "delete" })
+                  }
+                  aria-label="Link change"
+                >
+                  <SegmentedControlItem value="upsert">
+                    Add or update
+                  </SegmentedControlItem>
+                  <SegmentedControlItem value="delete">
+                    Remove
+                  </SegmentedControlItem>
+                </SegmentedControl>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                  <Field>
+                    <FieldLabel>Type</FieldLabel>
+                    <Select
+                      value={link.placeActionType}
+                      onValueChange={(value) =>
+                        value && setLink({ ...link, placeActionType: value })
+                      }
+                    >
+                      <SelectTrigger
+                        className="w-full"
+                        aria-label="Action link type"
+                      >
+                        <SelectValue>
+                          {(v: string | null) => (v ? actionTypeLabel(v) : "")}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {GOOGLE_PLACE_ACTION_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {actionTypeLabel(type)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field>
+                    <FieldLabel>Link</FieldLabel>
+                    <Input
+                      {...inputHints.url}
+                      enterKeyHint="done"
+                      value={link.uri}
+                      placeholder="https://…"
+                      onChange={(e) =>
+                        setLink({ ...link, uri: e.target.value })
+                      }
+                    />
+                  </Field>
+                </div>
+                {link.action === "upsert" ? (
+                  <Checkbox
+                    label="Make this the preferred link"
+                    checked={link.isPreferred}
+                    onCheckedChange={(checked) =>
+                      setLink({ ...link, isPreferred: checked === true })
+                    }
+                  />
                 ) : null}
               </Fieldset>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field>
-                  <FieldLabel>Photo</FieldLabel>
-                  <Select
-                    value={photo.assetId}
-                    onValueChange={(value) =>
-                      setPhoto({ ...photo, assetId: value ?? "" })
-                    }
-                  >
-                    <SelectTrigger
-                      className="w-full"
-                      aria-label="Uploaded photo to add"
-                    >
-                      <SelectValue>
-                        {(v: string | null) =>
-                          (assets.data ?? []).find((asset) => asset.id === v)
-                            ?.fileName ??
-                          (storageMissing
-                            ? STORAGE_MISSING
-                            : assets.isError
-                              ? "Uploads couldn’t be read"
-                              : "Choose an uploaded photo")
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(assets.data ?? []).map((asset) => (
-                        <SelectItem key={asset.id} value={asset.id}>
-                          {`${asset.fileName} (${asset.width ?? "?"} × ${asset.height ?? "?"})`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field>
-                  <FieldLabel>Category</FieldLabel>
-                  <Select
-                    value={photo.category}
-                    onValueChange={(value) =>
-                      value &&
-                      setPhoto({
-                        ...photo,
-                        category: value as BulkPhotoCategory,
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      className="w-full"
-                      aria-label="Photo category"
-                    >
-                      <SelectValue>
-                        {(v: string | null) =>
-                          v ? PHOTO_CATEGORY_LABEL[v as BulkPhotoCategory] : ""
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {BULK_PHOTO_CATEGORIES.map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {PHOTO_CATEGORY_LABEL[category]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
-              <Field>
-                <FieldLabel optional>Description</FieldLabel>
-                <Textarea
-                  autoSize
-                  minRows={2}
-                  maxLength={1500}
-                  value={photo.description}
-                  onChange={(e) =>
-                    setPhoto({ ...photo, description: e.target.value })
-                  }
-                />
-              </Field>
-            </Fieldset>
-          ) : (
-            <Fieldset>
-              <FieldsetLegend variant="muted">
-                Adds or updates the link on each listing, or removes the exact
-                matching link. Links a booking provider owns are never changed.
-              </FieldsetLegend>
-              <SegmentedControl
-                semantics="radio"
-                value={link.action}
-                onValueChange={(value) =>
-                  setLink({ ...link, action: value as "upsert" | "delete" })
-                }
-                aria-label="Link change"
-              >
-                <SegmentedControlItem value="upsert">
-                  Add or update
-                </SegmentedControlItem>
-                <SegmentedControlItem value="delete">
-                  Remove
-                </SegmentedControlItem>
-              </SegmentedControl>
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-                <Field>
-                  <FieldLabel>Type</FieldLabel>
-                  <Select
-                    value={link.placeActionType}
-                    onValueChange={(value) =>
-                      value && setLink({ ...link, placeActionType: value })
-                    }
-                  >
-                    <SelectTrigger
-                      className="w-full"
-                      aria-label="Action link type"
-                    >
-                      <SelectValue>
-                        {(v: string | null) => (v ? actionTypeLabel(v) : "")}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GOOGLE_PLACE_ACTION_TYPES.map((type) => (
-                        <SelectItem key={type} value={type}>
-                          {actionTypeLabel(type)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field>
-                  <FieldLabel>Link</FieldLabel>
-                  <Input
-                    {...inputHints.url}
-                    enterKeyHint="done"
-                    value={link.uri}
-                    placeholder="https://…"
-                    onChange={(e) => setLink({ ...link, uri: e.target.value })}
-                  />
-                </Field>
-              </div>
-              {link.action === "upsert" ? (
-                <Checkbox
-                  label="Make this the preferred link"
-                  checked={link.isPreferred}
-                  onCheckedChange={(checked) =>
-                    setLink({ ...link, isPreferred: checked === true })
-                  }
-                />
-              ) : null}
-            </Fieldset>
-          )}
-          {problem ? (
-            <p role="status" className="text-ui text-ink-muted">
-              {problem}
-            </p>
-          ) : null}
-          <Button
-            variant="secondary"
-            className="self-start"
-            disabled={!canAdd}
-            onClick={() => {
-              if (!parsed.success) return
-              setChanges([...changes, parsed.data])
-            }}
-          >
-            <Plus aria-hidden /> Add to the batch
-          </Button>
+            )}
+            {problem ? (
+              <p role="status" className="text-ui text-ink-muted">
+                {problem}
+              </p>
+            ) : null}
+            <Button
+              variant="secondary"
+              className="self-start"
+              disabled={!canAdd}
+              onClick={() => {
+                if (!parsed.success) return
+                setChanges([...changes, parsed.data])
+              }}
+            >
+              <Plus aria-hidden /> Add to the batch
+            </Button>
+          </div>
         </section>
       </FormErrorScope>
-      <section
-        aria-labelledby="bulk-batch"
-        className={cardClassName({
-          className: "flex min-w-0 flex-col gap-3 p-4",
-        })}
-      >
-        <h2 id="bulk-batch" className="text-title font-semibold text-ink">
+      <section aria-labelledby="bulk-batch" className={GROUP_CLASS}>
+        <h2 id="bulk-batch" className={GROUP_LABEL_CLASS}>
           Changes in this batch
         </h2>
-        {changes.length ? (
-          <ol
-            aria-label="Changes in this batch, in the order they are sent"
-            className="flex flex-col divide-y divide-line"
-          >
-            {changes.map((item, index) => (
-              <li
-                key={index}
-                className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1 text-ui text-ink"
-              >
-                <span className="min-w-0 flex-1 break-words">
-                  {index + 1}. {changeSummary(item)}
-                </span>
-                <span className="flex gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={index === 0}
-                    aria-label={`Move change ${index + 1} up`}
-                    onClick={() => move(index, index - 1)}
-                  >
-                    <ArrowUp aria-hidden />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={index === changes.length - 1}
-                    aria-label={`Move change ${index + 1} down`}
-                    onClick={() => move(index, index + 1)}
-                  >
-                    <ArrowDown aria-hidden />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Remove change ${index + 1}`}
-                    onClick={() =>
-                      setChanges(changes.filter((_, i) => i !== index))
-                    }
-                  >
-                    <Trash2 aria-hidden />
-                  </Button>
-                </span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="text-ui text-ink-secondary">
-            Nothing added yet: the preview covers the change above on its own.
-            Add changes to send several to each listing, in list order.
-          </p>
-        )}
-        <p className="text-caption text-ink-muted">
-          {`${ids.length} ${ids.length === 1 ? "listing" : "listings"} × ${batch.length} ${batch.length === 1 ? "change" : "changes"} = ${ids.length * batch.length} of at most ${BULK_MAX_ITEMS}. At most ${BULK_MAX_TARGETS} listings.`}
-        </p>
-        {unadded ? (
-          <p role="status" className="text-ui text-ink-secondary">
-            The change being edited above is not in this batch, so it is not
-            previewed. Add it to the batch to include it.
-          </p>
-        ) : null}
-        {batchProblem ? (
-          <p role="status" className="text-ui text-danger-ink">
-            {batchProblem}
-          </p>
-        ) : null}
-        <FormError>{failure}</FormError>
-        <Button
-          className="w-full sm:w-auto sm:self-start"
-          disabled={!batch.length || Boolean(batchProblem)}
-          pending={preview.isPending}
-          pendingLabel="Reading each listing…"
-          onClick={() => {
-            setFailure(null)
-            preview.mutate()
-          }}
+        <div
+          className={cardClassName({
+            className: "flex min-w-0 flex-col gap-3 p-4",
+          })}
         >
-          {changes.length > 1
-            ? `Preview these ${changes.length} changes`
-            : changes.length === 1
-              ? "Preview the 1 change in the list"
-              : "Preview this change"}
-        </Button>
+          {changes.length ? (
+            <ol
+              aria-label="Changes in this batch, in the order they are sent"
+              className="flex flex-col divide-y divide-line"
+            >
+              {changes.map((item, index) => (
+                <li
+                  key={index}
+                  className="flex min-h-(--np-touch) flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1 text-ui text-ink"
+                >
+                  <span className="min-w-0 flex-1 break-words">
+                    {index + 1}. {changeSummary(item)}
+                  </span>
+                  <span className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={index === 0}
+                      aria-label={`Move change ${index + 1} up`}
+                      onClick={() => move(index, index - 1)}
+                    >
+                      <ArrowUp aria-hidden />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={index === changes.length - 1}
+                      aria-label={`Move change ${index + 1} down`}
+                      onClick={() => move(index, index + 1)}
+                    >
+                      <ArrowDown aria-hidden />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove change ${index + 1}`}
+                      onClick={() =>
+                        setChanges(changes.filter((_, i) => i !== index))
+                      }
+                    >
+                      <Trash2 aria-hidden />
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="text-ui text-ink-secondary">
+              Nothing added yet: the preview covers the change above on its own.
+              Add changes to send several to each listing, in list order.
+            </p>
+          )}
+          <p className="text-caption text-ink-muted tabular-nums">
+            {`${ids.length} ${ids.length === 1 ? "listing" : "listings"} × ${batch.length} ${batch.length === 1 ? "change" : "changes"} = ${ids.length * batch.length} of at most ${BULK_MAX_ITEMS}. At most ${BULK_MAX_TARGETS} listings.`}
+          </p>
+          {unadded ? (
+            <p role="status" className="text-ui text-ink-secondary">
+              The change being edited above is not in this batch, so it is not
+              previewed. Add it to the batch to include it.
+            </p>
+          ) : null}
+          {batchProblem ? (
+            <p role="status" className="text-ui text-danger-ink">
+              {batchProblem}
+            </p>
+          ) : null}
+          <FormError>{failure}</FormError>
+        </div>
       </section>
+      {/* Preparing a preview reads Google but writes nothing, so this is
+          the light bar, not the charcoal one: docked to the bottom edge on
+          a phone (the tab bar steps aside), sticky below the form on a
+          desk. */}
+      <ActionBar
+        tone="surface"
+        dock
+        offset="bottom-3"
+        label="Preview the bulk change"
+        status={
+          <span className="min-w-0 tabular-nums">
+            {preview.isPending
+              ? "Preparing the preview…"
+              : batchProblem
+                ? "Fix the batch above to preview it"
+                : batch.length
+                  ? `${ids.length * batch.length} listing ${ids.length * batch.length === 1 ? "change" : "changes"} to preview`
+                  : "Nothing to preview yet"}
+          </span>
+        }
+        primary={
+          <Button
+            disabled={!batch.length || Boolean(batchProblem)}
+            pending={preview.isPending}
+            pendingLabel="Reading each listing…"
+            onClick={() => {
+              setFailure(null)
+              preview.mutate()
+            }}
+          >
+            {changes.length > 1
+              ? `Preview these ${changes.length} changes`
+              : changes.length === 1
+                ? "Preview the 1 change in the list"
+                : "Preview this change"}
+          </Button>
+        }
+      />
     </>
   )
 }
+
+/**
+ * A compose group: a sentence-case label (D8) above its card, the way a
+ * mail composer labels its recipients and its fields.
+ */
+const GROUP_CLASS = "flex min-w-0 flex-col gap-2"
+const GROUP_LABEL_CLASS = "px-1 text-caption font-medium text-ink-muted"
 
 /**
  * The listings this batch covers, behind a count: up to 50 names are a
@@ -1798,12 +1840,18 @@ function TargetList({
 }) {
   const count = `${ids.length} ${ids.length === 1 ? "listing" : "listings"}`
   return (
-    <section aria-labelledby="bulk-targets" className="flex flex-col gap-2">
-      <h2 id="bulk-targets" className="text-title font-semibold text-ink">
+    <section aria-labelledby="bulk-targets" className={GROUP_CLASS}>
+      <h2 id="bulk-targets" className={GROUP_LABEL_CLASS}>
         Selected listings
       </h2>
       {ids.length === 0 ? (
-        <p className="text-ui text-ink-secondary">None</p>
+        <p
+          className={cardClassName({
+            className: "px-4 py-3 text-ui text-ink-secondary",
+          })}
+        >
+          None
+        </p>
       ) : (
         <details
           open={ids.length <= 3}
@@ -1815,7 +1863,7 @@ function TargetList({
               "[&::-webkit-details-marker]:hidden"
             )}
           >
-            <span className="font-mono tabular-nums">{count}</span>
+            <span className="tabular-nums">{count}</span>
             <ChevronDown
               aria-hidden
               strokeWidth={1.75}

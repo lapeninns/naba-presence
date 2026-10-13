@@ -50,14 +50,30 @@ import {
 import { isRatingOnly } from "@/lib/inbox/template-batch"
 import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
+import { cn } from "@/lib/utils"
 
 /**
- * Actions over a selection: the list's charcoal bar, pinned under the rows
- * and docked to the bottom of a phone while anything is ticked. One row —
- * how many are selected, an overflow (⋯) for the rarer actions, and one
- * primary — so it is a single thumb-height line on a phone. A desk adds a
- * quick ✕ to clear; on touch, Clear is in the overflow (and the list
- * header's Done clears too).
+ * The SelectionBar tile (REFERENCE-BRIEF §4.3): below md each of the bar's
+ * actions is a 64px tile, its icon over a caption label, so a thumb gets a
+ * target well past the 44px floor and the words stay readable at 320px.
+ * From md the same buttons are the desk's one-row controls again. Pure CSS,
+ * so the server's HTML is right for both widths.
+ */
+const TILE_CLASS =
+  "max-md:h-auto max-md:min-h-16 max-md:min-w-16 max-md:flex-col max-md:gap-1 max-md:px-2.5 max-md:py-2 max-md:text-caption max-md:font-medium"
+/** A quiet tile: a faint on-charcoal fill in place of the outline. */
+const QUIET_TILE_CLASS =
+  "max-md:border-transparent max-md:bg-ink-on-charcoal/10"
+
+/**
+ * Actions over a selection (the SelectionBar): the list's charcoal bar —
+ * charcoal because its Approve publishes to Google (D4) — pinned under the
+ * rows and docked to the bottom of a phone while anything is ticked, where
+ * it takes the tab bar's slot. One row: how many are selected, an overflow
+ * (⋯) for the rarer actions, and one primary. On a phone the two actions are
+ * 64px tiles (icon over label); a desk keeps compact buttons and adds a
+ * quick ✕ to clear. On touch, Clear is in the overflow (and the list
+ * header's Cancel clears too).
  *
  * Reports eligibility BEFORE acting — "3 of 5 can be approved" — because the
  * alternative is an operator pressing Approve on five rows and being told
@@ -230,6 +246,7 @@ function BulkActionBar({
     primary === "approve" ? (
       <Button
         variant="on-dark"
+        className={TILE_CLASS}
         disabled={bulk.isPending}
         onClick={() => setConfirmApprove(true)}
       >
@@ -241,6 +258,7 @@ function BulkActionBar({
     ) : primary === "template" ? (
       <Button
         variant="on-dark"
+        className={TILE_CLASS}
         disabled={bulk.isPending}
         onClick={() => setTemplateRows(chosen)}
       >
@@ -250,9 +268,11 @@ function BulkActionBar({
     ) : (
       <Button
         variant="on-dark"
+        className={TILE_CLASS}
         disabled={bulk.isPending}
         onClick={() => setConfirmReviewed(true)}
       >
+        <CircleSlash aria-hidden data-icon="inline-start" />
         No reply needed
       </Button>
     )
@@ -327,8 +347,11 @@ function BulkActionBar({
           </div>
         ) : null}
 
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <strong className="min-w-0 flex-1 truncate text-ui font-semibold text-ink-on-charcoal tabular-nums">
+        <div
+          data-slot="selection-bar-row"
+          className="flex items-center gap-2 px-3 py-2.5 max-md:py-2"
+        >
+          <strong className="min-w-0 flex-1 truncate text-ui font-semibold text-ink-on-charcoal tabular-nums max-md:text-body">
             {chosen.length} selected
           </strong>
 
@@ -352,10 +375,16 @@ function BulkActionBar({
                   variant="ghost-dark"
                   aria-label="More actions"
                   disabled={bulk.isPending}
+                  className={cn(TILE_CLASS, QUIET_TILE_CLASS, "max-md:w-auto")}
                 />
               }
             >
               <Ellipsis aria-hidden />
+              {/* The tile's caption; the name stays "More actions", which
+                  begins with the words on screen (2.5.3). */}
+              <span aria-hidden className="md:hidden">
+                More
+              </span>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               side="top"

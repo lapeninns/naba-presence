@@ -17,8 +17,9 @@ export type TimelineEntry = {
   /** Who and when, already formatted; shown under the title. */
   meta?: React.ReactNode
   /**
-   * A short time in the right-hand column (reference `.when`), mono and
-   * muted: "2 h ago". Optional; `meta` keeps working without it.
+   * A short time in the right-hand column (reference `.when`): sans caption
+   * in muted ink with tabular figures (D1), "2 h ago". Optional; `meta`
+   * keeps working without it.
    */
   when?: React.ReactNode
   detail?: React.ReactNode
@@ -105,7 +106,7 @@ function Timeline({
               ) : null}
             </div>
             {entry.when ? (
-              <span className="pt-0.5 font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums @max-xs/timeline:col-start-2 @max-xs/timeline:pt-0">
+              <span className="pt-0.5 text-caption whitespace-nowrap text-ink-muted tabular-nums @max-xs/timeline:col-start-2 @max-xs/timeline:pt-0">
                 {entry.when}
               </span>
             ) : (

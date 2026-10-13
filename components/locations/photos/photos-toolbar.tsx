@@ -41,16 +41,27 @@ export function PhotosToolbar({
   onStateChange,
   refreshing,
   onRefresh,
+  action,
 }: {
   categories: readonly MediaCategory[]
   state: PhotosState
   onStateChange: (partial: Partial<PhotosState>) => void
   refreshing: boolean
   onRefresh: () => void
+  /** The row's one primary, at its trailing end ("Add photos"). */
+  action?: React.ReactNode
 }) {
   const categoryLabelId = useId()
+  // Notion Mail's toolbar: the filters lead, the re-read and the primary
+  // trail. One row from `sm` up; on a phone the ownership track takes the
+  // first row and category, refresh and the primary share the second, every
+  // control a 44px target on touch (the primitives' own touch sizes).
+  // Shaped for the Drop 1 `Toolbar`: filters, then a trailing group.
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div
+      data-slot="photos-toolbar"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2"
+    >
       <SegmentedControl
         semantics="radio"
         aria-label="Photo ownership"
@@ -68,8 +79,11 @@ export function PhotosToolbar({
         ))}
       </SegmentedControl>
 
-      <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto">
-        <span id={categoryLabelId} className="text-ui text-ink-muted">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span
+          id={categoryLabelId}
+          className="text-ui text-ink-muted max-sm:sr-only"
+        >
           Category
         </span>
         <Select
@@ -102,17 +116,19 @@ export function PhotosToolbar({
         </Select>
       </div>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        className="sm:ml-auto"
-        onClick={onRefresh}
-        pending={refreshing}
-        pendingLabel="Refreshing…"
-      >
-        <RefreshCwIcon aria-hidden />
-        Refresh from Google
-      </Button>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          iconOnlyBelow="md"
+          onClick={onRefresh}
+          pending={refreshing}
+          pendingLabel="Refreshing…"
+        >
+          <RefreshCwIcon aria-hidden />
+          Refresh from Google
+        </Button>
+        {action}
+      </div>
     </div>
   )
 }

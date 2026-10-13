@@ -16,9 +16,11 @@ import {
   type ConfirmationState,
   type ExecutionState,
 } from "@/components/reviewed-write"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { useDeadline } from "@/lib/editors/use-deadline"
+import { InlineError } from "./setting-rows"
 
 /**
  * What a reviewed Google change workflow (use-lodging-review,
@@ -201,17 +203,22 @@ export function ReviewedChangeSheet({
             The exact Google target is unavailable. Prepare a fresh review.
           </p>
         )}
+        {/* Where the review stands before anything is sent: its deadline,
+            then why it can't be sent yet, as one quiet block under the
+            diff. */}
         {recorded || sending ? null : (
-          <>
+          <div className="flex min-w-0 flex-col gap-2">
             <Expiry
               expiresAt={review.expiresAt}
               approved={Boolean(review.approvedBy)}
               clockExpired={expired}
             />
             {expired || workflow.stale ? (
-              <p role="status" className="text-ui text-ink-muted">
-                This review needs a fresh preview before sending.
-              </p>
+              <Alert variant="warning">
+                <AlertDescription>
+                  This review needs a fresh preview before sending.
+                </AlertDescription>
+              </Alert>
             ) : null}
             {review.requiresSecondApprover && !review.approvedBy ? (
               <p className="text-ui text-ink-muted">
@@ -219,7 +226,7 @@ export function ReviewedChangeSheet({
                 exact changes.
               </p>
             ) : null}
-          </>
+          </div>
         )}
         {reading && !recorded ? (
           <p role="status" className="text-ui text-ink-muted">
@@ -233,10 +240,12 @@ export function ReviewedChangeSheet({
           </p>
         ) : null}
         {workflow.uncertain && !workflow.busy ? (
-          <p role="status" className="text-ui text-ink-muted">
-            The send response is unavailable. Read the saved outcome before
-            another write.
-          </p>
+          <Alert variant="warning">
+            <AlertDescription>
+              The send response is unavailable. Read the saved outcome before
+              another write.
+            </AlertDescription>
+          </Alert>
         ) : null}
         {workflow.outcome ? (
           <OutcomeSummary
@@ -246,11 +255,7 @@ export function ReviewedChangeSheet({
             observedAt={workflow.outcome.observedAt}
           />
         ) : null}
-        {workflow.error ? (
-          <p role="alert" className="text-ui text-danger-ink">
-            {workflow.error}
-          </p>
-        ) : null}
+        {workflow.error ? <InlineError>{workflow.error}</InlineError> : null}
         {review.approvedBy && !workflow.outcome && !workflow.uncertain ? (
           <ConsentSlot
             label={`Send these exact approved ${noun} changes to Google.`}

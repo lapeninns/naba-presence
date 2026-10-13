@@ -46,7 +46,7 @@ function Breadcrumbs({
               className="flex min-w-0 items-center gap-1.5"
             >
               {index > 0 ? (
-                <span aria-hidden className="text-line-strong">
+                <span aria-hidden className="text-ink-faint">
                   /
                 </span>
               ) : null}
@@ -55,7 +55,7 @@ function Breadcrumbs({
                   aria-current={isLast ? "page" : undefined}
                   className={cn(
                     "inline-flex min-h-6 items-center truncate",
-                    isLast ? "font-semibold text-ink" : "text-ink-muted"
+                    isLast ? "font-medium text-ink" : "text-ink-muted"
                   )}
                 >
                   {crumb.label}
@@ -63,7 +63,7 @@ function Breadcrumbs({
               ) : (
                 <Link
                   href={crumb.href}
-                  className="focus-halo inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) whitespace-nowrap text-ink-muted transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink hover:underline hover:underline-offset-3"
+                  className="inline-flex min-h-6 items-center truncate rounded-(--np-radius-tag) whitespace-nowrap text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy hover:text-ink hover:underline hover:underline-offset-3"
                 >
                   {crumb.label}
                 </Link>

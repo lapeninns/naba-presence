@@ -1,6 +1,7 @@
 /**
- * The count figure: the small mono number beside a chip, tab, segment or
- * badge label ("Needs reply 12"), and a KPI delta.
+ * The count figure: the small number beside a chip, tab, segment or badge
+ * label ("Needs reply 12"), and a KPI delta. Sans with tabular figures
+ * (D1: mono is only for IDs, codes and figures in tables).
  *
  * It is the `text-count` type role (13px on touch, 12px on a desk, never
  * the old 11.5px literal). lib/utils.ts registers "count" in
@@ -11,4 +12,4 @@
  * the control, never by the figure.
  */
 export const COUNT_TEXT_CLASS =
-  "font-mono text-count leading-none tabular-nums"
+  "text-count leading-none tabular-nums"

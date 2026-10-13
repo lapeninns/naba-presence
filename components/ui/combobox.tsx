@@ -143,18 +143,28 @@ function ComboboxContent({
   className,
   children,
   title,
+  emptyText = "No matches.",
   ...props
 }: ComboboxPrimitive.Popup.Props & {
   /** A heading for the phone's action sheet. */
   title?: React.ReactNode
+  /**
+   * What the list says when nothing matches the typed text. Default "No
+   * matches.". Pass the words that fit the moment ("Searching…" while a
+   * remote search is in flight would contradict "No matches.", and after a
+   * failed search the honest line is the failure, not "No matches."), or
+   * `null` to say nothing here because the caller shows that state itself.
+   */
+  emptyText?: React.ReactNode
 }) {
   const phone = useMenuSheet()
   const searchable = React.useContext(ComboboxSearchContext)
-  const empty = (
-    <ComboboxPrimitive.Empty className="px-2 py-2 text-ui text-ink-muted">
-      No matches.
-    </ComboboxPrimitive.Empty>
-  )
+  const empty =
+    emptyText === null || emptyText === false ? null : (
+      <ComboboxPrimitive.Empty className="px-2 py-2 text-ui text-ink-muted">
+        {emptyText}
+      </ComboboxPrimitive.Empty>
+    )
 
   // A short list on a phone: the action sheet, nothing typed.
   if (phone && !searchable) {

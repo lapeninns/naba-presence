@@ -146,7 +146,7 @@ export function PhotoPreview({
                 Previous
               </Button>
               <span
-                className="font-mono text-caption text-ink-muted tabular-nums"
+                className="text-caption text-ink-muted tabular-nums"
                 aria-live="polite"
               >
                 {index + 1} of {list.length}
@@ -172,7 +172,7 @@ export function PhotoPreview({
               {created ? (
                 <>
                   <dt className="text-ink-muted">Added</dt>
-                  <dd className="font-mono text-ink tabular-nums">{created}</dd>
+                  <dd className="text-ink tabular-nums">{created}</dd>
                 </>
               ) : null}
               <dt className="text-ink-muted">Category</dt>
@@ -180,7 +180,7 @@ export function PhotoPreview({
               {size ? (
                 <>
                   <dt className="text-ink-muted">Size</dt>
-                  <dd className="font-mono text-ink tabular-nums">{size}</dd>
+                  <dd className="text-ink tabular-nums">{size}</dd>
                 </>
               ) : null}
               {item.googleUrl ? (

@@ -7,7 +7,6 @@ import { buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { cn } from "@/lib/utils"
-import { cardClassName } from "@/components/ui/card"
 
 /** Where the saved lodging and service work sits on the profile page. */
 export const PROFILE_SAVED_WORK_ID = "profile-saved-work"
@@ -21,6 +20,11 @@ export const PROFILE_SAVED_WORK_ID = "profile-saved-work"
  * a spinner and skeletons underneath it looked like a page still loading
  * and explained nothing. This says why, what fixes it, and that saved work
  * is still here.
+ *
+ * Drawn as a calm empty state: the title, why, the one fix (reconnecting;
+ * when the login works but lost the listing nothing here can fix it, so
+ * there is no button for it), and a quiet way to the saved work. Flat on a
+ * phone, a quiet card on a desk.
  */
 export function ProfileUnreachable({ summary }: { summary: ListingSummary }) {
   const accessLost =
@@ -36,7 +40,7 @@ export function ProfileUnreachable({ summary }: { summary: ListingSummary }) {
     <div
       data-slot="profile-unreachable"
       role="status"
-      className={cardClassName()}
+      className="flex min-w-0 flex-col gap-4 desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:p-(--np-card-pad)"
     >
       <Empty
         icon={<Unplug aria-hidden />}
@@ -58,7 +62,9 @@ export function ProfileUnreachable({ summary }: { summary: ListingSummary }) {
             )}
             <a
               href={`#${PROFILE_SAVED_WORK_ID}`}
-              className={cn(buttonVariants({ variant: "secondary" }))}
+              className={cn(
+                buttonVariants({ variant: accessLost ? "secondary" : "ghost" })
+              )}
             >
               See saved work
             </a>

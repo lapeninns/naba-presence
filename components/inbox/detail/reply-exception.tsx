@@ -212,6 +212,10 @@ function ReplyException({
   if (!exception) return null
   const Icon =
     exception.tone === "attention" ? CircleAlertIcon : TriangleAlertIcon
+  // The glyph and the title take the tone's ink on its tint: the words say
+  // what is wrong, and the colour only reinforces them.
+  const toneInk =
+    exception.tone === "attention" ? "text-danger-ink" : "text-warning-ink"
   const connectionLink = exception.connectionLink === true
 
   return (
@@ -227,14 +231,11 @@ function ReplyException({
       <Icon
         aria-hidden
         strokeWidth={1.75}
-        className={cn(
-          "row-span-3 mt-0.5 size-4",
-          exception.tone === "attention"
-            ? "text-danger-ink"
-            : "text-warning-ink"
-        )}
+        className={cn("row-span-3 mt-0.5 size-4", toneInk)}
       />
-      <strong className="font-semibold">{exception.title}</strong>
+      <strong className={cn("font-semibold", toneInk)}>
+        {exception.title}
+      </strong>
       <p className="leading-normal text-ink-secondary">
         {exception.description}
         {exception.title === "Publish failed" ||

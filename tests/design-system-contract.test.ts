@@ -329,11 +329,16 @@ describe("type roles", () => {
     }
   })
 
-  it("keeps the serif for titles and the customer's words only", () => {
-    // The interface is the platform sans; the serif is a second voice for
-    // page titles and review text, reached through display/reading.
+  it("sets titles and the customer's words in the sans (D1, amendment 2026-10-13)", () => {
+    // One voice: display, heading and reading resolve to the platform sans.
+    // Reverting the --font-display line to the serif stack is the whole
+    // rollback, so the pin is on that one declaration.
     expect(globals).toMatch(/--font-sans:\s*-apple-system/)
-    expect(globals).toMatch(/--font-display:\s*"Iowan Old Style"/)
+    expect(globals).toMatch(/--font-display:\s*var\(--font-sans\);/)
+    expect(globals).not.toMatch(/--font-display:\s*"Iowan Old Style"/)
+    expect(globals).not.toMatch(
+      /--font-(display|heading|reading):[^;]*(?<!sans-)serif\s*;/
+    )
     expect(globals).toContain("--font-heading: var(--font-display)")
     expect(globals).toContain("--font-reading: var(--font-display)")
   })
@@ -404,5 +409,26 @@ describe("primitives read tokens, not literals", () => {
     )
     expect(pageFrame).not.toContain("100svh")
     expect(pageFrame).toContain("@container")
+  })
+})
+
+describe("Drop 3 layout and focus utilities", () => {
+  it("defines the inset row focus ring with a forced-colours outline inside the box", () => {
+    const block = globals.match(/@utility focus-ring-inset \{[\s\S]*?\n\}/)?.[0]
+    expect(block).toBeDefined()
+    // A dedicated inset shadow: `inset var(--np-focus-halo)` would only
+    // inset the halo's first shadow.
+    expect(block).toMatch(
+      /&:focus-visible \{\s*outline: none;\s*box-shadow: inset 0 0 0 2px var\(--np-focus-ring\);/
+    )
+    expect(block).toContain("@media (forced-colors: active)")
+    expect(block).toContain("outline: 2px solid CanvasText !important;")
+    expect(block).toContain("outline-offset: -2px !important;")
+  })
+
+  it("defines the tall height variant at 620px (38.75rem)", () => {
+    expect(globals).toMatch(
+      /@custom-variant tall \(@media \(min-height: 38\.75rem\)\);/
+    )
   })
 })

@@ -20,6 +20,13 @@ import {
   ThemeToggleDemo,
   ValidationDemo,
 } from "@/app/design-system/interactive-demos"
+import { NmDrop3Demo } from "@/app/design-system/nm-drop3-demo"
+import { NmFeedbackDemo } from "@/app/design-system/nm-feedback-demo"
+import { NmFormsDemo } from "@/app/design-system/nm-forms-demo"
+import { NmListDemo } from "@/app/design-system/nm-list-demo"
+import { NmLists1bDemo } from "@/app/design-system/nm-lists-1b-demo"
+import { NmOverlaysDemo } from "@/app/design-system/nm-overlays-demo"
+import { NmSheetDemo } from "@/app/design-system/nm-sheet-demo"
 import { ToastDemo } from "@/app/design-system/toast-demo"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import {
@@ -148,6 +155,7 @@ type SectionTitle =
   | "Typography"
   | "Spacing and radius"
   | "Primitives"
+  | "Notion Mail patterns"
   | "Compositions"
 
 const SECTION_IDS: Record<SectionTitle, string> = {
@@ -155,6 +163,7 @@ const SECTION_IDS: Record<SectionTitle, string> = {
   Typography: "typography",
   "Spacing and radius": "spacing-and-radius",
   Primitives: "primitives",
+  "Notion Mail patterns": "notion-mail",
   Compositions: "compositions",
 }
 
@@ -169,13 +178,14 @@ const TOC: Array<[string, string]> = [
   ["States", "ds-states"],
   ["Overlays", "ds-overlays"],
   ["Forms", "ds-forms"],
+  ["Mail patterns", "section-notion-mail"],
   ["Compositions", "section-compositions"],
 ]
 
 const PRINCIPLES: Array<[string, string]> = [
   [
     "The customer’s words are the largest readable text",
-    "Reviews set in the reading serif at 17/28; chrome stays at 13–14px.",
+    "Reviews are set at the reading size, 17/28, in the same system sans as the chrome, which stays at 13–14px.",
   ],
   [
     "State is always labelled",
@@ -285,17 +295,17 @@ const TYPE_ROLES: Array<[string, string, string]> = [
   ["Title · 16/24", "text-title font-semibold", "Reply performance"],
   ["Section · 18/26", "text-section font-semibold", "Google logins"],
   [
-    "Page · serif 22–28",
+    "Page · sans 22–28",
     "font-display text-page-title font-semibold",
     "Reply policy",
   ],
   [
-    "Display · serif 28–36",
+    "Display · sans 28–36",
     "font-display text-display font-semibold",
     "Everything is handled",
   ],
   [
-    "Reading · serif 17/28",
+    "Reading · sans 17/28",
     "font-reading text-reading",
     "Sunday lunch took almost an hour to arrive and the roast potatoes were cold by the time they did.",
   ],
@@ -583,7 +593,7 @@ export default function Page() {
 
         <Section
           title="Typography"
-          description="System sans for the interface, a serif for page titles and the customer’s own words, mono for figures and codes."
+          description="One system sans everywhere, including page titles and the customer’s own words; mono only for IDs, codes and table figures."
         >
           <Card size="sm" className="@container gap-0 py-0">
             {TYPE_ROLES.map(([role, className, sample]) => (
@@ -716,7 +726,10 @@ export default function Page() {
                   </Field>
                   <Field>
                     <FieldLabel>Select</FieldLabel>
-                    <Select defaultValue="28" items={{ "28": "Last 28 days", "90": "Last 90 days" }}>
+                    <Select
+                      defaultValue="28"
+                      items={{ "28": "Last 28 days", "90": "Last 90 days" }}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
@@ -1532,6 +1545,19 @@ export default function Page() {
               </Card>
             </Specimen>
           </div>
+        </Section>
+
+        <Section
+          title="Notion Mail patterns"
+          description="List rows, headers, toolbars, inset sheets, settings rows and feedback in the Notion Mail–inspired look. Feature screens compose these instead of styling their own."
+        >
+          <NmListDemo />
+          <NmSheetDemo />
+          <NmFeedbackDemo />
+          <NmLists1bDemo />
+          <NmFormsDemo />
+          <NmOverlaysDemo />
+          <NmDrop3Demo />
         </Section>
 
         <Section

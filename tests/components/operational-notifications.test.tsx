@@ -106,7 +106,7 @@ describe("NotificationsView", () => {
     )
     renderWith(<NotificationsView />)
     expect(await screen.findByText("Publishing failed")).toBeInTheDocument()
-    expect(screen.getByText("(unread)")).toBeInTheDocument()
+    expect(screen.getByText(/\(unread\)/)).toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("1 open and unread")
     fireEvent.click(
       screen.getByRole("button", { name: "Mark read: Publishing failed" })
@@ -213,6 +213,24 @@ describe("NotificationsView interactions", () => {
     expect(calls.some((call) => call.url.includes("/resolve"))).toBe(false)
   })
 
+  it("draws the actions as new buttons after the question, never the question's", async () => {
+    stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 1 }))
+    renderWith(<NotificationsView />)
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resolve: Publishing failed" })
+    )
+    const questionButtons = screen
+      .getByRole("group", { name: "Resolve Publishing failed?" })
+      .querySelectorAll("button")
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    // A reused node would carry the green confirm button's colour into a
+    // ghost action mid transition (axe caught it in e2e).
+    const actions = screen.getAllByRole("button")
+    for (const button of questionButtons) {
+      expect(actions).not.toContain(button)
+    }
+  })
+
   it("names the pending confirm by the words it shows", async () => {
     let release: () => void = () => {}
     vi.stubGlobal(
@@ -317,6 +335,111 @@ describe("NotificationsView interactions", () => {
   })
 })
 
+describe("NotificationsView rows and empty states", () => {
+  it("says unread with weight, a dot and a word, and read in the regular weight", async () => {
+    stub(() => ({
+      items: [
+        item({}),
+        item({
+          id: "44444444-4444-4444-8444-444444444444",
+          kind: "listing_access_lost",
+          readAt: "2026-09-30T11:00:00.000Z",
+        }),
+      ],
+      nextCursor: null,
+      unreadCount: 1,
+    }))
+    renderWith(<NotificationsView />)
+    // ListRow: the title carries the weight; its line adds the dot and the
+    // sr-only word after it.
+    const unreadTitle = await screen.findByText("Publishing failed")
+    expect(unreadTitle).toHaveClass("font-semibold", "text-ink")
+    // The word is there for assistive technology; the dot only reinforces it.
+    expect(unreadTitle.parentElement).toHaveTextContent(
+      "Publishing failed, (unread)"
+    )
+    expect(
+      unreadTitle.parentElement!.querySelector(
+        '[data-slot="list-row-unread-dot"]'
+      )
+    ).toHaveAttribute("aria-hidden")
+    const readTitle = screen.getByText("Listing access lost")
+    expect(readTitle).toHaveClass("font-normal", "text-ink-secondary")
+    expect(readTitle).not.toHaveClass("font-semibold")
+    expect(readTitle.parentElement).not.toHaveTextContent("(unread)")
+    expect(
+      readTitle.parentElement!.querySelector(
+        '[data-slot="list-row-unread-dot"]'
+      )
+    ).toBeNull()
+    expect(screen.getAllByText(/\(unread\)/)).toHaveLength(1)
+    expect(screen.getAllByText(/\(unread\)/)[0]).toHaveClass("sr-only")
+    // No row tint: unread is weight and the dot, not a background.
+    for (const row of screen.getAllByRole("listitem"))
+      expect(row).not.toHaveClass("bg-surface-alt")
+  })
+
+  it("titles the page once, with the open-and-unread count after it", async () => {
+    stub(() => ({ items: [item({})], nextCursor: null, unreadCount: 3 }))
+    renderWith(<NotificationsView />)
+    await screen.findByText("Publishing failed")
+    const headings = screen.getAllByRole("heading", { level: 1 })
+    expect(headings).toHaveLength(1)
+    expect(headings[0]).toHaveTextContent("Notifications")
+    const count = document.querySelector('[data-slot="view-header-count"]')
+    expect(count).toHaveTextContent("3(open and unread)")
+    expect(
+      screen.getByRole("link", { name: "Notification settings" })
+    ).toHaveAttribute("href", "/settings/notifications")
+    // The row is not a control: its actions are the buttons.
+    expect(document.querySelector('[data-slot="list-row-hit"]')?.tagName).toBe(
+      "DIV"
+    )
+  })
+
+  it("says why the list is empty and what will appear", async () => {
+    stub(() => ({ items: [], nextCursor: null, unreadCount: 0 }))
+    renderWith(<NotificationsView />)
+    expect(
+      await screen.findByRole("heading", { name: "No notifications yet" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/Problems with Google connections, publishing and syncs/)
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Show all notifications" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("offers All from an empty filtered view", async () => {
+    nav.set("filter=unread")
+    const calls = stub(() => ({ items: [], nextCursor: null, unreadCount: 0 }))
+    renderWith(<NotificationsView />)
+    expect(
+      await screen.findByRole("heading", {
+        name: "Nothing matches this filter",
+      })
+    ).toBeInTheDocument()
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show all notifications" })
+    )
+    expect(nav.search).toBe("")
+    expect(screen.getByRole("tab", { name: "All" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    )
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) =>
+            call.url.includes("/api/notifications") &&
+            call.url.includes("filter=all")
+        )
+      ).toBe(true)
+    )
+  })
+})
+
 describe("NotificationPreferences", () => {
   it("explains missing email configuration and saves one choice at a time", async () => {
     const preferences = [
@@ -364,5 +487,35 @@ describe("NotificationPreferences", () => {
         screen.getByRole("switch", { name: "In app: Publishing failed" })
       ).not.toBeChecked()
     )
+  })
+
+  it("turns every in-app choice on in one request from the group action", async () => {
+    const preferences = [
+      { kind: "publication_failed", channel: "in_app", mode: "off", explicit: true },
+      { kind: "publication_failed", channel: "email", mode: "off", explicit: false },
+      { kind: "schedule_missed", channel: "in_app", mode: "immediate", explicit: false },
+      { kind: "schedule_missed", channel: "email", mode: "off", explicit: false },
+    ]
+    const calls = stub((call) =>
+      call.method === "PUT"
+        ? {
+            emailConfigured: true,
+            preferences: preferences.map((row) =>
+              row.channel === "in_app" ? { ...row, mode: "immediate", explicit: true } : row
+            ),
+          }
+        : { emailConfigured: true, preferences }
+    )
+    renderWith(<NotificationPreferences />)
+    fireEvent.click(await screen.findByRole("button", { name: "Turn all on in app" }))
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "PUT")?.body).toEqual({
+        changes: [
+          { kind: "publication_failed", channel: "in_app", mode: "immediate" },
+          { kind: "schedule_missed", channel: "in_app", mode: "immediate" },
+        ],
+      })
+    )
+    expect(await screen.findByRole("button", { name: "Turn all off in app" })).toBeInTheDocument()
   })
 })

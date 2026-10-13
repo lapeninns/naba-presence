@@ -98,7 +98,9 @@ export function HealthFilterStrip({
       onScroll={measure}
       data-fade-start={fade.start || undefined}
       data-fade-end={fade.end || undefined}
-      className="data-fade-end:mask-r-from-85% data-fade-start:mask-l-from-85%"
+      // Full bleed on a phone: the strip runs to the screen edges and its
+      // first chip lines up with the page gutter.
+      className="data-fade-end:mask-r-from-85% data-fade-start:mask-l-from-85% max-md:scroll-px-5 max-md:px-5"
     >
       {HEALTH_FILTERS.map((filter) => {
         const count = counts[filter.value]

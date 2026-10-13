@@ -17,7 +17,6 @@ import {
 } from "@/components/locations/menu-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import {
@@ -59,14 +58,13 @@ export function MenuTab({ locationId }: { locationId: string }) {
             publishReason={publishReason}
           />
         ) : (
-          <Card flush>
-            <Empty
-              icon={<UtensilsCrossed aria-hidden />}
-              titleAs="h2"
-              title="This location can’t have a food menu"
-              description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
-            />
-          </Card>
+          <Empty
+            framed
+            icon={<UtensilsCrossed aria-hidden />}
+            titleAs="h2"
+            title="This location can’t have a food menu"
+            description="Google reports that this location type is not eligible for a food menu, so there’s nothing to manage here."
+          />
         )
       }
     </LocationTab>
@@ -275,13 +273,11 @@ function MenuForm({
           <>
             Publishing replaces the whole food menu on Google, every menu, not
             only what you changed.{" "}
-            <span className="font-mono tabular-nums">{draftCounts.menus}</span>{" "}
+            <span className="tabular-nums">{draftCounts.menus}</span>{" "}
             {draftCounts.menus === 1 ? "menu" : "menus"},{" "}
-            <span className="font-mono tabular-nums">
-              {draftCounts.sections}
-            </span>{" "}
+            <span className="tabular-nums">{draftCounts.sections}</span>{" "}
             {draftCounts.sections === 1 ? "section" : "sections"},{" "}
-            <span className="font-mono tabular-nums">{draftCounts.items}</span>{" "}
+            <span className="tabular-nums">{draftCounts.items}</span>{" "}
             {draftCounts.items === 1 ? "item" : "items"}.
           </>
         )
@@ -336,37 +332,36 @@ function MenuForm({
       />
 
       {noMenu ? (
-        <Card flush>
-          <Empty
-            icon={<UtensilsCrossed aria-hidden />}
-            titleAs="h3"
-            title="No food menu yet"
-            description={
-              googleHasMenu
-                ? `NabaPresence has no menu for ${state.location.name}, but Google has one with ${state.googleCounts.items} ${state.googleCounts.items === 1 ? "item" : "items"}. Start from Google’s menu, or start a new one here.`
-                : `Neither NabaPresence nor Google has a food menu for ${state.location.name}. Start one here; nothing reaches Google until you publish.`
-            }
-            action={
-              disabled ? undefined : (
-                <>
-                  {googleHasMenu ? (
-                    <Button onClick={() => setDraft(state.googleMenus)}>
-                      <DownloadIcon aria-hidden />
-                      Start from Google’s menu
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant={googleHasMenu ? "secondary" : "default"}
-                    onClick={startMenu}
-                  >
-                    <Plus aria-hidden />
-                    Start a menu
+        <Empty
+          framed
+          icon={<UtensilsCrossed aria-hidden />}
+          titleAs="h3"
+          title="No food menu yet"
+          description={
+            googleHasMenu
+              ? `NabaPresence has no menu for ${state.location.name}, but Google has one with ${state.googleCounts.items} ${state.googleCounts.items === 1 ? "item" : "items"}. Start from Google’s menu, or start a new one here.`
+              : `Neither NabaPresence nor Google has a food menu for ${state.location.name}. Start one here; nothing reaches Google until you publish.`
+          }
+          action={
+            disabled ? undefined : (
+              <>
+                {googleHasMenu ? (
+                  <Button onClick={() => setDraft(state.googleMenus)}>
+                    <DownloadIcon aria-hidden />
+                    Start from Google’s menu
                   </Button>
-                </>
-              )
-            }
-          />
-        </Card>
+                ) : null}
+                <Button
+                  variant={googleHasMenu ? "secondary" : "default"}
+                  onClick={startMenu}
+                >
+                  <Plus aria-hidden />
+                  Start a menu
+                </Button>
+              </>
+            )
+          }
+        />
       ) : (
         <MenuEditor
           menus={draft}

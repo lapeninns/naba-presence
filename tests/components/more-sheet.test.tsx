@@ -222,6 +222,28 @@ describe("More sheet contents", () => {
     expect(row).toHaveAccessibleDescription("Connection status")
   })
 
+  it("labels its groups with visible headings and keeps the landmark names", async () => {
+    renderShell()
+    const { sheet } = await openMore()
+    const nav = sheet.getByRole("navigation", { name: "More" })
+    expect(
+      within(nav).getByRole("heading", { name: "Go to" })
+    ).toBeInTheDocument()
+    expect(within(nav).getByRole("list")).toHaveAccessibleName("Go to")
+    const account = sheet.getByRole("region", { name: "Account" })
+    expect(
+      within(account).getByRole("heading", { name: "Account" })
+    ).toBeInTheDocument()
+  })
+
+  it("puts Sign out last in the account block", async () => {
+    renderShell()
+    const { sheet } = await openMore()
+    const account = within(sheet.getByRole("region", { name: "Account" }))
+    const buttons = account.getAllByRole("button")
+    expect(buttons.at(-1)).toHaveAccessibleName("Sign out")
+  })
+
   it("ends with the account: name, email, theme and sign out", async () => {
     renderShell()
     const { sheet } = await openMore()

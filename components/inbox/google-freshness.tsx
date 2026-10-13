@@ -40,7 +40,7 @@ export function GoogleFreshness({
   return (
     <span
       className={cn(
-        "font-mono text-caption tabular-nums",
+        "text-caption tabular-nums",
         delayed ? "text-warning-ink" : "text-ink-muted",
         // A delay is a warning, so it shows wherever the caller would have
         // folded the routine "checked 5 minutes ago" away.

@@ -204,7 +204,8 @@ function useSyncPlatform() {
  * The toolbar's search trigger. It looks like a field (a bordered white box
  * with a magnifier, a label and the shortcut) but it is a button that opens
  * the palette, because the palette is where typing goes. Below 768px it is a
- * 44px square with the magnifier alone; the label stays the accessible name.
+ * bare 44px magnifier with no box (callers need no override); the label
+ * stays the accessible name.
  *
  * The label names its scope (clients, listings, pages and actions). Review
  * text is searched in the Inbox, in one clearly labelled field.
@@ -238,7 +239,9 @@ function CommandPaletteButton({
         "flex h-[34px] shrink-0 items-center gap-2 rounded-md border border-line bg-surface pr-2 pl-2.5 text-ui text-ink-muted md:min-w-50",
         "transition-colors duration-(--np-duration-fast) hover:border-line-strong hover:text-ink",
         "focus-halo focus-visible:outline-none",
-        "max-md:size-11 max-md:justify-center max-md:p-0",
+        // A phone shows a bare outline icon (like the bell beside it in the
+        // app bar): no field-like box, a 44px hit, ink on hover.
+        "max-md:size-11 max-md:justify-center max-md:rounded-full max-md:border-transparent max-md:bg-transparent max-md:p-0 max-md:hover:border-transparent max-md:hover:bg-fill",
         className
       )}
     >

@@ -34,7 +34,8 @@ function cardClassName({
     interactive &&
       cn(
         "cursor-pointer transition-[background-color,border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
-        "hover-fine:hover:border-line-strong hover-fine:hover:shadow-np-raised",
+        // Flat: hover firms the hairline, never lifts the card.
+        "hover-fine:hover:border-line-strong",
         // Pressed: the whole card dims a step under the finger, the same
         // feedback a list row gives.
         surface === "sunken" ? "active:bg-fill" : "active:bg-surface-alt"

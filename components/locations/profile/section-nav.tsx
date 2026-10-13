@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { chipClassName } from "@/components/ui/chip"
+import { tabItemClassName, tabsRowClassName } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 export type SectionNavEntry = {
@@ -42,11 +42,16 @@ function sameIds(a: readonly string[], b: readonly string[]) {
  * sections render themselves only when they have something to show), in
  * page order.
  *
- * On a phone it is a sticky row of chips under the app bar that scrolls
- * sideways; on a desk it is a sticky rail beside the form. Either way the
- * section in view is marked `aria-current="location"` (scroll-spy), its chip
- * is kept in view, and choosing one jumps to the section and focuses its
- * heading.
+ * On a phone it is a sticky strip of text tabs under the app bar that
+ * scrolls sideways (the shared tab drawing: muted labels over a hairline,
+ * the current one in ink, semibold and underlined, so the cue is never
+ * colour alone), with a faded edge where more tabs sit past it. On a desk it
+ * is a sticky rail of calm rows beside the form, the current row filled.
+ * Either way the section in view is marked `aria-current="location"`
+ * (scroll-spy), its tab is kept in view, and choosing one jumps to the
+ * section and focuses its heading. A section with edits that differ from
+ * Google says "Changed" in words on the rail; the strip has no room for the
+ * word, so it shows a dot, and both say "(changed)" to a screen reader.
  */
 export function SectionNav({
   entries,
@@ -61,7 +66,7 @@ export function SectionNav({
   const listRef = useRef<HTMLOListElement>(null)
   const [present, setPresent] = useState<string[]>([])
   const [current, setCurrent] = useState<string | null>(null)
-  // The section a chip just jumped to. A jump lands the section at its
+  // The section a tab just jumped to. A jump lands the section at its
   // scroll margin, which on a phone can sit below the scroll-spy line, so
   // the spy would light the section above it; and blocks loading above it
   // would push it away. The chosen section stays current, and in place,
@@ -90,7 +95,7 @@ export function SectionNav({
     const root =
       navRef.current?.closest(`[data-slot="${PROFILE_PAGE_SLOT}"]`) ??
       document.body
-    // A chip tapped while Google's sections are still loading jumps to its
+    // A tab tapped while Google's sections are still loading jumps to its
     // section, and then those sections arrive above it and push it off the
     // screen. While the jump is pinned, keep the chosen section in place.
     let anchorFrame = 0
@@ -132,7 +137,7 @@ export function SectionNav({
       .filter((element): element is HTMLElement => element !== null)
     const update = () => {
       if (pinned.current) return
-      // The line sits just under a chip row, or level with the top of a
+      // The line sits just under a tab strip, or level with the top of a
       // rail (a rail runs down beside the sections, so its bottom would put
       // the line most of the way down the screen).
       const nav = navRef.current?.getBoundingClientRect()
@@ -160,7 +165,7 @@ export function SectionNav({
     }
   }, [present])
 
-  // Keep the current chip in view in the sideways-scrolling row.
+  // Keep the current tab in view in the sideways-scrolling strip.
   useEffect(() => {
     const list = listRef.current
     if (!list || !current) return
@@ -169,8 +174,39 @@ export function SectionNav({
     )
     if (!link || list.scrollWidth <= list.clientWidth) return
     const left = link.offsetLeft - (list.clientWidth - link.offsetWidth) / 2
-    list.scrollTo?.({ left: Math.max(0, left), behavior: "smooth" })
+    const still =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    list.scrollTo?.({
+      left: Math.max(0, left),
+      behavior: still ? "auto" : "smooth",
+    })
   }, [current])
+
+  // Fade the strip's edge where more tabs sit past it (`data-fade`, drawn
+  // by the shared tab row), so it says there is more without a scrollbar.
+  // A desk rail never overflows sideways, so it never fades.
+  useEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    const update = () => {
+      const max = list.scrollWidth - list.clientWidth
+      const start = list.scrollLeft > 1
+      const end = max - list.scrollLeft > 1
+      const fade = start && end ? "both" : start ? "start" : end ? "end" : ""
+      if (fade) list.dataset.fade = fade
+      else delete list.dataset.fade
+    }
+    update()
+    list.addEventListener("scroll", update, { passive: true })
+    const resize =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
+    resize?.observe(list)
+    return () => {
+      list.removeEventListener("scroll", update)
+      resize?.disconnect()
+    }
+  }, [present])
 
   const shown = present
     .map((id) => entries.find((entry) => entry.id === id))
@@ -183,18 +219,23 @@ export function SectionNav({
       aria-label={label}
       data-slot="section-nav"
       className={cn(
-        // Phone: a sticky chip row under the app bar (the same offset the
+        // Phone: a sticky tab strip under the app bar (the same offset the
         // page's scroll padding uses). From md the editor scrolls in its own
-        // pane below the area header, so the row, and the desk rail, stick
-        // to the top of that pane.
-        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky -mx-1 bg-canvas px-1 py-2 md:top-0",
-        "desk:mx-0 desk:bg-transparent desk:p-0",
+        // pane below the area header, so the strip, and the desk rail,
+        // stick to the top of that pane.
+        "sticky top-[calc(var(--np-appbar-h)+var(--np-safe-top))] z-sticky bg-canvas md:top-0",
+        "desk:bg-transparent",
         className
       )}
     >
       <ol
         ref={listRef}
-        className="flex min-w-0 [scrollbar-width:none] gap-2 overflow-x-auto desk:flex-col desk:gap-0.5 desk:overflow-visible [&::-webkit-scrollbar]:hidden"
+        className={cn(
+          tabsRowClassName,
+          "list-none",
+          // The desk rail: a column of rows, no hairline under it.
+          "desk:flex-col desk:items-stretch desk:gap-0.5 desk:overflow-visible desk:border-b-0"
+        )}
       >
         {shown.map((entry) => (
           <li key={entry.id} className="shrink-0">
@@ -208,13 +249,15 @@ export function SectionNav({
                 jumpToSection(entry.id)
               }}
               className={cn(
-                chipClassName(),
-                "pointer-coarse:h-(--np-touch)",
-                "aria-[current=location]:border-ink aria-[current=location]:bg-ink aria-[current=location]:text-canvas",
-                // The desk rail: plain rows, the current one in the accent tint.
-                "desk:flex desk:h-auto desk:min-h-8 desk:w-full desk:rounded-(--np-radius-control) desk:border-transparent desk:bg-transparent desk:px-2.5 desk:font-normal desk:text-ink-secondary",
-                "desk:hover:border-transparent desk:hover:bg-fill desk:hover:text-ink",
-                "desk:aria-[current=location]:border-transparent desk:aria-[current=location]:bg-accent-tint desk:aria-[current=location]:font-semibold desk:aria-[current=location]:text-accent-ink"
+                tabItemClassName,
+                // The current section: ink, semibold and the ink underline
+                // (the shared tab cue, keyed to this nav's aria-current).
+                "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
+                // The desk rail: calm rows, the current one filled. No
+                // underline and no border; the weight and fill carry it.
+                "desk:flex desk:h-auto desk:min-h-9 desk:w-full desk:rounded-(--np-radius-control) desk:px-2.5 desk:py-1.5 desk:whitespace-normal desk:after:hidden",
+                "desk:hover-fine:hover:bg-fill",
+                "desk:aria-[current=location]:bg-fill"
               )}
             >
               {entry.label}
@@ -222,8 +265,14 @@ export function SectionNav({
                 <>
                   <span
                     aria-hidden
-                    className="size-1.5 shrink-0 rounded-full bg-info-solid desk:ml-auto"
+                    className="size-1.5 shrink-0 rounded-full bg-info-solid desk:hidden"
                   />
+                  <span
+                    aria-hidden
+                    className="ml-auto hidden text-caption font-medium text-info-ink desk:inline"
+                  >
+                    Changed
+                  </span>
                   <span className="sr-only"> (changed)</span>
                 </>
               ) : null}

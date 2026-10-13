@@ -142,13 +142,61 @@ function useCurrentInView(
   }, [ref, selector, key])
 }
 
-/** One tab or tab link. */
+/**
+ * Focus is drawn INSIDE the tab (`focus-ring-inset`): the row scrolls
+ * sideways (`overflow-x-auto`), so it clips everything outside its padding
+ * box, and an outer halo would lose its bottom edge to the hairline and its
+ * sides at either end of the row. Vertical padding cannot save the sides.
+ *
+ * One tab or tab link. The current one is `data-active` (a Base UI tab),
+ * `aria-current="page"` (a route link) or `aria-current="location"` (a link
+ * to a section of the same page, e.g. a profile's section nav).
+ */
 const tabItemClassName = cn(
-  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-halo transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
+  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-3 text-ui font-medium whitespace-nowrap text-ink-muted no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
   "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
   "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
+  // An in-page section nav marks its current section `aria-current="location"`.
+  "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
   "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
 )
+
+/**
+ * Text tabs (Notion Mail's queue tabs, brief §4.3): no track line, plain
+ * labels in `text-body`. Others are `ink-secondary`; the current one is 600
+ * `ink` with a 2px ink underline, a cue that does not rely on colour. A
+ * count sits after the label in `text-count`. The row scrolls sideways with
+ * a faded, clipped edge rather than squeezing a label.
+ */
+const textTabItemClassName = cn(
+  "relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-t-(--np-radius-tag) px-2 text-body font-normal whitespace-nowrap text-ink-secondary no-underline focus-ring-inset transition-colors duration-(--np-duration-fast) ease-spring-snappy disabled:pointer-events-none disabled:opacity-50 hover-fine:hover:text-ink desk:h-10",
+  "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent after:content-['']",
+  "aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:after:bg-ink data-active:font-semibold data-active:text-ink data-active:after:bg-ink",
+  // An in-page section nav marks its current section `aria-current="location"`.
+  "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
+  "[&_svg]:shrink-0 [&_svg]:[stroke-width:1.75] [&_svg:not([class*='size-'])]:size-4"
+)
+
+/** The text tabs' row: the same scrolling strip without the hairline. */
+const textTabsRowClassName = cn(tabsRowClassName, "gap-0.5 border-b-0")
+
+/** A count after a text tab's label ("Needs reply 12"). */
+function TabCount({ className, ...props }: React.ComponentProps<"span">) {
+  return (
+    <span
+      data-slot="tab-count"
+      className={cn(
+        "text-count leading-none font-normal text-ink-muted tabular-nums",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export type TabsVariant = "line" | "text"
+
+const TabsVariantContext = React.createContext<TabsVariant>("line")
 
 /**
  * `fill` is the phone drawing of a short tab row: equal columns that divide
@@ -167,21 +215,33 @@ function TabsList({
   className,
   children,
   fill = false,
+  variant = "line",
   ...props
-}: TabsPrimitive.List.Props & { fill?: boolean }) {
+}: TabsPrimitive.List.Props & {
+  fill?: boolean
+  /** `text`: Notion Mail text tabs (see `textTabItemClassName`). */
+  variant?: TabsVariant
+}) {
   const rowRef = React.useRef<HTMLDivElement>(null)
   useScrollFade(rowRef)
   useCurrentInView(rowRef, "[data-active]")
   return (
-    <TabsPrimitive.List
-      ref={rowRef}
-      data-slot="tabs-list"
-      data-fill={fill || undefined}
-      className={cn(tabsRowClassName, fill && FILL_CLASS, className)}
-      {...props}
-    >
-      {children}
-    </TabsPrimitive.List>
+    <TabsVariantContext.Provider value={variant}>
+      <TabsPrimitive.List
+        ref={rowRef}
+        data-slot="tabs-list"
+        data-fill={fill || undefined}
+        data-variant={variant === "line" ? undefined : variant}
+        className={cn(
+          variant === "text" ? textTabsRowClassName : tabsRowClassName,
+          fill && FILL_CLASS,
+          className
+        )}
+        {...props}
+      >
+        {children}
+      </TabsPrimitive.List>
+    </TabsVariantContext.Provider>
   )
 }
 
@@ -216,10 +276,14 @@ function TabsTab({
   /** Shown instead of the children below `sm` (see `TabLabel`). */
   shortLabel?: React.ReactNode
 }) {
+  const variant = React.useContext(TabsVariantContext)
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
-      className={cn(tabItemClassName, className)}
+      className={cn(
+        variant === "text" ? textTabItemClassName : tabItemClassName,
+        className
+      )}
       {...props}
     >
       {shortLabel === undefined ? (
@@ -254,6 +318,8 @@ export type TabNavItem = {
   current?: boolean
   /** A count or badge after the label. */
   badge?: React.ReactNode
+  /** A count after the label, drawn as a `TabCount`. */
+  count?: React.ReactNode
   /**
    * Why this tab's section can't be used right now. On its own the link
    * still works (the page explains more), drawn muted with a lock and the
@@ -284,16 +350,34 @@ const disabledTabClassName =
  */
 function TabNav({
   items,
+  variant = "line",
   className,
   ...props
-}: Omit<React.ComponentProps<"nav">, "children"> & { items: TabNavItem[] }) {
+}: Omit<React.ComponentProps<"nav">, "children"> & {
+  items: TabNavItem[]
+  /** `text`: Notion Mail text tabs (see `textTabItemClassName`). */
+  variant?: TabsVariant
+}) {
+  const itemClassName =
+    variant === "text" ? textTabItemClassName : tabItemClassName
   const rowRef = React.useRef<HTMLUListElement>(null)
   useScrollFade(rowRef)
   const currentHref = items.find((item) => item.current)?.href
   useCurrentInView(rowRef, '[aria-current="page"]', currentHref)
   return (
-    <nav data-slot="tab-nav" className={cn("min-w-0", className)} {...props}>
-      <ul ref={rowRef} className={cn(tabsRowClassName, "list-none")}>
+    <nav
+      data-slot="tab-nav"
+      data-variant={variant === "line" ? undefined : variant}
+      className={cn("min-w-0", className)}
+      {...props}
+    >
+      <ul
+        ref={rowRef}
+        className={cn(
+          variant === "text" ? textTabsRowClassName : tabsRowClassName,
+          "list-none"
+        )}
+      >
         {items.map((item) => {
           const reason = item.unavailableReason ? (
             <>
@@ -308,6 +392,13 @@ function TabNav({
             <>
               <TabLabel label={item.label} shortLabel={item.shortLabel} />
               {reason}
+              {item.count !== undefined && item.count !== null ? (
+                <>
+                  {/* A flex row drops this space from the drawing; it keeps
+                      the name "Needs reply 12", not "Needs reply12". */}{" "}
+                  <TabCount>{item.count}</TabCount>
+                </>
+              ) : null}
               {item.badge}
             </>
           )
@@ -322,7 +413,7 @@ function TabNav({
                   data-disabled=""
                   data-unavailable={item.unavailableReason ? true : undefined}
                   title={item.unavailableReason ?? undefined}
-                  className={cn(tabItemClassName, disabledTabClassName)}
+                  className={cn(itemClassName, disabledTabClassName)}
                 >
                   {content}
                 </a>
@@ -333,7 +424,7 @@ function TabNav({
                   data-unavailable={item.unavailableReason ? true : undefined}
                   title={item.unavailableReason ?? undefined}
                   className={cn(
-                    tabItemClassName,
+                    itemClassName,
                     item.unavailableReason && "font-normal"
                   )}
                 >
@@ -348,6 +439,16 @@ function TabNav({
   )
 }
 
+/**
+ * Text tabs between routes (queue tabs, listing sections): `TabNav` drawn
+ * as Notion Mail text tabs. The current link carries `aria-current="page"`.
+ * For in-page tabs use `<TabsList variant="text">` (current tab is
+ * `aria-selected`).
+ */
+function TextTabs(props: Omit<React.ComponentProps<typeof TabNav>, "variant">) {
+  return <TabNav variant="text" {...props} />
+}
+
 export {
   Tabs,
   TabsList,
@@ -355,6 +456,11 @@ export {
   TabsPanel,
   TabNav,
   TabLabel,
+  TabCount,
+  TextTabs,
+  useScrollFade,
   tabItemClassName,
   tabsRowClassName,
+  textTabItemClassName,
+  textTabsRowClassName,
 }

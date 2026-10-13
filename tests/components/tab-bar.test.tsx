@@ -195,6 +195,39 @@ describe("TabBar", () => {
     ).toHaveLength(0)
   })
 
+  it("carries the unread notifications on More when Notifications is not a tab", () => {
+    const { tabs, container } = renderTabBar({ unread: 3 })
+    // The name stays exactly "More"; the count is its description.
+    const more = tabs.getByRole("button", { name: "More" })
+    expect(more).toHaveAccessibleName("More")
+    expect(more).toHaveAccessibleDescription("3 unread notifications")
+    const badge = container.querySelector("[data-slot='more-count']")
+    expect(badge).toHaveTextContent("3")
+    expect(badge).toHaveAttribute("aria-hidden", "true")
+    expect(more).toContainElement(badge as HTMLElement)
+  })
+
+  it("says notification for one and keeps the current-page description", () => {
+    pathname.current = "/team"
+    const { tabs } = renderTabBar({ unread: 1 })
+    expect(
+      tabs.getByRole("button", { name: "More" })
+    ).toHaveAccessibleDescription(
+      "1 unread notification Contains the current page"
+    )
+  })
+
+  it("leaves More plain when Notifications has its own tab", () => {
+    const { tabs, container } = renderTabBar({
+      context: { role: "owner", mode: "business", hideCalendar: true },
+      unread: 3,
+    })
+    expect(
+      tabs.getByRole("button", { name: "More" })
+    ).not.toHaveAccessibleDescription()
+    expect(container.querySelector("[data-slot='more-count']")).toBeNull()
+  })
+
   it("does not mark More on a tab's own page", () => {
     const { tabs } = renderTabBar()
     expect(

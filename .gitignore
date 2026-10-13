@@ -11,6 +11,8 @@
 # testing
 /coverage
 /playwright-report/
+# e2e runner output (report, artifacts, replay cache, app log)
+/.e2e/
 /test-results/
 
 # local OMO state and QA evidence; authored plans are archived under docs/archive

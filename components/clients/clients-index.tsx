@@ -88,6 +88,13 @@ export function movedNotice(section: string | null | undefined): string | null {
 }
 
 /**
+ * The list's search field as a pill on the secondary fill (the Notion Mail
+ * search), at the 44px touch height on a phone.
+ */
+const SEARCH_PILL =
+  "rounded-(--np-radius-pill) border-transparent bg-fill-secondary max-md:h-(--np-touch)"
+
+/**
  * Every client, ordered so the ones needing work come first.
  *
  * An agency opens this to answer "where do I go now", so the default order is
@@ -197,7 +204,11 @@ function ClientsIndex({ role }: { role: string | null }) {
           titleAs="h2"
           icon={<CircleAlertIcon />}
           title="We couldn't load your clients"
-          description={`${describeActionError(clients.error)} Nothing was changed.`}
+          description={
+            <span className="text-caption">
+              {`${describeActionError(clients.error)} Nothing was changed.`}
+            </span>
+          }
           action={
             <Button
               variant="secondary"
@@ -235,7 +246,12 @@ function ClientsIndex({ role }: { role: string | null }) {
               titleAs="h2"
               icon={<Building2Icon />}
               title="Set up your first client"
-              description="A client is a business you look after. Add one, then connect the Google account that manages its Business Profile."
+              description={
+                <span className="text-caption">
+                  A client is a business you look after. Add one, then connect
+                  the Google account that manages its Business Profile.
+                </span>
+              }
               action={
                 <>
                   <Link href="/clients/new" className={cn(buttonVariants())}>
@@ -251,7 +267,12 @@ function ClientsIndex({ role }: { role: string | null }) {
               titleAs="h2"
               icon={<LockIcon />}
               title="No clients shared with you yet"
-              description="An owner or admin chooses which clients you can see. Once they share one, it appears here with its reviews and listings."
+              description={
+                <span className="text-caption">
+                  An owner or admin chooses which clients you can see. Once they
+                  share one, it appears here with its reviews and listings.
+                </span>
+              }
             />
           )}
         </Card>
@@ -275,19 +296,24 @@ function ClientsIndex({ role }: { role: string | null }) {
     <div className="flex flex-col gap-(--np-gap-section)">
       {notice}
 
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0 md:flex-1">
+      {/* Search first (the quickest way to one client), then the health
+          chips: above them on a phone, where the strip runs full bleed so it
+          scrolls edge to edge, and on the left at the desk. One order for
+          reading and Tab at every width. */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+        <div role="search" className="w-full min-w-0 md:w-80 md:flex-none">
+          <SearchInput
+            {...searchProps}
+            className={SEARCH_PILL}
+            placeholder="Filter clients by name"
+            aria-label="Filter clients by name"
+          />
+        </div>
+        <div className="min-w-0 max-md:-mx-5 md:flex-1">
           <HealthFilterStrip
             value={health}
             counts={counts}
             onValueChange={setHealth}
-          />
-        </div>
-        <div role="search" className="w-full min-w-0 md:w-80 md:flex-none">
-          <SearchInput
-            {...searchProps}
-            placeholder="Filter clients by name"
-            aria-label="Filter clients by name"
           />
         </div>
       </div>
@@ -324,9 +350,11 @@ function ClientsIndex({ role }: { role: string | null }) {
                   : `No clients in “${filterLabel}”`
               }
               description={
-                needle
-                  ? "Check the spelling, or clear the search to see every client."
-                  : "No client is in this state right now. Clear the filter to see the rest."
+                <span className="text-caption">
+                  {needle
+                    ? "Check the spelling, or clear the search to see every client."
+                    : "No client is in this state right now. Clear the filter to see the rest."}
+                </span>
               }
               action={
                 <Button
@@ -372,13 +400,13 @@ function ClientsIndex({ role }: { role: string | null }) {
                         href={`/clients/${client.id}`}
                         // A full touch-height row on touch, as the bulk and
                         // client settings record cards do; a text link at the desk.
-                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
+                        className="inline-flex min-h-(--np-touch) items-center rounded-(--np-radius-tag) text-body font-semibold break-words text-ink underline-offset-4 focus-halo hover:underline desk:min-h-0"
                         onClick={(event) => event.stopPropagation()}
                       >
                         {client.name}
                       </ShellLink>
                       {/* A card says this in its meta line. */}
-                      <span className="text-caption text-ink-muted @max-3xl/table:hidden">
+                      <span className="text-caption text-ink-muted tabular-nums @max-3xl/table:hidden">
                         {client.locationCount === 0
                           ? "No listings"
                           : `${formatNumber(client.locationCount)} ${client.locationCount === 1 ? "listing" : "listings"}`}
@@ -417,7 +445,7 @@ function ClientsIndex({ role }: { role: string | null }) {
                 label: "Linked",
                 numeric: true,
                 cell: (client) => (
-                  <span>
+                  <span className="text-caption text-ink tabular-nums">
                     {formatNumber(client.linkedCount)}
                     <span className="text-ink-muted">
                       {" / "}
@@ -440,11 +468,12 @@ function ClientsIndex({ role }: { role: string | null }) {
                 label: "Synced",
                 cell: (client) => (
                   <span
-                    className={
+                    className={cn(
+                      "text-caption tabular-nums",
                       client.health === "disconnected"
                         ? "text-danger-ink"
                         : "text-ink-muted"
-                    }
+                    )}
                   >
                     {client.lastSyncAt ? (
                       <RelativeTime iso={client.lastSyncAt} />
@@ -534,7 +563,7 @@ function ArchivedClients({
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-col gap-0.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
         <h2 className="text-title font-semibold text-ink">Archived clients</h2>
         <p className="text-caption text-ink-muted">
           Hidden from lists, filters and reports. Restore one to bring it back.
@@ -581,6 +610,7 @@ function ArchivedClients({
       <div role="search" className="w-full min-w-0 md:w-80">
         <SearchInput
           {...searchProps}
+          className={SEARCH_PILL}
           placeholder="Filter archived clients"
           aria-label="Filter archived clients by name"
         />
@@ -602,9 +632,11 @@ function ArchivedClients({
                 : "Nothing archived"
             }
             description={
-              needle
-                ? "Clear the search to see every archived client."
-                : "Clients you archive appear here, ready to restore."
+              <span className="text-caption">
+                {needle
+                  ? "Clear the search to see every archived client."
+                  : "Clients you archive appear here, ready to restore."}
+              </span>
             }
           />
         </Card>
@@ -623,7 +655,7 @@ function ArchivedClients({
               cell: (client) => (
                 <span className="flex min-w-0 items-center gap-2.5">
                   <ClientAvatar name={client.name} colour={client.colour} />
-                  <span className="font-semibold break-words text-ink">
+                  <span className="text-body font-semibold break-words text-ink">
                     {client.name}
                   </span>
                 </span>
@@ -634,7 +666,7 @@ function ArchivedClients({
               header: "Archived",
               priority: "meta",
               cell: (client) => (
-                <span className="text-ink-muted">
+                <span className="text-caption text-ink-muted tabular-nums">
                   {client.archivedAt
                     ? formatDate(client.archivedAt, "Europe/London")
                     : "—"}
@@ -648,8 +680,7 @@ function ArchivedClients({
               className: "text-right",
               cell: (client) => (
                 <Button
-                  variant="secondary"
-                  size="sm"
+                  variant="ghost"
                   aria-label={`Restore ${client.name}`}
                   pending={restoring === client.id}
                   pendingLabel="Restoring…"
@@ -738,8 +769,9 @@ function ClientsSkeleton() {
     <div className="flex flex-col gap-(--np-gap-section)" aria-busy="true">
       <div
         aria-hidden
-        className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+        className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3"
       >
+        <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-pill) max-md:h-(--np-touch) md:w-80 md:flex-none" />
         <div className="flex min-w-0 gap-2 overflow-hidden md:flex-1">
           {["w-16", "w-36", "w-40", "w-24", "w-32"].map((width) => (
             <Skeleton
@@ -751,7 +783,6 @@ function ClientsSkeleton() {
             />
           ))}
         </div>
-        <Skeleton className="h-(--np-field-h) w-full rounded-(--np-radius-control) md:w-80 md:flex-none" />
       </div>
       <div className="flex flex-col gap-2.5">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -760,24 +791,20 @@ function ClientsSkeleton() {
             Loading clients…
           </p>
         </div>
-        <Card flush aria-hidden className="md:hidden">
-          <div className="divide-y divide-line">
-            {[0, 1, 2, 3, 4].map((index) => (
-              <div key={index} className="flex items-center gap-3 px-4 py-3">
-                <Skeleton className="size-8 shrink-0 rounded-(--np-radius-control)" />
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <Skeleton className="h-6 w-40 max-w-full" />
-                  <Skeleton className="h-5.5 w-20 rounded-(--np-radius-tag)" />
-                  <Skeleton className="h-4.5 w-48 max-w-full" />
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1">
-                  <Skeleton className="h-6 w-6" />
-                  <Skeleton className="h-4.5 w-20" />
-                </div>
+        {/* A phone: flat rows, an avatar square and three bars (name,
+            health word, meta line), on inset hairlines. */}
+        <div aria-hidden className="md:hidden">
+          {[0, 1, 2, 3, 4].map((index) => (
+            <div key={index} className="flex items-start gap-3 py-3">
+              <Skeleton className="size-8 shrink-0 rounded-(--np-radius-control)" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5 border-b border-line-subtle pb-3">
+                <Skeleton className="h-4.5 w-40 max-w-full" />
+                <Skeleton className="h-4 w-20 rounded-(--np-radius-tag)" />
+                <Skeleton className="h-3.5 w-48 max-w-full" />
               </div>
-            ))}
-          </div>
-        </Card>
+            </div>
+          ))}
+        </div>
         <Card flush aria-hidden className="max-md:hidden">
           <div className="divide-y divide-line">
             {[0, 1, 2, 3, 4].map((index) => (
@@ -797,6 +824,25 @@ function ClientsSkeleton() {
   )
 }
 
+/**
+ * The client count beside the page title ("Clients 12"), in the title's
+ * size at regular weight, once the list has loaded. Hidden from assistive
+ * tech: the list's result line already announces the same number.
+ */
+function ClientsCount() {
+  const clients = useClients()
+  const count = clients.data?.items.length
+  if (!clients.isSuccess || count === undefined) return null
+  return (
+    <span
+      aria-hidden
+      className="text-page-title font-normal text-ink-muted tabular-nums"
+    >
+      {formatNumber(count)}
+    </span>
+  )
+}
+
 function NewClientButton() {
   return (
     <Link href="/clients/new" className={cn(buttonVariants())}>
@@ -806,4 +852,4 @@ function NewClientButton() {
   )
 }
 
-export { ClientsIndex, ClientsSkeleton, NewClientButton }
+export { ClientsCount, ClientsIndex, ClientsSkeleton, NewClientButton }

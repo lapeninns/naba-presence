@@ -125,13 +125,18 @@ function initialsOf(name: string): string {
     .toUpperCase()
 }
 
-// The thread's rail: a 44px avatar column (32px in a narrow pane) beside the
-// words, so the review and the reply read as one conversation. The columns
-// are the avatar's own sizes on the spacing scale (size-11, size-8).
+// Each thread item is a message header (avatar beside the name) over a body
+// that spans the whole column: a 44px avatar column (32px in a narrow pane).
+// The columns are the avatar's own sizes on the spacing scale (size-11,
+// size-8).
 const THREAD_ITEM_CLASS =
   "grid grid-cols-[--spacing(11)_minmax(0,1fr)] gap-x-3.5 @max-[480px]/detail:grid-cols-[--spacing(8)_minmax(0,1fr)] @max-[480px]/detail:gap-x-3"
 const THREAD_AVATAR_CLASS =
   "@max-[480px]/detail:size-8 @max-[480px]/detail:text-caption"
+// What follows the head row (the words, the media, the composer) spans the
+// avatar column too.
+const THREAD_BODY_CLASS =
+  "col-span-2 mt-5 flex min-w-0 flex-col gap-3 @max-[480px]/detail:mt-4"
 
 /**
  * Who wrote it: the Google profile photo when there is one, else initials;
@@ -144,6 +149,7 @@ function ReviewerAvatar({ review }: { review: Review }) {
       name={reviewerName(review)}
       anonymous={review.reviewerIsAnonymous}
       photoUrl={review.reviewerProfilePhotoUrl}
+      className={THREAD_AVATAR_CLASS}
     />
   )
 }
@@ -155,9 +161,11 @@ function ReviewerAvatar({ review }: { review: Review }) {
  */
 function ReviewerIdentity({
   review,
+  clientName,
   focusHeading = false,
 }: {
   review: Review
+  clientName?: string | null
   focusHeading?: boolean
 }) {
   const displayName = reviewerName(review)
@@ -177,7 +185,7 @@ function ReviewerIdentity({
         ref={headingRef}
         tabIndex={-1}
         data-slot="review-heading"
-        className="line-clamp-2 min-w-0 font-display text-title font-semibold break-words text-ink focus-visible:outline-none"
+        className="line-clamp-2 min-w-0 text-title font-semibold break-words text-ink focus-visible:outline-none"
       >
         {displayName}
       </h2>
@@ -211,8 +219,24 @@ function ReviewerIdentity({
         <span aria-hidden>·</span>
         <span>Google review</span>
       </p>
+      {/* Which venue this is for, on every review: the client first for an
+          agency, the location alone for a business. */}
+      <p
+        data-slot="review-venue"
+        className="min-w-0 truncate text-caption text-ink-secondary"
+      >
+        {venueLabel(review, clientName)}
+      </p>
     </div>
   )
+}
+
+/** "Client · Location" for an agency, the location alone otherwise. */
+function venueLabel(review: Review, clientName?: string | null): string {
+  const client = clientName?.trim()
+  return client && client !== review.locationName
+    ? `${client} · ${review.locationName}`
+    : review.locationName
 }
 
 /**
@@ -377,7 +401,7 @@ function HeadFrame({
       )}
       <Title
         data-slot="review-title"
-        className="min-w-0 flex-1 truncate px-1 font-display text-title font-semibold text-ink"
+        className="min-w-0 flex-1 truncate px-1 text-title font-semibold text-ink"
       >
         {title}
       </Title>
@@ -427,7 +451,7 @@ function ReviewBody({ review }: { review: Review }) {
 
   if (!parsed) {
     return (
-      <p className="font-reading text-reading text-ink-secondary italic">
+      <p className="text-reading text-ink-secondary italic">
         A rating with no written review.
       </p>
     )
@@ -441,7 +465,7 @@ function ReviewBody({ review }: { review: Review }) {
       <blockquote
         lang={parsed.bodyLang ?? undefined}
         dir="auto"
-        className="m-0 font-reading text-reading whitespace-pre-line text-ink"
+        className="m-0 text-reading whitespace-pre-line text-ink"
       >
         {parsed.body}
       </blockquote>
@@ -720,7 +744,14 @@ function LiveReplyDisclosure({ review }: { review: Review }) {
  * fact stated twice, never two facts. When the button is off, this line is
  * where the reason is said.
  */
-function ReplyStatusStrip({ review }: { review: Review }) {
+function ReplyStatusStrip({
+  review,
+  onCharcoal = false,
+}: {
+  review: Review
+  /** On the charcoal publish bar: the on-charcoal inks. */
+  onCharcoal?: boolean
+}) {
   const [pulse, setPulse] = useState(false)
   const isDirty = useIsDirty()
   const mutating = useReplyPending(review.id)
@@ -773,11 +804,11 @@ function ReplyStatusStrip({ review }: { review: Review }) {
       data-slot="reply-status-strip"
       data-pulse={pulse ? "true" : undefined}
       className={cn(
-        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring",
+        "flex min-h-8 min-w-0 items-center rounded-(--np-radius-control) transition-[box-shadow] duration-(--np-duration-deliberate) ease-spring motion-reduce:transition-none",
         pulse && "px-2 ring-2 ring-success-solid ring-inset"
       )}
     >
-      <ReplyStatusLine status={status} />
+      <ReplyStatusLine status={status} onCharcoal={onCharcoal} />
     </div>
   )
 }
@@ -808,16 +839,17 @@ function replyVisibility(review: Review): string {
 
 /**
  * The review, then the reply: one conversation, the customer's words above
- * the place the answer is written, joined by the rail between the two
- * avatars.
+ * the place the answer is written, with one hairline between the two.
  */
 function ReviewThread({
   review,
+  clientName,
   composer,
   focusHeading,
   viewOnly = false,
 }: {
   review: Review
+  clientName?: string | null
   composer?: ReactNode
   focusHeading?: boolean
   viewOnly?: boolean
@@ -826,24 +858,28 @@ function ReviewThread({
 
   return (
     <div data-slot="review-thread" className="flex flex-col">
+      {/* Avatar and identity share the first row; the words below span
+          both columns, so they read at the full width of the column. */}
       <article
         aria-label={`Review from ${displayName}`}
         data-slot="thread-review"
-        className={cn(THREAD_ITEM_CLASS, "pb-7")}
+        className={cn(THREAD_ITEM_CLASS, "border-b border-line pb-7")}
       >
         <div className="relative">
           <ReviewerAvatar review={review} />
-          <span
-            aria-hidden
-            data-slot="thread-rail"
-            className="absolute top-13 bottom-2 left-1/2 w-px -translate-x-1/2 bg-line @max-[480px]/detail:top-10"
-          />
+          {/* Kept for the thread's structure; the hairline between the
+              review and the reply now does the joining. */}
+          <span aria-hidden data-slot="thread-rail" className="hidden" />
         </div>
-        <div className="flex min-w-0 flex-col gap-3">
-          <div className="flex min-w-0 items-start gap-2">
-            <ReviewerIdentity review={review} focusHeading={focusHeading} />
-            <ReviewMenu review={review} />
-          </div>
+        <div className="flex min-w-0 items-start gap-2 self-center">
+          <ReviewerIdentity
+            review={review}
+            clientName={clientName}
+            focusHeading={focusHeading}
+          />
+          <ReviewMenu review={review} />
+        </div>
+        <div className={THREAD_BODY_CLASS}>
           <ReviewBody review={review} />
           <ReviewMedia media={review.media} />
         </div>
@@ -852,7 +888,7 @@ function ReviewThread({
       <section
         aria-label="Your reply"
         data-slot="thread-reply"
-        className={THREAD_ITEM_CLASS}
+        className={cn(THREAD_ITEM_CLASS, "pt-7")}
       >
         <div>
           <Avatar
@@ -864,18 +900,20 @@ function ReviewThread({
             <AvatarFallback>{initialsOf(review.locationName)}</AvatarFallback>
           </Avatar>
         </div>
-        <div className="flex min-w-0 flex-col gap-3">
-          <div className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 @max-[480px]/detail:min-h-8">
-            <h3
-              data-slot="reply-heading"
-              className="min-w-0 text-ui font-semibold break-words text-ink"
-            >
-              Reply as {review.locationName}
-            </h3>
-            <p className="text-caption text-ink-muted">
-              {replyVisibility(review)}
-            </p>
-          </div>
+        {/* The composer's header row: who the reply is written as, and
+            where it will be seen. */}
+        <div className="flex min-h-11 min-w-0 flex-col justify-center gap-0.5 @max-[480px]/detail:min-h-8">
+          <h3
+            data-slot="reply-heading"
+            className="min-w-0 text-ui font-semibold break-words text-ink"
+          >
+            Reply as {review.locationName}
+          </h3>
+          <p className="text-caption text-ink-muted">
+            {replyVisibility(review)}
+          </p>
+        </div>
+        <div className={THREAD_BODY_CLASS}>
           {viewOnly ? (
             // No publish bar for a viewer (nothing in it could be pressed),
             // so the status it would carry is said here instead.
@@ -901,31 +939,36 @@ function ReviewThread({
 // the edge (the CHROME CONTRACT in globals.css); from md to lg, where the
 // review is still the whole page, it sticks to the foot of the pane; from lg,
 // where the workspace is locked to the window, it is a static last row of
-// the pane. A raised band (the surface tone on the alternate surface) rather
-// than a dark one, so the accent Publish button is the one strong thing in
-// it. One row at every width: the status words take what the actions leave.
-// The padding and edges here restyle the bar as the pane's last row; the
-// docking itself (position, spacer, keyboard edge) is the primitive's.
+// the pane. With the inbox's actions in it the bar is charcoal: its primary
+// reaches Google (publish, approve, retry, delete) or asks for the approval
+// that will, and charcoal is the one dark bar per screen for that. Without
+// actions (and while loading) it is the plain surface band. One row at every
+// width: the status words take what the actions leave. The padding and edges
+// here restyle the bar as the pane's last row; the docking itself (position,
+// spacer, keyboard edge) is the primitive's.
 const FOOTER_CLASS = cn(
-  "shrink-0 flex-nowrap rounded-none rounded-b-(--np-radius-card) border-x-0 border-t border-b-0 border-line bg-surface-alt shadow-none max-md:rounded-none lg:[@media(min-height:620px)]:static",
+  "shrink-0 flex-nowrap rounded-none rounded-b-(--np-radius-card) border-x-0 border-t border-b-0 shadow-none max-md:rounded-none lg:[@media(min-height:620px)]:static",
   // At least the action-bar height in flow; on a phone the dock adds the
   // keyboard or home-indicator edge under it.
   "min-h-(--np-actionbar-h) py-2.5 md:pb-[max(--spacing(2.5),var(--np-dock-bottom))]",
   // The actions keep their width and one line; the status words give way.
   "[&>[data-slot=action-bar-actions]]:shrink-0 [&>[data-slot=action-bar-actions]]:flex-nowrap"
 )
+const FOOTER_SURFACE_CLASS = "border-line bg-surface"
+const FOOTER_CHARCOAL_CLASS = "border-charcoal"
 
 // Only this middle row scrolls where the workspace is locked; everywhere
 // else the page does. The thread keeps a reading measure and centres in a
 // wide pane.
 const SCROLL_CLASS =
-  "flex min-h-0 flex-1 flex-col px-5 pt-6 pb-8 @max-[480px]/detail:px-3.5 @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 lg:[@media(min-height:620px)]:overflow-y-auto"
+  "flex min-h-0 flex-1 flex-col px-7 pt-6 pb-8 max-md:px-(--np-page-pad-x) @max-[480px]/detail:pt-4 @max-[480px]/detail:pb-6 lg:[@media(min-height:620px)]:overflow-y-auto"
 
 const COLUMN_CLASS =
   "mx-auto flex w-full max-w-(--np-page-narrow-width) flex-col gap-5"
 
 function ReviewDetail({
   reviewId,
+  clientName,
   back,
   nav,
   heading,
@@ -935,6 +978,11 @@ function ReviewDetail({
   titleIsHeading = true,
 }: {
   reviewId: string
+  /**
+   * The client the review's location belongs to, when the workspace is an
+   * agency (from the list row). Drawn before the location in the head.
+   */
+  clientName?: string | null
   /** The phone head's return-to-list control (drawn below lg only). */
   back?: ReviewDetailBack
   /** The phone head's position and previous / next steps. */
@@ -999,6 +1047,7 @@ function ReviewDetail({
               <ReplyExceptionSlot review={review} />
               <ReviewThread
                 review={review}
+                clientName={clientName}
                 composer={composer}
                 focusHeading={focusHeading}
                 viewOnly={viewOnly}
@@ -1033,10 +1082,13 @@ function ReviewDetail({
             // The pane's own hook (journeys, useKeepFocusClear above).
             data-slot="composer-footer"
             label="Reply actions"
-            tone="surface"
+            tone={actions ? "charcoal" : "surface"}
             dock={Boolean(actions)}
             safeArea={false}
-            className={FOOTER_CLASS}
+            className={cn(
+              FOOTER_CLASS,
+              actions ? FOOTER_CHARCOAL_CLASS : FOOTER_SURFACE_CLASS
+            )}
             actions={actions ?? undefined}
           >
             {/* The strip is its own `role="status"`, so it goes in as
@@ -1050,7 +1102,7 @@ function ReviewDetail({
                 TYPING_COLLAPSE_CLASS
               )}
             >
-              <ReplyStatusStrip review={review} />
+              <ReplyStatusStrip review={review} onCharcoal={Boolean(actions)} />
             </div>
           </ActionBar>
         ) : pending && actions ? (
@@ -1063,7 +1115,7 @@ function ReviewDetail({
             tone="surface"
             dock
             safeArea={false}
-            className={FOOTER_CLASS}
+            className={cn(FOOTER_CLASS, FOOTER_SURFACE_CLASS)}
           >
             <ActionFooterSkeleton />
           </ActionBar>

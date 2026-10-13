@@ -85,7 +85,8 @@ export function evaluateRequestApproval(input: {
   if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
     return {
       enabled: false,
-      reason: "This reply cannot be submitted for approval from its current status.",
+      reason:
+        "This reply cannot be submitted for approval from its current status.",
     }
   }
   return { enabled: true }
@@ -127,6 +128,30 @@ export type OutcomeToast = {
   title: string
   description?: string
   type: "success" | "info" | "warning" | "error"
+  /**
+   * The toast's one trailing action. Google writes never get "Undo" (a reply
+   * that reached Google cannot be taken back from a toast; D5): a published
+   * reply may offer "View on Google" instead, and nothing else does.
+   */
+  actionProps?: { children: string; onClick: () => void }
+}
+
+export type OutcomeToastContext = {
+  /**
+   * Where the review can be seen on Google (`review.googleReplyUrl`). Only an
+   * https link reaches the client; without one the toast offers no link.
+   */
+  googleReplyUrl?: string | null
+}
+
+/** "View on Google": opens the review on Google in a new tab, sharing nothing. */
+function viewOnGoogle(url: string): OutcomeToast["actionProps"] {
+  return {
+    children: "View on Google",
+    onClick: () => {
+      window.open(url, "_blank", "noopener,noreferrer")
+    },
+  }
 }
 
 // Maps a SERVER-CONFIRMED resolved status (never a thrown ApiClientError code
@@ -138,36 +163,49 @@ export type OutcomeToast = {
 // moderation declined the reply content (see lib/server/publishing.ts); a
 // user-initiated Reject decision instead resolves as `returned_to_draft`,
 // which is a distinct, unambiguous wire value.
-export function describeOutcomeToast(status: string): OutcomeToast {
+//
+// The copy states the outcome, not the step (D5): what is now true, in a
+// short title and one plain line. None of these offers Undo: publish,
+// approve and delete are Google writes, and a reject is undone by submitting
+// again, not from a toast.
+export function describeOutcomeToast(
+  status: string,
+  context: OutcomeToastContext = {}
+): OutcomeToast {
   switch (status) {
-    case "published":
+    case "published": {
+      const url = context.googleReplyUrl
       return {
         title: "Reply published",
-        description: "It is live on Google now.",
+        description: "Live on Google.",
         type: "success",
+        ...(url && url.startsWith("https://")
+          ? { actionProps: viewOnGoogle(url) }
+          : {}),
       }
+    }
     case "awaiting_approval":
       return {
         title: "Submitted for approval",
-        description: "A manager needs to approve it before it goes live.",
+        description: "It goes live on Google once a manager approves it.",
         type: "info",
       }
     case "rejected":
       return {
         title: "Google declined this reply",
-        description: "Edit the draft and try publishing again.",
+        description: "Edit the reply, then publish it again.",
         type: "error",
       }
     case "returned_to_draft":
       return {
         title: "Reply sent back for edits",
-        description: "The author can revise it and submit again.",
+        description: "Its author can revise it and submit it again.",
         type: "success",
       }
     case "deleted":
       return {
         title: "Reply deleted",
-        description: "It is no longer shown on Google.",
+        description: "Removed from Google.",
         type: "success",
       }
     case "cancelled":

@@ -17,7 +17,6 @@ import { queryKeys } from "@/lib/queries/keys"
 import { useDecideImportProposal } from "@/lib/queries/use-import-review"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
-import { cardClassName } from "@/components/ui/card"
 
 const KIND_LABELS: Record<ImportProposal["kind"], string> = {
   field_changed: "Changed on Google",
@@ -135,9 +134,10 @@ const DECISION_TOAST: Record<Decision, { title: string; description: string }> =
   }
 
 /**
- * One resource's worth of pending suggestions from Google (reference
- * `.sugg-list`): a card with the resource as its heading and its pending
- * count, a link to the editor, and one row per decision.
+ * One resource's worth of pending suggestions from Google: a group whose
+ * label names the resource and its pending count, with a link to the editor
+ * on the right, then one list row per decision. On a phone the group has no
+ * card chrome, only hairlines between rows; the desk keeps a bordered card.
  *
  * Each row shows what NabaPresence holds ("Here now") against what Google
  * shows ("On Google"), then Accept / Ignore. Accepting changes the local
@@ -255,15 +255,15 @@ export function SuggestionList({
     <section
       aria-labelledby={headingId}
       data-slot="suggestion-list"
-      className={cardClassName({ className: "flex flex-col overflow-hidden" })}
+      className="flex flex-col gap-1.5"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-3">
-        <h2 id={headingId} className="text-title font-semibold text-ink">
-          {label}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 id={headingId} className="text-caption font-medium text-ink-muted">
+          {label}{" "}
+          <span className="font-normal tabular-nums">
+            · {proposals.length} waiting
+          </span>
         </h2>
-        <StatusPill tone={proposals.length > 0 ? "attention" : "neutral"}>
-          {proposals.length} waiting
-        </StatusPill>
         <Link
           href={editorHref}
           className={cn(
@@ -276,11 +276,11 @@ export function SuggestionList({
       </div>
 
       {proposals.length === 0 ? (
-        <p className="px-4 py-4 text-ui text-ink-muted">
+        <p className="py-3 text-ui text-ink-muted desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-(--np-card-pad)">
           Nothing waiting here. Changes made on Google appear here for review.
         </p>
       ) : (
-        <ul className="flex flex-col divide-y divide-line">
+        <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface">
           {proposals.map((proposal) => {
             const missing =
               proposal.kind === "item_missing_from_google" ||
@@ -294,10 +294,10 @@ export function SuggestionList({
               <li
                 key={proposal.id}
                 data-slot="suggestion"
-                className="@container/sugg flex flex-col gap-3 px-4 py-4"
+                className="flex flex-col gap-3 py-4 desk:px-(--np-card-pad)"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-body font-semibold break-words text-ink">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="mr-auto min-w-0 text-body font-medium break-words text-ink">
                     {proposalTitle(proposal)}
                   </span>
                   <StatusPill
@@ -371,70 +371,71 @@ export function SuggestionList({
                     </Button>
                   </div>
                 ) : null}
-                <div className="flex flex-wrap items-center gap-2">
-                  {missing ? (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={disabled}
-                        disabledReason={gateReason}
-                        pending={
-                          working && decide.variables?.action === "keep_local"
-                        }
-                        onClick={() => startDecision(proposal, "keep_local")}
-                      >
-                        Keep here
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger-outline"
-                        disabled={disabled}
-                        disabledReason={gateReason}
-                        pending={
-                          working && decide.variables?.action === "delete_local"
-                        }
-                        onClick={() => startDecision(proposal, "delete_local")}
-                      >
-                        Remove here
-                      </Button>
-                    </>
-                  ) : (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={disabled}
-                        disabledReason={gateReason}
-                        pending={
-                          working && decide.variables?.action === "apply"
-                        }
-                        pendingLabel="Accepting…"
-                        onClick={() => startDecision(proposal, "apply")}
-                      >
-                        <CheckIcon aria-hidden />
-                        Accept
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={disabled}
-                        disabledReason={gateReason}
-                        pending={
-                          working && decide.variables?.action === "ignore"
-                        }
-                        pendingLabel="Ignoring…"
-                        onClick={() => startDecision(proposal, "ignore")}
-                      >
-                        Ignore
-                      </Button>
-                    </>
-                  )}
-                  <span className="min-w-0 grow basis-64 text-caption text-ink-muted">
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {missing ? (
+                      <>
+                        <Button
+                          variant="secondary"
+                          disabled={disabled}
+                          disabledReason={gateReason}
+                          pending={
+                            working && decide.variables?.action === "keep_local"
+                          }
+                          onClick={() => startDecision(proposal, "keep_local")}
+                        >
+                          Keep here
+                        </Button>
+                        <Button
+                          variant="danger-outline"
+                          disabled={disabled}
+                          disabledReason={gateReason}
+                          pending={
+                            working &&
+                            decide.variables?.action === "delete_local"
+                          }
+                          onClick={() =>
+                            startDecision(proposal, "delete_local")
+                          }
+                        >
+                          Remove here
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          variant="secondary"
+                          disabled={disabled}
+                          disabledReason={gateReason}
+                          pending={
+                            working && decide.variables?.action === "apply"
+                          }
+                          pendingLabel="Accepting…"
+                          onClick={() => startDecision(proposal, "apply")}
+                        >
+                          <CheckIcon aria-hidden />
+                          Accept
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          disabled={disabled}
+                          disabledReason={gateReason}
+                          pending={
+                            working && decide.variables?.action === "ignore"
+                          }
+                          pendingLabel="Ignoring…"
+                          onClick={() => startDecision(proposal, "ignore")}
+                        >
+                          Ignore
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-caption text-ink-muted">
                     {missing
                       ? "Only changes NabaPresence’s copy."
                       : "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."}
-                  </span>
+                  </p>
                 </div>
               </li>
             )

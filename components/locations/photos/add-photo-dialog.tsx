@@ -12,6 +12,10 @@ import {
 import { useEffect, useId, useRef, useState } from "react"
 
 import {
+  formatUploadSize,
+  UploadFileCard,
+} from "@/components/locations/photos/upload-file-card"
+import {
   UploadReview,
   uploadReviewTitle,
 } from "@/components/locations/photos/upload-review"
@@ -28,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
 import { Progress } from "@/components/ui/progress"
 import {
   Select,
@@ -77,12 +82,6 @@ type UploadEntry = {
   previewUrl?: string
 }
 
-function formatSize(bytes: number) {
-  return bytes >= MB
-    ? `${(bytes / MB).toFixed(1)} MB`
-    : `${Math.max(1, Math.round(bytes / 1024))} KB`
-}
-
 /** The rules the upload route enforces, stated once for picker and drop. */
 function checkFile(file: File): string | undefined {
   if (/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name))
@@ -90,9 +89,9 @@ function checkFile(file: File): string | undefined {
   if (!ACCEPTED_TYPES.includes(file.type))
     return `This file type isn’t supported (${file.type || "unknown type"}). Choose a JPEG or PNG.`
   if (file.size > MAX_MEDIA_UPLOAD_BYTES)
-    return `Too large at ${formatSize(file.size)}. Uploads can be up to ${MAX_MEDIA_UPLOAD_BYTES / MB} MB.`
+    return `Too large at ${formatUploadSize(file.size)}. Uploads can be up to ${MAX_MEDIA_UPLOAD_BYTES / MB} MB.`
   if (file.size < MIN_PHOTO_UPLOAD_BYTES)
-    return `Too small at ${formatSize(file.size)}. Google needs photos of at least ${MIN_PHOTO_UPLOAD_BYTES / 1024} KB.`
+    return `Too small at ${formatUploadSize(file.size)}. Google needs photos of at least ${MIN_PHOTO_UPLOAD_BYTES / 1024} KB.`
   return undefined
 }
 
@@ -451,27 +450,31 @@ export function AddPhotoDialog({
                   }}
                   disabled={pickDisabled}
                 />
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                  <Button
-                    variant="secondary"
-                    className="hidden pointer-coarse:inline-flex"
+                {/* Notion Mail's attachment picker: one option row per
+                    way in, each a plain button (no checked state), the
+                    camera first where there is one. */}
+                <OptionRowGroup
+                  type="multiple"
+                  label="Ways to add photos"
+                  className="w-full sm:max-w-xs"
+                >
+                  <OptionRow
+                    className="hidden bg-surface pointer-coarse:flex"
+                    icon={<CameraIcon />}
+                    label="Take photo"
                     onClick={() => cameraRef.current?.click()}
                     disabled={pickDisabled}
                     aria-describedby={hintId}
-                  >
-                    <CameraIcon aria-hidden />
-                    Take photo
-                  </Button>
-                  <Button
-                    variant="secondary"
+                  />
+                  <OptionRow
+                    className="bg-surface"
+                    icon={<ImagesIcon />}
+                    label="Choose from library"
                     onClick={() => fileRef.current?.click()}
                     disabled={pickDisabled}
                     aria-describedby={hintId}
-                  >
-                    <ImagesIcon aria-hidden />
-                    Choose from library
-                  </Button>
-                </div>
+                  />
+                </OptionRowGroup>
                 <p className="hidden text-ui text-ink-muted hover-fine:block">
                   or drop photos here
                 </p>
@@ -492,10 +495,12 @@ export function AddPhotoDialog({
                   : ""}
               </p>
 
+              {/* Notion Mail's attachment cards: stacked full width on a
+                  phone, two to a row in the wide dialog at the desk. */}
               {entries.length > 0 ? (
                 <ul
                   aria-label="Files to upload"
-                  className="flex flex-col gap-2"
+                  className="grid gap-2 sm:grid-cols-2"
                 >
                   {entries.map((entry) => {
                     const pill = STATUS_PILL[entry.status]
@@ -506,40 +511,24 @@ export function AddPhotoDialog({
                         entry.status === "unconfirmed" ||
                         entry.status === "failed")
                     return (
-                      <li
+                      <UploadFileCard
                         key={entry.key}
-                        className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 rounded-md border border-line px-3 py-2.5"
-                      >
-                        <span
-                          aria-hidden
-                          className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-md bg-fill text-ink-muted"
-                        >
-                          {entry.previewUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={entry.previewUrl}
-                              alt=""
-                              className="size-full object-cover"
-                            />
-                          ) : (
-                            <CircleAlertIcon className="size-4" />
-                          )}
-                        </span>
-                        <span className="flex min-w-0 flex-col">
-                          <span className="text-ui font-semibold break-words text-ink">
-                            {entry.file.name}
-                          </span>
-                          <span className="font-mono text-caption text-ink-muted tabular-nums">
-                            {formatSize(entry.file.size)}
-                          </span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <StatusPill tone={pill.tone}>
-                            {entry.status === "uploading"
-                              ? `${pill.label} ${Math.round(entry.progress * 100)}%`
-                              : pill.label}
-                          </StatusPill>
-                          {removable ? (
+                        name={entry.file.name}
+                        previewUrl={entry.previewUrl}
+                        meta={
+                          <>
+                            <span className="tabular-nums">
+                              {formatUploadSize(entry.file.size)}
+                            </span>
+                            <StatusPill tone={pill.tone}>
+                              {entry.status === "uploading"
+                                ? `${pill.label} ${Math.round(entry.progress * 100)}%`
+                                : pill.label}
+                            </StatusPill>
+                          </>
+                        }
+                        trailing={
+                          removable ? (
                             <Button
                               variant="ghost"
                               size="icon-sm"
@@ -553,17 +542,17 @@ export function AddPhotoDialog({
                             >
                               <XIcon aria-hidden />
                             </Button>
-                          ) : null}
-                        </span>
+                          ) : null
+                        }
+                      >
                         {entry.status === "uploading" ? (
                           <Progress
-                            className="col-span-3"
                             value={Math.round(entry.progress * 100)}
                             label={`Upload progress for ${entry.file.name}`}
                           />
                         ) : null}
                         {entry.error ? (
-                          <p className="col-span-3 flex items-start gap-1.5 text-caption text-danger-ink">
+                          <p className="flex items-start gap-1.5 text-caption text-danger-ink">
                             <CircleAlertIcon
                               aria-hidden
                               className="mt-px size-3.5 shrink-0"
@@ -578,7 +567,7 @@ export function AddPhotoDialog({
                             </span>
                           </p>
                         ) : null}
-                      </li>
+                      </UploadFileCard>
                     )
                   })}
                 </ul>
@@ -646,7 +635,7 @@ export function AddPhotoDialog({
         ) : (
           <DialogFooter className="sm:items-center">
             {entries.length > 0 ? (
-              <span className="text-caption text-ink-muted sm:mr-auto">
+              <span className="text-caption text-ink-muted tabular-nums sm:mr-auto">
                 {done} sent · {ready.length} ready · {cannot} can’t upload
               </span>
             ) : null}

@@ -29,7 +29,7 @@ class DetailErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       const { onBack } = this.props
       return (
-        <div className="p-(--np-card-pad)">
+        <div className="px-(--np-page-pad-x) py-(--np-card-pad) md:px-7">
           <Alert variant="destructive">
             <AlertTitle>This review could not be shown.</AlertTitle>
             <AlertDescription className="flex flex-col items-start gap-2">
@@ -38,13 +38,12 @@ class DetailErrorBoundary extends Component<Props, State> {
                 review.
               </span>
               <span className="flex flex-wrap gap-2">
-                <Button variant="secondary" pill onClick={this.reset}>
+                <Button variant="secondary" onClick={this.reset}>
                   Try again
                 </Button>
                 {onBack ? (
                   <Button
                     variant="ghost"
-                    pill
                     onClick={onBack}
                     className="lg:hidden"
                   >

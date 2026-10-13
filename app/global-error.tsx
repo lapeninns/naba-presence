@@ -36,7 +36,7 @@ export default function GlobalError({
         <main
           id="main"
           tabIndex={-1}
-          className="flex min-h-svh flex-col items-center justify-center gap-6 px-4 py-10 outline-none"
+          className="flex min-h-svh flex-col items-center justify-center gap-6 px-safe py-10 outline-none"
         >
           {/* BrandMark (size lg), drawn inline. */}
           <span
@@ -59,35 +59,33 @@ export default function GlobalError({
           </span>
           <section
             aria-labelledby="global-error-title"
-            className="flex w-full max-w-[460px] flex-col gap-4 rounded-2xl border border-line bg-surface p-[clamp(20px,5vw,32px)]"
+            className="flex w-full max-w-md flex-col items-center gap-2 px-5 text-center sm:rounded-2xl sm:border sm:border-line sm:bg-surface sm:p-8"
           >
             <span
               aria-hidden
-              className="grid size-11 place-items-center rounded-lg bg-danger-tint text-danger-ink"
+              className="mb-1 grid size-11 place-items-center rounded-lg bg-danger-tint text-danger-ink"
             >
-              <TriangleAlert className="size-5" strokeWidth={1.75} />
+              <TriangleAlert className="size-5" strokeWidth={1.5} />
             </span>
-            <div className="flex flex-col gap-1.5">
-              <h1
-                id="global-error-title"
-                className="font-display text-page-title font-semibold text-balance"
-              >
-                Something went wrong
-              </h1>
-              <p className="text-body text-ink-muted">
-                NabaPresence hit an unexpected error before the page could load.
-                Your data is unaffected.
-              </p>
-            </div>
+            <h1
+              id="global-error-title"
+              className="text-title font-medium text-balance text-ink"
+            >
+              Something went wrong
+            </h1>
+            <p className="text-ui text-pretty text-ink-muted">
+              NabaPresence hit an unexpected error before the page could load.
+              Your data is unaffected.
+            </p>
             {error.digest ? (
-              <p className="flex flex-wrap items-center gap-2 text-caption text-ink-muted">
+              <p className="flex max-w-full flex-wrap items-center justify-center gap-2 text-caption text-ink-muted">
                 Reference
-                <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-[12px] [overflow-wrap:anywhere] text-ink">
+                <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-caption [overflow-wrap:anywhere] text-ink">
                   {error.digest}
                 </code>
               </p>
             ) : null}
-            <div className="flex flex-col gap-2">
+            <div className="mt-3 flex w-full flex-col gap-1">
               <button
                 type="button"
                 className={boundaryButtonClass("primary", "lg", "w-full")}
@@ -111,9 +109,9 @@ export default function GlobalError({
               </a>
             </div>
           </section>
-          <p className="max-w-[460px] text-center text-caption text-ink-muted">
+          <p className="max-w-md px-5 text-center text-caption text-pretty text-ink-muted">
             If this keeps happening, share the reference with an owner or admin
-            in your agency.
+            in your workspace.
           </p>
         </main>
       </body>

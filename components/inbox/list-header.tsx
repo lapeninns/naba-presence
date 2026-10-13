@@ -5,6 +5,7 @@ import { useSelection } from "@/components/inbox/selection-context"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import type { ReviewRow } from "@/lib/contracts/reviews"
+import { formatNumber } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /**
@@ -14,8 +15,9 @@ import { cn } from "@/lib/utils"
  * On a desk the select-all box is always there, beside the rows' own
  * boxes. On touch the boxes would cost every row 44px of width for a tool
  * used now and then, so they wait for select mode: "Select" turns it on,
- * "Done" turns it off (and clears the selection). Viewers have no bulk
- * tools, so they get neither.
+ * and the band then reads "N selected" with "Cancel", which turns it off
+ * (and clears the selection). Viewers have no bulk tools, so they get
+ * neither.
  */
 function ListHeader({
   canBatch,
@@ -41,11 +43,13 @@ function ListHeader({
   const selection = useSelection()
   const ticked = reviews.filter((review) => selection.selected.has(review.id))
   const allTicked = reviews.length > 0 && ticked.length === reviews.length
+  // Only a viewer who can batch ever enters select mode.
+  const selectMode = canBatch && selection.selectMode
 
   return (
     <div
       data-slot="inbox-list-header"
-      className="flex min-h-11 shrink-0 items-center gap-2.5 border-b border-line px-3 text-caption text-ink-muted"
+      className="flex min-h-11 shrink-0 items-center gap-2.5 border-b border-line-subtle px-(--np-page-pad-x) text-caption text-ink-muted"
     >
       {canBatch ? (
         // A 44px column only to line the box up with the rows' checkbox
@@ -53,8 +57,9 @@ function ListHeader({
         <span
           data-slot="inbox-select-all"
           className={cn(
-            "-ml-3 w-11 shrink-0 items-center justify-center",
-            selection.selectMode ? "flex" : "hidden desk:flex"
+            // Pulled back over the gutter, so it sits in the rows' column.
+            "-ml-(--np-page-pad-x) w-11 shrink-0 items-center justify-center",
+            selectMode ? "flex" : "hidden desk:flex"
           )}
         >
           <Checkbox
@@ -69,7 +74,25 @@ function ListHeader({
           />
         </span>
       ) : null}
-      <span className="whitespace-nowrap tabular-nums">{countLabel}</span>
+      {selectMode ? (
+        // Touch select mode: the band says what is ticked, as the bar
+        // below acts on it. A desk keeps the count (its boxes are always
+        // there, so ticking one is not a mode it needs telling about).
+        <span
+          data-slot="inbox-selected-count"
+          className="text-title font-semibold whitespace-nowrap text-ink tabular-nums desk:hidden"
+        >
+          {formatNumber(ticked.length)} selected
+        </span>
+      ) : null}
+      <span
+        className={cn(
+          "whitespace-nowrap tabular-nums",
+          selectMode && "hidden desk:inline"
+        )}
+      >
+        {countLabel}
+      </span>
       {/* The count is spoken once per queue or filter change, not again
           every time another page of rows arrives — scrolling a backlog
           used to announce "50 reviews so far", "100 reviews so far"… */}
@@ -90,7 +113,8 @@ function ListHeader({
           aria-hidden={refreshed ? undefined : true}
           className={cn(
             "whitespace-nowrap tabular-nums",
-            !refreshed && "invisible"
+            !refreshed && "invisible",
+            selectMode && "hidden desk:inline"
           )}
         >
           Refreshed {refreshed ?? "00:00"}
@@ -105,12 +129,14 @@ function ListHeader({
         <Button
           variant="ghost"
           // Touch only: on a desk the boxes are always showing. The default
-          // size is the 44px touch control.
+          // size is the 44px touch control. Cancel ends the mode and drops
+          // what was ticked; its name says what it cancels.
           className="-mr-2 px-3 desk:hidden"
-          disabled={!selection.selectMode && (!loaded || reviews.length === 0)}
-          onClick={() => selection.setSelectMode(!selection.selectMode)}
+          aria-label={selectMode ? "Cancel selection" : undefined}
+          disabled={!selectMode && (!loaded || reviews.length === 0)}
+          onClick={() => selection.setSelectMode(!selectMode)}
         >
-          {selection.selectMode ? "Done" : "Select"}
+          {selectMode ? "Cancel" : "Select"}
         </Button>
       ) : null}
     </div>

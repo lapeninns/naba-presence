@@ -7,7 +7,13 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
-export type ConfirmationMatch = "insensitive" | "exact"
+export type ConfirmationMatch = "insensitive" | "exact" | "trimmed-insensitive"
+
+/**
+ * A caller's own rule: does `value` confirm `expected`? Only asked when
+ * `expected` has something to match (it is never called with a blank one).
+ */
+export type ConfirmationMatcher = (value: string, expected: string) => boolean
 
 /**
  * Whether the typed text confirms `expected`.
@@ -18,21 +24,40 @@ export type ConfirmationMatch = "insensitive" | "exact"
  *   reading the name, not matching its capitals.
  * - `exact`: both sides trimmed only. For irreversible requests where the
  *   name itself is the evidence (a lifecycle request sent to Google).
+ * - `trimmed-insensitive`: both sides trimmed and lowercased
+ *   (`toLowerCase`), inner spaces kept as typed, so "camden  hotel" (two
+ *   spaces) does NOT match "Camden Hotel". The rule a guard such as
+ *   DangerZoneDialog already enforces; pick it so the "Matches" line and
+ *   that guard agree.
+ * - `matcher` (when given) replaces `match` entirely.
  *
- * An empty `expected` never matches, not even an empty value: a dialog
- * rendered before its name loads must not arm its destructive button.
+ * An empty or blank `expected` never matches, not even an empty value, in
+ * every mode and before any `matcher` is asked: a dialog rendered before its
+ * name loads must not arm its destructive button.
+ *
+ * Callers that gate a button themselves should gate it with this same
+ * function and the same arguments (or with `onMatchChange`), so the visible
+ * "Matches" and the button's arming can never disagree.
  */
 export function confirmationMatches(
   value: string,
   expected: string,
-  match: ConfirmationMatch = "insensitive"
+  match: ConfirmationMatch = "insensitive",
+  matcher?: ConfirmationMatcher
 ): boolean {
-  const canon = (text: string) =>
-    match === "exact"
-      ? text.trim()
-      : text.trim().replace(/\s+/g, " ").toLocaleLowerCase()
-  const target = canon(expected)
-  return target.length > 0 && canon(value) === target
+  if (expected.trim().length === 0) return false
+  if (matcher) return matcher(value, expected) === true
+  const canon = (text: string) => {
+    switch (match) {
+      case "exact":
+        return text.trim()
+      case "trimmed-insensitive":
+        return text.trim().toLowerCase()
+      default:
+        return text.trim().replace(/\s+/g, " ").toLocaleLowerCase()
+    }
+  }
+  return canon(value) === canon(expected)
 }
 
 /**
@@ -46,9 +71,11 @@ export function confirmationMatches(
  * caller's confirm button stays disabled until `onMatchChange(true)`.
  *
  * Consumers to migrate:
- * - `components/locations/danger-zone-dialog.tsx` — trims and lowercases;
- *   use the default `match="insensitive"` (which also collapses inner spaces)
- *   and drive the confirm button from `onMatchChange`.
+ * - `components/locations/danger-zone-dialog.tsx` — trims and lowercases
+ *   without collapsing inner spaces; pass `match="trimmed-insensitive"` and
+ *   gate the button with `confirmationMatches(typed, expectedName,
+ *   "trimmed-insensitive")` (or `onMatchChange`), so the line and the
+ *   button use one rule and the guard is exactly as strict as before.
  * - `components/locations/administration/lifecycle-review.tsx` — compares
  *   `typedName !== locationName` raw; use `match="exact"`. Note "exact" trims,
  *   so a stray trailing space from autofill no longer blocks sending.
@@ -57,14 +84,37 @@ export type TypedConfirmationProps = Omit<
   React.ComponentProps<typeof Input>,
   "value" | "defaultValue" | "onChange"
 > & {
-  /** The text the person must type (a location name, usually). */
-  expected: string
+  /**
+   * The text the person must type (a location name, usually).
+   *
+   * It may be `null` or empty while it loads or when the source has none (a
+   * Google connection whose email is unknown). Then `fallbackExpected` is
+   * asked for instead; with no fallback either, nothing can match, so the
+   * caller's destructive button never arms (see `confirmationMatches`).
+   */
+  expected: string | null | undefined
+  /**
+   * What to ask for when `expected` is `null`, `undefined` or blank, e.g.
+   * the connection's display name when its Google email is unknown. The
+   * label and the match both use it.
+   */
+  fallbackExpected?: string | null
   value?: string
   defaultValue?: string
   onValueChange?: (value: string) => void
   /** Fires when the match state flips (and not on every keystroke). */
   onMatchChange?: (matched: boolean) => void
+  /**
+   * How the typed text is compared (see `confirmationMatches`). The same
+   * rule drives the "Matches" line, `data-matched` and `onMatchChange`, so
+   * a confirm button armed by `onMatchChange` always agrees with the line.
+   */
   match?: ConfirmationMatch
+  /**
+   * A caller's own comparison, replacing `match`. Still never asked when
+   * `expected` is blank: with nothing to match, nothing matches.
+   */
+  matcher?: ConfirmationMatcher
   /** Replaces the default "Type **expected** to confirm" label. */
   label?: React.ReactNode
   /** Hint beneath the input. */
@@ -74,12 +124,14 @@ export type TypedConfirmationProps = Omit<
 }
 
 function TypedConfirmation({
-  expected,
+  expected: expectedProp,
+  fallbackExpected,
   value: valueProp,
   defaultValue,
   onValueChange,
   onMatchChange,
   match = "insensitive",
+  matcher,
   label,
   description,
   fieldClassName,
@@ -87,7 +139,11 @@ function TypedConfirmation({
 }: TypedConfirmationProps) {
   const [uncontrolled, setUncontrolled] = React.useState(defaultValue ?? "")
   const value = valueProp ?? uncontrolled
-  const matched = confirmationMatches(value, expected, match)
+  const expected =
+    expectedProp && expectedProp.trim().length > 0
+      ? expectedProp
+      : (fallbackExpected ?? "")
+  const matched = confirmationMatches(value, expected, match, matcher)
 
   // Report flips, not keystrokes; an effect (not the change handler) so a
   // controlled parent resetting the value, or `expected` loading late, is

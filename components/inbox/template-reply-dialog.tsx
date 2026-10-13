@@ -309,19 +309,19 @@ function TemplateReplyDialog({
 
             {bands.length > 0 ? (
               <div className="flex flex-col gap-2">
-                <h3 className="text-caption font-semibold text-ink-muted">
+                <h3 className="text-caption font-medium text-ink-muted">
                   What they will say (English shown)
                 </h3>
                 <ul className="flex flex-col gap-2">
                   {bands.map(({ band, example }) => (
                     <li
                       key={band}
-                      className="rounded-(--np-radius-control) border border-line bg-surface-alt p-3"
+                      className="rounded-(--np-radius-control) bg-fill-secondary p-3"
                     >
                       <p className="text-caption text-ink-muted">
                         {BAND_LABEL[band]} · e.g. to {reviewerName(example)}
                       </p>
-                      <p className="mt-1 text-body">
+                      <p className="mt-1 text-body text-ink">
                         {
                           ratingOnlyReply(
                             example.rating,
@@ -355,10 +355,12 @@ function TemplateReplyDialog({
                   {skipped.length} selected{" "}
                   {skipped.length === 1 ? "is" : "are"} left out
                 </summary>
-                <ul className="mt-2 flex flex-col gap-1">
+                <ul className="mt-2 flex flex-col gap-1 text-ink-secondary">
                   {skipped.map(({ row, reason }) => (
                     <li key={row.id}>
-                      <span className="font-semibold">{reviewerName(row)}</span>{" "}
+                      <span className="font-semibold text-ink">
+                        {reviewerName(row)}
+                      </span>{" "}
                       · {row.location.name}: {TEMPLATE_SKIP_COPY[reason]}
                     </li>
                   ))}
@@ -426,11 +428,13 @@ function TemplateReplyDialog({
         ) : null}
 
         {(phase === "review" || phase === "done") && problems.length > 0 ? (
-          <ul className="flex flex-col gap-1 text-caption">
+          <ul className="flex flex-col gap-1 text-caption text-ink-secondary">
             {problems.map((row) => (
               <li key={row.id}>
-                <span className="font-semibold">{reviewerName(row)}</span> ·{" "}
-                {row.location.name}: {outcomes[row.id]?.problem}
+                <span className="font-semibold text-ink">
+                  {reviewerName(row)}
+                </span>{" "}
+                · {row.location.name}: {outcomes[row.id]?.problem}
               </li>
             ))}
           </ul>
@@ -526,18 +530,20 @@ function QueuedSummary({
         {result.operationId ? (
           <Link
             href={`/listings/bulk/${result.operationId}`}
-            className="font-semibold underline underline-offset-2"
+            className="rounded-(--np-radius-tag) font-semibold text-accent-ink underline underline-offset-2 focus-halo"
           >
             Follow this batch
           </Link>
         ) : null}
       </p>
       {left.length > 0 ? (
-        <ul className="flex flex-col gap-1 text-caption">
+        <ul className="flex flex-col gap-1 text-caption text-ink-secondary">
           {left.map((row) => (
             <li key={row.reviewId}>
-              <span className="font-semibold">{name(row.reviewId)}</span>:{" "}
-              {row.code ? describeErrorCode(row.code) : "Left out."}
+              <span className="font-semibold text-ink">
+                {name(row.reviewId)}
+              </span>
+              : {row.code ? describeErrorCode(row.code) : "Left out."}
             </li>
           ))}
         </ul>
