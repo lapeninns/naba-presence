@@ -7,6 +7,7 @@ import { ClientAccessDialog } from "@/components/settings/client-access-dialog"
 import { Toaster } from "@/components/ui/toast"
 import * as membersApi from "@/lib/api/members"
 import type { Member } from "@/lib/api/members"
+import { queryKeys } from "@/lib/queries/keys"
 import type {
   ClientAccessResponse,
   ClientAccessRow,
@@ -15,6 +16,11 @@ import type {
 const useClientAccessMock = vi.fn()
 vi.mock("@/lib/queries/use-members", () => ({
   useClientAccess: () => useClientAccessMock(),
+}))
+
+const useLocationDirectoryMock = vi.fn()
+vi.mock("@/lib/queries/use-locations", () => ({
+  useLocationDirectory: (role: string) => useLocationDirectoryMock(role),
 }))
 
 const CROWN = "00000000-0000-4000-8000-00000000c001"
@@ -62,7 +68,11 @@ function access(
   }
 }
 
-function renderDialog(data: ClientAccessResponse, member: Member = ben) {
+function renderDialog(
+  data: ClientAccessResponse,
+  member: Member = ben,
+  mode: "agency" | "business" = "agency"
+) {
   useClientAccessMock.mockReturnValue({
     data,
     isPending: false,
@@ -72,6 +82,11 @@ function renderDialog(data: ClientAccessResponse, member: Member = ben) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
+  if (mode === "business") {
+    client.setQueryData(queryKeys.session, {
+      session: { workspaceMode: "business" },
+    })
+  }
   const onOpenChange = vi.fn()
   render(
     <QueryClientProvider client={client}>
@@ -271,5 +286,74 @@ describe("ClientAccessDialog", () => {
     await user.click(screen.getByRole("button", { name: "Save access" }))
     expect(await screen.findByText("Access wasn’t changed")).toBeInTheDocument()
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+})
+
+describe("ClientAccessDialog in business mode (location access)", () => {
+  const OAK = "00000000-0000-4000-8000-0000000000l1"
+  const ELM = "00000000-0000-4000-8000-0000000000l2"
+  function directory() {
+    useLocationDirectoryMock.mockReturnValue({
+      data: [
+        { id: OAK, name: "Oak Street", linked: true },
+        { id: ELM, name: "Elm Road", linked: true },
+      ],
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+  }
+
+  it("ticks locations and saves them with publishing for a member", async () => {
+    const user = userEvent.setup()
+    directory()
+    const save = vi
+      .spyOn(membersApi, "updateClientAccess")
+      .mockResolvedValue(access({ allClients: false }))
+    renderDialog(access(), ben, "business")
+    expect(useLocationDirectoryMock).toHaveBeenCalledWith("owner")
+
+    await user.click(
+      screen.getByRole("radio", { name: /Only these locations/ })
+    )
+    await user.click(screen.getByRole("checkbox", { name: "Oak Street" }))
+    await user.click(
+      screen.getByRole("switch", { name: "Can publish to Oak Street" })
+    )
+    expect(screen.getByTestId("access-consequence")).toHaveTextContent(
+      "Ben will see 1 location. Locations added later stay hidden from them."
+    )
+    await user.click(screen.getByRole("button", { name: "Save access" }))
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(ben.userId, {
+        locations: [{ locationId: OAK, canPublish: true }],
+      })
+    )
+  })
+
+  it("saves a viewer's locations without a publishing flag", async () => {
+    const user = userEvent.setup()
+    directory()
+    const save = vi
+      .spyOn(membersApi, "updateClientAccess")
+      .mockResolvedValue(access({ allClients: false, role: "viewer" }))
+    renderDialog(
+      access({
+        role: "viewer",
+        allClients: false,
+        locationGrants: [{ locationId: ELM, canPublish: false }],
+      }),
+      { ...ben, role: "viewer" },
+      "business"
+    )
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("checkbox", { name: "Oak Street" }))
+    await user.click(screen.getByRole("button", { name: "Save access" }))
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(ben.userId, {
+        locations: [{ locationId: ELM }, { locationId: OAK }],
+      })
+    )
   })
 })
