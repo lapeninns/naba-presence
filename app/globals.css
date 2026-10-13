@@ -816,6 +816,36 @@
   }
 }
 
+/* CHROME CONTRACT. Two attributes coordinate the phone's bars without any
+   shared JS state:
+     - the bottom tab bar renders `data-slot="tab-bar"`;
+     - an ActionBar docked to the bottom of a phone renders
+       `data-docked="bottom"`.
+   One bar owns the bottom edge: while a docked action bar is on the page,
+   the tab bar steps aside. The document's scroll padding follows whichever
+   bar is there, so a focused field scrolled into view is never left under
+   the app bar or a bottom bar (WCAG 2.4.11). On a desk the toolbar is the
+   only sticky chrome. */
+@media (width < 48rem) {
+  html {
+    scroll-padding-top: calc(var(--np-appbar-h) + var(--np-safe-top));
+    scroll-padding-bottom: calc(var(--np-tabbar-h) + var(--np-safe-bottom));
+  }
+  html:has([data-docked="bottom"]) {
+    scroll-padding-bottom: calc(
+      var(--np-actionbar-h) + var(--np-dock-bottom)
+    );
+  }
+  body:has([data-docked="bottom"]) [data-slot="tab-bar"] {
+    display: none;
+  }
+}
+@media (width >= 48rem) {
+  html {
+    scroll-padding-top: var(--np-toolbar-h);
+  }
+}
+
 @utility material-sidebar {
   background-color: var(--np-material-sidebar);
 }
