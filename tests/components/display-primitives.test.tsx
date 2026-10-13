@@ -213,7 +213,8 @@ describe("DataTable record cards", () => {
         }}
       />
     )
-    expect(screen.getByText("Select all 2")).toHaveAttribute("aria-hidden")
+    // The bar's words start with the checkbox's own name (label in name).
+    expect(screen.getByText("Select all 2 rows")).toHaveAttribute("aria-hidden")
     expect(
       screen.getByRole("checkbox", { name: "Select Old Crown" }).closest("td")
     ).toHaveAttribute("data-priority", "select")
@@ -236,7 +237,12 @@ describe("DataTable record cards", () => {
         }}
       />
     )
-    expect(screen.getByText("1 of 2 selected")).toBeInTheDocument()
+    expect(
+      screen.getByText("Select all 2 rows · 1 selected")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("checkbox", { name: "Select all 2 rows" })
+    ).toBeInTheDocument()
   })
 })
 

@@ -160,11 +160,15 @@ function DataTable<Row>({
                 />
                 {/* Record cards hide the column names, so the bar the
                     checkbox becomes says what it does and how many are
-                    chosen. */}
+                    chosen. The words start with the checkbox's own name
+                    (WCAG 2.5.3 label in name), so "Select all 5 rows"
+                    spoken to voice control finds it. */}
                 <TableSelectAllLabel>
-                  {selectedCount > 0
-                    ? `${selectedCount} of ${rows.length} selected`
-                    : `Select all ${rows.length}`}
+                  {allSelected
+                    ? `Clear the selection · ${selectedCount} selected`
+                    : selectedCount > 0
+                      ? `Select all ${rows.length} rows · ${selectedCount} selected`
+                      : `Select all ${rows.length} rows`}
                 </TableSelectAllLabel>
               </TableHead>
             ) : null}
