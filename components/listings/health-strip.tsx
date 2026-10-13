@@ -22,6 +22,7 @@ import { listingHref } from "@/lib/listings/areas"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { cardClassName } from "@/components/ui/card"
+import { useNow } from "@/lib/time/server-now"
 
 const GRID = "grid grid-cols-2 gap-2 @[640px]:gap-3 @[980px]:grid-cols-4"
 
@@ -89,6 +90,7 @@ function HealthStrip({
   summaryFailed?: boolean
   canManageConsoles: boolean
 }) {
+  const now = useNow()
   const business = useWorkspaceMode() === "business"
   if (!summary && summaryFailed) {
     return (
@@ -144,8 +146,8 @@ function HealthStrip({
   const unpublished = unpublishedCount(summary)
   const changed = googleChangedCount(summary)
   const last = summary.lastPublish
-  const unchecked = uncheckedAreas(summary)
-  const health = listingHealth({ linked, summary })
+  const unchecked = uncheckedAreas(summary, now)
+  const health = listingHealth({ linked, summary, now })
   // Without a working login for this listing nothing here was checked
   // recently, whatever the last comparison said.
   const unreachable = linked && (connectionBroken || accessLost)

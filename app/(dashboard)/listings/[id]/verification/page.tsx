@@ -1,4 +1,4 @@
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { AreaFrame } from "@/components/listings/area-frame"
 import { VerificationTab } from "@/components/locations/administration"
@@ -24,7 +24,11 @@ export default async function ListingVerificationPage({
   const state = await prefetch(session, listingPagePrefetch(id))
   return (
     <HydrationBoundary state={state}>
-      <AreaFrame locationId={id} role={session?.role ?? null} area="verification">
+      <AreaFrame
+        locationId={id}
+        role={session?.role ?? null}
+        area="verification"
+      >
         <VerificationTab locationId={id} />
       </AreaFrame>
     </HydrationBoundary>

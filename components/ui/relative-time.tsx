@@ -3,47 +3,7 @@
 import * as React from "react"
 
 import { formatDateTime, formatRelativeTime } from "@/lib/format"
-
-/**
- * The shared clock every `RelativeTime` reads. One interval for the whole
- * page, running only while something is mounted, so "4 min ago" keeps
- * ageing on a screen left open.
- */
-const TICK_MS = 15_000
-const listeners = new Set<() => void>()
-let timer: ReturnType<typeof setInterval> | undefined
-let clock = 0
-
-function subscribe(listener: () => void) {
-  listeners.add(listener)
-  timer ??= setInterval(() => {
-    for (const notify of listeners) notify()
-  }, TICK_MS)
-  return () => {
-    listeners.delete(listener)
-    if (listeners.size === 0 && timer !== undefined) {
-      clearInterval(timer)
-      timer = undefined
-    }
-  }
-}
-
-/**
- * The clock as React reads it. React asks for a snapshot more than once per
- * render and needs the same answer each time, so a reading is held, but it
- * is never behind the real clock: once the wall clock passes the held
- * reading, the next read takes a new one, up to `HOLD_MS` ahead. An age is
- * therefore never shown younger than it is. (Holding a reading for a second
- * in either direction let an earlier render's reading predate a timestamp
- * taken a moment later, and "16 minutes ago" read "15".)
- */
-const HOLD_MS = 250
-
-function readClock(): number {
-  const now = Date.now()
-  if (now > clock || clock - now > HOLD_MS) clock = now + HOLD_MS
-  return clock
-}
+import { readClock, subscribeClock } from "@/lib/time/clock"
 
 /** Whether this render is hydrating server HTML (or is on the server). */
 function subscribeNever() {
@@ -95,7 +55,7 @@ function RelativeTime({
   timeZone?: string
   as?: "time" | "span"
 }) {
-  const now = React.useSyncExternalStore(subscribe, readClock, readClock)
+  const now = React.useSyncExternalStore(subscribeClock, readClock, readClock)
   const live = React.useSyncExternalStore(
     subscribeNever,
     hydrated,

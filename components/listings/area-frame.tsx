@@ -69,6 +69,7 @@ import { useListingSummary } from "@/lib/queries/use-listing-summary"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
+import { useNow } from "@/lib/time/server-now"
 
 /**
  * The gutters and bottom padding of PageFrame, negated and then restored as
@@ -582,7 +583,8 @@ function AreaStatusPill({
   area: ListingAreaKey
   summary: ListingSummary
 }) {
-  const state = areaState(area, summary)
+  const now = useNow()
+  const state = areaState(area, summary, now)
   return <StatusPill tone={state.tone}>{state.label}</StatusPill>
 }
 

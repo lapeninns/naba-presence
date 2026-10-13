@@ -1,4 +1,4 @@
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { ReviewPublish } from "@/components/listings/review-publish"
 import { listingPageMetadata } from "@/lib/server/listing-metadata"

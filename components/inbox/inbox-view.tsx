@@ -74,6 +74,7 @@ import { useConnectionHealth } from "@/lib/queries/use-connection-health"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { formatNumber } from "@/lib/format"
+import { useNow } from "@/lib/time/server-now"
 
 /**
  * On a phone the panes run edge to edge (reference `.panel` below md): the
@@ -132,7 +133,14 @@ function InboxViewInner({
     const parsed = parseInboxState(new URLSearchParams(searchParams.toString()))
     return business ? { ...parsed, clientId: undefined } : parsed
   }, [business, searchParams])
-  const filters = useMemo(() => toReviewsFilters(state), [state])
+  // An age preset's window moves on the hour. The hour comes from the
+  // hydration-stable clock, so the server and the hydrating browser build
+  // the same query key however far the device clock is off.
+  const hour = Math.floor(useNow() / 3_600_000)
+  const filters = useMemo(
+    () => toReviewsFilters(state, { now: hour * 3_600_000 }),
+    [state, hour]
+  )
   const dirtyGate = useDirtyGate()
   const readIsDirty = useReadIsDirty()
 

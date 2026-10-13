@@ -1,6 +1,6 @@
 import "server-only"
 
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 import { Suspense, type ReactNode } from "react"
 
 import { TabLoading } from "@/components/locations/tab-states"

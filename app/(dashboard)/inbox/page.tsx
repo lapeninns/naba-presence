@@ -1,4 +1,4 @@
-import { HydrationBoundary } from "@tanstack/react-query"
+import { HydrationBoundary } from "@/lib/queries/hydration-boundary"
 
 import { PageFrame } from "@/components/app-shell/page-frame"
 import { InboxView } from "@/components/inbox/inbox-view"

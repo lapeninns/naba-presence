@@ -21,6 +21,7 @@ import {
   type LocationCapabilities,
 } from "@/lib/locations/gating"
 import { cn } from "@/lib/utils"
+import { useNow } from "@/lib/time/server-now"
 
 const GRID =
   "grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr))]"
@@ -119,6 +120,7 @@ function AreaCards({
   caps: LocationCapabilities | undefined
   canManageConsoles: boolean
 }) {
+  const now = useNow()
   const waiting = suggestionCount(summary)
   const areas = visibleListingAreas(canManageConsoles)
     .filter((area) => (area.key === "suggestions" ? waiting > 0 : true))
@@ -126,7 +128,7 @@ function AreaCards({
       const priority = (area: ListingArea) => {
         if (area.key === "suggestions") return 0
         if (!summary) return 4
-        const tone = areaState(area.key, summary).tone
+        const tone = areaState(area.key, summary, now).tone
         return tone === "at-risk"
           ? 1
           : tone === "attention"
@@ -201,7 +203,7 @@ function AreaCards({
               (area.key === "menu" && summary?.menu.eligible === false)
             ? "View"
             : !summary ||
-                (synced && comparisonCheck(synced) !== "checked") ||
+                (synced && comparisonCheck(synced, now) !== "checked") ||
                 ["photos", "posts", "people", "verification"].includes(area.key)
               ? "Check"
               : "Edit"
@@ -255,7 +257,7 @@ function AreaCards({
           )
         }
 
-        const state = areaState(area.key, summary)
+        const state = areaState(area.key, summary, now)
         return (
           <AreaCard
             key={area.key}
