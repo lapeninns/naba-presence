@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
@@ -84,6 +85,125 @@ describe("FilterChip", () => {
     const strip = screen.getByRole("group", { name: "Filters" })
     expect(strip).toHaveAttribute("data-slot", "filter-chip-strip")
     expect(strip.className).toContain("overflow-x-auto")
+  })
+})
+
+describe("FilterChip counts", () => {
+  it("draws counts in sans tabular figures and alert counts in the danger ink", () => {
+    render(
+      <>
+        <FilterChip count={12}>All</FilterChip>
+        <FilterChip count={2} countTone="alert">
+          Needs attention
+        </FilterChip>
+      </>
+    )
+    const plain = screen.getByText("12")
+    expect(plain).toHaveClass("text-count", "tabular-nums")
+    expect(plain.className).not.toContain("font-mono")
+    expect(plain.className).not.toContain("text-danger-ink")
+    const alert = screen.getByText("2")
+    expect(alert).toHaveAttribute("data-tone", "alert")
+    expect(alert).toHaveClass("text-danger-ink")
+    // The word stays in the name: colour only reinforces it.
+    expect(
+      screen.getByRole("button", { name: "Needs attention 2" })
+    ).toBeInTheDocument()
+  })
+})
+
+function Applied({
+  initial,
+  onEmpty,
+}: {
+  initial: string[]
+  onEmpty?: () => void
+}) {
+  const [filters, setFilters] = useState(initial)
+  return (
+    <>
+      <FilterChipStrip aria-label="Applied" role="group" onEmpty={onEmpty}>
+        {filters.map((filter) => (
+          <FilterChip
+            key={filter}
+            onRemove={() =>
+              setFilters((current) => current.filter((item) => item !== filter))
+            }
+          >
+            {filter}
+          </FilterChip>
+        ))}
+      </FilterChipStrip>
+      <button type="button">Search</button>
+    </>
+  )
+}
+
+describe("FilterChipStrip focus handoff", () => {
+  it("moves focus to the next chip when the focused one is removed", async () => {
+    const user = userEvent.setup()
+    render(<Applied initial={["5★", "Riverside", "With text"]} />)
+    screen.getByRole("button", { name: "Remove filter: Riverside" }).focus()
+    await user.keyboard("{Enter}")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Remove filter: With text" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("falls back to the previous chip when the last one is removed", async () => {
+    const user = userEvent.setup()
+    render(<Applied initial={["5★", "Riverside"]} />)
+    screen.getByRole("button", { name: "Remove filter: Riverside" }).focus()
+    await user.keyboard("{Enter}")
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Remove filter: 5★" })
+      ).toHaveFocus()
+    )
+  })
+
+  it("calls onEmpty when no chip is left, and never leaves focus on the body", async () => {
+    const user = userEvent.setup()
+    const onEmpty = vi.fn(() =>
+      screen.getByRole("button", { name: "Search" }).focus()
+    )
+    render(<Applied initial={["5★"]} onEmpty={onEmpty} />)
+    screen.getByRole("button", { name: "Remove filter: 5★" }).focus()
+    await user.keyboard("{Enter}")
+    await waitFor(() => expect(onEmpty).toHaveBeenCalledOnce())
+    expect(screen.getByRole("button", { name: "Search" })).toHaveFocus()
+  })
+
+  it("focuses the strip itself when no chip is left and there is no onEmpty", async () => {
+    const user = userEvent.setup()
+    render(<Applied initial={["5★"]} />)
+    screen.getByRole("button", { name: "Remove filter: 5★" }).focus()
+    await user.keyboard("{Enter}")
+    const strip = screen.getByRole("group", { name: "Applied" })
+    await waitFor(() => expect(strip).toHaveFocus())
+    expect(strip).toHaveAttribute("tabindex", "-1")
+  })
+
+  it("leaves focus alone when the reader moved it elsewhere first", async () => {
+    const { rerender } = render(
+      <FilterChipStrip aria-label="Applied" role="group">
+        <FilterChip onRemove={() => {}}>5★</FilterChip>
+      </FilterChipStrip>
+    )
+    screen.getByRole("button", { name: "Remove filter: 5★" }).focus()
+    const outside = document.createElement("button")
+    document.body.append(outside)
+    outside.focus()
+    rerender(
+      <FilterChipStrip aria-label="Applied" role="group">
+        {null}
+      </FilterChipStrip>
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(outside).toHaveFocus()
+    outside.remove()
   })
 })
 

@@ -60,7 +60,7 @@ export function ChartLegend({
           />
           {item.label}
           {item.value !== undefined && item.value !== null ? (
-            <span className="font-mono font-semibold text-ink tabular-nums">
+            <span className="font-semibold text-ink tabular-nums">
               {item.value}
             </span>
           ) : null}

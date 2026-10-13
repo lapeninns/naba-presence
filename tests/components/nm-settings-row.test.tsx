@@ -47,7 +47,9 @@ describe("SettingsGroup", () => {
       level: 2,
       name: "Notifications per event",
     })
-    expect(label).toHaveClass("text-ui", "font-medium", "text-ink-muted")
+    // D8: section labels are sentence-case caption medium muted ink.
+    expect(label).toHaveClass("text-caption", "font-medium", "text-ink-muted")
+    expect(label.className).not.toMatch(/font-mono|uppercase/)
     // No card on a phone; a bordered card only at the desk.
     const rows = section.querySelector('[data-slot="settings-group-rows"]')!
     expect(rows.className).not.toMatch(/(^|\s)border(\s|$)/)
@@ -59,6 +61,172 @@ describe("SettingsGroup", () => {
     action.focus()
     await user.keyboard("{Enter}")
     expect(onToggleAll).toHaveBeenCalledOnce()
+  })
+})
+
+describe("SettingsGroup slots (F7, F3)", () => {
+  it("names its heading from the id, focusable by script only, with caption and actions", () => {
+    render(
+      <SettingsGroup
+        id="hours"
+        headingAs="h3"
+        label="Opening hours"
+        caption="Saved together with the rest of the profile."
+        actions={
+          <SettingsGroupAction onClick={() => {}}>
+            Open profile
+          </SettingsGroupAction>
+        }
+      >
+        <SettingsRow label="Monday" value="11:00–23:00" />
+      </SettingsGroup>
+    )
+    const section = screen.getByRole("region", { name: "Opening hours" })
+    expect(section).toHaveAttribute("id", "hours")
+    expect(section).toHaveAccessibleDescription(
+      "Saved together with the rest of the profile."
+    )
+    const heading = screen.getByRole("heading", {
+      level: 3,
+      name: "Opening hours",
+    })
+    expect(heading).toHaveAttribute("id", "hours-heading")
+    expect(heading).toHaveAttribute("tabindex", "-1")
+    document.getElementById("hours-heading")!.focus()
+    expect(heading).toHaveFocus()
+    expect(
+      screen.getByRole("button", { name: "Open profile" })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps `as` working and lets headingId win", () => {
+    render(
+      <SettingsGroup as="h3" id="x" headingId="custom" label="Display">
+        <SettingsRow label="Theme" value="System" />
+      </SettingsGroup>
+    )
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Display" })
+    ).toHaveAttribute("id", "custom")
+  })
+
+  it("draws a card footer that saves once, with a group-level Turn all action", async () => {
+    const user = userEvent.setup()
+    const onSave = vi.fn()
+    const onToggleAll = vi.fn()
+    render(
+      <SettingsGroup
+        label="Notifications per event"
+        card
+        action={
+          <SettingsGroupAction onClick={onToggleAll}>
+            Turn all on
+          </SettingsGroupAction>
+        }
+        footer={
+          <button type="button" onClick={onSave}>
+            Save
+          </button>
+        }
+      >
+        <SettingsRow
+          label="New review"
+          checked={false}
+          onCheckedChange={() => {}}
+        />
+        <SettingsRow
+          label="Reply published"
+          checked
+          onCheckedChange={() => {}}
+        />
+      </SettingsGroup>
+    )
+    const section = screen.getByRole("region", {
+      name: "Notifications per event",
+    })
+    const footer = section.querySelector<HTMLElement>(
+      '[data-slot="settings-group-footer"]'
+    )!
+    // The footer sits after the rows, inside the desk card.
+    expect(
+      section.querySelector('[data-slot="settings-group-rows"]')!
+        .nextElementSibling
+    ).toBe(footer)
+    expect(footer).toHaveClass(
+      "desk:border",
+      "desk:rounded-b-(--np-radius-card)"
+    )
+    expect(
+      section.querySelector('[data-slot="settings-group-rows"]')
+    ).toHaveClass("desk:rounded-b-none")
+    // One Save for the group, outside the list.
+    expect(within(footer).getAllByRole("button")).toHaveLength(1)
+    expect(screen.getByRole("list")).not.toContainElement(
+      screen.getByRole("button", { name: "Save" })
+    )
+    await user.click(screen.getByRole("button", { name: "Turn all on" }))
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    expect(onToggleAll).toHaveBeenCalledOnce()
+    expect(onSave).toHaveBeenCalledOnce()
+  })
+})
+
+describe("SettingsRow inline field (F7)", () => {
+  it("puts the label and description above the field, with no link or button wrapper", async () => {
+    const user = userEvent.setup()
+    render(
+      <SettingsGroup label="Business information">
+        <SettingsRow
+          label="Business name"
+          description="As it appears on Google."
+          changed="Changed"
+          controlId="name"
+          control={
+            <input
+              id="name"
+              aria-describedby="name-description"
+              defaultValue="Old Crown"
+            />
+          }
+        />
+      </SettingsGroup>
+    )
+    const field = screen.getByRole("textbox", { name: "Business name" })
+    expect(field).toHaveAccessibleDescription("As it appears on Google.")
+    const row = screen.getByRole("listitem")
+    expect(row).toHaveAttribute("data-kind", "field")
+    expect(within(row).queryByRole("button")).toBeNull()
+    expect(within(row).queryByRole("link")).toBeNull()
+    // The words come first: label, then the field below.
+    const label = screen.getByText("Business name")
+    expect(label.tagName).toBe("LABEL")
+    expect(
+      label.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    // "Changed" is a word, not a dot, and not part of the field's name.
+    expect(screen.getByText("Changed")).toHaveAttribute(
+      "data-slot",
+      "settings-row-changed"
+    )
+    await user.click(label)
+    expect(field).toHaveFocus()
+  })
+
+  it("shows the changed word on a switch row without renaming the switch", () => {
+    render(
+      <SettingsGroup label="Notifications">
+        <SettingsRow
+          label="New review"
+          changed="Changed"
+          checked
+          onCheckedChange={() => {}}
+        />
+      </SettingsGroup>
+    )
+    const toggle = screen.getByRole("switch", { name: "New review" })
+    // Words first: the changed word is announced as the description.
+    expect(toggle).toHaveAccessibleDescription("Changed")
+    expect(screen.getByText("Changed")).toHaveClass("text-caption")
   })
 })
 
