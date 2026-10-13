@@ -360,6 +360,10 @@ describe("ListingsBoard", () => {
     await user.click(all)
     const bar = screen.getByRole("region", { name: "Bulk change selection" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
     expect(bar).toHaveTextContent("3 selected")
     const link = within(bar).getByRole("link", { name: "Prepare bulk change" })
     expect(link.getAttribute("href")).toMatch(/^\/listings\/bulk\?ids=/)
@@ -372,6 +376,7 @@ describe("ListingsBoard", () => {
     expect(
       screen.queryByRole("region", { name: "Bulk change selection" })
     ).not.toBeInTheDocument()
+    expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
   })
 
   it("refuses to select all shown past 50 listings instead of trimming", () => {

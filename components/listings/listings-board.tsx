@@ -775,16 +775,7 @@ function ListingsBoard({
     inScope.filter((row) => matchesHealth(row.health, filter)).length
 
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-4",
-        // The docked selection bar covers the bottom of a phone; reserve its
-        // height so the last listing can still scroll clear of it.
-        canSelect &&
-          selected.size > 0 &&
-          "max-md:pb-[calc(var(--np-actionbar-h)+var(--np-dock-bottom))]"
-      )}
-    >
+    <div className="flex flex-col gap-4">
       <div className="flex min-w-0 flex-col gap-3">
         {clientChips.length > 1 ? (
           <ChipRow
@@ -956,50 +947,46 @@ function ListingsBoard({
           </BoardTable>
         </div>
       )}
-      {canSelect && selected.size > 0 ? (
-        // Docked to the bottom of a phone (the tab bar steps aside for it,
-        // see the chrome contract in globals.css) and riding the keyboard;
-        // sticky under the board on a desk. Only there while something is
-        // selected, so there is one bottom bar at a time.
-        <ActionBar
-          data-docked="bottom"
-          label="Bulk change selection"
-          offset="bottom-3"
-          safeArea={false}
-          className="max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:rounded-none max-md:pb-[max(--spacing(3),var(--np-dock-bottom))]"
-          status={
-            <span>
-              <span className="font-semibold tabular-nums">
-                {formatNumber(selected.size)}
-              </span>{" "}
-              selected
-              {selected.size >= BULK_MAX_TARGETS ? (
-                <ActionBarMuted>
-                  {" "}
-                  (the most one change can cover)
-                </ActionBarMuted>
-              ) : null}
-            </span>
-          }
-          actions={
-            <>
-              <Button
-                variant="ghost-dark"
-                size="sm"
-                onClick={() => setSelected(new Set())}
-              >
-                Clear selection
-              </Button>
-              <Link
-                href={`/listings/bulk?ids=${[...selected].join(",")}`}
-                className={buttonVariants({ size: "sm" })}
-              >
-                Prepare bulk change
-              </Link>
-            </>
-          }
-        />
-      ) : null}
+      {/* Docked to the bottom of a phone (the tab bar steps aside for it,
+          see the chrome contract in globals.css), riding the keyboard, with
+          a spacer that keeps the last listing reachable above it; sticky
+          under the board on a desk. Only there while something is
+          selected, so there is one bottom bar at a time. */}
+      <ActionBar
+        dock
+        visible={canSelect && selected.size > 0}
+        label="Bulk change selection"
+        offset="bottom-3"
+        safeArea={false}
+        status={
+          <span>
+            <span className="font-semibold tabular-nums">
+              {formatNumber(selected.size)}
+            </span>{" "}
+            selected
+            {selected.size >= BULK_MAX_TARGETS ? (
+              <ActionBarMuted> (the most one change can cover)</ActionBarMuted>
+            ) : null}
+          </span>
+        }
+        actions={
+          <>
+            <Button
+              variant="ghost-dark"
+              size="sm"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear selection
+            </Button>
+            <Link
+              href={`/listings/bulk?ids=${[...selected].join(",")}`}
+              className={buttonVariants({ size: "sm" })}
+            >
+              Prepare bulk change
+            </Link>
+          </>
+        }
+      />
     </div>
   )
 }
