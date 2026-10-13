@@ -59,6 +59,20 @@ describe("ForgotPasswordForm", () => {
       "Too many attempts."
     )
   })
+
+  it("sends one request while the first is in flight", async () => {
+    const user = userEvent.setup()
+    const request = vi
+      .spyOn(authApi, "requestPasswordReset")
+      .mockReturnValue(new Promise(() => {}))
+    render(<ForgotPasswordForm />)
+    await user.type(screen.getByLabelText("Email address"), "a@example.test")
+    await user.click(screen.getByRole("button", { name: "Send reset link" }))
+    const busy = await screen.findByRole("button", { name: "Sending…" })
+    expect(busy).toBeDisabled()
+    await user.click(busy)
+    expect(request).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe("ResetPasswordForm", () => {
@@ -164,5 +178,35 @@ describe("ResetPasswordForm", () => {
     expect(screen.getByLabelText("New password")).toHaveAccessibleDescription(
       /Include at least one symbol\./
     )
+  })
+
+  it("updates once while a request is in flight, sending no username", async () => {
+    const user = userEvent.setup()
+    const complete = vi
+      .spyOn(authApi, "completePasswordReset")
+      .mockReturnValue(new Promise(() => {}))
+    const { container } = render(
+      <ResetPasswordForm tokenHash="token-hash-value-long-enough" />
+    )
+    // The password-manager hint is there but empty, hidden and unfocusable.
+    const username = container.querySelector<HTMLInputElement>(
+      'input[autocomplete="username"]'
+    )
+    expect(username).toHaveValue("")
+    expect(username).not.toBeVisible()
+    await user.type(screen.getByLabelText("New password"), "correct-horse-9")
+    await user.type(
+      screen.getByLabelText("Confirm new password"),
+      "correct-horse-9"
+    )
+    await user.click(screen.getByRole("button", { name: "Update password" }))
+    const busy = await screen.findByRole("button", { name: "Updating…" })
+    expect(busy).toBeDisabled()
+    await user.click(busy)
+    expect(complete).toHaveBeenCalledTimes(1)
+    expect(complete).toHaveBeenCalledWith({
+      tokenHash: "token-hash-value-long-enough",
+      password: "correct-horse-9",
+    })
   })
 })

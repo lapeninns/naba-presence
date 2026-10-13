@@ -39,7 +39,7 @@ describe("MfaVerifyForm", () => {
       .mockResolvedValue({ verified: true, purpose: "sign_in" })
     render(<MfaVerifyForm nextPath="/inbox?queue=needs_reply" />)
     await user.click(await screen.findByText(/Backup authenticator/))
-    await user.type(screen.getByLabelText("6-digit code"), "123 456")
+    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "123 456")
     await user.click(screen.getByRole("button", { name: "Verify and sign in" }))
     await waitFor(() =>
       expect(assign).toHaveBeenCalledWith(
@@ -70,7 +70,7 @@ describe("MfaVerifyForm", () => {
         screen.getByRole("button", { name: "Verify and sign in" })
       ).toBeEnabled()
     )
-    await user.type(screen.getByLabelText("6-digit code"), "000000")
+    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "000000")
     await user.click(screen.getByRole("button", { name: "Verify and sign in" }))
     expect(
       await screen.findByText("That code did not match. 2 attempts left.")
@@ -84,7 +84,7 @@ describe("MfaVerifyForm", () => {
     const verify = vi.spyOn(mfaApi, "verifyMfaCode")
     render(<MfaVerifyForm />)
     await screen.findByText(/Backup authenticator/)
-    await user.type(screen.getByLabelText("6-digit code"), "12ab")
+    await user.type(screen.getByRole("textbox", { name: "6-digit code" }), "12ab")
     await user.click(screen.getByRole("button", { name: "Verify and sign in" }))
     expect(
       await screen.findByText(
@@ -105,5 +105,43 @@ describe("MfaVerifyForm", () => {
     expect(
       screen.getByRole("button", { name: "Sign in again" })
     ).toBeInTheDocument()
+  })
+
+  it("keeps one-time-code autofill and the digit pad on every box", async () => {
+    vi.spyOn(mfaApi, "pendingFactors").mockResolvedValue(factors)
+    render(<MfaVerifyForm />)
+    await screen.findByText(/Backup authenticator/)
+    const group = screen.getByRole("group", { name: "6-digit code" })
+    const boxes = Array.from(
+      group.querySelectorAll<HTMLInputElement>(
+        'input:not([aria-hidden="true"])'
+      )
+    )
+    expect(boxes).toHaveLength(6)
+    // The OS offers the texted or app code in box one; Base UI spreads it.
+    expect(boxes[0]).toHaveAttribute("autocomplete", "one-time-code")
+    for (const box of boxes) expect(box).toHaveAttribute("inputmode", "numeric")
+    // The only field on the screen still takes focus on arrival.
+    await waitFor(() => expect(boxes[0]).toHaveFocus())
+  })
+
+  it("spends one attempt per press: no auto-submit and no double submit", async () => {
+    const user = userEvent.setup()
+    vi.spyOn(mfaApi, "pendingFactors").mockResolvedValue(factors)
+    const verify = vi
+      .spyOn(mfaApi, "verifyMfaCode")
+      .mockReturnValue(new Promise(() => {}))
+    render(<MfaVerifyForm />)
+    await screen.findByText(/Backup authenticator/)
+    await user.type(
+      screen.getByRole("textbox", { name: "6-digit code" }),
+      "123456"
+    )
+    expect(verify).not.toHaveBeenCalled()
+    await user.click(screen.getByRole("button", { name: "Verify and sign in" }))
+    const busy = await screen.findByRole("button", { name: "Checking…" })
+    expect(busy).toBeDisabled()
+    await user.click(busy)
+    expect(verify).toHaveBeenCalledTimes(1)
   })
 })

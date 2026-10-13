@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 
+import { firstName } from "@/components/settings/access-scope-form"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
@@ -31,10 +32,6 @@ import { roleLabel, type MemberRole } from "@/lib/settings/forms/invitation"
 import { roleDescriptions, roleWithArticle } from "@/lib/settings/roles"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms } from "@/lib/workspace/terms"
-
-function firstName(name: string): string {
-  return name.trim().split(/\s+/)[0] || name
-}
 
 /**
  * The four roles as selectable cards (reference `.role-cards`): the role in
@@ -108,8 +105,25 @@ export function ChangeRoleDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (role: MemberRole) => void
 }) {
+  // A role picked but not saved: an accidental dismissal asks first.
+  // Cleared whenever the dialog closes, however it closed (a saved change
+  // closes it from the table).
+  const [dirty, setDirty] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (!open) setDirty(false)
+  }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      dirty={dirty}
+      onOpenChange={onOpenChange}
+      discardPrompt={{
+        description:
+          "The new role hasn’t been saved. Their role stays as it was.",
+      }}
+    >
       <DialogContent className="grid-cols-[minmax(0,1fr)]">
         {member ? (
           <ChangeRoleBody
@@ -118,6 +132,7 @@ export function ChangeRoleDialog({
             actorRole={actorRole}
             pending={pending}
             error={error}
+            onPick={(role) => setDirty(role !== member.role)}
             onConfirm={onConfirm}
           />
         ) : null}
@@ -131,15 +146,21 @@ function ChangeRoleBody({
   actorRole,
   pending,
   error,
+  onPick,
   onConfirm,
 }: {
   member: Member
   actorRole: MemberRole
   pending: boolean
   error: string | null
+  onPick: (role: MemberRole) => void
   onConfirm: (role: MemberRole) => void
 }) {
-  const [pick, setPick] = useState<MemberRole>(member.role)
+  const [pick, setPickState] = useState<MemberRole>(member.role)
+  const setPick = (role: MemberRole) => {
+    setPickState(role)
+    onPick(role)
+  }
   const unchanged = pick === member.role
   const name = member.displayName
   const terms = workspaceTerms(useWorkspaceMode())
@@ -168,7 +189,7 @@ function ChangeRoleBody({
           </Alert>
         ) : null}
         {!unchanged && pick === "viewer" ? (
-          <p className="text-caption text-ink-muted">
+          <p className="text-ui text-ink-muted">
             Viewers can’t publish, so {firstName(name)}’s publishing access
             turns off.
           </p>

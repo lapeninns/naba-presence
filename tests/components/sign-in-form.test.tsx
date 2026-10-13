@@ -437,6 +437,38 @@ describe("mode toggle", () => {
     expect(screen.getByLabelText("Password")).toHaveValue("correct-horse-9")
   })
 
+  it("is one segmented toggle group of two pressed buttons", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm />)
+    const group = screen.getByRole("group", { name: "Account action" })
+    expect(group).toHaveAttribute("data-slot", "segmented-control-track")
+    const signIn = within(group).getByRole("button", {
+      name: "Switch to sign in",
+    })
+    expect(signIn).toHaveAttribute("aria-pressed", "true")
+    // Pressing the pressed mode is not a change: the form stays as it is.
+    await user.click(signIn)
+    expect(signIn).toHaveAttribute("aria-pressed", "true")
+    expect(screen.queryByLabelText("Confirm password")).not.toBeInTheDocument()
+  })
+
+  it("hints the email as the account's username for password managers", async () => {
+    const user = userEvent.setup()
+    render(<SignInForm />)
+    const email = screen.getByLabelText("Email address")
+    expect(email).toHaveAttribute("autocomplete", "username")
+    expect(email).toHaveAttribute("type", "email")
+    expect(email).toHaveAttribute("inputmode", "email")
+    expect(email).toHaveAttribute("autocapitalize", "none")
+    await user.click(
+      screen.getByRole("button", { name: "Switch to create account" })
+    )
+    expect(screen.getByLabelText("Email address")).toHaveAttribute(
+      "autocomplete",
+      "username"
+    )
+  })
+
   it("carries the typed email to Forgot password without the URL", async () => {
     const user = userEvent.setup()
     render(<SignInForm />)

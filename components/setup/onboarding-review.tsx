@@ -5,7 +5,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Field, FieldLabel, FieldDescription } from "@/components/ui/field"
+import { SettingsFacts } from "@/components/settings/settings-section"
+import {
+  Field,
+  FieldDescription,
+  FieldLabel,
+  FormError,
+} from "@/components/ui/field"
+import { QueryError, QueryPending } from "@/components/ui/query-states"
 import { Textarea } from "@/components/ui/textarea"
 import {
   createOnboardingReview,
@@ -22,6 +29,7 @@ import { onboardingServiceReviewRows } from "@/lib/locations/onboarding-service-
 import { googleRelationshipSchema } from "@/lib/domain/google-relationships"
 import { onboardingRelationshipReviewRows } from "@/lib/locations/onboarding-relationships"
 import { ApiClientError } from "@/lib/api/client"
+import { ShareSetupLink } from "./share-setup-link"
 import { googleOnboardingMoreHoursSchema, googleOnboardingRegularHoursSchema, googleOnboardingSpecialHoursSchema, googleHoursPeriodLabel, googleSpecialHoursPeriodLabel } from "@/lib/domain/google-onboarding-hours"
 
 function detailRows(
@@ -294,23 +302,29 @@ export function OnboardingReview({
             </Button>
           )}
           {validate.isError && (
-            <p role="alert" className="text-ui text-danger-ink">
+            <FormError>
               {validate.error instanceof ApiClientError &&
               validate.error.status === 422
                 ? "The proposed business details could not be validated. Check the saved business details and service areas, then try validation again."
                 : describeActionError(validate.error)}
-            </p>
+            </FormError>
           )}
         </>
       ) : review.isPending ? (
-        <p role="status">Restoring creation review…</p>
+        <QueryPending label="Restoring creation review…" />
       ) : review.isError ? (
-        <div role="alert" className="space-y-2">
-          <p>{describeActionError(review.error)}</p>
-          <Button variant="secondary" onClick={() => void review.refetch()}>
-            Retry restoring review
-          </Button>
-          <Button variant="ghost" onClick={() => openReview(null)}>
+        <div className="flex flex-col gap-2">
+          <QueryError
+            title="The creation review didn’t load"
+            description={describeActionError(review.error)}
+            onRetry={() => void review.refetch()}
+            retryLabel="Retry restoring review"
+          />
+          <Button
+            variant="ghost"
+            className="self-start"
+            onClick={() => openReview(null)}
+          >
             Start a fresh review
           </Button>
         </div>
@@ -330,21 +344,20 @@ export function OnboardingReview({
                 .
               </p>
             </div>
-            <dl className="divide-y divide-line rounded-(--np-radius-card) border border-line">
-              {detailRows(review.data.payload).map((row) => (
-                <div
-                  key={row.label}
-                  className="grid min-w-0 gap-1 p-3 sm:grid-cols-2"
-                >
-                  <dt className="text-caption text-ink-muted capitalize">
-                    {row.label}
-                  </dt>
-                  <dd className="text-ui break-words whitespace-pre-wrap">
-                    {row.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+            <SettingsFacts
+              className="rounded-(--np-radius-card) border border-line px-3"
+              facts={detailRows(review.data.payload).map(
+                (row) =>
+                  [
+                    <span key="label" className="capitalize">
+                      {row.label}
+                    </span>,
+                    <span key="value" className="whitespace-pre-wrap">
+                      {row.value}
+                    </span>,
+                  ] as const
+              )}
+            />
             <p className="text-ui break-words whitespace-pre-wrap">
               <strong>Reason:</strong> {review.data.decision.reason}
             </p>
@@ -359,6 +372,12 @@ export function OnboardingReview({
                     ? "A different authorised owner or admin must approve this review. Share this setup link with them."
                     : "Approve these exact details before submitting creation."}
                 </p>
+                {review.data.requiresSecondApprover ? (
+                  <ShareSetupLink
+                    title="Approve a new Google listing"
+                    text="Please review and approve this new Google listing in NabaPresence."
+                  />
+                ) : null}
                 <Button
                   className="self-start"
                   pending={approve.isPending}
@@ -392,10 +411,10 @@ export function OnboardingReview({
               </>
             )}
             {(approve.isError || submit.isError) && (
-              <p role="alert" className="text-ui text-danger-ink">
+              <FormError>
                 {describeActionError(approve.error ?? submit.error)} Refresh the
                 review and outcome before retrying.
-              </p>
+              </FormError>
             )}
             <div className="flex flex-wrap gap-2">
               <Button

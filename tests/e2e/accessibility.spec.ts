@@ -1545,9 +1545,20 @@ for (const theme of themes) {
             },
           })
         })
+        // On phones /settings is the grouped settings index and Reply policy
+        // is its own page; from md /settings still lands on Reply policy.
+        // Scan both pages at every width.
         await page.goto("/settings")
         await expect(
-          page.getByRole("heading", { name: "Reply policy" })
+          page.getByRole("heading", {
+            name: viewport.name === "mobile" ? "Settings" : "Reply policy",
+            level: 1,
+          })
+        ).toBeVisible()
+        await expectAccessible(page, `${viewport.name} ${theme} settings home`)
+        await page.goto("/settings/policy")
+        await expect(
+          page.getByRole("heading", { name: "Reply policy", level: 1 })
         ).toBeVisible()
         await expectAccessible(
           page,

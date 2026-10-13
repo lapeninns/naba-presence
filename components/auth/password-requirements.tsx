@@ -29,7 +29,7 @@ function PasswordRequirements({ value }: { value: string }) {
     <ul
       // No aria-label: "Password requirements" would match getByLabel
       // ("Password") beside the input itself. The rows name themselves.
-      className="grid grid-cols-1 gap-x-3 gap-y-1 pt-0.5 min-[431px]:grid-cols-2"
+      className="grid grid-cols-1 gap-x-3 gap-y-1 pt-0.5 sm:grid-cols-2"
     >
       {checkPasswordRules(value).map((rule) => (
         <li

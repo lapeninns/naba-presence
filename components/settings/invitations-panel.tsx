@@ -1,16 +1,20 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Copy, Mail, RefreshCw, Send, UserPlus } from "lucide-react"
-import { useId, useRef, useState } from "react"
-
-import { RoleCards } from "@/components/settings/member-dialogs"
 import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+  Copy,
+  Ellipsis,
+  Mail,
+  Send,
+  Share,
+  Trash2,
+  UserPlus,
+} from "lucide-react"
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
+
+import { AccessScopeForm } from "@/components/settings/access-scope-form"
+import { RoleCards } from "@/components/settings/member-dialogs"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogClose,
@@ -22,8 +26,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { ChoiceCard } from "@/components/ui/choice-card"
 import {
   Dialog,
   DialogBody,
@@ -34,10 +36,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { RadioGroup } from "@/components/ui/radio-group"
+import { Input, inputHints } from "@/components/ui/input"
+import {
+  QueryStates,
+  queryStatus,
+  type QueryStatus,
+} from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import { Switch } from "@/components/ui/switch"
@@ -74,6 +87,7 @@ import {
   describeInvitationDelivery,
 } from "@/lib/settings/invitation-delivery"
 import { formatDay } from "@/lib/settings/roles"
+import { shareLink } from "@/lib/setup/share-link"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -84,10 +98,9 @@ function isExpired(invitation: Invitation): boolean {
   )
 }
 
-async function copyInviteLink(
-  url: string,
-  toast: ReturnType<typeof useToastManager>
-) {
+type Toasts = ReturnType<typeof useToastManager>
+
+async function copyInviteLink(url: string, toast: Toasts) {
   try {
     await navigator.clipboard.writeText(url)
     toast.add({
@@ -98,6 +111,62 @@ async function copyInviteLink(
   } catch {
     toast.add({
       title: "Couldn’t copy the link. Copy it manually.",
+      description: url,
+      type: "error",
+    })
+  }
+}
+
+/**
+ * Whether this browser has a system share sheet (phones, and some desktops),
+ * so a Share button is worth drawing. Read on the client only; `shareLink`
+ * asks again at the moment of sharing.
+ */
+function canShareLink(url: string): boolean {
+  if (typeof navigator === "undefined") return false
+  if (typeof navigator.share !== "function") return false
+  if (typeof navigator.canShare !== "function") return true
+  try {
+    return navigator.canShare({ url })
+  } catch {
+    return false
+  }
+}
+
+const noSubscription = () => () => {}
+
+/** `canShareLink` for rendering: false on the server and while hydrating. */
+function useCanShareLink(url: string): boolean {
+  return useSyncExternalStore(
+    noSubscription,
+    () => canShareLink(url),
+    () => false
+  )
+}
+
+/**
+ * Hands the invite link to the share sheet, so it goes out by Messages,
+ * WhatsApp or mail without a copy and paste; without one, `shareLink` copies
+ * it instead. Only the accept link the server returned (the one Copy copies)
+ * is shared, with a fixed title and sentence: never the page URL, and not
+ * the invitee's address, so nothing else lands in another app. Closing the
+ * sheet is not a failure.
+ */
+async function shareInviteLink(url: string, toast: Toasts) {
+  const outcome = await shareLink({
+    url,
+    title: "Join our team on NabaPresence",
+    text: "Your invitation to join. The link works once and expires after 7 days.",
+  })
+  if (outcome === "copied") {
+    toast.add({
+      title: "Invite link copied",
+      description: "Send it to them. It works once and expires after 7 days.",
+      type: "success",
+    })
+  } else if (outcome === "failed") {
+    toast.add({
+      title: "Couldn’t share the link. Copy it manually.",
       description: url,
       type: "error",
     })
@@ -136,7 +205,10 @@ function DeliveryState({
 }) {
   const view = describeInvitationDelivery(delivery, formatDay)
   return (
-    <span className="flex flex-col items-start gap-1" data-slot="invite-delivery">
+    <span
+      className="flex flex-col items-start gap-1"
+      data-slot="invite-delivery"
+    >
       <StatusPill tone={view.tone} dashed={view.dashed}>
         {view.label}
       </StatusPill>
@@ -147,16 +219,6 @@ function DeliveryState({
   )
 }
 
-/**
- * Invite someone: an email, a role chosen from the role cards, and whether
- * they may publish. Creating an invitation makes a link to share and, when
- * the organisation emails its invitations, sends it to them as well; nothing
- * changes until they accept. Values survive a refused submit; a server
- * refusal about the address is shown on the address.
- *
- * `layout="card"` draws the form as a white card with its own submit
- * (setup); `layout="dialog"` lays it out as a dialog body and footer.
- */
 /**
  * The link just created, kept on screen until the operator is done with it:
  * a toast that vanished in a few seconds was the only place it used to be.
@@ -175,6 +237,7 @@ function CreatedInvite({
 }) {
   const toast = useToastManager()
   const inputRef = useRef<HTMLInputElement>(null)
+  const canShare = useCanShareLink(created.url)
   const who = `${created.email} · ${roleLabel(created.role)} · ${created.access}.`
   const emailed = created.delivery !== undefined
   const status = created.delivery?.status
@@ -199,8 +262,8 @@ function CreatedInvite({
         <Alert variant="info">
           <AlertTitle>Invitation created, email on its way</AlertTitle>
           <AlertDescription className="[overflow-wrap:anywhere]">
-            {who} The email is queued and Team shows when it goes out. The
-            link below works meanwhile and expires after 7 days.
+            {who} The email is queued and Team shows when it goes out. The link
+            below works meanwhile and expires after 7 days.
           </AlertDescription>
         </Alert>
       ) : (
@@ -208,40 +271,48 @@ function CreatedInvite({
           <AlertTitle>Invitation created, but the email wasn’t sent</AlertTitle>
           <AlertDescription className="[overflow-wrap:anywhere]">
             {who}{" "}
-            {describeInvitationDelivery(created.delivery, formatDay).detail}{" "}
-            The link works once and expires after 7 days.
+            {describeInvitationDelivery(created.delivery, formatDay).detail} The
+            link works once and expires after 7 days.
           </AlertDescription>
         </Alert>
       )}
       <Field>
         <FieldLabel>Invite link</FieldLabel>
-        <div className="flex min-w-0 gap-2">
+        <div className="flex min-w-0 flex-wrap gap-2">
           <Input
             ref={inputRef}
             readOnly
             value={created.url}
-            className="min-w-0 flex-1 font-mono"
+            className="min-w-0 flex-1 basis-56 font-mono"
             onFocus={(event) => event.currentTarget.select()}
           />
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => {
-              inputRef.current?.select()
-              void copyInviteLink(created.url, toast)
-            }}
-          >
-            <Copy aria-hidden />
-            Copy
-          </Button>
+          <div className="flex gap-2 max-sm:w-full max-sm:*:flex-1">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                inputRef.current?.select()
+                void copyInviteLink(created.url, toast)
+              }}
+            >
+              <Copy aria-hidden />
+              Copy
+            </Button>
+            {canShare ? (
+              <Button
+                type="button"
+                onClick={() => void shareInviteLink(created.url, toast)}
+              >
+                <Share aria-hidden />
+                Share…
+              </Button>
+            ) : null}
+          </div>
         </div>
       </Field>
     </div>
   )
 }
-
-/** Above this many clients the invite's client list gets a search box. */
-const CLIENT_SEARCH_THRESHOLD = 8
 
 type ClientScope = { mode: "all" | "some"; clientIds: string[] }
 
@@ -263,121 +334,52 @@ function InviteClientScope({
   error: string | null
   disabled?: boolean
 }) {
-  const ids = useId()
-  const [search, setSearch] = useState("")
   const clients = useClients({ enabled: value.mode === "some" })
-  const labelId = `${ids}-scope`
-  const items = clients.data?.items ?? []
-  const needle = search.trim().toLowerCase()
-  const visible = needle
-    ? items.filter((item) => item.name.toLowerCase().includes(needle))
-    : items
+  const status: QueryStatus = queryStatus(clients)
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <span id={labelId} className="text-ui font-semibold text-ink">
-        Client access
-      </span>
-      <RadioGroup
-        value={value.mode}
-        onValueChange={(mode) =>
-          onChange({ ...value, mode: mode as ClientScope["mode"] })
+    <AccessScopeForm
+      noun={{ one: "client", many: "clients" }}
+      legend="Client access"
+      legendVisible
+      split
+      mode={value.mode}
+      onModeChange={(mode) => onChange({ ...value, mode })}
+      allOption={{
+        title: "All clients",
+        description: "Including clients added later.",
+      }}
+      someOption={{
+        title: "Only these clients",
+        description: "They see only the clients you tick.",
+      }}
+      items={(clients.data?.items ?? []).map((item) => {
+        const checked = value.clientIds.includes(item.id)
+        return {
+          id: item.id,
+          name: item.name,
+          description:
+            item.locationCount === 0
+              ? "No listings yet"
+              : `${item.locationCount} ${item.locationCount === 1 ? "listing" : "listings"}`,
+          checked,
+          disabled: item.locationCount === 0 && !checked,
         }
-        aria-labelledby={labelId}
-        disabled={disabled}
-        className="grid grid-cols-1 gap-2 sm:grid-cols-2"
-      >
-        <ChoiceCard
-          value="all"
-          title="All clients"
-          description="Including clients added later."
-        />
-        <ChoiceCard
-          value="some"
-          title="Only these clients"
-          description="They see only the clients you tick."
-        />
-      </RadioGroup>
-      {value.mode === "some" ? (
-        <div className="flex min-w-0 flex-col gap-2">
-          {clients.isPending ? (
-            <Skeleton className="h-16 w-full" />
-          ) : clients.isError ? (
-            <Alert variant="destructive">
-              <AlertTitle>We couldn’t load your clients</AlertTitle>
-              <AlertDescription>
-                {describeActionError(clients.error)}
-              </AlertDescription>
-              <AlertActions>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => clients.refetch()}
-                >
-                  <RefreshCw aria-hidden />
-                  Try again
-                </Button>
-              </AlertActions>
-            </Alert>
-          ) : items.length === 0 ? (
-            <p className="text-caption text-ink-muted">
-              There are no clients yet. Invite them for all clients, or add a
-              client first.
-            </p>
-          ) : (
-            <>
-              {items.length > CLIENT_SEARCH_THRESHOLD ? (
-                <Input
-                  type="search"
-                  aria-label="Search clients"
-                  placeholder="Search clients"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  onClear={() => setSearch("")}
-                />
-              ) : null}
-              <ul
-                aria-label="Clients"
-                className="flex max-h-64 flex-col divide-y divide-line overflow-y-auto rounded-(--np-radius-card) border border-line"
-              >
-                {visible.map((item) => {
-                  const checked = value.clientIds.includes(item.id)
-                  return (
-                    <li key={item.id} className="px-3 py-2.5">
-                      <Checkbox
-                        checked={checked}
-                        disabled={
-                          disabled || (item.locationCount === 0 && !checked)
-                        }
-                        label={item.name}
-                        description={
-                          item.locationCount === 0
-                            ? "No listings yet"
-                            : `${item.locationCount} ${item.locationCount === 1 ? "listing" : "listings"}`
-                        }
-                        onCheckedChange={(next) =>
-                          onChange({
-                            ...value,
-                            clientIds: next
-                              ? [...value.clientIds, item.id]
-                              : value.clientIds.filter((id) => id !== item.id),
-                          })
-                        }
-                      />
-                    </li>
-                  )
-                })}
-              </ul>
-            </>
-          )}
-          {error ? (
-            <p role="alert" className="text-caption text-danger-ink">
-              {error}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+      })}
+      itemsStatus={status}
+      itemsError={clients.error}
+      onRetryItems={() => void clients.refetch()}
+      emptyMessage="There are no clients yet. Invite them for all clients, or add a client first."
+      onToggle={(id, next) =>
+        onChange({
+          ...value,
+          clientIds: next
+            ? [...value.clientIds, id]
+            : value.clientIds.filter((clientId) => clientId !== id),
+        })
+      }
+      disabled={disabled}
+      error={error}
+    />
   )
 }
 
@@ -392,12 +394,25 @@ function scopeSummary(
   return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`
 }
 
+/**
+ * Invite someone: an email, a role chosen from the role cards, and whether
+ * they may publish. Creating an invitation makes a link to share and, when
+ * the organisation emails its invitations, sends it to them as well; nothing
+ * changes until they accept. Values survive a refused submit; a server
+ * refusal about the address is shown on the address.
+ *
+ * `layout="card"` draws the form as a white card with its own submit
+ * (setup); `layout="dialog"` lays it out as a dialog body and footer.
+ */
 function InviteForm({
   actorRole,
   layout,
+  onDirtyChange,
 }: {
   actorRole: MemberRole
   layout: "card" | "dialog"
+  /** Told whether the form holds entries a dismissal would lose. */
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const client = useQueryClient()
   const business = useWorkspaceMode() === "business"
@@ -425,6 +440,18 @@ function InviteForm({
   // business invites for every location and narrows access afterwards, from
   // Location access on the member's row.
   const scoped = !business && (role === "member" || role === "viewer")
+  // Entries not yet sent. Once the link is on screen there is nothing to
+  // lose: the invitation is in the list with its own Copy link.
+  const dirty =
+    !created &&
+    (email.trim() !== "" ||
+      role !== "member" ||
+      canPublish ||
+      scope.mode !== "all" ||
+      scope.clientIds.length > 0)
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
 
   const create = useMutation({
     mutationFn: (input: {
@@ -510,7 +537,8 @@ function InviteForm({
         <FieldLabel>Email address</FieldLabel>
         <Input
           ref={emailRef}
-          type="email"
+          {...inputHints.email}
+          // Someone else's address: never offer the operator's own.
           autoComplete="off"
           value={email}
           placeholder="name@example.com"
@@ -538,7 +566,7 @@ function InviteForm({
           <span id={publishLabelId} className="text-ui font-semibold text-ink">
             Can publish
           </span>
-          <span id={publishHintId} className="text-caption text-ink-muted">
+          <span id={publishHintId} className="text-ui text-ink-muted">
             {publishHint(role)}
           </span>
         </span>
@@ -562,7 +590,7 @@ function InviteForm({
         />
       ) : null}
       {business && (role === "member" || role === "viewer") ? (
-        <p className="text-caption text-ink-muted" data-slot="invite-location-note">
+        <p className="text-ui text-ink-muted" data-slot="invite-location-note">
           They’ll see all your locations, including ones you add later. After
           they join, narrow this from Location access on their row in Team.
         </p>
@@ -660,8 +688,25 @@ export function InviteDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const emailDelivery = useEmailDelivery()
+  // Typed-in entries guard an accidental dismissal (a swipe down on the
+  // phone's sheet, a scrim tap); cleared whenever the dialog closes.
+  const [dirty, setDirty] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    if (!open) setDirty(false)
+  }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      dirty={dirty}
+      discardPrompt={{
+        title: "Discard this invitation?",
+        description:
+          "What you entered hasn’t been sent. Nobody is invited until you create the invitation.",
+      }}
+    >
       <DialogContent size="wide" className="grid-cols-[minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Invite a teammate</DialogTitle>
@@ -672,9 +717,119 @@ export function InviteDialog({
           </DialogDescription>
         </DialogHeader>
         {/* Stays open on success to show the link; Done closes it. */}
-        <InviteForm actorRole={actorRole} layout="dialog" />
+        <InviteForm
+          actorRole={actorRole}
+          layout="dialog"
+          onDirtyChange={setDirty}
+        />
       </DialogContent>
     </Dialog>
+  )
+}
+
+const EXPIRED_REASON = "This link has expired. Revoke it and invite them again."
+
+/**
+ * One invitation's actions: Copy link (and Resend, when the organisation
+ * emails its invitations) stay in view; Share link and Revoke sit in the
+ * row's menu, which is an action sheet on a phone. Every target is 44px on a
+ * touch screen.
+ */
+function InvitationActions({
+  invitation,
+  expired,
+  emailDelivery,
+  resending,
+  revoking,
+  onResend,
+  onRevoke,
+}: {
+  invitation: Invitation
+  expired: boolean
+  emailDelivery: boolean
+  resending: boolean
+  revoking: boolean
+  onResend: () => void
+  onRevoke: () => void
+}) {
+  const toast = useToastManager()
+  const url = invitation.inviteUrl
+  const canShare = useCanShareLink(url ?? "")
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:flex @max-[720px]/table:justify-start">
+      {emailDelivery ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          aria-label={`Resend invitation email to ${invitation.email}`}
+          aria-describedby={`invite-delivery-${invitation.id}`}
+          pending={resending}
+          pendingLabel="Sending…"
+          disabledReason={
+            expired
+              ? EXPIRED_REASON
+              : !canResendInvitation(invitation.delivery)
+                ? "An email for this invitation is still being sent."
+                : undefined
+          }
+          onClick={onResend}
+        >
+          <Send aria-hidden />
+          Resend
+        </Button>
+      ) : null}
+      {url ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          aria-label={`Copy invite link for ${invitation.email}`}
+          disabledReason={expired ? EXPIRED_REASON : undefined}
+          onClick={() => void copyInviteLink(url, toast)}
+        >
+          <Copy aria-hidden />
+          Copy link
+        </Button>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`More actions for ${invitation.email}`}
+            />
+          }
+        >
+          <Ellipsis aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          title={invitation.email}
+          className="data-[presentation=popover]:max-w-80"
+        >
+          {url && canShare ? (
+            <>
+              <DropdownMenuItem
+                disabledReason={expired ? EXPIRED_REASON : undefined}
+                onClick={() => void shareInviteLink(url, toast)}
+              >
+                <Share aria-hidden />
+                Share invite link…
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
+          <DropdownMenuItem
+            variant="destructive"
+            disabled={revoking}
+            aria-label={`Revoke invitation for ${invitation.email}`}
+            onClick={onRevoke}
+          >
+            <Trash2 aria-hidden />
+            Revoke invitation…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
   )
 }
 
@@ -733,45 +888,37 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
       toast.add({ title: describeActionError(error), type: "error" }),
   })
 
-  if (query.isPending) {
+  const status = queryStatus(query, { isEmpty: query.data?.items.length === 0 })
+  if (status !== "ready" || !query.data) {
     return (
-      <Skeleton
-        aria-busy="true"
-        className="h-24 w-full rounded-(--np-radius-card)"
+      <QueryStates
+        status={status}
+        pending={
+          <Skeleton
+            aria-busy="true"
+            className="h-24 w-full rounded-(--np-radius-card)"
+          />
+        }
+        error={{ title: "We couldn’t load invitations", cause: query.error }}
+        onRetry={() => void query.refetch()}
+        empty={
+          <Card flush>
+            <Empty
+              icon={<Mail />}
+              title="No pending invitations"
+              description="Invite a teammate to give them access. Accepted invitations move to Members."
+              action={
+                onInvite ? (
+                  <Button variant="secondary" onClick={onInvite}>
+                    <UserPlus aria-hidden />
+                    Invite a teammate
+                  </Button>
+                ) : undefined
+              }
+            />
+          </Card>
+        }
       />
-    )
-  }
-  if (query.isError) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>We couldn’t load invitations</AlertTitle>
-        <AlertDescription>{describeActionError(query.error)}</AlertDescription>
-        <AlertActions>
-          <Button variant="secondary" size="sm" onClick={() => query.refetch()}>
-            <RefreshCw aria-hidden />
-            Try again
-          </Button>
-        </AlertActions>
-      </Alert>
-    )
-  }
-  if (query.data.items.length === 0) {
-    return (
-      <Card flush>
-        <Empty
-          icon={<Mail />}
-          title="No pending invitations"
-          description="Invite a teammate to give them access. Accepted invitations move to Members."
-          action={
-            onInvite ? (
-              <Button variant="secondary" onClick={onInvite}>
-                <UserPlus aria-hidden />
-                Invite a teammate
-              </Button>
-            ) : undefined
-          }
-        />
-      </Card>
     )
   }
 
@@ -860,60 +1007,17 @@ export function InvitationsList({ onInvite }: { onInvite?: () => void }) {
                   </TableCell>
                 ) : null}
                 <TableCell data-actions="" className="text-right">
-                  <span className="inline-flex flex-wrap items-center justify-end gap-1.5 @max-[720px]/table:justify-start">
-                    {emailDelivery ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        aria-label={`Resend invitation email to ${invitation.email}`}
-                        aria-describedby={`invite-delivery-${invitation.id}`}
-                        pending={
-                          resend.isPending &&
-                          resend.variables === invitation.id
-                        }
-                        pendingLabel="Sending…"
-                        disabledReason={
-                          expired
-                            ? "This link has expired. Revoke it and invite them again."
-                            : !canResendInvitation(invitation.delivery)
-                              ? "An email for this invitation is still being sent."
-                              : undefined
-                        }
-                        onClick={() => resendInvitation(invitation)}
-                      >
-                        <Send aria-hidden />
-                        Resend
-                      </Button>
-                    ) : null}
-                    {invitation.inviteUrl ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        aria-label={`Copy invite link for ${invitation.email}`}
-                        disabledReason={
-                          expired
-                            ? "This link has expired. Revoke it and invite them again."
-                            : undefined
-                        }
-                        onClick={() =>
-                          copyInviteLink(invitation.inviteUrl!, toast)
-                        }
-                      >
-                        <Copy aria-hidden />
-                        Copy link
-                      </Button>
-                    ) : null}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-danger-ink"
-                      disabled={revoke.isPending}
-                      aria-label={`Revoke invitation for ${invitation.email}`}
-                      onClick={() => setRevokeTarget(invitation)}
-                    >
-                      Revoke
-                    </Button>
-                  </span>
+                  <InvitationActions
+                    invitation={invitation}
+                    expired={expired}
+                    emailDelivery={emailDelivery}
+                    resending={
+                      resend.isPending && resend.variables === invitation.id
+                    }
+                    revoking={revoke.isPending}
+                    onResend={() => resendInvitation(invitation)}
+                    onRevoke={() => setRevokeTarget(invitation)}
+                  />
                 </TableCell>
               </TableRow>
             )

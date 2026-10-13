@@ -6,6 +6,7 @@ import * as React from "react"
 import { AgencyNameForm } from "@/components/settings/agency-name-form"
 import { TimezonePicker } from "@/components/settings/timezone-picker"
 import { Button } from "@/components/ui/button"
+import { FormError } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
 import { useToastManager } from "@/components/ui/toast"
 import { saveSettings } from "@/lib/api/settings"
@@ -92,9 +93,7 @@ function StepAgency({
           </p>
         </div>
         {saveError ? (
-          <p role="alert" className="text-ui font-medium text-danger-ink">
-            The timezone wasn’t saved. {saveError}
-          </p>
+          <FormError>The timezone wasn’t saved. {saveError}</FormError>
         ) : null}
         <div className="flex flex-wrap items-center gap-3">
           <Button

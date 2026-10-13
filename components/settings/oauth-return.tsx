@@ -14,7 +14,8 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button"
 import { useToastManager } from "@/components/ui/toast"
 import type { ConnectStartBody } from "@/lib/contracts/connections"
-import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
+import { describeActionError } from "@/lib/errors/action-errors"
+import { useStartGoogleConnect } from "@/lib/queries/use-connection-workspace"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
@@ -123,7 +124,14 @@ export function OAuthReturn({
   const pathname = usePathname()
   const router = useRouter()
   const toast = useToastManager()
-  const { connect } = useConnectionWorkspace()
+  // Only the connect mutation, never the connections query: this mounts on
+  // every dashboard page through the shell, and subscribing to (and
+  // building) the polled connections query while rendering here is what
+  // named OAuthReturn in the dashboard-wide "Cannot update QueryProvider
+  // while rendering" warning (settings-setup-auth-21). Same request, same
+  // body, and the same toast on a failed handshake as the workspace's
+  // `connect`.
+  const connect = useStartGoogleConnect()
   const business = useWorkspaceMode() === "business"
   const google = params.get("google")
   const status = params.get("status")
@@ -228,7 +236,12 @@ export function OAuthReturn({
           size="sm"
           pending={connect.isPending}
           pendingLabel="Opening Google…"
-          onClick={() => connect.mutate(connectInput)}
+          onClick={() =>
+            connect.mutate(connectInput, {
+              onError: (error) =>
+                toast.add({ title: describeActionError(error), type: "error" }),
+            })
+          }
         >
           <RefreshCw aria-hidden />
           Try again

@@ -3,15 +3,20 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeftIcon } from "lucide-react"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
+import { SupportDetails } from "@/components/editors/support-details"
+import { Button, buttonVariants } from "@/components/ui/button"
 import {
   Field,
   FieldError,
   FieldLabel,
   FieldDescription,
+  FormError,
 } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
+import { Input, inputHints } from "@/components/ui/input"
+import { QueryError, QueryPending } from "@/components/ui/query-states"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -38,6 +43,15 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { useGoogleAccounts } from "@/lib/queries/use-google-accounts"
 import { queryKeys } from "@/lib/queries/keys"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
+import {
+  codeLabel,
+  countryOptions,
+  languageOptions,
+  typedCountryCode,
+  typedLanguageTag,
+  withCurrent,
+} from "@/lib/setup/onboarding-codes"
+import { cn } from "@/lib/utils"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
 import { OnboardingCategories } from "./onboarding-categories"
 import { OnboardingReview } from "./onboarding-review"
@@ -50,12 +64,19 @@ import { OnboardingHours } from "./onboarding-hours"
 import { OnboardingMoreHours } from "./onboarding-more-hours"
 import { OnboardingMatchLink } from "./onboarding-match-link"
 import { OnboardingMatchLinkStatus } from "./onboarding-match-link-status"
+import { CodeCombobox } from "./code-combobox"
+import { ShareSetupLink } from "./share-setup-link"
 import { fetchOnboardingMatchLink } from "@/lib/api/google-onboarding-match-link"
 import { buildServiceItems, serviceDraftRows } from "@/lib/locations/forms/services"
 import {
   openingDraftFromPayload,
   openingPayloadFromDraft,
 } from "@/lib/locations/onboarding-opening"
+
+/** A section of the draft form: a heading, then its fields. */
+const SECTION_CLASS = "border-t border-line pt-5"
+/** Two columns from `sm`; one on a phone. */
+const SECTION_GRID_CLASS = "grid min-w-0 gap-4 sm:grid-cols-2"
 
 export function OnboardingDrafts({
   clientId,
@@ -115,17 +136,14 @@ export function OnboardingDrafts({
           Connect this client to Google before searching.
         </p>
       ) : accounts.query.isError ? (
-        <div role="alert">
-          <p>{describeActionError(accounts.query.error)}</p>
-          <Button
-            variant="secondary"
-            onClick={() => void accounts.query.refetch()}
-          >
-            Retry accounts
-          </Button>
-        </div>
+        <QueryError
+          title="Google accounts didn’t load"
+          description={describeActionError(accounts.query.error)}
+          onRetry={() => void accounts.query.refetch()}
+          retryLabel="Retry accounts"
+        />
       ) : accounts.query.isPending ? (
-        <p role="status">Loading accounts…</p>
+        <QueryPending label="Loading accounts…" />
       ) : (
         <>
           <Field>
@@ -138,7 +156,7 @@ export function OnboardingDrafts({
                 open(null)
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full sm:w-auto sm:min-w-64">
                 <SelectValue placeholder="Choose an account">
                   {account?.accountName || account?.googleAccountName}
                 </SelectValue>
@@ -161,11 +179,11 @@ export function OnboardingDrafts({
             </p>
           )}
           {draftId && !account && (
-            <div role="alert" className="space-y-2">
-              <p>
+            <div className="flex flex-col items-start gap-2">
+              <FormError>
                 This draft’s account is no longer selected or accessible.
                 Refresh account discovery before restoring it.
-              </p>
+              </FormError>
               <Button variant="secondary" onClick={() => open(null)}>
                 Return to saved drafts
               </Button>
@@ -284,12 +302,12 @@ function DraftWorkspace({
           Start a business draft
         </Button>
         {create.isError && (
-          <p role="alert" className="text-ui text-danger-ink">
+          <FormError>
             {describeActionError(create.error)} Retry uses the same draft
             identity.
-          </p>
+          </FormError>
         )}
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <h4 className="text-ui font-semibold">Saved business drafts</h4>
           <Button
             variant="ghost"
@@ -301,9 +319,12 @@ function DraftWorkspace({
           </Button>
         </div>
         {list.isPending ? (
-          <p role="status">Loading saved drafts…</p>
+          <QueryPending label="Loading saved drafts…" />
         ) : list.isError ? (
-          <p role="alert">{describeActionError(list.error)}</p>
+          <QueryError
+            title="Saved drafts didn’t load"
+            description={`${describeActionError(list.error)} Use Refresh drafts to try again.`}
+          />
         ) : !list.data.drafts.length ? (
           <p className="text-ui text-ink-muted">
             No saved drafts for this client and account.
@@ -313,7 +334,7 @@ function DraftWorkspace({
             {list.data.drafts.map((item) => (
               <li
                 key={item.id}
-                className="flex flex-wrap items-center justify-between gap-3 p-4"
+                className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4"
               >
                 <div className="min-w-0">
                   <p className="text-ui font-semibold break-words">
@@ -344,35 +365,36 @@ function DraftWorkspace({
   return (
     <div className="flex flex-col gap-4">
       <Link
-        className="self-start text-ui underline underline-offset-4"
+        className={cn(buttonVariants({ variant: "ghost" }), "-ml-3 self-start")}
         href={`/setup?${listParams}`}
       >
+        <ArrowLeftIcon aria-hidden />
         Saved drafts
       </Link>
       {draft.isPending ? (
-        <p role="status">Restoring business draft…</p>
+        <QueryPending label="Restoring business draft…" />
       ) : draft.isError ? (
-        <div role="alert">
-          <p>{describeActionError(draft.error)}</p>
-          <Button variant="secondary" onClick={() => void draft.refetch()}>
-            Retry restoring draft
-          </Button>
-        </div>
+        <QueryError
+          title="The business draft didn’t load"
+          description={describeActionError(draft.error)}
+          onRetry={() => void draft.refetch()}
+          retryLabel="Retry restoring draft"
+        />
       ) : draft.data.clientId !== clientId ||
         draft.data.connectionId !== connectionId ? (
-        <p role="alert">
+        <FormError>
           This draft belongs to a different setup context. Open it from the
           correct client and connection.
-        </p>
+        </FormError>
       ) : creation.isPending ? (
-        <p role="status">Checking creation status…</p>
+        <QueryPending label="Checking creation status…" />
       ) : creation.isError ? (
-        <div role="alert">
-          <p>{describeActionError(creation.error)}</p>
-          <Button variant="secondary" onClick={() => void creation.refetch()}>
-            Retry creation status
-          </Button>
-        </div>
+        <QueryError
+          title="The creation status didn’t load"
+          description={describeActionError(creation.error)}
+          onRetry={() => void creation.refetch()}
+          retryLabel="Retry creation status"
+        />
       ) : creation.data ? (
         <CreationStatus
           key={creation.data.id}
@@ -390,12 +412,14 @@ function DraftWorkspace({
           }}
         />
       ) : matchLink.isPending ? (
-        <p role="status">Checking existing listing link status…</p>
+        <QueryPending label="Checking existing listing link status…" />
       ) : matchLink.isError ? (
-        <div role="alert" className="space-y-2">
-          <p>{describeActionError(matchLink.error)} Restore link status before editing or starting another operation.</p>
-          <Button variant="secondary" onClick={refreshMatchLink}>Retry link status</Button>
-        </div>
+        <QueryError
+          title="The listing link status didn’t load"
+          description={`${describeActionError(matchLink.error)} Restore link status before editing or starting another operation.`}
+          onRetry={refreshMatchLink}
+          retryLabel="Retry link status"
+        />
       ) : matchLink.data && matchLink.data.state !== "failed" ? (
         <OnboardingMatchLinkStatus value={matchLink.data} refreshing={matchLink.isFetching} onRefresh={refreshMatchLink} onReview={restoreLinkReview} />
       ) : (
@@ -689,309 +713,319 @@ function DraftDetails({
     onDirtyChange(unsaved || pending)
     return () => onDirtyChange(false)
   }, [unsaved, pending, onDirtyChange])
+  const contextSaved =
+    JSON.stringify(categories) === JSON.stringify(draft.payload.categories) &&
+    language.trim() === draft.payload.languageCode &&
+    country.trim().toUpperCase() ===
+      (draft.payload.storefrontAddress &&
+      "regionCode" in draft.payload.storefrontAddress
+        ? draft.payload.storefrontAddress.regionCode
+        : "GB") &&
+    serviceArea?.regionCode === draft.payload.serviceArea?.regionCode
+  const issueFor = (key: string) =>
+    !parsedPayload.success
+      ? parsedPayload.error.issues.find((entry) => entry.path[0] === key)
+          ?.message
+      : undefined
+  // The pickers' lists, each with the saved code kept in it (see withCurrent).
+  const languageChoices = withCurrent(languageOptions(), language, "language")
+  const countryChoices = withCurrent(countryOptions(), country, "region")
   return (
-    <div className="flex flex-col gap-4">
-      <div className="space-y-1">
+    <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex flex-col gap-2">
         <h4 className="text-ui font-semibold">Business details</h4>
         <p className="text-caption text-ink-muted">
           This draft is saved to your account. Keep this setup link to return to
           it.
         </p>
+        <ShareSetupLink title="Business draft in NabaPresence" />
       </div>
-      <fieldset
+      {/* One fieldset disables the whole proposal while something is in
+          flight; the sections inside it give a phone a heading every screen
+          or so instead of one 25-field scroll. */}
+      <Fieldset
         disabled={pending || reviewDirty || matchDirty || Boolean(params.get("onboardingMatchLinkReview"))}
-        className="grid min-w-0 gap-4 sm:grid-cols-2"
+        className="gap-6"
       >
-        <Field>
-          <FieldLabel>Business name</FieldLabel>
-          <Input
-            value={title}
-            maxLength={255}
-            onChange={(event) => setTitle(event.target.value)}
-            autoComplete="organization"
+        <FieldsetLegend srOnly>Business draft</FieldsetLegend>
+        <Fieldset>
+          <FieldsetLegend variant="section">About the business</FieldsetLegend>
+          <div className={SECTION_GRID_CLASS}>
+            <Field>
+              <FieldLabel>Business name</FieldLabel>
+              <Input
+                value={title}
+                maxLength={255}
+                onChange={(event) => setTitle(event.target.value)}
+                autoComplete="organization"
+              />
+            </Field>
+            <Field error={issueFor("languageCode")}>
+              <FieldLabel>Listing language</FieldLabel>
+              <CodeCombobox
+                title="Listing language"
+                placeholder="Choose a language"
+                value={language}
+                options={languageChoices}
+                typed={(text) => typedLanguageTag(text, languageChoices)}
+                label={(tag) => codeLabel("language", tag)}
+                onValueChange={setLanguage}
+              />
+              <FieldDescription>
+                Language tag, for example en-GB or cy. Pick one by name, or type
+                any tag that is not listed.
+              </FieldDescription>
+              <FieldError />
+            </Field>
+            <OnboardingCategories
+              draft={draft}
+              regionCode={country.trim().toUpperCase()}
+              languageCode={language.trim()}
+              value={categories}
+              onChange={setCategories}
+            />
+            <Field className="sm:col-span-2" error={issueFor("profile")}>
+              <FieldLabel>Business description</FieldLabel>
+              <Textarea
+                rows={4}
+                value={description}
+                maxLength={750}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+              <FieldDescription>
+                Describe this business in your own words, up to 750 characters.
+                Google requires a description for most categories; lodging
+                categories are an exception. Provider validation checks the proposed
+                listing before approval.
+              </FieldDescription>
+              <FieldError />
+            </Field>
+            <Field>
+              <FieldLabel>Store code (optional)</FieldLabel>
+              <Input
+                {...inputHints.identifier}
+                value={storeCode}
+                maxLength={255}
+                onChange={(event) => setStoreCode(event.target.value)}
+              />
+              <FieldDescription>
+                Your identifier for this business. It must be unique within the
+                selected Google account.
+              </FieldDescription>
+            </Field>
+            <Field className="sm:col-span-2" error={issueFor("labels")}>
+              <FieldLabel>Private listing labels (optional)</FieldLabel>
+              <Textarea
+                rows={2}
+                value={labels}
+                onChange={(event) => setLabels(event.target.value)}
+              />
+              <FieldDescription>
+                Up to ten labels, one per line and up to 255 characters each. Labels
+                organise your listings and are not shown to customers. Clear these
+                optional fields to omit them from the creation proposal.
+              </FieldDescription>
+              <FieldError />
+            </Field>
+          </div>
+        </Fieldset>
+        <Fieldset className={SECTION_CLASS}>
+          <FieldsetLegend variant="section">Contact details</FieldsetLegend>
+          <div className={SECTION_GRID_CLASS}>
+            <Field error={issueFor("websiteUri")}>
+              <FieldLabel>Business website (optional)</FieldLabel>
+              <Input
+                {...inputHints.url}
+                value={website}
+                maxLength={2048}
+                onChange={(event) => setWebsite(event.target.value)}
+              />
+              <FieldDescription>
+                Include the full address, such as https://example.com. Clear it to
+                omit the website from this creation draft.
+              </FieldDescription>
+              <FieldError />
+            </Field>
+            <Field>
+              <FieldLabel>Primary business phone (optional)</FieldLabel>
+              <Input
+                {...inputHints.phone}
+                value={primaryPhone}
+                maxLength={50}
+                onChange={(event) => setPrimaryPhone(event.target.value)}
+              />
+              <FieldDescription>
+                Include the country code where possible, for example +44.
+              </FieldDescription>
+            </Field>
+            <Field className="sm:col-span-2" error={issueFor("phoneNumbers")}>
+              <FieldLabel>Additional business phones (optional)</FieldLabel>
+              <Textarea
+                rows={2}
+                value={additionalPhones}
+                onChange={(event) => setAdditionalPhones(event.target.value)}
+              />
+              <FieldDescription>
+                Up to two numbers, one per line. Editing the primary phone preserves
+                these numbers. Google validates contact details before approval.
+              </FieldDescription>
+              <FieldError />
+            </Field>
+            <Field>
+              <FieldLabel>Google Ads phone (optional)</FieldLabel>
+              <Input
+                type="tel"
+                inputMode="tel"
+                value={adPhone}
+                maxLength={50}
+                onChange={(event) => setAdPhone(event.target.value)}
+              />
+              <FieldDescription>
+                The phone used in Google Ads location extensions. This is separate
+                from the business contact numbers.
+              </FieldDescription>
+            </Field>
+          </div>
+        </Fieldset>
+        <Fieldset className={SECTION_CLASS}>
+          <FieldsetLegend variant="section">Opening, hours and services</FieldsetLegend>
+          <OnboardingOpening
+            value={opening}
+            onChange={setOpening}
+            error={openingError}
           />
-        </Field>
-        <Field
-          error={
-            !parsedPayload.success
-              ? parsedPayload.error.issues.find(
-                  (entry) => entry.path[0] === "languageCode"
-                )?.message
-              : undefined
-          }
-        >
-          <FieldLabel>Listing language</FieldLabel>
-          <Input
-            value={language}
-            maxLength={35}
-            onChange={(event) => setLanguage(event.target.value)}
+          <OnboardingServices
+            draft={draft}
+            rows={serviceRows}
+            setRows={setServiceRows}
+            contextSaved={contextSaved}
+            error={builtServices.success ? undefined : serviceRows.some((row) => "freeFormServiceItem" in row.item && !row.item.freeFormServiceItem.label.displayName.trim()) ? "Enter a custom service name or remove the incomplete service." : builtServices.message}
           />
-          <FieldDescription>
-            Language tag, for example en-GB or cy.
-          </FieldDescription>
-          <FieldError />
-        </Field>
-        <OnboardingCategories
-          draft={draft}
-          regionCode={country.trim().toUpperCase()}
-          languageCode={language.trim()}
-          value={categories}
-          onChange={setCategories}
-        />
-        <Field
-          className="sm:col-span-2"
-          error={
-            !parsedPayload.success
-              ? parsedPayload.error.issues.find(
-                  (entry) => entry.path[0] === "profile"
-                )?.message
-              : undefined
-          }
-        >
-          <FieldLabel>Business description</FieldLabel>
-          <Textarea
-            rows={4}
-            value={description}
-            maxLength={750}
-            onChange={(event) => setDescription(event.target.value)}
+          <OnboardingHours regular={regularHours} special={specialHours} onRegularChange={setRegularHours} onSpecialChange={setSpecialHours} onEntryChange={setHoursEntryDirty} />
+          <OnboardingMoreHours draft={draft} value={moreHours} onChange={setMoreHours} onEntryChange={setMoreHoursEntryDirty}
+            contextSaved={contextSaved} />
+        </Fieldset>
+        <Fieldset className={SECTION_CLASS}>
+          <FieldsetLegend variant="section">Chain and related businesses</FieldsetLegend>
+          <OnboardingChain draft={draft} value={relationships} onChange={setRelationships} />
+          <OnboardingRelationships value={relationships} onChange={setRelationships} onEntryChange={setRelationshipEntryDirty} />
+        </Fieldset>
+        <Fieldset className={SECTION_CLASS}>
+          <FieldsetLegend variant="section">Location and service area</FieldsetLegend>
+          <OnboardingServiceArea
+            value={serviceArea}
+            onChange={setServiceArea}
+            onEntryChange={setAreaEntryDirty}
           />
-          <FieldDescription>
-            Describe this business in your own words, up to 750 characters.
-            Google requires a description for most categories; lodging
-            categories are an exception. Provider validation checks the proposed
-            listing before approval.
-          </FieldDescription>
-          <FieldError />
-        </Field>
-        <Field>
-          <FieldLabel>Store code (optional)</FieldLabel>
-          <Input
-            value={storeCode}
-            maxLength={255}
-            onChange={(event) => setStoreCode(event.target.value)}
-          />
-          <FieldDescription>
-            Your identifier for this business. It must be unique within the
-            selected Google account.
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel>Google Ads phone (optional)</FieldLabel>
-          <Input
-            type="tel"
-            value={adPhone}
-            maxLength={50}
-            onChange={(event) => setAdPhone(event.target.value)}
-          />
-          <FieldDescription>
-            The phone used in Google Ads location extensions. This is separate
-            from the business contact numbers.
-          </FieldDescription>
-        </Field>
-        <Field
-          className="sm:col-span-2"
-          error={
-            !parsedPayload.success
-              ? parsedPayload.error.issues.find(
-                  (entry) => entry.path[0] === "labels"
-                )?.message
-              : undefined
-          }
-        >
-          <FieldLabel>Private listing labels (optional)</FieldLabel>
-          <Textarea
-            rows={2}
-            value={labels}
-            onChange={(event) => setLabels(event.target.value)}
-          />
-          <FieldDescription>
-            Up to ten labels, one per line and up to 255 characters each. Labels
-            organise your listings and are not shown to customers. Clear these
-            optional fields to omit them from the creation proposal.
-          </FieldDescription>
-          <FieldError />
-        </Field>
-        <Field
-          error={
-            !parsedPayload.success
-              ? parsedPayload.error.issues.find(
-                  (entry) => entry.path[0] === "websiteUri"
-                )?.message
-              : undefined
-          }
-        >
-          <FieldLabel>Business website (optional)</FieldLabel>
-          <Input
-            value={website}
-            type="url"
-            maxLength={2048}
-            autoComplete="url"
-            onChange={(event) => setWebsite(event.target.value)}
-          />
-          <FieldDescription>
-            Include the full address, such as https://example.com. Clear it to
-            omit the website from this creation draft.
-          </FieldDescription>
-          <FieldError />
-        </Field>
-        <Field>
-          <FieldLabel>Primary business phone (optional)</FieldLabel>
-          <Input
-            value={primaryPhone}
-            type="tel"
-            maxLength={50}
-            autoComplete="tel"
-            onChange={(event) => setPrimaryPhone(event.target.value)}
-          />
-          <FieldDescription>
-            Include the country code where possible, for example +44.
-          </FieldDescription>
-        </Field>
-        <Field
-          className="sm:col-span-2"
-          error={
-            !parsedPayload.success
-              ? parsedPayload.error.issues.find(
-                  (entry) => entry.path[0] === "phoneNumbers"
-                )?.message
-              : undefined
-          }
-        >
-          <FieldLabel>Additional business phones (optional)</FieldLabel>
-          <Textarea
-            rows={2}
-            value={additionalPhones}
-            onChange={(event) => setAdditionalPhones(event.target.value)}
-          />
-          <FieldDescription>
-            Up to two numbers, one per line. Editing the primary phone preserves
-            these numbers. Google validates contact details before approval.
-          </FieldDescription>
-          <FieldError />
-        </Field>
-        <OnboardingOpening
-          value={opening}
-          onChange={setOpening}
-          error={openingError}
-        />
-        <OnboardingServices
-          draft={draft}
-          rows={serviceRows}
-          setRows={setServiceRows}
-          contextSaved={JSON.stringify(categories) === JSON.stringify(draft.payload.categories) && language.trim() === draft.payload.languageCode && country.trim().toUpperCase() === (draft.payload.storefrontAddress && "regionCode" in draft.payload.storefrontAddress ? draft.payload.storefrontAddress.regionCode : "GB") && serviceArea?.regionCode === draft.payload.serviceArea?.regionCode}
-          error={builtServices.success ? undefined : serviceRows.some((row) => "freeFormServiceItem" in row.item && !row.item.freeFormServiceItem.label.displayName.trim()) ? "Enter a custom service name or remove the incomplete service." : builtServices.message}
-        />
-        <OnboardingHours regular={regularHours} special={specialHours} onRegularChange={setRegularHours} onSpecialChange={setSpecialHours} onEntryChange={setHoursEntryDirty} />
-        <OnboardingMoreHours draft={draft} value={moreHours} onChange={setMoreHours} onEntryChange={setMoreHoursEntryDirty}
-          contextSaved={JSON.stringify(categories) === JSON.stringify(draft.payload.categories) && language.trim() === draft.payload.languageCode && country.trim().toUpperCase() === (draft.payload.storefrontAddress && "regionCode" in draft.payload.storefrontAddress ? draft.payload.storefrontAddress.regionCode : "GB") && serviceArea?.regionCode === draft.payload.serviceArea?.regionCode} />
-        <OnboardingChain draft={draft} value={relationships} onChange={setRelationships} />
-        <OnboardingRelationships value={relationships} onChange={setRelationships} onEntryChange={setRelationshipEntryDirty} />
-        <OnboardingServiceArea
-          value={serviceArea}
-          onChange={setServiceArea}
-          onEntryChange={setAreaEntryDirty}
-        />
-        {serviceArea?.businessType === "CUSTOMER_LOCATION_ONLY" &&
-          !removeAddress &&
-          payload.storefrontAddress &&
-          Object.keys(payload.storefrontAddress).length > 0 && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="justify-self-start sm:col-span-2"
-              onClick={() => {
-                setRemoveAddress(true)
-                setLines("")
-                setPostcode("")
-                setLocality("")
-                setAdministrativeArea("")
-                setSublocality("")
-              }}
-            >
-              Remove storefront from creation draft
-            </Button>
-          )}
-        <Field className="sm:col-span-2">
-          <FieldLabel>Storefront address</FieldLabel>
-          <Textarea
-            rows={3}
-            value={lines}
-            onChange={(event) => {
-              setRemoveAddress(false)
-              setLines(event.target.value)
-            }}
-            autoComplete="street-address"
-          />
-          <FieldDescription>
-            One line per address line. For a business that only visits
-            customers, leave all storefront address fields blank except the
-            country code.
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel>Town or city</FieldLabel>
-          <Input
-            value={locality}
-            maxLength={100}
-            autoComplete="address-level2"
-            onChange={(event) => {
-              setRemoveAddress(false)
-              setLocality(event.target.value)
-            }}
-          />
-        </Field>
-        <Field>
-          <FieldLabel>County or region (optional)</FieldLabel>
-          <Input
-            value={administrativeArea}
-            maxLength={100}
-            autoComplete="address-level1"
-            onChange={(event) => {
-              setRemoveAddress(false)
-              setAdministrativeArea(event.target.value)
-            }}
-          />
-        </Field>
-        <Field className="sm:col-span-2">
-          <FieldLabel>District (optional)</FieldLabel>
-          <Input
-            value={sublocality}
-            maxLength={100}
-            autoComplete="address-level3"
-            onChange={(event) => {
-              setRemoveAddress(false)
-              setSublocality(event.target.value)
-            }}
-          />
-          <FieldDescription>
-            Use a district or neighbourhood where it is part of the address.
-          </FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel>Postcode</FieldLabel>
-          <Input
-            value={postcode}
-            maxLength={30}
-            onChange={(event) => {
-              setRemoveAddress(false)
-              setPostcode(event.target.value)
-            }}
-            autoComplete="postal-code"
-          />
-        </Field>
-        <Field>
-          <FieldLabel>Country code</FieldLabel>
-          <Input
-            value={country}
-            maxLength={2}
-            onChange={(event) => setCountry(event.target.value)}
-            autoComplete="country"
-          />
-          <FieldDescription>
-            Use the two-letter code, such as GB.
-          </FieldDescription>
-        </Field>
-      </fieldset>
+          {serviceArea?.businessType === "CUSTOMER_LOCATION_ONLY" &&
+            !removeAddress &&
+            payload.storefrontAddress &&
+            Object.keys(payload.storefrontAddress).length > 0 && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="self-start"
+                onClick={() => {
+                  setRemoveAddress(true)
+                  setLines("")
+                  setPostcode("")
+                  setLocality("")
+                  setAdministrativeArea("")
+                  setSublocality("")
+                }}
+              >
+                Remove storefront from creation draft
+              </Button>
+            )}
+          <div className={SECTION_GRID_CLASS}>
+            <Field className="sm:col-span-2">
+              <FieldLabel>Storefront address</FieldLabel>
+              <Textarea
+                rows={3}
+                value={lines}
+                onChange={(event) => {
+                  setRemoveAddress(false)
+                  setLines(event.target.value)
+                }}
+                autoComplete="street-address"
+              />
+              <FieldDescription>
+                One line per address line. For a business that only visits
+                customers, leave all storefront address fields blank except the
+                country code.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel>Town or city</FieldLabel>
+              <Input
+                value={locality}
+                maxLength={100}
+                autoComplete="address-level2"
+                onChange={(event) => {
+                  setRemoveAddress(false)
+                  setLocality(event.target.value)
+                }}
+              />
+            </Field>
+            <Field>
+              <FieldLabel>County or region (optional)</FieldLabel>
+              <Input
+                value={administrativeArea}
+                maxLength={100}
+                autoComplete="address-level1"
+                onChange={(event) => {
+                  setRemoveAddress(false)
+                  setAdministrativeArea(event.target.value)
+                }}
+              />
+            </Field>
+            <Field className="sm:col-span-2">
+              <FieldLabel>District (optional)</FieldLabel>
+              <Input
+                value={sublocality}
+                maxLength={100}
+                autoComplete="address-level3"
+                onChange={(event) => {
+                  setRemoveAddress(false)
+                  setSublocality(event.target.value)
+                }}
+              />
+              <FieldDescription>
+                Use a district or neighbourhood where it is part of the address.
+              </FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel>Postcode</FieldLabel>
+              <Input
+                value={postcode}
+                maxLength={30}
+                autoCapitalize="characters"
+                onChange={(event) => {
+                  setRemoveAddress(false)
+                  setPostcode(event.target.value)
+                }}
+                autoComplete="postal-code"
+              />
+            </Field>
+            <Field>
+              <FieldLabel>Country code</FieldLabel>
+              <CodeCombobox
+                title="Country"
+                placeholder="Choose a country"
+                value={country}
+                options={countryChoices}
+                typed={(text) => typedCountryCode(text, countryChoices)}
+                label={(code) => codeLabel("region", code)}
+                onValueChange={setCountry}
+                autoComplete="off"
+              />
+              <FieldDescription>
+                Use the two-letter code, such as GB, or pick the country by name.
+              </FieldDescription>
+            </Field>
+          </div>
+        </Fieldset>
+      </Fieldset>
       <div className="flex flex-wrap gap-2">
         <Button
           variant="secondary"
@@ -1029,27 +1063,21 @@ function DraftDetails({
         </p>
       )}
       {!parsedPayload.success && (
-        <p role="alert" className="text-ui text-danger-ink">
+        <FormError>
           {parsedPayload.error.issues[0]?.path[0] === "openInfo"
             ? openingError
             : parsedPayload.error.issues[0]?.message}
-        </p>
+        </FormError>
       )}
       {(save.isError || search.isError) && (
-        <p role="alert" className="text-ui text-danger-ink">
-          {describeActionError(save.error ?? search.error)}
-        </p>
+        <FormError>{describeActionError(save.error ?? search.error)}</FormError>
       )}
       {save.isError && (
         <Button variant="secondary" className="self-start" onClick={onReload}>
           Discard local edits and reload saved draft
         </Button>
       )}
-      {serviceContextError && (
-        <p role="alert" className="text-ui text-danger-ink">
-          {serviceContextError}
-        </p>
-      )}
+      <FormError>{serviceContextError}</FormError>
       {!dirty && !areaEntryDirty && !relationshipEntryDirty && !hoursEntryDirty && !moreHoursEntryDirty && draft.matchResult && (
         <div className="flex flex-col gap-3">
           <div className="space-y-1">
@@ -1068,7 +1096,7 @@ function DraftDetails({
           ) : (
             <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">
               {draft.matchResult.matches.map((match) => (
-                <li key={match.name} className="space-y-2 p-4">
+                <li key={match.name} className="flex min-w-0 flex-col items-start gap-2 p-4">
                   <p className="text-body font-semibold break-words">
                     {match.location.title || "Unnamed business"}
                   </p>
@@ -1081,15 +1109,13 @@ function DraftDetails({
                       .filter(Boolean)
                       .join(", ")}
                   </p>
-                  <p className="font-mono text-caption break-all text-ink-muted">
-                    {match.name}
-                  </p>
+                  <SupportDetails items={[match.name]} />
                   {match.requestAdminRightsUri ? (
                     <a
                       href={match.requestAdminRightsUri}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-ui underline underline-offset-4"
+                      className={buttonVariants({ variant: "secondary" })}
                     >
                       Review ownership options in Google
                     </a>
@@ -1105,6 +1131,7 @@ function DraftDetails({
           )}
           <Button
             variant="secondary"
+            className="self-start whitespace-normal"
             disabled={pending || reviewDirty || matchDirty || Boolean(params.get("onboardingMatchLinkReview"))}
             onClick={() => search.mutate()}
           >
@@ -1187,11 +1214,7 @@ function CreationStatus({
             : "The listing is not yet linked in NabaPresence."}
         </p>
       </div>
-      {value.providerResourceName && (
-        <p className="font-mono text-caption break-all">
-          {value.providerResourceName}
-        </p>
-      )}
+      <SupportDetails items={[value.providerResourceName]} />
       {value.errorCode && (
         <p className="text-ui text-ink-muted">
           {value.errorCode === "onboarding_local_name_conflict"
@@ -1235,14 +1258,14 @@ function CreationStatus({
             Resume local linking
           </Button>
           {link.isError && (
-            <p role="alert">{describeActionError(link.error)}</p>
+            <FormError>{describeActionError(link.error)}</FormError>
           )}
         </>
       )}
       {value.locationId && (
         <Link
           href={`/listings/${value.locationId}/verification`}
-          className="text-ui underline underline-offset-4"
+          className={cn(buttonVariants(), "self-start")}
         >
           Continue to verification
         </Link>

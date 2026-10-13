@@ -1,7 +1,11 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 
-import { LegalDocument, LegalSection } from "@/components/legal/legal-document"
+import {
+  INLINE_LINK_CLASS,
+  LegalDocument,
+  LegalSection,
+} from "@/components/legal/legal-document"
 import { LEGAL_OPERATOR } from "@/lib/legal/operator"
 
 export const metadata: Metadata = {
@@ -23,14 +27,15 @@ export default function PrivacyPage() {
     LEGAL_OPERATOR
   return (
     <LegalDocument
+      current="privacy"
       title="Privacy policy"
       summary={
         <p>
           NabaPresence helps businesses manage their Google Business Profiles:
           reading and replying to reviews and keeping listing details up to
           date. It is operated by {legalName}
-          {registeredAddress ? `, ${registeredAddress}` : ""} (“we”), which
-          is the controller of the personal data described here. For review and
+          {registeredAddress ? `, ${registeredAddress}` : ""} (“we”), which is
+          the controller of the personal data described here. For review and
           profile data we act on behalf of the business that connected its
           Google account.
         </p>
@@ -59,7 +64,7 @@ export default function PrivacyPage() {
           or use it to train AI models. Our use of information received from
           Google APIs follows the{" "}
           <a
-            className="underline underline-offset-4"
+            className={INLINE_LINK_CLASS}
             href="https://developers.google.com/terms/api-services-user-data-policy"
           >
             Google API Services User Data Policy
@@ -78,11 +83,11 @@ export default function PrivacyPage() {
           <li>
             <strong>Sign-in sessions:</strong> a session cookie (
             <code>naba_session</code>) that ends after 14 days without use and
-            after 90 days at most, and a
-            short-lived cookie (<code>naba_google_oauth</code>, 10 minutes) that
-            protects the Google connection step. We use no advertising or
-            analytics cookies. Your browser also remembers your theme and any
-            unsaved reply drafts locally.
+            after 90 days at most, and a short-lived cookie (
+            <code>naba_google_oauth</code>, 10 minutes) that protects the Google
+            connection step. We use no advertising or analytics cookies. Your
+            browser also remembers your theme and any unsaved reply drafts
+            locally.
           </li>
           <li>
             <strong>Google connection:</strong> the connected Google account’s
@@ -138,15 +143,15 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>AI usage records</strong> are kept for 13 months, and are
-            never deleted while the allowance period they count towards is
-            still open.
+            never deleted while the allowance period they count towards is still
+            open.
           </li>
           <li>
             <strong>Audit records</strong> are kept for one year by default.
           </li>
           <li>
-            <strong>Sessions</strong> end after 14 days without use, or 90
-            days at most, and are deleted 7 days later.
+            <strong>Sessions</strong> end after 14 days without use, or 90 days
+            at most, and are deleted 7 days later.
           </li>
         </ul>
       </LegalSection>
@@ -156,10 +161,10 @@ export default function PrivacyPage() {
           You can disconnect a Google account at any time in Settings. When you
           do, we immediately delete the stored access and refresh tokens, stop
           all syncing, and ask Google to revoke our access. If the same Google
-          account is still connected in another NabaPresence organisation, we
-          do not revoke it, because Google would end that organisation’s access
-          too; access ends when the last connection is removed. Seven days later we
-          delete the reviews, replies, listing data and figures we imported
+          account is still connected in another NabaPresence organisation, we do
+          not revoke it, because Google would end that organisation’s access
+          too; access ends when the last connection is removed. Seven days later
+          we delete the reviews, replies, listing data and figures we imported
           through that account, unless a legal hold applies. We keep a record
           that the account was connected (its email address and ID) and the
           audit log entries about it.
@@ -167,7 +172,7 @@ export default function PrivacyPage() {
         <p>
           You can also remove our access from your Google account at any time at{" "}
           <a
-            className="underline underline-offset-4"
+            className={INLINE_LINK_CLASS}
             href="https://myaccount.google.com/permissions"
           >
             myaccount.google.com/permissions
@@ -206,8 +211,7 @@ export default function PrivacyPage() {
             connected Google account’s email address.
           </li>
           <li>
-            <strong>OpenAI</strong>, when AI reply drafting is
-            switched on: the
+            <strong>OpenAI</strong>, when AI reply drafting is switched on: the
             review text, star rating, reviewer’s display name, location name and
             your drafting preferences are sent to generate and check a suggested
             reply using its hosted models. We send these requests with output
@@ -262,7 +266,7 @@ export default function PrivacyPage() {
           If we change how we handle personal data we will update this page and
           its effective date, and tell organisation owners about significant
           changes. See also our{" "}
-          <Link className="underline underline-offset-4" href="/terms">
+          <Link className={INLINE_LINK_CLASS} href="/terms">
             terms of service
           </Link>
           .

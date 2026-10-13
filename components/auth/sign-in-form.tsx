@@ -19,8 +19,12 @@ import { ResendConfirmationButton } from "@/components/auth/resend-confirmation-
 import { Button } from "@/components/ui/button"
 import { ChoiceCard } from "@/components/ui/choice-card"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { RadioGroup } from "@/components/ui/radio-group"
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control"
 import * as authApi from "@/lib/api/auth"
 import {
   authErrorMessage,
@@ -30,7 +34,6 @@ import {
 import { stashResetEmail } from "@/lib/api/reset-email"
 import type { WorkspaceMode } from "@/lib/contracts/session"
 import { loginSchema, registerSchema } from "@/lib/domain/auth"
-import { cn } from "@/lib/utils"
 
 type SignInMode = "sign-in" | "create-account"
 
@@ -299,15 +302,18 @@ function SignInForm({
         </div>
       ) : null}
 
-      {/* Two pressed buttons rather than a tablist: the two modes are one
-          form with two shapes, not two panels, and `aria-pressed` is what
-          tests and assistive tech read. Drawn as the reference's full-width
-          segmented control. */}
+      {/* Pressed buttons rather than a tablist: the two modes are one form
+          with two shapes, not two panels, and `aria-pressed` is what tests
+          and assistive tech read. The segmented control's `toggle`
+          semantics are exactly that, at the control token's height (44px on
+          touch). */}
       {registrationAllowed ? (
-        <div
-          role="group"
+        <SegmentedControl
+          semantics="toggle"
           aria-label="Account action"
-          className="grid grid-cols-2 gap-0.5 rounded-[10px] bg-fill p-[3px]"
+          value={mode}
+          onValueChange={(next) => switchMode(next as SignInMode)}
+          className="w-full"
         >
           {(
             [
@@ -315,23 +321,11 @@ function SignInForm({
               ["create-account", "Create account", "Switch to create account"],
             ] as const
           ).map(([value, label, name]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={mode === value}
-              aria-label={name}
-              onClick={() => switchMode(value)}
-              className={cn(
-                "inline-flex h-[30px] items-center justify-center rounded-[7px] px-3 text-ui font-medium whitespace-nowrap focus-halo transition-colors duration-(--np-duration-fast) focus-visible:outline-none pointer-coarse:h-10",
-                mode === value
-                  ? "bg-surface text-ink shadow-np-raised"
-                  : "text-ink-secondary hover:bg-surface/50 hover:text-ink"
-              )}
-            >
+            <SegmentedControlItem key={value} value={value} aria-label={name}>
               {label}
-            </button>
+            </SegmentedControlItem>
           ))}
-        </div>
+        </SegmentedControl>
       ) : null}
 
       {mode === "create-account" && offersWorkspaceChoice ? (
@@ -378,13 +372,13 @@ function SignInForm({
 
       <Field error={fieldErrors.email}>
         <FieldLabel>Email address</FieldLabel>
+        {/* `username`, not `email`: it is the account's identifier, and
+            password managers pair a saved password with the field that
+            carries this hint. Still `type=email` with the email keyboard. */}
         <Input
           name="email"
-          type="email"
-          autoComplete="email"
-          inputMode="email"
-          autoCapitalize="none"
-          spellCheck={false}
+          {...inputHints.email}
+          autoComplete="username"
           value={email}
           onChange={(event) => setEmail(event.currentTarget.value)}
           readOnly={Boolean(invitedEmail)}
@@ -453,7 +447,7 @@ function SignInForm({
       {nextPath && nextPath !== "/inbox" ? (
         <p className="-mt-2 text-caption text-ink-muted">
           After signing in you’ll go back to{" "}
-          <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-[12px] [overflow-wrap:anywhere] text-ink">
+          <code className="rounded-sm border border-line bg-surface-alt px-1.5 py-px font-mono text-caption [overflow-wrap:anywhere] text-ink">
             {nextPath}
           </code>
           .
@@ -470,7 +464,7 @@ function SignInForm({
         // and it sat under the form competing with the one action they came
         // for. Still always present, so the no-enumeration rule above holds.
         <details className="group border-t border-line pt-4">
-          <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo hover:text-ink focus-visible:outline-none pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+          <summary className="inline-flex min-h-(--np-touch) cursor-pointer list-none items-center gap-1 rounded-sm text-caption text-ink-muted focus-halo hover:text-ink focus-visible:outline-none desk:min-h-6 [&::-webkit-details-marker]:hidden">
             <ChevronRight
               aria-hidden
               strokeWidth={1.75}
