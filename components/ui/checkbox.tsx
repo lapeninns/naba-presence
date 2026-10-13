@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils"
  * swallow clicks meant for the neighbouring cell.
  */
 export const selectionHitAreaClassName = cn(
-  "after:absolute after:inset-[calc((18px-var(--np-touch))/2)] after:content-['']",
-  "desk:after:-inset-[3px]"
+  "after:absolute after:inset-[calc((var(--np-selection-box)-var(--np-touch))/2)] after:content-['']",
+  "desk:after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)]"
 )
 
 /**
@@ -68,10 +68,10 @@ function Checkbox({
       aria-labelledby={hasLabel ? `${id}-label` : undefined}
       aria-describedby={description ? `${id}-desc` : undefined}
       className={cn(
-        "relative flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
+        "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
         "transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy",
         hasLabel
-          ? "after:absolute after:-inset-[3px] after:content-['']"
+          ? "after:absolute after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)] after:content-['']"
           : selectionHitAreaClassName,
         "data-indeterminate:border-primary data-indeterminate:bg-primary data-checked:border-primary data-checked:bg-primary",
         "data-disabled:cursor-not-allowed data-disabled:opacity-50",
@@ -102,7 +102,7 @@ function Checkbox({
       data-slot="checkbox-label"
       className={cn(
         selectionRowClassName,
-        "[&>[data-slot=checkbox]]:mt-[3px] desk:[&>[data-slot=checkbox]]:mt-0.5",
+        "[&>[data-slot=checkbox]]:mt-(--np-selection-offset)",
         labelClassName
       )}
     >

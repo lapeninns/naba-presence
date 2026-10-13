@@ -8,6 +8,7 @@ import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 
 /**
@@ -40,8 +41,7 @@ import { cn } from "@/lib/utils"
  * card's cannot). Keeping landscape phones on the sheet also means rotating
  * the phone never swaps the popup out from under a half-filled form.
  */
-export const PHONE_OVERLAY_QUERY =
-  "(max-width: 39.999rem), (pointer: coarse) and (max-height: 29.999rem)"
+export const PHONE_OVERLAY_QUERY = mediaQuery("phoneOverlay")
 
 /** Whether overlays present as sheets here. jsdom and the server read false. */
 export function usePhoneOverlay(): boolean {
@@ -272,8 +272,8 @@ export const overlayPopupClassName = {
    * iPad keyboard lifts it by half its height so the card stays clear.
    */
   dialog: cn(
-    "fixed top-[calc(50%-var(--np-keyboard-inset)/2)] left-1/2 z-overlay grid max-h-[min(calc(86dvh-var(--np-keyboard-inset)),760px)] w-full max-w-[calc(100%-24px)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-(--np-radius-modal) bg-surface p-(--dlg-pad) text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px] [--overlay-dock:0px] sm:max-w-[520px] data-[size=wide]:sm:max-w-[760px]",
-    "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-spring data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:translate-y-[calc(-50%+8px)] data-starting-style:scale-[0.985] data-starting-style:opacity-0"
+    "fixed top-[calc(50%-var(--np-keyboard-inset)/2)] left-1/2 z-overlay grid max-h-[min(calc(86dvh-var(--np-keyboard-inset)),var(--np-dialog-max-h))] w-full max-w-[calc(100%-2*var(--np-overlay-gutter))] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-(--np-radius-modal) bg-surface p-(--dlg-pad) text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px] [--overlay-dock:0px] sm:max-w-(--np-dialog-w) data-[size=wide]:sm:max-w-(--np-dialog-w-wide)",
+    "transition-[opacity,scale,translate] duration-(--np-duration-standard) ease-spring data-ending-style:scale-[0.985] data-ending-style:opacity-0 data-ending-style:duration-(--np-duration-fast) data-ending-style:ease-standard data-starting-style:translate-y-[calc(-50%+--spacing(2))] data-starting-style:scale-[0.985] data-starting-style:opacity-0"
   ),
   /**
    * The bottom sheet: full width up to 40rem (centred beyond, for a phone
@@ -286,8 +286,8 @@ export const overlayPopupClassName = {
    */
   sheet: cn(
     drawerPopupBaseClassName,
-    "mx-auto mt-auto max-h-[calc(100dvh-var(--np-safe-top)-0.75rem)] w-full max-w-[min(100%,40rem)] rounded-t-(--np-radius-sheet)",
-    "[box-shadow:var(--np-shadow-modal),0_3rem_0_0_var(--color-surface)]",
+    "mx-auto mt-auto max-h-[calc(100dvh-var(--np-safe-top)-0.75rem)] w-full max-w-[min(100%,var(--np-sheet-max-w))] rounded-t-(--np-radius-sheet)",
+    "shadow-(--np-shadow-sheet)",
     "[transform:translateY(calc(var(--drawer-snap-point-offset,0px)+var(--drawer-swipe-movement-y,0px)))]",
     "data-ending-style:[transform:translateY(100%)] data-starting-style:[transform:translateY(100%)]"
   ),
@@ -297,7 +297,7 @@ export const overlayPopupClassName = {
    */
   panel: cn(
     drawerPopupBaseClassName,
-    "ml-auto h-dvh max-h-dvh w-[min(560px,100vw)] pr-safe data-[size=wide]:w-[min(880px,100vw)]",
+    "ml-auto h-dvh max-h-dvh w-[min(var(--np-panel-w),100vw)] pr-safe data-[size=wide]:w-[min(var(--np-panel-w-wide),100vw)]",
     "[transform:translateX(var(--drawer-swipe-movement-x,0px))]",
     "data-ending-style:[transform:translateX(100%)] data-starting-style:[transform:translateX(100%)]"
   ),
@@ -308,7 +308,7 @@ export const overlayPopupClassName = {
    */
   drawer: cn(
     drawerPopupBaseClassName,
-    "left-0 mr-auto h-dvh max-h-dvh w-[min(300px,86vw)] pt-safe pb-safe pl-safe",
+    "left-0 mr-auto h-dvh max-h-dvh w-[min(var(--np-drawer-w),86vw)] pt-safe pb-safe pl-safe",
     "[transform:translateX(var(--drawer-swipe-movement-x,0px))]",
     "data-ending-style:[transform:translateX(-100%)] data-starting-style:[transform:translateX(-100%)]"
   ),
@@ -348,7 +348,7 @@ export const overlayFooterClassName = {
  * otherwise drop under the keyboard the moment a field below it is focused.
  */
 export const overlayFooterDockClassName =
-  "pb-[calc(0.75rem+var(--overlay-dock,0px))]!"
+  "pb-[calc(--spacing(3)+var(--overlay-dock,0px))]!"
 
 /**
  * The bar the footer is drawn as: the sunken surface under a hairline,
@@ -358,7 +358,7 @@ export const overlayFooterDockClassName =
  * padding edge, which would leave the bar floating above the bottom.
  */
 export const overlayFooterBarClassName =
-  "sticky -bottom-(--dlg-pad) z-10 -mx-(--dlg-pad) -mb-(--dlg-pad) mt-1 rounded-b-[inherit] border-t border-line bg-surface-alt px-(--dlg-pad) pt-3 " +
+  "sticky -bottom-(--dlg-pad) z-sticky -mx-(--dlg-pad) -mb-(--dlg-pad) mt-1 rounded-b-[inherit] border-t border-line bg-surface-alt px-(--dlg-pad) pt-3 " +
   overlayFooterDockClassName
 
 /**
@@ -367,7 +367,7 @@ export const overlayFooterBarClassName =
  * keyboard lands on is never hidden behind either bar.
  */
 export const overlayScrollPaddingClassName =
-  "scroll-pt-20 scroll-pb-[calc(6rem+var(--overlay-dock,0px))]"
+  "scroll-pt-20 scroll-pb-[calc(--spacing(24)+var(--overlay-dock,0px))]"
 
 /* ---- Chrome ------------------------------------------------------------ */
 
@@ -418,7 +418,7 @@ export function OverlayGrabber({ className }: { className?: string }) {
         className
       )}
     >
-      <span className="h-[5px] w-9 rounded-(--np-radius-pill) bg-line-strong" />
+      <span className="h-(--np-sheet-grabber-h) w-9 rounded-(--np-radius-pill) bg-line-strong" />
     </span>
   )
 }
@@ -501,10 +501,10 @@ export function useOverlayHeader(visuallyHidden: boolean) {
 export const alertPopupClassName = {
   dialog: cn(
     overlayPopupClassName.dialog,
-    "gap-3 data-[size=wide]:sm:max-w-[520px]"
+    "gap-3 data-[size=wide]:sm:max-w-(--np-dialog-w)"
   ),
   sheet: cn(
-    "fixed inset-x-0 bottom-0 z-overlay mx-auto grid max-h-[calc(100dvh-var(--np-safe-top)-0.75rem)] w-full max-w-[min(100%,40rem)] gap-3 overflow-y-auto overscroll-contain rounded-t-(--np-radius-sheet) bg-surface p-(--dlg-pad) pt-6 text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px]",
+    "fixed inset-x-0 bottom-0 z-overlay mx-auto grid max-h-[calc(100dvh-var(--np-safe-top)-0.75rem)] w-full max-w-[min(100%,var(--np-sheet-max-w))] gap-3 overflow-y-auto overscroll-contain rounded-t-(--np-radius-sheet) bg-surface p-(--dlg-pad) pt-6 text-body text-ink shadow-(--np-shadow-modal) outline-none [--dlg-pad:20px]",
     dockVariableClassName,
     "transition-[translate,opacity] duration-(--np-duration-sheet) ease-out-strong data-ending-style:translate-y-full data-ending-style:duration-(--np-duration-standard) data-starting-style:translate-y-full"
   ),

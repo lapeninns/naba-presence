@@ -62,6 +62,27 @@ function minWidth(name: BreakpointName): string {
 const controls = `${minWidth("md")} and (min-height: ${CONTROLS_MIN_HEIGHT.rem}rem)`
 
 /**
+ * The height under which a touch screen is too short for a centred dialog
+ * (a phone in landscape is 390-430px tall). See `phoneOverlay` below.
+ */
+export const PHONE_OVERLAY_MAX_HEIGHT: Breakpoint = { rem: 30, px: 30 * REM_PX }
+
+/**
+ * Just under a breakpoint, for the one query that has to say "narrower
+ * than": `phoneOverlay` is a list of two queries, and a list cannot be
+ * negated as a whole the way `capsules` negates `controls`.
+ */
+function below(rem: number): string {
+  return `${(rem - 0.001).toFixed(3)}rem`
+}
+
+/**
+ * When an `auto` overlay presents as a bottom sheet (components/ui/overlay.tsx):
+ * below `sm`, or a touch screen shorter than 30rem.
+ */
+const PHONE_OVERLAY = `(max-width: ${below(BREAKPOINTS.sm.rem)}), (pointer: coarse) and (max-height: ${below(PHONE_OVERLAY_MAX_HEIGHT.rem)})`
+
+/**
  * The `desk` custom variant: a fine pointer with at least `md` of width,
  * where the size tokens step down to the operator's-desk scale. Behaviour
  * that must agree with the density (a compact list, hover affordances)
@@ -76,6 +97,7 @@ const DESK = `${minWidth("md")} and (pointer: fine)`
  *
  * There is deliberately no `max-*` entry: "below md" is `!matches("md")`,
  * which avoids the 0.02px gap a hand-written `max-width: 47.98rem` leaves.
+ * `phoneOverlay` is the exception, for the reason given above it.
  */
 export const MEDIA_QUERIES = {
   sm: minWidth("sm"),
@@ -87,8 +109,9 @@ export const MEDIA_QUERIES = {
   controls,
   desk: DESK,
   capsules: `not all and ${controls}`,
+  phoneOverlay: PHONE_OVERLAY,
 } as const satisfies Record<
-  BreakpointName | "controls" | "capsules" | "desk",
+  BreakpointName | "controls" | "capsules" | "desk" | "phoneOverlay",
   string
 >
 

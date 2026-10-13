@@ -77,6 +77,12 @@ describe("breakpoints mirror app/globals.css", () => {
     expect(MEDIA_QUERIES.capsules).toBe(capsules)
   })
 
+  it("phoneOverlay is below sm, or a touch screen under 30rem tall", () => {
+    expect(MEDIA_QUERIES.phoneOverlay).toBe(
+      "(max-width: 39.999rem), (pointer: coarse) and (max-height: 29.999rem)"
+    )
+  })
+
   it("names a min-width query for every breakpoint", () => {
     for (const name of Object.keys(BREAKPOINTS) as BreakpointName[]) {
       expect(MEDIA_QUERIES[name]).toBe(
