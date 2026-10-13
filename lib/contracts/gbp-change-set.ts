@@ -1,15 +1,6 @@
+// Client-safe: zod only. The lodging preview request (which validates against
+// the Google lodging discovery schema) lives in `./lodging-preview`.
 import { z } from "zod"
-
-import { lodgingSchema } from "./google-lodging"
-import { GOOGLE_LODGING_UPDATE_PATHS } from "@/lib/domain/google-lodging"
-
-export const lodgingUpdateMaskSchema = z.array(z.string().refine((path) => GOOGLE_LODGING_UPDATE_PATHS.has(path), "Select a supported writable lodging field.")).min(1)
-
-export const lodgingPreviewRequestSchema = z.object({
-  expectedGoogleHash: z.string().length(64),
-  payload: lodgingSchema,
-  updateMask: lodgingUpdateMaskSchema,
-})
 
 export const gbpChangeSetSchema = z.object({
   id: z.uuid(),
