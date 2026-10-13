@@ -590,16 +590,19 @@ for (const theme of themes) {
           page.getByRole("heading", { name: "Listings", level: 1 })
         ).toBeVisible()
         // The board's table is responsive (components/ui/table.tsx): below
-        // 720px of container width the header row hides and each cell is
-        // labelled with its column name instead.
+        // 720px of container width the header row hides and each listing
+        // becomes a compact record card led by its name (no per-cell
+        // labels: the name, health pill and waiting count speak for
+        // themselves).
+        const header = page.getByRole("columnheader", {
+          name: "Listing",
+          exact: true,
+        })
         if (viewport.name === "desktop") {
-          await expect(
-            page.getByRole("columnheader", { name: "Listing", exact: true })
-          ).toBeVisible()
+          await expect(header).toBeVisible()
         } else {
-          await expect(
-            page.locator('td[data-label="Listing"]').first()
-          ).toBeVisible()
+          await expect(header).toBeHidden()
+          await expect(page.locator("tbody > tr").first()).toBeVisible()
         }
         await expect(
           page.getByRole("link", { name: state.directReview.locationName })
