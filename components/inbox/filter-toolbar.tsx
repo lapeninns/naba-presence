@@ -211,6 +211,10 @@ function FilterToolbar({
         className="w-auto shrink-0 max-lg:hidden"
       />
 
+      {/* A circle (Notion Mail's filter button): 44px on touch, the 36px
+          control at the desk. The word stays in the button for the record
+          (sr-only) and the name says how many are on; while any is on the
+          icon takes the accent ink and the count badge rides its corner. */}
       <Button
         type="button"
         variant="secondary"
@@ -218,14 +222,17 @@ function FilterToolbar({
         aria-expanded={open}
         aria-label={count > 0 ? `Filters, ${count} active` : "Filters"}
         onClick={() => setOpen(true)}
-        className="shrink-0"
+        className="size-(--np-touch) shrink-0 rounded-(--np-radius-pill) px-0 desk:size-(--np-control-h)"
       >
-        <SlidersHorizontalIcon aria-hidden data-icon="inline-start" />
-        Filters
+        <SlidersHorizontalIcon
+          aria-hidden
+          className={cn(count > 0 && "text-accent-ink")}
+        />
+        <span className="sr-only">Filters</span>
         {count > 0 ? (
           <span
             aria-hidden
-            className="inline-flex h-5 min-w-5 items-center justify-center rounded-(--np-radius-pill) bg-ink px-1 font-mono text-caption leading-none font-semibold text-canvas tabular-nums"
+            className="absolute -top-1 -right-1 inline-flex h-5 min-w-5 items-center justify-center rounded-(--np-radius-pill) bg-ink px-1 text-caption font-semibold text-canvas tabular-nums"
           >
             {count}
           </span>

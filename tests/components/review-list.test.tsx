@@ -398,9 +398,7 @@ describe("ReviewList", () => {
     expect(
       screen.getByLabelText("Draft checked · Ready to publish")
     ).toHaveTextContent("Ready to publish")
-    expect(screen.getByLabelText("Live on Google")).toHaveTextContent(
-      "Replied"
-    )
+    expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
 
     for (const review of reviews) {
       const expected = deriveReplyStatus(replyStateFromRow(review))
@@ -671,5 +669,215 @@ describe("ReviewList", () => {
       expect(onSelect).toHaveBeenCalledWith("a")
       expect(toggle).not.toHaveBeenCalled()
     })
+  })
+})
+
+// Notion Mail's row (REFERENCE-BRIEF §2.1): three lines, avatar-led, with a
+// needs-reply "unread" emphasis that only reinforces the status words.
+describe("ReviewList row anatomy", () => {
+  const replied = () =>
+    row({
+      id: "b",
+      text: "Handled one",
+      reviewer: {
+        displayName: "Ben Handled",
+        isAnonymous: false,
+        profilePhotoUrl: null,
+      },
+      workflowStatus: "published",
+      draftBody: "Thanks!",
+      replyBody: "Thanks!",
+      replyStatus: "published",
+      verificationStatus: "pass",
+    })
+
+  function nameOf(button: HTMLElement, name: string) {
+    return [...button.querySelectorAll("span")].find(
+      (node) => node.textContent === name && node.children.length === 0
+    )!
+  }
+
+  it("emphasises a review that needs a reply with weight, full ink and a dot", () => {
+    render(
+      <ReviewList
+        reviews={[row({ id: "a" }), replied()]}
+        selectedId={undefined}
+        queue="all"
+        onSelect={() => true}
+      />
+    )
+    const fresh = screen.getByRole("button", { name: /Sam Traveller/ })
+    const handled = screen.getByRole("button", { name: /Ben Handled/ })
+
+    expect(nameOf(fresh, "Sam Traveller")).toHaveClass(
+      "font-semibold",
+      "text-ink"
+    )
+    expect(
+      fresh.querySelector('[data-slot="review-row-indicator"]')
+    ).toHaveAttribute("aria-hidden", "true")
+    expect(fresh.querySelector('[data-slot="review-row-preview"]')).toHaveClass(
+      "text-ink"
+    )
+
+    expect(nameOf(handled, "Ben Handled")).toHaveClass(
+      "font-normal",
+      "text-ink-secondary"
+    )
+    expect(
+      handled.querySelector('[data-slot="review-row-indicator"]')
+    ).toBeNull()
+    expect(
+      handled.querySelector('[data-slot="review-row-preview"]')
+    ).toHaveClass("text-ink-secondary")
+    // The status word stays: the dot and weight only reinforce it.
+    expect(screen.getByLabelText("No reply yet")).toHaveTextContent(
+      "Needs reply"
+    )
+    expect(screen.getByLabelText("Live on Google")).toHaveTextContent("Replied")
+  })
+
+  it("speaks 'Needs reply' once: in words where the pill is dropped, never twice", () => {
+    const { rerender } = render(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        queue="needs_reply"
+        onSelect={() => true}
+      />
+    )
+    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    // In the Needs reply queue the pill would repeat the tab, so it is
+    // dropped, and the dot is not words: a sr-only word carries it.
+    expect(button.querySelector('[data-slot="reply-status"]')).toBeNull()
+    const spoken = screen.getAllByText("Needs reply")
+    expect(spoken).toHaveLength(1)
+    expect(spoken[0]).toHaveClass("sr-only")
+
+    rerender(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        queue="all"
+        onSelect={() => true}
+      />
+    )
+    // Where the pill shows, it is the one that says it.
+    const again = screen.getAllByText("Needs reply")
+    expect(again).toHaveLength(1)
+    expect(again[0]).toHaveAttribute("data-slot", "reply-status")
+  })
+
+  it("puts the status pill on the venue line, trailing, and the words last", () => {
+    render(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        queue="all"
+        onSelect={() => true}
+      />
+    )
+    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const venue = button.querySelector('[data-slot="review-row-venue"]')!
+    const pill = button.querySelector('[data-slot="reply-status"]')!
+    expect(venue).toContainElement(pill as HTMLElement)
+    expect(pill.parentElement).toHaveClass("ml-auto", "shrink-0")
+    // It may take its own line only where the row is very narrow.
+    expect(pill.parentElement).toHaveClass("@max-2xs/row:basis-full")
+    expect(
+      button.querySelector('[data-slot="review-row-location"]')
+    ).toHaveClass("truncate")
+
+    // DOM order is the visual order: name and time, venue, then the words.
+    const time = button.querySelector("time")!
+    const preview = button.querySelector('[data-slot="review-row-preview"]')!
+    expect(
+      time.compareDocumentPosition(venue) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      venue.compareDocumentPosition(preview) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(preview).toHaveClass("line-clamp-2", "lg:line-clamp-1")
+    // The age is sans caption figures, not mono.
+    expect(time).toHaveClass("text-caption", "tabular-nums", "text-ink-muted")
+    expect(time).not.toHaveClass("font-mono")
+  })
+
+  it("draws a neutral avatar, never a name-hashed tint", () => {
+    render(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        onSelect={() => true}
+      />
+    )
+    const button = screen.getByRole("button", { name: /Sam Traveller/ })
+    const avatar = button.querySelector("[data-reviewer-avatar]")!
+    expect(avatar).not.toHaveAttribute("data-avatar-tone")
+    expect(avatar).toHaveAttribute("data-size", "default")
+    expect(avatar).toHaveClass("bg-fill", "text-ink-secondary")
+  })
+
+  it("draws the inset hairline under every row but the selected one and the last", () => {
+    const { container } = render(
+      <ReviewList
+        reviews={[
+          row({ id: "a", text: "First" }),
+          row({ id: "b", text: "Second" }),
+          row({ id: "c", text: "Third" }),
+        ]}
+        selectedId="b"
+        onSelect={() => true}
+      />
+    )
+    const items = [
+      ...container.querySelectorAll('[data-slot="review-row-item"]'),
+    ]
+    expect(items[0]).toHaveClass("after:bg-line-subtle", "last:after:hidden")
+    // From the text column, past the gutter, avatar and gap — not a literal.
+    expect(items[0].className).toContain(
+      "after:left-[calc(var(--np-page-pad-x)+--spacing(8)+--spacing(3))]"
+    )
+    expect(items[1]).not.toHaveClass("after:bg-line-subtle")
+    expect(items[2]).toHaveClass("after:bg-line-subtle", "last:after:hidden")
+  })
+
+  it("starts the row at the gutter, or flush with the tick-box column where it shows", () => {
+    const selection = (selectMode: boolean) => ({
+      selected: new Set<string>(),
+      toggle: vi.fn(),
+      extendTo: vi.fn(),
+      selectMode,
+    })
+    const { rerender } = render(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        onSelect={() => true}
+      />
+    )
+    const button = () => screen.getByRole("button", { name: /Sam Traveller/ })
+    expect(button()).toHaveClass("pl-(--np-page-pad-x)", "pr-(--np-page-pad-x)")
+
+    rerender(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        onSelect={() => true}
+        selection={selection(false)}
+      />
+    )
+    expect(button()).toHaveClass("pl-(--np-page-pad-x)", "desk:pl-0")
+
+    rerender(
+      <ReviewList
+        reviews={[row({ id: "a" })]}
+        selectedId={undefined}
+        onSelect={() => true}
+        selection={selection(true)}
+      />
+    )
+    expect(button()).toHaveClass("pl-0")
+    expect(button()).not.toHaveClass("pl-(--np-page-pad-x)")
   })
 })

@@ -35,11 +35,17 @@ const ICONS: Record<ReplyStatusIcon, typeof CheckIcon> = {
  */
 function ReplyStatusLine({
   status,
+  onCharcoal = false,
   className,
 }: {
   status: ReplyStatus
   /** The bar is the only form; kept so existing callers still compile. */
   variant?: "bar"
+  /**
+   * On the charcoal publish bar: the on-charcoal inks, which stay legible in
+   * both themes (charcoal is near-white in the dark theme).
+   */
+  onCharcoal?: boolean
   className?: string
 }) {
   const Icon = ICONS[status.icon]
@@ -48,7 +54,8 @@ function ReplyStatusLine({
       data-slot="reply-status"
       data-tone={status.tone}
       className={cn(
-        "inline-flex min-w-0 items-center gap-2 text-caption font-semibold text-ink",
+        "inline-flex min-w-0 items-center gap-2 text-caption font-semibold",
+        onCharcoal ? "text-ink-on-charcoal" : "text-ink",
         className
       )}
     >
@@ -57,13 +64,21 @@ function ReplyStatusLine({
         strokeWidth={1.75}
         className={cn(
           "size-4 shrink-0",
-          status.icon === "loader" && "animate-spin"
+          status.icon === "loader" && "animate-spin motion-reduce:animate-none"
         )}
       />
       <span className="line-clamp-2 min-w-0">
         {status.text}
         {status.note ? (
-          <span className="font-normal text-ink-muted"> · {status.note}</span>
+          <span
+            className={cn(
+              "font-normal",
+              onCharcoal ? "text-ink-muted-on-charcoal" : "text-ink-muted"
+            )}
+          >
+            {" "}
+            · {status.note}
+          </span>
         ) : null}
       </span>
     </span>

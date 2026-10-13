@@ -159,6 +159,27 @@ describe("FilterToolbar — the filter end of the toolbar", () => {
       screen.getByRole("button", { name: "Filters, 4 active" })
     ).toBeInTheDocument()
   })
+
+  it("draws Filters as a circle whose icon takes the accent ink while any filter is on", () => {
+    renderToolbar({ ratings: [5] })
+    const button = screen.getByRole("button", { name: "Filters, 1 active" })
+    expect(button).toHaveClass(
+      "rounded-(--np-radius-pill)",
+      "size-(--np-touch)",
+      "desk:size-(--np-control-h)"
+    )
+    expect(button.querySelector("svg")).toHaveClass("text-accent-ink")
+    const badge = button.querySelector("span[aria-hidden]")
+    expect(badge).toHaveTextContent("1")
+    expect(badge).toHaveClass("text-caption", "tabular-nums")
+    expect(badge).not.toHaveClass("font-mono")
+  })
+
+  it("keeps the Filters icon in its own ink with nothing on", () => {
+    renderToolbar()
+    const button = screen.getByRole("button", { name: "Filters" })
+    expect(button.querySelector("svg")).not.toHaveClass("text-accent-ink")
+  })
 })
 
 describe("FilterToolbar — Waiting on", () => {

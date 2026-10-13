@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useId, useState } from "react"
+import { useEffect, useId, useRef, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
+import { Button } from "@/components/ui/button"
 import { SearchInput } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
 import {
@@ -35,12 +36,22 @@ import type { InboxState } from "@/lib/inbox/url-state"
  * the search chip). The shell's ⌘K launcher is Commands — clients,
  * venues and actions — and deliberately does not look inside review text, so
  * this is the one place to type words a customer wrote.
+ *
+ * Drawn as Notion Mail's search pill: the field fill, no edge until focus,
+ * a leading magnifier and the clear control. On a phone in search mode the
+ * toolbar asks for a "Cancel" beside it (`showCancel`): it empties the
+ * draft and sends the same `{ search: "" }` the debounce would (at once, not
+ * 300ms later), takes the caret out, and tells the toolbar to unfold
+ * (`onCancel`).
  */
 function ReviewSearchField({
   ref,
   state,
   onChange,
   showShortcut = false,
+  showCancel = false,
+  onFocus,
+  onCancel,
   className,
 }: {
   /** The input itself, so the `/` shortcut can put the caret in it. */
@@ -52,9 +63,14 @@ function ReviewSearchField({
    * on a desk only, since a phone has no key to press.
    */
   showShortcut?: boolean
+  /** The phone's "Cancel" beside the field (hidden from `md`). */
+  showCancel?: boolean
+  onFocus?: () => void
+  onCancel?: () => void
   className?: string
 }) {
   const searchId = useId()
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const [searchDraft, setSearchDraft] = useState(state.search)
   // "Adjusting state when a prop changes" (react.dev/learn/you-might-not-need-an-effect):
   // setting state during render — not inside an effect body — keeps this a single
@@ -72,13 +88,28 @@ function ReviewSearchField({
 
   const searchPending = searchDraft !== state.search
 
+  const setRefs = (node: HTMLInputElement | null) => {
+    inputRef.current = node
+    if (typeof ref === "function") ref(node)
+    else if (ref) ref.current = node
+  }
+
+  function cancel() {
+    setSearchDraft("")
+    // What the debounce would send 300ms later, sent now, so the strip
+    // comes back with the tap rather than after it.
+    if (state.search !== "") onChange({ search: "" })
+    inputRef.current?.blur()
+    onCancel?.()
+  }
+
   return (
-    <div className={cn("relative flex min-w-0", className)}>
+    <div className={cn("relative flex min-w-0 items-center gap-1", className)}>
       <label htmlFor={searchId} className="sr-only">
         Search reviews
       </label>
       <SearchInput
-        ref={ref}
+        ref={setRefs}
         id={searchId}
         role="searchbox"
         aria-label="Search reviews"
@@ -87,7 +118,8 @@ function ReviewSearchField({
         placeholder="Search reviews"
         enterKeyHint="search"
         onChange={(event) => setSearchDraft(event.target.value)}
-        className="w-full"
+        onFocus={onFocus}
+        className="w-full rounded-(--np-radius-pill) border-transparent bg-fill-secondary pl-3"
         inputClassName={showShortcut ? "desk:pr-7" : undefined}
       />
       {showShortcut && searchDraft === "" ? (
@@ -97,6 +129,16 @@ function ReviewSearchField({
         >
           /
         </Kbd>
+      ) : null}
+      {showCancel ? (
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={cancel}
+          className="h-(--np-touch) shrink-0 px-2 md:hidden"
+        >
+          Cancel
+        </Button>
       ) : null}
     </div>
   )

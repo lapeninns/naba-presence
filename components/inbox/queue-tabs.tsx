@@ -3,8 +3,6 @@
 import { useEffect, useId, useRef } from "react"
 
 import {
-  segmentedItemClassName,
-  segmentedThumbClassName,
   segmentedTrackClassName,
   useSegmentedOverflow,
 } from "@/components/ui/segmented-control"
@@ -48,26 +46,43 @@ function revealInStrip(strip: HTMLElement, item: HTMLElement) {
 }
 
 /**
- * The five queues as one strip in the inbox toolbar: the segmented control's
- * track and segments (components/ui/segmented-control.tsx), with the current
- * queue on the raised white thumb and a non-zero Failed count in the danger
- * ink, because that number is itself the exception.
+ * The strip: the segmented control's scrolling track (snap, edge fades,
+ * the 3px inset that keeps a focus halo clear of the scroll clip) without
+ * its grey fill, so the queues read as text tabs.
+ */
+const STRIP_CLASS = cn(segmentedTrackClassName, "gap-1 bg-transparent")
+
+/**
+ * One queue: a text tab (Notion Mail's label tabs). 500 in the secondary
+ * ink; the current one 600 in ink with a 2px ink underline — the one cue
+ * that is not colour, and not the accent, which is kept for the Google
+ * action. 44px tall and at least 44px wide on touch, 36px at the desk.
+ */
+const TAB_CLASS = cn(
+  "relative inline-flex h-(--np-touch) min-w-(--np-touch) shrink-0 snap-start items-center justify-center gap-1.5 rounded-(--np-radius-control) px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none desk:h-(--np-control-h) desk:min-w-0",
+  "transition-colors duration-(--np-duration-fast) ease-spring-snappy hover-fine:hover:text-ink",
+  "aria-[current=true]:font-semibold aria-[current=true]:text-ink",
+  "aria-[current=true]:after:absolute aria-[current=true]:after:inset-x-3 aria-[current=true]:after:bottom-0 aria-[current=true]:after:h-0.5 aria-[current=true]:after:rounded-(--np-radius-pill) aria-[current=true]:after:bg-ink aria-[current=true]:after:content-['']"
+)
+
+/**
+ * The five queues as one strip of text tabs in the inbox toolbar, with a
+ * non-zero Failed count in the danger ink, because that number is itself
+ * the exception.
  *
- * The OBJECT is the segmented control; the SEMANTICS are navigation, which
- * is none of the control's three modes. Each queue is a guarded URL change
+ * The strip borrows the segmented control's track; the SEMANTICS are
+ * navigation, which is none of the control's three modes. Each queue is a guarded URL change
  * (a dirty reply asks first, and a new page of rows is fetched), so the
  * strip stays a `nav` labelled "Review queues" — the landmark screen-reader
  * users jump to — of plain buttons with `aria-current`. Tabs would select on
  * every arrow press, and an arrow that throws a discard prompt or a fetch is
- * not a way to look along a row. Hence the exported recipes rather than
- * `<SegmentedControl>`, as its own comment intends for this case.
+ * not a way to look along a row. Hence the exported track recipe rather
+ * than `<SegmentedControl>`, as its own comment intends for this case.
  *
  * On a phone the strip is wider than the screen, so it scrolls sideways
  * rather than wrapping or cutting a label: the edge that hides a queue
  * fades, and the current queue is scrolled into the strip on arrival (a
- * link to Failed lands with Failed in sight) and whenever it changes. The
- * track is the control height — 44px on touch, every segment's hit area
- * reaching its full height — and 36px at the desk.
+ * link to Failed lands with Failed in sight) and whenever it changes.
  */
 function QueueTabs({
   queue,
@@ -104,11 +119,7 @@ function QueueTabs({
       aria-describedby={noteId}
       className={cn("flex max-w-full min-w-0", className)}
     >
-      <div
-        ref={stripRef}
-        data-slot="queue-strip"
-        className={segmentedTrackClassName}
-      >
+      <div ref={stripRef} data-slot="queue-strip" className={STRIP_CLASS}>
         {VISIBLE_QUEUES.map((item) => {
           const count = counts?.byQueue?.[item] ?? 0
           const active = current === item
@@ -132,10 +143,7 @@ function QueueTabs({
               ]
                 .filter(Boolean)
                 .join(", ")}
-              className={cn(
-                segmentedItemClassName,
-                active && [segmentedThumbClassName, "font-semibold text-ink"]
-              )}
+              className={TAB_CLASS}
             >
               <span>{REVIEW_QUEUE_LABELS[item]}</span>
               {countsPending ? (
@@ -146,7 +154,7 @@ function QueueTabs({
                 <span
                   aria-hidden
                   className={cn(
-                    "font-mono text-count tabular-nums",
+                    "text-count tabular-nums",
                     alert
                       ? "font-semibold text-danger-ink"
                       : active

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import * as React from "react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -428,6 +428,28 @@ describe("BulkActionBar", () => {
     expect(
       await screen.findByRole("button", { name: "Clear selection" })
     ).toHaveClass("hidden", "desk:inline-flex")
+  })
+
+  // SelectionBar look: below md the overflow and the primary are 64px tiles,
+  // an icon over a caption, on the charcoal bar; "N selected" stays in it.
+  it("draws the phone's actions as 64px tiles, icon over label", async () => {
+    renderBar([row("a")], ["a"])
+    const bar = await screen.findByRole("region", { name: "Selected reviews" })
+    expect(bar).toHaveAttribute("data-bar-tone", "charcoal")
+    expect(within(bar).getByText("1 selected")).toBeInTheDocument()
+    for (const name of ["Approve 1", "More actions"]) {
+      const tile = within(bar).getByRole("button", { name })
+      expect(tile).toHaveClass(
+        "max-md:min-h-16",
+        "max-md:min-w-16",
+        "max-md:flex-col",
+        "max-md:text-caption"
+      )
+      expect(tile.querySelector("svg")).not.toBeNull()
+    }
+    // The overflow tile's caption begins its accessible name (2.5.3).
+    const more = within(bar).getByRole("button", { name: "More actions" })
+    expect(more).toHaveTextContent("More")
   })
 
   it("lists the assignees in the phone's action sheet instead of a flyout", async () => {

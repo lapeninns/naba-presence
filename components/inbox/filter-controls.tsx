@@ -58,7 +58,7 @@ function RatingFilter({
             aria-label={option.label}
             onClick={() => onChange(toggleRating(ratings, option.value))}
             className={cn(
-              "inline-flex h-full min-w-8 flex-1 items-center justify-center gap-0.5 rounded-sm px-1.5 font-mono text-caption font-medium tabular-nums focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none pointer-coarse:min-w-11",
+              "inline-flex h-full min-w-8 flex-1 items-center justify-center gap-0.5 rounded-sm px-1.5 text-caption font-medium tabular-nums focus-halo transition-[background-color,color] duration-(--np-duration-fast) ease-spring-snappy select-none focus-visible:outline-none pointer-coarse:min-w-11",
               checked
                 ? "bg-ink text-canvas"
                 : "text-ink-secondary hover:bg-fill hover:text-ink"

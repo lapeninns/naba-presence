@@ -421,7 +421,7 @@ describe("ActionBar", () => {
     await waitFor(() => {
       expect(screen.getByText("Submitted for approval")).toBeInTheDocument()
       expect(
-        screen.getByText("A manager needs to approve it before it goes live.")
+        screen.getByText("It goes live on Google once a manager approves it.")
       ).toBeInTheDocument()
     })
   })
@@ -583,6 +583,46 @@ describe("ActionBar", () => {
       expect(approval.mutateAsync).toHaveBeenCalledWith(
         expect.objectContaining({ decision: "reject" })
       )
+    )
+  })
+
+  // D4: these controls sit on the charcoal bar. One filled primary (the
+  // accent), every other control the on-charcoal quiet button.
+  it("draws its controls for the charcoal bar", () => {
+    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
+    renderActionBar()
+    expect(
+      screen.getByRole("button", { name: "Approve reply" })
+    ).toHaveAttribute("data-variant", "default")
+    expect(
+      screen.getByRole("button", { name: "Reject reply" })
+    ).toHaveAttribute("data-variant", "ghost-dark")
+    expect(
+      screen.getByRole("button", { name: "Review actions" })
+    ).toHaveAttribute("data-variant", "ghost-dark")
+  })
+
+  // D5: publishing is a Google write, so its toast states the outcome and
+  // links to Google; it never offers Undo.
+  it("links a published reply to Google and offers no Undo", async () => {
+    const user = userEvent.setup()
+    stubHooks(
+      detailWith({
+        googleReplyUrl: "https://search.google.com/local/reviews?r=1",
+      })
+    )
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    expect(await screen.findByText("Reply published")).toBeInTheDocument()
+    expect(screen.getByText("Live on Google.")).toBeInTheDocument()
+    const view = screen.getByRole("button", { name: "View on Google" })
+    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument()
+    const open = vi.spyOn(window, "open").mockReturnValue(null)
+    await user.click(view)
+    expect(open).toHaveBeenCalledWith(
+      "https://search.google.com/local/reviews?r=1",
+      "_blank",
+      "noopener,noreferrer"
     )
   })
 

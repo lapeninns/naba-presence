@@ -911,6 +911,38 @@ describe("InboxView — list and detail", () => {
     )
   })
 
+  // The retired inbox-mail.module.css, as token utilities on the parts
+  // themselves: one white surface, one hairline above the split, flat panes
+  // that run edge to edge on a phone, and a hairline between list and review.
+  it("lays the workspace out flat with token utilities, not a CSS module", () => {
+    const { container } = renderInbox()
+    const slot = (name: string) =>
+      container.querySelector<HTMLElement>(`[data-slot="${name}"]`)!
+    expect(slot("inbox")).toHaveClass("bg-surface")
+    expect(slot("inbox").className).not.toMatch(/\bgap-/)
+    expect(slot("inbox-split")).toHaveClass("border-t", "border-line")
+    expect(slot("inbox-split").className).not.toMatch(/\bgap-/)
+    expect(slot("inbox-list-column")).toHaveClass(
+      "lg:border-r",
+      "lg:border-line"
+    )
+    for (const pane of ["inbox-list-pane", "inbox-inspector"]) {
+      expect(slot(pane)).toHaveClass("max-md:-mx-4", "bg-surface")
+      expect(slot(pane)).not.toHaveClass("border")
+      expect(slot(pane).className).not.toContain("rounded-")
+    }
+    expect(slot("inbox-workspace-controls")).toHaveClass(
+      "pt-2",
+      "pb-4",
+      "md:px-5",
+      "md:pt-5"
+    )
+    expect(slot("inbox-list-header")).toHaveClass(
+      "border-line-subtle",
+      "px-(--np-page-pad-x)"
+    )
+  })
+
   it("renders the list view, with the review pane waiting, without ?selected=", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
     currentParams = new URLSearchParams("rating=4")

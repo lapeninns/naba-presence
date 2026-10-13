@@ -3,7 +3,7 @@
 import { XIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { chipClassName } from "@/components/ui/chip"
+import { ChipRow, chipClassName } from "@/components/ui/chip"
 import {
   ASSIGNEE_LABELS,
   CLEAR_FILTERS_LABEL,
@@ -122,6 +122,8 @@ function buildChips(
  * it: on a phone the cross was the only target and too small to hit, and a
  * capsule that only shows a filter has nothing else to do when pressed. Its
  * name says what pressing it does ("Remove filter: Rating: 1–2 stars").
+ * Each chip is drawn at the small control height in the accent tint, with
+ * the touch extension taking its target to 44px.
  */
 function ActiveFilterChips({
   state,
@@ -140,10 +142,9 @@ function ActiveFilterChips({
   if (!hasActiveFilters(state)) return null
   const chips = buildChips(state, locations, clientName)
   return (
-    <div
-      data-slot="active-filter-chips"
-      className="flex flex-wrap items-center gap-2"
-    >
+    // One row that scrolls sideways (fading at the edge with more behind it)
+    // rather than wrapping or cutting a label short.
+    <ChipRow data-slot="active-filter-chips" className="items-center">
       {chips.map((chip) => (
         <button
           key={chip.key}
@@ -153,23 +154,26 @@ function ActiveFilterChips({
           onClick={() => onChange(chip.clear)}
           className={chipClassName({
             className: cn(
-              "max-w-full pr-2 pointer-coarse:h-(--np-touch)",
-              "[&_svg]:text-ink-muted hover:[&_svg]:text-ink"
+              // Applied, so drawn in the accent tint; the hit area reaches
+              // 44px on touch through the chip's own extension.
+              "border-transparent bg-accent-tint pr-2 font-semibold text-accent-ink",
+              "hover-fine:hover:border-transparent hover-fine:hover:bg-accent-tint",
+              "[&_svg]:text-accent-ink"
             ),
           })}
         >
-          <span className="min-w-0 truncate">{chip.label}</span>
+          <span>{chip.label}</span>
           <XIcon aria-hidden strokeWidth={1.75} />
         </button>
       ))}
       <Button
         variant="link"
         onClick={onClear}
-        className="min-h-(--np-touch) desk:min-h-0"
+        className="min-h-(--np-touch) shrink-0 desk:min-h-0"
       >
         {CLEAR_FILTERS_LABEL}
       </Button>
-    </div>
+    </ChipRow>
   )
 }
 
