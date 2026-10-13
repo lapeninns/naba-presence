@@ -3,7 +3,7 @@
 import { useState, type Dispatch, type SetStateAction } from "react"
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import { Input, inputHints } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { googleRelevantLocationSchema, unsupportedRelationshipBaseline } from "@/lib/domain/google-relationships"
 import { asRecord, type BusinessInformationDraft } from "@/lib/locations/google-values"
@@ -55,11 +55,12 @@ function RelationshipControl({ draft, setDraft, location, disabled, kind }: Prop
     } }))
     setPlaceId(""); setRelationType(null); setEntryError(undefined)
   }
-  return <div className="flex flex-col gap-3" role="group" aria-label={label}>
-    <h3 className="text-ui font-medium">{label}</h3>
+  // A sub-heading of the section's h3, labelling the group it heads.
+  return <div className="flex flex-col gap-3" role="group" aria-labelledby={`profile-${kind}-heading`}>
+    <h4 id={`profile-${kind}-heading`} className="text-ui font-semibold text-ink">{label}</h4>
     {unsupported ? <p role="status" className="text-ui text-ink-muted">The existing {kind} business data cannot be edited safely here. <a href="https://business.google.com/locations" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Manage {kind} businesses in Google</a>, then refresh.</p> : <>
       {related.length === 0 && <p className="text-ui text-ink-muted">No {kind} business in this draft.</p>}
-      {related.map((item) => <div key={item.placeId} className="flex items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
+      {related.map((item) => <div key={item.placeId} className="flex min-w-0 items-start justify-between gap-3 rounded-(--np-radius-control) border border-line p-3">
         <div className="min-w-0"><p className="text-ui break-words">{relationLabels[item.relationType]}</p><p className="text-caption font-mono text-ink-muted break-all">{item.placeId}</p></div>
         <Button type="button" variant="outline" disabled={blocked} aria-label={`Remove ${kind} business ${item.placeId}`} onClick={() => setDraft((current) => ({ ...current, relationshipData: { ...current.relationshipData,
           ...(kind === "parent" ? { parentLocation: {} } : { childrenLocations: (current.relationshipData?.childrenLocations ?? []).filter((child) => child.placeId !== item.placeId) }),
@@ -68,7 +69,10 @@ function RelationshipControl({ draft, setDraft, location, disabled, kind }: Prop
     </>}
     <Field error={entryError}>
       <FieldLabel htmlFor={`profile-${kind}-place-id`}>{kind === "parent" ? "Parent business place ID" : "New child business place ID"}</FieldLabel>
-      <Input id={`profile-${kind}-place-id`} value={placeId} maxLength={255} disabled={blocked} onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} />
+      <Input id={`profile-${kind}-place-id`} value={placeId} maxLength={255} disabled={blocked}
+        // A place ID is a case-sensitive code: no capitalising, correcting or spell-check marks.
+        {...inputHints.identifier}
+        onChange={(event) => { setPlaceId(event.target.value); setEntryError(undefined) }} />
       <FieldDescription>Use an existing Google place ID. Local checks validate format only; provider validation and confirmation are separate.</FieldDescription>
       <FieldError />
     </Field>

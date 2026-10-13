@@ -4,6 +4,7 @@ import { useEffect, useImperativeHandle, type Ref } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { SectionCard } from "../section-card"
 import { Button } from "@/components/ui/button"
+import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
 import {
@@ -15,7 +16,6 @@ import {
 } from "@/components/ui/select"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { ServiceApprovalSheet } from "./service-approval-sheet"
-import { categoryLabel } from "@/lib/locations/console-labels"
 import { useServiceReview } from "./use-service-review"
 import { useServiceWorkspace } from "./service-workspace"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
@@ -38,6 +38,7 @@ import {
   setServiceDescription,
   serviceDraftRows,
   servicePriceText,
+  serviceReviewRows,
   type ServiceDraftRow,
 } from "@/lib/locations/forms/services"
 
@@ -147,58 +148,9 @@ function ServiceEditor({
           (choice) =>
             choice.serviceTypeId === item.structuredServiceItem.serviceTypeId
         )?.displayName ?? item.structuredServiceItem.serviceTypeId)
-  const describe = (item: GoogleServiceItem | undefined) => {
-    if (!item) return "No service"
-    const description =
-      "freeFormServiceItem" in item
-        ? item.freeFormServiceItem.label.description
-        : item.structuredServiceItem.description
-    const category =
-      "freeFormServiceItem" in item
-        ? (categories.find(
-            (entry) =>
-              serviceCategoryId(entry.name) ===
-              serviceCategoryId(item.freeFormServiceItem.category)
-          )?.displayName ??
-          categoryLabel({ name: item.freeFormServiceItem.category }))
-        : null
-    const language =
-      "freeFormServiceItem" in item
-        ? item.freeFormServiceItem.label.languageCode
-        : null
-    return [
-      label(item),
-      category,
-      language,
-      description === undefined
-        ? "No description"
-        : description === ""
-          ? "Empty description"
-          : description,
-      item.price
-        ? `${item.price.currencyCode ?? ""} ${servicePriceText(item.price)}`
-        : "No price",
-    ]
-      .filter(Boolean)
-      .join(" · ")
-  }
-  const before = googleServiceItemsSchema.safeParse(
-    review?.baseline.serviceItems ?? []
-  )
-  const after = googleServiceItemsSchema.safeParse(
-    review?.payload.serviceItems ?? []
-  )
-  const reviewRows =
-    before.success && after.success
-      ? Array.from(
-          { length: Math.max(before.data.length, after.data.length) },
-          (_, index) => ({
-            field: `Service ${index + 1}`,
-            before: describe(before.data[index]),
-            after: describe(after.data[index]),
-          })
-        ).filter((row) => row.before !== row.after)
-      : []
+  // The same rows the saved-work sheet shows (lib/locations/forms/services);
+  // null when either side cannot be read, which keeps sending unavailable.
+  const reviewRows = serviceReviewRows(review, categories)
   function update(
     index: number,
     change: (row: ServiceDraftRow) => ServiceDraftRow
@@ -248,11 +200,11 @@ function ServiceEditor({
           </Button>
         </div>
       ) : null}
-      <fieldset
+      <Fieldset
         disabled={disabled || pending || workflow.unresolved}
-        className="flex min-w-0 flex-col gap-4"
+        className="gap-4"
       >
-        <legend className="sr-only">Service details</legend>
+        <FieldsetLegend srOnly>Service details</FieldsetLegend>
         {draft.draft.length === 0 ? (
           <p className="text-ui text-ink-muted">No services added.</p>
         ) : null}
@@ -470,7 +422,7 @@ function ServiceEditor({
             Add custom service for {category.displayName ?? category.name}
           </Button>
         ))}
-      </fieldset>
+      </Fieldset>
       {!built.success ? (
         <p role="alert" className="text-ui text-danger-ink">
           {built.message}
@@ -515,8 +467,8 @@ function ServiceEditor({
       {review && !workspace ? (
         <ServiceApprovalSheet
           workflow={workflow}
-          rows={reviewRows}
-          disabled={disabled || !before.success || !after.success}
+          rows={reviewRows ?? []}
+          disabled={disabled || !reviewRows}
         />
       ) : null}
     </SectionCard>

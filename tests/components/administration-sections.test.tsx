@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactElement } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -19,14 +19,8 @@ import {
   CreateAdminDialog,
   InvitationsList,
 } from "@/components/locations/administration/invitations"
-import {
-  StartVerification,
-  VerificationHistory,
-} from "@/components/locations/administration/verification"
-import {
-  GoogleUpdateSummary,
-  VoiceOfMerchantSummary,
-} from "@/components/locations/administration/voice-of-merchant"
+import { ReviewedCompletionVerification } from "@/components/locations/administration/verification-completion"
+import { ReviewedStartVerification } from "@/components/locations/administration/verification-start"
 
 // Each section reads `locationId` / `disabled` / `publishReason` from the
 // AdministrationProvider context and runs its own useResourceMutation, so it
@@ -133,61 +127,13 @@ describe("administration context", () => {
   })
 })
 
-describe("voice of merchant", () => {
-  it("renders the verified badge from the Google leaf", () => {
-    renderSection(
-      <VoiceOfMerchantSummary data={{ hasVoiceOfMerchant: true }} />
-    )
-    expect(screen.getByText("Verified")).toBeInTheDocument()
-    expect(
-      screen.getByText("Google confirms you speak for this business.")
-    ).toBeInTheDocument()
-  })
-
-  it("accepts Google's suggested update with the diff mask and toasts on success", async () => {
-    const patch = stubPatch()
-    renderSection(
-      <GoogleUpdateSummary
-        data={{
-          diffMask: { paths: ["title", "websiteUri"] },
-          location: { title: "Camden Hotel" },
-        }}
-      />
-    )
-    expect(screen.getByText(/Google suggests 2 changes/)).toBeInTheDocument()
-    await userEvent.click(
-      screen.getByRole("button", { name: "Accept Google's update" })
-    )
-    await waitFor(() => expect(patch.bodies).toHaveLength(1))
-    expect(patch.url()).toContain("/api/locations/loc-1/administration")
-    expect(patch.bodies[0]).toEqual({
-      operation: "accept_google_update",
-      confirmation: "accept_google_suggested_update",
-      payload: {
-        updateMask: ["title", "websiteUri"],
-        location: { title: "Camden Hotel" },
-      },
-    })
-    expect(
-      await screen.findByText("Google's suggested update accepted")
-    ).toBeInTheDocument()
-  })
-
-  it("says so when Google has nothing to suggest", () => {
-    renderSection(<GoogleUpdateSummary data={{}} />)
-    expect(
-      screen.getByText("Google has not suggested any changes.")
-    ).toBeInTheDocument()
-  })
-})
-
 describe("verification", () => {
   it("offers reviewed PIN entry only for supported pending methods", () => {
     const patch = stubPatch()
-    renderSection(<VerificationHistory data={{ verifications: [
-      { name: "locations/camden/verifications/1", method: "SMS", state: "PENDING" },
-      { name: "locations/camden/verifications/2", method: "VETTED_PARTNER", state: "PENDING" },
-    ] }} />)
+    renderSection(<ReviewedCompletionVerification verifications={[
+      { name: "locations/camden/verifications/1", method: "SMS", providerState: "PENDING", phase: "pending", createTime: null },
+      { name: "locations/camden/verifications/2", method: "VETTED_PARTNER", providerState: "PENDING", phase: "pending", createTime: null },
+    ]} />)
     expect(screen.getAllByLabelText("PIN from Google")).toHaveLength(1)
     expect(screen.getByRole("button", { name: "Review PIN completion" })).toBeDisabled()
     expect(screen.getByText(/This pending method cannot accept a PIN here/)).toBeInTheDocument()
@@ -197,7 +143,7 @@ describe("verification", () => {
   it("retains read-only method discovery behind the publish gate and explains why", () => {
     stubPatch()
     renderSection(
-      <StartVerification />,
+      <ReviewedStartVerification />,
       {
         publishReason: "Publishing to Google is currently unavailable.",
       }
@@ -228,7 +174,9 @@ describe("admins", () => {
     expect(
       screen.getByRole("button", { name: "Remove manager@camden.test" })
     ).toBeEnabled()
-    expect(screen.getByRole("button", { name: "Review role change" })).toBeDisabled()
+    // One control per row for the role: choosing a role saves its review.
+    expect(screen.getByRole("combobox", { name: "Role for manager@camden.test" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "Review role change" })).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /remove owner@camden\.test/i })
     ).not.toBeInTheDocument()
@@ -244,26 +192,39 @@ describe("admins", () => {
     ).toBeDisabled()
   })
 
-  it("saves an administrator removal review through the typed-name confirmation without sending", async () => {
+  it("saves an administrator removal review in one step without sending; the typed name waits for the send step", async () => {
     const patch = stubPatch()
     renderSection(<AdminsSection data={admins} />)
     await userEvent.click(
       screen.getByRole("button", { name: "Remove manager@camden.test" })
     )
-    expect(screen.getByText("Remove this administrator?")).toBeInTheDocument()
-    await userEvent.type(
-      screen.getByLabelText(/type the location's name/i),
-      "camden hotel"
-    )
-    await userEvent.click(
-      screen.getByRole("button", { name: "Review administrator removal" })
-    )
+    // Creating a review sends nothing, so no confirmation dialog stands in the way.
+    expect(screen.queryByText("Remove this administrator?")).not.toBeInTheDocument()
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
       operation: "delete_admin",
       payload: { name: "locations/camden/admins/2" },
     })
     expect(await screen.findByText("Administrator removal review saved")).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "Review access request" })).toBeInTheDocument()
+    expect(patch.fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
+  })
+
+  it("saves a role-change review as soon as a different role is chosen, and nothing for the listed role", async () => {
+    const patch = stubPatch()
+    renderSection(<AdminsSection data={admins} />)
+    const select = screen.getByRole("combobox", { name: "Role for manager@camden.test" })
+    await userEvent.click(select)
+    await userEvent.click(await screen.findByRole("option", { name: "Manager" }))
+    expect(patch.bodies).toHaveLength(0)
+    await userEvent.click(select)
+    await userEvent.click(await screen.findByRole("option", { name: "Owner" }))
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toEqual({
+      operation: "update_admin",
+      payload: { name: "locations/camden/admins/2", role: "OWNER" },
+    })
+    expect(await screen.findByText("Administrator role review saved")).toBeInTheDocument()
     expect(patch.fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
   })
 })
@@ -280,7 +241,8 @@ describe("invitations", () => {
         }}
       />
     )
-    expect(screen.getByText("Owner")).toBeInTheDocument()
+    expect(screen.getByText("Owner invitation")).toBeInTheDocument()
+    expect(screen.getByText("For the connected Google account · waiting for a reply on Google")).toBeInTheDocument()
     await userEvent.click(screen.getByRole("button", { name: "Review decline" }))
     await waitFor(() => expect(patch.bodies).toHaveLength(1))
     expect(patch.bodies[0]).toEqual({
@@ -288,6 +250,25 @@ describe("invitations", () => {
       payload: { name: "accounts/1/invitations/pending-1" },
     })
     expect(await screen.findByText("Invitation decline review saved")).toBeInTheDocument()
+  })
+
+  it("says what each invitation grants: the role and the place it is for", () => {
+    stubPatch()
+    renderSection(
+      <InvitationsList
+        data={{
+          invitations: [
+            { name: "accounts/1/invitations/pending-1", role: "MANAGER", targetLocation: { locationName: "Camden Hotel" } },
+            { name: "accounts/1/invitations/pending-2", role: "OWNER", targetAccount: { accountName: "Camden Group" } },
+          ],
+        }}
+      />
+    )
+    expect(screen.getByText("Manager invitation")).toBeInTheDocument()
+    expect(screen.getByText("To manage Camden Hotel · waiting for a reply on Google")).toBeInTheDocument()
+    expect(screen.getByText("Owner invitation")).toBeInTheDocument()
+    expect(screen.getByText("To manage Camden Group · waiting for a reply on Google")).toBeInTheDocument()
+    expect(screen.queryByText("Invitation", { exact: true })).not.toBeInTheDocument()
   })
 
   it("lists nothing to do when there are no invitations", () => {
@@ -322,6 +303,61 @@ describe("invitations", () => {
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
     )
+  })
+
+  it("reviews the invitation when Enter is pressed in the email field", async () => {
+    const patch = stubPatch()
+    renderSection(<CreateAdminDialog />)
+    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    expect(screen.getByRole("button", { name: "Review invitation" })).toHaveAttribute("type", "submit")
+    const email = screen.getByLabelText("Email address")
+    await userEvent.type(email, "not-an-email{Enter}")
+    expect(patch.bodies).toHaveLength(0)
+    await userEvent.clear(email)
+    await userEvent.type(email, "new@camden.test{Enter}")
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toEqual({
+      operation: "create_admin",
+      payload: { scope: "location", admin: "new@camden.test", role: "MANAGER" },
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
+    )
+  })
+
+  it("labels the role and scope pickers by their visible labels and gives the email field identifier keyboard hints", async () => {
+    stubPatch()
+    renderSection(<CreateAdminDialog />)
+    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    expect(screen.getByRole("combobox", { name: "Role" })).toHaveTextContent("Manager")
+    expect(screen.getByRole("combobox", { name: "Scope" })).toHaveTextContent("This location")
+    const email = screen.getByLabelText("Email address")
+    expect(email).toHaveAttribute("type", "email")
+    expect(email).toHaveAttribute("inputmode", "email")
+    expect(email).toHaveAttribute("autocapitalize", "none")
+    expect(email).toHaveAttribute("autocorrect", "off")
+    expect(email).toHaveAttribute("spellcheck", "false")
+  })
+
+  it("asks before a stray Escape throws a typed invitee away, and clears it on discard", async () => {
+    stubPatch()
+    renderSection(<CreateAdminDialog />)
+    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    await userEvent.type(screen.getByLabelText("Email address"), "new@camden.test")
+    await userEvent.keyboard("{Escape}")
+    const prompt = await screen.findByRole("alertdialog", { name: "Discard your changes?" })
+    await userEvent.click(within(prompt).getByRole("button", { name: "Keep editing" }))
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
+    expect(screen.getByLabelText("Email address")).toHaveValue("new@camden.test")
+    await userEvent.keyboard("{Escape}")
+    await userEvent.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Discard changes" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Add an administrator" })).not.toBeInTheDocument()
+    )
+    await userEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    expect(screen.getByLabelText("Email address")).toHaveValue("")
   })
 
   it("hides the trigger behind the edit gate", () => {
@@ -388,5 +424,30 @@ describe("danger zone", () => {
     )
     expect(screen.getByLabelText(/destination google account/i)).toHaveValue("")
     expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled()
+  })
+
+  it("accepts a phone-capitalised destination and trailing space, and previews the exact account name", async () => {
+    const patch = stubPatch()
+    renderSection(<DangerZone />)
+    await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
+    const destination = screen.getByLabelText(/destination google account/i)
+    expect(destination).toHaveAttribute("autocapitalize", "none")
+    expect(destination).toHaveAttribute("autocorrect", "off")
+    expect(destination).toHaveAttribute("spellcheck", "false")
+    await userEvent.type(destination, "Accounts/999 ")
+    expect(screen.queryByText(/Select an exact Google account resource/)).not.toBeInTheDocument()
+    await userEvent.type(destination, "{Enter}")
+    await waitFor(() => expect(patch.bodies).toHaveLength(1))
+    expect(patch.bodies[0]).toEqual({ operation: "transfer_location", payload: { destinationAccount: "accounts/999" } })
+  })
+
+  it("explains an account name the server would reject and keeps the review closed", async () => {
+    const patch = stubPatch()
+    renderSection(<DangerZone />)
+    await userEvent.click(screen.getByRole("button", { name: "Transfer this location" }))
+    await userEvent.type(screen.getByLabelText(/destination google account/i), "accounts/9 9{Enter}")
+    expect(screen.getByText("Select an exact Google account resource, such as accounts/123.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled()
+    expect(patch.bodies).toHaveLength(0)
   })
 })

@@ -1,21 +1,104 @@
 "use client"
 
-import { ReviewTime } from "@/components/editors/change-diff"
+import { OutcomeSummary, ReviewedWritePanel } from "@/components/reviewed-write"
 import { Button } from "@/components/ui/button"
+import type { LifecycleAttempt } from "@/lib/contracts/google-lifecycle-review"
 import type { useLifecycle } from "./use-lifecycle"
 
-export function LifecycleOutcome({ workflow }: { readonly workflow: ReturnType<typeof useLifecycle> }) {
+/** What an independent read of Google showed after the lifecycle request. */
+function observedEffect(attempt: LifecycleAttempt): string {
+  if (attempt.postcondition === "location_transferred_between_accounts")
+    return "The exact location was observed in the destination account and absent from the source account."
+  if (attempt.postcondition === "location_absent_from_managed_account")
+    return "The managed location was absent from the source account, and an independent location read returned not found. Search/Maps removal and customer-review deletion are not confirmed."
+  return "The intended lifecycle outcome has not been independently established. Check the saved outcome before another write."
+}
+
+function reconciliationText(attempt: LifecycleAttempt): string {
+  if (attempt.localReconciliation === "applied")
+    return "NabaPresence is linked to the independently confirmed destination account."
+  if (attempt.localReconciliation === "conflict")
+    return "The local account link changed. An operational check is required before reconciling the saved transfer."
+  if (attempt.localReconciliation === "not_required")
+    return "The local account link has not been changed by this request."
+  return "Local account reconciliation is pending. Refresh the independent observation to check the original transfer."
+}
+
+export function LifecycleOutcome({
+  workflow,
+  focusKey,
+}: {
+  readonly workflow: ReturnType<typeof useLifecycle>
+  readonly focusKey?: string | null
+}) {
   const attempt = workflow.attempt
   if (!attempt) return null
-  return <section aria-labelledby="lifecycle-outcome-title" className="flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4">
-    <h2 id="lifecycle-outcome-title" className="text-title font-semibold text-ink">Saved lifecycle outcome</h2>
-    <p className="break-all text-ui text-ink-secondary">Exact Google target: {attempt.target} · Source account: {attempt.sourceAccount}</p>
-    {attempt.request.operation === "transfer_location" ? <p className="break-all text-ui text-ink-secondary">Reviewed destination: {attempt.request.payload.destinationAccount}</p> : null}
-    <p className="text-ui font-semibold text-ink">{attempt.executionState === "accepted" ? "Accepted by Google" : attempt.executionState === "rejected" ? "Rejected by Google" : attempt.executionState === "pending" ? "Request still in progress" : "Google acknowledgement unknown"}</p>
-    <p className="text-ui text-ink">{attempt.confirmationState === "confirmed" ? "Independently confirmed" : attempt.confirmationState === "unrecorded" ? "No independent confirmation recorded" : "Independent confirmation unresolved"}</p>
-    <p className="text-ui text-ink-secondary">{attempt.postcondition === "location_transferred_between_accounts" ? "The exact location was observed in the destination account and absent from the source account." : attempt.postcondition === "location_absent_from_managed_account" ? "The managed location was absent from the source account, and an independent location read returned not found. Search/Maps removal and customer-review deletion are not confirmed." : "The intended lifecycle outcome has not been independently established. Check the saved outcome before another write."}</p>
-    <p className="text-caption text-ink-muted">{attempt.observedAt ? <>Checked on Google <ReviewTime value={attempt.observedAt} /></> : "No dated observation recorded"}</p>
-    {attempt.request.operation === "transfer_location" ? <p className="text-ui text-ink-secondary">{attempt.localReconciliation === "applied" ? "NabaPresence is linked to the independently confirmed destination account." : attempt.localReconciliation === "conflict" ? "The local account link changed. An operational check is required before reconciling the saved transfer." : attempt.localReconciliation === "not_required" ? "The local account link has not been changed by this request." : "Local account reconciliation is pending. Refresh the independent observation to check the original transfer."}</p> : null}
-    <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={workflow.busy} onClick={() => workflow.check()}>Read saved lifecycle outcome</Button><Button variant="secondary" disabled={workflow.busy} onClick={() => workflow.check(true)}>Refresh lifecycle observation</Button><Button variant="ghost" disabled={workflow.busy || workflow.unresolved} onClick={workflow.reset}>Review another lifecycle action</Button></div>
-  </section>
+  const transfer = attempt.request.operation === "transfer_location"
+  return (
+    <ReviewedWritePanel
+      id="lifecycle-outcome-title"
+      tone="danger"
+      title="Saved lifecycle outcome"
+      stage="outcome"
+      focusKey={focusKey}
+    >
+      <OutcomeSummary
+        execution={attempt.executionState}
+        confirmation={attempt.confirmationState}
+        observedAt={attempt.observedAt}
+        effect={observedEffect(attempt)}
+        rows={[
+          {
+            label: "Request",
+            value: transfer ? "Account transfer" : "Managed-location deletion",
+          },
+          ...(attempt.request.operation === "transfer_location"
+            ? [
+                {
+                  label: "Reviewed destination",
+                  value: attempt.request.payload.destinationAccount,
+                },
+              ]
+            : []),
+          { label: "Google location", value: attempt.target, technical: true },
+          {
+            label: "Source account",
+            value: attempt.sourceAccount,
+            technical: true,
+          },
+        ]}
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              disabled={workflow.busy}
+              onClick={() => workflow.check()}
+            >
+              Read saved lifecycle outcome
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={workflow.busy}
+              onClick={() => workflow.check(true)}
+            >
+              Refresh lifecycle observation
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={workflow.busy || workflow.unresolved}
+              onClick={workflow.reset}
+            >
+              Review another lifecycle action
+            </Button>
+          </>
+        }
+      >
+        {transfer ? (
+          <p className="text-ui text-ink-secondary">
+            {reconciliationText(attempt)}
+          </p>
+        ) : null}
+      </OutcomeSummary>
+    </ReviewedWritePanel>
+  )
 }

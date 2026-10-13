@@ -204,6 +204,11 @@ function reviewRoute(url: string, init: RequestInit | undefined, state: { review
   return null
 }
 
+/** One answer of the Wi-Fi attribute's Yes / No / Not set choice. */
+function wifiAnswer(option: string) {
+  return within(screen.getByRole("radiogroup", { name: /Wi-Fi/ })).getByRole("radio", { name: option })
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -252,10 +257,15 @@ describe("ProfileTab", () => {
       within(lodging).getByRole("searchbox", { name: "Find a lodging detail" })
     )
     await userEvent.paste("Pets allowed")
+    // A clean profile draws no action bar.
+    expect(
+      screen.queryByRole("region", { name: "Editor actions" })
+    ).not.toBeInTheDocument()
     await userEvent.click(
-      within(lodging).getByRole("combobox", { name: "Pets allowed" })
+      within(
+        within(lodging).getByRole("radiogroup", { name: "Pets allowed" })
+      ).getByRole("radio", { name: "Yes" })
     )
-    await userEvent.click(await screen.findByRole("option", { name: "Yes" }))
     const footer = screen.getByRole("region", { name: "Editor actions" })
     expect(
       await within(footer).findByText("1 change not on Google")
@@ -274,8 +284,16 @@ describe("ProfileTab", () => {
     )
     await waitFor(() =>
       expect(
-        within(lodging).getByRole("combobox", { name: "Pets allowed" })
-      ).toHaveTextContent("No")
+        within(
+          within(lodging).getByRole("radiogroup", { name: "Pets allowed" })
+        ).getByRole("radio", { name: "No" })
+      ).toBeChecked()
+    )
+    // Discarded back to clean: the bar goes away again.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Editor actions" })
+      ).not.toBeInTheDocument()
     )
     expect(
       fetchMock.mock.calls.every(
@@ -539,9 +557,19 @@ describe("ProfileTab", () => {
     ).toHaveValue("Camden Hotel")
     expect(await screen.findByText("Hotel")).toBeInTheDocument() // humanised, not the gcid
     expect(screen.queryByText(/gcid:/)).not.toBeInTheDocument()
+    // Nothing to save or publish: no action bar over the first field.
     expect(
-      screen.getByRole("button", { name: "Review changes" })
-    ).toBeInTheDocument()
+      screen.queryByRole("region", { name: "Editor actions" })
+    ).not.toBeInTheDocument()
+    const storeCode = await screen.findByDisplayValue("CAMDEN-1")
+    await waitFor(() => expect(storeCode).toBeEnabled())
+    await userEvent.type(storeCode, "X")
+    // With an edit, one bar and one primary action, never a second save model.
+    const footer = await screen.findByRole("region", { name: "Editor actions" })
+    expect(
+      within(footer).getByRole("button", { name: "Review changes" })
+    ).toBeEnabled()
+    expect(screen.getAllByRole("button", { name: "Review changes" })).toHaveLength(1)
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull()
     // serviceItems has no editor -> the read-only pressure valve names it.
     expect(screen.getByText(/can edit yet/i)).toBeInTheDocument()
@@ -761,7 +789,11 @@ describe("ProfileTab save and review boundaries", () => {
     await userEvent.type(storeCode, "CAMDEN-2")
     const save = screen.getByRole("button", { name: "Save here" })
     expect(save).toBeDisabled()
-    expect(save).toHaveAccessibleDescription(/name, description, phone and website/i)
+    // The bar says why Save here can't take this edit, once (the repeated
+    // save-scope paragraph is gone).
+    expect(
+      within(screen.getByRole("region", { name: "Editor actions" })).getByRole("note")
+    ).toHaveTextContent(/Only the name, description, primary phone and website are saved here/i)
     expect(screen.getAllByText("No draft · reviewed, then sent to Google").length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
     const review = await screen.findByRole("dialog")
@@ -797,7 +829,7 @@ describe("ProfileTab save and review boundaries", () => {
     await waitFor(() => expect(storeCode).toBeEnabled())
     await userEvent.clear(storeCode)
     await userEvent.type(storeCode, "CAMDEN-2")
-    await userEvent.click(screen.getByRole("switch", { name: /Wi-Fi/ }))
+    await userEvent.click(wifiAnswer("Yes"))
     await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
     const review = await screen.findByRole("dialog")
     await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
@@ -935,7 +967,7 @@ it.each(["listing", "attributes"])("preserves failed %s edits after partial flow
   await waitFor(() => expect(store).toBeEnabled())
   await userEvent.clear(store)
   await userEvent.type(store, "CAMDEN-2")
-  await userEvent.click(screen.getByRole("switch", { name: /Wi-Fi/ }))
+  await userEvent.click(wifiAnswer("Yes"))
   await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
   const review = await screen.findByRole("dialog")
   await userEvent.click(await within(review).findByRole("button", { name: "Publish to Google" }))
@@ -944,12 +976,89 @@ it.each(["listing", "attributes"])("preserves failed %s edits after partial flow
   external = true
   await userEvent.click(screen.getByRole("button", { name: "Refresh fixture" }))
   await screen.findByRole("button", { name: "Load theirs" })
-  expect(screen.getByRole("switch", { name: /Wi-Fi/ })).toBeChecked()
+  expect(wifiAnswer("Yes")).toBeChecked()
   expect(store).toHaveValue("CAMDEN-2")
   if (listingSent) {
     await userEvent.click(screen.getByRole("button", { name: "Discard" }))
     await userEvent.click(await screen.findByRole("button", { name: "Discard changes" }))
     expect(store).toHaveValue("CAMDEN-2")
-    expect(screen.getByRole("switch", { name: /Wi-Fi/ })).not.toBeChecked()
+    expect(wifiAnswer("Yes")).not.toBeChecked()
+    expect(wifiAnswer("No")).toBeChecked()
   }
+})
+
+describe("ProfileTab section navigation", () => {
+  it("lists every block on the page, in page order, with saved work after the editor", async () => {
+    const savedReview: GbpChangeSet = {
+      id: "00000000-0000-4000-8000-000000000031",
+      locationName: "Camden Hotel",
+      payloadHash: "e".repeat(64),
+      baselineHash: "a".repeat(64),
+      payload: { storeCode: "CAMDEN-9" },
+      baseline: BUSINESS.businessInformation.location,
+      updateMask: ["storeCode"],
+      requestedBy: "owner",
+      approvedBy: null,
+      requiresSecondApprover: false,
+      canApprove: true,
+      expiresAt: "2027-01-01T00:00:00Z",
+    }
+    const fetchMock = stubRoutes()
+    const original = fetchMock.getMockImplementation()
+    if (!original) throw new Error("Profile fixture missing")
+    fetchMock.mockImplementation(async (...args) =>
+      String(args[0]).includes("type=reviews")
+        ? jsonResponse({ changeSets: [savedReview] })
+        : original(...args)
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const nav = await screen.findByRole("navigation", { name: "Profile sections" })
+    // Wait for the self-rendering blocks: Google's half, saved reviews and
+    // saved lodging work.
+    await within(nav).findByRole("link", { name: "Saved profile reviews" })
+    await within(nav).findByRole("link", { name: "Saved lodging work" })
+    await within(nav).findByRole("link", { name: "Attributes" })
+
+    const navIds = within(nav)
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("href")?.slice(1))
+    const pageIds = Array.from(
+      document.querySelectorAll<HTMLElement>('[id^="section-"]')
+    )
+      .map((element) => element.id)
+      .filter((id) => !id.endsWith("-heading"))
+    // Every block on the page is indexed, and in the order it appears.
+    expect(navIds).toEqual(pageIds)
+    expect(navIds).toEqual(
+      expect.arrayContaining([
+        "section-identity",
+        "section-advertising",
+        "section-chain",
+        "section-attributes",
+        "section-other-google-details",
+        "section-saved-reviews",
+        "section-saved-lodging",
+      ])
+    )
+    // Google Ads phone sits before Chain affiliation on the page and in the nav.
+    expect(navIds.indexOf("section-advertising")).toBeLessThan(navIds.indexOf("section-chain"))
+    // Saved work is in one place, after the editor's content.
+    const savedWork = document.getElementById("profile-saved-work")
+    expect(savedWork).toContainElement(document.getElementById("section-saved-reviews"))
+    expect(savedWork).toContainElement(document.getElementById("section-saved-lodging"))
+    expect(navIds.indexOf("section-saved-reviews")).toBeGreaterThan(navIds.indexOf("section-other-google-details"))
+    // A block that is not on the page is not offered.
+    expect(document.getElementById("section-retail-products")).toBeNull()
+    expect(within(nav).queryByRole("link", { name: "Product catalogue" })).toBeNull()
+  })
+
+  it("jumps to a section and focuses its heading", async () => {
+    stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const nav = await screen.findByRole("navigation", { name: "Profile sections" })
+    await userEvent.click(await within(nav).findByRole("link", { name: "Description" }))
+    expect(document.getElementById("section-description-heading")).toHaveFocus()
+    await userEvent.click(await within(nav).findByRole("link", { name: "Saved lodging work" }))
+    expect(screen.getByRole("heading", { name: "Saved lodging work" })).toHaveFocus()
+  })
 })

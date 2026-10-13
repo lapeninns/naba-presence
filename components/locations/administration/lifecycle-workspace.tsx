@@ -2,9 +2,7 @@
 
 import { createContext, useContext, useState, type Dispatch, type SetStateAction, type ReactNode } from "react"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { ReviewTime } from "@/components/editors/change-diff"
-import { Button } from "@/components/ui/button"
-import { SectionHeader } from "@/components/ui/section-header"
+import { SavedWorkList, type SavedWorkItem } from "@/components/reviewed-write"
 import { fetchLifecycleAttempt, fetchLifecycleWorkflows } from "@/lib/api/google-lifecycle"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
@@ -41,17 +39,50 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
   const olderReviewIds = new Set(latestIndex >= 0 ? items.slice(latestIndex + 1).map((item) => item.reviewId) : [])
   const sessionAttempt = workflow.attempt && !olderReviewIds.has(workflow.attempt.reviewId) ? workflow.attempt : null
   const ended = visible ? lifecycleEnded(sessionAttempt) ?? lifecycleEnded(latest.data) : null
-  return <Context.Provider value={{ ...workflow, setAccessBlocked, ended }}><div className="flex min-w-0 flex-col gap-6">
+  // Each time a review is prepared or a saved item is opened, the panel takes
+  // focus again, even when it is the same review (see ReviewedWritePanel).
+  const [opened, setOpened] = useState(0)
+  const context = {
+    ...workflow,
+    preview: async (request: Parameters<typeof workflow.preview>[0]) => { await workflow.preview(request); setOpened((value) => value + 1) },
+    open: (item: Parameters<typeof workflow.open>[0]) => { setOpened((value) => value + 1); workflow.open(item) },
+    setAccessBlocked,
+    ended,
+  }
+  const focusKey = workflow.attempt ? `attempt:${workflow.attempt.reviewId}:${opened}` : workflow.review ? `review:${workflow.review.changeSet.id}:${opened}` : null
+  const savedItems: SavedWorkItem[] = items.map((item) => ({
+    id: item.reviewId,
+    operation: item.request.operation === "transfer_location" ? "Account transfer" : "Managed-location deletion",
+    stage: item.attemptId ? "Recorded outcome" : "Saved review",
+    createdAt: item.createdAt,
+    actionLabel: item.attemptId ? "Open lifecycle outcome" : "Open lifecycle review",
+    disabled: workflow.busy || Boolean(workflow.unresolved && (workflow.review?.changeSet.id ?? workflow.attempt?.reviewId) !== item.reviewId),
+    onOpen: () => context.open(item),
+  }))
+  return <Context.Provider value={context}><div className="flex min-w-0 flex-col gap-6">
     {visible && (workflow.review || workflow.attempt || workflow.error) ? <div className="flex min-w-0 flex-col gap-3">
       {workflow.error ? <p role="alert" className="text-ui text-danger-ink">{workflow.error}</p> : null}
       {accessBlocked ? <p role="status" className="text-ui text-ink-secondary">Resolve the current access action before approving or sending a lifecycle request.</p> : null}
-      {workflow.attempt ? <LifecycleOutcome workflow={workflow} /> : <LifecycleReview workflow={workflow} locationName={name} disabled={!capabilities.data?.canPublish || accessBlocked} />}
+      {workflow.attempt ? <LifecycleOutcome workflow={workflow} focusKey={focusKey} /> : <LifecycleReview workflow={workflow} locationName={name} disabled={!capabilities.data?.canPublish || accessBlocked} focusKey={focusKey} />}
     </div> : null}
     {children}
-    {visible ? <section aria-labelledby="lifecycle-saved-work" className="flex min-w-0 flex-col gap-3">
-      <SectionHeader id="lifecycle-saved-work" title="Saved lifecycle work" description="Read recorded outcomes after reloading, expiry or disconnection. Sending and independent confirmation remain separate." />
-      {saved.isPending ? <p role="status" className="text-ui text-ink-muted">Loading saved lifecycle work…</p> : saved.isError ? <p role="alert" className="text-ui text-danger-ink">Saved lifecycle work could not be loaded. Check your current access.</p> : items.length === 0 ? <p className="text-ui text-ink-muted">No saved lifecycle work.</p> : <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">{items.map((item) => <li key={item.reviewId} className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-3"><div className="min-w-0"><p className="text-ui">{item.request.operation === "transfer_location" ? "Account transfer" : "Managed-location deletion"}</p><p className="text-caption text-ink-muted"><ReviewTime value={item.createdAt} /> · {item.attemptId ? "Recorded outcome" : "Saved review"}</p></div><Button variant="secondary" size="sm" disabled={workflow.busy || Boolean(workflow.unresolved && (workflow.review?.changeSet.id ?? workflow.attempt?.reviewId) !== item.reviewId)} onClick={() => workflow.open(item)}>{item.attemptId ? "Open lifecycle outcome" : "Open lifecycle review"}</Button></li>)}</ul>}
-      <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={saved.isFetching} onClick={() => { void saved.refetch() }}>Reload saved lifecycle work</Button>{saved.hasNextPage ? <Button variant="secondary" disabled={saved.isFetchingNextPage} onClick={() => { void saved.fetchNextPage() }}>Load earlier lifecycle work</Button> : null}</div>
-    </section> : null}
+    {visible ? <SavedWorkList
+      id="lifecycle-saved-work"
+      title="Saved lifecycle work"
+      description="Read recorded outcomes after reloading, expiry or disconnection. Sending and independent confirmation remain separate."
+      items={savedItems}
+      pending={saved.isPending}
+      failed={saved.isError}
+      loadingText="Loading saved lifecycle work…"
+      errorText="Saved lifecycle work could not be loaded. Check your current access."
+      emptyText="No saved lifecycle work."
+      reloadLabel="Reload saved lifecycle work"
+      reloading={saved.isFetching}
+      onReload={() => { void saved.refetch() }}
+      loadMoreLabel="Load earlier lifecycle work"
+      hasMore={saved.hasNextPage}
+      loadingMore={saved.isFetchingNextPage}
+      onLoadMore={() => { void saved.fetchNextPage() }}
+    /> : null}
   </div></Context.Provider>
 }

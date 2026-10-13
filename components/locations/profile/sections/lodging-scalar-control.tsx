@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { SegmentedControl, SegmentedControlItem } from "@/components/ui/segmented-control"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { LODGING_FIELD_GUIDANCE, lodgingFieldLabel, type LodgingEditorNode } from "@/lib/locations/forms/lodging-catalogue"
 
@@ -22,19 +23,20 @@ export function LodgingScalarControl({ node, value, original, disabled, error, a
 }) {
   const hint = LODGING_FIELD_GUIDANCE[node.path]?.hint
   const dirty = JSON.stringify(value) !== JSON.stringify(original)
-  const choices = node.kind === "boolean" ? ["true", "false"] : node.kind === "enum" ? node.values : null
-  const selected = node.kind === "boolean" ? typeof value === "boolean" ? String(value) : "unknown" : typeof value === "string" ? value : "unknown"
+  const choices = node.kind === "enum" ? node.values : null
+  const selected = typeof value === "string" ? value : "unknown"
   const known = value === undefined || (node.kind === "boolean" ? typeof value === "boolean" : choices ? typeof value === "string" && choices.includes(value) : node.kind === "text" ? typeof value === "string" : typeof value === "number")
   return <Field error={error}>
     <FieldLabel>{node.label}</FieldLabel>
-    {choices ? <Select value={selected} disabled={disabled} onValueChange={(next: string | null) => {
+    {node.kind === "boolean" ? <LodgingAnswer value={value} disabled={disabled} onChange={onChange} />
+    : choices ? <Select value={selected} disabled={disabled} onValueChange={(next: string | null) => {
       if (!next || next === "unknown") return
-      onChange(node.kind === "boolean" ? next === "true" : next)
+      onChange(next)
     }}>
-      <SelectTrigger className="w-full"><SelectValue>{(current: string | null) => current === "unknown" ? "Not recorded" : node.kind === "boolean" ? current === "true" ? "Yes" : "No" : current ? label(current) : "Not recorded"}</SelectValue></SelectTrigger>
+      <SelectTrigger className="w-full"><SelectValue>{(current: string | null) => current === "unknown" || !current ? "Not recorded" : label(current)}</SelectValue></SelectTrigger>
       <SelectContent>
         <SelectItem value="unknown" disabled>Not recorded</SelectItem>
-        {choices.map((choice) => <SelectItem key={choice} value={choice}>{node.kind === "boolean" ? choice === "true" ? "Yes" : "No" : label(choice)}</SelectItem>)}
+        {choices.map((choice) => <SelectItem key={choice} value={choice}>{label(choice)}</SelectItem>)}
       </SelectContent>
     </Select> : <Input
       type={node.kind === "text" ? "text" : "number"}
@@ -49,4 +51,30 @@ export function LodgingScalarControl({ node, value, original, disabled, error, a
     <FieldError />
     {dirty ? <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(original)}>Reset {node.label.toLowerCase()}</Button> : null}
   </Field>
+}
+
+/**
+ * A lodging yes/no detail as one Yes / No / Not recorded choice. "Not
+ * recorded" shows that Google holds no answer; lodging has no way to take an
+ * answer back off Google, so it is never a choice.
+ *
+ * TriState's look and order, but TriState has no per-answer disabled state,
+ * so this is the segmented radio track TriState is built from with the third
+ * segment locked. Inside the Field, the track takes the Field's label and
+ * hint/error wiring itself.
+ */
+function LodgingAnswer({ value, disabled, onChange }: {
+  readonly value: unknown; readonly disabled: boolean; readonly onChange: (value: unknown) => void
+}) {
+  return <SegmentedControl
+    semantics="radio"
+    className="w-full sm:w-auto"
+    value={value === true ? "true" : value === false ? "false" : "unknown"}
+    disabled={disabled}
+    onValueChange={(next) => { if (next !== "unknown") onChange(next === "true") }}
+  >
+    <SegmentedControlItem value="true">Yes</SegmentedControlItem>
+    <SegmentedControlItem value="false">No</SegmentedControlItem>
+    <SegmentedControlItem value="unknown" disabled className="data-checked:data-disabled:opacity-100">Not recorded</SegmentedControlItem>
+  </SegmentedControl>
 }

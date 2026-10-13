@@ -9,8 +9,7 @@ test.beforeEach(async ({ context }) => { await context.route("**/*", (route) => 
 async function approved(page: Page) {
   const fixture = await backend.lodgingFixture(page); await fixture.open()
   await lodgingEditor(page).getByRole("searchbox", { name: "Find a lodging detail" }).fill("Pets allowed")
-  await lodgingEditor(page).getByRole("combobox", { name: "Pets allowed", exact: true }).click()
-  await page.getByRole("option", { name: "Yes", exact: true }).click()
+  await lodgingEditor(page).getByRole("radiogroup", { name: "Pets allowed", exact: true }).getByRole("radio", { name: "Yes", exact: true }).click()
   await page.getByRole("button", { name: "Review lodging changes", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: lodgingSheet })
   await dialog.getByRole("button", { name: "Approve lodging changes", exact: true }).click()

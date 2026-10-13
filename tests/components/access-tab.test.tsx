@@ -30,6 +30,7 @@ const ADMIN = { administration: {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 function stub(caps: unknown) {
   let lifecycleReview = lifecycleReviewFixture()
+  let accessReview: ReturnType<typeof administrationReviewFixture> | undefined
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const url = String(input)
     if (url.includes("/administration-lifecycle-reviews")) {
@@ -40,7 +41,12 @@ function stub(caps: unknown) {
       return jsonResponse({ review: lifecycleReview })
     }
     if (url.includes("/administration-access-workflows")) return jsonResponse({ items: [], nextCursor: null })
-    if (url.includes("/administration-access-reviews") && init?.method === "POST") return jsonResponse({ review: administrationReviewFixture(JSON.parse(String(init.body))) })
+    if (url.includes("/administration-access-reviews") && init?.method === "POST") {
+      if (url.endsWith("/execute")) return jsonResponse({ attempt: { id: accessReview?.changeSet.id, reviewId: accessReview?.changeSet.id, payloadHash: "a".repeat(64), request: accessReview?.request, target: accessReview?.target, status: "succeeded", executionState: "accepted", confirmationState: "confirmed", idempotent: false, observation: null, postcondition: "administrator_absent", pendingInvitation: null, error: null } })
+      if (!url.endsWith("/administration-access-reviews") && accessReview) { accessReview = { ...accessReview, changeSet: { ...accessReview.changeSet, approvedBy: "manager" } }; return jsonResponse({ review: accessReview }) }
+      accessReview = administrationReviewFixture(JSON.parse(String(init.body)))
+      return jsonResponse({ review: accessReview })
+    }
     if (url === "/api/session") return jsonResponse({ session: { userId: "manager", organisationId: "org", organisationName: "Agency", displayName: "Manager", email: "manager@example.test", role: "owner", canPublish: true, workspaceMode: "agency" } })
     if (url.includes("/verification-state")) return jsonResponse({ locationId: "00000000-0000-4000-8000-000000000001", googleLocationName: "locations/camden", checkedAt: "2026-09-30T01:00:00Z", verifications: [], merchant: { hasVoiceOfMerchant: true, hasBusinessAuthority: true, action: "none", hasPendingVerification: false }, merchantError: null })
     if (url.includes("/verification-workflows")) return jsonResponse({ workflows: [], nextCursor: null })
@@ -178,15 +184,10 @@ describe("AccessTab (danger zone)", () => {
     expect(link).toHaveAttribute("href", "/settings/connections")
   })
 
-  it("remove-administrator requires the typed name and saves an exact review before any send", async () => {
+  it("remove-administrator saves an exact review in one step and asks for the typed name at the send step", async () => {
     const fetchMock = stub({ canEditCanonical: true, canPublish: true })
     renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
     await userEvent.click(await screen.findByRole("button", { name: /remove manager@camden\.test/i }))
-    const confirm = screen.getByRole("button", { name: "Review administrator removal" })
-    expect(confirm).toBeDisabled()
-    await userEvent.type(screen.getByLabelText(/type the location's name/i), "Camden Hotel")
-    expect(confirm).toBeEnabled()
-    await userEvent.click(confirm)
     await waitFor(() => {
       const patch = fetchMock.mock.calls.find(([url, init]) => String(url).includes("/administration-access-reviews") && init?.method === "POST")
       const body = JSON.parse((patch![1] as RequestInit).body as string)
@@ -195,7 +196,38 @@ describe("AccessTab (danger zone)", () => {
         payload: { name: "locations/camden/admins/2" },
       })
     })
+    // The review opens near the top and takes focus.
+    const heading = await screen.findByRole("heading", { name: "Review access request" })
+    await waitFor(() => expect(heading).toHaveFocus())
+    await userEvent.click(screen.getByRole("button", { name: "Approve access request" }))
+    const send = await screen.findByRole("button", { name: "Send approved access request" })
+    expect(send).toBeDisabled()
+    await userEvent.click(screen.getByRole("checkbox", { name: "Send this exact approved access change to Google." }))
+    expect(send).toBeDisabled()
+    await userEvent.type(screen.getByLabelText("Type the listing name: Camden Hotel"), "Camden Hotel")
+    expect(send).toBeEnabled()
+    const sends = () => fetchMock.mock.calls.filter(([url, init]) => String(url).endsWith("/execute") && init?.method === "POST")
+    expect(sends()).toHaveLength(0)
+    await userEvent.click(send)
+    await waitFor(() => expect(sends()).toHaveLength(1))
+    expect(JSON.parse(String(sends()[0][1]?.body))).toEqual({ expectedPayloadHash: "a".repeat(64) })
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false)
+  })
+
+  it("puts the People roster and Add administrator before the explainers, and saved work after the danger zone", async () => {
+    stub({ canEditCanonical: true, canPublish: true })
+    renderWithProviders(<AccessTab locationId="loc-1" locationName="Camden Hotel" />)
+    const roster = await screen.findByRole("heading", { name: "People with access on Google" })
+    const add = screen.getByRole("button", { name: /add administrator/i })
+    const rules = screen.getByText("Primary owner rules")
+    const danger = screen.getByRole("heading", { name: /danger zone/i })
+    const savedAccess = await screen.findByRole("heading", { name: "Saved access work" })
+    const savedLifecycle = await screen.findByRole("heading", { name: "Saved lifecycle work" })
+    const before = (a: Element, b: Element) => expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    before(roster, rules); before(add, rules); before(rules, danger); before(danger, savedAccess); before(danger, savedLifecycle)
+    // No empty review placeholder pushes the roster down.
+    expect(screen.queryByRole("region", { name: /review/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Choose an access change below/)).not.toBeInTheDocument()
   })
 
   it("never offers to remove the primary owner", async () => {
@@ -410,7 +442,7 @@ describe("AccessTab (roster truthfulness)", () => {
     expect(screen.getByRole("button", { name: /add administrator/i })).toBeEnabled()
   })
 
-  it("puts the role select back on Google's listed role once a different role is saved for review", async () => {
+  it("saves a role-change review on choosing a different role and puts the select back on Google's listed role", async () => {
     stubRoster({ administration: () => jsonResponse(ADMIN) })
     const fetchMock = vi.mocked(fetch)
     const original = fetchMock.getMockImplementation()!
@@ -421,12 +453,17 @@ describe("AccessTab (roster truthfulness)", () => {
     const select = await screen.findByRole("combobox", { name: /role for manager@camden\.test/i })
     await userEvent.click(select)
     await userEvent.click(await screen.findByRole("option", { name: "Owner" }))
-    await waitFor(() => expect(select).toHaveTextContent("Owner"))
-    await userEvent.click(screen.getByRole("button", { name: "Review role change" }))
+    // Choosing the role is the one action: it saves the review straight away.
     expect(await screen.findByText("Proposed role")).toBeInTheDocument()
     // The review carries the proposed Owner role; the row still reads Google's listed Manager.
     await waitFor(() => expect(select).toHaveTextContent("Manager"))
-    expect(screen.getByRole("button", { name: "Review role change" })).toBeDisabled()
+    const reviews = () => fetchMock.mock.calls.filter(([url, init]) => String(url).includes("/administration-access-reviews") && init?.method === "POST")
+    expect(reviews()).toHaveLength(1)
+    expect(JSON.parse(String(reviews()[0][1]?.body))).toEqual({ operation: "update_admin", payload: { name: "locations/camden/admins/2", role: "OWNER" } })
+    // Choosing the listed role again saves nothing.
+    await userEvent.click(select)
+    await userEvent.click(await screen.findByRole("option", { name: "Manager" }))
+    expect(reviews()).toHaveLength(1)
   })
 })
 
