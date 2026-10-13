@@ -2,7 +2,6 @@
 
 import {
   CircleAlertIcon,
-  FilterIcon,
   PlusIcon,
   RefreshCwIcon,
   StoreIcon,
@@ -17,9 +16,8 @@ import { FileUnderClient } from "@/components/listings/file-under-client"
 import { ActionBar, ActionBarMuted } from "@/components/ui/action-bar"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChipCount, ChipRow, ToggleChip } from "@/components/ui/chip"
-import { Empty } from "@/components/ui/empty"
-import { SearchInput } from "@/components/ui/input"
+import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
+import { Empty, EmptyIllustration } from "@/components/ui/empty"
 import {
   SegmentedControl,
   SegmentedControlItem,
@@ -36,6 +34,7 @@ import {
   TableRow,
   TableSelectAllLabel,
 } from "@/components/ui/table"
+import { Toolbar } from "@/components/ui/toolbar"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { formatNumber } from "@/lib/format"
 import {
@@ -329,22 +328,23 @@ function BoardSkeleton() {
   const business = useWorkspaceMode() === "business"
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
-      {/* The toolbar's shape: search and the order control on one row,
-          then the chip strip, then the summary line. */}
+      {/* The toolbar's shape: the search pill on its own row, then the
+          chip strip (and, agency only, the order control), then the
+          summary line. */}
       <div className="flex flex-col gap-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Skeleton className="h-(--np-control-h) min-w-0 grow basis-36 rounded-(--np-radius-control) sm:max-w-80" />
+        <Skeleton className="h-(--np-touch) w-full rounded-(--np-radius-pill) desk:h-(--np-control-h)" />
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <div className="flex gap-1.5 overflow-hidden">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <Skeleton
+                key={index}
+                className="h-(--np-chip-h) w-24 shrink-0 rounded-(--np-radius-pill)"
+              />
+            ))}
+          </div>
           {business ? null : (
-            <Skeleton className="h-(--np-control-h) w-48 rounded-(--np-radius-control)" />
+            <Skeleton className="h-(--np-control-h) w-48 rounded-(--np-radius-control) md:ml-auto" />
           )}
-        </div>
-        <div className="flex gap-2 overflow-hidden">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <Skeleton
-              key={index}
-              className="h-(--np-control-h-sm) w-28 shrink-0 rounded-(--np-radius-pill)"
-            />
-          ))}
         </div>
         <Skeleton className="h-3.5 w-72 max-w-full" />
       </div>
@@ -786,34 +786,88 @@ function ListingsBoard({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* The toolbar: search and the order control on one row (they wrap
-          only on the narrowest phones), then one strip of filter chips. */}
+      {/* The toolbar (Drop 1 `Toolbar`): the search pill on its own row,
+          full width at every size, so it never shares a 320px row with the
+          order control. On a phone, focusing it is Notion Mail's search
+          takeover (a "Cancel" that clears the query). Not sticky: the chips
+          and the summary under it scroll with the board. */}
       <div className="flex min-w-0 flex-col gap-3">
-        <div
-          role="search"
-          aria-label="Filter listings"
-          className="flex min-w-0 flex-wrap items-center gap-2"
-        >
-          <SearchInput
-            aria-label="Search listings"
-            placeholder={
-              business ? "Search listings" : "Search listings or clients"
-            }
-            value={search}
-            onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-              setSearch(event.target.value)
-            }
-            onClear={() => setSearch("")}
-            className="min-w-0 grow basis-36 sm:max-w-80"
-          />
+        <Toolbar
+          sticky={false}
+          className="bg-transparent py-0"
+          searchLabel="Search listings"
+          searchPlaceholder={
+            business ? "Search listings" : "Search listings or clients"
+          }
+          searchValue={search}
+          onSearchChange={setSearch}
+        />
+        {/* Two chip strips (health, then clients) and the order control.
+            Each strip is its own FilterChipStrip so each keeps ITS pressed
+            chip in view: on a phone a strip scrolls sideways (edge fade)
+            rather than truncating a label; from md it wraps, so a desk sees
+            every chip. Each chip is a 44px target on touch. */}
+        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-x-3">
+          <FilterChipStrip className="-mx-5 px-5 md:mx-0 md:flex-wrap md:px-0.5">
+            <div
+              role="group"
+              aria-label="Filter by health"
+              className="flex shrink-0 gap-1.5 md:shrink md:flex-wrap md:gap-y-4 desk:gap-y-1.5"
+            >
+              {HEALTH_FILTERS.map((filter) => (
+                <FilterChip
+                  key={filter.value}
+                  pressed={health === filter.value}
+                  onClick={() => setHealth(filter.value)}
+                  count={formatNumber(healthCount(filter.value))}
+                >
+                  {filter.label}
+                </FilterChip>
+              ))}
+            </div>
+          </FilterChipStrip>
+          {clientChips.length > 1 ? (
+            <FilterChipStrip className="-mx-5 px-5 md:mx-0 md:flex-wrap md:border-l md:border-line md:px-0.5 md:pl-3">
+              <div
+                role="group"
+                aria-label="Filter by client"
+                className="flex shrink-0 gap-1.5 md:shrink md:flex-wrap md:gap-y-4 desk:gap-y-1.5"
+              >
+                <FilterChip
+                  pressed={clientFilter === null}
+                  onClick={() => setClientFilter(null)}
+                  count={formatNumber(rows.length)}
+                >
+                  All clients
+                </FilterChip>
+                {clientChips.map((chip) => {
+                  const pressed = clientFilter === chip.id
+                  return (
+                    <FilterChip
+                      key={chip.id}
+                      pressed={pressed}
+                      onClick={() => setClientFilter(pressed ? null : chip.id)}
+                      count={formatNumber(chip.count)}
+                    >
+                      {chip.id === UNFILED ? (
+                        <CircleAlertIcon aria-hidden strokeWidth={1.75} />
+                      ) : null}
+                      {chip.name}
+                    </FilterChip>
+                  )
+                })}
+              </div>
+            </FilterChipStrip>
+          ) : null}
           {business ? null : (
-            // Pressed buttons, like the client chips: arrows move focus and
+            // Pressed buttons, like the chips: arrows move focus and
             // Enter/Space choose, so moving through the options never
-            // re-filters the board or rewrites the address.
+            // re-filters the board or rewrites the address. At the end of
+            // the chip line on a desk; its own row on a phone.
             <SegmentedControl
               semantics="toggle"
               aria-label="Order listings"
-              className="w-auto max-w-full min-w-0 flex-none"
+              className="w-auto max-w-full min-w-0 flex-none self-start md:ml-auto md:self-auto"
               value={order}
               onValueChange={(next) => setOrder(next as BoardOrder)}
             >
@@ -825,64 +879,6 @@ function ListingsBoard({
               </SegmentedControlItem>
             </SegmentedControl>
           )}
-        </div>
-        {/* Two chip strips: health, then clients. Each is its own ChipRow so
-            each keeps ITS pressed chip in view: on a phone a strip scrolls
-            sideways (edge fade) rather than truncating a label; from md it
-            wraps, so a desk sees every chip. Each chip is a 44px target on
-            touch. */}
-        <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-x-3">
-          <ChipRow className="-mx-5 px-5 md:mx-0 md:flex-wrap md:px-0.5">
-            <div
-              role="group"
-              aria-label="Filter by health"
-              className="flex shrink-0 gap-2 md:shrink md:flex-wrap"
-            >
-              {HEALTH_FILTERS.map((filter) => (
-                <ToggleChip
-                  key={filter.value}
-                  pressed={health === filter.value}
-                  onClick={() => setHealth(filter.value)}
-                  count={formatNumber(healthCount(filter.value))}
-                >
-                  {filter.label}
-                </ToggleChip>
-              ))}
-            </div>
-          </ChipRow>
-          {clientChips.length > 1 ? (
-            <ChipRow className="-mx-5 px-5 md:mx-0 md:flex-wrap md:border-l md:border-line md:px-0.5 md:pl-3">
-              <div
-                role="group"
-                aria-label="Filter by client"
-                className="flex shrink-0 gap-2 md:shrink md:flex-wrap"
-              >
-                <ToggleChip
-                  pressed={clientFilter === null}
-                  onClick={() => setClientFilter(null)}
-                  count={formatNumber(rows.length)}
-                >
-                  All clients
-                </ToggleChip>
-                {clientChips.map((chip) => {
-                  const pressed = clientFilter === chip.id
-                  return (
-                    <ToggleChip
-                      key={chip.id}
-                      pressed={pressed}
-                      onClick={() => setClientFilter(pressed ? null : chip.id)}
-                    >
-                      {chip.id === UNFILED ? (
-                        <CircleAlertIcon aria-hidden strokeWidth={1.75} />
-                      ) : null}
-                      {chip.name}
-                      <ChipCount>{formatNumber(chip.count)}</ChipCount>
-                    </ToggleChip>
-                  )
-                })}
-              </div>
-            </ChipRow>
-          ) : null}
         </div>
         <p className="text-caption text-ink-muted" aria-live="polite">
           {summaries.isPending ? (
@@ -913,7 +909,7 @@ function ListingsBoard({
       {visible.length === 0 ? (
         <Empty
           framed
-          icon={<FilterIcon />}
+          illustration={<EmptyIllustration name="search" />}
           title="No listings match"
           description={
             business
