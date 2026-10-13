@@ -565,7 +565,7 @@ function ExistingLinks({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="min-h-(--np-touch) text-danger-ink"
+                  className="text-danger-ink"
                   aria-label={`Revoke the link created ${formatDay(share.createdAt)}, expiring ${formatDay(share.expiresAt)}`}
                   onClick={() => setConfirming(share)}
                 >
