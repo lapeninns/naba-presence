@@ -63,6 +63,21 @@ describe("RelativeTime", () => {
     expect(screen.getByText("Checked 1 minute ago")).toBeInTheDocument()
   })
 
+  // operations-view's "Last run 16 minutes ago" read "15" under load: the
+  // clock was held for a second, so a reading taken by an earlier render
+  // (another test, a row before) could predate the fixture's own
+  // Date.now() and make an exact 16-minute age 15:59.3. An age is never
+  // younger than the moment it is shown.
+  it("never reuses a clock read from before the time it is rendered", () => {
+    const t0 = new Date("2026-10-13T12:16:00.000Z").getTime()
+    vi.setSystemTime(t0)
+    render(<RelativeTime iso={AT} />).unmount()
+    vi.setSystemTime(t0 + 700)
+    const sixteenMinutesAgo = new Date(t0 + 700 - 16 * 60_000).toISOString()
+    render(<RelativeTime iso={sixteenMinutesAgo} prefix="Last run " />)
+    expect(screen.getByText("Last run 16 minutes ago")).toBeInTheDocument()
+  })
+
   it("stops the shared clock once nothing shows a relative time", () => {
     vi.setSystemTime(new Date("2026-10-13T12:00:50.000Z"))
     const { unmount } = render(<RelativeTime iso={AT} />)

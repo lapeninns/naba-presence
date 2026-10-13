@@ -29,13 +29,19 @@ function subscribe(listener: () => void) {
 }
 
 /**
- * The clock, held for a second at a time: React reads a snapshot more than
- * once per render and needs the same answer each time, and nothing here
- * changes in under a minute anyway.
+ * The clock as React reads it. React asks for a snapshot more than once per
+ * render and needs the same answer each time, so a reading is held, but it
+ * is never behind the real clock: once the wall clock passes the held
+ * reading, the next read takes a new one, up to `HOLD_MS` ahead. An age is
+ * therefore never shown younger than it is. (Holding a reading for a second
+ * in either direction let an earlier render's reading predate a timestamp
+ * taken a moment later, and "16 minutes ago" read "15".)
  */
+const HOLD_MS = 250
+
 function readClock(): number {
   const now = Date.now()
-  if (Math.abs(now - clock) >= 1000) clock = now
+  if (now > clock || clock - now > HOLD_MS) clock = now + HOLD_MS
   return clock
 }
 
