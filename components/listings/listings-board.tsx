@@ -33,6 +33,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSelectAllLabel,
 } from "@/components/ui/table"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
 import { formatNumber, formatRelativeTime } from "@/lib/format"
@@ -287,11 +288,19 @@ function BoardTable({
   children,
   busy = false,
   selectable = false,
+  selectAll,
 }: {
   children: React.ReactNode
   busy?: boolean
   /** Owners and admins select listings for a bulk change. */
   selectable?: boolean
+  /**
+   * The select-all checkbox and its TableSelectAllLabel, for the header's
+   * selection column. As record cards (a phone) the header row hides but a
+   * cell holding a checkbox survives as a bar above the cards, so one
+   * control serves every width.
+   */
+  selectAll?: React.ReactNode
 }) {
   const business = useWorkspaceMode() === "business"
   return (
@@ -303,7 +312,7 @@ function BoardTable({
         <TableRow>
           {selectable ? (
             <TableHead className="w-10">
-              <span className="sr-only">Select</span>
+              {selectAll ?? <span className="sr-only">Select</span>}
             </TableHead>
           ) : null}
           {columnsFor(business).map((column) => (
@@ -390,6 +399,7 @@ function ListingsBoard({
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(
     () => new Set()
   )
+  const selectAllReasonId = React.useId()
   const toggle = (id: string, on: boolean) =>
     setSelected((current) => {
       const next = new Set(current)
@@ -619,6 +629,7 @@ function ListingsBoard({
   const allShownSelected =
     visibleIds.length > 0 && shownSelected === visibleIds.length
   const selectAllBlocked = !allShownSelected && unionSize > BULK_MAX_TARGETS
+  const selectAllName = `Select all shown (${formatNumber(visible.length)})`
   const setAllShown = (on: boolean) =>
     setSelected((current) => {
       const next = new Set(current)
@@ -909,25 +920,44 @@ function ListingsBoard({
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {canSelect ? (
-            // Not in the table header: the header hides under 720px, and
-            // selecting what is shown must work on a phone too.
-            <div className="flex min-w-0 flex-wrap items-center gap-x-4 px-1">
-              <Checkbox
-                label={`Select all shown (${formatNumber(visible.length)})`}
-                description={
-                  selectAllBlocked
-                    ? `One bulk change covers at most ${BULK_MAX_TARGETS} listings. Narrow the board or select listings one by one.`
-                    : undefined
-                }
-                checked={allShownSelected}
-                indeterminate={!allShownSelected && shownSelected > 0}
-                disabled={selectAllBlocked}
-                onCheckedChange={(checked) => setAllShown(checked === true)}
-              />
-            </div>
+          {selectAllBlocked ? (
+            // Why select-all is off, in words at every width: the header
+            // cell is a narrow column on a desk, so the reason sits above
+            // the table and describes the checkbox.
+            <p
+              id={selectAllReasonId}
+              className="px-1 text-caption text-ink-muted"
+            >
+              One bulk change covers at most {BULK_MAX_TARGETS} listings. Narrow
+              the board or select listings one by one.
+            </p>
           ) : null}
-          <BoardTable selectable={canSelect}>
+          <BoardTable
+            selectable={canSelect}
+            selectAll={
+              canSelect ? (
+                <>
+                  <Checkbox
+                    aria-label={selectAllName}
+                    aria-describedby={
+                      selectAllBlocked ? selectAllReasonId : undefined
+                    }
+                    checked={allShownSelected}
+                    indeterminate={!allShownSelected && shownSelected > 0}
+                    disabled={selectAllBlocked}
+                    onCheckedChange={(checked) => setAllShown(checked === true)}
+                  />
+                  {/* The record cards' select-all bar: the words start with
+                      the checkbox's own name (WCAG 2.5.3 label in name). */}
+                  <TableSelectAllLabel>
+                    {selected.size > 0
+                      ? `${selectAllName} · ${formatNumber(selected.size)} selected`
+                      : selectAllName}
+                  </TableSelectAllLabel>
+                </>
+              ) : undefined
+            }
+          >
             {!business && unfiled.length > 0 ? (
               <TableRow group>
                 <TableCell colSpan={COLUMNS.length + (canSelect ? 1 : 0)}>
