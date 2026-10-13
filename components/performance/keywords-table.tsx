@@ -63,6 +63,7 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
             {/* The meta line on a card: "No. 3 by impressions". */}
             <TableCell
               numeric
+              priority="meta"
               className="text-ink-muted @max-[720px]/table:col-span-full! @max-[720px]/table:row-start-2! @max-[720px]/table:text-caption"
             >
               <span className="@min-[720px]/table:hidden">No. </span>
@@ -70,6 +71,7 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
               <span className="@min-[720px]/table:hidden"> by impressions</span>
             </TableCell>
             <TableCell
+              priority="primary"
               className="font-medium break-words text-ink @max-[720px]/table:col-start-1! @max-[720px]/table:row-start-1! @max-[720px]/table:text-body"
               lang="und"
               dir="auto"
@@ -78,6 +80,7 @@ export function KeywordsTable({ keywords }: { keywords: KeywordRow[] }) {
             </TableCell>
             <TableCell
               numeric
+              priority="trailing"
               className="@max-[720px]/table:col-start-2! @max-[720px]/table:row-start-1! @max-[720px]/table:text-right! @max-[720px]/table:text-body @max-[720px]/table:font-semibold"
             >
               <span>{formatKeywordImpressions(keyword)}</span>
