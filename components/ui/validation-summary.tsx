@@ -80,7 +80,7 @@ function ValidationSummary({
       aria-labelledby={titleId}
       data-slot="validation-summary"
       className={cn(
-        "grid scroll-mt-[calc(var(--np-appbar-h)+env(safe-area-inset-top)+12px)] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-danger-ink bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-[0_0_0_3px_var(--np-danger-tint)]",
+        "grid scroll-mt-[calc(var(--np-appbar-h)+var(--np-safe-top)+--spacing(3))] grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-(--np-radius-card) border border-danger-ink bg-danger-tint px-3.5 py-3 text-ui text-ink outline-none focus-visible:shadow-(--np-field-ring-invalid)",
         className
       )}
     >

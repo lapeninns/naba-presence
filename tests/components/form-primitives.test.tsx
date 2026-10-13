@@ -198,9 +198,11 @@ describe("Checkbox and radio touch targets", () => {
     render(<Checkbox aria-label="Select review" />)
     const box = screen.getByRole("checkbox", { name: "Select review" })
     expect(box.className).toContain(
-      "after:inset-[calc((18px-var(--np-touch))/2)]"
+      "after:inset-[calc((var(--np-selection-box)-var(--np-touch))/2)]"
     )
-    expect(box.className).toContain("desk:after:-inset-[3px]")
+    expect(box.className).toContain(
+      "desk:after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)]"
+    )
   })
 
   it("makes a labelled row the 44px target and fades a disabled control once", () => {
@@ -232,7 +234,7 @@ describe("Checkbox and radio touch targets", () => {
       screen.getByRole("radio", { name: "Warm" }).closest("label")!.className
     ).toContain("min-h-(--np-touch)")
     expect(screen.getByRole("radio", { name: "Brief" }).className).toContain(
-      "after:inset-[calc((18px-var(--np-touch))/2)]"
+      "after:inset-[calc((var(--np-selection-box)-var(--np-touch))/2)]"
     )
   })
 })

@@ -90,12 +90,12 @@ const segmentedItemClassName = cn(
   // is what truncated "Needs attention" to "N" at 360px; now the track
   // scrolls instead. Written as the `flex` shorthand so a caller's
   // `flex-none` still replaces it through tailwind-merge.
-  "relative z-10 inline-flex h-[calc(var(--np-control-h)-6px)] flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none",
+  "relative z-10 inline-flex h-[calc(var(--np-control-h)-2*var(--np-segment-inset))] flex-[1_0_auto] snap-start items-center justify-center gap-1.5 rounded-[7px] px-3 text-ui font-medium whitespace-nowrap text-ink-secondary focus-halo outline-none select-none",
   // The hit area: the visible segment is 6px shorter than the track, so a
   // transparent pseudo-element reaches over the track's padding and the
   // whole 44px of track height on touch is tappable. It stays inside the
   // track's padding box, so the scroll container never clips it.
-  "after:absolute after:inset-x-0 after:inset-y-[-3px]",
+  "after:absolute after:inset-x-0 after:-inset-y-(--np-segment-inset)",
   "transition-[color,background-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy",
   "hover:text-ink",
   // Written out in full, not built from a helper: Tailwind only generates
@@ -112,7 +112,7 @@ const itemSelector = "[data-slot=segmented-control-item]"
 
 const trackVariants = cva(
   [
-    "relative isolate flex w-full max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-[10px] bg-fill p-[3px]",
+    "relative isolate flex w-full max-w-full min-w-0 items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-[10px] bg-fill p-(--np-segment-inset)",
     // Snap to segments, and keep 24px of scroll padding so a snapped
     // segment lands just clear of the start fade with the previous one
     // peeking through it — the cue that there is more behind.
@@ -130,7 +130,7 @@ const trackVariants = cva(
       size: {
         // Smaller at the desk only. On touch the small track keeps the full
         // 44px: `--np-control-h-sm` is 36px there, under the touch floor.
-        sm: "desk:[&_[data-slot=segmented-control-item]]:h-[calc(var(--np-control-h-sm)-6px)]",
+        sm: "desk:[&_[data-slot=segmented-control-item]]:h-[calc(var(--np-control-h-sm)-2*var(--np-segment-inset))]",
         default: "",
       },
       fill: {
@@ -547,6 +547,7 @@ function SegmentedControlItem({
               and `gap` does the spacing. */}{" "}
           <span
             data-slot="segmented-control-count"
+            // design-exempt R1: the 11.5px mono count figure Chip, Select and Combobox draw; no type role for it yet
             className="font-mono text-[11.5px] leading-none text-ink-muted tabular-nums"
           >
             {count}
