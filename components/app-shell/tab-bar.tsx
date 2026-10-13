@@ -1,7 +1,6 @@
 "use client"
 
 import { MoreHorizontal } from "lucide-react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -19,6 +18,7 @@ import {
   notificationsName,
   useUnreadNotificationCount,
 } from "./notifications-link"
+import { ShellLink } from "./shell-link"
 import { inboxName, useNeedsReplyCount } from "./use-needs-reply-count"
 
 /**
@@ -115,7 +115,7 @@ function TabBar({
           const count = countFor(destination)
           return (
             <li key={destination.id} className="flex min-w-0">
-              <Link
+              <ShellLink
                 href={destinationHref(destination, context.mode, scopeClientId)}
                 aria-current={active ? "page" : undefined}
                 aria-label={nameFor(destination)}
@@ -126,7 +126,7 @@ function TabBar({
                   {count > 0 ? <CountBadge count={count} /> : null}
                 </span>
                 <span className="max-w-full truncate">{destination.label}</span>
-              </Link>
+              </ShellLink>
             </li>
           )
         })}

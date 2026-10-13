@@ -1,7 +1,6 @@
 "use client"
 
 import { ChevronDown, ChevronRight } from "lucide-react"
-import Link from "next/link"
 import { usePathname } from "next/navigation"
 import * as React from "react"
 
@@ -17,6 +16,8 @@ import {
 import { TONE_CLASSES } from "@/lib/ui/status-tone"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
+
+import { ShellLink } from "./shell-link"
 
 /**
  * The primary destinations for a workspace mode, as the desk sidebar lists
@@ -153,9 +154,9 @@ function NavRow({
   const showCount = typeof count === "number" && count > 0
   return (
     <>
-      <Link
+      <ShellLink
         href={href}
-        prefetch
+        intentPrefetch
         aria-current={active ? "page" : undefined}
         // The count describes the row rather than naming it, so "Inbox"
         // stays the link's name for every locator and screen-reader list.
@@ -197,7 +198,7 @@ function NavRow({
             {count}
           </span>
         ) : null}
-      </Link>
+      </ShellLink>
       {showCount ? (
         <span id={countId} hidden>
           {countLabel ?? `${count}`}
@@ -295,7 +296,7 @@ function Nav({
                       // Recent clients need the sidebar's width; the rail
                       // keeps to the destinations.
                       <li key={client.id} className="max-wide:hidden">
-                        <Link
+                        <ShellLink
                           href={href}
                           aria-current={clientActive ? "page" : undefined}
                           onClick={onNavigate}
@@ -315,7 +316,7 @@ function Nav({
                           <span className="sr-only">
                             , {healthLabel(client.health)}
                           </span>
-                        </Link>
+                        </ShellLink>
                       </li>
                     )
                   })

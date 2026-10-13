@@ -156,6 +156,9 @@ function SidebarBody({
         href={
           mode === "business" ? "/inbox" : withClientScope("/inbox", remembered)
         }
+        // The sidebar's Inbox row already prefetches on intent; the brand
+        // mark is a second way to the same page.
+        prefetch={false}
         className="m-1 flex min-w-0 shrink-0 items-center rounded-md px-3 pt-4 pb-3 focus-halo focus-visible:outline-none md:max-wide:justify-center md:max-wide:px-0"
       >
         <BrandMark

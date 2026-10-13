@@ -2,12 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { Bell } from "lucide-react"
-import Link from "next/link"
 
 import { fetchNotifications } from "@/lib/api/operational-notifications"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
+
+import { ShellLink } from "./shell-link"
 
 /**
  * This person's open-and-unread notification count. One query key, so the
@@ -37,7 +38,7 @@ export function notificationsName(count: number) {
 export function NotificationsLink({ className }: { className?: string }) {
   const count = useUnreadNotificationCount()
   return (
-    <Link
+    <ShellLink
       href="/notifications"
       aria-label={notificationsName(count)}
       className={cn(
@@ -54,6 +55,6 @@ export function NotificationsLink({ className }: { className?: string }) {
           {count > 99 ? "99+" : count}
         </span>
       ) : null}
-    </Link>
+    </ShellLink>
   )
 }
