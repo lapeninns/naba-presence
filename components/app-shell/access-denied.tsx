@@ -103,7 +103,7 @@ function SignedInAccessCards({
               term: "Your role",
               value: (
                 <span className="flex flex-col items-start gap-1">
-                  <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-[0.71875rem] font-medium tracking-[0.02em] text-ink-secondary uppercase">
+                  <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-count font-medium tracking-[0.02em] text-ink-secondary uppercase">
                     {roleLabel}
                   </span>
                   {explanation ? (

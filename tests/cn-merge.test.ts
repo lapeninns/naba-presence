@@ -8,6 +8,11 @@ describe("cn", () => {
     expect(cn("text-body", "text-reading")).toBe("text-reading")
   })
 
+  it("treats the count role as a font size, not a colour", () => {
+    expect(cn("text-count", "text-ink-muted")).toBe("text-count text-ink-muted")
+    expect(cn("text-caption", "text-count")).toBe("text-count")
+  })
+
   it("lets a caller's stacking layer replace a primitive's", () => {
     expect(cn("z-overlay", "z-popover")).toBe("z-popover")
     expect(cn("z-50", "z-toast")).toBe("z-toast")

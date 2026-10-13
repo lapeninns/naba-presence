@@ -311,7 +311,7 @@ function AccountMenu({
         >
           <span
             aria-hidden
-            className="grid size-6 shrink-0 place-items-center rounded-full bg-fill text-[10.5px] font-semibold tracking-[0.02em] text-ink-secondary"
+            className="grid size-6 shrink-0 place-items-center rounded-full bg-fill text-count leading-none font-semibold tracking-[0.02em] text-ink-secondary"
           >
             {initialsFor(displayName)}
           </span>
@@ -357,7 +357,7 @@ function AccountMenu({
             ) : null}
             {role ? (
               <div className="mt-1.5 flex flex-col items-start gap-1">
-                <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-[0.71875rem] font-medium tracking-[0.02em] text-ink-secondary uppercase">
+                <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-count font-medium tracking-[0.02em] text-ink-secondary uppercase">
                   {role}
                 </span>
                 {explanation ? (

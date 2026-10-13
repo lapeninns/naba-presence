@@ -12,6 +12,7 @@ import {
 } from "react"
 
 import { useClientScopeHandler } from "@/components/app-shell/client-context"
+import { PageChrome } from "@/components/app-shell/page-chrome"
 import { ActiveFilterChips } from "@/components/inbox/active-filter-chips"
 import { BulkActionBar } from "@/components/inbox/bulk-action-bar"
 import { InboxHotkeys } from "@/components/inbox/inbox-hotkeys"
@@ -661,7 +662,7 @@ function InboxViewInner({
         return
       }
     }
-    backButtonRef.current?.focus({ preventScroll: true })
+    focusBackControl(backButtonRef.current)
   }, [state.selected])
 
   // `r`, `g` and `a` are handled by the detail pane's own controls, which
@@ -858,10 +859,14 @@ function InboxViewInner({
         }
       : undefined
   // Back also works because opening from the list pushed (spec §6).
+  // Where the app bar leads with "‹ Inbox" (the PageChrome below: a pushed
+  // review, list not beside it) the head draws no back of its own.
+  const backInAppBar = Boolean(state.selected) && splitView === false
   const back = {
     label: "Inbox",
     onBack: onBackToList,
     ref: backButtonRef,
+    inAppBar: backInAppBar,
   }
 
   // The detail is mounted in exactly one place, so the composer's dirty guard
@@ -965,6 +970,12 @@ function InboxViewInner({
     }
   }, [state.selected])
 
+  // The list this review was opened from: the same inbox state, closed.
+  const listHref = `/inbox?${serializeInboxState({
+    ...state,
+    selected: undefined,
+  }).toString()}`
+
   // Kept in the tree while a review is open below lg — the controls and the
   // list — so the selected row keeps its aria-current and the list its
   // place, but `display: none` hides them from everyone.
@@ -981,6 +992,20 @@ function InboxViewInner({
       className="group/inbox relative flex flex-1 flex-col gap-3 xl:gap-4 lg:[@media(min-height:620px)]:min-h-0"
     >
       <InboxHotkeys handlers={hotkeyHandlers} />
+      {/* A review pushed over the list (below lg) is a level down from the
+          Inbox, so the shell's app bar and tablet toolbar lead with the
+          labelled way back, "‹ Inbox", as every deep page's does. It is a
+          link to the list it came from, but a plain activation runs the
+          same back as the review head's: pop the pushed entry, ask the
+          leave guard about an unsaved reply, and refocus the row. Not where
+          the list is beside the review (lg), and not before the client
+          knows its width. */}
+      {detailView && splitView === false ? (
+        <PageChrome
+          back={{ href: listHref, label: "Inbox" }}
+          onBack={onBackToList}
+        />
+      ) : null}
       <p role="status" className="sr-only" data-slot="inbox-advance-status">
         {advance?.message}
       </p>
@@ -1021,6 +1046,28 @@ function InboxViewInner({
 // user who was already reaching for it. Defaults to true so every existing
 // caller and test keeps a visible filter; a redundant control is a much better
 // failure mode than a silently missing one.
+/**
+ * Focuses the way back that is on screen: the review head's button, or,
+ * where the head leaves it to the app bar, the shell's "‹ Inbox" link
+ * (`[data-slot="back-control"]`, the visible one: the tablet toolbar draws
+ * its own copy). The app bar takes the page's back from PageChrome a render
+ * after the review opens, so the link is looked for over a few frames.
+ */
+function focusBackControl(button: HTMLButtonElement | null, frames = 10) {
+  const target =
+    button ??
+    [
+      ...document.querySelectorAll<HTMLElement>('[data-slot="back-control"]'),
+    ].find((element) => element.checkVisibility?.() ?? true)
+  if (target) {
+    target.focus({ preventScroll: true })
+    return
+  }
+  if (frames > 0) {
+    requestAnimationFrame(() => focusBackControl(null, frames - 1))
+  }
+}
+
 function InboxView({
   showLocationFilter = true,
   actions,

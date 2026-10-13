@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query"
 import { useState } from "react"
@@ -8,6 +8,11 @@ import {
   ClientScopeRoot,
   usePageScopeHandler,
 } from "@/components/app-shell/client-context"
+import { ShellBackLink } from "@/components/app-shell/app-bar"
+import {
+  PageChromeProvider,
+  usePageChromeOverride,
+} from "@/components/app-shell/page-chrome"
 import { InboxView } from "@/components/inbox/inbox-view"
 import { QueryProvider } from "@/lib/queries/provider"
 import { Toaster } from "@/components/ui/toast"
@@ -204,14 +209,44 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function renderInbox() {
-  return render(
-    <QueryProvider>
-      <Toaster>
-        <InboxView />
-      </Toaster>
-    </QueryProvider>
+// Reads what the inbox told the shell's chrome (<PageChrome>), as the app
+// bar's back control would.
+function ChromeProbe() {
+  const back = usePageChromeOverride().back
+  return (
+    <button
+      type="button"
+      data-testid="chrome-back"
+      data-href={back?.href}
+      onClick={() => back?.onNavigate?.()}
+    >
+      {back ? back.label : "none"}
+    </button>
   )
+}
+
+// The shell app bar's leading back link, as AppBar draws it from a page's
+// <PageChrome back>: the pushed review's one way back below lg.
+function AppBarBack() {
+  const back = usePageChromeOverride().back
+  return back ? <ShellBackLink target={back} /> : null
+}
+
+function inboxUi() {
+  return (
+    <PageChromeProvider>
+      <AppBarBack />
+      <QueryProvider>
+        <Toaster>
+          <InboxView />
+        </Toaster>
+      </QueryProvider>
+    </PageChromeProvider>
+  )
+}
+
+function renderInbox() {
+  return render(inboxUi())
 }
 
 // The reply editor is always open, so every dirty-guard case below types
@@ -579,16 +614,72 @@ describe("InboxView — history", () => {
     currentParams = new URLSearchParams(
       new URL(push.mock.calls[0][0], "http://x").search
     )
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
-    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
+    view.rerender(inboxUi())
+    // Below lg the one way back is the app bar's "‹ Inbox" link; the
+    // review head draws no second back button.
+    expect(
+      screen.queryByRole("button", { name: "Back to Inbox" })
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole("link", { name: "Back to Inbox" }))
     expect(back).toHaveBeenCalledTimes(1)
     expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("gives the shell's app bar a labelled way back that pops the pushed entry", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
+    currentParams = new URLSearchParams("rating=4")
+    const ui = () => (
+      <PageChromeProvider>
+        <ChromeProbe />
+        <QueryProvider>
+          <Toaster>
+            <InboxView />
+          </Toaster>
+        </QueryProvider>
+      </PageChromeProvider>
+    )
+    const view = render(ui())
+    // On the list, the Inbox is a top-level page: no override.
+    expect(screen.getByTestId("chrome-back")).toHaveTextContent("none")
+    await user.click(
+      view.container.querySelector<HTMLButtonElement>(
+        '[data-slot="review-row"]'
+      )!
+    )
+    currentParams = new URLSearchParams(
+      new URL(push.mock.calls[0][0], "http://x").search
+    )
+    view.rerender(ui())
+
+    // "‹ Inbox", linking to the same list without the open review.
+    const probe = screen.getByTestId("chrome-back")
+    expect(probe).toHaveTextContent("Inbox")
+    expect(probe).toHaveAttribute(
+      "data-href",
+      expect.stringContaining("/inbox?")
+    )
+    expect(probe.getAttribute("data-href")).toContain("rating=4")
+    expect(probe.getAttribute("data-href")).not.toContain("selected=")
+    // Activating it runs the review head's back: pop, don't push the list.
+    await user.click(probe)
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it("adds no app-bar back where the list sits beside the review", () => {
+    // The default stub matches every query: a desk, split view.
+    render(
+      <PageChromeProvider>
+        <ChromeProbe />
+        <QueryProvider>
+          <Toaster>
+            <InboxView />
+          </Toaster>
+        </QueryProvider>
+      </PageChromeProvider>
+    )
+    expect(screen.getByTestId("chrome-back")).toHaveTextContent("none")
   })
 
   it("leaves a dirty pushed review to the leave guard's one prompt", async () => {
@@ -604,20 +695,20 @@ describe("InboxView — history", () => {
     currentParams = new URLSearchParams(
       new URL(push.mock.calls[0][0], "http://x").search
     )
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
+    view.rerender(inboxUi())
     await dirtyComposer(user)
 
-    // The step back lands on the leave guard's sentinel, whose prompt asks;
-    // the in-page gate does not ask first, or Discard would be asked twice.
-    await user.click(screen.getByRole("button", { name: "Back to Inbox" }))
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
-    expect(back).toHaveBeenCalledTimes(1)
+    // The way back below lg is the app bar's link, which the leave guard
+    // holds like any link: ONE prompt asks, and the in-page gate does not
+    // ask again after it, or Discard would be asked twice.
+    await user.click(screen.getByRole("link", { name: "Back to Inbox" }))
+    const prompt = await screen.findByRole("alertdialog", {
+      name: "Discard unsaved reply?",
+    })
+    expect(back).not.toHaveBeenCalled()
+    await user.click(within(prompt).getByRole("button", { name: "Discard" }))
+    await waitFor(() => expect(back).toHaveBeenCalledTimes(1))
+    expect(screen.queryAllByRole("alertdialog")).toHaveLength(0)
     expect(replace).not.toHaveBeenCalled()
   })
 
@@ -656,13 +747,7 @@ describe("InboxView — row count announcement", () => {
       isFetchingNextPage: false,
       fetchNextPage: vi.fn(),
     } as unknown as ReturnType<typeof reviewsHook.useReviews>)
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
+    view.rerender(inboxUi())
     // The visible count follows the rows; the spoken one stays put.
     expect(screen.getByText("2 reviews")).toBeInTheDocument()
     expect(status()).toHaveTextContent("1 review")
@@ -752,13 +837,7 @@ describe("InboxView — publish pulse, then advance", () => {
     })
     // The router is a mock, so the URL does not move; re-render as if it had.
     currentParams = new URLSearchParams("selected=rev-2&rating=4")
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
+    view.rerender(inboxUi())
     expect(
       view.container.querySelector('[data-slot="review-heading"]')
     ).toHaveFocus()
@@ -790,20 +869,8 @@ describe("InboxView — publish pulse, then advance", () => {
     // pane. Neither should churn as the tree re-renders.
     const mounted = subscriptions()
     expect(mounted).toBeGreaterThan(0)
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
+    view.rerender(inboxUi())
+    view.rerender(inboxUi())
     expect(subscriptions()).toBe(mounted)
     expect(unsubscriptions()).toBe(0)
   })
@@ -861,27 +928,32 @@ describe("InboxView — list and detail", () => {
     ).toBeInTheDocument()
   })
 
-  it("puts focus on Back to Inbox when a review opens below lg", () => {
+  it("puts focus on the app bar's Back to Inbox when a review opens below lg", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
     currentParams = new URLSearchParams("rating=4")
     const view = renderInbox()
     currentParams = new URLSearchParams("rating=4&selected=rev-1")
-    view.rerender(
-      <QueryProvider>
-        <Toaster>
-          <InboxView />
-        </Toaster>
-      </QueryProvider>
-    )
-    expect(screen.getByRole("button", { name: "Back to Inbox" })).toHaveFocus()
+    view.rerender(inboxUi())
+    // One back control: the app bar's link (it arrives a render after the
+    // review opens), not a second button in the review head.
+    const link = await screen.findByRole("link", { name: "Back to Inbox" })
+    expect(
+      screen.queryByRole("button", { name: "Back to Inbox" })
+    ).not.toBeInTheDocument()
+    await waitFor(() => expect(link).toHaveFocus())
+    // The head keeps the title, the position and the steps.
+    const head = view.container.querySelector('[data-slot="review-head"]')
+    expect(head).not.toBeNull()
+    expect(
+      within(head as HTMLElement).getByRole("button", { name: "Next review" })
+    ).toBeInTheDocument()
   })
 
-  it("leaves focus alone on a page that arrives already on a review", () => {
+  it("leaves focus alone on a page that arrives already on a review", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }))
     renderInbox()
-    expect(
-      screen.getByRole("button", { name: "Back to Inbox" })
-    ).not.toHaveFocus()
+    const link = await screen.findByRole("link", { name: "Back to Inbox" })
+    expect(link).not.toHaveFocus()
   })
 
   it("leaves focus alone when a review opens beside the list", () => {

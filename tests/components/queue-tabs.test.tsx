@@ -195,11 +195,11 @@ describe("QueueTabs", () => {
       "The list below also applies your filters, so it can show fewer."
     )
   })
-  it("keeps every count at the caption size, never a sub-13px figure", () => {
+  it("sets every count in the count role, never a sub-13px figure", () => {
     renderTabs()
     for (const queue of VISIBLE_QUEUES) {
       const figure = tab(queue).querySelector("[aria-hidden]")
-      expect(figure).toHaveClass("text-caption")
+      expect(figure).toHaveClass("text-count")
       expect(figure?.className).not.toMatch(/text-\[/)
     }
   })

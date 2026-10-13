@@ -119,7 +119,9 @@ function Input({
 
 /**
  * The search field. The wrapper is the control — `className` sizes
- * it — and the native `<input>` inside is transparent. Clearing goes through
+ * it — and the native `<input>` inside is transparent. The whole wrapper is
+ * the tap target: a press on its border, padding or icon focuses the input
+ * (the input alone is 2px short of the 44px field). Clearing goes through
  * the native value setter plus an `input` event so a controlled `onChange`
  * sees it exactly like typing, and focus returns to the field.
  */
@@ -169,6 +171,14 @@ function SearchInput({
     <div
       data-slot="input-search"
       data-disabled={disabled ? "" : undefined}
+      onMouseDown={(event) => {
+        // Not on the input itself or the clear button: keep the input's
+        // focus (no blur and re-focus) and move it there.
+        if ((event.target as Element).closest("input, button")) return
+        if (disabled) return
+        event.preventDefault()
+        inputRef.current?.focus()
+      }}
       className={cn(
         "group/search relative flex h-(--np-field-h) w-full min-w-0 items-center gap-2 rounded-(--np-radius-field) border border-line-strong bg-(--np-field-bg) pr-1 pl-[11px] text-body text-ink",
         "transition-[border-color,box-shadow] duration-(--np-duration-fast) ease-spring-snappy hover:border-ink-muted",

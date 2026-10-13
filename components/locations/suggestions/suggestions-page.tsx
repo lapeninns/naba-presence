@@ -8,7 +8,7 @@ import { LocationTab } from "@/components/locations/location-tab"
 import { SuggestionList } from "@/components/locations/suggestions/suggestion-list"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, cardClassName } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToastManager } from "@/components/ui/toast"
@@ -55,7 +55,7 @@ function SuggestionsSkeleton() {
       {[0, 1].map((index) => (
         <div
           key={index}
-          className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4"
+          className={cardClassName({ className: "flex flex-col gap-2.5 p-4" })}
         >
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="h-16 w-full" />
@@ -216,7 +216,9 @@ function SuggestionsView({
       {gate}
       <div
         data-slot="suggestions-summary"
-        className="flex flex-wrap items-center gap-3 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3"
+        className={cardClassName({
+          className: "flex flex-wrap items-center gap-3 px-4 py-3",
+        })}
       >
         <p className="min-w-0 grow basis-48 text-ui text-ink">
           <span className="mr-2 align-middle font-mono text-section font-semibold tabular-nums">

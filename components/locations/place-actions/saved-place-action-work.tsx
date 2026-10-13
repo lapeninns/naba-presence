@@ -14,6 +14,7 @@ import { reviewedPlaceActionPayloadSchema } from "@/lib/contracts/place-action-r
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 import type { usePlaceActionReview } from "./use-place-action-review"
 import { PlaceActionApprovalSheet } from "./place-action-approval-sheet"
+import { cardClassName } from "@/components/ui/card"
 /**
  * What a saved request does, in the customer's words: "Add Shop online link"
  * plus the link it concerns. Never the raw Google resource name.
@@ -107,7 +108,9 @@ export function SavedPlaceActionWork({
         items.map((item) => (
           <div
             key={item.changeSet.id}
-            className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3"
+            className={cardClassName({
+              className: "flex min-w-0 flex-col gap-2 p-3",
+            })}
           >
             <SavedPlaceActionLabel changeSet={item.changeSet} />
             <p className="text-caption text-ink-muted">

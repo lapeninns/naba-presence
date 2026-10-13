@@ -266,7 +266,7 @@ describe("MembersTable", () => {
     expect(within(row).getByRole("alert")).toBe(alert)
   })
 
-  it("stacks access and publishing across the row on a phone so the Joined date can't collide", () => {
+  it("lays a member out as a record card with the menu in the title line, not pinned over it", () => {
     renderTable("owner", "owner-1", [
       member({
         userId: "owner-1",
@@ -279,12 +279,23 @@ describe("MembersTable", () => {
     const row = screen.getByText("Ana Owner").closest("tr")!
     const cell = (label: string) =>
       row.querySelector(`td[data-label="${label}"]`)!
-    // Full-width cells in the labelled-row grid (components/ui/table.tsx).
+    // Title line: the member, the role badge, then the menu
+    // (components/ui/table.tsx record-card priorities).
+    expect(cell("Member")).toHaveAttribute("data-priority", "primary")
+    expect(cell("Role")).toHaveAttribute("data-priority", "trailing")
+    expect(cell("Joined")).toHaveAttribute("data-priority", "meta")
+    const actions = within(row)
+      .getByRole("button", { name: "Actions for Ana Owner" })
+      .closest("td")!
+    expect(actions).toHaveAttribute("data-priority", "actions")
+    // In the flow of the title line: no hand-pinned corner position.
+    expect(actions.className).not.toMatch(/absolute/)
+    expect(row.className).not.toMatch(/relative/)
+    // Access and publishing each take the card's whole width.
     expect(cell("Client access")).toHaveAttribute("data-span")
     expect(cell("Publishing")).toHaveAttribute("data-span")
-    // Role and Joined share the two-column row; neither is full width.
-    expect(cell("Role")).not.toHaveAttribute("data-span")
-    expect(cell("Joined")).not.toHaveAttribute("data-span")
+    expect(cell("Client access")).not.toHaveAttribute("data-priority")
+    expect(cell("Publishing")).not.toHaveAttribute("data-priority")
   })
 
   it("shows a load failure with Try again", async () => {

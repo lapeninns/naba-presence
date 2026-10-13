@@ -12,11 +12,14 @@ import { cn } from "@/lib/utils"
  * 44px box would shout in a dense list — but a transparent pseudo-element
  * centred on it reaches `--np-touch` (44px) on a phone and steps back to the
  * 24px minimum at the desk, where a mouse is precise and a 44px halo would
- * swallow clicks meant for the neighbouring cell.
+ * swallow clicks meant for the neighbouring cell. The insets are a
+ * percentage of the box, which resolves against its padding box, so the
+ * 1.5px border (5px on a checked radio) can't shave the halo: measured from
+ * --np-selection-box it came out 41px on touch and 21px at the desk.
  */
 export const selectionHitAreaClassName = cn(
-  "after:absolute after:inset-[calc((var(--np-selection-box)-var(--np-touch))/2)] after:content-['']",
-  "desk:after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)]"
+  "after:absolute after:inset-[calc((100%-var(--np-touch))/2)] after:content-['']",
+  "desk:after:inset-[calc((100%-var(--np-touch-min))/2)]"
 )
 
 /**
@@ -71,7 +74,7 @@ function Checkbox({
         "relative flex size-(--np-selection-box) shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-(--np-field-bg) text-primary-foreground focus-halo",
         "transition-[background-color,border-color] duration-(--np-duration-fast) ease-spring-snappy",
         hasLabel
-          ? "after:absolute after:inset-[calc((var(--np-selection-box)-var(--np-touch-min))/2)] after:content-['']"
+          ? "after:absolute after:inset-[calc((100%-var(--np-touch-min))/2)] after:content-['']"
           : selectionHitAreaClassName,
         "data-indeterminate:border-primary data-indeterminate:bg-primary data-checked:border-primary data-checked:bg-primary",
         "data-disabled:cursor-not-allowed data-disabled:opacity-50",

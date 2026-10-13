@@ -23,6 +23,13 @@ describe("EditorFooter", () => {
     const bar = screen.getByRole("region", { name: "Editor actions" })
     expect(bar).not.toHaveAttribute("data-docked")
     expect(bar.className).toMatch(/max-md:hidden/)
+    // No dock spacer either: a clean editor reserves no room for a bar.
+    expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
+    // The desk keeps the clean bar, its actions present but disabled.
+    expect(screen.getByRole("button", { name: "Discard" })).toBeDisabled()
+    expect(
+      screen.getByRole("button", { name: "Review changes" })
+    ).toBeDisabled()
   })
 
   it("docks to the bottom edge with the first change, with labelled buttons", () => {
@@ -31,13 +38,16 @@ describe("EditorFooter", () => {
     expect(bar).toHaveAttribute("data-docked", "bottom")
     expect(bar.className).toMatch(/max-md:fixed/)
     expect(bar.className).not.toMatch(/max-md:hidden/)
+    // The ActionBar's dock: an in-flow spacer keeps the last field
+    // reachable above the fixed bar.
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
     expect(screen.getByRole("button", { name: "Discard" })).toHaveTextContent(
       "Discard"
     )
     expect(screen.getByRole("button", { name: "Save here" })).toBeEnabled()
-    expect(
-      screen.getByRole("button", { name: "Review changes" })
-    ).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Review changes" })).toBeEnabled()
   })
 
   it("keeps a conflict on screen even without local edits", () => {

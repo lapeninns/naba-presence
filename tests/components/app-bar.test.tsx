@@ -217,6 +217,88 @@ describe("PageChrome overrides", () => {
     ).toBeInTheDocument()
   })
 
+  it("runs the page's own back on a plain activation, and stays a link", async () => {
+    // The Inbox's pushed review: "‹ Inbox" pops the entry it pushed and
+    // refocuses the row, rather than pushing the list on top.
+    pathname.current = "/inbox"
+    const onBack = vi.fn()
+    const { within: bar } = renderBar({
+      page: (
+        <PageChrome
+          back={{ href: "/inbox?queue=all", label: "Inbox" }}
+          onBack={onBack}
+        />
+      ),
+    })
+    const link = await bar.findByRole("link", { name: "Back to Inbox" })
+    expect(link).toHaveAttribute("href", "/inbox?queue=all")
+    await userEvent.click(link)
+    expect(onBack).toHaveBeenCalledOnce()
+    link.focus()
+    await userEvent.keyboard("{Enter}")
+    expect(onBack).toHaveBeenCalledTimes(2)
+  })
+
+  it("leaves a modified click to the browser", async () => {
+    // Cmd/Ctrl-click opens the list in a new tab; the page stays put.
+    pathname.current = "/inbox"
+    const onBack = vi.fn()
+    const { within: bar } = renderBar({
+      page: (
+        <PageChrome
+          back={{ href: "/inbox?queue=all", label: "Inbox" }}
+          onBack={onBack}
+        />
+      ),
+    })
+    const link = await bar.findByRole("link", { name: "Back to Inbox" })
+    const click = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      metaKey: true,
+    })
+    link.dispatchEvent(click)
+    expect(onBack).not.toHaveBeenCalled()
+  })
+
+  it("calls the latest handler without re-registering the override", async () => {
+    pathname.current = "/inbox"
+    const first = vi.fn()
+    const second = vi.fn()
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    })
+    queryClient.setQueryData(queryKeys.session, {
+      session: { role: "owner", workspaceMode: "agency" },
+    })
+    const ui = (onBack: () => void) => (
+      <QueryClientProvider client={queryClient}>
+        <ClientScopeRoot rememberedClientId={null}>
+          <PageChromeProvider>
+            <AppBar
+              mode="agency"
+              organisationName="Lapen Inns Agency"
+              sessionReady
+              onOpenPalette={vi.fn()}
+              onOpenClientScope={vi.fn()}
+            />
+            <PageChrome
+              back={{ href: "/inbox?queue=all", label: "Inbox" }}
+              onBack={onBack}
+            />
+          </PageChromeProvider>
+        </ClientScopeRoot>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(ui(first))
+    rerender(ui(second))
+    await userEvent.click(
+      await screen.findByRole("link", { name: "Back to Inbox" })
+    )
+    expect(first).not.toHaveBeenCalled()
+    expect(second).toHaveBeenCalledOnce()
+  })
+
   it("removes the back control with back={null}", async () => {
     pathname.current = "/listings/l1"
     const { within: bar } = renderBar({ page: <PageChrome back={null} /> })

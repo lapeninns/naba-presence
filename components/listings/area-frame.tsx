@@ -105,14 +105,14 @@ export type ListingHeaderLink = {
   external?: boolean
 }
 
-/** The count after a nav item's label, with its noun for assistive tech. */
+/**
+ * The count after a nav item's label, with its noun for assistive tech. A
+ * `count` badge: the figure is set in the count type role.
+ */
 function NavCount({ item }: { item: ListingAreaNavItem }) {
   if (item.count <= 0) return null
   return (
-    <Badge
-      variant={item.key === "changes" ? "secondary" : "warning"}
-      className="font-mono"
-    >
+    <Badge variant={item.key === "changes" ? "secondary" : "warning"} count>
       <span aria-hidden>{formatNumber(item.count)}</span>
       <span className="sr-only">
         , {formatNumber(item.count)} {item.countNoun}
@@ -123,31 +123,15 @@ function NavCount({ item }: { item: ListingAreaNavItem }) {
 
 /**
  * The desk's area tabs: the shared item list as a scrolling tab row, Review
- * & publish last. An area this listing can't use is drawn muted with its
- * reason (TabNav's `unavailableReason`) and still opens, to look.
+ * & publish last. TabNav owns the strip: the edge fades, and scrolling the
+ * current tab into view (along the row only) on mount and on every route
+ * change. An area this listing can't use is drawn muted with its reason
+ * (TabNav's `unavailableReason`) and is NOT `disabled`: it still opens, to
+ * look, exactly as the phone's area list does (listings-content-07).
  */
 function ListingAreaTabs({ items }: { items: ListingAreaNavItem[] }) {
-  const navRef = React.useRef<HTMLElement>(null)
-  const current = items.find((item) => item.current)?.key
-
-  React.useEffect(() => {
-    const nav = navRef.current
-    const row = nav?.querySelector("ul")
-    const link = nav?.querySelector<HTMLElement>('[aria-current="page"]')
-    if (!row || !link) return
-    const visible =
-      link.offsetLeft >= row.scrollLeft &&
-      link.offsetLeft + link.offsetWidth <= row.scrollLeft + row.clientWidth
-    if (visible) return
-    // Centre the current tab inside its own row. Not scrollIntoView: that
-    // would also scroll the page vertically.
-    const left = link.offsetLeft - (row.clientWidth - link.offsetWidth) / 2
-    row.scrollLeft = Math.max(0, left)
-  }, [current])
-
   return (
     <TabNav
-      ref={navRef}
       aria-label="Listing areas"
       items={items.map((item) => ({
         href: item.href,

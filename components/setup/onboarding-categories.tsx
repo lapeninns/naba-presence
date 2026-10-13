@@ -221,8 +221,12 @@ export function OnboardingCategories({
                       })
                     }
                   >
-                    Set primary
-                    <span className="sr-only">: {category.displayName}</span>
+                    {/* One text run for the name: an sr-only sibling is
+                        block-level and would put a space before the colon. */}
+                    <span aria-hidden="true">Set primary</span>
+                    <span className="sr-only">
+                      Set primary: {category.displayName}
+                    </span>
                   </Button>
                   <Button
                     size="sm"
@@ -244,8 +248,12 @@ export function OnboardingCategories({
                         })
                     }}
                   >
-                    Add category
-                    <span className="sr-only">: {category.displayName}</span>
+                    {/* One text run for the name: an sr-only sibling is
+                        block-level and would put a space before the colon. */}
+                    <span aria-hidden="true">Add category</span>
+                    <span className="sr-only">
+                      Add category: {category.displayName}
+                    </span>
                   </Button>
                 </div>
               </li>

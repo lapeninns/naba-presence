@@ -74,7 +74,7 @@ describe("WorkspaceModeCard", () => {
       ).find((button) => dialog.contains(button))!
     )
     await waitFor(() => expect(spy).toHaveBeenCalledWith("agency"))
-    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("/settings"))
+    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("/settings/policy"))
   })
 
   it("explains a refused switch to business and stays put", async () => {
@@ -148,7 +148,7 @@ describe("WorkspaceModeCard", () => {
         confirmReportShares: true,
       })
     )
-    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("/settings"))
+    await waitFor(() => expect(hardNavigate).toHaveBeenCalledWith("/settings/policy"))
   })
 
   it("renders nothing until the session has loaded", () => {

@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton"
+import { cardClassName } from "@/components/ui/card"
 
 /**
  * The shape of Team while it loads: the title with its Invite action, the
@@ -30,7 +31,11 @@ export default function TeamLoading() {
             <Skeleton className={`h-5 ${section.heading} rounded-sm`} />
             <Skeleton className="h-3.5 w-64 max-w-full rounded-sm" />
           </div>
-          <div className="flex flex-col divide-y divide-line rounded-(--np-radius-card) border border-line bg-surface">
+          <div
+            className={cardClassName({
+              className: "flex flex-col divide-y divide-line",
+            })}
+          >
             {Array.from({ length: section.rows }, (_, row) => (
               <div key={row} className="flex items-center gap-3 px-4 py-3">
                 <Skeleton className="size-7 shrink-0 rounded-full" />

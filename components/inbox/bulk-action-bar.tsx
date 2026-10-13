@@ -21,6 +21,7 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { ActionBar } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -257,152 +258,162 @@ function BulkActionBar({
     )
 
   return (
-    <div
-      role="region"
-      aria-label="Selected reviews"
-      data-slot="bulk-action-bar"
-      // The one bar that owns the bottom edge while rows are ticked: the
-      // chrome contract (globals.css) steps the tab bar aside for it on a
-      // phone, and `pb-dock` keeps it clear of the home indicator. The
-      // attribute is only on the page while the bar is.
-      data-docked="bottom"
-      className="sticky bottom-0 z-chrome flex shrink-0 flex-col on-charcoal pb-dock md:rounded-b-(--np-radius-card) [&_:focus-visible]:outline-ink-on-charcoal"
-    >
-      {/* Results and notes sit above the row, so the row itself stays one
+    <>
+      {/* The shared ActionBar, docked: the one bar that owns the bottom edge
+          while rows are ticked. On a phone it is fixed to the bottom of the
+          screen (the chrome contract in globals.css steps the tab bar aside for
+          it, and it rides the keyboard); from md it sticks to the foot of the
+          list. Only on the page while something is ticked (the early return
+          above). The bar's own padding is dropped for this one's two stacked
+          parts, notes over a single row; the dock edge stays under them. */}
+      <ActionBar
+        data-slot="bulk-action-bar"
+        label="Selected reviews"
+        dock
+        safeArea={false}
+        className="shrink-0 flex-col flex-nowrap items-stretch gap-0 rounded-none p-0 pb-[var(--np-dock-bottom)] shadow-none max-md:p-0 max-md:pb-[var(--np-dock-bottom)] md:rounded-b-(--np-radius-card)"
+      >
+        {/* Results and notes sit above the row, so the row itself stays one
           line (64px at most) and the buttons never move under a thumb. */}
-      {partial || outcome?.operationId || failures.length > 0 ? (
-        <div className="flex flex-col gap-1 px-3 pt-2.5">
-          {partial ? (
-            <p className="text-caption text-ink-muted-on-charcoal">
-              {chosen.length - approvable.length} of these are not ready for
-              your approval, so Approve will skip them.
-            </p>
-          ) : null}
+        {partial || outcome?.operationId || failures.length > 0 ? (
+          <div className="flex flex-col gap-1 px-3 pt-2.5">
+            {partial ? (
+              <p className="text-caption text-ink-muted-on-charcoal">
+                {chosen.length - approvable.length} of these are not ready for
+                your approval, so Approve will skip them.
+              </p>
+            ) : null}
 
-          {outcome?.operationId ? (
-            <p className="text-caption text-ink-on-charcoal" aria-live="polite">
-              The approved replies are sent in the background.{" "}
-              <Link
-                href={`/listings/bulk/${outcome.operationId}`}
-                className="font-semibold underline underline-offset-2"
+            {outcome?.operationId ? (
+              <p
+                className="text-caption text-ink-on-charcoal"
+                aria-live="polite"
               >
-                Follow this batch
-              </Link>
-            </p>
-          ) : null}
-
-          {failures.length > 0 ? (
-            <ul
-              className="flex max-h-32 flex-col gap-1 overflow-y-auto"
-              aria-live="polite"
-            >
-              {failures.map((row) => (
-                <li
-                  key={row.reviewId}
-                  className="flex flex-wrap items-baseline gap-x-2 text-caption text-ink-on-charcoal"
+                The approved replies are sent in the background.{" "}
+                <Link
+                  href={`/listings/bulk/${outcome.operationId}`}
+                  className="font-semibold underline underline-offset-2"
                 >
-                  <span className="font-semibold">
-                    {BULK_ROW_STATUS_LABEL[row.status]}
-                  </span>
-                  <span className="min-w-0 truncate">
-                    {describeRow(row.reviewId)}
-                  </span>
-                  <span className="text-ink-muted-on-charcoal">
-                    {row.code
-                      ? describeErrorCode(row.code)
-                      : "No reason given."}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
+                  Follow this batch
+                </Link>
+              </p>
+            ) : null}
 
-      <div className="flex items-center gap-2 px-3 py-2.5">
-        <strong className="min-w-0 flex-1 truncate text-ui font-semibold text-ink-on-charcoal tabular-nums">
-          {chosen.length} selected
-        </strong>
+            {failures.length > 0 ? (
+              <ul
+                className="flex max-h-32 flex-col gap-1 overflow-y-auto"
+                aria-live="polite"
+              >
+                {failures.map((row) => (
+                  <li
+                    key={row.reviewId}
+                    className="flex flex-wrap items-baseline gap-x-2 text-caption text-ink-on-charcoal"
+                  >
+                    <span className="font-semibold">
+                      {BULK_ROW_STATUS_LABEL[row.status]}
+                    </span>
+                    <span className="min-w-0 truncate">
+                      {describeRow(row.reviewId)}
+                    </span>
+                    <span className="text-ink-muted-on-charcoal">
+                      {row.code
+                        ? describeErrorCode(row.code)
+                        : "No reason given."}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
-        <Button
-          size="icon"
-          variant="ghost-dark"
-          aria-label="Clear selection"
-          // Desk only: on touch the row keeps to count, ⋯ and one primary,
-          // and Clear is an overflow item.
-          className="hidden desk:inline-flex"
-          onClick={clear}
-        >
-          <X aria-hidden />
-        </Button>
+        <div className="flex items-center gap-2 px-3 py-2.5">
+          <strong className="min-w-0 flex-1 truncate text-ui font-semibold text-ink-on-charcoal tabular-nums">
+            {chosen.length} selected
+          </strong>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                size="icon"
-                variant="ghost-dark"
-                aria-label="More actions"
-                disabled={bulk.isPending}
-              />
-            }
+          <Button
+            size="icon"
+            variant="ghost-dark"
+            aria-label="Clear selection"
+            // Desk only: on touch the row keeps to count, ⋯ and one primary,
+            // and Clear is an overflow item.
+            className="hidden desk:inline-flex"
+            onClick={clear}
           >
-            <Ellipsis aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="top"
-            align="end"
-            title={`${chosen.length} selected`}
-          >
-            {menuIsSheet ? null : (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <UserPlus aria-hidden />
-                  Assign…
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>{assigneeItems}</DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {/* Triage, not a reply: it clears the reviews from Needs reply
+            <X aria-hidden />
+          </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="ghost-dark"
+                  aria-label="More actions"
+                  disabled={bulk.isPending}
+                />
+              }
+            >
+              <Ellipsis aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              title={`${chosen.length} selected`}
+            >
+              {menuIsSheet ? null : (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <UserPlus aria-hidden />
+                    Assign…
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {assigneeItems}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              {/* Triage, not a reply: it clears the reviews from Needs reply
                 and sends nothing to Google. "Mark reviewed" read as though it
                 might do either. Confirmed, because there is no way back. */}
-            {primary !== "mark_reviewed" ? (
-              <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
-                <CircleSlash aria-hidden />
-                No reply needed
-              </DropdownMenuItem>
-            ) : null}
-            {/* Stars with no words: one standard reply each, checked and then
+              {primary !== "mark_reviewed" ? (
+                <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
+                  <CircleSlash aria-hidden />
+                  No reply needed
+                </DropdownMenuItem>
+              ) : null}
+              {/* Stars with no words: one standard reply each, checked and then
                 published (or submitted) as a batch. Offered only when the
                 selection has some. */}
-            {ratingOnly && primary !== "template" ? (
-              <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
-                <MessageSquareText aria-hidden />
-                Reply with template
+              {ratingOnly && primary !== "template" ? (
+                <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
+                  <MessageSquareText aria-hidden />
+                  Reply with template
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem className="desk:hidden" onClick={clear}>
+                <X aria-hidden />
+                Clear selection
               </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem className="desk:hidden" onClick={clear}>
-              <X aria-hidden />
-              Clear selection
-            </DropdownMenuItem>
-            {/* The people come last in the sheet: a long team would
+              {/* The people come last in the sheet: a long team would
                 otherwise push the actions out of reach. */}
-            {menuIsSheet ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Assign to</DropdownMenuLabel>
-                  {assigneeItems}
-                </DropdownMenuGroup>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {menuIsSheet ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                    {assigneeItems}
+                  </DropdownMenuGroup>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        {/* Approving publishes: each approved reply goes to Google at once.
+          {/* Approving publishes: each approved reply goes to Google at once.
             A batch of that is confirmed, like every other publish. */}
-        {primaryButton}
-      </div>
+          {primaryButton}
+        </div>
+      </ActionBar>
 
       <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
         <AlertDialogContent
@@ -466,7 +477,7 @@ function BulkActionBar({
         </AlertDialogContent>
       </AlertDialog>
       {templateDialog}
-    </div>
+    </>
   )
 }
 

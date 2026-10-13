@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react"
+import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
@@ -118,6 +118,58 @@ describe("ActionBar", () => {
     ).toContain("var(--np-actionbar-h)+var(--np-dock-bottom)")
   })
 
+  it("publishes a docked bar's measured height for the spacer and scroll padding", () => {
+    // A bar that wraps to two rows (the editor footer, a blocked setup
+    // step) is taller than --np-actionbar-h: the spacer, the document's
+    // scroll padding and the toast edge read the measured height instead.
+    const root = document.documentElement
+    let height = 64
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        return {
+          top: 0,
+          left: 0,
+          right: 390,
+          bottom: height,
+          width: 390,
+          height,
+        } as DOMRect
+      })
+    const styles = vi
+      .spyOn(window, "getComputedStyle")
+      .mockImplementation(() => ({ position: "fixed" }) as CSSStyleDeclaration)
+    let onResize = () => {}
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          onResize = callback
+        }
+        observe() {}
+        disconnect() {}
+      }
+    )
+    try {
+      const { container, unmount } = render(
+        <ActionBar dock status="1 change" primary={<Button>Save</Button>} />
+      )
+      expect(root.style.getPropertyValue("--np-dock-bar-h")).toBe("64px")
+      expect(
+        container.querySelector('[data-slot="action-bar-spacer"]')?.className
+      ).toContain("var(--np-dock-bar-h,")
+      height = 116
+      act(() => onResize())
+      expect(root.style.getPropertyValue("--np-dock-bar-h")).toBe("116px")
+      unmount()
+      expect(root.style.getPropertyValue("--np-dock-bar-h")).toBe("")
+    } finally {
+      spy.mockRestore()
+      styles.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("leaves no node at all while not visible", () => {
     const { container, rerender } = render(
       <ActionBar dock visible={false} primary={<Button>Save</Button>} />
@@ -232,7 +284,12 @@ describe("TabNav", () => {
         aria-label="Listing areas"
         items={[
           { href: "/listings/a", label: "Overview" },
-          { href: "/listings/a/menu", label: "Menu", current: true, disabled: true },
+          {
+            href: "/listings/a/menu",
+            label: "Menu",
+            current: true,
+            disabled: true,
+          },
         ]}
       />
     )
@@ -307,6 +364,79 @@ describe("TabNav", () => {
     }
   })
 
+  it("brings the current tab back into view when the row resizes after mount", () => {
+    // A late font, a count arriving or the shell settling can narrow the row
+    // after mount; the current tab that fitted must be revealed again.
+    let rowWidth = 600
+    const rect = (left: number, width: number) =>
+      ({
+        left,
+        width,
+        right: left + width,
+        top: 0,
+        bottom: 44,
+        height: 44,
+      }) as DOMRect
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.tagName === "UL") return rect(0, rowWidth)
+        const index = Number(this.closest("li")?.dataset.index ?? 0)
+        const scrolled = this.closest("ul")?.scrollLeft ?? 0
+        return rect(index * 150 - scrolled, 140)
+      })
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        return this.tagName === "UL" ? rowWidth : 140
+      },
+    })
+    Object.defineProperty(HTMLElement.prototype, "scrollWidth", {
+      configurable: true,
+      get() {
+        return this.tagName === "UL" ? 600 : 140
+      },
+    })
+    const observed: Element[] = []
+    let onResize = () => {}
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          onResize = callback
+        }
+        observe(target: Element) {
+          observed.push(target)
+        }
+        disconnect() {}
+      }
+    )
+    try {
+      const at = (href: string) =>
+        items.map((item) => ({ ...item, current: item.href === href }))
+      const { container, rerender } = render(
+        <TabNav aria-label="Sections" items={at("/settings")} />
+      )
+      container
+        .querySelectorAll("li")
+        .forEach((li, index) => (li.dataset.index = String(index)))
+      // Billing (450-590) fits the 600px row: nothing scrolls.
+      rerender(<TabNav aria-label="Sections" items={at("/settings/billing")} />)
+      const row = container.querySelector("ul") as HTMLUListElement
+      expect(row.scrollLeft).toBe(0)
+      expect(observed).toContain(row)
+      // The row narrows to 300px: Billing is out of view until revealed.
+      rowWidth = 300
+      act(() => onResize())
+      expect(row.scrollLeft).toBe(300)
+    } finally {
+      spy.mockRestore()
+      vi.unstubAllGlobals()
+      delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth
+      delete (HTMLElement.prototype as { scrollWidth?: number }).scrollWidth
+    }
+  })
+
   it("shows a short label on a phone without changing the accessible name", () => {
     render(
       <TabNav
@@ -353,7 +483,7 @@ describe("Toast", () => {
     expect(viewport.className).not.toMatch(/(^|\s)top-/)
     expect(viewport.className).toContain("z-toast")
     expect(viewport.className).toContain(
-      "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:calc(var(--np-actionbar-h)+var(--np-dock-bottom))]"
+      "max-md:[body:has([data-docked=bottom])_&]:[--toast-edge:var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))]"
     )
     expect(viewport.className).toContain("data-slot=tab-bar")
   })

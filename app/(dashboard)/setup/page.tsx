@@ -20,6 +20,7 @@ import { clientVisibilityPredicate } from "@/lib/server/permissions"
 import { businessHomeClientId } from "@/lib/server/clients"
 import { getSession } from "@/lib/server/session"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 export const metadata = { title: "Setup · NabaPresence" }
 
@@ -150,7 +151,7 @@ export default async function SetupPage({
       />
       <section
         aria-labelledby="setup-waiting"
-        className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+        className={cardClassName({ className: "overflow-hidden" })}
       >
         <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
           <h2 id="setup-waiting" className="text-title font-semibold text-ink">
@@ -201,7 +202,7 @@ export default async function SetupPage({
       {established.length > 0 ? (
         <section
           aria-labelledby="setup-add-listings"
-          className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+          className={cardClassName({ className: "overflow-hidden" })}
         >
           <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
             <h2
@@ -246,7 +247,10 @@ export default async function SetupPage({
       ) : null}
       <section
         aria-labelledby="setup-start-new"
-        className="flex flex-wrap items-center justify-between gap-4 rounded-(--np-radius-card) border border-line bg-surface p-(--np-card-pad)"
+        className={cardClassName({
+          pad: true,
+          className: "flex flex-wrap items-center justify-between gap-4",
+        })}
       >
         <div className="flex min-w-0 flex-[1_1_18rem] flex-col gap-1">
           <h2

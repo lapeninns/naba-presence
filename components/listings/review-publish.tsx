@@ -31,7 +31,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
 import {
@@ -348,7 +348,7 @@ function AreaSection({
       aria-labelledby={headingId}
       data-slot="review-area"
       data-area={area}
-      className="flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+      className={cardClassName({ className: "flex flex-col overflow-hidden" })}
     >
       <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -534,7 +534,7 @@ function ReviewSkeleton() {
       {[0, 1].map((index) => (
         <div
           key={index}
-          className="flex flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4"
+          className={cardClassName({ className: "flex flex-col gap-3 p-4" })}
         >
           <Skeleton className="h-4.5 w-1/3" />
           <Skeleton className="h-3.5 w-3/5" />

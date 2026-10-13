@@ -5,6 +5,7 @@ import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { lodgingEditorCoverage } from "@/lib/locations/forms/lodging-catalogue"
 import { acceptLodgingSuggestion, lodgingSuggestions } from "@/lib/locations/forms/lodging-suggestions"
 import { LodgingFieldControl } from "./lodging-field-control"
+import { cardClassName } from "@/components/ui/card"
 
 const coverage = lodgingEditorCoverage()
 export function LodgingSuggestions({ value, response, error, disabled, onChange }: {
@@ -20,7 +21,7 @@ export function LodgingSuggestions({ value, response, error, disabled, onChange 
     {suggestions.rows.map((row) => {
       const node = coverage.get(row.path)
       if (!node) return null
-      return <div key={row.path} className="flex min-w-0 flex-col gap-3 rounded-(--np-radius-card) border border-line bg-surface p-4">
+      return <div key={row.path} className={cardClassName({ className: "flex min-w-0 flex-col gap-3 p-4" })}>
         <h5 className="text-ui font-semibold text-ink">{row.label}</h5>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           <Fieldset className="gap-2"><FieldsetLegend variant="muted">Current draft</FieldsetLegend><LodgingFieldControl node={node} value={row.current} original={row.current} disabled errors={{}} onChange={() => undefined} /></Fieldset>

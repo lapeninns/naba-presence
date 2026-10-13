@@ -29,10 +29,27 @@ const SURFACE_LABEL: Record<string, string> = {
 const FOOTER =
   "You receive this because of your NabaPresence notification settings. Change them in Settings, Notifications."
 
+/**
+ * Where an email sends someone to see their AI reply credits. With billing
+ * on they are on the shared Usage screen (/settings/usage); with it off that
+ * page is not served and the credits card sits on Reply policy
+ * (/settings/policy). Never bare /settings: on a phone that is the settings
+ * index, not the credits.
+ */
+export function usageSettingsPath(billingEnabled: boolean): string {
+  return billingEnabled ? "/settings/usage" : "/settings/policy"
+}
+
+export type IncidentEmailOptions = {
+  /** The deployment's BILLING_ENABLED, which decides where Usage lives. */
+  billingEnabled?: boolean
+}
+
 export function renderIncidentEmail(
   kind: IncidentKind,
   summary: Record<string, unknown>,
-  appUrl: string
+  appUrl: string,
+  { billingEnabled = false }: IncidentEmailOptions = {}
 ): { subject: string; text: string } {
   const link = (path: string) => new URL(path, appUrl).toString()
   switch (kind) {
@@ -110,7 +127,7 @@ export function renderIncidentEmail(
             ? `${used} of ${allowance} AI reply credits have been used this ${period}.`
             : `80% of this ${period}'s AI reply credits have been used.`,
           `Credits reset on ${resets}. You can always write a reply yourself.`,
-          `Usage: ${link("/settings")}`,
+          `Usage: ${link(usageSettingsPath(billingEnabled))}`,
           "",
           FOOTER,
         ].join("\n"),
@@ -124,7 +141,7 @@ export function renderIncidentEmail(
         text: [
           `All of this ${period}'s AI reply credits have been used. Credits reset on ${resets}.`,
           "Until then the Generate button is off, but you can still write and publish replies yourself.",
-          `Usage: ${link("/settings")}`,
+          `Usage: ${link(usageSettingsPath(billingEnabled))}`,
           "",
           FOOTER,
         ].join("\n"),

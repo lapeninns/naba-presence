@@ -322,12 +322,12 @@ export function LegalHoldsPanel({ gating }: { gating: PrivacyGating }) {
                         </span>
                       </span>
                     </TableCell>
-                    <TableCell data-actions="" className="text-right">
+                    <TableCell actions className="text-right">
                       {active && gating.canManagePrivacy ? (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full @min-[720px]/table:w-auto"
+                          className="w-full @3xl/table:w-auto"
                           disabled={release.isPending}
                           aria-label={`Release hold on review ${hold.reviewId}`}
                           onClick={() => setReleaseTarget(hold)}

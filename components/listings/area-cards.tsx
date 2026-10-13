@@ -4,6 +4,7 @@ import { EyeIcon, PencilIcon } from "lucide-react"
 
 import { ShellLink } from "@/components/app-shell/shell-link"
 import { buttonVariants } from "@/components/ui/button"
+import { Card, cardClassName, cardLinkClassName } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill } from "@/components/ui/status-pill"
 import type { ListingSummary } from "@/lib/contracts/location-summary"
@@ -25,7 +26,7 @@ const GRID =
 
 function AreaCardSkeleton() {
   return (
-    <div className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-4">
+    <div className={cardClassName({ className: "flex flex-col gap-2.5 p-4" })}>
       <Skeleton className="h-4 w-2/5" />
       <Skeleton className="h-3.5 w-4/5" />
       <Skeleton className="ml-auto h-8 w-20" />
@@ -39,9 +40,10 @@ function AreaCardSkeleton() {
  * at the foot. A blocked area is drawn sunken and says why instead of
  * offering the way in.
  *
- * The way in is the card's one link, and its hit area is the whole card
- * (a stretched `::after`), so a thumb can tap anywhere on it; its name keeps
- * the verb ("Check Opening hours").
+ * An interactive `Card` (listings-content-18): the way in is the card's
+ * `CardLink`, drawn as the small verb button, and its hit area is the whole
+ * card, so a thumb can tap anywhere on it while the card draws the hover,
+ * pressed and focus states. Its name keeps the verb ("Check Opening hours").
  */
 function AreaCard({
   area,
@@ -59,13 +61,15 @@ function AreaCard({
   emphasis?: boolean
 }) {
   return (
-    <article
+    <Card
+      as="article"
+      size="sm"
+      interactive={Boolean(action)}
+      surface={blocked ? "sunken" : "default"}
       data-slot="area-card"
       data-area={area.key}
       className={cn(
-        "relative flex min-w-0 flex-col gap-2.5 rounded-(--np-radius-card) border bg-surface p-4",
-        action && "hover-fine:has-[a:hover]:border-line-strong",
-        blocked ? "border-line bg-surface-alt" : "border-line",
+        "gap-2.5 px-(--card-spacing)",
         emphasis && "border-warning-solid"
       )}
     >
@@ -87,7 +91,7 @@ function AreaCard({
         </p>
         {action}
       </div>
-    </article>
+    </Card>
   )
 }
 
@@ -201,11 +205,17 @@ function AreaCards({
               ? "Check"
               : "Edit"
         const action = (
+          // The card's link, drawn as a button. `static` undoes the button's
+          // `relative` so the stretched hit area reaches the card's edges;
+          // the button keeps its own focus halo and drops the link's hover
+          // underline. A ShellLink, so it prefetches on intent, not on view.
           <ShellLink
+            data-slot="card-link"
             href={listingHref(locationId, area.segment)}
             className={cn(
+              cardLinkClassName,
               buttonVariants({ variant: "secondary", size: "sm" }),
-              "static after:absolute after:inset-0 after:rounded-(--np-radius-card)"
+              "static hover-fine:hover:no-underline"
             )}
             aria-label={`${verb} ${area.label}`}
           >

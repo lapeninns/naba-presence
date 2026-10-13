@@ -77,7 +77,7 @@ function attempts(count: number): string {
  * location: the honest status the sync checkpoint reports, how many times it
  * has tried, why it failed in plain words, and Cancel while it is still in
  * flight. The checkpoint reports no review counts, so there is no progress
- * bar: a percentage would be invented. Labelled rows under 720px.
+ * bar: a percentage would be invented. Record cards below 48rem of the table's width.
  *
  * `externalLocationIds` scopes the card to one client's linked listings: only
  * their rows show and Start imports only them. Without it the card covers
@@ -243,7 +243,7 @@ export function BackfillCard({
                   <TableCell label="Status">
                     {statusPill(item.status)}
                   </TableCell>
-                  <TableCell data-actions="" className="text-right">
+                  <TableCell actions className="text-right">
                     {inFlight ? (
                       <Button
                         variant="ghost"

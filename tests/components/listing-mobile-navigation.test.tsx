@@ -34,6 +34,10 @@ vi.mock("@/lib/queries/use-locations", () => ({
 }))
 
 import { ListingAreaHeader } from "@/components/listings/area-frame"
+import {
+  emptyListingSummary,
+  type ListingSummary,
+} from "@/lib/contracts/location-summary"
 import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
 import type { DirectoryEntry } from "@/lib/queries/use-locations"
 
@@ -47,11 +51,13 @@ function Header({
   current = "profile",
   dirty = false,
   publishBlocked = false,
+  summary,
 }: {
   role?: string
   current?: "profile" | "hours"
   dirty?: boolean
   publishBlocked?: boolean
+  summary?: ListingSummary
 }) {
   const leave = useLeaveGuard({ when: dirty })
   return (
@@ -61,7 +67,7 @@ function Header({
         role={role}
         locationId="l1"
         current={current}
-        summary={undefined}
+        summary={summary}
         caps={{
           canEditCanonical: true,
           canPublish: true,
@@ -151,6 +157,38 @@ describe("mobile listing area navigation", () => {
       tabs.querySelector('[href="/listings/l1/menu"]')
     ).toHaveAttribute("data-unavailable", "true")
   })
+  // The desk's strip is the TabNav primitive, nothing hand-rolled on top:
+  // the route's area is the one current link, an unavailable area stays a
+  // followable link (not `disabled`), and counts are count badges.
+  it("draws the desk's tab row with TabNav: one current link, counts in the count role", () => {
+    const summary = {
+      ...emptyListingSummary({ locationId: "l1", linked: true, verified: true }),
+      menu: { status: "core_dirty", dirtyCount: 2, eligible: true },
+    } as ListingSummary
+    const view = render(<Header summary={summary} />)
+    const tabs = screen.getByRole("navigation", { name: "Listing areas" })
+    expect(tabs).toHaveAttribute("data-slot", "listing-area-tabs")
+    const current = tabs.querySelectorAll('[aria-current="page"]')
+    expect(current).toHaveLength(1)
+    expect(current[0]).toHaveAttribute("href", "/listings/l1/profile")
+    const menu = tabs.querySelector('[href="/listings/l1/menu"]')!
+    expect(menu).not.toHaveAttribute("aria-disabled")
+    expect(menu).toHaveAttribute("data-unavailable", "true")
+    const publish = tabs.querySelector('[href="/listings/l1/changes"]')!
+    expect(publish).toHaveTextContent("Review & publish")
+    expect(publish).toHaveTextContent("2, 2 to publish")
+    // The badge around the visible figure is a `count` badge.
+    const figure = publish.querySelector("span[aria-hidden]")!
+    expect(figure).toHaveTextContent(/^2$/)
+    expect(figure.parentElement).toHaveClass("text-count")
+    expect(figure.parentElement!.className).not.toMatch(/text-caption/)
+    view.rerender(<Header summary={summary} current="hours" />)
+    expect(tabs.querySelector('[aria-current="page"]')).toHaveAttribute(
+      "href",
+      "/listings/l1/hours"
+    )
+  })
+
   it("keeps the existing dirty guard on menu links, including cancel and confirm", async () => {
     render(<Header dirty />)
     await userEvent.click(

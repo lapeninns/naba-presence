@@ -23,7 +23,12 @@ vi.mock("@/lib/api/session", () => ({
 }))
 const refresh = vi.hoisted(() => vi.fn())
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
+  useRouter: () => ({
+    refresh,
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+  }),
   usePathname: () => "/settings/policy",
 }))
 let sessionRole = "owner"
@@ -103,8 +108,14 @@ describe("PolicyForm", () => {
     ).not.toBeInTheDocument()
     fireEvent.change(retention, { target: { value: "7" } })
     const bar = screen.getByRole("region", { name: "Save reply policy" })
-    // Docked to a phone's bottom edge through the chrome contract.
+    // Docked to a phone's bottom edge through the chrome contract: the
+    // ActionBar's `dock`, fixed on a phone with an in-flow spacer.
     expect(bar).toHaveAttribute("data-docked", "bottom")
+    expect(bar.className).toMatch(/max-md:fixed/)
+    expect(
+      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+    ).not.toBeNull()
+    expect(within(bar).getByRole("button", { name: "Discard" })).toBeEnabled()
     expect(bar).toHaveTextContent("1 unsaved change")
     expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled()
     // Discarding returns to a clean form, and the bar goes away again.
@@ -112,6 +123,9 @@ describe("PolicyForm", () => {
     expect(
       screen.queryByRole("region", { name: "Save reply policy" })
     ).not.toBeInTheDocument()
+    // Nothing docked is left behind for the tab bar to step aside for.
+    expect(document.querySelector('[data-docked="bottom"]')).toBeNull()
+    expect(document.querySelector('[data-slot="action-bar-spacer"]')).toBeNull()
   })
 
   it("links each switch's hint to it as its description", () => {
@@ -393,7 +407,9 @@ describe("PolicyForm", () => {
       editable()
       renderForm("owner")
       fireEvent.change(nameField(), { target: { value: "   " } })
-      expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled()
+      expect(
+        screen.getByRole("button", { name: "Save changes" })
+      ).toBeDisabled()
       expect(
         screen.getByRole("region", { name: "Save reply policy" })
       ).toHaveTextContent("Fix the marked fields to save.")

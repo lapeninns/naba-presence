@@ -1,10 +1,10 @@
 {
   "$comment": "Design ratchet baseline. Regenerate with `pnpm check:design --update-baseline` after removing findings; never to accept new ones. See scripts/check-design.mjs.",
   "totals": {
-    "R1": 27,
+    "R1": 16,
     "R2": 9,
-    "R3": 86,
-    "R4": 17,
+    "R3": 82,
+    "R4": 16,
     "R5": 2,
     "R6": 2,
     "R7": 16
@@ -124,22 +124,7 @@
         }
       }
     },
-    "components/app-shell/access-denied.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[0.71875rem]": 1
-        }
-      }
-    },
     "components/app-shell/account-menu.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[0.71875rem]": 1,
-          "text-[10.5px]": 1
-        }
-      },
       "R3": {
         "total": 1,
         "patterns": {
@@ -170,11 +155,9 @@
     },
     "components/app-shell/brand-mark.tsx": {
       "R1": {
-        "total": 4,
+        "total": 2,
         "patterns": {
-          "leading-[14px]": 1,
           "leading-[18px]": 1,
-          "text-[11px]": 1,
           "text-[17px]": 1
         }
       },
@@ -230,12 +213,6 @@
       }
     },
     "components/app-shell/nav.tsx": {
-      "R1": {
-        "total": 1,
-        "patterns": {
-          "text-[0.71875rem]": 1
-        }
-      },
       "R3": {
         "total": 4,
         "patterns": {
@@ -247,13 +224,6 @@
       }
     },
     "components/app-shell/page-frame.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "leading-4": 1,
-          "text-[0.71875rem]": 1
-        }
-      },
       "R3": {
         "total": 5,
         "patterns": {
@@ -395,15 +365,6 @@
         }
       }
     },
-    "components/locations/profile/profile-editor.tsx": {
-      "R3": {
-        "total": 2,
-        "patterns": {
-          "grid-cols-[12.5rem_minmax(0,1fr)]": 1,
-          "ml-[calc(12.5rem+1.5rem)]": 1
-        }
-      }
-    },
     "components/settings/two-step-verification-card.tsx": {
       "R2": {
         "total": 1,
@@ -414,18 +375,11 @@
     },
     "components/setup/setup-wizard.tsx": {
       "R3": {
-        "total": 5,
+        "total": 4,
         "patterns": {
           "grid-cols-[13.75rem_minmax(0,1fr)]": 2,
           "max-w-[64ch]": 1,
-          "pb-[max(12px,env(safe-area-inset-bottom))]": 1,
           "top-[calc(var(--np-toolbar-h)+16px)]": 1
-        }
-      },
-      "R4": {
-        "total": 1,
-        "patterns": {
-          "z-10": 1
         }
       }
     },
@@ -487,10 +441,9 @@
     },
     "components/ui/combobox.tsx": {
       "R3": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "max-h-[min(20rem,calc(var(--available-height)-var(--np-keyboard-inset)))]": 1,
-          "pl-[11px]": 1
+          "max-h-[min(20rem,calc(var(--available-height)-var(--np-keyboard-inset)))]": 1
         }
       }
     },
@@ -540,10 +493,9 @@
     },
     "components/ui/field.tsx": {
       "R1": {
-        "total": 2,
+        "total": 1,
         "patterns": {
-          "leading-5": 1,
-          "text-[11.5px]": 1
+          "leading-5": 1
         }
       }
     },
@@ -601,13 +553,6 @@
       }
     },
     "components/ui/stepper.tsx": {
-      "R1": {
-        "total": 2,
-        "patterns": {
-          "text-[11.5px]": 1,
-          "text-[11px]": 1
-        }
-      },
       "R3": {
         "total": 1,
         "patterns": {

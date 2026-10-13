@@ -12,7 +12,7 @@
  *     the first change and stays while saving or after a refused save; a
  *     clean form, or one the person can't edit, shows no bar at all
  *     (settings-setup-auth-07, m1, m2). On a phone it docks to the bottom
- *     edge (`data-docked="bottom"`, the tab bar steps aside); on a desk it
+ *     edge (the ActionBar's `dock`: the tab bar steps aside); on a desk it
  *     sticks to the foot of the form. One leave guard covers every field.
  *   - A card that is the only editable thing on its page, writing its own
  *     record, saves with its own button at the card's trailing edge, the
@@ -231,7 +231,10 @@ export function PolicyForm({ role }: { role: string | null }) {
 
   // Arms beforeunload while dirty (spec §6) and keeps the edits through a
   // forced sign-out; an in-app link or the back button asks first.
-  const draftKey = useDraftKey({ resource: "settings-policy", schemaVersion: 1 })
+  const draftKey = useDraftKey({
+    resource: "settings-policy",
+    schemaVersion: 1,
+  })
   const { markDiscarded } = useDirtyGuard({
     key: draftKey,
     isDirty,
@@ -436,8 +439,8 @@ export function PolicyForm({ role }: { role: string | null }) {
         <Alert variant="info" icon={<Eye strokeWidth={1.75} aria-hidden />}>
           <AlertTitle>You can look, but not change this</AlertTitle>
           <AlertDescription>
-            <span>{editReason}</span> Ask one of them if something here
-            needs to change.
+            <span>{editReason}</span> Ask one of them if something here needs to
+            change.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -628,69 +631,70 @@ export function PolicyForm({ role }: { role: string | null }) {
         </CardContent>
       </Card>
 
-      {showBar ? (
-        <ActionBar
-          label="Save reply policy"
-          // Docked to a phone's bottom edge (the tab bar steps aside and the
-          // page's scroll padding follows it), riding above an iOS keyboard;
-          // stuck to the foot of the form on a desk.
-          data-docked="bottom"
-          offset="bottom-(--np-keyboard-inset) md:bottom-3"
-          status={
-            barError && !saving ? (
-              <>
-                <CircleAlert aria-hidden />
-                <span>
-                  <strong className="font-semibold">Not saved</strong> ·{" "}
-                  <ActionBarMuted>
-                    {barError} Your edits are still here.
-                  </ActionBarMuted>
-                </span>
-              </>
-            ) : (
-              <>
-                <PenLine aria-hidden />
-                <span>
-                  <strong className="font-semibold">
-                    {saving
-                      ? "Saving"
-                      : `${changed.length} unsaved ${changed.length === 1 ? "change" : "changes"}`}
-                  </strong>
-                  {changed.length > 0 ? (
-                    <>
-                      {" "}
-                      ·{" "}
-                      <ActionBarMuted>
-                        {saveBlockedReason ?? changed.join(", ")}
-                      </ActionBarMuted>
-                    </>
-                  ) : null}
-                </span>
-              </>
-            )
-          }
-          actions={
+      <ActionBar
+        label="Save reply policy"
+        // Only while there is something to save, a save on its way or a
+        // refused save (`showBar`). Docked to a phone's bottom edge (the
+        // tab bar steps aside and the page's scroll padding follows it),
+        // riding above the on-screen keyboard; stuck to the foot of the
+        // form on a desk.
+        dock
+        visible={showBar}
+        offset="md:bottom-3"
+        status={
+          barError && !saving ? (
             <>
-              <Button
-                type="button"
-                variant="ghost-dark"
-                disabled={!isDirty || saving}
-                onClick={discard}
-              >
-                Discard
-              </Button>
-              <Button
-                type="submit"
-                disabled={!canSave && !saving}
-                pending={saving}
-                pendingLabel="Saving…"
-              >
-                Save changes
-              </Button>
+              <CircleAlert aria-hidden />
+              <span>
+                <strong className="font-semibold">Not saved</strong> ·{" "}
+                <ActionBarMuted>
+                  {barError} Your edits are still here.
+                </ActionBarMuted>
+              </span>
             </>
-          }
-        />
-      ) : null}
+          ) : (
+            <>
+              <PenLine aria-hidden />
+              <span>
+                <strong className="font-semibold">
+                  {saving
+                    ? "Saving"
+                    : `${changed.length} unsaved ${changed.length === 1 ? "change" : "changes"}`}
+                </strong>
+                {changed.length > 0 ? (
+                  <>
+                    {" "}
+                    ·{" "}
+                    <ActionBarMuted>
+                      {saveBlockedReason ?? changed.join(", ")}
+                    </ActionBarMuted>
+                  </>
+                ) : null}
+              </span>
+            </>
+          )
+        }
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="ghost-dark"
+              disabled={!isDirty || saving}
+              onClick={discard}
+            >
+              Discard
+            </Button>
+            <Button
+              type="submit"
+              disabled={!canSave && !saving}
+              pending={saving}
+              pendingLabel="Saving…"
+            >
+              Save changes
+            </Button>
+          </>
+        }
+      />
       <DiscardDialog
         {...leave}
         title="Leave without saving?"

@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/status-pill"
 import { formatNumber } from "@/lib/format"
 import type { SetupFacts } from "@/lib/setup/steps"
 import { cn } from "@/lib/utils"
+import { cardClassName } from "@/components/ui/card"
 
 const IMPORT = {
   running: { tone: "info", label: "Running" },
@@ -47,7 +48,11 @@ function StepDone({
       </p>
       <dl
         data-testid="setup-summary"
-        className="grid w-full grid-cols-1 gap-x-6 gap-y-1 rounded-(--np-radius-card) border border-line bg-surface-alt p-4 text-ui @min-[520px]/wiz:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] @min-[520px]/wiz:gap-y-2.5"
+        className={cardClassName({
+          surface: "sunken",
+          className:
+            "grid w-full grid-cols-1 gap-x-6 gap-y-1 p-4 text-ui @min-[520px]/wiz:grid-cols-[minmax(0,14rem)_minmax(0,1fr)] @min-[520px]/wiz:gap-y-2.5",
+        })}
       >
         <dt className="text-ink-muted">Google login</dt>
         <dd className="mb-2 @min-[520px]/wiz:mb-0">

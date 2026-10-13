@@ -115,17 +115,23 @@ function ComboboxInput({
         inputMode={tapToOpen ? "none" : undefined}
         className={cn(
           fieldChromeClassName,
-          "h-(--np-field-h) w-full pr-8 pl-[11px]",
+          // The trailing room is the trigger's: a 44px square on touch, the
+          // compact 24px chevron at the desk.
+          "h-(--np-field-h) w-full pr-(--np-touch) pl-(--np-field-pad-x) desk:pr-8",
           tapToOpen && "cursor-default caret-transparent",
           className
         )}
         {...fieldControlProps(field)}
         {...props}
       />
+      {/* The chevron button. On touch it is a full 44px square
+          (`--np-touch`) filling the field's trailing edge, so it meets the
+          project's touch floor; at the desk it shrinks back to the compact
+          24px chevron inset 4px from the edge. */}
       <ComboboxPrimitive.Trigger
         data-slot="combobox-trigger"
         aria-label="Show options"
-        className="absolute top-1/2 right-1 inline-flex size-6 -translate-y-1/2 items-center justify-center rounded-(--np-radius-tag) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink data-disabled:pointer-events-none data-disabled:opacity-50"
+        className="absolute top-1/2 right-0 inline-flex size-(--np-touch) -translate-y-1/2 items-center justify-center rounded-(--np-radius-field) text-ink-muted focus-halo transition-[color,background-color] duration-(--np-duration-fast) ease-spring-snappy hover:bg-fill hover:text-ink data-disabled:pointer-events-none data-disabled:opacity-50 desk:right-1 desk:size-6 desk:rounded-(--np-radius-tag)"
       >
         <ChevronsUpDownIcon className="size-4" strokeWidth={1.75} aria-hidden />
       </ComboboxPrimitive.Trigger>
