@@ -47,7 +47,7 @@ function Tile({
       className="flex min-w-0 flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
     >
       <p className="text-ui font-medium text-ink-muted">{label}</p>
-      <div className="flex min-h-[26px] flex-wrap items-center gap-1.5">
+      <div className="flex min-h-6.5 flex-wrap items-center gap-1.5">
         {value}
       </div>
       <p className="text-caption break-words text-ink-muted">{detail}</p>
@@ -123,7 +123,7 @@ function HealthStrip({
             className="flex flex-col gap-2.5 rounded-(--np-radius-card) border border-line bg-surface p-3 @[640px]:p-4"
           >
             <Skeleton className="h-3.5 w-1/2" />
-            <Skeleton className="h-[22px] w-2/5" />
+            <Skeleton className="h-5.5 w-2/5" />
             <Skeleton className="h-3.5 w-4/5" />
           </div>
         ))}

@@ -1,10 +1,11 @@
 "use client"
 
-import { ChevronDownIcon, ChevronUpIcon, Plus, Trash2Icon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon, Plus } from "lucide-react"
 
 import {
   FieldCaption,
   InlineError,
+  RowActionsMenu,
 } from "@/components/locations/menu/item-editor"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -96,44 +97,22 @@ export function MenuSectionEditor({
           value={label.displayName}
           disabled={disabled}
           onChange={(event) => onName(event.target.value)}
-          className="min-w-0 flex-[1_1_12rem] font-semibold"
+          className="min-w-0 grow basis-48 font-semibold"
         />
         <span className="font-mono text-caption text-ink-muted tabular-nums">
           {itemCount} {itemCount === 1 ? "item" : "items"}
         </span>
         {!disabled ? (
-          <span
-            role="group"
-            aria-label={`Actions for section ${name}`}
-            className="ml-auto flex items-center gap-0.5"
-          >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${toggleName} up`}
-              disabled={sectionIndex === 0}
-              onClick={() => onMove(-1)}
-            >
-              <ChevronUpIcon aria-hidden />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Move ${toggleName} down`}
-              disabled={sectionIndex === count - 1}
-              onClick={() => onMove(1)}
-            >
-              <ChevronDownIcon aria-hidden />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Remove section ${name}`}
-              className="text-danger-ink hover:not-data-disabled:bg-danger-tint"
-              onClick={onRemove}
-            >
-              <Trash2Icon aria-hidden />
-            </Button>
+          <span className="ml-auto">
+            <RowActionsMenu
+              label={`Actions for section ${name}`}
+              title={name}
+              canMoveUp={sectionIndex > 0}
+              canMoveDown={sectionIndex < count - 1}
+              onMove={onMove}
+              onRemove={onRemove}
+              removeLabel="Remove section"
+            />
           </span>
         ) : null}
         {nameError ? (
@@ -156,9 +135,13 @@ export function MenuSectionEditor({
               placeholder="A short introduction to this section"
               value={label.description}
               disabled={disabled}
-              rows={1}
+              autoSize
+              minRows={1}
+              maxRows={6}
+              // A one-line start is shorter than a field on touch; the
+              // field height wins over the rows' inline minimum.
+              className="min-h-(--np-field-h)!"
               onChange={(event) => onDescription(event.target.value)}
-              className="field-sizing-content min-h-(--np-field-h)"
             />
           </div>
           {itemCount === 0 ? (

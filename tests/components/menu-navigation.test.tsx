@@ -150,8 +150,9 @@ describe("large menu navigation", () => {
     render(<Harness initial={initial} />)
     const first = screen.getByDisplayValue("Ingredients 1-1")
     await user.click(
-      screen.getAllByRole("button", { name: "Move Soup down" })[0]
+      screen.getAllByRole("button", { name: "Actions for Soup" })[0]
     )
+    await user.click(await screen.findByRole("menuitem", { name: "Move down" }))
     expect(screen.getByDisplayValue("Ingredients 1-1")).toBe(first)
     expect(first).toHaveAttribute(
       "aria-label",

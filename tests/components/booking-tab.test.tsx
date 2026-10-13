@@ -100,9 +100,40 @@ describe("BookingTab", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
     expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Link" })).toHaveValue("https://book.test/new")
 
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }))
-    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Close and discard" }))
+    await user.keyboard("{Escape}")
+    await user.click(within(await screen.findByRole("alertdialog", { name: "Close without saving?" })).getByRole("button", { name: "Close and discard" }))
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+
+    // Cancel in the footer is a deliberate discard: it closes without asking.
+    await user.click(screen.getByRole("button", { name: "Edit the Reserve a table link" }))
+    dialog = await screen.findByRole("dialog")
+    await user.type(within(dialog).getByRole("textbox", { name: "Link" }), "/again")
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(screen.queryByRole("alertdialog")).toBeNull()
+  })
+
+  it("keeps Edit visible and puts preferring and removing in an overflow menu, removal last and confirmed", async () => {
+    const user = userEvent.setup()
+    const second = { id: "l3", googleLinkName: "a/l/placeActionLinks/3", providerType: "MERCHANT", isEditable: true, uri: "https://book.test/other", placeActionType: "DINING_RESERVATION", isPreferred: false, googleHash: "h3", observedAt: "2026-07-01T00:00:00.000Z" } as const
+    useBookingMock.mockReturnValue({ data: makeState({ links: [...makeState().links, second] }), isPending: false, isError: false, error: null, refetch: vi.fn() })
+    useCapsMock.mockReturnValue({ data: { canEditCanonical: true, canPublish: true } })
+    renderTab()
+    expect(screen.getAllByRole("button", { name: "Edit the Reserve a table link" })).toHaveLength(2)
+    expect(screen.queryByRole("button", { name: /Remove the/ })).toBeNull()
+    const triggers = screen.getAllByRole("button", { name: "More actions for the Reserve a table link" })
+    // The preferred link offers only removal.
+    await user.click(triggers[0]!)
+    let items = await screen.findAllByRole("menuitem")
+    expect(items.map((item) => item.textContent)).toEqual(["Remove link"])
+    await user.keyboard("{Escape}")
+    await user.click(triggers[1]!)
+    items = await screen.findAllByRole("menuitem")
+    expect(items.map((item) => item.textContent)).toEqual(["Make preferred", "Remove link"])
+    await user.click(screen.getByRole("menuitem", { name: "Remove link" }))
+    const confirm = await screen.findByRole("alertdialog", { name: "Review removing this action link?" })
+    expect(within(confirm).getByText("https://book.test/other")).toBeInTheDocument()
+    expect(within(confirm).getByRole("button", { name: "Prepare removal review" })).toBeEnabled()
   })
 
   it("asks before an in-app link leaves a typed new action link behind", async () => {

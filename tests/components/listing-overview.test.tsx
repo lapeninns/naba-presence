@@ -22,9 +22,6 @@ vi.mock("next/link", () => ({
 vi.mock("@/components/editors/activity-drawer", () => ({
   ActivityDrawer: () => <button type="button">Activity</button>,
 }))
-vi.mock("@/components/listings/recent-activity", () => ({
-  RecentActivity: () => <p>recent activity</p>,
-}))
 
 import { ListingOverview } from "@/components/listings/listing-overview"
 import type { LocationCapabilities } from "@/lib/contracts/location-capabilities"
@@ -131,16 +128,22 @@ describe("ListingOverview", () => {
     expect(
       within(areas).getByRole("link", { name: "Check Opening hours" })
     ).toHaveAttribute("href", "/listings/l1/hours")
-    // Nothing to publish: no call to action in the header.
+    // Nothing to publish: no call to action in the header (the area tabs
+    // still end on Review & publish, uncounted).
     expect(
-      screen.queryByRole("link", { name: /Review & publish/ })
+      document.querySelector('[data-slot="review-publish-link"]')
+    ).toBeNull()
+    expect(
+      screen.queryByRole("link", { name: /Review & publish \(/ })
     ).not.toBeInTheDocument()
-    // Two listings under this client: the switcher is offered.
+    // Two listings under this client: the client line is the switcher, a
+    // menu (no text field, so no keyboard on a phone).
+    expect(screen.queryByRole("combobox")).toBeNull()
     expect(
-      screen.getByRole("combobox", {
-        name: "Switch to another listing of this client",
+      screen.getByRole("button", {
+        name: /switch to another listing of this client/,
       })
-    ).toBeInTheDocument()
+    ).toHaveTextContent("Old Crown Group")
   })
 
   it("offers Review & publish when local edits are not on Google", () => {
