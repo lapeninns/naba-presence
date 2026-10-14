@@ -7,7 +7,7 @@ import {
   type WorkspaceMode,
 } from "@/lib/contracts/session"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseUpstream } from "@/lib/server/http"
 
 const providerFactorSchema = z.object({
   id: z.string().min(1).max(128),
@@ -141,8 +141,21 @@ async function providerRequest(
   return payload
 }
 
+/**
+ * A provider body that fails its schema is the provider's contract drift,
+ * not the caller's input: 502 `auth_provider_invalid_response`, logged once
+ * by the route wrapper (parseUpstream, lib/server/http.ts).
+ */
+function parseAuthProvider<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  operation: string
+): T {
+  return parseUpstream(schema, value, { provider: "auth_provider", operation })
+}
+
 function identityFromUser(userValue: unknown): PasswordIdentity {
-  const user = providerUserSchema.parse(userValue)
+  const user = parseAuthProvider(providerUserSchema, userValue, "user")
   if (!user.email) {
     throw new ApiError(
       403,
@@ -212,11 +225,13 @@ export async function signInWithPassword(
   password: string
 ): Promise<ProviderAuthentication> {
   try {
-    const payload = providerSessionSchema.parse(
+    const payload = parseAuthProvider(
+      providerSessionSchema,
       await providerRequest("/token?grant_type=password", {
         method: "POST",
         body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
-      })
+      }),
+      "token"
     )
     if (!payload.user || !payload.access_token) {
       throw new AuthProviderError(502, "auth_provider_invalid_response")
@@ -311,14 +326,16 @@ export async function verifyEmailToken(input: {
   type: "email" | "recovery"
 }): Promise<ProviderAuthentication> {
   try {
-    const payload = providerSessionSchema.parse(
+    const payload = parseAuthProvider(
+      providerSessionSchema,
       await providerRequest("/verify", {
         method: "POST",
         body: JSON.stringify({
           token_hash: input.tokenHash,
           type: input.type,
         }),
-      })
+      }),
+      "verify"
     )
     if (!payload.user || !payload.access_token) {
       throw new AuthProviderError(502, "auth_provider_invalid_response")
@@ -619,12 +636,14 @@ export async function challengeAndVerifyFactor(input: {
     mfaProviderFailure(error)
   }
   try {
-    const payload = providerSessionSchema.parse(
+    const payload = parseAuthProvider(
+      providerSessionSchema,
       await providerRequest(`${factorPath}/verify`, {
         method: "POST",
         accessToken: input.accessToken,
         body: JSON.stringify({ challenge_id: challengeId, code: input.code }),
-      })
+      }),
+      "factor_verify"
     )
     if (!payload.access_token) {
       throw new AuthProviderError(502, "auth_provider_invalid_response")

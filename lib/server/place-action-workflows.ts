@@ -1,7 +1,7 @@
 import "server-only"
 import { placeActionWorkflowCursorSchema, placeActionWorkflowsResponseSchema, type PlaceActionWorkflowQuery } from "@/lib/contracts/place-action-workflows"
 import { withTenant } from "./db"
-import { ApiError } from "./http"
+import { ApiError, parseStored } from "./http"
 import { requireLocationAccess } from "./permissions"
 import { requireRole, type Session } from "./session"
 
@@ -35,7 +35,7 @@ export async function listPlaceActionWorkflows(session: Session, locationId: str
         and (${!after} or (c.created_at,c.id) < (${after?.createdAt ?? "9999-01-01T00:00:00Z"}::text::timestamptz,${after?.id ?? "ffffffff-ffff-ffff-ffff-ffffffffffff"}::uuid))
       order by c.created_at desc,c.id desc limit ${query.limit + 1}`
     const visible = rows.slice(0, query.limit), last = visible.at(-1)
-    return placeActionWorkflowsResponseSchema.parse({ items: visible.map((row) => ({ changeSet: row.changeSet, attemptId: row.attemptId })),
-      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null })
+    return parseStored(placeActionWorkflowsResponseSchema, { items: visible.map((row) => ({ changeSet: row.changeSet, attemptId: row.attemptId })),
+      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null }, "place_action_workflows")
   })
 }

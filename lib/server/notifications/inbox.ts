@@ -16,7 +16,7 @@ import {
 } from "@/lib/domain/notification-preferences"
 import { writeAudit } from "@/lib/server/audit"
 import { withTenant } from "@/lib/server/db"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { isManagerialRole, visibilityPredicate } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -100,7 +100,7 @@ export async function listNotifications(
       ? await sql<{ openedAt: string }[]>`
       select to_char(opened_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "openedAt" from notification_incident where id = ${last.id}`
       : []
-    return notificationListResponseSchema.parse({
+    return parseStored(notificationListResponseSchema, {
       items: visible.map((row) => ({
         ...row,
         kind: row.kind,
@@ -120,7 +120,7 @@ export async function listNotifications(
             ).toString("base64url")
           : null,
       unreadCount: unread?.count ?? 0,
-    })
+    }, "notification.list")
   })
 }
 
@@ -204,7 +204,7 @@ export async function readNotificationPreferences(session: Session) {
       )
     const preferences = await loadPreferences(sql, [session.userId])
     const explicit = new Set(preferences.keys())
-    return notificationPreferencesResponseSchema.parse({
+    return parseStored(notificationPreferencesResponseSchema, {
       emailConfigured: emailConfigured(),
       // Account incidents are for owners and admins; others get no choice to make.
       preferences: NOTIFICATION_EVENT_KINDS.filter(
@@ -217,7 +217,7 @@ export async function readNotificationPreferences(session: Session) {
           explicit: explicit.has(`${session.userId}:${kind}:${channel}`),
         }))
       ),
-    })
+    }, "notification.preferences")
   })
 }
 

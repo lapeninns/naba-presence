@@ -1,6 +1,7 @@
 import "server-only"
 
 import { metrics, trace } from "@opentelemetry/api"
+import type { TransactionSql } from "postgres"
 
 import {
   GOOGLE_PERFORMANCE_METRICS,
@@ -190,6 +191,62 @@ async function claimDuePerformanceLocation(
   })
 }
 
+/** Rows per upsert statement: a first sync is ~6,000 points (W4-09). */
+export const PERFORMANCE_UPSERT_CHUNK = 1_000
+
+/**
+ * Writes daily points as one multi-row upsert per chunk instead of one
+ * statement per point. A point repeated in the response keeps its last value,
+ * as the old per-point loop did; deduplicating first also keeps two rows of
+ * one statement off the same conflict key, which Postgres rejects. Unchanged
+ * values are skipped, so a restatement that matches leaves the row alone.
+ */
+export async function upsertPerformancePoints(
+  sql: TransactionSql,
+  organisationId: string,
+  externalLocationId: string,
+  points: readonly GooglePerformancePoint[]
+) {
+  const latest = new Map<string, GooglePerformancePoint>()
+  for (const point of points) latest.set(`${point.metric}|${point.date}`, point)
+  const unique = [...latest.values()]
+  for (
+    let start = 0;
+    start < unique.length;
+    start += PERFORMANCE_UPSERT_CHUNK
+  ) {
+    const chunk = unique.slice(start, start + PERFORMANCE_UPSERT_CHUNK)
+    await sql`
+      insert into performance_metric_daily (
+        organisation_id,
+        external_location_id,
+        metric,
+        metric_date,
+        value
+      )
+      select
+        ${organisationId}::uuid,
+        ${externalLocationId}::uuid,
+        point.metric,
+        point.metric_date,
+        point.value
+      from unnest(
+        ${chunk.map((point) => point.metric)}::text[],
+        ${chunk.map((point) => point.date)}::date[],
+        ${chunk.map((point) => point.value)}::bigint[]
+      ) as point(metric, metric_date, value)
+      on conflict (
+        organisation_id,
+        external_location_id,
+        metric,
+        metric_date
+      ) do update
+      set value = excluded.value
+      where performance_metric_daily.value is distinct from excluded.value
+    `
+  }
+}
+
 async function persistPerformancePoints(
   organisationId: string,
   location: PerformanceLocation,
@@ -197,31 +254,12 @@ async function persistPerformancePoints(
   requestId: string
 ) {
   return withTenant(organisationId, async (sql) => {
-    for (const point of points) {
-      await sql`
-        insert into performance_metric_daily (
-          organisation_id,
-          external_location_id,
-          metric,
-          metric_date,
-          value
-        )
-        values (
-          ${organisationId},
-          ${location.externalLocationId},
-          ${point.metric},
-          ${point.date},
-          ${point.value}
-        )
-        on conflict (
-          organisation_id,
-          external_location_id,
-          metric,
-          metric_date
-        ) do update
-        set value = excluded.value
-      `
-    }
+    await upsertPerformancePoints(
+      sql,
+      organisationId,
+      location.externalLocationId,
+      points
+    )
     const freshThrough = points.reduce<string | null>(
       (latest, point) => (!latest || point.date > latest ? point.date : latest),
       null

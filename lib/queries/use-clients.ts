@@ -13,6 +13,7 @@ import {
   unassignLocationsFromClient,
   updateClient,
 } from "@/lib/api/clients"
+import { CLIENTS_POLL_MS } from "@/lib/queries/use-shell-status"
 import { summariseHealth, type ClientHealth } from "@/lib/clients/health"
 import { queryKeys } from "@/lib/queries/keys"
 
@@ -23,9 +24,10 @@ export function useClients({ enabled = true }: { enabled?: boolean } = {}) {
     queryFn: ({ signal }) => fetchClients(signal),
     enabled,
     // The shell reads this for its health chip, so it has to notice a client's
-    // connection breaking without the operator reloading. A minute is short
-    // enough to matter and long enough not to be chatter.
-    refetchInterval: 60_000,
+    // connection breaking without the operator reloading: the shell's poll
+    // refreshes it when a connection changes, and this slow poll catches the
+    // rest. It re-reads every location's summary, so not once a minute.
+    refetchInterval: CLIENTS_POLL_MS,
   })
 }
 

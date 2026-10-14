@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { fetchProfile } from "@/lib/api/location-profile"
+import { GOOGLE_LIVE_READ } from "./google-live"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 
@@ -21,5 +22,6 @@ export function useProfile(id: string) {
         void client.invalidateQueries({ queryKey: queryKeys.clientsAll })
       }
     },
+    ...GOOGLE_LIVE_READ,
   })
 }

@@ -10,7 +10,6 @@ import {
   grantClientListings,
   grantLocationListings,
 } from "@/lib/server/client-access"
-import { sha256 } from "@/lib/server/crypto"
 import { getDatabase } from "@/lib/server/db"
 import { assertNewMemberSeat } from "@/lib/server/entitlement-policy"
 import { ApiError } from "@/lib/server/http"
@@ -20,13 +19,6 @@ import {
   type SessionAssurance,
 } from "@/lib/server/session-store"
 import { requireOpenRegistration } from "@/lib/server/registration"
-
-export type GoogleProfile = {
-  sub: string
-  email?: string
-  name?: string
-  email_verified?: boolean
-}
 
 export type AuthenticatedIdentity = {
   provider: string
@@ -39,20 +31,6 @@ export type AuthenticatedIdentity = {
    * identity creates an organisation; absent means business.
    */
   workspaceMode?: WorkspaceMode
-}
-
-function mapIdentityProvisioningError(error: unknown): never {
-  if (
-    error instanceof Error &&
-    error.message.includes("unverified_email_conflict")
-  ) {
-    throw new ApiError(
-      403,
-      "unverified_google_email",
-      "Google has not verified this email address."
-    )
-  }
-  throw error
 }
 
 function mapAuthenticatedIdentityError(error: unknown): never {
@@ -638,108 +616,4 @@ export async function acceptInvitationForSessionUser(
       token,
     }
   })
-}
-
-/**
- * Google sign-in twin of `provisionAuthenticatedOwner`, kept only because
- * `tests/integration/provisioning.test.ts` and
- * `tests/integration/routes/identity-hardening.test.ts` still drive the
- * identity-conflict paths through it. No route reaches it:
- * `app/api/auth/callback/google/route.ts` re-exports the Google *connection*
- * callback, not a sign-in. Its member counterpart has been deleted; do not
- * add a second acceptance path here.
- */
-export async function provisionOwner(profile: GoogleProfile) {
-  return getDatabase()
-    .begin(async (sql) => {
-      const slugBase = (profile.email?.split("@")[0] ?? profile.sub)
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, "")
-        .slice(0, 40)
-      const [user] = await sql<
-        {
-          id: string
-          default_organisation_id: string | null
-          email_change_held: boolean
-        }[]
-      >`
-      select
-        id::text as id,
-        default_organisation_id::text as default_organisation_id,
-        email_change_held
-      from provision_google_user(
-        ${profile.email ?? `${profile.sub}@google.invalid`},
-        ${profile.name ?? profile.email ?? "Google user"},
-        ${profile.sub},
-        ${profile.email_verified === true}
-      )
-    `
-      await sql`select set_config('app.user_id', ${user.id}, true)`
-      let organisationId = user.default_organisation_id
-      if (!organisationId) {
-        requireOpenRegistration()
-        // Establish the tenant context BEFORE the RLS-sensitive insert so the
-        // organisation_isolation USING clause makes the row visible.
-        organisationId = crypto.randomUUID()
-        await sql`
-        select set_config(
-          'app.organisation_id',
-          ${organisationId},
-          true
-        )
-      `
-        await sql`
-        insert into organisation (id, slug, name, workspace_mode)
-        values (
-          ${organisationId},
-          ${`${slugBase || "organisation"}-${sha256(profile.sub).slice(0, 8)}`},
-          ${profile.name ? `${profile.name}'s organisation` : "My organisation"},
-          'business'
-        )
-      `
-        await seedPilotBilling(sql, organisationId)
-        await createHomeClient(
-          sql,
-          organisationId,
-          profile.name ? `${profile.name}'s organisation` : "My organisation"
-        )
-        await sql`
-        insert into member (
-          organisation_id,
-          user_id,
-          role,
-          can_publish,
-          location_scope
-        )
-        values (${organisationId}, ${user.id}, 'owner', true, 'all')
-      `
-        await sql`
-        update app_user
-        set default_organisation_id = ${organisationId}
-        where id = ${user.id}
-      `
-      } else {
-        await sql`
-        select set_config('app.organisation_id', ${organisationId}, true)
-      `
-      }
-      if (user.email_change_held) {
-        await writeAudit(sql, {
-          organisationId,
-          actorUserId: user.id,
-          action: "identity.email_change_held",
-          subjectType: "app_user",
-          subjectId: user.id,
-          requestId: crypto.randomUUID(),
-          metadata: {
-            requestedEmail: profile.email ?? null,
-            googleSubject: profile.sub,
-          },
-        })
-      }
-      const token = await createSession(sql, user.id, organisationId)
-      return { organisationId, userId: user.id, token }
-    })
-    .catch(mapIdentityProvisioningError)
 }

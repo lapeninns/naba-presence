@@ -549,10 +549,7 @@ describeDatabase("durable publish lifecycle", () => {
   }, 30_000)
 
   describe("a queued retry rechecks who authorised it (P02-S9)", () => {
-    async function runRetry(
-      fixture: Fixture,
-      seeded: { attemptId: string }
-    ) {
+    async function runRetry(fixture: Fixture, seeded: { attemptId: string }) {
       stub.reset()
       stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
         status: 200,
@@ -822,6 +819,147 @@ describeDatabase("durable publish lifecycle", () => {
         code: "authorisation_unverifiable",
         reason: "authorised_by_missing",
       })
+    }, 30_000)
+  })
+
+  describe("re-arming a queued retry is a compare-and-set (W6-03)", () => {
+    /**
+     * Holds the attempt's `review_reply` row locked. A user press reads the
+     * attempt as a due `retryable` row, then blocks on the reply upsert just
+     * before its re-arm; the runner claims and dispatches freely and blocks
+     * only to settle. Contenders start in order, each once the previous one
+     * is blocked, so on release every later re-arm runs against what an
+     * earlier contender already committed: the race the CAS closes.
+     */
+    async function race(
+      attemptId: string,
+      contenders: Array<() => Promise<Response>>
+    ) {
+      const locker = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
+      let release!: () => void
+      const released = new Promise<void>((resolve) => (release = resolve))
+      let locked!: () => void
+      const held = new Promise<void>((resolve) => (locked = resolve))
+      const holder = locker.begin(async (tx) => {
+        await tx`
+          select rr.id
+          from review_reply rr
+          join publish_attempt pa on pa.review_reply_id = rr.id
+          where pa.id = ${attemptId}
+          for update of rr
+        `
+        locked()
+        await released
+      })
+      await held
+      const responses: Promise<Response>[] = []
+      for (const contender of contenders) {
+        responses.push(contender())
+        const expected = responses.length
+        const blocked = await waitFor(
+          async () => {
+            const [row] = await admin<{ blocked: number }[]>`
+              select count(*)::int as blocked
+              from pg_stat_activity
+              where datname = current_database()
+                and cardinality(pg_blocking_pids(pid)) > 0
+            `
+            return row.blocked
+          },
+          (count) => count >= expected
+        )
+        expect(blocked).toBe(expected)
+      }
+      release()
+      await holder
+      await locker.end()
+      return Promise.all(responses)
+    }
+
+    async function queuedRetry() {
+      const fixture = await createFixture()
+      const seeded = await seedPublishAttempt(fixture, {
+        status: "retryable",
+        nextAttemptAt: new Date(Date.now() - 60_000),
+      })
+      stub.reset()
+      stub.respond({ method: "GET", pathIncludes: "/reviews/" }, () => ({
+        status: 200,
+        json: { reviewId: "stub" },
+      }))
+      stub.respond({ method: "PUT", pathIncludes: "/reply" }, () => ({
+        status: 200,
+        json: { comment: fixture.body, updateTime: "2026-08-20T10:00:00.000Z" },
+      }))
+      return { fixture, seeded }
+    }
+
+    async function settledOnce(fixture: Fixture, attemptId: string) {
+      const attempt = await waitFor(
+        async () => {
+          const [row] = await admin<
+            { status: string; attemptNo: number; started: number }[]
+          >`
+            select
+              pa.status,
+              pa.attempt_no as "attemptNo",
+              (
+                select count(*)::int
+                from publish_attempt_event e
+                where e.publish_attempt_id = pa.id
+                  and e.event_type = 'started'
+              ) as started
+            from publish_attempt pa
+            where pa.id = ${attemptId}
+          `
+          return row
+        },
+        (row) => row.status === "succeeded"
+      )
+      const puts = stub.calls.filter(
+        (call) =>
+          call.method === "PUT" && call.path.includes(fixture.review.reviewId)
+      )
+      expect(puts).toHaveLength(1)
+      expect(attempt).toEqual({ status: "succeeded", attemptNo: 2, started: 1 })
+    }
+
+    it("lets only the runner dispatch when it claims behind a user's read", async () => {
+      const { fixture, seeded } = await queuedRetry()
+
+      const [published, ran] = await race(seeded.attemptId, [
+        () => publish(fixture),
+        runJobs,
+      ])
+
+      expect(ran.status, await ran.clone().text()).toBe(200)
+      // The user lost the re-arm to the runner's claim. They see its write
+      // as still in flight (the runner's lease answers as ambiguous, a fresh
+      // `started` row as in progress) or as already settled; never a second
+      // dispatch.
+      expect([200, 409, 502], await published.clone().text()).toContain(
+        published.status
+      )
+      if (published.status !== 200) {
+        expect(["publish_in_progress", "google_mutation_ambiguous"]).toContain(
+          (await published.json()).error
+        )
+      }
+      await settledOnce(fixture, seeded.attemptId)
+    }, 30_000)
+
+    it("lets only one of two concurrent user presses dispatch", async () => {
+      const { fixture, seeded } = await queuedRetry()
+
+      const results = await race(seeded.attemptId, [
+        () => publish(fixture),
+        () => publish(fixture),
+      ])
+
+      const statuses = results.map((response) => response.status)
+      expect(statuses).toContain(200)
+      for (const status of statuses) expect([200, 409]).toContain(status)
+      await settledOnce(fixture, seeded.attemptId)
     }, 30_000)
   })
 

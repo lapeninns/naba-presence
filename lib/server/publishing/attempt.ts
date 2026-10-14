@@ -109,15 +109,23 @@ export function attemptAuthorisation(
  * organisation's approval policy as it stands in this transaction (the one
  * the approval gate just passed): the retry worker refuses a publish replay
  * once that policy changed.
+ *
+ * The re-arm is a compare-and-set against the row the caller read: the same
+ * status and attempt number, with any back-off elapsed. The job runner's
+ * retry claim (retry.ts) and a concurrent request can both find the row
+ * re-armable under READ COMMITTED; whichever updates second re-checks these
+ * predicates after the first commits and matches nothing, so exactly one of
+ * them dispatches. Returns null when the row moved on, so the caller resolves
+ * against what the winner wrote, as it does for a lost insert.
  */
 export async function rearmAttempt(
   sql: TransactionSql,
   input: {
-    attemptId: string
+    attempt: Pick<ExistingAttempt, "id" | "status" | "attempt_no">
     intendedBody?: string
     authorisation: AttemptAuthorisation
   }
-): Promise<StartedAttempt> {
+): Promise<StartedAttempt | null> {
   const auth = input.authorisation
   const [attempt] =
     input.intendedBody === undefined
@@ -145,7 +153,10 @@ export async function rearmAttempt(
             next_attempt_at = null,
             started_at = now(),
             finished_at = null
-          where id = ${input.attemptId}
+          where id = ${input.attempt.id}
+            and status = ${input.attempt.status}
+            and attempt_no = ${input.attempt.attempt_no}
+            and (next_attempt_at is null or next_attempt_at <= now())
           returning id::text as id, attempt_no
         `
       : await sql<StartedAttempt[]>`
@@ -173,10 +184,13 @@ export async function rearmAttempt(
             intended_body = ${input.intendedBody},
             started_at = now(),
             finished_at = null
-          where id = ${input.attemptId}
+          where id = ${input.attempt.id}
+            and status = ${input.attempt.status}
+            and attempt_no = ${input.attempt.attempt_no}
+            and (next_attempt_at is null or next_attempt_at <= now())
           returning id::text as id, attempt_no
         `
-  return attempt
+  return attempt ?? null
 }
 
 /**

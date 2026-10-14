@@ -11,6 +11,7 @@ import {
   type ScheduledPostFinding,
   type TickFinding,
 } from "@/lib/server/ops-liveness"
+import { recordSchedulerTickAges } from "@/lib/server/request-metrics"
 import { retentionCycleFailureFinding } from "@/lib/server/retention/cycle"
 
 import { runDeliveries, type DeliveryOutcome } from "./delivery"
@@ -79,6 +80,7 @@ export async function evaluatePlatform(): Promise<PlatformEvaluation> {
   const database = getDatabase()
   const now = new Date()
   const liveness = await schedulerLiveness(now)
+  recordSchedulerTickAges(liveness.schedulerTicks, now)
   const findings: PlatformFinding[] = tickFindings(liveness.schedulerTicks, now)
   const cycleFailures = await retentionCycleFailureFinding()
   if (cycleFailures) findings.push(cycleFailures)

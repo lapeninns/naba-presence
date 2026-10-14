@@ -1,7 +1,10 @@
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-import { buildInboxQuery } from "@/lib/server/reviews-query"
+import {
+  boundedSearchMatches,
+  buildInboxQuery,
+} from "@/lib/server/reviews-query"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -198,6 +201,10 @@ describeDatabase("100k-review inbox performance", () => {
         return buildInboxQuery(sql, {
           ...inboxFilters,
           search: "excellent breakfast",
+          searchReviewIds: await boundedSearchMatches(
+            sql,
+            "excellent breakfast"
+          ),
         })
       })
       expect(rows).toHaveLength(51)
@@ -208,7 +215,12 @@ describeDatabase("100k-review inbox performance", () => {
     expect(p95).toBeLessThan(1500)
   }, 60_000)
 
-  it("routes production search through the guarded indexed helper", async () => {
+  it("plans production search inline, beside the tenant filter", async () => {
+    // W4-07: the search predicate is inline rather than a join to the
+    // `search_review_ids` definer function, so the planner sees it next to
+    // the tenant condition instead of a 1,000-row function-scan estimate.
+    // The fixture's 1,000 matches are few enough to list, so the plan also
+    // starts from their ids.
     const runtimePlan = await runtime.begin(async (sql) => {
       await sql`
         select set_config(
@@ -220,12 +232,16 @@ describeDatabase("100k-review inbox performance", () => {
       const query = buildInboxQuery(sql, {
         ...inboxFilters,
         search: "excellent breakfast",
+        searchReviewIds: await boundedSearchMatches(sql, "excellent breakfast"),
       })
       return sql`explain (format json) ${query}`
     })
-    expect(JSON.stringify(runtimePlan)).toContain(
-      '"Function Name":"search_review_ids"'
-    )
+    const plan = JSON.stringify(runtimePlan)
+    expect(plan).not.toContain("Function Scan")
+    expect(plan).not.toContain("search_review_ids")
+    expect(plan).toContain("search_document @@")
+    expect(plan).toMatch(/organisation_id = \(NULLIF\(current_setting/)
+    expect(plan).toContain("id = ANY")
 
     const indexedPlan = await admin`
       explain (format json)
@@ -244,6 +260,8 @@ describeDatabase("100k-review inbox performance", () => {
     )
   })
 
+  // The function stays deployed until a contract migration drops it, so its
+  // guard is still worth holding.
   it("refuses a search helper call for a different tenant", async () => {
     await expect(
       runtime.begin(async (sql) => {
