@@ -171,14 +171,25 @@ function ReviewList({
 
   // Keep the selected row in view when selection changes (keyboard, auto-
   // select, or deep link) without fighting intentional scroll while paging.
+  // Once per selection: a refetch, the next page or any other re-render
+  // with the same selection used to pull an operator who had scrolled away
+  // straight back to the selected row. `reviews` stays a dependency so a
+  // selection whose row arrives later (a deep link) is still brought in.
+  const scrolledFor = useRef<string | undefined>(undefined)
   useEffect(() => {
-    if (!selectedId) return
+    if (!selectedId) {
+      scrolledFor.current = undefined
+      return
+    }
+    if (scrolledFor.current === selectedId) return
     const buttons = containerRef.current?.querySelectorAll<HTMLButtonElement>(
       '[data-slot="review-row"]'
     )
     const index = reviews.findIndex((review) => review.id === selectedId)
     const row = buttons?.[index]
-    if (row) scrollIntoNearestScroller(row)
+    if (!row) return
+    scrolledFor.current = selectedId
+    scrollIntoNearestScroller(row)
   }, [selectedId, reviews])
 
   function onKeyDown(event: React.KeyboardEvent, index: number) {

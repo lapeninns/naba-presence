@@ -55,11 +55,17 @@ does not deploy. In order:
    then without `--dry-run`. It refuses a dirty worktree, a commit other than
    `origin/main`, a local receipt that is missing, for another commit, run
    with `--skip`, from a base other than the last promoted commit, or with
-   any required step not passed, and pending migrations. It deploys with
-   `NABA_RELEASE_SHA=<sha>` and writes a receipt under
-   `docs/release/receipts/`, with the local receipt's bytes copied beside it
-   as `<receipt>.local.json`.
-5. Smoke: `GET /api/operations/health?scope=platform` with the cron bearer
+   any required step not passed, and pending migrations. Set
+   `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`) and, if the project
+   uses Deployment Protection, `VERCEL_AUTOMATION_BYPASS_SECRET` in the
+   shell first. It deploys with `NABA_RELEASE_SHA=<sha>` and
+   `--skip-domain`, runs the readiness probe against the new deployment's
+   URL, and only when that passes runs `vercel promote`. A failed probe
+   exits 1 with production still on the previous deployment: nothing to roll
+   back. After promoting it writes a receipt under `docs/release/receipts/`,
+   with the local receipt's bytes copied beside it as `<receipt>.local.json`.
+5. Smoke: `pnpm ops:readiness --url <production> --expect-promoted`, and
+   `GET /api/operations/health?scope=platform` with the cron bearer
    reports `release.sha` equal to the receipt's `sha` and
    `schema.compatible: true`. Then sign in and load the dashboard.
 6. Commit both receipt files and copy the receipt's `sha` and
@@ -95,6 +101,14 @@ Set `OTEL_EXPORTER_OTLP_ENDPOINT` to the production collector. Next.js request
 spans, tenant-scoped database spans, Google provider spans, latency/outcome
 histograms and redacted structured error logs use the `nabapresence` service name.
 Set `NEXT_OTEL_VERBOSE=1` temporarily when deeper framework spans are needed.
+Choosing the collector is decision D-41. To turn export on: pick an OTLP/HTTP
+destination; set `OTEL_EXPORTER_OTLP_ENDPOINT` (and
+`OTEL_EXPORTER_OTLP_HEADERS` for its credentials, as a sensitive variable) in
+the Vercel project's Preview environment first, deploy a preview, and confirm
+readiness reports `telemetry.state` `exporting` and the
+`nabapresence.http.server.duration` series arrives; then set them in
+Production. On Vercel, each request flushes metrics after its response
+(docs/observability.md, "Export on Vercel").
 
 ### Membership scope switch (0082/0083)
 
@@ -905,6 +919,29 @@ retention cycle failures:
 The incident resolves on the first health tick after the condition clears.
 The health tick cannot alert on its own absence; the readiness probe is that
 signal (below).
+
+### Hosted readiness probe
+
+`.github/workflows/readiness-probe.yml` probes production every 5 minutes
+(docs/observability.md, "The hosted probe"). Operator setup, once:
+
+1. Create the secret, entering production's `CRON_SECRET` at the prompt (never
+   on the command line):
+   `gh secret set NABA_READINESS_TOKEN -R lapeninns/naba-presence`.
+2. Point it at production:
+   `gh variable set NABA_READINESS_URL --body https://<production origin> -R lapeninns/naba-presence`.
+3. Optionally, `gh variable set NABA_READINESS_EXPECT_PROMOTED --body true`
+   to fail when production does not serve the newest promotion receipt's
+   commit. This fails between a promotion and the merge of its receipt.
+4. Run it once by hand: `gh workflow run readiness-probe.yml`, then
+   `gh run list --workflow readiness-probe.yml`.
+5. Check that the GitHub account that last edited the workflow's cron gets
+   Actions failure emails (Settings → Notifications → Actions).
+
+The job needs hosted Actions minutes, about 8,600 a month at one billed
+minute per run. While the Actions budget blocks hosted jobs (docs/ci.md), it
+does not run. When the secret is rotated with `CRON_SECRET`, update
+`NABA_READINESS_TOKEN` too, or every run fails `unauthorised`.
 
 ### Readiness probe failure
 

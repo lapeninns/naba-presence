@@ -190,8 +190,9 @@ platform-level `abuse_rate_bucket` table, reached only through the SECURITY
 DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
 instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
 never plaintext. They cover password login, registration, confirmation resend,
-reset request and completion, the emailed confirmation link (`/auth/confirm`,
-per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
+reset request and completion, the emailed confirmation link (`POST
+/auth/confirm` from the `/confirm-email` interstitial, same-origin only; a GET
+of the link never spends the token; per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
 generation, support impersonation attempts (counted before the secret is
 compared) and `/share/report/[token]` lookups (which answer the same 404 as
 an unknown token when limited). The client IP comes only from the header named

@@ -152,11 +152,77 @@ async function verifiedAtGoogle(
   return verified
 }
 
+/**
+ * Attempt statuses whose reply mutation may still reach Google: the same set
+ * bulk-listings.ts treats as in flight.
+ */
+const IN_FLIGHT_ATTEMPT_STATUSES = [
+  "started",
+  "accepted",
+  "retryable",
+  "ambiguous",
+]
+
+/**
+ * Whether the stored review already reflects this exact payload, so applying
+ * it again would write nothing new. Reconcile re-reads page one every 15
+ * minutes, and rewriting every row each time touched about nine indexes and
+ * both review triggers per review (W4-03). A row still needs the write when
+ * the retention purge has nulled its content (erasure nulls it on purpose
+ * and is guarded below), when a sweep tombstoned it, or when its retention
+ * clock has fallen more than a twenty-fourth of the window behind: expiry
+ * stays "N days after last receipt", renewed at most every N hours.
+ */
+function storedReviewIsCurrent(sql: TransactionSql, contentHash: string) {
+  return sql`(
+    review.content_hash = ${contentHash}
+    and review.provider_deleted_at is null
+    and (review.raw_payload is not null or review.erased_at is not null)
+    and review.raw_content_expires_at > now() + (
+      select raw_content_retention_days * interval '23 hours'
+      from organisation
+      where organisation.id = review.organisation_id
+    )
+  )`
+}
+
+/**
+ * Whether the local reply has moved on in a way the payload cannot reflect:
+ * a mutation for it may still reach Google, or the row changed after the
+ * page was fetched (a publish settled, or an edit was accepted, between
+ * Google serving the page and this transaction). Applying the payload then
+ * blanked a just-published reply, reverted its review to `new` or restored
+ * the pre-edit text (W8-04). The next sync reads Google after the change and
+ * applies whatever Google holds by then, so a genuine remote edit or delete
+ * is only deferred, never lost.
+ */
+function replyHeld(sql: TransactionSql, fetchedAfter: Date | null) {
+  return sql`(
+    (
+      ${fetchedAfter}::timestamptz is not null
+      and review_reply.updated_at > ${fetchedAfter}::timestamptz
+    )
+    or exists (
+      select 1
+      from publish_attempt
+      where publish_attempt.review_reply_id = review_reply.id
+        and publish_attempt.status in ${sql(IN_FLIGHT_ATTEMPT_STATUSES)}
+    )
+  )`
+}
+
 export async function upsertGoogleReview(
   sql: TransactionSql,
   organisationId: string,
   linked: LinkedLocation,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  options: {
+    /**
+     * A database time taken before the payload was fetched from Google. Local
+     * reply changes after it may postdate the payload, so they are kept.
+     */
+    fetchedAfter?: Date
+  } = {}
 ) {
   const name = String(payload.name ?? "")
   const reviewId = String(payload.reviewId ?? name.split("/").pop() ?? "")
@@ -175,16 +241,11 @@ export async function upsertGoogleReview(
       : null
   const language = detectLanguage(text)
   const mediaItems = arrayValue(payload.reviewMediaItems)
-  const contentHash = sha256(
-    JSON.stringify({
-      name,
-      rating: payload.starRating,
-      text,
-      updateTime: payload.updateTime,
-      reply: payload.reviewReply,
-      media: mediaItems,
-    })
-  )
+  // The whole payload: the hash decides whether anything below is written,
+  // so every field a column derives from has to be in it (the reviewer, and
+  // the top-level moderation state parseReplyModeration also reads).
+  const contentHash = sha256(JSON.stringify(payload))
+  const rawPayload = sql.json(JSON.parse(JSON.stringify(payload)))
   const createTime = String(payload.createTime ?? payload.updateTime ?? "")
   const updateTime = String(payload.updateTime ?? payload.createTime ?? "")
   if (!createTime || !updateTime) return null
@@ -196,9 +257,49 @@ export async function upsertGoogleReview(
         ? "published"
         : "new"
 
+  const [stored] = await sql<{ id: string; current: boolean }[]>`
+    select
+      review.id::text as id,
+      ${storedReviewIsCurrent(sql, contentHash)} as current
+    from review
+    where review.organisation_id = ${organisationId}
+      and review.google_review_name_hash = ${sha256(name)}
+  `
+  if (stored?.current) return stored.id
+
   await sql`
     select set_config('app.provider_reconciliation', 'true', true)
   `
+
+  // Taken before the upsert so the guards below are evaluated after any
+  // publish intent or settle holding the review has committed: a statement
+  // that waits for a row lock still reads its other tables as of the moment
+  // it started.
+  let mediaUnchanged = false
+  let replyUnchanged = false
+  if (stored) {
+    const [locked] = await sql<
+      { mediaUnchanged: boolean; replyUnchanged: boolean }[]
+    >`
+      select
+        (raw_payload -> 'reviewMediaItems') is not distinct from
+          (${rawPayload}::jsonb -> 'reviewMediaItems') as "mediaUnchanged",
+        content_hash = ${contentHash} as "replyUnchanged"
+      from review
+      where id = ${stored.id}
+      for update
+    `
+    mediaUnchanged = locked?.mediaUnchanged ?? false
+    replyUnchanged = locked?.replyUnchanged ?? false
+  }
+  const fetchedAfter = options.fetchedAfter ?? null
+  const held = sql`exists (
+    select 1
+    from review_reply
+    where review_reply.organisation_id = review.organisation_id
+      and review_reply.review_id = review.id
+      and ${replyHeld(sql, fetchedAfter)}
+  )`
 
   const [review] = await sql<{ id: string; erasedAt: Date | null }[]>`
     insert into review (
@@ -244,7 +345,7 @@ export async function upsertGoogleReview(
       ${updateTime},
       ${contentHash},
       ${providerWorkflow},
-      ${sql.json(JSON.parse(JSON.stringify(payload)))},
+      ${rawPayload},
       now() + (
         select raw_content_retention_days * interval '1 day'
         from organisation where id = ${organisationId}
@@ -279,8 +380,14 @@ export async function upsertGoogleReview(
         else review.has_media
       end,
       update_time = excluded.update_time,
-      content_hash = excluded.content_hash,
+      -- A held reply keeps the hash of the last payload applied in full, so
+      -- the next sync re-applies this one rather than skipping it.
+      content_hash = case
+        when ${held} then review.content_hash
+        else excluded.content_hash
+      end,
       workflow_status = case
+        when ${held} then review.workflow_status
         when excluded.workflow_status in ('published', 'rejected')
           then excluded.workflow_status
         when review.workflow_status in ('published', 'rejected')
@@ -293,12 +400,15 @@ export async function upsertGoogleReview(
       end,
       raw_content_expires_at = excluded.raw_content_expires_at,
       provider_deleted_at = null
+    where not ${storedReviewIsCurrent(sql, contentHash)}
     returning id::text as id, erased_at as "erasedAt"
   `
+  // A concurrent sync applied this payload first.
+  if (!review) return stored?.id ?? null
 
   // Skipped wholesale rather than guarded column by column: the delete plus
   // re-insert below would re-create every photo the erasure removed.
-  if (!review.erasedAt) {
+  if (!review.erasedAt && !mediaUnchanged) {
     await sql`delete from review_media_item where review_id = ${review.id}`
     for (const item of mediaItems) {
       const mediaFormat = String(item.mediaFormat ?? "")
@@ -328,6 +438,10 @@ export async function upsertGoogleReview(
       `
     }
   }
+
+  // The hash covers the reply, so an unchanged hash means this pass is only
+  // renewing retention or restoring purged content.
+  if (replyUnchanged) return review.id
 
   if (moderation.comment !== null) {
     await sql`
@@ -368,6 +482,20 @@ export async function upsertGoogleReview(
           review_reply.first_published_at,
           excluded.google_reply_updated_at
         )
+      where (
+        review_reply.current_body,
+        review_reply.google_reply_state,
+        review_reply.google_policy_violation,
+        review_reply.publish_status,
+        review_reply.google_reply_updated_at
+      ) is distinct from (
+        excluded.current_body,
+        excluded.google_reply_state,
+        excluded.google_policy_violation,
+        excluded.publish_status,
+        excluded.google_reply_updated_at
+      )
+        and not ${replyHeld(sql, fetchedAfter)}
     `
   } else {
     await sql`
@@ -380,6 +508,7 @@ export async function upsertGoogleReview(
         google_reply_updated_at = ${updateTime}
       where review_id = ${review.id}
         and publish_status in ('accepted', 'published', 'rejected')
+        and not ${replyHeld(sql, fetchedAfter)}
     `
   }
   return review.id
@@ -402,6 +531,8 @@ type SyncHeader = {
   pageToken: string | null
   sweepStartedAt: Date | null
   highWaterUpdateTime: Date | null
+  /** Database time before any page is fetched (upsertGoogleReview). */
+  syncStartedAt: Date
   errorCode: string | null
 }
 
@@ -526,8 +657,12 @@ export async function syncLinkedLocation(input: {
         `
         sweepStartedAt = sweep.sweepStartedAt
       }
-      const [watermark] = await sql<{ highWaterUpdateTime: Date | null }[]>`
-        select max(high_water_update_time) as "highWaterUpdateTime"
+      const [watermark] = await sql<
+        { highWaterUpdateTime: Date | null; syncStartedAt: Date }[]
+      >`
+        select
+          max(high_water_update_time) as "highWaterUpdateTime",
+          now() as "syncStartedAt"
         from sync_checkpoint
         where external_location_id = ${input.externalLocationId}
       `
@@ -539,6 +674,7 @@ export async function syncLinkedLocation(input: {
         pageToken: checkpoint.page_token,
         sweepStartedAt,
         highWaterUpdateTime: watermark.highWaterUpdateTime,
+        syncStartedAt: watermark.syncStartedAt,
         errorCode: linked.verified ? null : "location_not_verified",
       }
     }
@@ -711,7 +847,8 @@ export async function syncLinkedLocation(input: {
                 sql,
                 input.organisationId,
                 header.linked,
-                review
+                review,
+                { fetchedAfter: header.syncStartedAt }
               )
             ) {
               committed += 1
