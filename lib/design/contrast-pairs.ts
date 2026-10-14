@@ -43,7 +43,7 @@ const MINIMUM: Record<PairKind, number> = {
  * A user tag's ink on its own tint and on a card. The tag ramp is decorative
  * (user labels, never a status), but a tag carries words, so both are text.
  */
-const tagPairs = (tag: "neutral" | "blue" | "pink" | "orange" | "purple" | "green"): ContrastPair[] => [
+const tagPairs = (tag: "neutral" | "blue" | "pink" | "purple"): ContrastPair[] => [
   {
     fg: `--np-tag-${tag}-ink`,
     bg: `--np-tag-${tag}-bg`,
@@ -198,9 +198,7 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   ...tagPairs("neutral"),
   ...tagPairs("blue"),
   ...tagPairs("pink"),
-  ...tagPairs("orange"),
   ...tagPairs("purple"),
-  ...tagPairs("green"),
 ]
 
 export type PairResult = {

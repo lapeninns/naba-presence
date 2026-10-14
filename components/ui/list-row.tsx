@@ -618,13 +618,14 @@ function ListRow({
 const LEADING_CONTROL_SELECTOR =
   'button, input, a[href], [role="checkbox"], [role="switch"], [role="radio"]'
 
+// Every tag hue sits at least 35° from every status hue (globals.css), so a
+// user tag never reads as a status. Orange (warning/danger) and green
+// (success) had no room and are retired: see TAG_TONE_ALIASES.
 const TAG_TONES = {
   neutral: "bg-tag-neutral-bg text-tag-neutral-ink",
   blue: "bg-tag-blue-bg text-tag-blue-ink",
   pink: "bg-tag-pink-bg text-tag-pink-ink",
-  orange: "bg-tag-orange-bg text-tag-orange-ink",
   purple: "bg-tag-purple-bg text-tag-purple-ink",
-  green: "bg-tag-green-bg text-tag-green-ink",
   // A label over a photo ("Logo", "Customer"): an opaque surface chip in
   // full ink, lifted off the image by the raised shadow (ink on surface is
   // a gated pair, whatever the photo underneath).
@@ -634,25 +635,42 @@ const TAG_TONES = {
   accent: "bg-accent-tint text-accent-ink",
 } as const
 
-export type ListRowTagTone = keyof typeof TAG_TONES
+/** Retired tones, kept so existing callers still render (R2b P1-S1). */
+const TAG_TONE_ALIASES = {
+  /** @deprecated Orange sat on the warning and danger hues; draws pink. */
+  orange: "pink",
+  /** @deprecated Green sat on the success hue; draws blue. */
+  green: "blue",
+} as const satisfies Record<string, keyof typeof TAG_TONES>
+
+export type ListRowTagTone =
+  keyof typeof TAG_TONES | keyof typeof TAG_TONE_ALIASES
 
 /**
  * A user tag in a row (review tags, AI topics, post type). Decorative tag
  * ramp only: status hues are reserved for status pills. `on-image` is for a
  * label laid over a photo; `accent` for an emphasised label.
+ *
+ * Its shape is not a status pill's: a full pill radius and never a dot
+ * (StatusPill keeps the tag radius and its status dot), so the two read
+ * apart without relying on colour.
  */
 function ListRowTag({
   tone = "neutral",
   className,
   ...props
 }: React.ComponentProps<"span"> & { tone?: ListRowTagTone }) {
+  const resolved =
+    tone in TAG_TONE_ALIASES
+      ? TAG_TONE_ALIASES[tone as keyof typeof TAG_TONE_ALIASES]
+      : (tone as keyof typeof TAG_TONES)
   return (
     <span
       data-slot="list-row-tag"
-      data-tone={tone}
+      data-tone={resolved}
       className={cn(
-        "inline-flex h-(--np-chip-h) max-w-full items-center rounded-(--np-radius-tag) px-2 text-caption whitespace-nowrap",
-        TAG_TONES[tone],
+        "inline-flex h-(--np-chip-h) max-w-full items-center rounded-(--np-radius-pill) px-2.5 text-caption whitespace-nowrap",
+        TAG_TONES[resolved],
         className
       )}
       {...props}

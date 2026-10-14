@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { BoundaryErrorState } from "@/components/app-shell/boundary"
 import * as boundary from "@/components/app-shell/boundary"
-import { ListRow, ListRows } from "@/components/ui/list-row"
+import { ListRow, ListRowTag, ListRows } from "@/components/ui/list-row"
 import { SelectionBar } from "@/components/ui/selection-bar"
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
 import { tabItemClassName, textTabItemClassName } from "@/components/ui/tabs"
@@ -210,5 +210,56 @@ describe("TableCell numeric on a record card (F5b)", () => {
       "@max-3xl/table:[&_tbody>tr>td[data-numeric]]:font-sans"
     )
     expect(screen.getByText("The Bell")).not.toHaveAttribute("data-numeric")
+  })
+})
+
+describe("ViewHeader count sentence (R2b P1-S2)", () => {
+  it("puts the figure in front of a label that only says what it counts", () => {
+    render(
+      <ViewHeader
+        title="Notifications"
+        count={3}
+        countLabel="open and unread"
+      />
+    )
+    expect(screen.getByText("(3 open and unread)").className).toContain(
+      "sr-only"
+    )
+  })
+
+  it("never says a figure twice when the label already leads with it", () => {
+    render(<ViewHeader title="Inbox" count="12" countLabel="12 need a reply" />)
+    expect(screen.getByText("(12 need a reply)")).toBeInTheDocument()
+  })
+
+  it("does not mistake 12 for the start of 120", () => {
+    render(<ViewHeader title="Inbox" count={12} countLabel="120 in total" />)
+    expect(screen.getByText("(12 120 in total)")).toBeInTheDocument()
+  })
+})
+
+describe("ListRowTag shape and tones (R2b P1-S1)", () => {
+  it("is a pill with no status dot", () => {
+    render(<ListRowTag tone="blue">Staff</ListRowTag>)
+    const tag = screen.getByText("Staff")
+    expect(tag.className).toContain("rounded-(--np-radius-pill)")
+    expect(tag.className).not.toContain("rounded-(--np-radius-tag)")
+    expect(tag.children).toHaveLength(0)
+  })
+
+  it("draws the retired orange and green tones as pink and blue", () => {
+    render(
+      <>
+        <ListRowTag tone="orange">Drinks</ListRowTag>
+        <ListRowTag tone="green">Food</ListRowTag>
+      </>
+    )
+    const orange = screen.getByText("Drinks")
+    expect(orange).toHaveAttribute("data-tone", "pink")
+    expect(orange.className).toContain("bg-tag-pink-bg")
+    expect(orange.className).not.toContain("orange")
+    const green = screen.getByText("Food")
+    expect(green).toHaveAttribute("data-tone", "blue")
+    expect(green.className).toContain("text-tag-blue-ink")
   })
 })

@@ -387,7 +387,8 @@ describe("NotificationsView rows and empty states", () => {
     expect(headings).toHaveLength(1)
     expect(headings[0]).toHaveTextContent("Notifications")
     const count = document.querySelector('[data-slot="view-header-count"]')
-    expect(count).toHaveTextContent("3(open and unread)")
+    // The figure is aria-hidden; the sr sentence carries it (R2b P1-S2).
+    expect(count).toHaveTextContent("3(3 open and unread)")
     expect(
       screen.getByRole("link", { name: "Notification settings" })
     ).toHaveAttribute("href", "/settings/notifications")
