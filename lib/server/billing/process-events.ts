@@ -294,6 +294,32 @@ function snapshotOf(subscription: ProviderSubscription | null) {
 }
 
 /**
+ * Counts a failed background sync (an event batch or the hourly reconcile)
+ * on the organisation's billing row: the sync's own transaction rolled back,
+ * so this is a separate one. The next successful sync resets it. The health
+ * tick alerts on the run and on `billing_plan_unknown`
+ * (lib/server/billing/alerts.ts, R2B-06). Bookkeeping only: a failure to
+ * record never changes the sync's outcome.
+ */
+export async function recordBillingSyncFailure(
+  organisationId: string,
+  code: string
+): Promise<void> {
+  await withTenant(organisationId, (sql) =>
+    sql`
+      update organisation_billing
+      set
+        sync_failures = sync_failures + 1,
+        last_sync_error_code = left(${code}, 64),
+        last_sync_failed_at = now()
+      where organisation_id = ${organisationId}
+    `
+  ).catch((error: unknown) => {
+    log.warn("billing.sync_failure_unrecorded", { organisationId, code, error })
+  })
+}
+
+/**
  * Brings one organisation's billing record in line with Stripe. Runs in its
  * own tenant transaction holding the billing row lock for the whole fetch
  * and write, so concurrent syncs of one organisation apply in turn and the
@@ -348,7 +374,10 @@ export async function syncOrganisationBilling(options: {
     if (decision.action === "none") {
       await sql`
         update organisation_billing
-        set provider_synced_at = now()
+        set
+          provider_synced_at = now(),
+          sync_failures = 0,
+          last_sync_error_code = null
         where organisation_id = ${organisationId}
       `
       return {
@@ -370,6 +399,8 @@ export async function syncOrganisationBilling(options: {
           pending_effective_at = null,
           provider_snapshot = ${jsonColumn(sql, snapshotOf(null))},
           provider_synced_at = now(),
+          sync_failures = 0,
+          last_sync_error_code = null,
           version = version + 1,
           updated_at = now()
         where organisation_id = ${organisationId}
@@ -418,6 +449,8 @@ export async function syncOrganisationBilling(options: {
         first_payment_succeeded = ${patch.firstPaymentSucceeded},
         provider_snapshot = ${jsonColumn(sql, snapshotOf(subscription))},
         provider_synced_at = now(),
+        sync_failures = 0,
+        last_sync_error_code = null,
         version = version + 1,
         updated_at = now()
       where organisation_id = ${organisationId}
@@ -647,6 +680,7 @@ export async function processBillingEvents(options: {
           code,
           error: error instanceof Error ? error.message : String(error),
         })
+        await recordBillingSyncFailure(organisationId, code)
         for (const event of events) {
           const status = await settle(
             event.id,
@@ -730,6 +764,7 @@ export async function reconcileBillingPage(options: {
           errorCode,
           error: error instanceof Error ? error.message : String(error),
         })
+        await recordBillingSyncFailure(id, errorCode)
       }
       processed += 1
       last = id

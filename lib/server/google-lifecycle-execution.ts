@@ -1,6 +1,7 @@
 import "server-only"
 import { approvedGbpChange } from "@/lib/server/gbp-change-sets"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { auditGbpMutation, settleGbpMutation, startGbpMutation } from "@/lib/server/gbp-management"
 import { deleteGoogleLocation, googleAccountManagementApi, GoogleMutationAmbiguousError } from "@/lib/server/google"
 import { currentAdministrationContext } from "@/lib/server/google-administration-state"
@@ -12,11 +13,12 @@ import { requireNoUnresolvedAccountChange } from "@/lib/server/google-account-ch
 
 async function withLifecycleLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
   const linked = await currentAdministrationContext(session, locationId, false)
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    const [claim] = await sql<{ acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${linked.googleAccountId}:administration_access`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "administration_in_progress", "Another access or lifecycle action for this Google account is in progress. Read its saved outcome.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_lifecycle",
+    keys: [`${session.organisationId}:${linked.googleAccountId}:administration_access`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "administration_in_progress", "Another access or lifecycle action for this Google account is in progress. Read its saved outcome.") },
+  }, work)
 }
 function sameBinding(before: Awaited<ReturnType<typeof currentAdministrationContext>>, after: Awaited<ReturnType<typeof currentAdministrationContext>>) {
   if (before.connectionId !== after.connectionId || before.googleAccountId !== after.googleAccountId || before.googleLocationName !== after.googleLocationName || before.credentialGeneration !== after.credentialGeneration) throw new ApiError(409, "google_target_changed", "The exact linked Google target or credentials changed before sending. Create a fresh lifecycle review.")

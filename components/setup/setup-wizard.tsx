@@ -6,6 +6,7 @@ import {
   CircleAlertIcon,
   InfoIcon,
 } from "lucide-react"
+import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import * as React from "react"
@@ -38,14 +39,39 @@ import {
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
-import { StepAccount } from "./step-account"
-import { StepAgency } from "./step-agency"
-import { StepBackfill } from "./step-backfill"
-import { StepConnect } from "./step-connect"
-import { StepDone } from "./step-done"
-import { StepLocations } from "./step-locations"
-import { StepNotifications } from "./step-notifications"
-import { StepTeam } from "./step-team"
+// Each step is its own chunk: an operator sees one at a time, and the
+// locations step (the onboarding drafts) alone is most of the wizard's code.
+// The step after the current one is preloaded, so Continue does not wait.
+const STEP_LOADERS: Partial<Record<SetupStep, () => Promise<unknown>>> = {
+  agency: () => import("./step-agency"),
+  connect: () => import("./step-connect"),
+  account: () => import("./step-account"),
+  locations: () => import("./step-locations"),
+  backfill: () => import("./step-backfill"),
+  notifications: () => import("./step-notifications"),
+  team: () => import("./step-team"),
+  done: () => import("./step-done"),
+}
+const StepAgency = dynamic(() =>
+  import("./step-agency").then((m) => m.StepAgency)
+)
+const StepConnect = dynamic(() =>
+  import("./step-connect").then((m) => m.StepConnect)
+)
+const StepAccount = dynamic(() =>
+  import("./step-account").then((m) => m.StepAccount)
+)
+const StepLocations = dynamic(() =>
+  import("./step-locations").then((m) => m.StepLocations)
+)
+const StepBackfill = dynamic(() =>
+  import("./step-backfill").then((m) => m.StepBackfill)
+)
+const StepNotifications = dynamic(() =>
+  import("./step-notifications").then((m) => m.StepNotifications)
+)
+const StepTeam = dynamic(() => import("./step-team").then((m) => m.StepTeam))
+const StepDone = dynamic(() => import("./step-done").then((m) => m.StepDone))
 
 const AGENCY_UNSAVED =
   "Save the new timezone, or change it back, before continuing."
@@ -140,6 +166,11 @@ function SetupWizard({ clientId }: { clientId: string }) {
     }
     shownStep.current = current
   }, [current, resolved])
+
+  const following = flow[flow.indexOf(current) + 1]
+  React.useEffect(() => {
+    if (following) void STEP_LOADERS[following]?.()
+  }, [following])
 
   const hrefFor = (step: SetupStep) => {
     const next = new URLSearchParams(params.toString())

@@ -1,16 +1,18 @@
 import "server-only"
-import { withSessionConnection, withTenant } from "@/lib/server/db"
+import { withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 export async function withGoogleAccountChangeLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
   const linked = await withTenant(session.organisationId, (sql) => resolveGbpLocationContext(sql, session, locationId))
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    const [claim] = await sql<{ acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${linked.googleAccountId}:administration_access`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "administration_in_progress", "Another Google account change is in progress. Read its saved outcome.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_account_change",
+    keys: [`${session.organisationId}:${linked.googleAccountId}:administration_access`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "administration_in_progress", "Another Google account change is in progress. Read its saved outcome.") },
+  }, work)
 }
 export async function requireNoUnresolvedPlaceAction(session: Session, googleAccountId: string) {
   return withTenant(session.organisationId, async (sql) => {

@@ -1,4 +1,5 @@
 import type {
+  PrivacyErasurePreview,
   PrivacyExportResponse,
   PrivacyRequest,
   RetentionCycleOrganisation,
@@ -134,6 +135,60 @@ export function fulfilDescription(requestType: string): string {
       return "Records the verified correction. Google holds the review itself, so nothing is changed there."
     default:
       return "Records the request as fulfilled."
+  }
+}
+
+const count = (n: number, one: string, many = `${one}s`) =>
+  `${n} ${n === 1 ? one : many}`
+
+/**
+ * What the erasure confirm step says about its match set (audit R2B-02).
+ * `acknowledge` is set when the match may span more than one person -- more
+ * than one reviewer profile, or reviews matched by display name alone -- and
+ * the owner must tick that they checked it before erasing.
+ */
+export function describeErasurePreview(preview: PrivacyErasurePreview): {
+  title: string
+  lines: string[]
+  acknowledge: string | null
+  submitLabel: string
+} {
+  if (preview.reviews === 0) {
+    return {
+      title: "No reviews match",
+      lines: [
+        "Fulfilling records the request as done. Nothing is erased here or on Google.",
+      ],
+      acknowledge: null,
+      submitLabel: "Fulfil request",
+    }
+  }
+  const lines = [
+    `${count(preview.reviews, "review")} from ${count(preview.reviewers, "reviewer profile")} across ${count(preview.locations, "location")}.`,
+  ]
+  if (preview.matchedByNameOnly > 0) {
+    lines.push(
+      `${count(preview.matchedByNameOnly, "review")} matched on the display name alone, so anyone else with that name is included.`
+    )
+  }
+  lines.push(
+    preview.repliesToWithdraw > 0
+      ? `${count(preview.repliesToWithdraw, "of our replies", "of our replies")} will be withdrawn from Google.`
+      : "None of our replies needs withdrawing from Google."
+  )
+  if (preview.heldReviews > 0) {
+    lines.push(
+      `${count(preview.heldReviews, "review")} under a legal hold: the erasure will be refused until it is released.`
+    )
+  }
+  const shared = preview.reviewers > 1 || preview.matchedByNameOnly > 0
+  return {
+    title: `This erasure matches ${count(preview.reviews, "review")}`,
+    lines,
+    acknowledge: shared
+      ? `I’ve checked that all ${count(preview.reviews, "review")} belong to this person.`
+      : null,
+    submitLabel: `Erase ${count(preview.reviews, "review")}`,
   }
 }
 

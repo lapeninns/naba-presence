@@ -13,10 +13,12 @@ import {
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 const params = z.object({ id: z.uuid(), scheduleId: z.uuid() })
 
 /** A material edit or reschedule: a new revision that needs approval again. */
 export const PUT = route({
+  maxDuration,
   params,
   body: scheduleRevisionSchema,
   handler: async ({ session, params, body, requestId }) => ({
@@ -38,6 +40,7 @@ export const PUT = route({
  * two-step verification, then paid access, in route()'s order.
  */
 export const PATCH = route({
+  maxDuration,
   entitlement: "exempt",
   roles: ["owner", "admin"],
   params,

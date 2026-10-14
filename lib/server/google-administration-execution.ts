@@ -1,7 +1,8 @@
 import "server-only"
 import type { AdministrationAccessRequest } from "@/lib/contracts/google-administration-review"
 import { approvedGbpChange } from "@/lib/server/gbp-change-sets"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { auditGbpMutation, settleGbpMutation, startGbpMutation } from "@/lib/server/gbp-management"
 import { googleAccountManagementApi, GoogleMutationAmbiguousError } from "@/lib/server/google"
 import { assertAdministrationAccessCurrent, readAdministrationAccessReview } from "@/lib/server/google-administration-reviews"
@@ -13,11 +14,12 @@ import { requireNoUnresolvedAccountChange } from "@/lib/server/google-account-ch
 
 async function withAdministrationLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
   const linked = await currentAdministrationContext(session, locationId, false)
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    const [claim] = await sql<{ acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${linked.googleAccountId}:administration_access`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "administration_in_progress", "Another administration action for this Google account is in progress. Check its saved outcome.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_administration",
+    keys: [`${session.organisationId}:${linked.googleAccountId}:administration_access`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "administration_in_progress", "Another administration action for this Google account is in progress. Check its saved outcome.") },
+  }, work)
 }
 
 async function sendAdministrationAccess(linked: Awaited<ReturnType<typeof currentAdministrationContext>>, request: AdministrationAccessRequest, token: string) {

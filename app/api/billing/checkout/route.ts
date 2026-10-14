@@ -17,6 +17,7 @@ export const maxDuration = 60
  * the webhook processor applies the subscription once Stripe reports it.
  */
 export const POST = route({
+  maxDuration,
   roles: ["owner"],
   // Plan P07-S5: money moves, so an owner steps up first (P02-S9).
   mfa: "step_up",

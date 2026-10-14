@@ -123,10 +123,14 @@ describeDatabase("bulk review work on the engine", { timeout: 60_000 }, () => {
         },
       }
     }
-    const bulk = async (body: unknown, cookie = owner.cookie) => {
+    const bulk = async (
+      body: unknown,
+      cookie = owner.cookie,
+      headers: Record<string, string> = {}
+    ) => {
       const response = await fetch(`${server.baseUrl}/api/reviews/bulk`, {
         method: "POST",
-        headers: { cookie, "content-type": "application/json" },
+        headers: { cookie, "content-type": "application/json", ...headers },
         body: JSON.stringify(body),
       })
       return response
@@ -222,6 +226,91 @@ describeDatabase("bulk review work on the engine", { timeout: 60_000 }, () => {
       select workflow_status from review where id = ${a.reviewId}`
     expect(review.workflow_status).toBe("published")
     // A second tick sends nothing more.
+    await tick()
+    expect(puts()).toHaveLength(2)
+  })
+
+  it("starts one batch for a retried or concurrent start under the same intent", async () => {
+    const t = await tenant()
+    const a = await t.parked()
+    const body = { action: "approve", approvals: [a.shown] }
+    const intent = { "Idempotency-Key": randomUUID() }
+    // A double submit: both requests arrive before either answers.
+    const [first, second] = await Promise.all([
+      t.bulk(body, t.owner.cookie, intent),
+      t.bulk(body, t.owner.cookie, intent),
+    ])
+    expect(first.status, await first.clone().text()).toBe(200)
+    expect(second.status, await second.clone().text()).toBe(200)
+    const one = bulkReviewResultSchema.parse(await first.json())
+    const two = bulkReviewResultSchema.parse(await second.json())
+    expect(one.operationId).toBeDefined()
+    expect(two).toEqual(one)
+    // A retry after a lost answer is answered with the same batch.
+    const retried = await t.bulk(body, t.owner.cookie, intent)
+    expect(bulkReviewResultSchema.parse(await retried.json())).toEqual(one)
+    expect(await decisions(a.reviewId)).toBe(1)
+    const batches = await admin`
+      select 1 from bulk_listing_operation where organisation_id = ${t.owner.organisationId}`
+    expect(batches).toHaveLength(1)
+    // The same intent with a different selection is a different request.
+    const b = await t.parked()
+    const conflict = await t.bulk(
+      { action: "approve", approvals: [b.shown] },
+      t.owner.cookie,
+      intent
+    )
+    expect(conflict.status).toBe(409)
+    expect((await conflict.json()).error).toBe("intent_conflict")
+    expect(await decisions(b.reviewId)).toBe(0)
+
+    await tick()
+    expect(puts()).toHaveLength(1)
+  })
+
+  it("does not queue or decide a review a second batch already holds", async () => {
+    const t = await tenant()
+    const five = await t.review({ text: "", rating: 5 })
+    const [first, second] = await Promise.all([
+      t.started({ action: "template_reply", reviewIds: [five.reviewId] }),
+      t.started({ action: "template_reply", reviewIds: [five.reviewId] }),
+    ])
+    const results = [first, second]
+    expect(results.filter((result) => result.operationId)).toHaveLength(1)
+    expect(results.flatMap((result) => result.results)).toEqual(
+      expect.arrayContaining([
+        { reviewId: five.reviewId, status: "queued" },
+        {
+          reviewId: five.reviewId,
+          status: "skipped",
+          code: "template_review_busy",
+        },
+      ])
+    )
+    await tick()
+    expect(puts()).toHaveLength(1)
+    // One draft, checked once.
+    const checks = await admin`
+      select 1 from verification_result v join draft d on d.id = v.draft_id
+      where d.review_id = ${five.reviewId}`
+    expect(checks).toHaveLength(1)
+
+    // An approval queued in one batch is not decided again by another.
+    const a = await t.parked()
+    const queued = await t.started({ action: "approve", approvals: [a.shown] })
+    expect(queued.operationId).toBeDefined()
+    const overlap = await t.started({ action: "approve", approvals: [a.shown] })
+    expect(overlap).toEqual({
+      results: [
+        {
+          reviewId: a.reviewId,
+          status: "skipped",
+          code: "template_review_busy",
+        },
+      ],
+    })
+    expect(await decisions(a.reviewId)).toBe(1)
+    // Run the queued approval here, not in a later case's tick.
     await tick()
     expect(puts()).toHaveLength(2)
   })

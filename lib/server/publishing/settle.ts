@@ -22,9 +22,11 @@ export type PublishedReply = {
 }
 
 /**
- * Apply Google's accepted reply (moderation state, policy violation, update
- * time) to the local reply. A `REJECTED` moderation verdict settles the reply
- * as `rejected`; anything else is `published`.
+ * Apply Google's accepted reply (body, moderation state, policy violation,
+ * update time) to the local reply. A `REJECTED` moderation verdict settles
+ * the reply as `rejected`; anything else is `published`. The body is the one
+ * Google holds, so a reply blanked or reverted while the PUT was in flight
+ * is restored here rather than at the next sync.
  */
 export async function applyPublishedReply(
   sql: TransactionSql,
@@ -40,6 +42,7 @@ export async function applyPublishedReply(
   await sql`
     update review_reply
     set
+      current_body = coalesce(${moderation.comment}, current_body),
       google_reply_state = ${googleState},
       google_policy_violation = ${moderation.policyViolation},
       google_reply_updated_at = ${moderation.updateTime ?? new Date()},

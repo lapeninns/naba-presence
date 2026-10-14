@@ -18,9 +18,16 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: z.object({ id: z.uuid() }),
   body: importReviewRefreshRequestSchema,
+  // Re-reads the location from Google on demand (W3-07).
+  limits: ({ session }) => ({
+    scope: "bulk_request",
+    user: session.userId,
+    organisation: session.organisationId,
+  }),
   handler: async ({ session, params, body, requestId }) => {
     if (!getServerEnv().IMPORT_REVIEW_ENABLED) {
       throw new ApiError(503, "import_review_paused", "Google import review is paused.")

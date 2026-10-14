@@ -6,7 +6,7 @@ import {
 } from "@/lib/server/billing/process-events"
 import { followCronCursor } from "@/lib/server/cron-cursor"
 import { cronPageInput } from "@/lib/server/cron-query"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import {
   loadPauseSnapshot,
   requireScopesEnabled,
@@ -50,6 +50,7 @@ function budgetMs() {
  * cron is alive.
  */
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     const pauses = await loadPauseSnapshot()
@@ -57,7 +58,7 @@ export const GET = route({
     const parsed = billingReconcileSchema.parse(cronPageInput(query))
     return followCronCursor("billing", parsed, async (input) => {
       const page = billingReconcileSchema.parse(input)
-      const result = await withAdvisoryLock(
+      const result = await withFleetLease(
         "naba:billing-reconcile",
         async (): Promise<ReconcilePageResult> => {
           const gate = billingWorkGate(pauses)

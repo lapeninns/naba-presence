@@ -39,10 +39,10 @@ import { sha256 } from "@/lib/server/crypto"
 import {
   jsonColumn,
   jsonColumnOrNull,
-  withSessionConnection,
   withTenant,
 } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import {
   attemptStore,
   idempotencyKey,
@@ -438,6 +438,11 @@ type PublishHoursInput = {
   intentId?: string
   /** What approved this write, recorded on its receipt. */
   approvalRef?: string
+  /**
+   * Epoch ms by which the Google sequence must end (a request deadline);
+   * absent, the write session derives one from the route's maxDuration.
+   */
+  deadline?: number
 }
 
 type HoursPatch = ReturnType<typeof buildGoogleHoursPatch>
@@ -732,13 +737,18 @@ const HOURS_PUBLISHING_DISABLED = {
  * (`<org>:<location>:hours`), the key bulk regular, special and more-hours
  * children take (lib/server/bulk-listing-runner.ts): a bulk child cannot
  * write between this publish's read and its PATCH, and this publish waits
- * for a running bulk child, then reads what it left on Google.
+ * for a running bulk child (up to the write session's lock budget, then
+ * 409 `google_write_busy`), then reads what it left on Google.
  */
 export async function publishCanonicalHours(input: PublishHoursInput) {
   requireGbpWrite(getServerEnv(), "profileWrites", HOURS_PUBLISHING_DISABLED)
-  return withSessionConnection((connection) =>
-    connection.begin(async (lock) => {
-      await lock`select pg_advisory_xact_lock(hashtextextended(${hoursLockKey(input.session.organisationId, input.locationId)}, 0))`
+  return withGoogleWriteSession(
+    {
+      surface: "hours",
+      keys: [hoursLockKey(input.session.organisationId, input.locationId)],
+      deadline: input.deadline,
+    },
+    async () => {
       const live = await readLiveHours(input.session, input.locationId)
       requirePublishGrant(live.linked, {
         code: "publish_permission_required",
@@ -755,7 +765,7 @@ export async function publishCanonicalHours(input: PublishHoursInput) {
         idempotent: result.idempotent,
         operation: operationSummary(result),
       }
-    })
+    }
   )
 }
 

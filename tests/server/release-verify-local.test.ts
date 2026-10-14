@@ -37,11 +37,18 @@ type StepResult = {
   exitCode?: number | null
 }
 
+// What summarizeOutput keeps from a real run of each test step.
+const TEST_SUMMARIES: Record<string, string[]> = {
+  integration: ["Test Files 143 passed (143)", "Tests 1254 passed (1254)"],
+  e2e: ["572 passed (19.1m)"],
+}
+
 const allPassed = (): StepResult[] =>
   GATE_STEPS.map((step: { id: string }) => ({
     id: step.id,
     status: "passed" as const,
     durationMs: 12.6,
+    ...(TEST_SUMMARIES[step.id] ? { summary: TEST_SUMMARIES[step.id] } : {}),
   }))
 
 const receiptInput = (steps: StepResult[]) => ({
@@ -78,12 +85,12 @@ describe("verify:release steps", () => {
       "audit",
       "secret-scan",
     ])
-    // Only the secret scan may be skipped (gitleaks not installed).
+    // Every step is required, the secret scan included (SEC-13 follow-up).
     expect(
       GATE_STEPS.filter((step: { required: boolean }) => !step.required).map(
         (step: { id: string }) => step.id
       )
-    ).toEqual(["secret-scan"])
+    ).toEqual([])
     const ci = readRepoText(".github/workflows/ci.yml")
     for (const command of [
       "pnpm typecheck",
@@ -255,18 +262,64 @@ describe("verify:release receipt", () => {
     ).toMatchObject({ status: "not-run" })
   })
 
-  it("lets the secret scan skip but not fail", () => {
+  it("requires the secret scan: neither skipped nor failed passes", () => {
     const skip = allPassed().map((step) =>
       step.id === "secret-scan"
         ? { ...step, status: "skipped" as const, note: "gitleaks missing" }
         : step
     )
-    expect(buildLocalReceipt(receiptInput(skip)).ok).toBe(true)
+    expect(buildLocalReceipt(receiptInput(skip)).ok).toBe(false)
+    expect(gateProblems(skip)).toEqual(['required step "secret-scan" skipped'])
     const fail = allPassed().map((step) =>
       step.id === "secret-scan" ? { ...step, status: "failed" as const } : step
     )
     expect(buildLocalReceipt(receiptInput(fail)).ok).toBe(false)
     expect(gateProblems(fail)).toEqual(['step "secret-scan" failed'])
+  })
+
+  it("refuses an integration step that ran no tests or skipped some", () => {
+    const withSummary = (id: string, summary?: string[]) =>
+      allPassed().map((step) => (step.id === id ? { ...step, summary } : step))
+    // Every integration file describe.skips without RUN_DB_TESTS=true: the
+    // run exits 0 having tested nothing.
+    expect(
+      gateProblems(
+        withSummary("integration", [
+          "Test Files 143 skipped (143)",
+          "Tests 1254 skipped (1254)",
+        ])
+      )
+    ).toEqual(['step "integration" passed but reported no test count'])
+    expect(
+      gateProblems(withSummary("integration", ["Tests 0 passed (0)"]))
+    ).toEqual(['step "integration" passed with 0 tests run'])
+    expect(
+      gateProblems(
+        withSummary("integration", ["Tests 1200 passed | 54 skipped (1254)"])
+      )
+    ).toEqual([
+      'step "integration" skipped tests (Tests 1200 passed | 54 skipped (1254))',
+    ])
+    expect(gateProblems(withSummary("integration", undefined))).toEqual([
+      'step "integration" passed but reported no test count',
+    ])
+    expect(buildLocalReceipt(receiptInput(withSummary("integration"))).ok).toBe(
+      false
+    )
+    // e2e may skip (fixture-dependent journeys) but must run something.
+    expect(
+      gateProblems(withSummary("e2e", ["570 passed (19.0m)", "2 skipped"]))
+    ).toEqual([])
+    expect(gateProblems(withSummary("e2e", ["0 passed (1.0s)"]))).toEqual([
+      'step "e2e" passed with 0 tests run',
+    ])
+    // A failed step is reported as failed, not for its counts.
+    const failed = allPassed().map((step) =>
+      step.id === "integration"
+        ? { ...step, status: "failed" as const, summary: [] }
+        : step
+    )
+    expect(gateProblems(failed)).toEqual(['step "integration" failed'])
   })
 
   it("rejects duplicate and unknown steps", () => {

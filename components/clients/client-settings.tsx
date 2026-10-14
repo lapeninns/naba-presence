@@ -65,9 +65,9 @@ import type { ClientResponse, ClientSummary } from "@/lib/contracts/clients"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { StashedEditsNotice } from "@/components/editors/stashed-edits-notice"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
-import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
-import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import { formatAddressLine } from "@/lib/locations/address"
 import { queryKeys } from "@/lib/queries/keys"
 import {
@@ -949,6 +949,24 @@ function ArchiveSection({
   )
 }
 
+type DetailsDraft = { name: string; notes: string; colour: string | null }
+
+/** A stashed details draft, or null when malformed or no different from `client`. */
+function parseDetailsDraft(
+  value: unknown,
+  client: ClientResponse["client"]
+): DetailsDraft | null {
+  if (typeof value !== "object" || value === null) return null
+  const { name, notes, colour } = value as Record<string, unknown>
+  if (typeof name !== "string" || typeof notes !== "string") return null
+  if (colour !== null && typeof colour !== "string") return null
+  const changed =
+    name.trim() !== client.name ||
+    notes.trim() !== (client.notes ?? "") ||
+    colour !== (client.colour ?? null)
+  return changed ? { name, notes, colour } : null
+}
+
 function ClientDetailsForm({
   client,
   onSave,
@@ -969,21 +987,20 @@ function ClientDetailsForm({
     (colour ?? null) !== (client.colour ?? null)
 
   // Warns on a tab close or reload while edits are unsaved, and keeps them
-  // through a forced sign-out; the page's Back link, any other in-app link
-  // and the back button ask first.
+  // through a forced sign-out, offering them back on the next visit; the
+  // page's Back link, any other in-app link and the back button ask first.
   const draftKey = useDraftKey({
     resource: "client-details",
     resourceId: client.id,
     schemaVersion: 1,
   })
-  const { markDiscarded } = useDirtyGuard({
-    key: draftKey,
+  const unsaved = useUnsavedChanges<DetailsDraft>({
+    scope: draftKey,
     isDirty: dirty && !pending,
-    snapshot: () => JSON.stringify({ name, notes, colour }),
-  })
-  const leave = useLeaveGuard({
-    when: dirty && !pending,
-    onLeave: markDiscarded,
+    restore: {
+      snapshot: () => ({ name, notes, colour }),
+      parse: (value) => parseDetailsDraft(value, client),
+    },
   })
 
   return (
@@ -1026,6 +1043,19 @@ function ClientDetailsForm({
           </CardDescription>
         </CardHeader>
         <div className="flex flex-col gap-5 p-(--np-card-pad)">
+          {unsaved.stashed ? (
+            <StashedEditsNotice
+              noun="this client’s details"
+              onRestore={() => {
+                const restored = unsaved.restoreStashed()
+                if (!restored) return
+                setName(restored.name)
+                setNotes(restored.notes)
+                setColour(restored.colour)
+              }}
+              onDismiss={unsaved.dismissStashed}
+            />
+          ) : null}
           <Field error={nameError ?? undefined}>
             <FieldLabel>Client name</FieldLabel>
             <Input
@@ -1095,7 +1125,7 @@ function ClientDetailsForm({
         </CardFooter>
       </Card>
       <DiscardDialog
-        {...leave}
+        {...unsaved.leavePrompt}
         title="Leave without saving?"
         confirmLabel="Leave and discard"
         announce={false}

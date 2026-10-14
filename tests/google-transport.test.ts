@@ -319,4 +319,89 @@ describe("Google transport", () => {
       )
     }
   )
+
+  describe("inside a Google write session", () => {
+    it("refuses a mutation that could not wait its full timeout, before sending it", async () => {
+      // Given: a write session with less time left than the mutation timeout.
+      const { googleRequest } = await import("@/lib/server/google")
+      const { GoogleWriteBudgetExhaustedError, withGoogleWriteDeadline } =
+        await import("@/lib/server/google/transport")
+
+      // When: the mutation reaches the transport.
+      const request = withGoogleWriteDeadline(Date.now() + 500, () =>
+        googleRequest(
+          "https://mybusiness.googleapis.com/v4/example",
+          "access-token",
+          { method: "PATCH", body: "{}" },
+          { mode: "mutation", timeoutMs: 1000 }
+        )
+      )
+
+      // Then: a plain, retryable failure, and Google never saw it.
+      await expect(request).rejects.toBeInstanceOf(
+        GoogleWriteBudgetExhaustedError
+      )
+      await expect(request).rejects.toMatchObject({
+        status: 503,
+        code: "google_write_budget_exhausted",
+        retryable: true,
+      })
+      expect(calls).toBe(0)
+    })
+
+    it("ends a stalled read by the session deadline, not the call timeout", async () => {
+      // Given: Google never answers, and the session ends well before the
+      // call's own timeout.
+      respond = () => undefined
+      const { googleRequest } = await import("@/lib/server/google")
+      const { withGoogleWriteDeadline } = await import(
+        "@/lib/server/google/transport"
+      )
+      const startedAt = performance.now()
+
+      // When: a safe read runs in the session.
+      const request = withGoogleWriteDeadline(Date.now() + 200, () =>
+        googleRequest(
+          "https://mybusiness.googleapis.com/v4/example",
+          "access-token",
+          {},
+          { timeoutMs: 1000 }
+        )
+      )
+
+      // Then: it times out at the session deadline.
+      await expect(request).rejects.toMatchObject({ code: "google_timeout" })
+      expect(performance.now() - startedAt).toBeLessThan(800)
+    })
+  })
+
+  it("does not sleep past its deadline for a Retry-After it cannot honour", async () => {
+    // Given: Google asks for a retry later than the call's deadline.
+    respond = (response) => {
+      response.writeHead(503, {
+        "content-type": "application/json",
+        "retry-after": "5",
+      })
+      response.end(JSON.stringify({ error: { status: "UNAVAILABLE" } }))
+    }
+    const { googleRequest } = await import("@/lib/server/google")
+    const startedAt = performance.now()
+
+    // When: a safe read is retried.
+    const request = googleRequest(
+      "https://mybusiness.googleapis.com/v4/example",
+      "access-token",
+      {},
+      { maxAttempts: 3, timeoutMs: 1000 }
+    )
+
+    // Then: Google's own answer is the error at once, with no second call;
+    // the sleep used to run the call's full timeout first.
+    await expect(request).rejects.toMatchObject({
+      status: 503,
+      code: "UNAVAILABLE",
+    })
+    expect(calls).toBe(1)
+    expect(performance.now() - startedAt).toBeLessThan(500)
+  })
 })

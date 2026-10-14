@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startAppServer } from "../helpers/app-server"
 import { startAuthProviderStub } from "../helpers/auth-provider"
+import { createTestTenant, destroyTenants } from "../helpers/tenant"
 
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
@@ -13,6 +14,9 @@ const describeDatabase = run ? describe : describe.skip
 const LOGIN_EMAIL_LIMIT = 90
 const LOGIN_IP_LIMIT = 30
 const LOGIN_WINDOW_SECONDS = 15 * 60
+// ABUSE_POLICIES.sync_manual: per person, per 10 minutes.
+const SYNC_USER_LIMIT = 10
+const SYNC_WINDOW_SECONDS = 10 * 60
 
 /**
  * Windows are aligned to multiples of their length, so a run that straddles
@@ -37,7 +41,15 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
   let runtime: ReturnType<typeof postgres>
   let auth: Awaited<ReturnType<typeof startAuthProviderStub>>
   let server: Awaited<ReturnType<typeof startAppServer>>
-  const scopes = ["login_ip", "login_email", "it_concurrency", "it_purge"]
+  const scopes = [
+    "login_ip",
+    "login_email",
+    "it_concurrency",
+    "it_purge",
+    "sync_manual_user",
+    "sync_manual_organisation",
+  ]
+  const organisations: string[] = []
 
   beforeAll(async () => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
@@ -57,6 +69,7 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
     await server.stop()
     await auth.stop()
     await admin`delete from abuse_rate_bucket where scope in ${admin(scopes)}`
+    await destroyTenants(admin, organisations)
     await runtime.end()
     await admin.end()
   })
@@ -139,6 +152,34 @@ describeDatabase("PostgreSQL-backed abuse limits", () => {
       testIp()
     )
     expect(other.status).toBe(401)
+  }, 120_000)
+
+  it("refuses a burst of Sync now presses per person, and not another tenant's", async () => {
+    await awayFromWindowEdge(SYNC_WINDOW_SECONDS)
+    const busy = await createTestTenant(admin)
+    const other = await createTestTenant(admin)
+    organisations.push(busy.organisationId, other.organisationId)
+    const syncNow = (cookie: string) =>
+      fetch(`${server.baseUrl}/api/sync/reconcile`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: "{}",
+      })
+    for (let attempt = 0; attempt < SYNC_USER_LIMIT; attempt += 1) {
+      const response = await syncNow(busy.cookie)
+      expect(response.status, await response.clone().text()).toBe(200)
+    }
+    const limited = await syncNow(busy.cookie)
+    expect(limited.status).toBe(429)
+    const retryAfter = Number(limited.headers.get("retry-after"))
+    expect(retryAfter).toBeGreaterThan(0)
+    expect(retryAfter).toBeLessThanOrEqual(SYNC_WINDOW_SECONDS)
+    expect(await limited.json()).toMatchObject({
+      error: "sync_rate_limited",
+      details: { retryAfter },
+    })
+    // Counted per person and organisation, so another tenant is untouched.
+    expect((await syncNow(other.cookie)).status).toBe(200)
   }, 120_000)
 
   it("counts concurrent hits exactly and allows no more than the limit", async () => {

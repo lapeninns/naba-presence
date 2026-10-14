@@ -159,7 +159,7 @@ describe("AI credit periods and reservations", () => {
   it("reserves, settles and counts credits", async () => {
     const id = await reserve(1)
     expect((await getAiCredits(sql, ORG)).used).toBe(1)
-    await settleDraftCredit(tenant, {
+    await settleDraftCredit(sql, {
       id,
       usage: { inputTokens: 10, outputTokens: 5 },
       model: "gpt",
@@ -251,7 +251,7 @@ describe("AI credit periods and reservations", () => {
     `)
     const next = await getAiCredits(sql, ORG)
     expect(next.periodId).not.toBe(original.id)
-    await settleDraftCredit(tenant, {
+    await settleDraftCredit(sql, {
       id,
       usage: { inputTokens: 1, outputTokens: 1 },
       model: "gpt",
@@ -425,7 +425,7 @@ describe("AI credit periods and reservations", () => {
     await db.exec(
       `update ai_usage set status = 'released', credits = 0 where id = '${id}'`
     )
-    await settleDraftCredit(tenant, {
+    await settleDraftCredit(sql, {
       id,
       usage: { inputTokens: 3, outputTokens: 4 },
       model: "gpt",

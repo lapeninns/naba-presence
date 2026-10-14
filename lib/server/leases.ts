@@ -1,13 +1,15 @@
 import "server-only"
 
+import { randomUUID } from "node:crypto"
+
 import type { Sql } from "postgres"
 
-import { getDatabase, withSessionConnection } from "@/lib/server/db"
+import { getDatabase } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 
 /**
- * One advisory lease per scheduled tick. The suffix after `naba:` is also the
+ * One fleet lease per scheduled tick. The suffix after `naba:` is also the
  * `ops_heartbeat` row the tick's runs are recorded in, so the lock
  * namespace and the liveness names are defined together and cannot drift.
  */
@@ -150,41 +152,114 @@ export async function recordTickCycleCompleted(key: LeaseKey) {
   }
 }
 
-export async function withAdvisoryLock<T>(
+/**
+ * How long a fleet lease lasts without renewal. Above the maxDuration (60 s)
+ * of every route that takes one, so a healthy tick never loses its lease,
+ * and a tick that was frozen or killed holding it frees it within this bound.
+ */
+export const FLEET_LEASE_SECONDS = 90
+
+/** A run still going renews its lease this often, well inside the expiry. */
+const FLEET_LEASE_RENEW_MS = 30_000
+
+async function renewFleetLease(connection: Sql, name: string, holder: string) {
+  try {
+    const renewed = await connection`
+      update fleet_lease
+      set expires_at = now() + make_interval(secs => ${FLEET_LEASE_SECONDS})
+      where name = ${name}
+        and holder = ${holder}
+      returning name
+    `
+    // Only possible after this holder stopped renewing for a whole expiry
+    // (a frozen instance that thawed): another tick may now hold the lease.
+    if (!renewed.length) log.warn("leases.lease_lost", { key: name })
+  } catch (error) {
+    log.warn("leases.renew_failed", { key: name, error })
+  }
+}
+
+/**
+ * Runs `fn` under the tick's fleet lease (0145), or returns `{ skipped }`
+ * when another run holds it.
+ *
+ * The lease is an expiring row rather than a session advisory lock: an
+ * advisory lock lives as long as its connection, so a function frozen with
+ * the socket open could hold a tick's lock indefinitely and skip every later
+ * fire (audit W8-05). A row whose expiry has passed is free to take. The
+ * holder renews it while `fn` runs; a frozen holder stops renewing, so its
+ * lease lapses within FLEET_LEASE_SECONDS. A crashed holder no longer frees
+ * the lease at once, as a closed connection did: the next fire after the
+ * expiry takes it.
+ *
+ * Plain pooled statements, so a tick no longer holds a session-pooler
+ * connection for its whole run.
+ *
+ * `options.scope` narrows the lease to one subject under the tick (an
+ * organisation's own sync now: `naba:reconcile:<organisationId>`), so tenants
+ * never wait on each other's manual runs. The run is still recorded on the
+ * tick's heartbeat row.
+ */
+export async function withFleetLease<T>(
   key: LeaseKey,
   fn: () => Promise<T>,
-  options: { trigger?: TickTrigger } = {}
+  options: { trigger?: TickTrigger; scope?: string } = {}
 ): Promise<T | { skipped: true }> {
   const trigger = options.trigger ?? "cron"
-  // The lock outlives many transactions, so it needs a session connection.
-  // Closing that connection also releases the lock (the pooler resets the
-  // backend with DISCARD ALL), so a failed unlock must not mask the tick's
-  // own outcome.
-  return withSessionConnection(async (connection) => {
-    const [lock] = await connection<{ acquired: boolean }[]>`
-      select pg_try_advisory_lock(hashtext(${key})) as acquired
-    `
-    if (!lock.acquired) {
-      await recordTickEvent(connection, key, trigger, "skipped")
-      return { skipped: true }
-    }
+  const name = options.scope ? `${key}:${options.scope}` : key
+  const connection = getDatabase()
+  const holder = randomUUID()
+  // Concurrent takers serialise on the row: the loser re-checks the expiry
+  // against the winner's row and updates nothing.
+  const [taken] = await connection<{ name: string }[]>`
+    insert into fleet_lease (name, holder, acquired_at, expires_at)
+    values (
+      ${name},
+      ${holder},
+      now(),
+      now() + make_interval(secs => ${FLEET_LEASE_SECONDS})
+    )
+    on conflict (name) do update
+    set holder = excluded.holder,
+        acquired_at = excluded.acquired_at,
+        expires_at = excluded.expires_at
+    where fleet_lease.expires_at <= now()
+    returning name
+  `
+  if (!taken) {
+    await recordTickEvent(connection, key, trigger, "skipped")
+    return { skipped: true }
+  }
+  // Renewals are chained, so the release below can wait for the last one
+  // and never be overtaken by it.
+  let renewal: Promise<void> = Promise.resolve()
+  const timer = setInterval(() => {
+    renewal = renewal.then(() => renewFleetLease(connection, name, holder))
+  }, FLEET_LEASE_RENEW_MS)
+  timer.unref?.()
+  try {
+    await recordTickEvent(connection, key, trigger, "started")
+    let result: T
     try {
-      await recordTickEvent(connection, key, trigger, "started")
-      let result: T
-      try {
-        result = await fn()
-      } catch (error) {
-        await recordTickEvent(connection, key, trigger, "failed", error)
-        throw error
-      }
-      await recordTickEvent(connection, key, trigger, "completed")
-      return result
-    } finally {
-      await connection`
-        select pg_advisory_unlock(hashtext(${key}))
-      `.catch((error: unknown) => {
-        log.warn("leases.unlock_failed", { key, error })
-      })
+      result = await fn()
+    } catch (error) {
+      await recordTickEvent(connection, key, trigger, "failed", error)
+      throw error
     }
-  })
+    await recordTickEvent(connection, key, trigger, "completed")
+    return result
+  } finally {
+    clearInterval(timer)
+    await renewal
+    // A failed release must not mask the tick's own outcome: the lease
+    // simply runs out.
+    await connection`
+      update fleet_lease
+      set expires_at = now()
+      where name = ${name}
+        and holder = ${holder}
+    `.catch((error: unknown) => {
+      log.warn("leases.release_failed", { key, error })
+    })
+  }
 }

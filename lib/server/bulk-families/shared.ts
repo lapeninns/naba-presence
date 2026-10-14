@@ -113,11 +113,16 @@ export async function outcomeOfThrownWrite(
   const rateLimited =
     code === "google_rate_limited" ||
     (error instanceof ApiError && error.status === 429)
+  // The write session refused to send a write it could not wait for
+  // (lib/server/google-write-session.ts): nothing reached Google, so a
+  // later claim, with a fresh budget, sends it.
+  const outOfTime = code === "google_write_budget_exhausted"
   if (!receipt) {
     if (error instanceof GoogleMutationAmbiguousError)
       return { kind: "ambiguous", code: "response_ambiguous" }
     if (!(error instanceof ApiError)) throw error
     if (rateLimited) return { kind: "deferred", code: "google_rate_limited" }
+    if (outOfTime) return { kind: "deferred", code }
     if (isPaused(error)) return { kind: "deferred", code: "publishing_paused" }
     return { kind: "failed", code }
   }
@@ -131,6 +136,7 @@ export async function outcomeOfThrownWrite(
       // Google refused or the write was not applied: final for this claim,
       // except quota pressure, which a later claim may send again.
       if (rateLimited) return { kind: "deferred", code: "google_rate_limited" }
+      if (outOfTime) return { kind: "deferred", code }
       return { kind: "failed", code: `provider_rejected:${code}` }
     default:
       return {
