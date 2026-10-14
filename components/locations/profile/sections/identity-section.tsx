@@ -1,6 +1,12 @@
 "use client"
 
-import { useState, type Dispatch, type SetStateAction } from "react"
+import {
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react"
 
 import {
   CategoryPickerSheet,
@@ -192,6 +198,13 @@ export function CategoriesSection({
   // category search in a full sheet from a settings row (behaviour, so JS).
   const desk = useBreakpoint("desk")
   const [picking, setPicking] = useState<"primary" | "additional" | null>(null)
+  // The phone's opener rows (a settings row has no ref of its own), for the
+  // sheets to hand focus back to: a tap in Safari never focuses a button.
+  const primaryRowRef = useRef<HTMLDivElement>(null)
+  const additionalRowRef = useRef<HTMLDivElement>(null)
+  // A stable target for when "Add another category" is disabled on close
+  // (the 9th category filled the list inside the sheet).
+  const additionalLabelRef = useRef<HTMLSpanElement>(null)
   const setPrimary = (category: CategoryRef) =>
     setDraft((d) => ({
       ...d,
@@ -258,26 +271,29 @@ export function CategoriesSection({
         </div>
       ) : (
         <>
-          <SettingsRow
-            label="Primary category"
-            changed={changed.primary ? "Changed" : undefined}
-            value={
-              draft.primaryCategory
-                ? categoryLabel(draft.primaryCategory)
-                : undefined
-            }
-            description={
-              draft.primaryCategory ? undefined : "No primary category set."
-            }
-            disabled={disabled}
-            onClick={() => setPicking("primary")}
-          />
+          <div ref={primaryRowRef} className="min-w-0">
+            <SettingsRow
+              label="Primary category"
+              changed={changed.primary ? "Changed" : undefined}
+              value={
+                draft.primaryCategory
+                  ? categoryLabel(draft.primaryCategory)
+                  : undefined
+              }
+              description={
+                draft.primaryCategory ? undefined : "No primary category set."
+              }
+              disabled={disabled}
+              onClick={() => setPicking("primary")}
+            />
+          </div>
           <CategoryPickerSheet
             locationId={locationId}
             title="Change primary category"
             type="single"
             open={picking === "primary"}
             onOpenChange={(open) => setPicking(open ? "primary" : null)}
+            finalFocus={() => enabledButtonIn(primaryRowRef) ?? true}
             isSelected={(category) =>
               category.name === draft.primaryCategory?.name
             }
@@ -295,7 +311,11 @@ export function CategoriesSection({
             </span>
           }
         >
-          <span className="text-ui font-medium text-ink">
+          <span
+            ref={additionalLabelRef}
+            tabIndex={-1}
+            className="rounded-(--np-radius-tag) text-ui font-medium text-ink outline-none focus-visible:ring-2 focus-visible:ring-(--np-focus-ring) forced-colors:focus-visible:outline-2"
+          >
             Additional categories
           </span>
         </LabelRow>
@@ -329,17 +349,24 @@ export function CategoriesSection({
           />
         ) : (
           <>
-            <SettingsRow
-              label="Add another category"
-              disabled={disabled || full}
-              onClick={() => setPicking("additional")}
-            />
+            <div ref={additionalRowRef} className="min-w-0">
+              <SettingsRow
+                label="Add another category"
+                disabled={disabled || full}
+                onClick={() => setPicking("additional")}
+              />
+            </div>
             <CategoryPickerSheet
               locationId={locationId}
               title="Add another category"
               type="multiple"
               open={picking === "additional"}
               onOpenChange={(open) => setPicking(open ? "additional" : null)}
+              finalFocus={() =>
+                enabledButtonIn(additionalRowRef) ??
+                additionalLabelRef.current ??
+                true
+              }
               isSelected={(category) =>
                 draft.additionalCategories.some((c) => c.name === category.name)
               }
@@ -361,4 +388,10 @@ export function CategoriesSection({
       </div>
     </SectionCard>
   )
+}
+
+/** The enabled button inside a wrapper, or null when it is gone or disabled. */
+function enabledButtonIn(ref: RefObject<HTMLElement | null>) {
+  const button = ref.current?.querySelector<HTMLButtonElement>("button")
+  return button && !button.disabled ? button : null
 }

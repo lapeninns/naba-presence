@@ -440,7 +440,14 @@ export function OpeningSection({
               choose("CLOSED_PERMANENTLY")
             }}
           >
-            <SheetContent variant="inset">
+            <SheetContent
+              variant="inset"
+              // Back to the row that opened it: a tap in Safari never
+              // focuses a button, so the default would land on <body>.
+              finalFocus={() =>
+                rowRef.current?.querySelector<HTMLElement>("button") ?? true
+              }
+            >
               <SheetHeader>
                 <SheetTitle>Open status</SheetTitle>
               </SheetHeader>

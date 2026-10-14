@@ -195,6 +195,9 @@ export const menuFieldId = {
 const itemRowId = (s: number, i: number, m = 0) =>
   `${menuFieldId.itemName(s, i, m)}-row`
 
+/** The menu search field: focus falls back here when a filtered row is gone. */
+const MENU_SEARCH_ID = "menu-search"
+
 /** Where a field id points: its menu, and its section and item if any. */
 function parseFieldId(
   fieldId: string
@@ -1005,6 +1008,7 @@ export function MenuEditor({
             >
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Input
+                  id={MENU_SEARCH_ID}
                   type="search"
                   aria-label="Search menu"
                   placeholder="Search items, descriptions or sections"
@@ -1240,6 +1244,7 @@ export function MenuEditor({
           }
           focusId={sheet.focusId}
           rowId={itemRowId(sheet.s, sheet.i, activeIndex)}
+          fallbackFocusId={MENU_SEARCH_ID}
           item={sheet.item}
           sectionName={sheet.sectionName}
           sectionIndex={sheet.s}

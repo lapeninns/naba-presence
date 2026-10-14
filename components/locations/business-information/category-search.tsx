@@ -157,8 +157,11 @@ export function CategoryPickerSheet({
   unavailable?: (category: CategoryRef) => string | null
   onSelect: (category: CategoryRef) => void
   onDeselect?: (category: CategoryRef) => void
-  /** Where focus goes when the sheet closes (the row that opened it). */
-  finalFocus?: React.RefObject<HTMLElement | null>
+  /**
+   * Where focus goes when the sheet closes (the row that opened it, or a
+   * stable target when that row is gone or disabled).
+   */
+  finalFocus?: React.ComponentProps<typeof SheetContent>["finalFocus"]
 }) {
   const [query, setQuery] = useState("")
   const inputId = useId()

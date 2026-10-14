@@ -267,6 +267,7 @@ export function MenuItemSheet({
   onClose,
   focusId,
   rowId,
+  fallbackFocusId,
   item,
   sectionName,
   sectionIndex,
@@ -287,6 +288,11 @@ export function MenuItemSheet({
   /** The field to focus when the sheet opens; else the sheet's default. */
   focusId?: string
   rowId: string
+  /**
+   * Where focus goes on close when the item's row has unmounted (it no
+   * longer matches the search or the "changed only" filter).
+   */
+  fallbackFocusId?: string
   item: Json
   sectionName: string
   sectionIndex: number
@@ -318,7 +324,11 @@ export function MenuItemSheet({
         initialFocus={() =>
           (focusId ? document.getElementById(focusId) : null) ?? true
         }
-        finalFocus={() => document.getElementById(rowId) ?? true}
+        finalFocus={() =>
+          document.getElementById(rowId) ??
+          (fallbackFocusId ? document.getElementById(fallbackFocusId) : null) ??
+          true
+        }
       >
         <SheetHeader>
           <SheetTitle className="break-words">

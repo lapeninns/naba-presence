@@ -297,6 +297,9 @@ export function HoursEditor({
   const [removeType, setRemoveType] = useState<string | null>(null)
   const headingId = useId()
   const specialHeadingId = useId()
+  // A special day's row, by its stable key, for focus to return to.
+  const specialRowPrefix = useId()
+  const specialRowId = (key: number) => `${specialRowPrefix}special-row-${key}`
   const [copyFrom, setCopyFrom] = useState<number | null>(null)
   // The periods a day had when it was switched off, so switching it back on
   // brings them back instead of resetting to 09:00–17:00.
@@ -805,6 +808,7 @@ export function HoursEditor({
             return (
               <ListRow
                 key={key}
+                id={specialRowId(key)}
                 as="li"
                 flush
                 emphasis="neutral"
@@ -887,9 +891,13 @@ export function HoursEditor({
             }}
             finalFocus={() =>
               // The removed day's row is gone: land on the group's heading.
+              // Otherwise return to the day's own row, which for a day just
+              // added is not the button that opened the sheet.
               removedRef.current
                 ? (document.getElementById(specialHeadingId) ?? true)
-                : true
+                : ((sheetKey === null
+                    ? null
+                    : document.getElementById(specialRowId(sheetKey))) ?? true)
             }
           >
             {sheetEntry ? (
