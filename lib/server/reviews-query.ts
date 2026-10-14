@@ -20,6 +20,12 @@ export type InboxFilters = ReviewsQuery & {
   canPublish: boolean
   /** Organisation setting; decides whether a requester may approve their own. */
   requireTwoPersonApproval: boolean
+  /**
+   * One review only: server-side, never on the wire. A review write answers
+   * with its row through this same projection (`readReviewRow`), so the row
+   * the client patches into the list cannot drift from the one the list reads.
+   */
+  reviewId?: string
 }
 
 /**
@@ -167,6 +173,7 @@ export function buildInboxQuery(
     where r.organisation_id =
       nullif(current_setting('app.organisation_id', true), '')::uuid
       and r.provider_deleted_at is null
+      ${filters.reviewId ? sql`and r.id = ${filters.reviewId}` : sql``}
       ${
         locationIdsFor(filters)
           ? sql`and r.location_id in ${sql(locationIdsFor(filters)!)}`

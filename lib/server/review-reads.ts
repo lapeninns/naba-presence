@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import {
+  DEFAULT_REVIEW_SORT,
   encodeReviewsCursor,
   type ReviewCapabilities,
   type ReviewsCursor,
@@ -13,6 +14,7 @@ import {
   reviewCapabilitiesForLocations,
 } from "@/lib/server/capabilities"
 import { ApiError } from "@/lib/server/http"
+import { log } from "@/lib/server/logger"
 import { visibilityPredicate } from "@/lib/server/permissions"
 import { buildInboxQuery } from "@/lib/server/reviews-query"
 import type { Session } from "@/lib/server/session"
@@ -247,5 +249,63 @@ export async function readReviewDetail(
     ...row,
     timeline,
     capabilities,
+  }
+}
+
+/**
+ * One review as a list row: the same projection and capabilities as
+ * `readReviewsPage`, for a write to hand back the row it changed. Null when
+ * the session cannot see it (or Google deleted it).
+ */
+export async function readReviewRow(
+  sql: TransactionSql,
+  session: Session,
+  id: string
+) {
+  const [row] = await buildInboxQuery(sql, {
+    reviewId: id,
+    sort: DEFAULT_REVIEW_SORT,
+    pageSize: 1,
+    role: session.role,
+    userId: session.userId,
+    canPublish: session.canPublish,
+    // Decides queue membership only; no queue filter is applied here.
+    requireTwoPersonApproval: false,
+  })
+  if (!row) return null
+  const capabilities = await reviewCapabilitiesForLocations(sql, session, [
+    row.location.id,
+  ])
+  return {
+    ...row,
+    capabilities: capabilities.get(row.location.id) ?? NO_CAPABILITIES,
+  }
+}
+
+/**
+ * The review after a write, read in a fresh transaction once the write has
+ * committed: `row` in the list's shape and `detail` in the detail route's, so
+ * the client patches both caches from the response instead of refetching
+ * every loaded list page (lib/queries/invalidate.ts).
+ *
+ * Best effort. The write has already happened, so a failed read must not turn
+ * it into an error: the fields are left out and the client falls back to
+ * refetching the detail.
+ */
+export async function readReviewWriteSnapshot(
+  tenant: <T>(fn: (sql: TransactionSql) => Promise<T>) => Promise<T>,
+  session: Session,
+  id: string,
+  requestId?: string
+) {
+  try {
+    return await tenant(async (sql) => {
+      const review = await readReviewDetail(sql, session, id)
+      const row = await readReviewRow(sql, session, id)
+      return { ...(row ? { row } : {}), detail: { review } }
+    })
+  } catch (error) {
+    log.warn("review.write_snapshot_failed", { requestId, reviewId: id, error })
+    return {}
   }
 }

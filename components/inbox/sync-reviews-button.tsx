@@ -11,6 +11,7 @@ import { fetchReviewCounts, type ReviewCounts } from "@/lib/api/review-counts"
 import { triggerReviewSync } from "@/lib/api/sync"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { formatNumber } from "@/lib/format"
+import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 import { queryKeys } from "@/lib/queries/keys"
 
 /**
@@ -41,11 +42,10 @@ export function SyncReviewsButton({ canSync }: { canSync: boolean }) {
         setError("A sync is already running. Try again in a moment.")
         return
       }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.reviewsAll }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.reviewCountsAll }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.clientsAll }),
-      ])
+      // In the background: the toast waits only on the counts read below,
+      // which joins the counts refetch this starts rather than sending a
+      // second request.
+      invalidateReviewBatch(queryClient)
       const failure = result.failures?.[0]?.errorCode
       if (failure) {
         setError(describeActionError(new ApiClientError(502, failure, failure)))

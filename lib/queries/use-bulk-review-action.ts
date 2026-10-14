@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 
 import { runBulkReviewAction } from "@/lib/api/review-bulk"
-import { queryKeys } from "@/lib/queries/keys"
+import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 
 /**
  * Bulk approve, assign or mark-reviewed over a selection.
@@ -17,13 +17,10 @@ export function useBulkReviewAction() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: runBulkReviewAction,
-    onSuccess: (result) => {
-      void client.invalidateQueries({ queryKey: queryKeys.reviewsAll })
-      void client.invalidateQueries({ queryKey: queryKeys.reviewCountsAll })
-      void client.invalidateQueries({ queryKey: queryKeys.clientsAll })
-      for (const row of result.results) {
-        void client.invalidateQueries({ queryKey: queryKeys.reviewDetail(row.reviewId) })
-      }
-    },
+    onSuccess: (result) =>
+      invalidateReviewBatch(
+        client,
+        result.results.map((row) => row.reviewId)
+      ),
   })
 }
