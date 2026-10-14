@@ -39,7 +39,7 @@ import {
   type SemanticOutcome,
 } from "@/lib/server/drafts"
 import { getServerEnv } from "@/lib/server/env"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import {
   intentConflict,
   requestScopedKeyPart,
@@ -233,7 +233,11 @@ async function replayGeneration(
         verification: {
           id: stored.verificationId,
           verdict: stored.verdict,
-          reasons: verificationReasonSchema.array().parse(stored.reasons),
+          reasons: parseStored(
+            verificationReasonSchema.array(),
+            stored.reasons,
+            "verification_result.reasons"
+          ),
         },
       }
     }

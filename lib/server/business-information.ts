@@ -41,7 +41,7 @@ import {
   startGbpMutation,
 } from "@/lib/server/gbp-management"
 import { classifyFailure, type GbpWritePhase } from "@/lib/server/gbp-write"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 const READ_MASK = [
@@ -225,18 +225,18 @@ export async function confirmBusinessInformation(session: Session, locationId: s
       from gbp_management_mutation where id = ${mutationId} and location_id = ${locationId} and ((resource_type = 'business_info' and change_set_id is not null) or resource_type = 'attributes')
     `
     if (!attempt) throw new ApiError(404, "mutation_not_found", "The profile change was not found.")
-    const attributes = attempt.resource_type === "attributes" ? z.array(googleAttributeSchema).parse(attempt.requested_payload) : null
+    const attributes = attempt.resource_type === "attributes" ? parseStored(z.array(googleAttributeSchema), attempt.requested_payload, "gbp_management_mutation.requested_payload") : null
     const resourceName = attributes !== null ? `${linked.googleLocationName}/attributes` : linked.googleLocationName
     if (attempt.target_resource_name !== resourceName || attempt.google_account_id !== linked.googleAccountId) throw new ApiError(409, "google_target_changed", "This location is linked to a different Google target. The earlier change cannot be confirmed here.")
     if (attempt.status === "succeeded" && attempt.confirmation_state === "confirmed") return { id: mutationId, status: "succeeded", idempotent: true, confirmationState: "confirmed" }
     if (!attempt.recovery_ready) throw new ApiError(409, "mutation_not_ready", "This change cannot be checked yet. An interrupted request can be checked after five minutes.")
-    const payload = attributes !== null ? {} : businessInformationPayloadSchema.parse(attempt.requested_payload)
+    const payload = attributes !== null ? {} : parseStored(businessInformationPayloadSchema, attempt.requested_payload, "gbp_management_mutation.requested_payload")
     if (attributes === null) assertBusinessInformationMask(payload, attempt.update_mask)
     const token = await connectionAccessToken(getDatabase(), session.organisationId, linked.connectionId)
     const result = await observeAndConfirmGbpMutation({
       organisationId: session.organisationId, mutationId, payload: attributes !== null ? { attributes } : payload, updateMask: attempt.update_mask,
       executionState: attempt.execution_state === "accepted" ? "accepted" : "unknown",
-      response: attempt.google_response == null ? undefined : z.record(z.string(), z.unknown()).parse(attempt.google_response),
+      response: attempt.google_response == null ? undefined : parseStored(z.record(z.string(), z.unknown()), attempt.google_response, "gbp_management_mutation.google_response"),
       matches: (observed) => attributes !== null ? googleAttributesMatch(observed, attributes, attempt.update_mask) : businessInformationMatches(payload, observed, attempt.update_mask),
       observe: () => attributes !== null ? getGoogleLocationAttributes(token, linked.googleLocationName, { connectionKey: linked.connectionId }) : getGoogleLocation(token, linked.googleLocationName, [...READ_MASK], { connectionKey: linked.connectionId }),
       onObserved: (response) => cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType: attempt.resource_type, resourceName, payload: response }),

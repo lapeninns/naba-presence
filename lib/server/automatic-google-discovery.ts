@@ -3,7 +3,7 @@ import "server-only"
 import { z } from "zod"
 
 import { googleAccounts, googleLocations } from "@/lib/server/google"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseUpstream } from "@/lib/server/http"
 
 const accountSchema = z
   .object({
@@ -53,7 +53,12 @@ export async function discoverAutomaticGoogleCandidate(input: {
     const response = await googleAccounts(input.accessToken, accountPageToken, {
       connectionKey: input.connectionId,
     })
-    accounts.push(...z.array(accountSchema).parse(response.accounts ?? []))
+    accounts.push(
+      ...parseUpstream(z.array(accountSchema), response.accounts ?? [], {
+        provider: "google",
+        operation: "accounts.list",
+      })
+    )
     accountPageToken = response.nextPageToken
     if (accountPageToken) {
       if (seenAccountTokens.has(accountPageToken)) {
@@ -82,7 +87,12 @@ export async function discoverAutomaticGoogleCandidate(input: {
       locationPageToken,
       { connectionKey: input.connectionId }
     )
-    locations.push(...z.array(locationSchema).parse(response.locations ?? []))
+    locations.push(
+      ...parseUpstream(z.array(locationSchema), response.locations ?? [], {
+        provider: "google",
+        operation: "locations.list",
+      })
+    )
     locationPageToken = response.nextPageToken
     if (locationPageToken) {
       if (seenLocationTokens.has(locationPageToken)) {
