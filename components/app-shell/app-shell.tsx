@@ -14,6 +14,7 @@ import type { NavigationContext } from "@/lib/navigation/destinations"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
 import { useClients } from "@/lib/queries/use-clients"
+import { useShellStatus } from "@/lib/queries/use-shell-status"
 import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
@@ -251,6 +252,8 @@ function AppShell({
     queryFn: (ctx) => fetchSession(requestOptions(ctx)),
     enabled: sessionReady,
   }).data?.session
+  // The badges' and connections' one poll, for every page under the shell.
+  useShellStatus(sessionReady)
   const organisationName =
     liveSession?.organisationName ?? session?.organisationName ?? null
   const role = liveSession?.role ?? session?.role ?? null

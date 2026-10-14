@@ -110,6 +110,8 @@ const COPY: Record<string, string> = {
   // allowance: waiting is enough.
   draft_rate_limited:
     "Too many drafts were requested in a short time. Wait a moment and try again.",
+  discovery_rate_limited:
+    "Google accounts and locations were refreshed too often. Wait a few minutes and try again.",
   google_writes_paused: "Publishing to Google is currently unavailable.",
   // A Business Profile API Google has switched off for good (Business Calls,
   // provider attributes, insurance networks, Q&A). No retry will help.

@@ -78,6 +78,11 @@ export const GET = route({
   query: (searchParams) => ({
     connectionId: searchParams.get("connection_id"),
   }),
+  limits: ({ session }) => ({
+    scope: "google_discovery",
+    user: session.userId,
+    organisation: session.organisationId,
+  }),
   handler: async ({ session, query, tenant }) => {
     const connection = await tenant(async (sql) => {
       const [found] = query.connectionId
@@ -112,10 +117,26 @@ export const GET = route({
       connection.id
     )
     const discovered = await discoverAccounts(accessToken, connection.id)
+    // One statement for every discovered account (W3-01), not one per row.
+    // Keyed by name, last wins: a name listed twice would otherwise make the
+    // upsert touch one row twice, which Postgres refuses.
+    const byName = new Map<string, Record<string, unknown>>()
+    for (const account of discovered) {
+      const name = String(account.name ?? "")
+      if (name) byName.set(name, account)
+    }
+    const rows = [...byName].map(([name, account]) => ({
+      name,
+      accountName: String(account.accountName ?? account.name ?? ""),
+      type: account.type ? String(account.type) : null,
+      role: account.role ? String(account.role) : null,
+      permissionLevel: account.permissionLevel
+        ? String(account.permissionLevel)
+        : null,
+      payload: JSON.stringify(account),
+    }))
     const accounts = await tenant(async (sql) => {
-      for (const account of discovered) {
-        const name = String(account.name ?? "")
-        if (!name) continue
+      if (rows.length) {
         await sql`
           insert into google_account (
             organisation_id,
@@ -128,16 +149,25 @@ export const GET = route({
             raw_payload,
             raw_content_expires_at
           )
-          values (
+          select
             ${session.organisationId},
             ${connection.id},
-            ${name},
-            ${String(account.accountName ?? account.name ?? "")},
-            ${account.type ? String(account.type) : null},
-            ${account.role ? String(account.role) : null},
-            ${account.permissionLevel ? String(account.permissionLevel) : null},
-            ${sql.json(JSON.parse(JSON.stringify(account)))},
+            discovered.name,
+            discovered.account_name,
+            discovered.account_type,
+            discovered.role,
+            discovered.permission_level,
+            discovered.payload::jsonb,
             now() + interval '30 days'
+          from unnest(
+            ${rows.map((row) => row.name)}::text[],
+            ${rows.map((row) => row.accountName)}::text[],
+            ${rows.map((row) => row.type)}::text[],
+            ${rows.map((row) => row.role)}::text[],
+            ${rows.map((row) => row.permissionLevel)}::text[],
+            ${rows.map((row) => row.payload)}::text[]
+          ) as discovered(
+            name, account_name, account_type, role, permission_level, payload
           )
           on conflict (organisation_id, google_account_name) do update
           set

@@ -53,6 +53,11 @@ export const GET = route({
   query: (searchParams) => ({
     accountFilter: searchParams.get("account_name"),
   }),
+  limits: ({ session }) => ({
+    scope: "google_discovery",
+    user: session.userId,
+    organisation: session.organisationId,
+  }),
   handler: async ({ session, query, tenant }) => {
     const { accountFilter } = query
     const accounts = await tenant(async (sql) => {

@@ -32,6 +32,8 @@ export const queryKeys = {
   clientSetup: (id: string) => ["clients", id, "setup"] as const,
   clientReportShares: (id: string) => ["clients", id, "report-shares"] as const,
   connections: ["connections"] as const,
+  // The shell's one poll; it seeds the counts, connections and badge keys.
+  shellStatus: ["shell-status"] as const,
   // Operational notifications: the per-viewer list and unread count, and the
   // viewer's own preferences. Rooted together so a read or resolve refreshes both.
   notificationsAll: ["operational-notifications"] as const,
