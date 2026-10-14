@@ -3,6 +3,7 @@ import "server-only"
 import type { TransactionSql } from "postgres"
 
 import { writeAudit } from "@/lib/server/audit"
+import { sha256 } from "@/lib/server/crypto"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
@@ -87,10 +88,158 @@ export function withdrawalRetryDelayMs(attempts: number) {
   )
 }
 
+/** What a privacy request matches reviews on. */
+export type SubjectRequest = {
+  id: string
+  subjectReference: string
+  /**
+   * Reviews an earlier fulfil already scrubbed and could not withdraw from
+   * Google, matched by id (see the PATCH's LockedRequest).
+   */
+  pendingReviewIds: string[]
+}
+
+type SubjectMatch = {
+  id: string
+  byReference: boolean
+  externalLocationId: string | null
+  profilePhotoUrl: string | null
+}
+
+/**
+ * The reviews a request names: by id when an earlier fulfil parked them, by
+ * the hash of a Google review id or name, or by display name, ignoring
+ * case. The display-name arm is what the subject usually knows, and also
+ * what other people share, so an erasure is only carried out against a
+ * previewed match set (`previewSubjectMatches`).
+ *
+ * `lock` takes the reviews' row locks in id order, so a legal hold applied
+ * meanwhile (every hold insert locks the same row: legal_hold_lock_review,
+ * 0139) either commits first and is seen by the caller's hold check, or
+ * waits for the erasure.
+ */
+export async function matchSubjectReviews(
+  sql: TransactionSql,
+  request: SubjectRequest,
+  { lock = false }: { lock?: boolean } = {}
+): Promise<SubjectMatch[]> {
+  const hash = sha256(request.subjectReference)
+  return sql<SubjectMatch[]>`
+    select
+      id::text as id,
+      (
+        id = any(${request.pendingReviewIds}::uuid[])
+        or google_review_id_hash = ${hash}
+        or google_review_name_hash = ${hash}
+      ) as "byReference",
+      external_location_id::text as "externalLocationId",
+      reviewer_profile_photo_url as "profilePhotoUrl"
+    from review
+    where id = any(${request.pendingReviewIds}::uuid[])
+      or google_review_id_hash = ${hash}
+      or google_review_name_hash = ${hash}
+      or lower(coalesce(reviewer_display_name, '')) =
+        lower(${request.subjectReference})
+    order by id
+    ${lock ? sql`for no key update` : sql``}
+  `
+}
+
+/**
+ * What fulfilling an erasure would touch, for the owner to confirm before
+ * anything is erased (audit R2B-02). `confirmation` names exactly this match
+ * set: the PATCH recomputes it under the row locks and refuses with 409
+ * `privacy_erasure_unconfirmed` when it differs, so a set that grew between
+ * preview and fulfil is shown again rather than erased.
+ */
+export type ErasurePreview = {
+  reviews: number
+  /**
+   * Distinct reviewer profiles among them, by profile photo link; a review
+   * without one counts on its own. More than one means the name probably
+   * belongs to several people.
+   */
+  reviewers: number
+  /** Reviews matched by display name only, not by a review id. */
+  matchedByNameOnly: number
+  locations: number
+  /** Replies still live (or queued) at Google that would be withdrawn. */
+  repliesToWithdraw: number
+  /** Matched reviews under an active legal hold: the erasure is refused. */
+  heldReviews: number
+  confirmation: string
+}
+
+/** The confirmation token for one request's match set. */
+export function erasureConfirmation(requestId: string, reviewIds: string[]) {
+  return sha256(
+    `privacy-erasure:${requestId}:${[...reviewIds].sort().join(",")}`
+  )
+}
+
+export async function previewSubjectMatches(
+  sql: TransactionSql,
+  request: SubjectRequest,
+  matches?: SubjectMatch[]
+): Promise<ErasurePreview> {
+  const rows = matches ?? (await matchSubjectReviews(sql, request))
+  const reviewIds = rows.map(({ id }) => id)
+  const [counts] = reviewIds.length
+    ? await sql<{ replies: number; held: number }[]>`
+        select
+          (
+            select count(*)::int
+            from review_reply
+            where review_id in ${sql(reviewIds)}
+              and publish_status not in ${sql([...WITHDRAWN_REPLY_STATUSES])}
+          ) as replies,
+          (
+            select count(distinct review_id)::int
+            from legal_hold
+            where review_id in ${sql(reviewIds)}
+              and released_at is null
+          ) as held
+      `
+    : [{ replies: 0, held: 0 }]
+  return {
+    reviews: rows.length,
+    reviewers: new Set(
+      rows.map((row) => row.profilePhotoUrl ?? `review:${row.id}`)
+    ).size,
+    matchedByNameOnly: rows.filter((row) => !row.byReference).length,
+    locations: new Set(rows.map((row) => row.externalLocationId)).size,
+    repliesToWithdraw: counts?.replies ?? 0,
+    heldReviews: counts?.held ?? 0,
+    confirmation: erasureConfirmation(request.id, reviewIds),
+  }
+}
+
+/**
+ * The review id in review_legal_hold_guard's refusal (0139: SQLSTATE 23514,
+ * message `review_legal_hold`, the review id as detail), or null for any
+ * other error. A hold committed after the caller's own hold check surfaces
+ * this way.
+ */
+export function legalHoldViolation(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null
+  const { code, message, detail } = error as {
+    code?: unknown
+    message?: unknown
+    detail?: unknown
+  }
+  return code === "23514" &&
+    message === "review_legal_hold" &&
+    typeof detail === "string"
+    ? detail
+    : null
+}
+
 export type ErasureScrub = {
   reviewsAffected: number
   mediaRemoved: number
   draftsRedacted: number
+  /** verification_result rows whose reason messages were replaced. */
+  verificationsRedacted: number
   repliesRedacted: number
   attemptBodiesRedacted: number
   /** Reviews whose reply still has to be withdrawn at Google. */
@@ -127,10 +276,17 @@ export async function scrubAttemptBodies(
  * Beyond the review row, the reviewer's name lives in every derived body:
  * `lib/domain/rating-only.ts` greets the reviewer by name, and that string is
  * stored in `draft.body`, copied into `review_reply.current_body` by
- * `startPublishIntent` and into `publish_attempt.intended_body`. None of
- * those three tables is touched by the retention sweep, so an erasure that
- * only anonymises `review` leaves the name readable indefinitely -- and
- * readable back out through the subject export.
+ * `startPublishIntent` and into `publish_attempt.intended_body`. The
+ * semantic verifier's `unsupported_claim` reasons (lib/server/ai.ts) are
+ * model-written text that routinely quotes the reply, and so the name, in
+ * `verification_result.reasons[].message`. None of those tables is touched
+ * by the retention sweep, so an erasure that only anonymises `review` leaves
+ * the name readable indefinitely -- and readable back out through the
+ * subject export and the review detail.
+ *
+ * Every write here is under a row lock the caller holds on the reviews
+ * (`matchSubjectReviews`), and review_legal_hold_guard (0139) refuses the
+ * review update for a review held after the caller's own hold check.
  */
 export async function eraseReviews(
   sql: TransactionSql,
@@ -166,10 +322,49 @@ export async function eraseReviews(
       and body <> ${ERASED_DRAFT_BODY}
     returning id
   `
+  // The verdict, codes and severities stay: they are the record of what the
+  // check found, and replay parses each reason with verificationReasonSchema,
+  // so `message` stays a string. The draft they describe is gone (above), so
+  // no message is worth keeping.
+  const verifications = await sql`
+    update verification_result v
+    set reasons = (
+      select coalesce(
+        jsonb_agg(
+          case
+            when jsonb_typeof(item.reason) = 'object' and item.reason ? 'message'
+              then jsonb_set(
+                item.reason,
+                '{message}',
+                to_jsonb(${ERASED_DRAFT_BODY}::text)
+              )
+            else item.reason
+          end
+          order by item.position
+        ),
+        '[]'::jsonb
+      )
+      from jsonb_array_elements(v.reasons)
+        with ordinality as item(reason, position)
+    )
+    where v.draft_id in (
+        select id from draft where review_id in ${sql(reviewIds)}
+      )
+      and jsonb_typeof(v.reasons) = 'array'
+      and exists (
+        select 1
+        from jsonb_array_elements(v.reasons) as item(reason)
+        where jsonb_typeof(item.reason) = 'object'
+          and item.reason ? 'message'
+          and item.reason ->> 'message' is distinct from ${ERASED_DRAFT_BODY}
+      )
+    returning v.id
+  `
   const counts = {
     reviewsAffected: reviews.count,
     mediaRemoved: media.count,
     draftsRedacted: drafts.count,
+    verificationsRedacted: verifications.count,
   }
 
   const replies = await sql<
@@ -208,6 +403,15 @@ export async function eraseReviews(
     reason: "subject_erasure",
   })
   const attemptBodiesRedacted = await scrubAttemptBodies(sql, replyIds)
+  // Google's error body for a failed write may echo the reply. Nothing reads
+  // the column (current code never writes it), so it goes whatever the
+  // attempt's state.
+  await sql`
+    update publish_attempt
+    set provider_error_body = null
+    where review_reply_id in ${sql(replyIds)}
+      and provider_error_body is not null
+  `
   const redacted = await sql`
     update review_reply
     set current_body = null

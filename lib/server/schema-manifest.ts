@@ -146,5 +146,6 @@ export const REQUIRED_MIGRATIONS: readonly string[] = [
   "0136_review_reply_review_id_index",
   "0137_review_reply_pending_draft_index",
   "0138_approval_decision_review_id_index",
+  "0139_legal_hold_enforcement",
   "20260729000400_remove_local_demo_data",
 ]

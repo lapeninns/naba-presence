@@ -1431,7 +1431,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `hours_sync_attempt` | operational | delete | expires_at (365 days after it is created); in-flight rows aged to ambiguous after 24 hours | `hoursAttempts`, `strandedHours`, cascade from `external_location` | gated | cascade only | internal |
 | `invitation` | customer | keep | kept after it is accepted or expires | none | none | no | pending D-47: keep accepted and expired invitations (email, role, inviter) for the life of the organisation |
 | `invitation_delivery` | operational | keep | with its invitation; deleted when the invitation is revoked | none | none | no | lifecycle |
-| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record | cascade from `review` | gated | yes | lifecycle |
+| `legal_hold` | customer | keep | with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0139) | cascade from `review` | gated | yes | lifecycle |
 | `location` | customer | keep | for the life of the location | none | none | no | lifecycle |
 | `location_link` | customer | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | lifecycle |
 | `location_member` | customer | keep | while the person is assigned to the location | none | none | no | lifecycle |
@@ -1481,7 +1481,7 @@ listed in `failures` with `retention_dry_run_budget`.
 | `risc_event` | operational | keep | kept as the Cross-Account Protection record | none | none | no | pending D-47: keep received security events as their record |
 | `schema_migration` | operational | keep | one row per applied migration | none | none | no | internal |
 | `sync_checkpoint` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
-| `verification_result` | customer | keep | with its draft | cascade from `draft` | gated | yes | published |
+| `verification_result` | customer | keep | with its draft; reason messages scrubbed by privacy erasure | cascade from `draft` | gated | yes | published |
 | `webhook_route` | operational | keep | while its location stays connected; deleted with the external location 7 days after disconnect | cascade from `external_location` | gated | yes | internal |
 <!-- retention-inventory:end -->
 

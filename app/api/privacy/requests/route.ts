@@ -7,11 +7,13 @@ import {
   type PrivacyRequestType,
 } from "@/lib/contracts/privacy"
 import { writeAudit } from "@/lib/server/audit"
-import { sha256 } from "@/lib/server/crypto"
 import { ApiError } from "@/lib/server/http"
 import {
   eraseReviews,
+  legalHoldViolation,
+  matchSubjectReviews,
   OPEN_STATUSES,
+  previewSubjectMatches,
   PRIVACY_WITHDRAWAL_PARK_GRACE,
   RESOLUTION_COLUMNS,
   settleWithdrawal,
@@ -239,20 +241,15 @@ export const PATCH = route({
         // complete with the reply still live at Google. Empty for every
         // request that has not been parked, and `= any('{}')` matches
         // nothing.
-        const matches = await sql<{ id: string }[]>`
-          select id::text as id
-          from review
-          where id = any(${privacyRequest.pendingReviewIds}::uuid[])
-            or google_review_id_hash =
-              ${sha256(privacyRequest.subjectReference)}
-            or google_review_name_hash =
-              ${sha256(privacyRequest.subjectReference)}
-            or lower(coalesce(reviewer_display_name, '')) =
-              lower(${privacyRequest.subjectReference})
-          order by id
-        `
+        // The matched reviews are locked for an erasure, so a legal hold
+        // applied meanwhile is either seen by the check below or waits for
+        // this transaction.
+        const erasure = privacyRequest.requestType === "erasure"
+        const matches = await matchSubjectReviews(sql, privacyRequest, {
+          lock: erasure,
+        })
         const reviewIds = matches.map(({ id }) => id)
-        if (privacyRequest.requestType === "erasure" && reviewIds.length) {
+        if (erasure && reviewIds.length) {
           const holds = await sql<{ reviewId: string }[]>`
             select review_id::text as "reviewId"
             from legal_hold
@@ -265,6 +262,17 @@ export const PATCH = route({
               blocked: true as const,
               holds: holds.map(({ reviewId }) => reviewId),
             }
+          }
+          // A display name is shared by strangers, and erasing withdraws the
+          // owner's public reply on every match, so nothing is erased that
+          // the owner has not seen counted (audit R2B-02).
+          const preview = await previewSubjectMatches(
+            sql,
+            privacyRequest,
+            matches
+          )
+          if (input.confirmation !== preview.confirmation) {
+            return { blocked: false as const, unconfirmed: preview }
           }
         }
 
@@ -303,6 +311,7 @@ export const PATCH = route({
             reviewsAffected,
             mediaRemoved: scrub?.mediaRemoved ?? 0,
             draftsRedacted: scrub?.draftsRedacted ?? 0,
+            verificationsRedacted: scrub?.verificationsRedacted ?? 0,
             repliesRedacted: scrub?.repliesRedacted ?? 0,
             attemptBodiesRedacted: scrub?.attemptBodiesRedacted ?? 0,
             repliesToWithdraw: scrub?.withdrawals.length ?? 0,
@@ -344,7 +353,22 @@ export const PATCH = route({
               where id = ${input.id}
               returning ${sql.unsafe(RESOLUTION_COLUMNS)}
             `
-        return { blocked: false as const, request: row, withdrawals }
+        return {
+          blocked: false as const,
+          unconfirmed: null,
+          request: row,
+          withdrawals,
+        }
+      }).catch((error: unknown) => {
+        // The backstop: review_legal_hold_guard (0139) refused to erase a
+        // review held after the check above, and the whole erasure rolled
+        // back. The match's row locks make a hold wait for the erasure, so
+        // this only answers for a writer that bypassed them.
+        const heldReviewId = legalHoldViolation(error)
+        if (heldReviewId) {
+          return { blocked: true as const, holds: [heldReviewId] }
+        }
+        throw error
       })
       if (result.blocked) {
         return NextResponse.json(
@@ -352,6 +376,17 @@ export const PATCH = route({
             error: "privacy_legal_hold",
             message: "Matching reviews are protected by an active legal hold.",
             holds: result.holds,
+          },
+          { status: 409 }
+        )
+      }
+      if (result.unconfirmed) {
+        return NextResponse.json(
+          {
+            error: "privacy_erasure_unconfirmed",
+            message:
+              "Review what this erasure matches, then confirm it. Nothing was erased.",
+            preview: result.unconfirmed,
           },
           { status: 409 }
         )
