@@ -45,6 +45,9 @@ export const POST = route({
     tenant,
   }) => {
     const hold = await tenant(async (sql) => {
+      // The insert locks the review row (legal_hold_lock_review, 0141), so
+      // a retention redaction or erasure that reaches it after this hold
+      // waits for the commit and review_legal_hold_guard then refuses it.
       const [review] = await sql<{ id: string }[]>`
         select id::text as id from review where id = ${input.reviewId} limit 1
       `

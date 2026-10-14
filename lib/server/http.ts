@@ -2,7 +2,7 @@ import "server-only"
 
 import { trace } from "@opentelemetry/api"
 import { NextResponse } from "next/server"
-import { ZodError, type ZodIssue } from "zod"
+import { ZodError, type ZodIssue, type ZodType } from "zod"
 
 import { log } from "@/lib/server/logger"
 
@@ -119,6 +119,30 @@ export function locationLimitReachedError(limit: number | null): ApiError {
   )
 }
 
+/**
+ * The 400 a request whose own input failed its schema answers with: the
+ * route wrapper's params, query and body parsing (lib/server/route.ts).
+ */
+export function invalidRequestError(error: ZodError): ApiError {
+  return new ApiError(
+    400,
+    "invalid_request",
+    "The request did not pass validation.",
+    { fieldErrors: fieldErrorsFromZod(error.issues), details: error.issues }
+  )
+}
+
+/**
+ * Where a failed schema points, without the values: the paths and issue
+ * codes are safe to log and say what drifted; the values may be personal
+ * data or provider payloads.
+ */
+function issueShape(issues: ZodIssue[]) {
+  return issues
+    .slice(0, 20)
+    .map((issue) => ({ path: issue.path.join("."), code: issue.code }))
+}
+
 function mapError(error: unknown, requestId?: string): NextResponse {
   const limitReached = locationLimitError(error)
   if (limitReached) return mapError(limitReached, requestId)
@@ -137,16 +161,16 @@ function mapError(error: unknown, requestId?: string): NextResponse {
     )
   }
   if (error instanceof ZodError) {
-    return NextResponse.json(
-      errorBody({
-        code: "invalid_request",
-        message: "The request did not pass validation.",
-        fieldErrors: fieldErrorsFromZod(error.issues),
-        details: error.issues,
-        requestId,
-      }),
-      { status: 400 }
-    )
+    // The wrapper's own input parsing never gets here (it throws
+    // invalidRequestError), so this is a handler-internal parse: some guard
+    // the caller's input on purpose, others parse provider or stored data
+    // that should use parseUpstream / parseStored. It keeps its 400 so the
+    // deliberate ones still work, but is logged so the rest are visible.
+    log.warn("api.unclassified_validation_error", {
+      requestId,
+      issues: issueShape(error.issues),
+    })
+    return mapError(invalidRequestError(error), requestId)
   }
   log.error("api.unhandled_error", { error, requestId })
   return NextResponse.json(
@@ -179,6 +203,88 @@ export class ApiError extends Error {
     this.details = options.details
     this.requestId = options.requestId
   }
+}
+
+/**
+ * The error taxonomy (W3-3). A schema failure is the caller's fault only
+ * when the schema guards the caller's own input (400, invalidRequestError).
+ * Two other kinds are ours to see and fix, and must reach 5xx alerting:
+ *
+ * - `UpstreamResponseError` (502): a provider answered with a body we
+ *   cannot read. Their contract drifted, nothing the caller sent was wrong.
+ * - `InvariantError` (500): data we stored, or a value the server built
+ *   itself, failed its own schema. A bug or a bad row.
+ *
+ * Throw them with `parseUpstream` / `parseStored` at the parse site rather
+ * than `schema.parse`. Each logs one error line where it is thrown (so a
+ * caller that catches it, a job or a setup flow recording the code, is still
+ * seen), with the issue paths and codes only; the client body never echoes
+ * the issues.
+ */
+export class UpstreamResponseError extends ApiError {
+  constructor(
+    readonly provider: string,
+    readonly operation: string,
+    readonly issues: ZodIssue[],
+    code = `${provider}_invalid_response`
+  ) {
+    super(502, code, "A provider returned a response we could not read.", {
+      retryable: true,
+    })
+  }
+}
+
+export class InvariantError extends ApiError {
+  constructor(
+    readonly subject: string,
+    readonly issues: ZodIssue[]
+  ) {
+    super(500, "internal_error", "The request could not be completed.")
+  }
+}
+
+/**
+ * `schema.parse(value)` for a provider's response body: a failure is a 502
+ * `${provider}_invalid_response` (UpstreamResponseError), not a 400.
+ * `operation` names the call in the log line.
+ */
+export function parseUpstream<T>(
+  schema: ZodType<T>,
+  value: unknown,
+  source: { provider: string; operation: string; code?: string }
+): T {
+  const parsed = schema.safeParse(value)
+  if (parsed.success) return parsed.data
+  log.error("api.upstream_invalid_response", {
+    provider: source.provider,
+    operation: source.operation,
+    issues: issueShape(parsed.error.issues),
+  })
+  throw new UpstreamResponseError(
+    source.provider,
+    source.operation,
+    parsed.error.issues,
+    source.code
+  )
+}
+
+/**
+ * `schema.parse(value)` for stored data or a value the server assembled:
+ * a failure is a 500 (InvariantError), not a 400. `subject` names what was
+ * being read in the log line.
+ */
+export function parseStored<T>(
+  schema: ZodType<T>,
+  value: unknown,
+  subject: string
+): T {
+  const parsed = schema.safeParse(value)
+  if (parsed.success) return parsed.data
+  log.error("api.invariant_violation", {
+    subject,
+    issues: issueShape(parsed.error.issues),
+  })
+  throw new InvariantError(subject, parsed.error.issues)
 }
 
 export function serverRequestId(request: Request): {

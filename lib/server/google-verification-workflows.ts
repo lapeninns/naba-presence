@@ -4,7 +4,7 @@ import { z } from "zod"
 import { verificationWorkflowItemSchema, type VerificationWorkflowQuery, type VerificationWorkflowResponse } from "@/lib/contracts/google-verification-workflows"
 import { withTenant } from "@/lib/server/db"
 import { currentVerificationContext } from "@/lib/server/google-verification-state"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 const cursorSchema = z.strictObject({
@@ -74,10 +74,10 @@ export async function listVerificationWorkflows(session: Session, locationId: st
     const workflows = page.map((row) => {
       const { attemptId, attemptStatus, executionState, confirmationState, observedAt, ...review } = row
       if (attemptId && (!attemptStatus || !executionState || !confirmationState)) throw new ApiError(409, "verification_workflows_unreadable", "A saved verification outcome is unreadable. Use the location activity history for an operational check.")
-      return verificationWorkflowItemSchema.parse({ ...review,
+      return parseStored(verificationWorkflowItemSchema, { ...review,
         canApprove: !attemptId && !row.approvedBy && !row.reviewReason && (!row.requiresSecondApprover || row.requestedBy !== session.userId),
         attempt: attemptId ? { id: attemptId, status: attemptStatus, executionState, confirmationState, observedAt } : null,
-      })
+      }, "verification_workflow")
     })
     const last = page.at(-1)
     const nextCursor = parsed.data.length > query.pageSize && last ? Buffer.from(JSON.stringify({ ...scope, at: last.createdAt, id: last.reviewId })).toString("base64url") : null

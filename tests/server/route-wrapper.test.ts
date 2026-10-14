@@ -7,7 +7,13 @@ import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { appOrigins } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
-import { type RawParams, route, type RouteHandler } from "@/lib/server/route"
+import { DEADLINE_MARGIN_MS } from "@/lib/server/deadline"
+import {
+  DEFAULT_MAX_DURATION_SECONDS,
+  type RawParams,
+  route,
+  type RouteHandler,
+} from "@/lib/server/route"
 import type { Session } from "@/lib/server/session"
 import { cookies } from "next/headers"
 
@@ -234,6 +240,47 @@ describe("route() — parsing", () => {
     expect(await (await call(GET, request("/api/test?x=1"))).json()).toEqual({
       value: "1",
     })
+  })
+})
+
+describe("route() — deadline", () => {
+  it("derives ctx.deadline from the route's maxDuration less the margin", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_000_000 })
+    try {
+      let seen: number | undefined
+      const POST = route({
+        auth: "public",
+        maxDuration: 60,
+        handler: ({ deadline }) => {
+          seen = deadline
+          return { ok: true }
+        },
+      })
+      await call(POST, request())
+      expect(seen).toBe(1_000_000 + 60_000 - DEADLINE_MARGIN_MS)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("falls back to the platform default without a maxDuration", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_000_000 })
+    try {
+      let seen: number | undefined
+      const GET = route({
+        auth: "public",
+        handler: ({ deadline }) => {
+          seen = deadline
+          return { ok: true }
+        },
+      })
+      await call(GET, request())
+      expect(seen).toBe(
+        1_000_000 + DEFAULT_MAX_DURATION_SECONDS * 1_000 - DEADLINE_MARGIN_MS
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

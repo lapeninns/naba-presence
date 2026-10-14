@@ -8,6 +8,12 @@ The project runs locally. The release evidence is the local gate,
 (§7) requires. The GitHub workflows below are kept in the repository and
 describe the same graph, but they are not a release gate, they have not run
 since about 2026-10-04, and nothing in a release waits for them to run again.
+The cause is billing, not the workflows: every hosted job is annotated "The
+job was not started because an Actions budget is preventing further use"
+(checked 2026-10-14 with `gh run view`; Actions is enabled, all workflows
+are active, and the `pull_request` triggers fire). Hosted CI returns when the
+`lapeninns` account's Actions budget allows it, or for same-repository PRs
+when the self-hosted lane (§8) is switched on.
 Sections 1 to 4 and 8 to 11 describe the hosted setup as configured, for when
 it runs.
 
@@ -205,10 +211,10 @@ Hosted CI is not a release gate: GitHub Actions has not run since about
 | `migrate-fresh` | migrate from scratch, a no-op re-run, `db:runtime-role` twice, `db:status --expect-current` |
 | `migrate-upgrade` | migrate to the merge base, then to HEAD; the schema must equal the from-scratch one |
 | `migrate-concurrent` | two `db:migrate` runs at once; each version recorded exactly once |
-| `integration` | `pnpm test:integration` on a freshly migrated database |
-| `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy) |
+| `integration` | `pnpm test:integration` on a freshly migrated database; passes only if its `Tests` line shows more than 0 passed and none skipped |
+| `e2e` | `pnpm test:e2e --forbid-only` on a freshly migrated database, port 3100 (a free pair if 3100/3101 are busy); passes only if more than 0 passed |
 | `audit` | `pnpm audit --prod --audit-level high` |
-| `secret-scan` | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see); **skipped with a note** when gitleaks is not installed |
+| `secret-scan` | `gitleaks git --redact --log-opts=HEAD`: the full history of the commit under test (not other branches the worktree's refs can see). **Required**: without gitleaks installed the step is skipped with a note and the gate fails (SEC-13 follow-up) |
 
 The base is what production runs: the `sha` of the newest committed
 promotion receipt in `docs/release/receipts/`, read at `HEAD`. Before the
@@ -304,6 +310,28 @@ not delete them. For a full-document navigation inside the app, use
     rename columns and tables, add `NOT NULL` without a default, and tighten
     constraints or RLS.
   - Reviewers hold PRs to this rule. A PR that needs both halves is split.
+- **Migration safety** (`scripts/migration-rules.mjs`, enforced on new files
+  by `migration-policy.mjs`, so in the gate's `migration-policy` step and the
+  Migrations job):
+  - A new file containing contract-type or table-locking DDL fails the
+    policy unless its leading comment block has
+    `-- migrate:contract <reason>`: `drop table`, `drop column`, any
+    `rename`, and, on a table the same file did not create,
+    `alter column ... type`, `set not null`, `drop default`,
+    `add column ... not null` without a default, and `create index` without
+    `concurrently`. The marker is the author saying the contract half is
+    intended and that the deployed code no longer needs the old shape; ship
+    such a file in its own PR. New indexes on existing tables belong in a
+    `-- migrate:no-transaction` file with `create index concurrently`, one
+    per file.
+  - Every transactional migration runs with `lock_timeout` `5s`, so DDL
+    queued behind a long transaction fails and rolls back instead of
+    queueing every request behind it. Re-run `db:migrate` when the database
+    is quieter. A file can set its own with
+    `-- migrate:lock-timeout <value>` in its leading comments (`0` for none);
+    `MIGRATION_LOCK_TIMEOUT` changes the default for a run. A
+    `-- migrate:no-transaction` file gets none unless its header asks: a
+    `create index concurrently` that times out leaves an invalid index.
 
 ### How the runner behaves (`pnpm db:migrate`)
 
@@ -325,6 +353,7 @@ not delete them. For a full-document navigation inside the app, use
 | `MIGRATIONS_DIR` | `supabase/migrations` | Apply another tree, for example the merge base's |
 | `DB_MIGRATE_EXPECT_NOOP=1` | off | Exit non-zero if any file would be applied |
 | `DB_MIGRATE_LOCK_TIMEOUT` | `600` | Seconds to wait for the lock |
+| `MIGRATION_LOCK_TIMEOUT` | `5s` | PostgreSQL `lock_timeout` for each transactional file (`0` for none); a file's `-- migrate:lock-timeout` header wins |
 
 ### What CI checks (the Migrations job)
 
@@ -419,8 +448,8 @@ The script refuses, before deploying anything, unless every gate holds
 - `HEAD` equals `origin/main` after a fetch.
 - `--local-receipt` names a `verify:release` receipt for exactly that SHA,
   produced in a fresh worktree on the `.nvmrc` Node major, with no
-  `--skip`, and every required step `passed` (only `secret-scan` may be
-  `skipped`, for a missing gitleaks), no uncommitted edits to the gate's own
+  `--skip`, and every step `passed` (`secret-scan` included; the
+  integration and e2e steps must show tests ran), no uncommitted edits to the gate's own
   code, and a base equal to the `sha` of the newest committed promotion
   receipt (with no promotion receipt yet, any base whose merge base is not
   the commit itself). The gate re-judges the steps
@@ -431,9 +460,27 @@ The script refuses, before deploying anything, unless every gate holds
   `DIRECT_DATABASE_URL` must be set explicitly, so a local `.env` can never
   stand in for production.
 
-It then runs
-`vercel deploy --prod --yes --format json --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha> --meta releaseSha=<sha>`
-and writes `docs/release/receipts/<UTC time>-<sha12>.json`:
+It also refuses unless `READINESS_PROBE_TOKEN` (production's `CRON_SECRET`)
+is set for the probe below. It then promotes in three phases
+(`stagedPromotion`, unit-tested with the Vercel CLI and the probe mocked):
+
+1. **Stage:** `vercel deploy --prod --skip-domain --yes --format json
+   --build-env NABA_RELEASE_SHA=<sha> --env NABA_RELEASE_SHA=<sha>
+   --meta releaseSha=<sha>`. A production build with production
+   environment, but the production domains stay on the current deployment.
+2. **Probe:** `scripts/ops/readiness-probe.mjs --url <staged deployment URL>
+   --expect-sha <sha>`, up to 3 attempts 10 s apart (a cold start). Ready or
+   degraded passes; not ready, unreachable, 401 or another SHA fails. If the
+   project uses Vercel Deployment Protection, set
+   `VERCEL_AUTOMATION_BYPASS_SECRET` (Project → Settings → Deployment
+   Protection → Protection Bypass for Automation) so the probe can reach the
+   deployment URL; it is sent as `x-vercel-protection-bypass`.
+3. **Promote:** only after the probe passed, `vercel promote <deploymentId>
+   --yes`. If every probe attempt failed the script exits 1, writes no
+   receipt and production still serves the previous deployment: there is
+   nothing to roll back. Inspect the staged deployment's logs from its URL.
+
+After the promotion it writes `docs/release/receipts/<UTC time>-<sha12>.json`:
 
 - build: `sha`, `deploymentId`, `url`, and `localGate`: the local receipt's
   file name, the sha256 of its bytes, its finish time, base and each step's
@@ -453,7 +500,8 @@ as the deploy returns. If the receipt write still fails after that, roll back
 or write the receipt by hand from the printed values. Commit the receipt and
 its `.local.json` copy; the next release's gate takes its base from it.
 
-Smoke check: `GET /api/operations/health?scope=platform` with the cron
+Smoke check after the receipt: `pnpm ops:readiness --url <production>
+--expect-promoted`, and `GET /api/operations/health?scope=platform` with the cron
 bearer returns `release.sha` (equal to the receipt's `sha`, with `source`
 `naba_release_sha`) and `schema.compatible: true`. Only the platform scope
 reports these; the session scope does not.
@@ -471,6 +519,13 @@ reports these; the session scope does not.
 - GitHub environment protection rules do not apply to Vercel deploys.
 
 ## 8. Self-hosted runner runbook
+
+Every job, Plan, Secret scan, Dependency review and `CI result` included,
+runs on the lane Plan chooses, and Plan's own `runs-on` applies the same
+trust rule, so a trusted run on the Mac uses no hosted minutes. While the
+Actions budget blocks hosted jobs, this lane is the only way `CI result`
+runs for same-repository PRs; fork and Dependabot PRs stay hosted and stay
+blocked until the budget allows them.
 
 Status: **not set up yet.** `scripts/ci/runner-setup.sh` is ready, but the
 owner has not run it on the Mac, and `SELF_HOSTED_ENABLED` is unset, so

@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 /**
  * Google Cross-Account Protection receiver. Google POSTs one security event
@@ -23,6 +24,7 @@ export const runtime = "nodejs"
  * operator step (docs/runbook.md, "RISC").
  */
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "any",
   handler: async ({ request }) => {

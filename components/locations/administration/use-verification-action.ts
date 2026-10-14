@@ -37,8 +37,8 @@ export function useVerificationAction(locationId: string, workflow: Verification
     } finally { inFlight.current = false; setBusy(false); workspace?.release() }
   }
   function invalidate() {
-    void client.invalidateQueries({ queryKey: ["verification-workflows", locationId] })
-    void client.invalidateQueries({ queryKey: ["verification-state", locationId] })
+    void client.invalidateQueries({ queryKey: queryKeys.locationVerificationWorkflowsAll(locationId) })
+    void client.invalidateQueries({ queryKey: queryKeys.locationVerificationState(locationId) })
     void client.invalidateQueries({ queryKey: queryKeys.locationAdministration(locationId) })
     void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
   }

@@ -190,6 +190,10 @@ const COPY: Record<string, string> = {
     "That generation did not produce a reply. Generate again.",
 
   // ---- Inbox: drafts, verification, publishing ----------------------------
+  // A bulk approval row the request had no time left to start: nothing was
+  // approved or sent for it.
+  bulk_time_budget_reached:
+    "Not approved: this batch ran out of time before reaching it. Select it and approve again.",
   verified_draft_required: "Verify a draft before publishing this reply.",
   // The 404s on this path all mean "the pane you are looking at is behind the
   // data", which the status fallback's "it may have been removed" only half
@@ -435,6 +439,8 @@ const COPY: Record<string, string> = {
   privacy_legal_hold:
     "Some matching reviews are under an active legal hold and can’t be erased yet.",
   privacy_subject_not_found: "No records matched that reference.",
+  privacy_erasure_unconfirmed:
+    "The reviews this erasure matches changed. Nothing was erased: check the counts and confirm again.",
   privacy_request_resolved:
     "This request has already been completed or rejected, so it can’t be worked on again.",
   privacy_request_transition_invalid:

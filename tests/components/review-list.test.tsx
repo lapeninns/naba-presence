@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { selectionHitAreaClassName } from "@/components/ui/checkbox"
 import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
@@ -1037,5 +1037,72 @@ describe("ReviewRowsSkeleton", () => {
       expect(row.querySelector('[data-slot="list-row-preview"]')).not.toBeNull()
     }
     expect(container.querySelector("button")).toBeNull()
+  })
+})
+
+// W2-01: the selected row was scrolled into view on every render with the
+// same selection — every 15 s clock tick, settling poll, focus refetch and
+// next page — pulling an operator who had scrolled away straight back.
+describe("ReviewList — keeping the selection in view", () => {
+  const scrollBy = vi.fn()
+  beforeEach(() => {
+    scrollBy.mockClear()
+    // A scroller 100px tall over taller content, with every row drawn below
+    // its fold: scrolling the selected row in is always a move.
+    Object.defineProperty(HTMLElement.prototype, "scrollBy", {
+      configurable: true,
+      value: scrollBy,
+    })
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
+      1000
+    )
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(100)
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const top = this.dataset.slot === "review-row" ? 500 : 0
+        const height = this.dataset.slot === "review-row" ? 50 : 100
+        return DOMRect.fromRect({ x: 0, y: top, width: 300, height })
+      }
+    )
+  })
+  afterEach(() => {
+    delete (HTMLElement.prototype as { scrollBy?: unknown }).scrollBy
+  })
+
+  function list(reviews: ReviewRow[], selectedId: string | undefined) {
+    return (
+      <div style={{ overflowY: "auto" }}>
+        <ReviewList
+          reviews={reviews}
+          selectedId={selectedId}
+          onSelect={() => true}
+        />
+      </div>
+    )
+  }
+  const page = (prefix: string) =>
+    [1, 2, 3].map((n) => row({ id: `${prefix}${n}` }))
+
+  it("scrolls once per selection, not on every render or page", () => {
+    const first = page("a")
+    const view = render(list(first, "a2"))
+    expect(scrollBy).toHaveBeenCalledTimes(1)
+
+    // The same rows, a new array: what every parent render passed.
+    view.rerender(list([...first], "a2"))
+    // The next page arrives under the selection.
+    view.rerender(list([...first, ...page("b")], "a2"))
+    expect(scrollBy).toHaveBeenCalledTimes(1)
+
+    view.rerender(list([...first, ...page("b")], "b3"))
+    expect(scrollBy).toHaveBeenCalledTimes(2)
+  })
+
+  it("brings a selected row in once it arrives in a later page", () => {
+    const first = page("a")
+    const view = render(list(first, "b1"))
+    expect(scrollBy).not.toHaveBeenCalled()
+    view.rerender(list([...first, ...page("b")], "b1"))
+    expect(scrollBy).toHaveBeenCalledTimes(1)
   })
 })

@@ -7,8 +7,10 @@ import { linkedLocations } from "@/lib/server/reviews"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"],
   handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
     await requireScopesEnabled("sync", {
