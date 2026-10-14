@@ -17,6 +17,7 @@ import type {
 import { matchesPostFilter } from "@/lib/locations/post-display"
 import type { ListPaging } from "@/lib/queries/paged-list"
 import type { PostsView } from "@/lib/queries/use-location-posts"
+import { timezoneLabel } from "@/lib/settings/timezones"
 import { renderWithProviders } from "../helpers/render"
 
 const usePostsMock = vi.fn()
@@ -483,25 +484,41 @@ describe("Posts tab scheduling (P08-R5)", () => {
   })
 })
 
+async function openScheduleSheet(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    screen.getByRole("button", {
+      name: "More actions for Sunday roast is back",
+    })
+  )
+  await user.click(
+    await screen.findByRole("menuitem", { name: "Schedule publication" })
+  )
+  return screen.findByRole("dialog", { name: "Schedule publication" })
+}
+
 describe("Schedule presets (presentation shortcut over the one-time form)", () => {
+  // Only the clock is faked, so timers and user events run as usual.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    // 11:00 BST on Wed 14 Oct 2026: the date 24 hours on (UTC) is the
+    // venue's tomorrow.
+    vi.setSystemTime(new Date("2026-10-14T10:00:00Z"))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it("offers venue-time presets that only fill the form, then submits for approval", async () => {
     renderTab([post()], { postScheduling: true })
     const user = userEvent.setup()
-    await user.click(
-      screen.getByRole("button", {
-        name: "More actions for Sunday roast is back",
-      })
-    )
-    await user.click(
-      await screen.findByRole("menuitem", { name: "Schedule publication" })
-    )
-    const sheet = await screen.findByRole("dialog", {
-      name: "Schedule publication",
-    })
+    const sheet = await openScheduleSheet(user)
     const dates = presetDates(Date.now(), "Europe/London")
     const tomorrow = within(sheet).getByRole("radio", {
       name: "Tomorrow morning",
     })
+    // The default is the date 24 hours on at 09:00, which here is exactly
+    // "Tomorrow morning".
+    expect(dates.tomorrow).toBe("2026-10-15")
     expect(tomorrow).toBeChecked()
     // Each preset says the resolved day and the zone in words.
     expect(tomorrow).toHaveAccessibleDescription(
@@ -576,6 +593,80 @@ describe("Schedule presets (presentation shortcut over the one-time form)", () =
         },
       })
     )
+  })
+
+  it("opens on the date 24 hours on at 09:00, choosing no preset that differs from it", async () => {
+    // 00:30 BST on Thu 15 Oct. The default reads the date 24 hours on in
+    // UTC (23:30 on 15 Oct, so 15 Oct); the venue's tomorrow is 16 Oct.
+    vi.setSystemTime(new Date("2026-10-14T23:30:00Z"))
+    renderTab([post()], { postScheduling: true })
+    const user = userEvent.setup()
+    const sheet = await openScheduleSheet(user)
+    const tomorrow = within(sheet).getByRole("radio", {
+      name: "Tomorrow morning",
+    })
+    expect(tomorrow).not.toBeChecked()
+    expect(
+      within(sheet).getByRole("radio", { name: "Next Monday" })
+    ).not.toBeChecked()
+    // The presets are still offered, resolved in the venue's zone.
+    expect(tomorrow).toHaveAccessibleDescription(
+      "Fri 16 Oct, 09:00 · venue time (Europe/London)"
+    )
+    // The custom row and the preview carry the default.
+    expect(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    ).toHaveAccessibleDescription(/^Thu 15 Oct, 09:00 · Europe \/ London$/)
+    expect(
+      within(sheet).getByText(/^Once on 2026-10-15 at 09:00 \(Europe\/London/)
+    ).toBeInTheDocument()
+    await user.click(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    )
+    expect(within(sheet).getByLabelText("Date")).toHaveValue("2026-10-15")
+    expect(within(sheet).getByLabelText("Local time")).toHaveValue("09:00")
+  })
+
+  it("keeps a timezone chosen in the sheet when it is opened again", async () => {
+    renderTab([post()], { postScheduling: true })
+    const user = userEvent.setup()
+    let sheet = await openScheduleSheet(user)
+    await user.click(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    )
+    await user.click(within(sheet).getByRole("combobox", { name: "Timezone" }))
+    await user.click(
+      await screen.findByRole("option", {
+        name: timezoneLabel("America/New_York"),
+      })
+    )
+    await user.keyboard("{Escape}")
+    await user.click(
+      await screen.findByRole("button", { name: "Discard schedule" })
+    )
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Schedule publication" })
+      ).toBeNull()
+    )
+
+    sheet = await openScheduleSheet(user)
+    // Not reset to the venue's zone: the default is in New York time, so
+    // no venue-time preset is chosen.
+    expect(
+      within(sheet).getByRole("radio", { name: "Tomorrow morning" })
+    ).not.toBeChecked()
+    expect(
+      within(sheet).getByText(
+        /^Once on 2026-10-15 at 09:00 \(America\/New_York/
+      )
+    ).toBeInTheDocument()
+    await user.click(
+      within(sheet).getByRole("button", { name: /^Pick a date and time/ })
+    )
+    expect(
+      within(sheet).getByRole("combobox", { name: "Timezone" })
+    ).toHaveTextContent(timezoneLabel("America/New_York"))
   })
 
   it("resolves the presets on the venue's calendar, across a clock change", () => {

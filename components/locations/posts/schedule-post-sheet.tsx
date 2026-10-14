@@ -308,18 +308,22 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
+    // The form opens on its usual default (the date 24 hours on, at 09:00)
+    // in the zone last chosen here, never reset to the venue's.
+    const start = initial(existing, at, recurring, zone, suggested)
+    setForm(start)
     if (offerPresets) {
-      // The presets are venue times, so the form starts in the venue's
-      // zone on the first preset: exactly what that row says.
-      setZone(timezone)
-      setWhen("tomorrow")
+      // A preset row is chosen only when it is exactly that default.
+      const dates = presetDates(at, timezone)
+      const match =
+        zone === timezone && start.localTime === PRESET_TIME
+          ? (["tomorrow", "monday"] as const).find(
+              (preset) => dates[preset] === start.startDate
+            )
+          : undefined
+      setWhen(match ?? "custom")
       setPage("presets")
-      setForm({
-        ...initial(existing, at, recurring, timezone, suggested),
-        startDate: presetDates(at, timezone).tomorrow,
-        localTime: PRESET_TIME,
-      })
-    } else setForm(initial(existing, at, recurring, zone, suggested))
+    }
     setTouched(false)
     setOpen(true)
   }
