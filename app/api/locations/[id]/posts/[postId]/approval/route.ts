@@ -12,7 +12,10 @@ import {
 } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
+export const maxDuration = 60
+
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   params: z.object({ id: z.string(), postId: z.string() }),
   body: postApprovalDecisionSchema,

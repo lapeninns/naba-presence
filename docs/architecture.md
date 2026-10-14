@@ -209,7 +209,12 @@ stay in the domain module. Cron and public handlers import `withTenant` or
 `getDatabase` directly; the only `getDatabase()` calls left in route files are
 the commented cross-tenant enumeration and routing reads. `runtime` and
 `maxDuration` remain per-file static exports because Next reads them at build
-time. `getSession()` is wrapped in `React.cache`, so a server render that asks
+time; a route also hands its `maxDuration` to `route()`, which turns it into
+`ctx.deadline` (epoch ms, `lib/server/deadline.ts`: start + `maxDuration` −
+5 s). Services that make provider calls in a row take that plain `deadline`,
+size each call to what is left and stop before a step that cannot finish.
+`tests/route-max-duration.test.ts` requires both on every route whose imports
+reach the Google transport or the OpenAI client. `getSession()` is wrapped in `React.cache`, so a server render that asks
 for the session from a layout, a page and a prefetch helper performs one
 lookup and one `last_seen_at` write; in route handlers the cache is a no-op.
 

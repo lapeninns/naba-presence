@@ -4,7 +4,9 @@ import { getOnboardingServices } from "@/lib/server/google-onboarding-services"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: z.object({ accountId: z.uuid(), draftId: z.uuid() }),
   query: onboardingServicesQuerySchema,

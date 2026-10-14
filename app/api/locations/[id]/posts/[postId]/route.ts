@@ -14,11 +14,14 @@ import {
 } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
+export const maxDuration = 60
+
 const paramsSchema = z.object({ id: z.string(), postId: z.string() })
 
 const updateBodySchema = z.intersection(localPostInputSchema, z.object({ expectedUpdatedAt: z.iso.datetime().optional() }))
 
 export const PATCH = route({
+  maxDuration,
   params: paramsSchema,
   body: updateBodySchema,
   handler: async ({ session, params, body, requestId }) => {
@@ -49,6 +52,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   handler: async ({ session, params, requestId }) => {
