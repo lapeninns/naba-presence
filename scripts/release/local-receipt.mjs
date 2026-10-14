@@ -88,11 +88,48 @@ export const GATE_STEPS = [
     required: true,
   },
   {
+    // Required since the SEC-13 follow-up: a receipt with no secret scan
+    // (gitleaks not installed) no longer stands as promotion evidence.
     id: "secret-scan",
     title: "Secret scan (gitleaks, full history)",
-    required: false,
+    required: true,
   },
 ]
+
+/**
+ * Test-running steps and what their receipt summary (verify-local.mjs
+ * `summarizeOutput`) must show for a pass to count: an exit code of 0 with
+ * nothing run (every integration file `describe.skip`s without RUN_DB_TESTS)
+ * is not evidence. Integration may not skip anything either.
+ */
+export const TEST_COUNT_STEPS = {
+  integration: { pattern: /^Tests (\d+) passed\b/, noSkips: true },
+  e2e: { pattern: /^(\d+) passed\b/, noSkips: false },
+}
+
+/**
+ * Why a passed test step's summary does not show tests ran; null when it
+ * does.
+ * @param {string} id
+ * @param {unknown} summary
+ */
+export function testCountProblem(id, summary) {
+  const rule =
+    TEST_COUNT_STEPS[/** @type {keyof typeof TEST_COUNT_STEPS} */ (id)]
+  if (!rule) return null
+  const lines = Array.isArray(summary)
+    ? summary.filter((line) => typeof line === "string")
+    : []
+  const counted = lines
+    .map((line) => rule.pattern.exec(line))
+    .find((match) => match !== null)
+  if (!counted) return `step "${id}" passed but reported no test count`
+  if (Number(counted[1]) === 0) return `step "${id}" passed with 0 tests run`
+  if (rule.noSkips && /\bskipped\b/.test(counted.input)) {
+    return `step "${id}" skipped tests (${counted.input})`
+  }
+  return null
+}
 
 export const STEP_STATUSES = ["passed", "failed", "skipped", "not-run"]
 
@@ -159,8 +196,9 @@ export function gateSourceChanges(lines) {
 
 /**
  * Whether a set of step results passes the gate: every step present once,
- * every required step passed, nothing failed, and optional steps either
- * passed or skipped.
+ * every required step passed, nothing failed, optional steps either passed
+ * or skipped, and the test steps show that tests actually ran
+ * (testCountProblem).
  * @param {StepResult[]} steps
  */
 export function gateProblems(steps) {
@@ -185,6 +223,11 @@ export function gateProblems(steps) {
       problems.push(`step "${id}" failed`)
     } else if (required && step.status !== "passed") {
       problems.push(`required step "${id}" ${step.status}`)
+    } else if (
+      step.status === "passed" &&
+      testCountProblem(id, step.summary) !== null
+    ) {
+      problems.push(/** @type {string} */ (testCountProblem(id, step.summary)))
     } else if (!required && step.status === "not-run") {
       problems.push(`step "${id}" did not run`)
     }
