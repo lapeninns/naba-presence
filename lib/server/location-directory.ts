@@ -11,8 +11,9 @@ import type { Session } from "@/lib/server/session"
 // listConnections in lib/server/connections.ts.
 //
 // `session` is an explicit argument, deliberately: getSession() writes
-// (it bumps app_session.last_seen_at on every call), so a helper that
-// reached for it internally would turn each extra caller into an extra write.
+// (it can bump app_session.last_seen_at) and runs a session lookup, so a
+// helper that reached for it internally would turn each extra caller into
+// an extra transaction.
 export async function listLocationDirectoryRows(
   session: Session
 ): Promise<DirectoryRow[]> {
