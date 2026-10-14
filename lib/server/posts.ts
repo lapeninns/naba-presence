@@ -15,6 +15,7 @@ import {
   type PostRow,
   type PostsListQuery,
 } from "@/lib/contracts/location-posts"
+import type { OperationOutcome } from "@/lib/contracts/mutation-operations"
 import {
   localPostMatches,
   localPostMismatches,
@@ -62,7 +63,9 @@ import {
   requireGbpDispatch,
 } from "@/lib/server/pause-controls"
 import {
+  loadAmbientReceipt,
   operationSummary,
+  receiptError,
   requestScopedKeyPart,
   settleOperationsForAttempts,
 } from "@/lib/server/mutation-operations"
@@ -1337,6 +1340,148 @@ async function insertDecision(
   return row.id
 }
 
+/**
+ * The ambient intent's receipt when it is one of this post's own `actions`
+ * writes, so a retry of a write that already landed is answered as that
+ * write's success ("already done" is not a 404 or a 409).
+ */
+async function postIntentReceipt(
+  sql: TransactionSql,
+  organisationId: string,
+  postId: string,
+  actions: readonly string[]
+) {
+  const receipt = await loadAmbientReceipt(sql, organisationId)
+  return receipt &&
+    receipt.surface === "local_post" &&
+    receipt.targetRef === postId &&
+    actions.includes(receipt.action)
+    ? receipt
+    : null
+}
+
+type StoredPublish = {
+  status: string
+  googlePostName: string | null
+  googleState: string | null
+  lastErrorCode: string | null
+}
+
+const storedPublishColumns = (sql: TransactionSql) => sql`
+  status, google_post_name as "googlePostName",
+  google_state as "googleState", last_error_code as "lastErrorCode"
+`
+
+/**
+ * A publish this request did not make, answered from the post as stored:
+ * the same publish already succeeded (or failed), or it is still settling.
+ */
+function storedPublishAnswer(
+  stored: StoredPublish | undefined,
+  postId: string,
+  operation: { operationId: string | null; outcome: OperationOutcome }
+) {
+  if (stored?.status !== "published" && stored?.status !== "failed") {
+    throw postPublishInProgress()
+  }
+  return {
+    status:
+      stored.status === "failed"
+        ? ("rejected" as const)
+        : ("published" as const),
+    postId,
+    googlePostName: stored.googlePostName,
+    operation: {
+      operationId: operation.operationId,
+      // The post's own state, which a later list reconcile may have moved
+      // on from what the first answer said.
+      outcome: localPostOutcome(stored) ?? operation.outcome,
+    },
+  }
+}
+
+/**
+ * A retry of an approval that already went out, answered from what it did
+ * rather than refused (409 approval_not_pending) by the pending check it can
+ * no longer pass. Checked before the post lookup:
+ *   * the intent's receipt for this post's publish replays that publish:
+ *     its stored outcome once settled, its error when it failed, and
+ *     publish_in_progress while it is still on its way;
+ *   * without one, a post already published at the revision this approver
+ *     approved (the latest decision on it is theirs) is that approval's
+ *     outcome.
+ * Null when there is nothing to replay: the approval is decided as usual.
+ */
+async function settledApproval(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    session: Session
+    locationId: string
+    postId: string
+    expectedRevision?: number
+  }
+) {
+  const receipt = await postIntentReceipt(
+    sql,
+    input.organisationId,
+    input.postId,
+    ["create", "update"]
+  )
+  const [stored] = await sql<
+    (StoredPublish & {
+      contentRevision: number
+      decidedBy: string | null
+      decision: string | null
+      decidedRevision: number | null
+    })[]
+  >`
+    select ${storedPublishColumns(sql)},
+      p.content_revision::integer as "contentRevision",
+      d.decided_by::text as "decidedBy", d.decision,
+      d.content_revision::integer as "decidedRevision"
+    from gbp_local_post p
+    left join lateral (
+      select decided_by, decision, content_revision
+      from post_approval_decision
+      where post_id = p.id
+      order by created_at desc
+      limit 1
+    ) d on true
+    where p.id = ${input.postId}
+      and p.location_id = ${input.locationId}
+      and p.status <> 'deleted'
+  `
+  if (receipt) {
+    // The failure the first request answered with (a REJECTED post Google
+    // holds is a success that settles `rejected` with no error code).
+    if (
+      receipt.state === "failed" ||
+      receipt.state === "uncertain" ||
+      (receipt.state === "rejected" && receipt.errorCode !== null)
+    ) {
+      throw receiptError(receipt)
+    }
+    return storedPublishAnswer(stored, input.postId, {
+      operationId: receipt.id,
+      outcome: receipt.state,
+    })
+  }
+  if (
+    stored?.status === "published" &&
+    input.expectedRevision === stored.contentRevision &&
+    stored.decision === "approved" &&
+    stored.decidedBy === input.session.userId &&
+    stored.decidedRevision === stored.contentRevision
+  ) {
+    return storedPublishAnswer(stored, input.postId, {
+      operationId: null,
+      outcome: googlePostStateOutcome(stored.googleState),
+    })
+  }
+  return null
+}
+
 export async function requestOrPublishLocalPost(input: {
   organisationId: string
   session: Session
@@ -1370,6 +1515,10 @@ export async function requestOrPublishLocalPost(input: {
         input.locationId,
         input.approval ? "decide_approval" : "request_approval"
       )
+      if (input.approval) {
+        const settled = await settledApproval(sql, input)
+        if (settled) return { kind: "settled" as const, answer: settled }
+      }
       const post = await loadPost(sql, input.locationId, input.postId, {
         lock: true,
       })
@@ -1487,6 +1636,7 @@ export async function requestOrPublishLocalPost(input: {
     decided = await decide(decided.create ? "create" : "update")
   }
   if (decided.kind === "reconcile") throw postPublishUncertain()
+  if (decided.kind === "settled") return decided.answer
   if (decided.kind === "adopted") {
     return {
       status: "published" as const,
@@ -1878,38 +2028,16 @@ async function publishLocalPost(input: {
     // a publish this request did not make.
     const [stored] = await withTenant(
       input.organisationId,
-      (sql) =>
-        sql<
-          {
-            status: string
-            googlePostName: string | null
-            googleState: string | null
-            lastErrorCode: string | null
-          }[]
-        >`
-        select status, google_post_name as "googlePostName",
-          google_state as "googleState", last_error_code as "lastErrorCode"
+      (sql) => sql<StoredPublish[]>`
+        select ${storedPublishColumns(sql)}
         from gbp_local_post
         where id = ${input.postId}
       `
     )
-    if (stored?.status !== "published" && stored?.status !== "failed") {
-      throw postPublishInProgress()
-    }
-    return {
-      status:
-        stored.status === "failed"
-          ? ("rejected" as const)
-          : ("published" as const),
-      postId: input.postId,
-      googlePostName: stored.googlePostName,
-      operation: {
-        operationId: result.operationId ?? null,
-        // The post's own state, which a later list reconcile may have moved
-        // on from what the first answer said.
-        outcome: localPostOutcome(stored) ?? result.outcome,
-      },
-    }
+    return storedPublishAnswer(stored, input.postId, {
+      operationId: result.operationId ?? null,
+      outcome: result.outcome,
+    })
   }
   // The read-back, not the mutate response, is what settle stored on the row.
   const resource = asRecord(result.readback ?? result.response)
@@ -1932,8 +2060,29 @@ export async function deleteLocalPost(input: {
 }) {
   const post = await withTenant(input.organisationId, async (sql) => {
     await requireLocationAction(sql, input.session, input.locationId, "edit")
+    // A retry of a delete that already landed -- its receipt says so, or the
+    // row is already deleted -- is that delete's success, not the 404
+    // loadPost (which no longer sees the row) would answer.
+    const receipt = await postIntentReceipt(
+      sql,
+      input.organisationId,
+      input.postId,
+      ["delete"]
+    )
+    if (
+      receipt?.state === "confirmed_applied" ||
+      receipt?.state === "awaiting_confirmation"
+    ) {
+      return null
+    }
+    const [row] = await sql<{ status: string }[]>`
+      select status from gbp_local_post
+      where id = ${input.postId} and location_id = ${input.locationId}
+    `
+    if (row?.status === "deleted") return null
     return loadPost(sql, input.locationId, input.postId)
   })
+  if (!post) return { status: "deleted" as const }
   if (!post.googlePostName) {
     await withTenant(
       input.organisationId,
