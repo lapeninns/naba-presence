@@ -88,4 +88,26 @@ describe("AgencyNameForm", () => {
       screen.getByText("Only an owner can rename the agency.")
     ).toBeInTheDocument()
   })
+
+  it("warns on a reload while the name is unsaved, and not once it is saved", async () => {
+    vi.spyOn(sessionApi, "renameOrganisation").mockResolvedValue({
+      organisationId: "o1",
+      name: "Lapen Inns",
+    })
+    renderForm("owner")
+    const reloadWarns = () => {
+      const event = new Event("beforeunload", { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    expect(reloadWarns()).toBe(false)
+    fireEvent.change(screen.getByRole("textbox", { name: "Agency name" }), {
+      target: { value: "Lapen Inns" },
+    })
+    expect(reloadWarns()).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }))
+    await waitFor(() => expect(reloadWarns()).toBe(false))
+    // Not restorable: nothing is left in the tab.
+    expect(Object.keys(sessionStorage)).toEqual([])
+  })
 })

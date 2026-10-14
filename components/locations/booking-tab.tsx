@@ -76,8 +76,7 @@ import {
 } from "@/lib/editors/booking-presentation"
 import { editorGate } from "@/lib/editors/gate"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
-import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
-import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import type { LocationCapabilities } from "@/lib/locations/gating"
 import { usePlaceActions } from "@/lib/queries/use-location-booking"
 import { cn } from "@/lib/utils"
@@ -915,13 +914,10 @@ function EditLinkDialog({
   // Warns on a reload; closing the dialog or leaving the page with it asks
   // first. Nothing offers an edited link back once the dialog is gone, so
   // the edit is not stashed.
-  const { markDiscarded } = useDirtyGuard({
-    key: `location-place-action-edit/${locationId}/${link?.id ?? ""}`,
+  const { leavePrompt: leave, forget: markDiscarded } = useUnsavedChanges({
+    scope: `location-place-action-edit/${locationId}/${link?.id ?? ""}`,
     isDirty,
-    snapshot: () => JSON.stringify({ uri }),
-    stash: false,
   })
-  const leave = useLeaveGuard({ when: isDirty, onLeave: markDiscarded })
 
   const sameType = link
     ? others.filter(
