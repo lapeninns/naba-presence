@@ -28,7 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast, useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
 import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
@@ -78,6 +78,9 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const approval = useApprovalDecision(reviewId)
   const remove = useDeleteReply(reviewId)
   const toasts = useToastManager()
+  // Outcomes go through the typed toast (D5): a Google write's kind can
+  // never carry Undo, and "View on Google" is the primitive's own link.
+  const outcomeToast = useOutcomeToast()
   // Live composer dirtiness (reactive; only this sibling re-renders on it):
   // with unsaved edits the persisted draft is not what is on screen.
   const isDirty = useIsDirty()
@@ -194,7 +197,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       // "published" (fix-round-1 CRITICAL #1).
       // An outcome, never an Undo (D5): a published reply links to the
       // review on Google when the detail carries that link.
-      toasts.add(
+      outcomeToast.show(
         describeOutcomeToast(result.status, {
           googleReplyUrl: review.googleReplyUrl,
         })
@@ -219,7 +222,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
     try {
       const result = await approval.mutateAsync({ decision, note })
-      toasts.add(
+      outcomeToast.show(
         describeOutcomeToast(result.status, {
           googleReplyUrl: review.googleReplyUrl,
         })
@@ -239,7 +242,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const onDelete = async () => {
     try {
       const result = await remove.mutateAsync()
-      toasts.add(describeOutcomeToast(result.status))
+      outcomeToast.show(describeOutcomeToast(result.status))
       setDeleteOpen(false)
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })

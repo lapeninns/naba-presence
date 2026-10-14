@@ -1,4 +1,4 @@
-import type { ToastData } from "@/components/ui/toast"
+import type { OutcomeToastOptions } from "@/components/ui/toast"
 import {
   isAllowedReviewTransition,
   REVIEW_WORKFLOW_STATES,
@@ -125,44 +125,13 @@ export function evaluateDelete(input: {
   return { enabled: true }
 }
 
-export type OutcomeToast = {
-  title: string
-  description?: string
-  type: "success" | "info" | "warning" | "error"
-  /**
-   * The toast's trailing item. Google writes never get "Undo" (a reply that
-   * reached Google cannot be taken back from a toast; D5): a published reply
-   * may carry a "View on Google" link instead, and nothing else does. The
-   * toast (components/ui/toast.tsx) draws `link` as a real anchor that opens
-   * in a new tab, sharing nothing (`rel="noopener noreferrer"`).
-   */
-  data?: Required<ToastData>
-  /** Set with the link: a link needs time to be read and reached. */
-  timeout?: number
-}
-
 export type OutcomeToastContext = {
   /**
-   * Where the review can be seen on Google (`review.googleReplyUrl`). Only an
-   * https link reaches the client; without one the toast offers no link.
+   * Where the review can be seen on Google (`review.googleReplyUrl`). The
+   * toast primitive draws it as "View on Google" only when it is a safe
+   * https link (components/ui/toast.tsx `isSafeToastHref`).
    */
   googleReplyUrl?: string | null
-}
-
-/**
- * How long a toast carrying "View on Google" stays up: the toast's own
- * `ACTION_TOAST_TIMEOUT` (components/ui/toast.tsx), restated here because
- * this module is also loaded outside the browser (unit tests, e2e specs)
- * and must not import the client toast module for a value.
- */
-const VIEW_ON_GOOGLE_TIMEOUT = 10_000
-
-/** "View on Google": a Google-write toast's link to the review on Google. */
-function viewOnGoogle(url: string): Pick<OutcomeToast, "data" | "timeout"> {
-  return {
-    data: { kind: "google", link: { href: url } },
-    timeout: VIEW_ON_GOOGLE_TIMEOUT,
-  }
 }
 
 // Maps a SERVER-CONFIRMED resolved status (never a thrown ApiClientError code
@@ -179,46 +148,58 @@ function viewOnGoogle(url: string): Pick<OutcomeToast, "data" | "timeout"> {
 // short title and one plain line. None of these offers Undo: publish,
 // approve and delete are Google writes, and a reject is undone by submitting
 // again, not from a toast.
+//
+// Each outcome carries the toast primitive's kind, so the type system and
+// the Toaster enforce D5 rather than the copy alone: "google" for what
+// reached (or is on its way to) Google, which can never offer Undo, and
+// "local" for workflow-only outcomes (sent back, an unpublished draft
+// removed).
 export function describeOutcomeToast(
   status: string,
   context: OutcomeToastContext = {}
-): OutcomeToast {
+): OutcomeToastOptions {
   switch (status) {
     case "published": {
       const url = context.googleReplyUrl
       return {
+        kind: "google",
         title: "Reply published",
         description: "Live on Google.",
         type: "success",
-        ...(url && url.startsWith("https://") ? viewOnGoogle(url) : {}),
+        ...(url ? { link: { href: url } } : {}),
       }
     }
     case "awaiting_approval":
       return {
+        kind: "google",
         title: "Submitted for approval",
         description: "It goes live on Google once a manager approves it.",
         type: "info",
       }
     case "rejected":
       return {
+        kind: "google",
         title: "Google declined this reply",
         description: "Edit the reply, then publish it again.",
         type: "error",
       }
     case "returned_to_draft":
       return {
+        kind: "local",
         title: "Reply sent back for edits",
         description: "Its author can revise it and submit it again.",
         type: "success",
       }
     case "deleted":
       return {
+        kind: "google",
         title: "Reply deleted",
         description: "Removed from Google.",
         type: "success",
       }
     case "cancelled":
       return {
+        kind: "local",
         title: "Draft reply removed",
         description: "Nothing was live on Google.",
         type: "success",
@@ -227,6 +208,7 @@ export function describeOutcomeToast(
       // e.g. "pending" — an honest, non-committal message; never claims
       // the reply is published.
       return {
+        kind: "google",
         title: "Reply submitted",
         description: "Its status will update shortly.",
         type: "info",

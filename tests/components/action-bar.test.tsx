@@ -23,17 +23,42 @@ import { PRIMARY_ACTION_EVENT, PUBLISH_PULSE_EVENT } from "@/lib/inbox/events"
 function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
   return {
     review: {
-      id: "rev-1", reviewerDisplayName: "Sam", reviewerIsAnonymous: false,
+      id: "rev-1",
+      reviewerDisplayName: "Sam",
+      reviewerIsAnonymous: false,
       reviewerProfilePhotoUrl: null,
-      rating: 4, text: "Nice", detectedLanguageCode: "en", languageConfidence: 0.9,
-      createTime: "2026-07-30T10:00:00.000Z", updateTime: "2026-07-30T10:00:00.000Z",
-      hasMedia: false, workflowStatus: "verified", locationId: "loc-1",
-      locationName: "Riverside", timezone: "Europe/London", verified: true,
+      rating: 4,
+      text: "Nice",
+      detectedLanguageCode: "en",
+      languageConfidence: 0.9,
+      createTime: "2026-07-30T10:00:00.000Z",
+      updateTime: "2026-07-30T10:00:00.000Z",
+      hasMedia: false,
+      workflowStatus: "verified",
+      locationId: "loc-1",
+      locationName: "Riverside",
+      timezone: "Europe/London",
+      verified: true,
       media: [],
       drafts: [
-        { id: "d1", source: "ai", body: "Reply", bodyBytes: 5, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+        {
+          id: "d1",
+          source: "ai",
+          body: "Reply",
+          bodyBytes: 5,
+          evidenceHash: "h",
+          modelName: "m",
+          verificationStatus: "pass",
+          createdAt: "2026-07-30T10:05:00.000Z",
+        },
       ],
-      reply: null, timeline: [], capabilities: { canPublish: true, canEdit: true, canRequestApproval: false },
+      reply: null,
+      timeline: [],
+      capabilities: {
+        canPublish: true,
+        canEdit: true,
+        canRequestApproval: false,
+      },
       latestVerification: null,
       ...overrides,
     },
@@ -47,7 +72,9 @@ function detailWith(overrides: Partial<ReviewDetail["review"]>): ReviewDetail {
 // approval/delete each have distinct TData/TVariables — no single concrete
 // type satisfies all three call sites at once under strict mode; `any` is
 // the only assignable instantiation.
-function mutation(mutateAsync = vi.fn().mockResolvedValue({ status: "published" })) {
+function mutation(
+  mutateAsync = vi.fn().mockResolvedValue({ status: "published" })
+) {
   return {
     mutate: vi.fn(),
     mutateAsync,
@@ -77,7 +104,11 @@ function stubHooks(
   approval = mutation(),
   del = mutation(),
   verify = mutation(
-    vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "pass", reasons: [] } })
+    vi
+      .fn()
+      .mockResolvedValue({
+        verification: { id: "v9", verdict: "pass", reasons: [] },
+      })
   ),
   refetched: ReviewDetail = detail
 ) {
@@ -118,11 +149,17 @@ describe("ActionBar", () => {
     const publish = mutation(
       vi
         .fn()
-        .mockRejectedValueOnce(new ApiClientError(409, "stale_draft_evidence", "x"))
+        .mockRejectedValueOnce(
+          new ApiClientError(409, "stale_draft_evidence", "x")
+        )
         .mockResolvedValueOnce({ status: "published" })
     )
     const verify = mutation(
-      vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "pass", reasons: [] } })
+      vi
+        .fn()
+        .mockResolvedValue({
+          verification: { id: "v9", verdict: "pass", reasons: [] },
+        })
     )
     const fresh = detailWith({ updateTime: "2026-08-01T09:00:00.000Z" })
     stubHooks(detailWith({}), publish, mutation(), mutation(), verify, fresh)
@@ -139,10 +176,16 @@ describe("ActionBar", () => {
   it("does not publish a stale draft that fails the re-check", async () => {
     const user = userEvent.setup()
     const publish = mutation(
-      vi.fn().mockRejectedValue(new ApiClientError(409, "stale_draft_evidence", "x"))
+      vi
+        .fn()
+        .mockRejectedValue(new ApiClientError(409, "stale_draft_evidence", "x"))
     )
     const verify = mutation(
-      vi.fn().mockResolvedValue({ verification: { id: "v9", verdict: "fail", reasons: [] } })
+      vi
+        .fn()
+        .mockResolvedValue({
+          verification: { id: "v9", verdict: "fail", reasons: [] },
+        })
     )
     stubHooks(detailWith({}), publish, mutation(), mutation(), verify)
     renderActionBar()
@@ -170,7 +213,11 @@ describe("ActionBar", () => {
   it("disables Publish when the user cannot publish", () => {
     stubHooks(
       detailWith({
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: false,
+        },
       })
     )
     renderActionBar()
@@ -186,7 +233,11 @@ describe("ActionBar", () => {
   it("keeps Publish off, even with edits, when the user cannot publish", () => {
     stubHooks(
       detailWith({
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: false,
+        },
       })
     )
     renderActionBar(true, oneStepSave())
@@ -197,24 +248,27 @@ describe("ActionBar", () => {
   it.each([
     ["google_timeout", "Retry publish"],
     ["INVALID_ARGUMENT", "Publish reply"],
-  ])("names the failed-publish button by its cause (%s)", (lastErrorCode, name) => {
-    stubHooks(
-      detailWith({
-        workflowStatus: "failed",
-        reply: {
-          id: "reply-1",
-          body: null,
-          publishStatus: "failed",
-          googleReplyState: null,
-          googlePolicyViolation: null,
-          googleReplyUpdatedAt: null,
-          lastErrorCode,
-        },
-      })
-    )
-    renderActionBar()
-    expect(screen.getByRole("button", { name })).toBeInTheDocument()
-  })
+  ])(
+    "names the failed-publish button by its cause (%s)",
+    (lastErrorCode, name) => {
+      stubHooks(
+        detailWith({
+          workflowStatus: "failed",
+          reply: {
+            id: "reply-1",
+            body: null,
+            publishStatus: "failed",
+            googleReplyState: null,
+            googlePolicyViolation: null,
+            googleReplyUpdatedAt: null,
+            lastErrorCode,
+          },
+        })
+      )
+      renderActionBar()
+      expect(screen.getByRole("button", { name })).toBeInTheDocument()
+    }
+  )
 
   // One press: save the text on screen (the drafts route checks what it
   // stores), then publish the draft that save returned — never an older one.
@@ -291,8 +345,12 @@ describe("ActionBar", () => {
   it("keeps Approve for an approver whatever the composer holds", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar(true, oneStepSave())
-    expect(screen.getByRole("button", { name: "Approve reply" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /Publish reply/ })).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Approve reply" })
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /Publish reply/ })
+    ).not.toBeInTheDocument()
   })
 
   // `a` clicks the bar's main button, so it can never do what the button, as
@@ -309,7 +367,11 @@ describe("ActionBar", () => {
     const publish = mutation()
     stubHooks(
       detailWith({
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: false,
+        },
       }),
       publish
     )
@@ -323,7 +385,16 @@ describe("ActionBar", () => {
     stubHooks(
       detailWith({
         drafts: [
-          { id: "d1", source: "human", body: "Thanks so much!", bodyBytes: 15, evidenceHash: "h", modelName: null, verificationStatus: "pass", createdAt: "2026-07-30T12:00:00.000Z" },
+          {
+            id: "d1",
+            source: "human",
+            body: "Thanks so much!",
+            bodyBytes: 15,
+            evidenceHash: "h",
+            modelName: null,
+            verificationStatus: "pass",
+            createdAt: "2026-07-30T12:00:00.000Z",
+          },
         ],
         reply: {
           id: "reply-1",
@@ -337,7 +408,9 @@ describe("ActionBar", () => {
     )
     renderActionBar()
     expect(screen.getByRole("button", { name: "Update reply" })).toBeEnabled()
-    expect(screen.queryByRole("button", { name: "Publish reply" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Publish reply" })
+    ).not.toBeInTheDocument()
   })
 
   // Re-sending identical text is a pointless round-trip the domain has no
@@ -348,7 +421,16 @@ describe("ActionBar", () => {
       detailWith({
         workflowStatus: "published",
         drafts: [
-          { id: "d1", source: "ai", body: "Thanks!", bodyBytes: 7, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+          {
+            id: "d1",
+            source: "ai",
+            body: "Thanks!",
+            bodyBytes: 7,
+            evidenceHash: "h",
+            modelName: "m",
+            verificationStatus: "pass",
+            createdAt: "2026-07-30T10:05:00.000Z",
+          },
         ],
         reply: {
           id: "reply-1",
@@ -363,7 +445,9 @@ describe("ActionBar", () => {
     renderActionBar()
     expect(screen.getByRole("button", { name: "Update reply" })).toBeDisabled()
     // Delete is still reachable.
-    expect(screen.getByRole("button", { name: "Review actions" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Review actions" })
+    ).toBeInTheDocument()
   })
 
   // `replyWork` reads server state, so it still says "settled" while the
@@ -375,7 +459,16 @@ describe("ActionBar", () => {
       detailWith({
         workflowStatus: "published",
         drafts: [
-          { id: "d1", source: "ai", body: "Thanks!", bodyBytes: 7, evidenceHash: "h", modelName: "m", verificationStatus: "pass", createdAt: "2026-07-30T10:05:00.000Z" },
+          {
+            id: "d1",
+            source: "ai",
+            body: "Thanks!",
+            bodyBytes: 7,
+            evidenceHash: "h",
+            modelName: "m",
+            verificationStatus: "pass",
+            createdAt: "2026-07-30T10:05:00.000Z",
+          },
         ],
         reply: {
           id: "reply-1",
@@ -407,7 +500,11 @@ describe("ActionBar", () => {
     )
     stubHooks(
       detailWith({
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: true,
+        },
       }),
       publish
     )
@@ -430,7 +527,11 @@ describe("ActionBar", () => {
   it("does not offer Submit for approval when the org does not require approval", () => {
     stubHooks(
       detailWith({
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: false },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: false,
+        },
       })
     )
     renderActionBar()
@@ -447,7 +548,11 @@ describe("ActionBar", () => {
     stubHooks(
       detailWith({
         workflowStatus: "published",
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: true,
+        },
       })
     )
     renderActionBar()
@@ -463,12 +568,18 @@ describe("ActionBar", () => {
     )
     stubHooks(
       detailWith({
-        capabilities: { canPublish: false, canEdit: true, canRequestApproval: true },
+        capabilities: {
+          canPublish: false,
+          canEdit: true,
+          canRequestApproval: true,
+        },
       }),
       publish
     )
     renderActionBar(true, oneStepSave())
-    await user.click(screen.getByRole("button", { name: /Submit for approval/ }))
+    await user.click(
+      screen.getByRole("button", { name: /Submit for approval/ })
+    )
     expect(publish.mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ draftId: "d2" })
     )
@@ -477,16 +588,28 @@ describe("ActionBar", () => {
   it("shows Approve and Reject when awaiting approval", () => {
     stubHooks(detailWith({ workflowStatus: "awaiting_approval" }))
     renderActionBar()
-    expect(screen.getByRole("button", { name: "Approve reply" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Reject reply" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Approve reply" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Reject reply" })
+    ).toBeInTheDocument()
   })
 
   it("surfaces the second-approver copy on a 403", async () => {
     const user = userEvent.setup()
     const approval = mutation(
-      vi.fn().mockRejectedValue(new ApiClientError(403, "second_approver_required", "x"))
+      vi
+        .fn()
+        .mockRejectedValue(
+          new ApiClientError(403, "second_approver_required", "x")
+        )
     )
-    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
+    stubHooks(
+      detailWith({ workflowStatus: "awaiting_approval" }),
+      mutation(),
+      approval
+    )
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Approve reply" }))
     await waitFor(() =>
@@ -518,25 +641,28 @@ describe("ActionBar", () => {
     ["published", true, "Reply published"],
     ["pending", true, "Reply submitted"],
     ["rejected", false, "Google declined this reply"],
-  ])("announces a %s outcome to the inbox: %s", async (status, advances, toast) => {
-    const user = userEvent.setup()
-    const listener = vi.fn()
-    window.addEventListener(PUBLISH_PULSE_EVENT, listener)
-    stubHooks(detailWith({}), mutation(vi.fn().mockResolvedValue({ status })))
-    renderActionBar()
-    await user.click(screen.getByRole("button", { name: "Publish reply" }))
-    await waitFor(() => expect(screen.getByText(toast)).toBeInTheDocument())
-    window.removeEventListener(PUBLISH_PULSE_EVENT, listener)
-    if (advances) {
-      expect(listener).toHaveBeenCalledTimes(1)
-      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
-        reviewId: "rev-1",
-        status,
-      })
-    } else {
-      expect(listener).not.toHaveBeenCalled()
+  ])(
+    "announces a %s outcome to the inbox: %s",
+    async (status, advances, toast) => {
+      const user = userEvent.setup()
+      const listener = vi.fn()
+      window.addEventListener(PUBLISH_PULSE_EVENT, listener)
+      stubHooks(detailWith({}), mutation(vi.fn().mockResolvedValue({ status })))
+      renderActionBar()
+      await user.click(screen.getByRole("button", { name: "Publish reply" }))
+      await waitFor(() => expect(screen.getByText(toast)).toBeInTheDocument())
+      window.removeEventListener(PUBLISH_PULSE_EVENT, listener)
+      if (advances) {
+        expect(listener).toHaveBeenCalledTimes(1)
+        expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual({
+          reviewId: "rev-1",
+          status,
+        })
+      } else {
+        expect(listener).not.toHaveBeenCalled()
+      }
     }
-  })
+  )
 
   // Fix-round-1 IMPORTANT #3: Reject reverts workflow_status to `drafted` and
   // clears approval_requested_by server-side, so it must be confirmed —
@@ -546,7 +672,11 @@ describe("ActionBar", () => {
     const approval = mutation(
       vi.fn().mockResolvedValue({ status: "returned_to_draft" })
     )
-    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
+    stubHooks(
+      detailWith({ workflowStatus: "awaiting_approval" }),
+      mutation(),
+      approval
+    )
     renderActionBar()
 
     await user.click(screen.getByRole("button", { name: "Reject reply" }))
@@ -567,14 +697,20 @@ describe("ActionBar", () => {
     const approval = mutation(
       vi.fn().mockResolvedValue({ status: "returned_to_draft" })
     )
-    stubHooks(detailWith({ workflowStatus: "awaiting_approval" }), mutation(), approval)
+    stubHooks(
+      detailWith({ workflowStatus: "awaiting_approval" }),
+      mutation(),
+      approval
+    )
     renderActionBar()
     const inline = screen.getByRole("button", { name: "Reject reply" })
     expect(inline).toHaveClass("max-md:hidden")
     const more = screen.getByRole("button", { name: "Review actions" })
     expect(more).toHaveClass("md:hidden")
     await user.click(more)
-    await user.click(await screen.findByRole("menuitem", { name: "Reject reply" }))
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Reject reply" })
+    )
     expect(
       await screen.findByRole("alertdialog", { name: "Reject this reply?" })
     ).toBeInTheDocument()
@@ -617,7 +753,10 @@ describe("ActionBar", () => {
     expect(await screen.findByText("Reply published")).toBeInTheDocument()
     expect(screen.getByText("Live on Google.")).toBeInTheDocument()
     // A real link into a new tab that is told nothing, not a button.
-    const view = screen.getByRole("link", { name: "View on Google" })
+    // The primitive tells a screen reader the link opens a new tab.
+    const view = screen.getByRole("link", {
+      name: "View on Google (opens in a new tab)",
+    })
     expect(view).toHaveAttribute(
       "href",
       "https://search.google.com/local/reviews?r=1"
@@ -627,9 +766,27 @@ describe("ActionBar", () => {
       expect.arrayContaining(["noopener", "noreferrer"])
     )
     expect(
-      screen.queryByRole("button", { name: "View on Google" })
+      screen.queryByRole("button", { name: /View on Google/ })
     ).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Undo" })
+    ).not.toBeInTheDocument()
+  })
+
+  // The link's safety is the toast primitive's (isSafeToastHref): an unsafe
+  // href from the API never becomes an anchor, and nothing else steps in.
+  it("draws no View on Google for a link that is not https", async () => {
+    const user = userEvent.setup()
+    stubHooks(detailWith({ googleReplyUrl: "javascript:alert(1)" }))
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Publish reply" }))
+    expect(await screen.findByText("Reply published")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: /View on Google/ })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /View on Google/ })
+    ).not.toBeInTheDocument()
   })
 
   // One primary at the control height, sized to its words: never a
@@ -663,9 +820,9 @@ describe("ActionBar", () => {
     )
     renderActionBar()
     // The ⋯ menu is there for the phone's Reject, but holds no Delete.
-    await userEvent.setup().click(
-      screen.getByRole("button", { name: "Review actions" })
-    )
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Review actions" }))
     expect(
       await screen.findByRole("menuitem", { name: "Reject reply" })
     ).toBeInTheDocument()
@@ -768,9 +925,13 @@ describe("ActionBar", () => {
     )
     renderActionBar()
     await user.click(screen.getByRole("button", { name: "Review actions" }))
-    const menuItem = await screen.findByRole("menuitem", { name: "Delete published reply" })
+    const menuItem = await screen.findByRole("menuitem", {
+      name: "Delete published reply",
+    })
     await user.click(menuItem)
-    await user.click(await screen.findByRole("button", { name: "Delete reply" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Delete reply" })
+    )
     return del
   }
 
