@@ -46,7 +46,7 @@ export function AdministrationAccessWorkspace({ children }: { children: ReactNod
   const retryRoster = () => { void client.refetchQueries({ queryKey: rosterKey }) }
   useEffect(() => { setAccessBlocked?.(action.busy || action.unresolved) }, [setAccessBlocked, action.busy, action.unresolved])
   const saved = useInfiniteQuery({
-    queryKey: ["administration-access-workflows", locationId], initialPageParam: initialCursor(),
+    queryKey: queryKeys.locationAccessWorkflows(locationId), initialPageParam: initialCursor(),
     queryFn: ({ pageParam, signal }) => fetchAdministrationAccessWorkflows(locationId, pageParam, { signal }),
     getNextPageParam: (page) => page.nextCursor ?? undefined,
   })

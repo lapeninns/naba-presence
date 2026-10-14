@@ -106,8 +106,9 @@ function DirtyGuardProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   // Leaving the inbox (the OS back gesture, a shell link, a guarded
   // programmatic navigation) asks through the same dialog as the in-page
-  // gate. The inbox's own query-string changes are `router.replace` calls,
-  // which the leave guard never sees, so they stay with the gate.
+  // gate. The inbox's own query-string changes are history rewrites
+  // (lib/navigation/shallow-url.ts), which the leave guard never holds, so
+  // they stay with the gate.
   const isDirty = useSyncExternalStore(
     store.subscribe,
     store.getIsDirty,

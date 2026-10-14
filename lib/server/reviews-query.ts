@@ -20,6 +20,8 @@ export type InboxFilters = ReviewsQuery & {
   canPublish: boolean
   /** Organisation setting; decides whether a requester may approve their own. */
   requireTwoPersonApproval: boolean
+  /** `boundedSearchMatches` for `search`, when it found few enough to list. */
+  searchReviewIds?: readonly string[]
 }
 
 /**
@@ -98,6 +100,59 @@ const CURSOR_PREDICATE: Record<
   rating_asc: (sql, cursor) => ratingCursor(sql, cursor, ">"),
 }
 
+/** Above this many matches a search is filtered inline, not listed (W4-07). */
+export const SEARCH_MATCH_LIMIT = 1_000
+
+/**
+ * The ids a search matches in this tenant, or `undefined` when there are
+ * more than `SEARCH_MATCH_LIMIT`. The bounded definer helper (0143) reaches
+ * the search GIN index, which the inline predicate below cannot use under
+ * RLS; a rare term then narrows the list to a primary-key lookup. A common
+ * term stops at the limit instead of materialising every match, and the list
+ * query finds its page with the inline predicate alone, walking the tenant's
+ * newest reviews until the page fills.
+ */
+export async function boundedSearchMatches(
+  sql: TransactionSql,
+  search: string
+): Promise<string[] | undefined> {
+  const rows = await sql<{ id: string }[]>`
+    select review_id::text as id
+    from search_review_ids_bounded(
+      nullif(current_setting('app.organisation_id', true), '')::uuid,
+      ${search},
+      ${sha256(search)},
+      ${SEARCH_MATCH_LIMIT + 1}
+    )
+  `
+  return rows.length > SEARCH_MATCH_LIMIT ? undefined : rows.map((row) => row.id)
+}
+
+/**
+ * Free-text search, inline in the list query rather than a join to the
+ * `search_review_ids` definer function (0011, W4-07), which the planner saw
+ * as an opaque 1,000-row estimate and materialised in full before the
+ * `LIMIT`. The predicate is the function's match exactly: words in the
+ * review text or reviewer name, or the hash of a pasted Google review id or
+ * resource name. It always applies; `reviewIds`, when the caller has them
+ * from `boundedSearchMatches`, only lets the planner start from those rows.
+ */
+function searchPredicate(
+  sql: TransactionSql,
+  search: string,
+  reviewIds: readonly string[] | undefined
+): Fragment {
+  const hash = sha256(search)
+  return sql`
+    ${reviewIds ? sql`and r.id = any(${[...reviewIds]}::uuid[])` : sql``}
+    and (
+      r.search_document @@ websearch_to_tsquery('simple', ${search})
+      or r.google_review_id_hash = ${hash}
+      or r.google_review_name_hash = ${hash}
+    )
+  `
+}
+
 export function buildInboxQuery(
   sql: TransactionSql,
   filters: InboxFilters
@@ -133,20 +188,6 @@ export function buildInboxQuery(
       rr.current_body as "replyBody",
       sc.status as "syncStatus"
     from review r
-    ${
-      filters.search
-        ? sql`
-          join search_review_ids(
-            nullif(
-              current_setting('app.organisation_id', true),
-              ''
-            )::uuid,
-            ${filters.search},
-            ${sha256(filters.search)}
-          ) search_match on search_match.review_id = r.id
-        `
-        : sql``
-    }
     join location l on l.id = r.location_id
     left join client client_row on client_row.id = l.client_id
     left join lateral (
@@ -167,6 +208,11 @@ export function buildInboxQuery(
     where r.organisation_id =
       nullif(current_setting('app.organisation_id', true), '')::uuid
       and r.provider_deleted_at is null
+      ${
+        filters.search
+          ? searchPredicate(sql, filters.search, filters.searchReviewIds)
+          : sql``
+      }
       ${
         locationIdsFor(filters)
           ? sql`and r.location_id in ${sql(locationIdsFor(filters)!)}`

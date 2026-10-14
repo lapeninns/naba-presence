@@ -22,6 +22,7 @@ const bodySchema = z.object({
  * from what is still on an old key.
  */
 export const POST = route({
+  maxDuration,
   auth: "cron",
   body: bodySchema,
   handler: ({ body }) =>

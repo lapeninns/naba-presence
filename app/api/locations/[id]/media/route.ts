@@ -21,6 +21,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   query: mediaListQuerySchema,
   // The read lives in lib/server/listing-reads.ts so the photos page's
@@ -33,6 +34,7 @@ export const GET = route({
 // request directly here rather than through a `body` schema; the JSON
 // create branch parses its own body for the same reason.
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   handler: async ({ request, session, params, requestId }) => {

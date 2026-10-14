@@ -19,17 +19,30 @@
 //     step passed (re-judged from its steps, scripts/release/local-receipt.mjs),
 //   - `pnpm db:status --expect-current` against the operator's admin URL
 //     reports no pending migration.
-// Then it deploys with NABA_RELEASE_SHA stamped into the build and runtime
-// environment and writes a receipt to docs/release/receipts/: the build (SHA,
+// Then it promotes in three phases (audit W7-2): `vercel deploy --prod
+// --skip-domain` builds a production deployment with NABA_RELEASE_SHA stamped
+// into the build and runtime environment but leaves the production domains on
+// the current deployment; the readiness probe (scripts/ops/readiness-probe.mjs)
+// must pass against the new deployment's own URL and report that SHA; only
+// then does `vercel promote` move the domains. A failed probe leaves the old
+// deployment serving and exits non-zero, with nothing to roll back. After the
+// promotion it writes a receipt to docs/release/receipts/: the build (SHA,
 // deployment ID and URL, the local gate's receipt file, sha256, base and step
 // results), the migrations the commit ships (version and sha256), and the
 // production configuration NAMES. Never values. The local receipt's exact
 // bytes are copied beside it as `<receipt>.local.json`, to commit with it, so
 // the pinned sha256 stays checkable.
 //
+// The probe authenticates with READINESS_PROBE_TOKEN (production's
+// CRON_SECRET, or CRON_SECRET) and, when the project uses Deployment
+// Protection, VERCEL_AUTOMATION_BYPASS_SECRET; the script refuses before
+// deploying without a token.
+//
 // The decision is the pure `checkCandidate`, in the style of
-// scripts/vercel-ignore-build.mjs `decide()`; everything that talks to git,
-// Vercel or the database lives in `main()`.
+// scripts/vercel-ignore-build.mjs `decide()`; the three phases are
+// `stagedPromotion`, with the Vercel CLI and the probe injected (unit-tested
+// with both mocked). Everything else that talks to git, Vercel or the
+// database lives in `main()`.
 
 import { execFileSync, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -310,6 +323,95 @@ export function worktreeIssues(porcelain, ignored) {
   ]
 }
 
+/**
+ * `vercel deploy` arguments: a production build that does not take the
+ * production domains (`--skip-domain`); `vercel promote` assigns them once
+ * the probe passed.
+ * @param {string} sha
+ */
+export function deployArgs(sha) {
+  return [
+    "deploy",
+    "--prod",
+    "--skip-domain",
+    "--yes",
+    "--format",
+    "json",
+    "--build-env",
+    `NABA_RELEASE_SHA=${sha}`,
+    "--env",
+    `NABA_RELEASE_SHA=${sha}`,
+    "--meta",
+    `releaseSha=${sha}`,
+  ]
+}
+
+/** @param {string} deploymentId */
+export function promoteArgs(deploymentId) {
+  return ["promote", deploymentId, "--yes", "--timeout", "5m"]
+}
+
+/**
+ * readiness-probe.mjs arguments for the staged deployment: its own URL, and
+ * the SHA it must report. Degraded passes (production may be degraded for
+ * reasons the deployment does not change, such as telemetry not configured);
+ * not ready, unreachable, unauthorised and a SHA mismatch fail.
+ * @param {string} url
+ * @param {string} sha
+ */
+export function probeArgs(url, sha) {
+  return ["--url", url, "--expect-sha", sha]
+}
+
+/** Probe attempts and the wait between them: a fresh deployment cold-starts. */
+export const PROBE_ATTEMPTS = 3
+export const PROBE_RETRY_MS = 10_000
+
+/**
+ * Deploy without the domains, probe the new deployment, and promote it only
+ * when the probe passed. Returns `promoted: false` (the old deployment still
+ * serves production) when every probe attempt failed. A deploy or promote
+ * error propagates; the caller has already been told the deployment through
+ * `onDeployed`.
+ *
+ * @param {{
+ *   deploy: () => Promise<{ id: string, url: string }> | { id: string, url: string },
+ *   probe: (url: string) => Promise<number> | number,
+ *   promote: (deploymentId: string) => Promise<void> | void,
+ *   onDeployed?: (deployment: { id: string, url: string }) => void,
+ *   onProbe?: (attempt: number, exitCode: number) => void,
+ *   sleep?: (ms: number) => Promise<void>,
+ *   attempts?: number,
+ *   retryMs?: number,
+ * }} steps
+ * @returns {Promise<{ promoted: boolean, deployment: { id: string, url: string }, probeExitCode: number }>}
+ */
+export async function stagedPromotion({
+  deploy,
+  probe,
+  promote,
+  onDeployed = () => {},
+  onProbe = () => {},
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  attempts = PROBE_ATTEMPTS,
+  retryMs = PROBE_RETRY_MS,
+}) {
+  const deployment = await deploy()
+  onDeployed(deployment)
+  let probeExitCode = -1
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) await sleep(retryMs)
+    probeExitCode = await probe(deployment.url)
+    onProbe(attempt, probeExitCode)
+    if (probeExitCode === 0) break
+  }
+  if (probeExitCode !== 0) {
+    return { promoted: false, deployment, probeExitCode }
+  }
+  await promote(deployment.id)
+  return { promoted: true, deployment, probeExitCode }
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -416,6 +518,14 @@ async function main() {
     previousUnreadable = true
     console.error(`refused: ${error.message}`)
   }
+  // The probe needs the deployment's cron bearer; check before deploying.
+  const probeTokenMissing =
+    !process.env.READINESS_PROBE_TOKEN && !process.env.CRON_SECRET
+  if (probeTokenMissing) {
+    console.error(
+      "refused: set READINESS_PROBE_TOKEN to production's CRON_SECRET, so the readiness probe can check the new deployment before it is promoted"
+    )
+  }
   const schemaStatus = readSchemaStatus(root)
   const evaluation = checkCandidate({
     sha,
@@ -426,7 +536,12 @@ async function main() {
     nodeMajor: Number(readFileSync(join(root, ".nvmrc"), "utf8").trim()),
     previousSha,
   })
-  if (previousUnreadable || !evaluation.ok || !evaluation.evidence) {
+  if (
+    previousUnreadable ||
+    probeTokenMissing ||
+    !evaluation.ok ||
+    !evaluation.evidence
+  ) {
     for (const problem of evaluation.problems) {
       console.error(`refused: ${problem}`)
     }
@@ -469,31 +584,64 @@ async function main() {
     timestamp: new Date().toISOString(),
   })
 
-  const deployArgs = [
-    "deploy",
-    "--prod",
-    "--yes",
-    "--format",
-    "json",
-    "--build-env",
-    `NABA_RELEASE_SHA=${sha}`,
-    "--env",
-    `NABA_RELEASE_SHA=${sha}`,
-    "--meta",
-    `releaseSha=${sha}`,
-  ]
+  const vercelDeploy = deployArgs(sha)
   if (options.dryRun) {
-    console.log(`Dry run: would run vercel ${deployArgs.join(" ")}`)
+    console.log(`Dry run: would run vercel ${vercelDeploy.join(" ")}`)
+    console.log(
+      `Dry run: then node scripts/ops/readiness-probe.mjs ${probeArgs("<deployment url>", sha).join(" ")}, up to ${PROBE_ATTEMPTS} attempts`
+    )
+    console.log(
+      `Dry run: then, only if the probe passed, vercel ${promoteArgs("<deployment id>").join(" ")}`
+    )
     console.log(
       `Dry run: ${migrations.length} migration(s), ${configNames.length} configuration name(s), operator ${operator}`
     )
     return
   }
 
-  const deployment = parseDeployOutput(run("vercel", deployArgs, { cwd: root }))
+  const outcome = await stagedPromotion({
+    deploy: () => parseDeployOutput(run("vercel", vercelDeploy, { cwd: root })),
+    onDeployed: (staged) => {
+      // Not live yet: the production domains still point at the previous
+      // deployment until `vercel promote`.
+      console.log(
+        `Staged ${staged.url} (${staged.id}) at ${sha}; production domains unchanged`
+      )
+    },
+    probe: (url) => {
+      const result = spawnSync(
+        process.execPath,
+        [join(root, "scripts/ops/readiness-probe.mjs"), ...probeArgs(url, sha)],
+        { cwd: root, stdio: "inherit", env: process.env }
+      )
+      return result.status ?? 2
+    },
+    onProbe: (attempt, exitCode) => {
+      if (exitCode !== 0) {
+        console.error(
+          `readiness probe attempt ${attempt}/${PROBE_ATTEMPTS} exited ${exitCode}`
+        )
+      }
+    },
+    promote: (deploymentId) => {
+      run("vercel", promoteArgs(deploymentId), { cwd: root })
+    },
+  }).catch((error) => {
+    console.error(
+      "If a deployment was staged above, production still serves the previous one unless `vercel promote` started; check with `vercel promote status`."
+    )
+    throw error
+  })
+  const { deployment } = outcome
+  if (!outcome.promoted) {
+    console.error(
+      `refused: the readiness probe failed against ${deployment.url} (exit ${outcome.probeExitCode}); it was not promoted and production still serves the previous deployment. No receipt written.`
+    )
+    process.exit(1)
+  }
   // Production has changed: print what the operator needs to roll back or
   // write the receipt by hand before anything else can fail.
-  console.log(`Deployed ${deployment.url} (${deployment.id}) at ${sha}`)
+  console.log(`Promoted ${deployment.url} (${deployment.id}) at ${sha}`)
   const receipt = buildReceipt({
     ...receiptInput,
     deployment,
@@ -512,7 +660,7 @@ async function main() {
   console.log(`Receipt: ${relative(root, receiptPath)}`)
   console.log(`Local gate receipt copy: ${relative(root, copyPath)}`)
   console.log(
-    "Next: smoke-check GET /api/operations/health?scope=platform (release.sha must match), then commit both files."
+    "Next: pnpm ops:readiness --url <production> --expect-promoted, then commit both files."
   )
 }
 

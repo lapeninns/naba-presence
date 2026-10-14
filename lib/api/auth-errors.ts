@@ -73,6 +73,11 @@ const BY_CODE: Record<string, AuthMessage> = {
     title: "This invitation is for a different email address.",
     description: "Sign in with the address that received it.",
   },
+  member_limit_reached: {
+    title: "This workspace has no room for another member.",
+    description:
+      "Its plan's member limit is reached. Ask an owner to free a seat or change plan, then open the invitation again.",
+  },
   invitation_scope_empty: {
     title: "This invitation no longer gives access to anything.",
     description:

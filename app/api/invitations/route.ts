@@ -14,6 +14,7 @@ import {
   randomToken,
   sha256,
 } from "@/lib/server/crypto"
+import { assertNewMemberSeat } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import {
@@ -265,6 +266,11 @@ export const POST = route({
             "That person is already in this organisation. Change their role from the team list instead."
           )
         }
+        // The plan's member limit (R2B-04): open invitations hold a seat, so
+        // this fails here rather than when the person accepts.
+        await assertNewMemberSeat(sql, session.organisationId, {
+          pendingInvitations: true,
+        })
         const clientIds = input.clientIds
           ? await validateClientScope(sql, input.role, input.clientIds)
           : null

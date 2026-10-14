@@ -223,6 +223,22 @@ export async function changePlan(options: {
         { details: { billableLocations, limit: target.locationLimit } }
       )
     }
+    // Likewise the members (R2B-04): nobody is ever removed for the customer.
+    if (target.memberLimit !== null) {
+      const [{ members }] = await sql<{ members: number }[]>`
+        select count(*)::int as members
+        from member
+        where organisation_id = ${organisationId}
+      `
+      if (members > target.memberLimit) {
+        throw new ApiError(
+          409,
+          "member_limit_exceeded",
+          `This plan allows ${target.memberLimit} members and ${members} are in this workspace. Remove members first.`,
+          { details: { members, limit: target.memberLimit } }
+        )
+      }
+    }
 
     const current = await getPlan(sql, billing.planId)
     if (!current?.stripePriceId) throw outOfSync()

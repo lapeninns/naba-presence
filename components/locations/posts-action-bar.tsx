@@ -210,11 +210,16 @@ export function PostsActionBar({
     onError: () => setPublishOpen(false),
   })
   const decide = useResourceMutation({
-    mutationFn: (decision: "approve" | "reject") =>
+    mutationFn: (decision: "approve" | "reject", intent) =>
       // Bound to the revision on screen: an edit since the list loaded makes
       // the server refuse (approval_post_changed) rather than approve text
       // this approver never read.
-      decidePostApproval(locationId, post.id, decision, post.contentRevision),
+      decidePostApproval(locationId, post.id, decision, post.contentRevision, {
+        intentId: intent.intentId,
+      }),
+    // A retry after a lost answer resends the intent, so an approval that
+    // already published is answered with its outcome, not a 409.
+    intentKey: (decision) => [post.id, decision, post.contentRevision],
     invalidate,
     // Rejecting only changes NabaPresence (a plain toast); approving
     // publishes, so its toast is a Google write.
@@ -226,7 +231,11 @@ export function PostsActionBar({
     },
   })
   const remove = useResourceMutation({
-    mutationFn: () => deletePost(locationId, post.id),
+    // A retry after a lost answer resends the intent, so a delete that
+    // already landed is answered as deleted, not a 404.
+    mutationFn: (_: void, intent) =>
+      deletePost(locationId, post.id, { intentId: intent.intentId }),
+    intentKey: () => post.id,
     invalidate,
     errorContext: "post",
     onSuccess: () => {

@@ -21,6 +21,7 @@ import {
   type GoogleHoursUpdateMask,
   type GoogleLocationReadField,
 } from "@/lib/domain/google-contract"
+import { parseUpstream } from "@/lib/server/http"
 import { googleRequest } from "./transport"
 
 export function googleAccounts(
@@ -195,7 +196,11 @@ export function searchGoogleChains(
   )
 }
 
-export function batchGetGoogleCategories(accessToken: string, input: { names: readonly string[]; languageCode: string; regionCode: string }, options: { connectionKey?: string } = {}) {
+export function batchGetGoogleCategories(
+  accessToken: string,
+  input: { names: readonly string[]; languageCode: string; regionCode: string },
+  options: { connectionKey?: string } = {}
+) {
   const request = googleCategoriesBatchRequest(input)
   return googleRequest<unknown>(request.url, accessToken, request.init, options)
 }
@@ -295,5 +300,10 @@ export async function getGoogleHoursCategories(
     {},
     options
   )
-  return hoursCategoryResponseSchema.parse(response).categories ?? []
+  return (
+    parseUpstream(hoursCategoryResponseSchema, response, {
+      provider: "google",
+      operation: "categories.batchGet",
+    }).categories ?? []
+  )
 }

@@ -226,6 +226,7 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     large: `price_colarge${suffix}`,
     legacy: `price_colegacy${suffix}`,
     retired: `price_coretired${suffix}`,
+    solo: `price_cosolo${suffix}`,
   }
   const plans: Record<keyof typeof prices, string> = {
     basic: "",
@@ -233,22 +234,25 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     large: "",
     legacy: "",
     retired: "",
+    solo: "",
   }
   const nowSeconds = Math.floor(Date.now() / 1000)
 
   async function plan(
     key: keyof typeof prices,
     limit: number,
-    active: boolean
+    active: boolean,
+    memberLimit: number | null = null
   ): Promise<string> {
     const [row] = await admin<{ id: string }[]>`
       insert into billing_plan (
         code, version, workspace_mode, environment, name, stripe_price_id,
-        location_limit, ai_draft_credits_per_period, is_test_offer, active
+        location_limit, member_limit, ai_draft_credits_per_period,
+        is_test_offer, active
       )
       values (
         ${`co_${key}_${suffix}`}, 1, 'agency', 'test', ${`Checkout ${key} (test)`},
-        ${prices[key]}, ${limit}, 40, true, ${active}
+        ${prices[key]}, ${limit}, ${memberLimit}, 40, true, ${active}
       )
       returning id::text as id
     `
@@ -263,6 +267,7 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
     plans.large = await plan("large", 20, true)
     plans.legacy = await plan("legacy", 5, true)
     plans.retired = await plan("retired", 10, false)
+    plans.solo = await plan("solo", 5, true, 1)
     const billingEnv = {
       BILLING_ENVIRONMENT: "test",
       STRIPE_SECRET_KEY: "sk_test_checkout",
@@ -804,6 +809,30 @@ describeDatabase("billing checkout, portal, plan change and cancel", () => {
       expect(await response.json()).toMatchObject({
         error: "location_limit_exceeded",
         details: { billableLocations: 3, limit: 2 },
+      })
+      expect((await billing(active.organisationId)).pendingPlanId).toBeNull()
+      expect(
+        stripe
+          .callsTo("POST", /^\/v1\/subscription_schedules$/)
+          .filter(
+            (call) => call.form.from_subscription === active.subscriptionId
+          )
+      ).toHaveLength(0)
+    })
+
+    it("refuses a downgrade below the current members with 409 (R2B-04)", async () => {
+      const active = await subscribed()
+      await seedMemberUser(admin, { organisationId: active.organisationId })
+      const response = await post(
+        server.baseUrl,
+        active.cookie,
+        "/api/billing/plan-change",
+        { planId: plans.solo }
+      )
+      expect(response.status).toBe(409)
+      expect(await response.json()).toMatchObject({
+        error: "member_limit_exceeded",
+        details: { members: 2, limit: 1 },
       })
       expect((await billing(active.organisationId)).pendingPlanId).toBeNull()
       expect(
