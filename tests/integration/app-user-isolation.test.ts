@@ -99,26 +99,25 @@ describeDatabase("app_user isolation", () => {
   it("provisions through the definer function without any context", async () => {
     const [user] = await runtime<{ id: string }[]>`
       select id::text as id
-      from provision_google_user(
+      from provision_authenticated_user(
+        'supabase',
+        ${`sub-${suffix}`},
         ${definerEmail},
         'Def',
-        ${`sub-${suffix}`},
         true
       )
     `
     expect(user.id).toBeTruthy()
   })
 
-  it("attach_member_user never rewrites an existing display name", async () => {
-    await runtime.begin(async (sql) => {
-      await sql`
-        select set_config('app.organisation_id', ${organisationA}, true)
-      `
-      await sql`select attach_member_user(${userBEmail}, 'Hijacked Name')`
-    })
-    const [row] = await admin<{ display_name: string }[]>`
-      select display_name from app_user where email = ${userBEmail}
+  it("no longer exposes the dropped identity primitives (0132)", async () => {
+    const rows = await admin<{ name: string }[]>`
+      select p.proname as name
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('attach_member_user', 'provision_google_user')
     `
-    expect(row.display_name).toBe("Tenant B user")
+    expect(rows).toEqual([])
   })
 })

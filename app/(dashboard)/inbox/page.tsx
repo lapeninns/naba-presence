@@ -14,12 +14,12 @@ import { getSession } from "@/lib/server/session"
 export const metadata = { title: "Inbox · NabaPresence" }
 
 // The landing page. Deliberately no `searchParams` prop: the inbox keeps its
-// filters, queue and selection in the URL, and Next tracks which segments
-// read `searchParams`. A page that read them would re-render on the server
-// for every one of those changes (the auto-select on load included), and
-// Next then moved focus to the re-rendered segment, which wiped text an
-// operator had already typed into the location filter. Changes made in the
-// page keep reusing this segment and the list fetches client-side.
+// filters, queue and selection in the URL, and a page that read them would
+// opt into rendering per query string. Not reading them is not enough on its
+// own: this page is dynamic, so a `router.replace` to a new query string
+// still re-runs it on the server. The view therefore changes its own query
+// string through the history API (lib/navigation/shallow-url.ts), which
+// re-renders nothing here; the list and an opened review fetch client-side.
 //
 // The first load is different: waiting for the client bundle before asking
 // for the rows put the list ~3 s behind first paint on a phone. So the
