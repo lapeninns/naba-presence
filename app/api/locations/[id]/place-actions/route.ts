@@ -10,7 +10,9 @@ import {
 import { route } from "@/lib/server/route"
 import { ApiError } from "@/lib/server/http"
 
-export const maxDuration = 60
+// Not 60: its Google calls (token and two metadata reads in a row) do not stop
+// at ctx.deadline yet, so this keeps the platform default it ran under.
+export const maxDuration = 300
 
 const paramsSchema = z.object({ id: z.string() })
 

@@ -214,9 +214,13 @@ time; a route also hands its `maxDuration` to `route()`, which turns it into
 5 s). Services that make provider calls in a row take that plain `deadline`,
 size each call to what is left and stop before a step that cannot finish.
 `tests/route-max-duration.test.ts` requires both on every route whose imports
-reach the Google transport or the OpenAI client. `getSession()` is wrapped in `React.cache`, so a server render that asks
-for the session from a layout, a page and a prefetch helper performs one
-lookup and one `last_seen_at` write; in route handlers the cache is a no-op.
+reach the Google transport or the OpenAI client. A route whose Google calls
+can outrun 60 s and do not yet stop at the deadline (unbounded paging, a write
+and its read-back) declares 300, the Fluid compute default it ran under before
+the export was required; database-only routes declare 60. `getSession()` is
+wrapped in `React.cache`, so a server render that asks for the session from a
+layout, a page and a prefetch helper performs one lookup and one
+`last_seen_at` write; in route handlers the cache is a no-op.
 
 ## Location visibility: one rule
 

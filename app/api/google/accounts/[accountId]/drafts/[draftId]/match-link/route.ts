@@ -4,7 +4,9 @@ import { getOnboardingMatchLink, submitOnboardingMatchLink } from "@/lib/server/
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Not 60: its Google calls (up to 100 location pages) do not stop at
+// ctx.deadline yet, so this keeps the platform default it ran under.
+export const maxDuration = 300
 const params = z.object({ accountId: z.uuid(), draftId: z.uuid() })
 export const GET = route({
   maxDuration,

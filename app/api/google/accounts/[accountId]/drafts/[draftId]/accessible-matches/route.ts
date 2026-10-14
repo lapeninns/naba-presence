@@ -4,7 +4,9 @@ import { discoverOnboardingAccessibleMatches } from "@/lib/server/google-onboard
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Not 60: its Google calls (up to 100 location pages) do not stop at
+// ctx.deadline yet, so this keeps the platform default it ran under.
+export const maxDuration = 300
 export const GET = route({
   maxDuration,
   roles: ["owner", "admin"],

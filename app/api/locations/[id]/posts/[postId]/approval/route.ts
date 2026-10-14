@@ -12,7 +12,10 @@ import {
 } from "@/lib/server/posts"
 import { route } from "@/lib/server/route"
 
-export const maxDuration = 60
+// Not 60: its Google calls (publish write, then a read-back that may list every
+// post) do not stop at ctx.deadline yet, so this keeps the platform default it
+// ran under.
+export const maxDuration = 300
 
 export const POST = route({
   maxDuration,

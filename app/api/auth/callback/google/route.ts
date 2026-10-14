@@ -31,7 +31,10 @@ import {
 import { requireRole, requireSession } from "@/lib/server/session"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Not 60: its Google calls (OAuth exchange, then every account and location
+// page) do not stop at ctx.deadline yet, so this keeps the platform default it
+// ran under.
+export const maxDuration = 300
 
 const stateSchema = z.object({
   nonce: z.string().min(1),

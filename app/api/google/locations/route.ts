@@ -8,7 +8,9 @@ import { ApiError } from "@/lib/server/http"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Not 60: its Google calls (every location page of every account) do not stop
+// at ctx.deadline yet, so this keeps the platform default it ran under.
+export const maxDuration = 300
 
 type GoogleAccountRow = {
   google_account_name: string

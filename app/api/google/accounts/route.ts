@@ -10,7 +10,9 @@ import { requireClientAccess } from "@/lib/server/permissions"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Not 60: its Google calls (every account page) do not stop at ctx.deadline
+// yet, so this keeps the platform default it ran under.
+export const maxDuration = 300
 
 async function discoverAccounts(accessToken: string, connectionId: string) {
   const discovered: Array<Record<string, unknown>> = []
