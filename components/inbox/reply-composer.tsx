@@ -127,10 +127,16 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const [verdictStale, setVerdictStale] = useState(false)
   const [saving, setSaving] = useState(false)
   const isDirty = body !== seededBody
+  // The text the operator agreed to give up from the leave prompt, while
+  // the page stayed (a held navigation that went nowhere). The inbox store
+  // stops counting it as dirty; the next edit is unsaved again and
+  // re-registers, because `guarded` changes back to true.
+  const [discardedBody, setDiscardedBody] = useState<string | null>(null)
+  const guarded = isDirty && body !== discardedBody
   const askDiscard = useAskDiscardConfirm()
   const { confirmDiscard, restore, markDiscarded } = useDirtyGuard({
     key: guardKey,
-    isDirty,
+    isDirty: guarded,
     snapshot: () => body,
     askConfirm: askDiscard,
   })
@@ -154,6 +160,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     setSeedBase(seededBody)
     setBody(seededBody)
     setRestoredBody(null)
+    setDiscardedBody(null)
     setMutationVerification(null)
     setVerdictStale(false)
     setToneChanged(false)
@@ -244,13 +251,23 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
     async () => null
   )
   const runSave = useCallback(() => saveRef.current(), [])
+  // Read from the leave prompt's confirm, so the callback stays stable and
+  // typing does not re-register the store on every keystroke.
+  const bodyRef = useRef(body)
+  useEffect(() => {
+    bodyRef.current = body
+  }, [body])
+  const discardFromLeave = useCallback(() => {
+    markDiscarded()
+    setDiscardedBody(bodyRef.current)
+  }, [markDiscarded])
   useRegisterDirtyGuard(
-    isDirty,
+    guarded,
     confirmDiscard,
     offerSave
       ? { save: runSave, blockedReason: saveBlocked, saving }
       : undefined,
-    markDiscarded
+    discardFromLeave
   )
 
   // `g`: a first draft in the chosen tone, when there is nothing to lose —
