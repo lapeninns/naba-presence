@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -21,7 +22,10 @@ import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
 import { __resetDraftSources, stashDraft } from "@/lib/api/draft-stash"
 import { draftKey } from "@/lib/editors/draft-key"
-import { __resetLeaveGuardForTests } from "@/lib/editors/use-leave-guard"
+import {
+  __resetLeaveGuardForTests,
+  guardNavigation,
+} from "@/lib/editors/use-leave-guard"
 import {
   PRIMARY_ACTION_EVENT,
   REPLY_FOCUS_EVENT,
@@ -286,6 +290,43 @@ describe("ReplyComposer — opening a review", () => {
     await waitFor(() => expect(textbox()).toHaveValue("My unsent words"))
     // A real unsaved edit: the guard is meant to arm for it.
     expect(dirtySeen.at(-1)).toBe(true)
+  })
+
+  // W2-07: the store's discard cleared the dirty flag, but the composer only
+  // re-registered when its own dirtiness changed, and a composer still on
+  // screen stays dirty. Edits made after that went unguarded.
+  it("guards edits made after a leave-prompt Discard that kept the page", async () => {
+    const user = userEvent.setup()
+    mountProbed(() => reviewWith(EXISTING))
+    await user.type(textbox(), " edited")
+    expect(dirtySeen.at(-1)).toBe(true)
+
+    // A held navigation that, once confirmed, does not leave the inbox.
+    const run = vi.fn()
+    act(() => guardNavigation(run))
+    await user.click(
+      within(
+        await screen.findByRole("alertdialog", {
+          name: "Discard unsaved reply?",
+        })
+      ).getByRole("button", { name: "Discard" })
+    )
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(dirtySeen.at(-1)).toBe(false)
+    // Nothing of the given-up text is kept for a later restore.
+    expect(sessionStorage.length).toBe(0)
+
+    await user.type(textbox(), " again")
+    await waitFor(() => expect(dirtySeen.at(-1)).toBe(true))
+    // The next navigation asks again rather than running at once.
+    const next = vi.fn()
+    act(() => guardNavigation(next))
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "Discard unsaved reply?",
+      })
+    ).toBeInTheDocument()
+    expect(next).not.toHaveBeenCalled()
   })
 })
 
