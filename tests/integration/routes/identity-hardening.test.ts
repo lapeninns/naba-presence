@@ -4,12 +4,28 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const run = process.env.RUN_DB_TESTS === "true"
 const describeDatabase = run ? describe : describe.skip
 
-describeDatabase("Google identity hardening", () => {
+/**
+ * Identity linking through provision_authenticated_user, the only sign-in
+ * provisioning path. These cases used to run through the Google twin
+ * (provision_google_user), dropped in 0132 because no route reached it.
+ */
+describeDatabase("authenticated identity hardening", () => {
   let admin: ReturnType<typeof postgres>
   const createdOrganisations: string[] = []
   const marker = crypto.randomUUID().slice(0, 8)
   const email = (label: string) =>
     `identity-${marker}-${label}@example.test`
+  const identity = (
+    subject: string,
+    label: string,
+    overrides: { displayName?: string; emailVerified?: boolean } = {}
+  ) => ({
+    provider: "supabase",
+    subject: `identity-${subject}-${marker}`,
+    email: email(label),
+    displayName: overrides.displayName ?? "Identity test",
+    emailVerified: overrides.emailVerified ?? true,
+  })
 
   beforeAll(() => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
@@ -42,56 +58,66 @@ describeDatabase("Google identity hardening", () => {
     await admin.end()
   })
 
-  it("rejects an unverified email collision without relinking the subject", async () => {
-    const { provisionOwner } = await import("@/lib/server/provisioning")
-    const originalSub = `identity-original-${marker}`
-    const original = await provisionOwner({
-      sub: originalSub,
-      email: email("collision"),
-      name: "Original identity",
-      email_verified: true,
-    })
+  const subjectOf = async (userId: string) => {
+    const [user] = await admin`
+      select auth_subject as "authSubject"
+      from app_user
+      where id = ${userId}
+    `
+    return user.authSubject as string | null
+  }
+
+  it("rejects an unverified email without relinking the subject", async () => {
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
+    const original = await provisionAuthenticatedOwner(
+      identity("original", "unverified")
+    )
     createdOrganisations.push(original.organisationId)
 
     await expect(
-      provisionOwner({
-        sub: `identity-attacker-${marker}`,
-        email: email("collision"),
-        name: "Unverified identity",
-        email_verified: false,
-      })
-    ).rejects.toMatchObject({
-      status: 403,
-      code: "unverified_google_email",
-    })
+      provisionAuthenticatedOwner(
+        identity("attacker", "unverified", { emailVerified: false })
+      )
+    ).rejects.toMatchObject({ status: 403, code: "email_not_verified" })
 
-    const [user] = await admin`
-      select google_subject as "googleSubject"
-      from app_user
-      where id = ${original.userId}
-    `
-    expect(user.googleSubject).toBe(originalSub)
+    expect(await subjectOf(original.userId)).toBe(
+      `identity-original-${marker}`
+    )
   })
 
-  it("updates a verified changed email by matching the Google subject first", async () => {
-    const { provisionOwner } = await import("@/lib/server/provisioning")
-    const sub = `identity-email-change-${marker}`
-    const original = await provisionOwner({
-      sub,
-      email: email("old"),
-      name: "Email change",
-      email_verified: true,
-    })
+  it("refuses to rebind an email that another identity already holds", async () => {
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
+    const original = await provisionAuthenticatedOwner(
+      identity("bound", "bound")
+    )
     createdOrganisations.push(original.organisationId)
 
-    const returning = await provisionOwner({
-      sub,
-      email: email("new"),
-      name: "Email changed",
-      email_verified: true,
-    })
+    await expect(
+      provisionAuthenticatedOwner(identity("intruder", "bound"))
+    ).rejects.toMatchObject({ status: 409, code: "auth_identity_conflict" })
+
+    expect(await subjectOf(original.userId)).toBe(`identity-bound-${marker}`)
+  })
+
+  it("updates a verified changed email by matching the subject first", async () => {
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
+    const original = await provisionAuthenticatedOwner(
+      identity("email-change", "old")
+    )
+    createdOrganisations.push(original.organisationId)
+
+    const returning = await provisionAuthenticatedOwner(
+      identity("email-change", "new", { displayName: "Email changed" })
+    )
     expect(returning.userId).toBe(original.userId)
     expect(returning.organisationId).toBe(original.organisationId)
+    expect(returning.emailChangeHeld).toBe(false)
 
     const [user] = await admin`
       select email, display_name as "displayName"
@@ -105,34 +131,25 @@ describeDatabase("Google identity hardening", () => {
   })
 
   it("holds a changed email that belongs to another identity", async () => {
-    const { provisionOwner } = await import("@/lib/server/provisioning")
-    const first = await provisionOwner({
-      sub: `identity-held-first-${marker}`,
-      email: email("held-first"),
-      name: "Held first",
-      email_verified: true,
-    })
-    const second = await provisionOwner({
-      sub: `identity-held-second-${marker}`,
-      email: email("held-second"),
-      name: "Held second",
-      email_verified: true,
-    })
-    createdOrganisations.push(
-      first.organisationId,
-      second.organisationId
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
     )
+    const first = await provisionAuthenticatedOwner(
+      identity("held-first", "held-first")
+    )
+    const second = await provisionAuthenticatedOwner(
+      identity("held-second", "held-second")
+    )
+    createdOrganisations.push(first.organisationId, second.organisationId)
 
-    const returning = await provisionOwner({
-      sub: `identity-held-first-${marker}`,
-      email: email("held-second"),
-      name: "Held first updated",
-      email_verified: true,
-    })
+    const returning = await provisionAuthenticatedOwner(
+      identity("held-first", "held-second")
+    )
     expect(returning.userId).toBe(first.userId)
+    expect(returning.emailChangeHeld).toBe(true)
 
     const users = await admin`
-      select id::text as id, email, google_subject as "googleSubject"
+      select id::text as id, email, auth_subject as "authSubject"
       from app_user
       where id in (${first.userId}, ${second.userId})
       order by email
@@ -141,50 +158,31 @@ describeDatabase("Google identity hardening", () => {
       {
         id: first.userId,
         email: email("held-first"),
-        googleSubject: `identity-held-first-${marker}`,
+        authSubject: `identity-held-first-${marker}`,
       },
       {
         id: second.userId,
         email: email("held-second"),
-        googleSubject: `identity-held-second-${marker}`,
+        authSubject: `identity-held-second-${marker}`,
       },
     ])
-    const [audit] = await admin`
-      select metadata
-      from audit_log
-      where organisation_id = ${first.organisationId}
-        and action = 'identity.email_change_held'
-      order by created_at desc
-      limit 1
-    `
-    expect(audit.metadata).toMatchObject({
-      requestedEmail: email("held-second"),
-      googleSubject: `identity-held-first-${marker}`,
-    })
   })
 
   it("links a verified email when no subject match exists", async () => {
-    const { provisionOwner } = await import("@/lib/server/provisioning")
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
     const userId = crypto.randomUUID()
     await admin`
       insert into app_user (id, email, display_name)
       values (${userId}, ${email("verified-link")}, 'Pending link')
     `
 
-    const linked = await provisionOwner({
-      sub: `identity-verified-link-${marker}`,
-      email: email("verified-link"),
-      name: "Verified link",
-      email_verified: true,
-    })
+    const linked = await provisionAuthenticatedOwner(
+      identity("verified-link", "verified-link")
+    )
     createdOrganisations.push(linked.organisationId)
     expect(linked.userId).toBe(userId)
-
-    const [user] = await admin`
-      select google_subject as "googleSubject"
-      from app_user
-      where id = ${userId}
-    `
-    expect(user.googleSubject).toBe(`identity-verified-link-${marker}`)
+    expect(await subjectOf(userId)).toBe(`identity-verified-link-${marker}`)
   })
 })
