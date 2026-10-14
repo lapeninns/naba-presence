@@ -148,8 +148,7 @@ They contain no customer content; every follow-on operation immediately enters
 ## Request skeleton: `route()`
 
 Every handler under `app/api/**/route.ts` is built by `route({...})` from
-`lib/server/route.ts` (77 of 78 route files; the last,
-`app/api/auth/callback/google/route.ts`, re-exports another handler). The
+`lib/server/route.ts` (all 159 route files). The
 wrapper owns, in order: the request id, generated once with
 `serverRequestId`, exposed as `ctx.requestId`, echoed as the `x-request-id`
 response header on success and error, and written into every error body
@@ -190,8 +189,9 @@ platform-level `abuse_rate_bucket` table, reached only through the SECURITY
 DEFINER `take_abuse_budget` and `purge_abuse_rate_buckets` functions, so every
 instance shares one count. Keys are HMAC digests under `NEXTAUTH_SECRET`,
 never plaintext. They cover password login, registration, confirmation resend,
-reset request and completion, the emailed confirmation link (`/auth/confirm`,
-per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
+reset request and completion, the emailed confirmation link (`POST
+/auth/confirm` from the `/confirm-email` interstitial, same-origin only; a GET
+of the link never spends the token; per IP; a refusal redirects to sign-in), invitation lookup and acceptance, AI draft
 generation, support impersonation attempts (counted before the secret is
 compared) and `/share/report/[token]` lookups (which answer the same 404 as
 an unknown token when limited). The client IP comes only from the header named
@@ -209,9 +209,18 @@ stay in the domain module. Cron and public handlers import `withTenant` or
 `getDatabase` directly; the only `getDatabase()` calls left in route files are
 the commented cross-tenant enumeration and routing reads. `runtime` and
 `maxDuration` remain per-file static exports because Next reads them at build
-time. `getSession()` is wrapped in `React.cache`, so a server render that asks
-for the session from a layout, a page and a prefetch helper performs one
-lookup and one `last_seen_at` write; in route handlers the cache is a no-op.
+time; a route also hands its `maxDuration` to `route()`, which turns it into
+`ctx.deadline` (epoch ms, `lib/server/deadline.ts`: start + `maxDuration` −
+5 s). Services that make provider calls in a row take that plain `deadline`,
+size each call to what is left and stop before a step that cannot finish.
+`tests/route-max-duration.test.ts` requires both on every route whose imports
+reach the Google transport or the OpenAI client. A route whose Google calls
+can outrun 60 s and do not yet stop at the deadline (unbounded paging, a write
+and its read-back) declares 300, the Fluid compute default it ran under before
+the export was required; database-only routes declare 60. `getSession()` is
+wrapped in `React.cache`, so a server render that asks for the session from a
+layout, a page and a prefetch helper performs one lookup and one
+`last_seen_at` write; in route handlers the cache is a no-op.
 
 ## Location visibility: one rule
 
@@ -1037,6 +1046,13 @@ rather than a re-arm; the intent transaction also writes `review_reply`,
 is returned as an outcome the routes map to 409/429 rather than thrown. The
 boundary statement lives in both file headers and is kept in step.
 
+A request re-arms a queued row (`rearmAttempt`) only as a compare-and-set on
+the status and `attempt_no` it read, with any back-off elapsed, as the
+runner's retry claim does on `status = 'retryable'`. Without it a press that
+read the row before the runner claimed it (or before another press re-armed
+it) re-armed it again and called Google a second time. The loser resolves
+against the winner's row, as it does for a lost idempotency-key insert.
+
 The vocabulary also carries `superseded` (0035), which is not a provider
 verdict but a retirement: the mutation a queued attempt was keyed to is no
 longer the one the reply wants — a delete parked on a 429 while the operator
@@ -1102,8 +1118,11 @@ queue: their cron only arms a checkpoint for every linked location
 per-organisation cap, and success books the next run on the kind's grid from
 the slot it was due in (`next_scheduled_run`). `sync_checkpoint.
 last_succeeded_at` moves only on success and is what every freshness signal
-reads. Vercel Cron drives eight ticks (`vercel.json`); `scripts/scheduler.mjs`
-POSTs the same eight for local and non-Vercel deployments.
+reads. Vercel Cron drives nine ticks (`vercel.json`); `scripts/scheduler.mjs`
+fires the same nine GETs with the cron bearer for local and non-Vercel
+deployments (`scripts/scheduler-ticks.mjs`), so both topologies enqueue the
+same way. The bearer POST of reconcile, performance and keywords still walks
+organisations inline; nothing schedules it.
 `lib/server/leases.ts` protects each fleet-wide loop with PostgreSQL advisory
 locks so overlapping schedulers skip rather than duplicate work, and records
 each run in that loop's `ops_heartbeat` row (start, skip streak, failure and
@@ -1360,11 +1379,14 @@ on purpose. Only readers served from our own database are prefetched (home
 counts and the 30-day overview, location capabilities, the posts list, the
 settings role projection): the Google-backed tabs read live and cost 3-5s per
 request inside a server render, which would hold first paint and be repeated
-by every `<Link prefetch>`. And it is never used on a page whose state lives
-in the URL: a page that reads `searchParams` re-renders on the server for
-every filter, queue or selection change, and Next moves focus to the
-re-rendered segment, which wiped text an operator had typed into the inbox
-location filter. Those pages hydrate client-side as before.
+by every `<Link prefetch>`. And a page whose state lives in the URL never
+reads `searchParams` to choose what to prefetch: such a page re-renders on
+the server for every filter, queue or selection change, and Next moves focus
+to the re-rendered segment, which wiped text an operator had typed into the
+inbox location filter. The inbox instead reads the first request's query
+string from `proxy.ts`'s header (`requestSearch`, which Next does not treat as
+a search-param read) and prefetches the list's first page, the counts and an
+open review (`inboxPrefetch`); later changes fetch client-side.
 
 ## Naming
 

@@ -6,6 +6,7 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 export const maxDuration = 60
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"], params: z.object({ accountId: z.uuid(), draftId: z.uuid() }),
   body: googleOnboardingLinkSchema,

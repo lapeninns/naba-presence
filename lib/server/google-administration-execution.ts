@@ -1,7 +1,8 @@
 import "server-only"
 import type { AdministrationAccessRequest } from "@/lib/contracts/google-administration-review"
 import { approvedGbpChange } from "@/lib/server/gbp-change-sets"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { auditGbpMutation, settleGbpMutation, startGbpMutation } from "@/lib/server/gbp-management"
 import { googleAccountManagementApi, GoogleMutationAmbiguousError } from "@/lib/server/google"
 import { assertAdministrationAccessCurrent, readAdministrationAccessReview } from "@/lib/server/google-administration-reviews"
@@ -9,15 +10,16 @@ import { currentAdministrationContext, scopedAdministrationTarget } from "@/lib/
 import { loadAdministrationAccessAttempt, projectAdministrationAttempt, readAdministrationAccessAttempt, refreshAdministrationObservation } from "@/lib/server/google-administration-attempts"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
-import { requireNoUnresolvedPlaceAction } from "@/lib/server/google-account-change-lock"
+import { requireNoUnresolvedAccountChange } from "@/lib/server/google-account-change-lock"
 
 async function withAdministrationLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
   const linked = await currentAdministrationContext(session, locationId, false)
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    const [claim] = await sql<{ acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${linked.googleAccountId}:administration_access`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "administration_in_progress", "Another administration action for this Google account is in progress. Check its saved outcome.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_administration",
+    keys: [`${session.organisationId}:${linked.googleAccountId}:administration_access`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "administration_in_progress", "Another administration action for this Google account is in progress. Check its saved outcome.") },
+  }, work)
 }
 
 async function sendAdministrationAccess(linked: Awaited<ReturnType<typeof currentAdministrationContext>>, request: AdministrationAccessRequest, token: string) {
@@ -49,15 +51,7 @@ export async function executeAdministrationAccess(session: Session, locationId: 
     const change = await approvedGbpChange({ session, linked: current, changeSetId: reviewId, payload: review.changeSet.payload, updateMask: [], resourceType: "administration_access" })
     const target = scopedAdministrationTarget(payload.request, current)
     const token = await current.accessToken()
-    await requireNoUnresolvedPlaceAction(session, current.googleAccountId)
-    await withTenant(session.organisationId, async (sql) => {
-      const [unresolved] = await sql<{ id: string }[]>`
-        select id from gbp_management_mutation where google_account_id = ${current.googleAccountId}
-          and resource_type in ('account_admin', 'location_admin', 'invitation', 'location_lifecycle')
-          and (status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved') or local_reconciliation_state in ('pending', 'conflict')) limit 1
-      `
-      if (unresolved) throw new ApiError(409, "google_confirmation_unresolved", "An earlier administration change for this Google account is awaiting confirmation. Check its saved outcome before another write.")
-    })
+    await requireNoUnresolvedAccountChange(session, current.googleAccountId, "An earlier administration change for this Google account is awaiting confirmation. Check its saved outcome before another write.")
     const ready = await currentAdministrationContext(session, locationId)
     if (ready.connectionId !== current.connectionId || ready.googleAccountId !== current.googleAccountId || ready.googleLocationName !== current.googleLocationName || ready.credentialGeneration !== current.credentialGeneration) throw new ApiError(409, "google_target_changed", "The linked Google target or credentials changed before sending. Create a fresh review.")
     await approvedGbpChange({ session, linked: ready, changeSetId: reviewId, payload: review.changeSet.payload, updateMask: [], resourceType: "administration_access" })

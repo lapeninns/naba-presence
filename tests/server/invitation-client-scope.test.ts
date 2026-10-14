@@ -14,6 +14,11 @@ vi.mock("@/lib/server/db", () => ({
   withTenant: vi.fn(),
 }))
 vi.mock("@/lib/server/audit", () => ({ writeAudit: vi.fn() }))
+// The plan's member limit has its own suite (tests/integration/routes/
+// member-limit.test.ts); these fakes answer no billing reads.
+vi.mock("@/lib/server/entitlement-policy", () => ({
+  assertNewMemberSeat: vi.fn(),
+}))
 vi.mock("@/lib/server/session-store", () => ({
   createSession: vi.fn(async () => "new-session-token"),
 }))

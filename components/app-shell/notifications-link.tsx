@@ -6,6 +6,7 @@ import { Bell } from "lucide-react"
 import { fetchNotifications } from "@/lib/api/operational-notifications"
 import { queryKeys } from "@/lib/queries/keys"
 import { requestOptions } from "@/lib/queries/request-options"
+import { SEEDED_BY_SHELL } from "@/lib/queries/use-shell-status"
 import { cn } from "@/lib/utils"
 
 import { CountBadge } from "./count-badge"
@@ -13,8 +14,9 @@ import { ShellLink } from "./shell-link"
 
 /**
  * This person's open-and-unread notification count. One query key, so the
- * app bar's bell, the desk toolbar's bell and the More sheet's row share a
- * single 60s poll however many of them are mounted.
+ * app bar's bell, the desk toolbar's bell and the More sheet's row share it
+ * however many of them are mounted; the shell's one poll refreshes it
+ * (useShellStatus).
  */
 export function useUnreadNotificationCount(enabled = true): number {
   const query = useQuery({
@@ -25,7 +27,7 @@ export function useUnreadNotificationCount(enabled = true): number {
         ...requestOptions(context),
         background: true,
       }),
-    refetchInterval: 60_000,
+    ...SEEDED_BY_SHELL,
   })
   return query.data?.unreadCount ?? 0
 }

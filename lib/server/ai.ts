@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { buildReplyPrompt, type DraftTone } from "@/lib/domain/reply-policy"
 import type { VerificationReason } from "@/lib/domain/verification"
+import { timeoutWithin } from "@/lib/server/deadline"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 
@@ -72,12 +73,25 @@ export function extractUsage(payload: Record<string, unknown>): AiUsage {
   }
 }
 
+/**
+ * How long one provider call may take. Every call is capped at
+ * OPENAI_TIMEOUT_MS; with a request `deadline` (epoch ms, see
+ * lib/server/deadline.ts) it is also cut to what is left of the request
+ * after keeping `reserveMs` back for the work that has to follow the call.
+ */
+export type AiCallBudget = { deadline?: number; reserveMs?: number }
+
+function timedOut(): ApiError {
+  return new ApiError(502, "ai_timeout", "The AI provider timed out.")
+}
+
 async function openAiStructured<T>(
   model: string,
   name: string,
   schema: JsonSchema,
   input: string,
-  validator: z.ZodType<T>
+  validator: z.ZodType<T>,
+  budget: AiCallBudget = {}
 ): Promise<{ value: T; usage: AiUsage }> {
   const env = getServerEnv()
   if (!env.OPENAI_API_KEY) {
@@ -87,6 +101,13 @@ async function openAiStructured<T>(
       "AI features are not configured."
     )
   }
+  const timeoutMs = timeoutWithin(
+    budget.deadline,
+    env.OPENAI_TIMEOUT_MS,
+    budget.reserveMs
+  )
+  // No time left: fail as a timeout without starting (or paying for) a call.
+  if (timeoutMs <= 0) throw timedOut()
   let payload: unknown
   try {
     const response = await fetch(
@@ -116,7 +137,7 @@ async function openAiStructured<T>(
           },
         }),
         cache: "no-store",
-        signal: AbortSignal.timeout(env.OPENAI_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
       }
     )
     if (!response.ok) {
@@ -133,7 +154,7 @@ async function openAiStructured<T>(
       error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError")
     ) {
-      throw new ApiError(502, "ai_timeout", "The AI provider timed out.")
+      throw timedOut()
     }
     if (error instanceof SyntaxError) {
       throw new ApiError(
@@ -212,15 +233,18 @@ const draftResultSchema = z.object({
   language: z.string().trim().min(2).max(12),
 })
 
-export async function generateReply(input: {
-  reviewText: string | null
-  rating: number | null
-  reviewerName: string | null
-  locationName: string
-  language: string
-  tone: DraftTone
-  businessContext?: string | null
-}) {
+export async function generateReply(
+  input: {
+    reviewText: string | null
+    rating: number | null
+    reviewerName: string | null
+    locationName: string
+    language: string
+    tone: DraftTone
+    businessContext?: string | null
+  },
+  budget: AiCallBudget = {}
+) {
   const model = getServerEnv().OPENAI_MODEL_DRAFT
   const { value, usage } = await openAiStructured(
     model,
@@ -235,7 +259,8 @@ export async function generateReply(input: {
       required: ["reply", "language"],
     },
     buildReplyPrompt(input),
-    draftResultSchema
+    draftResultSchema,
+    budget
   )
   return { ...value, usage, model }
 }
@@ -318,7 +343,8 @@ export function semanticVerificationEnabled(): boolean {
  * for the draft.
  */
 export async function semanticVerification(
-  input: SemanticInput
+  input: SemanticInput,
+  budget: AiCallBudget = {}
 ): Promise<SemanticVerificationResult> {
   const env = getServerEnv()
   if (!semanticVerificationEnabled()) {
@@ -342,7 +368,8 @@ export async function semanticVerification(
       required: ["unsupportedClaims", "unsafeEscalation", "toneMismatch"],
     },
     buildSemanticVerificationPrompt(input),
-    semanticVerificationSchema
+    semanticVerificationSchema,
+    budget
   )
   return {
     ran: true,

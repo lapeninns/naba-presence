@@ -221,7 +221,10 @@ function resolveExistingDeleteAttempt(
   return null
 }
 
-/** Returns null when a concurrent request won the idempotency key. */
+/**
+ * Returns null when a concurrent request won the idempotency key, or the
+ * re-arm lost to a concurrent request or the retry runner.
+ */
 async function startDeleteIntent(
   sql: TransactionSql,
   input: ReplyDeleteInput,
@@ -233,7 +236,7 @@ async function startDeleteIntent(
     record.connection_id
   )
   const attempt = key.existing
-    ? await rearmAttempt(sql, { attemptId: key.existing.id, authorisation })
+    ? await rearmAttempt(sql, { attempt: key.existing, authorisation })
     : await insertAttempt(sql, {
         organisationId: input.organisationId,
         reviewReplyId: record.review_reply_id,
@@ -323,8 +326,9 @@ async function prepareDelete(input: ReplyDeleteInput): Promise<DeletePhaseOne> {
     })
     if (intent) return { kind: "proceed", ...intent }
 
-    // A concurrent delete committed this key first; resolve against its row
-    // rather than letting the unique violation surface as a 500.
+    // A concurrent delete committed this key first (or re-armed or claimed
+    // the row after we read it); resolve against its row rather than letting
+    // the unique violation surface as a 500 or dispatching twice.
     const winner = await findAttemptByKey(sql, {
       organisationId: input.organisationId,
       idempotencyKey,

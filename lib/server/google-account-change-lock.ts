@@ -1,16 +1,18 @@
 import "server-only"
-import { withSessionConnection, withTenant } from "@/lib/server/db"
+import { withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 export async function withGoogleAccountChangeLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
   const linked = await withTenant(session.organisationId, (sql) => resolveGbpLocationContext(sql, session, locationId))
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    const [claim] = await sql<{ acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${linked.googleAccountId}:administration_access`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "administration_in_progress", "Another Google account change is in progress. Read its saved outcome.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_account_change",
+    keys: [`${session.organisationId}:${linked.googleAccountId}:administration_access`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "administration_in_progress", "Another Google account change is in progress. Read its saved outcome.") },
+  }, work)
 }
 export async function requireNoUnresolvedPlaceAction(session: Session, googleAccountId: string) {
   return withTenant(session.organisationId, async (sql) => {
@@ -20,13 +22,16 @@ export async function requireNoUnresolvedPlaceAction(session: Session, googleAcc
   })
 }
 
-/** Access, lifecycle and action-link writes on one Google account wait for each other's unresolved outcomes. */
-export async function requireNoUnresolvedAccountChange(session: Session, googleAccountId: string) {
+/**
+ * Access, lifecycle and action-link writes on one Google account wait for each other's unresolved outcomes.
+ * `message` is the caller's wording for an unresolved access or lifecycle change.
+ */
+export async function requireNoUnresolvedAccountChange(session: Session, googleAccountId: string, message = "An access or lifecycle change awaits confirmation. Read its saved outcome before changing action links.") {
   await requireNoUnresolvedPlaceAction(session, googleAccountId)
   await withTenant(session.organisationId, async (sql) => {
     const [row] = await sql`select id from gbp_management_mutation where google_account_id = ${googleAccountId}
       and resource_type in ('account_admin', 'location_admin', 'invitation', 'location_lifecycle')
       and (status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved') or local_reconciliation_state in ('pending', 'conflict')) limit 1`
-    if (row) throw new ApiError(409, "google_confirmation_unresolved", "An access or lifecycle change awaits confirmation. Read its saved outcome before changing action links.")
+    if (row) throw new ApiError(409, "google_confirmation_unresolved", message)
   })
 }

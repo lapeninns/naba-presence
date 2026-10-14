@@ -5,6 +5,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { SavedWorkList } from "@/components/reviewed-write"
 import { fetchGoogleVerificationWorkflows } from "@/lib/api/google-verification-workflows"
 import type { VerificationWorkflowItem } from "@/lib/contracts/google-verification-workflows"
+import { queryKeys } from "@/lib/queries/keys"
 import { verificationMethodName } from "./verification-method"
 
 /**
@@ -19,12 +20,22 @@ function usePassedDeadlines(deadlines: readonly string[]): ReadonlySet<string> {
     () => (key ? key.split("|") : []).map((value) => new Date(value).getTime()),
     [key]
   )
+  // One timer at a time, for the next deadline still ahead; when it fires
+  // the one after it is armed, so every deadline is seen as it passes. (A
+  // timer clamped to setTimeout's limit fires early and simply re-arms.)
   const subscribe = useCallback(
     (notify: () => void) => {
-      const now = Date.now(),
-        next = Math.min(...times.filter((time) => time > now))
-      if (!Number.isFinite(next)) return () => {}
-      const timer = setTimeout(notify, Math.min(2_147_483_647, next - now))
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const arm = () => {
+        const now = Date.now(),
+          next = Math.min(...times.filter((time) => time > now))
+        if (!Number.isFinite(next)) return
+        timer = setTimeout(() => {
+          notify()
+          arm()
+        }, Math.min(2_147_483_647, next - now))
+      }
+      arm()
       return () => clearTimeout(timer)
     },
     [times]
@@ -65,7 +76,7 @@ export function SavedVerificationWorkflows({
 }) {
   const start = operation === "start"
   const saved = useInfiniteQuery({
-    queryKey: ["verification-workflows", locationId, operation],
+    queryKey: queryKeys.locationVerificationWorkflows(locationId, operation),
     initialPageParam: "",
     queryFn: ({ pageParam, signal }) =>
       fetchGoogleVerificationWorkflows(

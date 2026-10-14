@@ -3,6 +3,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { fetchHours } from "@/lib/api/location-hours"
+import { GOOGLE_LIVE_READ } from "./google-live"
 import { queryKeys } from "./keys"
 import { requestOptions } from "./request-options"
 
@@ -21,5 +22,6 @@ export function useHours(id: string) {
         void client.invalidateQueries({ queryKey: queryKeys.clientsAll })
       }
     },
+    ...GOOGLE_LIVE_READ,
   })
 }

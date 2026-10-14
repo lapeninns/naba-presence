@@ -25,7 +25,11 @@ import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
 import * as mfaApi from "@/lib/api/mfa"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import type { MfaFactor } from "@/lib/contracts/auth"
-import { totpCodeSchema } from "@/lib/contracts/auth"
+
+// zod is ~20 KB gz the page would otherwise download before it can render
+// (same as sign-in-form.tsx). It loads on the first focus inside the form
+// and a submit awaits it.
+const loadAuthContract = () => import("@/lib/contracts/auth")
 
 function attemptsRemaining(error: unknown): number | null {
   if (!(error instanceof ApiClientError)) return null
@@ -76,9 +80,22 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
     }
   }, [])
 
+  const validating = useRef(false)
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending) return
+    if (pending || validating.current) return
+    validating.current = true
+    void loadAuthContract()
+      .then((contract) => submitWith(contract))
+      .finally(() => {
+        validating.current = false
+      })
+  }
+
+  function submitWith({
+    totpCodeSchema,
+  }: Awaited<ReturnType<typeof loadAuthContract>>) {
     const parsed = totpCodeSchema.safeParse(code)
     if (!parsed.success) {
       setCodeError("Enter the 6-digit code from your authenticator app.")
@@ -159,7 +176,12 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
   }
 
   return (
-    <form className="flex flex-col gap-5" onSubmit={handleSubmit} noValidate>
+    <form
+      className="flex flex-col gap-5"
+      onSubmit={handleSubmit}
+      onFocusCapture={() => void loadAuthContract()}
+      noValidate
+    >
       {message ? <AuthErrorAlert message={message} /> : null}
       {factors && factors.length > 1 ? (
         <fieldset className="flex flex-col gap-2">

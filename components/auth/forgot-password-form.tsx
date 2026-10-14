@@ -26,7 +26,6 @@ import {
   type AuthMessage,
 } from "@/lib/api/auth-errors"
 import { clearResetEmail, peekResetEmail } from "@/lib/api/reset-email"
-import { resetRequestSchema } from "@/lib/domain/auth"
 
 // Fields are rendered by `name` (Field's id comes from an internal useId
 // the parent never sees), so a name-based query is the reliable way to
@@ -34,6 +33,11 @@ import { resetRequestSchema } from "@/lib/domain/auth"
 function focusField(name: string) {
   document.querySelector<HTMLElement>(`[name="${name}"]`)?.focus()
 }
+
+// zod is ~20 KB gz the page would otherwise download before it can render
+// (same as sign-in-form.tsx). It loads on the first focus inside the form
+// and a submit awaits it.
+const loadAuthSchemas = () => import("@/lib/domain/auth")
 
 // The handed-over address never changes while the page is open.
 const subscribeNever = () => () => {}
@@ -72,10 +76,22 @@ function ForgotPasswordForm() {
     }
   }, [message, fieldErrors])
 
+  const validating = useRef(false)
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending) return
+    if (pending || validating.current) return
+    validating.current = true
+    void loadAuthSchemas()
+      .then((schemas) => submitWith(schemas))
+      .finally(() => {
+        validating.current = false
+      })
+  }
 
+  function submitWith({
+    resetRequestSchema,
+  }: Awaited<ReturnType<typeof loadAuthSchemas>>) {
     const parsed = resetRequestSchema.safeParse({ email })
     if (!parsed.success) {
       // No invented fallback copy - zod always supplies a message for every
@@ -161,7 +177,12 @@ function ForgotPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
+    <form
+      onSubmit={handleSubmit}
+      onFocusCapture={() => void loadAuthSchemas()}
+      noValidate
+      className="flex flex-col gap-5"
+    >
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} email={email} />

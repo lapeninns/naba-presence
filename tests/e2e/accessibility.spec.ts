@@ -1212,7 +1212,9 @@ for (const theme of themes) {
           health.getByText("All clients in sync", { exact: true })
         ).toBeVisible()
         controls.failClients()
-        await page.clock.fastForward("00:01:05")
+        // Past the clients list's own poll (CLIENTS_POLL_MS, five minutes,
+        // lib/queries/use-shell-status.ts): nothing else refetches it here.
+        await page.clock.fastForward("00:05:05")
         await expect(
           health.getByText("Data may be stale", { exact: true })
         ).toBeVisible()

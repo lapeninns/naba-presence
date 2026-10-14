@@ -2,10 +2,10 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 import { FilterIcon, ImagesIcon, PlusIcon } from "lucide-react"
+import dynamic from "next/dynamic"
 import { useState } from "react"
 
 import { EditorFrame } from "@/components/editors/editor-frame"
-import { AddPhotoDialog } from "@/components/locations/photos/add-photo-dialog"
 import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
 import { UnresolvedCreates } from "@/components/locations/photos/unresolved-creates"
@@ -22,6 +22,16 @@ import {
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
+
+// The add dialog (uploads, drag and drop, the review step) loads the first
+// time it opens: most visits to the library only browse.
+const AddPhotoDialog = dynamic(
+  () =>
+    import("@/components/locations/photos/add-photo-dialog").then(
+      (m) => m.AddPhotoDialog
+    ),
+  { ssr: false }
+)
 
 /**
  * The loaded photos tab (reference `listing-photos.html`): the Add action,
@@ -47,6 +57,10 @@ export function PhotosLibrary({
 }) {
   const queryClient = useQueryClient()
   const [addOpen, setAddOpen] = useState(false)
+  // Mounted from the first open on, so it keeps its state and closes
+  // through its own animation like any other dialog.
+  const [addMounted, setAddMounted] = useState(false)
+  if (addOpen && !addMounted) setAddMounted(true)
   const disabled = Boolean(writeReason)
   const query = toMediaQuery(state)
   const filtersActive = hasActivePhotoFilters(state)
@@ -129,14 +143,16 @@ export function PhotosLibrary({
         )}
       </div>
 
-      <AddPhotoDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        locationId={locationId}
-        categories={media.categories}
-        writeReason={writeReason}
-        onAdded={refreshFromGoogle}
-      />
+      {addMounted ? (
+        <AddPhotoDialog
+          open={addOpen}
+          onOpenChange={setAddOpen}
+          locationId={locationId}
+          categories={media.categories}
+          writeReason={writeReason}
+          onAdded={refreshFromGoogle}
+        />
+      ) : null}
     </EditorFrame>
   )
 }

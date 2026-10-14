@@ -8,7 +8,8 @@ import type {
   IndustryState,
 } from "@/lib/contracts/location-industry"
 import { executeAndConfirmGbpMutation, observeAndConfirmGbpMutation } from "@/lib/server/gbp-confirmation"
-import { getDatabase, withTenant, withSessionConnection } from "@/lib/server/db"
+import { getDatabase, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   connectionAccessToken,
@@ -22,7 +23,7 @@ import {
   stableGoogleHash,
   type GbpLocationContext,
 } from "@/lib/server/gbp-management"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
@@ -65,9 +66,7 @@ export type { IndustryOperation }
 export async function confirmIndustryManagement(session: Session, locationId: string, mutationId: string, requestId: string): Promise<IndustryMutationResult> {
   const linked = await context(session, locationId)
   if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this location.")
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    await sql`select set_config('app.organisation_id', ${session.organisationId}, true)`
-    await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${locationId}:lodging`}, 0))`
+  return withGoogleWriteSession({ surface: "lodging_confirm", keys: [`${session.organisationId}:${locationId}:lodging`], organisationId: session.organisationId }, async ({ sql }) => {
     const [attempt] = await sql<{ status: string; execution_state: string; confirmation_state: string; requested_payload: unknown; update_mask: string[]; google_response: unknown; target_resource_name: string | null; google_account_id: string | null; recovery_ready: boolean }[]>`
       select status, execution_state, confirmation_state, requested_payload, update_mask, google_response, target_resource_name, google_account_id,
         (status = 'ambiguous' or (status in ('started', 'validated') and created_at < now() - interval '5 minutes')) as recovery_ready
@@ -85,16 +84,16 @@ export async function confirmIndustryManagement(session: Session, locationId: st
     const result = await observeAndConfirmGbpMutation({
       organisationId: session.organisationId,
       mutationId,
-      payload: z.record(z.string(), z.unknown()).parse(attempt.requested_payload),
+      payload: parseStored(z.record(z.string(), z.unknown()), attempt.requested_payload, "gbp_management_mutation.requested_payload"),
       updateMask: attempt.update_mask,
       executionState: attempt.execution_state === "accepted" ? "accepted" : "unknown",
-      response: attempt.google_response == null ? undefined : z.record(z.string(), z.unknown()).parse(attempt.google_response),
+      response: attempt.google_response == null ? undefined : parseStored(z.record(z.string(), z.unknown()), attempt.google_response, "gbp_management_mutation.google_response"),
       observe: () => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, { connectionKey: linked.connectionId }),
       onObserved: (response) => cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType: "lodging", resourceName: `${linked.googleLocationName}/lodging`, payload: response }),
     })
     await auditGbpMutation({ organisationId: session.organisationId, session, action: "google.confirm_lodging", subjectType: "location", subjectId: locationId, requestId, metadata: { mutationId, executionState: result.executionState, confirmationState: result.confirmationState } })
     return result
-  }))
+  })
 }
 
 export async function mutateIndustryManagement(input: {
@@ -116,8 +115,7 @@ export async function mutateIndustryManagement(input: {
 async function publishReviewedLodging(input: Parameters<typeof mutateIndustryManagement>[0], initial: GbpLocationContext): Promise<IndustryMutationResult> {
   const changeSetId = input.changeSetId
   if (!changeSetId) throw new ApiError(409, "approval_required", "Review and approve the exact lodging change before publishing.")
-  return withSessionConnection((connection) => connection.begin(async (lock) => {
-    await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:lodging`}, 0))`
+  return withGoogleWriteSession({ surface: "lodging", keys: [`${input.session.organisationId}:${input.locationId}:lodging`] }, async () => {
     const linked = await context(input.session, input.locationId)
     if (!linked.canPublish || linked.connectionId !== initial.connectionId) throw new ApiError(409, "google_target_changed", "Location access or its connection changed. Refresh the review.")
     const change = await approvedLodgingChange(input.session, linked, changeSetId, input.payload, input.updateMask)
@@ -139,5 +137,5 @@ async function publishReviewedLodging(input: Parameters<typeof mutateIndustryMan
     })
     await auditGbpMutation({ organisationId: input.session.organisationId, session: input.session, action: "google.update_lodging", subjectType: "location", subjectId: input.locationId, requestId: input.requestId, metadata: { changeSetId, approvedBy: change.approved_by, requestedBy: change.requested_by, executionState: result.executionState, confirmationState: result.confirmationState } })
     return result
-  }))
+  })
 }

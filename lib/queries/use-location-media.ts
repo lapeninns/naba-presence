@@ -9,6 +9,7 @@ import {
   type MediaState,
 } from "@/lib/api/location-media"
 import { DEFAULT_MEDIA_PAGE_SIZE } from "@/lib/media-page"
+import { GOOGLE_LIVE_READ } from "./google-live"
 import { queryKeys } from "./keys"
 import { uniqueById, usePagedResource } from "./paged-list"
 import { requestOptions } from "./request-options"
@@ -54,6 +55,8 @@ export function useMedia(
     // Filtering keeps the current grid on screen while the next set loads,
     // instead of dropping back to a skeleton.
     placeholderData: keepPreviousData,
+    // The first page reconciles with Google.
+    ...GOOGLE_LIVE_READ,
   })
   return usePagedResource(query, mergeMedia)
 }

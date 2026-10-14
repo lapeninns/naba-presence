@@ -67,10 +67,10 @@ database is unavailable.
    pnpm dev
    ```
 
-    Production on Vercel runs the web process only. The eight background loops
+    Production on Vercel runs the web process only. The nine background loops
     — review reconciliation, retention, the provider-deletion sweep,
     presence-resource reconciliation, the performance and keyword ingests, the
-    health and notification tick, and a jobs tick that drains due webhook, checkpoint, and publish-recovery work
+    health and notification tick, billing reconciliation, and a jobs tick that drains due webhook, checkpoint, and publish-recovery work
     through `/api/jobs/run` — run as Vercel Cron entries (`vercel.json`)
     firing the cron-authenticated GET handlers on those routes. `CRON_SECRET`
     must be set on the Vercel project or every tick answers 401. Outside
@@ -118,7 +118,7 @@ available for deployments to a direct PostgreSQL URL.
 ### Production
 
 Production runs on Vercel, and only on Vercel. The deployment is the web
-process; the eight background loops are the Vercel Cron entries in
+process; the nine background loops are the Vercel Cron entries in
 `vercel.json`; the database is a managed PostgreSQL 17 instance reached through
 `DATABASE_URL` (the non-superuser runtime role) and `DIRECT_DATABASE_URL`
 (migrations only). There is no container image and no self-hosted stack to
@@ -184,8 +184,8 @@ rules and how to debug a red run.
 
 Development runs on Turbopack, the default bundler in Next.js 16. This note
 previously pinned both dev and build to the webpack path because Turbopack
-was spawning runaway PostCSS workers here. That no longer reproduces on
-16.2.6: a cold Turbopack server compiled every dashboard route in
+was spawning runaway PostCSS workers here. That stopped reproducing on
+16.2.6 (the pin is now 16.3.8): a cold Turbopack server compiled every dashboard route in
 0.17–0.52s against webpack’s 1–3.6s, holding one PostCSS worker throughout.
 
 Production builds stay on webpack (`next build --webpack`). That is the path

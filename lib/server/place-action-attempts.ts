@@ -4,7 +4,7 @@ import { placeActionAttemptSchema, reviewedPlaceActionPayloadSchema } from "@/li
 import { jsonColumn, withTenant } from "@/lib/server/db"
 import { auditGbpMutation } from "@/lib/server/gbp-management"
 import { currentPlaceActionContext, observePlaceActions, placeActionBaselineSchema, placeActionPostcondition } from "@/lib/server/place-action-review-state"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { reportAttemptOutcome } from "@/lib/server/notifications/attempt-events"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
@@ -36,7 +36,7 @@ export async function loadPlaceActionAttempt(session: Session, locationId: strin
   })
 }
 export function projectPlaceActionAttempt(row: PlaceActionAttemptRow, idempotent = true) {
-  return placeActionAttemptSchema.parse({ ...row, request: row.requested.request, observedAt: row.observedAt?.toISOString() ?? null, idempotent })
+  return parseStored(placeActionAttemptSchema, { ...row, request: row.requested.request, observedAt: row.observedAt?.toISOString() ?? null, idempotent }, "place_action_attempt")
 }
 export async function readPlaceActionAttempt(session: Session, locationId: string, reviewId: string, idempotent = true) {
   const row = await loadPlaceActionAttempt(session, locationId, reviewId)

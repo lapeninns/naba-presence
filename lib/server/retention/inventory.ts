@@ -450,7 +450,7 @@ export const RETENTION_INVENTORY = [
     table: "verification_result",
     provenance: "customer",
     action: "keep",
-    window: "with its draft",
+    window: "with its draft; reason messages scrubbed by privacy erasure",
     cascadeFrom: ["draft"],
     deletes: "gated",
     hold: "kept",
@@ -500,7 +500,8 @@ export const RETENTION_INVENTORY = [
     table: "legal_hold",
     provenance: "customer",
     action: "keep",
-    window: "with the review it protects; a released hold stays as its record",
+    window:
+      "with the review it protects; a released hold stays as its record, and an unreleased one blocks the review's redaction and delete (review_legal_hold_guard, 0141)",
     cascadeFrom: ["review"],
     deletes: "gated",
     hold: "kept",
@@ -613,7 +614,8 @@ export const RETENTION_INVENTORY = [
     table: "bulk_listing_write_attempt",
     provenance: "operational",
     action: "keep",
-    window: "with its bulk listing child (attributes and action-link writes and what their readback must find)",
+    window:
+      "with its bulk listing child (attributes and action-link writes and what their readback must find)",
     deletes: "none",
     hold: "none",
     approval: PENDING_UNDECIDED(
@@ -957,6 +959,15 @@ export const RETENTION_INVENTORY = [
   },
   {
     table: "ops_heartbeat",
+    provenance: "operational",
+    action: "keep",
+    window: "one row per tick, updated in place",
+    deletes: "none",
+    hold: "none",
+    approval: { status: "internal" },
+  },
+  {
+    table: "fleet_lease",
     provenance: "operational",
     action: "keep",
     window: "one row per tick, updated in place",

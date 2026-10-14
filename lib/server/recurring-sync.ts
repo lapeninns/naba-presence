@@ -1,7 +1,7 @@
 import "server-only"
 
 import { getDatabase } from "@/lib/server/db"
-import { withAdvisoryLock, type LeaseKey } from "@/lib/server/leases"
+import { withFleetLease, type LeaseKey } from "@/lib/server/leases"
 import { log } from "@/lib/server/logger"
 
 /**
@@ -52,7 +52,7 @@ export async function enqueueRecurring(
   kind: RecurringKind,
   requestId: string
 ): Promise<RecurringEnqueueResult> {
-  const result = await withAdvisoryLock(LEASES[kind], async () => {
+  const result = await withFleetLease(LEASES[kind], async () => {
     // Platform-level: ensure_recurring_checkpoints is SECURITY DEFINER and
     // writes routing state only; every review and metric read or write still
     // happens in the runner, inside withTenant().

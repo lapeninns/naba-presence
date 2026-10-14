@@ -1,7 +1,7 @@
 import "server-only"
 import { lodgingWorkflowCursorSchema, lodgingWorkflowsResponseSchema, type LodgingWorkflowQuery } from "@/lib/contracts/lodging-workflows"
 import { withTenant } from "@/lib/server/db"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
 
@@ -34,7 +34,7 @@ export async function listLodgingWorkflows(session: Session, locationId: string,
       order by c.created_at desc,c.id desc limit ${query.limit + 1}
     `
     const visible = rows.slice(0, query.limit), last = visible.at(-1)
-    return lodgingWorkflowsResponseSchema.parse({ items: visible.map((row) => ({ changeSet: row.changeSet, attemptId: row.attemptId })),
-      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null })
+    return parseStored(lodgingWorkflowsResponseSchema, { items: visible.map((row) => ({ changeSet: row.changeSet, attemptId: row.attemptId })),
+      nextCursor: rows.length > query.limit && last ? Buffer.from(JSON.stringify({ locationId, createdAt: last.createdAt, id: last.id })).toString("base64url") : null }, "lodging_workflows")
   })
 }

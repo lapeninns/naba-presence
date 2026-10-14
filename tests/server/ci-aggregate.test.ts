@@ -236,6 +236,37 @@ describe("ci.yml wiring", () => {
     expect(result).toContain("sparse-checkout: scripts/ci")
   })
 
+  it("runs every job on plan's lane, so the Mac lane needs no hosted minutes", () => {
+    const lane = "runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}"
+    for (const job of [...CODE_JOBS, "secret-scan", "dependency-review"]) {
+      expect(jobBlock(job), job).toContain(lane)
+      expect(jobBlock(job), job).toMatch(/\n {4}needs: (plan|\[plan\b)/)
+    }
+    expect(jobBlock("result")).toContain(
+      `runs-on: \${{ fromJSON(needs.plan.outputs.runner || '"ubuntu-24.04"') }}`
+    )
+    expect(ci).not.toMatch(/\n {4}runs-on: ubuntu-24\.04\n/)
+  })
+
+  it("chooses Plan's own runner with the same trust rule as its lane step", () => {
+    const plan = jobBlock("plan")
+    const label = '["self-hosted","macOS","ARM64","naba-trusted"]'
+    // Both the expression and the step name the same Mac labels.
+    expect(plan).toContain(`fromJSON('${label}')`)
+    expect(plan).toContain(`runner=${label}`)
+    for (const condition of [
+      "vars.SELF_HOSTED_ENABLED == 'true'",
+      "github.repository == 'lapeninns/naba-presence'",
+      "github.ref == 'refs/heads/main'",
+      "github.event.pull_request.head.repo.full_name == github.repository",
+      "github.event.pull_request.user.login != 'dependabot[bot]'",
+      "github.actor != 'dependabot[bot]'",
+    ]) {
+      expect(plan, condition).toContain(condition)
+    }
+    expect(plan).toContain("|| 'ubuntu-24.04' }}")
+  })
+
   it("gates every code job on plan's code output", () => {
     for (const job of CODE_JOBS) {
       expect(jobBlock(job), job).toContain(
