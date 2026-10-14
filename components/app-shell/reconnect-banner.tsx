@@ -264,11 +264,12 @@ function Banner({
       // not re-read as an alert on every page it persists across.
       role="status"
       data-slot="reconnect-banner"
-      // The shell's notice strip on the warning tint: a paused login is a
-      // condition to act on, not a failure that just happened.
+      // The shell's notice strip on the danger tint: the same hue the health
+      // chip gives a disconnected login ("at-risk"), so one condition reads
+      // as one severity wherever it shows.
       className={cn(
         NOTICE_STRIP_CLASS,
-        "bg-warning-tint text-ink [&>svg]:text-warning-ink",
+        "bg-danger-tint text-ink [&>svg]:text-danger-ink",
         className
       )}
     >

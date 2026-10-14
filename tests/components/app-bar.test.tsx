@@ -88,11 +88,13 @@ function renderBar({
   page,
   onOpenClientScope = vi.fn(),
   needsReply,
+  unread,
 }: {
   mode?: WorkspaceMode
   page?: React.ReactNode
   onOpenClientScope?: () => void
   needsReply?: number
+  unread?: number
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -103,6 +105,11 @@ function renderBar({
   if (needsReply !== undefined) {
     queryClient.setQueryData(queryKeys.reviewCounts("organisation"), {
       byQueue: { needs_reply: needsReply },
+    })
+  }
+  if (unread !== undefined) {
+    queryClient.setQueryData(queryKeys.notifications("badge"), {
+      unreadCount: unread,
     })
   }
   render(
@@ -435,17 +442,56 @@ describe("AppBar trailing slot", () => {
     return Array.from(actions.querySelectorAll("a, button"))
   }
 
+  // The chrome contract's selector (globals.css): a bar docked to the bottom
+  // anywhere on the page hides the tab bar.
+  const DOCKED = "[body:has([data-docked=bottom])_&]"
+
   it("is search then the scope chip on a page with a scope switcher", () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
-    const { bar, within: inBar } = renderBar()
+    const { bar } = renderBar()
     const items = controls(bar)
-    expect(items).toHaveLength(2)
+    // Search, the bell held for the docked case, then the chip.
+    expect(items).toHaveLength(3)
     expect(items[0]).toHaveAccessibleName(
       "Search clients, listings, pages and actions"
     )
-    expect(items[1]).toHaveAccessibleName("Client: All clients")
-    // The bell moves into More.
-    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
+    expect(items[2]).toHaveAccessibleName("Client: All clients")
+    // At rest the bell moves into More: it is not displayed in the bar.
+    expect(items[1]).toHaveAccessibleName("Notifications")
+    expect(items[1].className.split(" ")).toContain("hidden")
+    expect(items[2].className.split(" ")).not.toContain("hidden")
+  })
+
+  it("swaps the scope chip for the bell and its count while a bar is docked", async () => {
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar } = renderBar({ unread: 4 })
+    const bell = await screen.findByRole("link", {
+      name: "Notifications, 4 unread",
+    })
+    const chip = screen.getByRole("button", { name: "Client: All clients" })
+    expect(bar).toContainElement(bell)
+    // Docked: the tab bar (and More's badge) steps aside, the bell shows in
+    // the chip's place with its count, and the chip hides. Same selector as
+    // the tab bar's, so nothing reads the dock in JS (hydration-safe).
+    expect(bell.className.split(" ")).toContain(`${DOCKED}:grid`)
+    expect(chip.className.split(" ")).toContain(`${DOCKED}:hidden`)
+    expect(
+      bell.querySelector('[data-slot="notifications-count"]')
+    ).toHaveTextContent("4")
+    // The search control is never swapped.
+    expect(controls(bar)[0]).toHaveAccessibleName(
+      "Search clients, listings, pages and actions"
+    )
+  })
+
+  it("keeps the chip when docked on a page whose bell already shows", () => {
+    pathname.current = "/inbox"
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar } = renderBar()
+    const items = controls(bar)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAccessibleName("Notifications")
+    expect(items[1].className).not.toContain(DOCKED)
   })
 
   it("is notifications then the scope chip on the Inbox", () => {
