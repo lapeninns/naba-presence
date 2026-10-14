@@ -25,6 +25,8 @@ describe("query keys", () => {
     expect(queryKeys.reviewCounts("organisation").slice(0, 1)).toEqual([
       ...queryKeys.reviewCountsAll,
     ])
+    // The unscoped counts the shell's badge hydrates is the inbox's own key.
+    expect(queryKeys.reviewCountsFor()).toEqual(queryKeys.reviewCounts("organisation"))
     expect(
       queryKeys
         .locationMedia("loc-1", { category: "FOOD", ownership: null })
