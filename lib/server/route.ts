@@ -24,6 +24,7 @@ import {
   withRequestIdHeader,
 } from "@/lib/server/http"
 import { requireRecentMfa } from "@/lib/server/mfa"
+import { withRequestMetrics } from "@/lib/server/request-metrics"
 import {
   parseIntentHeader,
   withMutationIntent,
@@ -373,81 +374,97 @@ export function route<
 >(config: RouteConfig<A, P, Q, B>): RouteHandler {
   const auth = (config.auth ?? "session") as A
   const origin = config.origin ?? (auth === "session" ? "same" : "any")
-  return async (request, context?: NextRouteContext) => {
-    const rid = serverRequestId(request)
-    try {
-      if (origin === "same") assertSameOrigin(request)
-      const session = await authenticate(request, auth, config.roles)
-      if (session && config.mfa === "step_up") requireRecentMfa(session)
-      if (session && !SAFE_METHODS.has(request.method.toUpperCase())) {
-        assertRouteEntitled(session, config.entitlement ?? "write")
-      }
-      const rawParams = (await context?.params) ?? {}
-      const params = (
-        config.params ? config.params.parse(rawParams) : rawParams
-      ) as P
-      const searchParams = new URL(request.url).searchParams
-      const query = (
-        config.query === undefined
-          ? searchParams
-          : isZodSchema(config.query)
-            ? config.query.parse(searchParamsToObject(searchParams))
-            : config.query(searchParams)
-      ) as Q
-      const body = (
-        config.body ? config.body.parse(await readJsonBody(request)) : undefined
-      ) as B
-      // Only a session's mutations take an intent: cron and public routes
-      // (Pub/Sub, RISC) never record receipts, and a sender or proxy adding
-      // its own Idempotency-Key must not get their deliveries refused.
-      const intentId =
-        !session || SAFE_METHODS.has(request.method.toUpperCase())
-          ? null
-          : parseIntentHeader(request)
-      const base = {
-        request,
-        requestId: rid.id,
-        clientRequestId: rid.clientId,
-        intentId,
-        params,
-        query,
-        body,
-      }
-      const ctx = (
-        session
-          ? {
-              ...base,
-              session,
-              tenant: <T>(fn: (sql: TransactionSql) => Promise<T>) =>
-                withTenant(session.organisationId, fn),
-            }
-          : { ...base, session: null }
-      ) as unknown as RouteContext<A, P, Q, B>
-      const limit = config.limits?.(ctx)
-      if (limit) {
-        await takeAbuseBudget(limit.scope, {
-          ip: clientIpFromRequest(request),
-          ...limit,
-        })
-      }
-      // Only impersonated sessions and requests with an intent pay for an
-      // async context; every other request calls the handler as before.
-      const run = () =>
-        withMutationIntent(intentId, () => config.handler(ctx), {
-          securityVersion: session?.securityVersion ?? null,
-        })
-      const result = await (session?.supportActor
-        ? withAuditActor(
-            {
-              supportActor: session.supportActor,
-              impersonationReason: session.impersonationReason,
-            },
-            run
-          )
-        : run())
-      return withRequestIdHeader(toResponse(result), rid.id)
-    } catch (error) {
-      return apiError(error, rid.id)
+  return (request, context?: NextRouteContext) =>
+    // Route latency, transactions and Google calls per request, and cron
+    // tick duration (lib/server/request-metrics.ts).
+    withRequestMetrics(
+      {
+        method: request.method,
+        pathname: new URL(request.url).pathname,
+        cron: auth === "cron",
+      },
+      () => handleRequest(config, auth, origin, request, context)
+    )
+}
+
+async function handleRequest<A extends AuthMode, P, Q, B>(
+  config: RouteConfig<A, P, Q, B>,
+  auth: A,
+  origin: "same" | "any",
+  request: Request,
+  context: NextRouteContext | undefined
+): Promise<Response> {
+  const rid = serverRequestId(request)
+  try {
+    if (origin === "same") assertSameOrigin(request)
+    const session = await authenticate(request, auth, config.roles)
+    if (session && config.mfa === "step_up") requireRecentMfa(session)
+    if (session && !SAFE_METHODS.has(request.method.toUpperCase())) {
+      assertRouteEntitled(session, config.entitlement ?? "write")
     }
+    const rawParams = (await context?.params) ?? {}
+    const params = (
+      config.params ? config.params.parse(rawParams) : rawParams
+    ) as P
+    const searchParams = new URL(request.url).searchParams
+    const query = (
+      config.query === undefined
+        ? searchParams
+        : isZodSchema(config.query)
+          ? config.query.parse(searchParamsToObject(searchParams))
+          : config.query(searchParams)
+    ) as Q
+    const body = (
+      config.body ? config.body.parse(await readJsonBody(request)) : undefined
+    ) as B
+    // Only a session's mutations take an intent: cron and public routes
+    // (Pub/Sub, RISC) never record receipts, and a sender or proxy adding
+    // its own Idempotency-Key must not get their deliveries refused.
+    const intentId =
+      !session || SAFE_METHODS.has(request.method.toUpperCase())
+        ? null
+        : parseIntentHeader(request)
+    const base = {
+      request,
+      requestId: rid.id,
+      clientRequestId: rid.clientId,
+      intentId,
+      params,
+      query,
+      body,
+    }
+    const ctx = (session
+      ? {
+          ...base,
+          session,
+          tenant: <T>(fn: (sql: TransactionSql) => Promise<T>) =>
+            withTenant(session.organisationId, fn),
+        }
+      : { ...base, session: null }) as unknown as RouteContext<A, P, Q, B>
+    const limit = config.limits?.(ctx)
+    if (limit) {
+      await takeAbuseBudget(limit.scope, {
+        ip: clientIpFromRequest(request),
+        ...limit,
+      })
+    }
+    // Only impersonated sessions and requests with an intent pay for an
+    // async context; every other request calls the handler as before.
+    const run = () =>
+      withMutationIntent(intentId, () => config.handler(ctx), {
+        securityVersion: session?.securityVersion ?? null,
+      })
+    const result = await (session?.supportActor
+      ? withAuditActor(
+          {
+            supportActor: session.supportActor,
+            impersonationReason: session.impersonationReason,
+          },
+          run
+        )
+      : run())
+    return withRequestIdHeader(toResponse(result), rid.id)
+  } catch (error) {
+    return apiError(error, rid.id)
   }
 }
