@@ -357,6 +357,16 @@ function ReviewList({
                     )}
                   >
                     <Checkbox
+                      // Above ListRow's 44px overhang (QA #1): the overhang
+                      // is the control wrapper's `after:`, drawn over its
+                      // own children, so a tap on the box hit the wrapper
+                      // and only reached the box by a forwarded click,
+                      // which touch tooling (and assistive pointers) read
+                      // as the row intercepting. Raised inside the wrapper's
+                      // stacking context, the box and its own 44px halo
+                      // are the topmost target; the overhang still passes
+                      // on a press beyond them.
+                      className="z-raised"
                       checked={selection.selected.has(review.id)}
                       aria-label={`Select the review from ${displayName}`}
                       onClick={(event) => {
@@ -390,14 +400,20 @@ function ReviewList({
                 // agency inbox the location name alone ("High Street") does
                 // not say whose business this is, and replying in the wrong
                 // voice is the mistake this line exists to prevent.
-                // The status pill rides this line, at its end, and drops
-                // under it when the line is narrower than 2xs (18rem, a
-                // 320px phone): beside the stars it would squeeze the venue
-                // to nothing. The venue takes the rest with a zero basis, so
-                // it never pushes the pill down on its own.
+                // The venue wraps onto more lines rather than truncating
+                // (QA #2): two venues of one client often share a long
+                // prefix ("Journey Hospitality · Stub location …"), and an
+                // ellipsis made them look the same. The line overrides the
+                // subtitle slot's nowrap.
+                // The status pill rides this line, at its end, only where
+                // the line is at least sm (24rem) wide, a desk's list; on a
+                // phone (390px leaves ~19rem) it drops under the venue, as
+                // the pre-redesign row did, so the client · location gets
+                // the width beside the stars. The venue takes the rest with
+                // a zero basis, so it never pushes the pill down on its own.
                 <span
                   data-slot="review-row-venue"
-                  className="@container/venue block min-w-0"
+                  className="@container/venue block min-w-0 whitespace-normal"
                 >
                   <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                     <Stars
@@ -411,7 +427,7 @@ function ReviewList({
                     <span
                       data-slot="review-row-location"
                       title={venue}
-                      className="min-w-0 flex-1 basis-0 truncate"
+                      className="min-w-0 flex-1 basis-0 wrap-break-word"
                     >
                       {venue}
                     </span>
@@ -434,7 +450,7 @@ function ReviewList({
                     {pillRepeatsQueue ? null : (
                       <span
                         data-slot="review-row-status"
-                        className="ml-auto flex shrink-0 @max-2xs/venue:ml-0 @max-2xs/venue:basis-full"
+                        className="ml-auto flex shrink-0 @max-sm/venue:ml-0 @max-sm/venue:basis-full"
                       >
                         <StatusPill
                           tone={pill.tone}

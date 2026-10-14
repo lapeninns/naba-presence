@@ -167,7 +167,7 @@ describe("ListHeader", () => {
     expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument()
   })
 
-  it("reads 'N selected' on touch in select mode, in place of the count", async () => {
+  it("reads '0 selected' on touch in select mode until the selection bar takes over", async () => {
     const user = userEvent.setup()
     const { container } = renderHeader()
     expect(
@@ -186,7 +186,22 @@ describe("ListHeader", () => {
     await user.click(
       screen.getByRole("checkbox", { name: "Select every review in this view" })
     )
-    expect(selected).toHaveTextContent("2 selected")
+    // QA #11: once something is ticked the selection bar says "2 selected"
+    // beside "Clear selection", so the band says it no more and shows the
+    // list's count beside its one Cancel.
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toBeNull()
+    expect(screen.queryByText(/selected$/)).toBeNull()
+    expect(
+      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
+    ).not.toHaveClass("hidden")
+    expect(
+      screen.getAllByRole("button", { name: /cancel/i })
+    ).toHaveLength(1)
+    expect(
+      screen.getByRole("button", { name: "Cancel selection" })
+    ).toBeVisible()
   })
 
   it("shows the select-all box on touch only in select mode", async () => {

@@ -16,8 +16,9 @@ import { cn } from "@/lib/utils"
  * boxes. On touch the boxes would cost every row 44px of width for a tool
  * used now and then, so they wait for select mode: "Select" turns it on,
  * and the band then reads "N selected" with "Cancel", which turns it off
- * (and clears the selection). Viewers have no bulk tools, so they get
- * neither.
+ * (and clears the selection). Once something is ticked the selection bar
+ * says "N selected", so the band shows the list's count beside "Cancel".
+ * Viewers have no bulk tools, so they get neither.
  */
 function ListHeader({
   canBatch,
@@ -45,6 +46,9 @@ function ListHeader({
   const allTicked = reviews.length > 0 && ticked.length === reviews.length
   // Only a viewer who can batch ever enters select mode.
   const selectMode = canBatch && selection.selectMode
+  // The bulk bar (bulk-action-bar.tsx) is on the page exactly while a
+  // loaded row is ticked, and then it carries the count.
+  const barShowsCount = ticked.length > 0
 
   return (
     <div
@@ -75,10 +79,13 @@ function ListHeader({
           />
         </span>
       ) : null}
-      {selectMode ? (
-        // Touch select mode: the band says what is ticked, as the bar
-        // below acts on it. A desk keeps the count (its boxes are always
-        // there, so ticking one is not a mode it needs telling about).
+      {selectMode && !barShowsCount ? (
+        // Touch select mode with nothing ticked yet: the band says so.
+        // Once a row is ticked the selection bar below says "N selected"
+        // beside its "Clear selection", so the band steps back to the
+        // list's count rather than saying it twice (QA #11). A desk keeps
+        // the count (its boxes are always there, so ticking one is not a
+        // mode it needs telling about).
         <span
           data-slot="inbox-selected-count"
           className="text-title font-semibold whitespace-nowrap text-ink tabular-nums desk:hidden"
@@ -89,7 +96,7 @@ function ListHeader({
       <span
         className={cn(
           "whitespace-nowrap tabular-nums",
-          selectMode && "hidden desk:inline"
+          selectMode && !barShowsCount && "hidden desk:inline"
         )}
       >
         {countLabel}
