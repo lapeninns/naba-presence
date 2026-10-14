@@ -13,7 +13,7 @@ import { POST as uploadAsset } from "@/app/api/assets/route"
 import { POST as enrollMfa } from "@/app/api/auth/mfa/enroll/route"
 import { POST as draft } from "@/app/api/reviews/[id]/drafts/route"
 import { POST as impersonate } from "@/app/api/support/impersonation/route"
-import { GET as confirmEmail } from "@/app/auth/confirm/route"
+import { POST as confirmEmail } from "@/app/auth/confirm/route"
 import { abuseLimitedError, takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { getDatabase } from "@/lib/server/db"
 import { verifyEmailToken } from "@/lib/server/password-auth"
@@ -240,12 +240,13 @@ describe("support impersonation", () => {
   })
 })
 
-describe("GET /auth/confirm", () => {
+describe("POST /auth/confirm", () => {
   it("is limited per IP before the token is verified", async () => {
     const response = await confirmEmail(
-      new Request(
-        `http://localhost/auth/confirm?token_hash=${"h".repeat(40)}&type=email`
-      )
+      new Request("http://localhost/auth/confirm", {
+        method: "POST",
+        body: new URLSearchParams({ token_hash: "h".repeat(40), type: "email" }),
+      })
     )
     expect(takeAbuseBudget).toHaveBeenCalledWith("confirm_email", { ip: IP })
     expect(verifyEmailToken).not.toHaveBeenCalled()
