@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, type Dispatch, type SetStateAction, type ReactNode } from "react"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { SavedWorkList, type SavedWorkItem } from "@/components/reviewed-write"
+import { ApiClientError } from "@/lib/api/client"
 import { fetchLifecycleAttempt, fetchLifecycleWorkflows } from "@/lib/api/google-lifecycle"
 import { useLocationCapabilities } from "@/lib/queries/use-location-capabilities"
 import { useLocationDirectory } from "@/lib/queries/use-locations"
@@ -11,6 +12,19 @@ import { lifecycleEnded, type LifecycleEnded } from "./lifecycle-ended"
 import { LifecycleOutcome } from "./lifecycle-outcome"
 import { LifecycleReview } from "./lifecycle-review"
 import { useLifecycle } from "./use-lifecycle"
+
+/**
+ * Why saved lifecycle work could not be read, in words that name the real
+ * failure: a read that never reached the server rejects with a TypeError
+ * (apiFetch wraps only writes as `network_error`), and only a 403 is about
+ * the operator's access.
+ */
+export function savedLifecycleErrorText(error: unknown): string {
+  const lead = "Saved lifecycle work could not be loaded."
+  if (error instanceof TypeError || (error instanceof ApiClientError && error.code === "network_error")) return `${lead} We couldn’t reach NabaPresence. Check your connection and try again.`
+  if (error instanceof ApiClientError && error.status === 403) return `${lead} Check your current access.`
+  return `${lead} Try again.`
+}
 
 const Context = createContext<(ReturnType<typeof useLifecycle> & { setAccessBlocked: Dispatch<SetStateAction<boolean>>; ended: LifecycleEnded | null }) | null>(null)
 export const useLifecycleContext = () => useContext(Context)
@@ -74,7 +88,7 @@ export function LifecycleWorkspace({ locationId, locationName, children }: {
       pending={saved.isPending}
       failed={saved.isError}
       loadingText="Loading saved lifecycle work…"
-      errorText="Saved lifecycle work could not be loaded. Check your current access."
+      errorText={savedLifecycleErrorText(saved.error)}
       emptyText="No saved lifecycle work."
       reloadLabel="Reload saved lifecycle work"
       reloading={saved.isFetching}

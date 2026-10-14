@@ -730,9 +730,14 @@ function ListingsBoard({
         {/* On the phone the health pill closes the subtitle line. */}
         <TableCell priority="trailing" className="@max-3xl/table:self-end">
           <span className="flex flex-col items-start gap-1 @max-3xl/table:items-end">
-            <StatusPill tone={listingHealthTone(row.health)}>
-              {listingHealthLabel(row.health)}
-            </StatusPill>
+            {/* While the summaries are still loading, "Not checked" would
+                contradict the "Checking each listing…" line above, so the
+                pill waits. A health known without a summary still shows. */}
+            {summaries.isPending && row.health === "unchecked" ? null : (
+              <StatusPill tone={listingHealthTone(row.health)}>
+                {listingHealthLabel(row.health)}
+              </StatusPill>
+            )}
             <span className={PHONE.wide}>
               <FreshnessLine summary={row.summary} />
             </span>
