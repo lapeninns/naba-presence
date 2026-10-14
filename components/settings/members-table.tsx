@@ -286,7 +286,11 @@ function MemberRows({
               // role badge, so a long name wraps beside it instead of running
               // under a pinned button (the old 360px overlap).
               <TableRow key={m.userId}>
-                <TableCell label="Member" priority="primary">
+                <TableCell
+                  label="Member"
+                  priority="primary"
+                  className="min-w-0"
+                >
                   <div className="flex min-w-0 items-center gap-2.5">
                     <Avatar>
                       <AvatarFallback>{initials(m.displayName)}</AvatarFallback>
@@ -298,7 +302,14 @@ function MemberRows({
                         </span>
                         {isSelf ? <Badge variant="secondary">You</Badge> : null}
                       </span>
-                      <span className="text-caption [overflow-wrap:anywhere] text-ink-muted">
+                      {/* One line with an ellipsis on a phone, where the role
+                          pill shares the title line; the full address stays in
+                          the title and the accessible name. */}
+                      <span
+                        title={m.email}
+                        data-slot="member-email"
+                        className="truncate text-caption text-ink-muted"
+                      >
                         {m.email}
                       </span>
                     </span>
@@ -385,7 +396,10 @@ function MemberRows({
                   )}
                 </TableCell>
                 <TableCell label="Joined" priority="meta">
-                  <span className="font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums">
+                  <span
+                    data-slot="member-joined"
+                    className="text-caption whitespace-nowrap text-ink-muted tabular-nums"
+                  >
                     {formatDay(m.createdAt)}
                   </span>
                 </TableCell>

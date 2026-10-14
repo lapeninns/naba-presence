@@ -3,6 +3,7 @@
 import type { CSSProperties } from "react"
 
 import { SettingsSection } from "@/components/settings/settings-section"
+import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -36,6 +37,9 @@ export function UsageCard() {
     ? data.remaining !== null && data.remaining <= 0
     : false
   const noun = creditPeriodNoun(data?.periodKind ?? null)
+  // A failed load says only that, with its retry: the per-day empty line and
+  // bars would state "no replies yet" as a fact we could not check.
+  const failed = !credits.isPending && !data
 
   return (
     <SettingsSection
@@ -79,16 +83,28 @@ export function UsageCard() {
           {describeCreditsLeft(data)}
         </p>
       ) : (
-        <p role="alert" className="m-0 text-ui text-danger-ink">
-          Usage could not be loaded.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p role="alert" className="m-0 text-ui text-danger-ink">
+            Usage could not be loaded.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              void credits.refetch()
+              void daily.refetch()
+            }}
+          >
+            Try again
+          </Button>
+        </div>
       )}
-      {days.length > 0 && !busiest ? (
+      {!failed && days.length > 0 && !busiest ? (
         <p data-slot="usage-days-empty" className="m-0 text-ui text-ink-muted">
           No AI-written replies yet {noun}.
         </p>
       ) : null}
-      {busiest ? (
+      {!failed && busiest ? (
         <figure className="m-0 flex flex-col gap-1.5">
           <div
             role="img"
