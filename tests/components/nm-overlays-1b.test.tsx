@@ -141,6 +141,15 @@ describe("CommandDialog phone takeover (F1)", () => {
     ).toBe(clear)
   })
 
+  // FINAL-QA #14: a placeholder longer than the phone pill ended mid-word.
+  it("ends a placeholder too long for the field in an ellipsis, not a hard cut", async () => {
+    asPhone(true)
+    render(<Palette />)
+    const dialog = await screen.findByRole("dialog", { name: "Search" })
+    const input = dialog.querySelector('[data-slot="command-input"]')!
+    expect(input).toHaveClass("text-ellipsis", "min-w-0", "w-full")
+  })
+
   it("labels groups in sentence case, caption size, medium, muted (D8)", async () => {
     asPhone(false)
     render(<Palette />)

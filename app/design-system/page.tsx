@@ -487,10 +487,14 @@ export default function Page() {
   if (!getServerEnv().DESIGN_SYSTEM_EVIDENCE_ENABLED) notFound()
   return (
     <TooltipProvider>
+      {/* The product's PageFrame gutter: 20px below `md`, the token from
+          there. The full-bleed demos (ListRows `bleed`) cancel exactly that
+          20px, so a 16px gutter here scrolled the page 4px sideways on a
+          phone (FINAL-QA #21). */}
       <main
         id="main"
         tabIndex={-1}
-        className="mx-auto flex min-h-svh w-full max-w-[1080px] flex-col gap-10 px-(--np-page-pad-x) py-(--np-page-pad-y) pb-16 outline-none"
+        className="mx-auto flex min-h-svh w-full max-w-[1080px] flex-col gap-10 px-5 py-(--np-page-pad-y) pb-16 outline-none md:px-(--np-page-pad-x)"
       >
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-1.5">

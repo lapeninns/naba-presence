@@ -74,7 +74,7 @@ function ToastPhasesDemo() {
           )
         }}
       >
-        Google: progress, then View on Google
+        Google: progress, then View
       </Button>
       <Button
         variant="outline"

@@ -197,7 +197,9 @@ function CommandInput({
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "h-14 w-full min-w-0 bg-transparent text-title text-ink outline-none placeholder:text-ink-muted",
+          // A placeholder too long for a narrow field ends in an ellipsis
+          // rather than being cut mid-word (FINAL-QA #14).
+          "h-14 w-full min-w-0 bg-transparent text-title text-ellipsis text-ink outline-none placeholder:text-ink-muted",
           takeover && "max-sm:h-(--np-touch)",
           className,
           // iOS zooms the page into a focused field under 16px; no caller

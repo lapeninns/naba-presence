@@ -126,6 +126,7 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-rating", bg: "--np-surface-alt", kind: "graphic", note: "star rating on a list row" },
   { fg: "--np-ink-on-charcoal", bg: "--np-charcoal", kind: "text", note: "composer footer and bulk bar labels" },
   { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "text", note: "dark action bar meta" },
+  { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "graphic", note: "quiet button edge and the sign-in panel's icon ring on charcoal" },
 
   // Materials, measured against their opaque twins: the translucent value
   // composites over content and cannot be measured, so the twin is the floor.
