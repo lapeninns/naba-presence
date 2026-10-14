@@ -299,6 +299,22 @@ describe("CommandPalette review search", () => {
   })
 })
 
+/**
+ * Whether `element`, or anything between it and `root`, carries a class
+ * that hides it (`hidden`, or a breakpoint-prefixed `…:hidden`). jsdom
+ * applies no Tailwind, so the classes are the evidence.
+ */
+function cssHidden(element: HTMLElement, root: HTMLElement): boolean {
+  for (
+    let node: HTMLElement | null = element;
+    node && node !== root;
+    node = node.parentElement
+  ) {
+    if (/(^|\s)([\w-]+:)*hidden(\s|$)/.test(node.className)) return true
+  }
+  return false
+}
+
 /** Pretends the viewport is a phone (below `sm`) or a desk. */
 function stubViewport(desk: boolean) {
   vi.stubGlobal(
@@ -317,12 +333,57 @@ function stubViewport(desk: boolean) {
 }
 
 describe("CommandPalette phone takeover", () => {
-  it("never opens a hidden row on Enter before anything is typed on a phone", async () => {
+  it("phone, empty field, groups are listed", async () => {
     stubViewport(false)
     const user = userEvent.setup()
     renderPalette()
     const dialog = await openPalette()
-    // cmdk has highlighted a row and the field has focus: Enter would act.
+    // The takeover lists what it can do as soon as it opens: no hint in
+    // place of the rows, and nothing hidden from a phone.
+    expect(
+      dialog.querySelector('[data-slot="command-palette-hint"]')
+    ).toBeNull()
+    for (const heading of ["Clients", "Switch client", "Go to", "Actions"]) {
+      const group = await within(dialog).findByRole(
+        "group",
+        { name: heading },
+        LAZY
+      )
+      expect(cssHidden(group, dialog)).toBe(false)
+      const options = within(group).getAllByRole("option")
+      expect(options.length).toBeGreaterThan(0)
+      for (const option of options) {
+        expect(option).toBeVisible()
+        expect(cssHidden(option, dialog)).toBe(false)
+      }
+    }
+    expect(
+      within(dialog).getByRole("option", { name: /^Old Crown/ })
+    ).toBeVisible()
+    // ArrowDown moves the highlight to a row the operator can see, and the
+    // field points assistive tech at that same row.
+    const input = within(dialog).getByRole("combobox")
+    await user.click(input)
+    await waitFor(() =>
+      expect(
+        within(dialog).getAllByRole("option", { selected: true })
+      ).toHaveLength(1)
+    )
+    const first = within(dialog).getByRole("option", { selected: true })
+    await user.keyboard("{ArrowDown}")
+    const highlighted = within(dialog).getByRole("option", { selected: true })
+    expect(highlighted).not.toBe(first)
+    expect(highlighted).toBeVisible()
+    expect(cssHidden(highlighted, dialog)).toBe(false)
+    expect(input).toHaveAttribute("aria-activedescendant", highlighted.id)
+  })
+
+  it("opens the highlighted row on Enter before anything is typed on a phone", async () => {
+    stubViewport(false)
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    // cmdk has highlighted a row the operator can see; Enter opens it.
     await waitFor(() =>
       expect(
         within(dialog).getAllByRole("option", { selected: true })
@@ -330,8 +391,7 @@ describe("CommandPalette phone takeover", () => {
     )
     await user.click(within(dialog).getByRole("combobox"))
     await user.keyboard("{Enter}")
-    expect(push).not.toHaveBeenCalled()
-    expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument()
+    expect(push).toHaveBeenCalledWith("/clients/c1")
   })
 
   it("keeps Enter on the highlighted row at the desk", async () => {
@@ -395,24 +455,5 @@ describe("CommandPalette phone takeover", () => {
       within(dialog).queryByRole("button", { name: "Clear search" })
     ).toBeNull()
     expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument()
-  })
-
-  it("shows a quiet hint before anything is typed, without client words in business mode", async () => {
-    const user = userEvent.setup()
-    renderPalette({ mode: "business" })
-    const dialog = await openPalette()
-    const hint = within(dialog).getByText("Search listings and pages")
-    expect(hint).toBeInTheDocument()
-    expect(dialog).not.toHaveTextContent(/client/i)
-    await user.type(within(dialog).getByRole("combobox"), "inbox")
-    expect(within(dialog).queryByText("Search listings and pages")).toBeNull()
-  })
-
-  it("names clients in the hint for an agency", async () => {
-    renderPalette()
-    const dialog = await openPalette()
-    expect(
-      within(dialog).getByText("Search clients, listings and pages")
-    ).toBeInTheDocument()
   })
 })
