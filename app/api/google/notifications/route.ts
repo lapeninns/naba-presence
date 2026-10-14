@@ -39,6 +39,7 @@ async function accountForNotifications(sql: TransactionSql, accountId: string) {
 }
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   query: (searchParams) => ({
     accountId: searchParams.get("account_id"),
@@ -68,6 +69,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"],
   body: notificationPatchSchema,

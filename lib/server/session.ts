@@ -214,6 +214,14 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
     // Use keeps a session alive: the idle window slides forward from now,
     // capped at the absolute limit set at sign-in (0051). A support session
     // keeps its fixed expiry and never slides.
+    //
+    // At most once a minute per session: every authenticated request comes
+    // through here, and a busy inbox makes several a second, each of which
+    // wrote a tuple and WAL for a timestamp nobody reads closer than that.
+    // The throttle can only make a session end sooner (by under a minute of
+    // a days-long idle window), never later; expiry, the absolute limit,
+    // revocation and the security_version check above are all read on
+    // every request, unthrottled.
     await sql`
       update app_session
       set
@@ -227,6 +235,7 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
           else expires_at
         end
       where id = ${sessionIdentity.sessionId}
+        and last_seen_at < now() - interval '1 minute'
     `
     if (!session) return null
     const billing = await getOrganisationBilling(sql, session.organisationId)
@@ -238,8 +247,8 @@ async function lookupSession(rawToken: string): Promise<Session | null> {
   }) as Promise<Session | null>
 }
 
-// React.cache(): one lookup (and one last_seen_at write) per server request,
-// however many layouts, pages and prefetch helpers ask. Outside an RSC render
+// React.cache(): one lookup (and at most one last_seen_at write) per server
+// request, however many layouts, pages and prefetch helpers ask. Outside an RSC render
 // (route handlers) React's cache is a per-call no-op, so behaviour there is
 // unchanged.
 export const getSession = cache(async (): Promise<Session | null> => {

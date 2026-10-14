@@ -7,6 +7,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: z.object({ accountId: z.uuid() }),
   body: googleAccountMatchInputSchema,
