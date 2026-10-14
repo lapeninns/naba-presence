@@ -360,7 +360,7 @@ export const PATCH = route({
           withdrawals,
         }
       }).catch((error: unknown) => {
-        // The backstop: review_legal_hold_guard (0139) refused to erase a
+        // The backstop: review_legal_hold_guard (0141) refused to erase a
         // review held after the check above, and the whole erasure rolled
         // back. The match's row locks make a hold wait for the erasure, so
         // this only answers for a writer that bypassed them.

@@ -475,7 +475,7 @@ function purgeSteps(organisationId: string): PurgeStep[] {
     }),
     // review -> external_location is ON DELETE CASCADE (0001). The hold
     // predicate keeps a held location's reviews out; review_legal_hold_guard
-    // (0139) is the backstop for a hold committed after this statement's
+    // (0141) is the backstop for a hold committed after this statement's
     // snapshot: it skips that review under app.retention_run, and fails a
     // cascade from external_location rather than delete a held review. A
     // review's released holds go with it (the guard deletes them; the
@@ -932,7 +932,7 @@ export async function purgeOrganisation({
   for (;;) {
     const round = await withTenant(organisationId, async (sql) => {
       // Lets the round delete expired audit rows (0008), and makes
-      // review_legal_hold_guard (0139) skip a review held mid-round instead
+      // review_legal_hold_guard (0141) skip a review held mid-round instead
       // of failing the round: the next round's predicates exclude it.
       await sql`
         select set_config('app.retention_run', 'true', true)

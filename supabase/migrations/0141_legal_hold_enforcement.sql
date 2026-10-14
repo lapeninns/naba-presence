@@ -1,7 +1,7 @@
 begin;
 
 -- ---------------------------------------------------------------------------
--- 0139: legal holds enforced in the database (audit 2026-10-14, R2B-01).
+-- 0141: legal holds enforced in the database (audit 2026-10-14, R2B-01).
 --
 -- Until now a hold was only a `not exists (select 1 from legal_hold ...)`
 -- predicate in the app: the retention steps, the privacy erasure and the
@@ -152,7 +152,7 @@ alter table legal_hold
   add constraint legal_hold_review_id_fkey
     foreign key (review_id) references review(id) on delete restrict;
 
-insert into schema_migration (version) values ('0139_legal_hold_enforcement')
+insert into schema_migration (version) values ('0141_legal_hold_enforcement')
 on conflict (version) do nothing;
 
 commit;

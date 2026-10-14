@@ -115,7 +115,7 @@ type SubjectMatch = {
  *
  * `lock` takes the reviews' row locks in id order, so a legal hold applied
  * meanwhile (every hold insert locks the same row: legal_hold_lock_review,
- * 0139) either commits first and is seen by the caller's hold check, or
+ * 0141) either commits first and is seen by the caller's hold check, or
  * waits for the erasure.
  */
 export async function matchSubjectReviews(
@@ -215,7 +215,7 @@ export async function previewSubjectMatches(
 }
 
 /**
- * The review id in review_legal_hold_guard's refusal (0139: SQLSTATE 23514,
+ * The review id in review_legal_hold_guard's refusal (0141: SQLSTATE 23514,
  * message `review_legal_hold`, the review id as detail), or null for any
  * other error. A hold committed after the caller's own hold check surfaces
  * this way.
@@ -285,7 +285,7 @@ export async function scrubAttemptBodies(
  * subject export and the review detail.
  *
  * Every write here is under a row lock the caller holds on the reviews
- * (`matchSubjectReviews`), and review_legal_hold_guard (0139) refuses the
+ * (`matchSubjectReviews`), and review_legal_hold_guard (0141) refuses the
  * review update for a review held after the caller's own hold check.
  */
 export async function eraseReviews(
