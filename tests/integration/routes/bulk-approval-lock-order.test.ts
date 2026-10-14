@@ -28,6 +28,12 @@ const REVIEWS_PER_ROUND = 4
  * (one oldest first, the other newest first) met in the middle and one row
  * died with 40P01, reported as `failed` / `bulk_row_failed`. The batch now
  * locks its reviews in id order before the first decision (lockReviews).
+ *
+ * Batch starts are also serialised per organisation, and a review already
+ * queued in a live batch is skipped as `template_review_busy` rather than
+ * decided twice (#91). So of two overlapping batches, the later start either
+ * skips every review the earlier one queued, or — when the runner already
+ * finished them — decides them again. Neither may lose a row to a deadlock.
  */
 describeDatabase("bulk approval lock order", { timeout: 120_000 }, () => {
   let admin: ReturnType<typeof postgres>
@@ -143,23 +149,38 @@ describeDatabase("bulk approval lock order", { timeout: 120_000 }, () => {
         approve(shown),
         approve([...shown].reverse()),
       ])
+      // Each review is decided once per batch that queued it, and every row
+      // is either queued or skipped as busy: none fails.
+      const queued = new Map<string, number>()
       for (const result of [forward, reverse]) {
-        expect(result.operationId).toBeDefined()
-        for (const row of result.results)
-          if (row.status !== "queued")
+        for (const row of result.results) {
+          if (row.status === "queued") {
+            expect(result.operationId).toBeDefined()
+            queued.set(row.reviewId, (queued.get(row.reviewId) ?? 0) + 1)
+          } else if (
+            row.status !== "skipped" ||
+            row.code !== "template_review_busy"
+          ) {
             failures.push(
               `${round}: ${row.reviewId} ${row.status} ${row.code ?? ""}`
             )
+          }
+        }
       }
-      // Both approvers' decisions stand, one each per review.
       const decisions = await admin<{ reviewId: string; count: number }[]>`
           select review_id::text as "reviewId", count(*)::int as count
           from approval_decision
           where review_id in ${admin(shown.map((item) => item.reviewId))}
           group by review_id`
-      for (const row of decisions)
-        if (row.count !== 2)
-          failures.push(`${round}: ${row.reviewId} ${row.count} decisions`)
+      for (const item of shown) {
+        const expected = queued.get(item.reviewId) ?? 0
+        const recorded =
+          decisions.find((row) => row.reviewId === item.reviewId)?.count ?? 0
+        if (expected === 0 || recorded !== expected)
+          failures.push(
+            `${round}: ${item.reviewId} ${recorded} decisions, ${expected} queued`
+          )
+      }
     }
     expect(failures).toEqual([])
   })
