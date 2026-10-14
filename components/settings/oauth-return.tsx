@@ -12,7 +12,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast } from "@/components/ui/toast"
 import type { ConnectStartBody } from "@/lib/contracts/connections"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useStartGoogleConnect } from "@/lib/queries/use-connection-workspace"
@@ -123,7 +123,7 @@ export function OAuthReturn({
   const params = useSearchParams()
   const pathname = usePathname()
   const router = useRouter()
-  const toast = useToastManager()
+  const toast = useOutcomeToast()
   // Only the connect mutation, never the connections query: this mounts on
   // every dashboard page through the shell, and subscribing to (and
   // building) the polled connections query while rendering here is what
@@ -182,10 +182,11 @@ export function OAuthReturn({
     setOutcome(panel)
     if (next?.kind === "connected" && !panel) {
       const message = connectedMessage(next)
-      toast.add({
+      // Google granted access: an outcome, never Undo (D5).
+      toast.show({
+        kind: "google",
         title: message.title,
         description: message.description,
-        type: "success",
       })
     }
     const remaining = new URLSearchParams(params.toString())
@@ -239,7 +240,10 @@ export function OAuthReturn({
           onClick={() =>
             connect.mutate(connectInput, {
               onError: (error) =>
-                toast.add({ title: describeActionError(error), type: "error" }),
+                toast.show({
+                  title: describeActionError(error),
+                  type: "error",
+                }),
             })
           }
         >

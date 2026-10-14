@@ -3,7 +3,7 @@
   "totals": {
     "R1": 12,
     "R2": 9,
-    "R3": 55,
+    "R3": 54,
     "R4": 12,
     "R5": 1,
     "R6": 2,
@@ -264,14 +264,6 @@
         "total": 2,
         "patterns": {
           "grid-cols-[13.75rem_minmax(0,1fr)]": 2
-        }
-      }
-    },
-    "components/setup/step-done.tsx": {
-      "R3": {
-        "total": 1,
-        "patterns": {
-          "grid-cols-[minmax(0,14rem)_minmax(0,1fr)]": 1
         }
       }
     },

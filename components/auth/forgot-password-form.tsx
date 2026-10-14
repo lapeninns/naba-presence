@@ -10,6 +10,7 @@ import {
 } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -116,6 +117,7 @@ function ForgotPasswordForm() {
               variant="secondary"
               size="lg"
               block
+              className={WRAPPING_BLOCK_BUTTON}
               disabled={pending}
               aria-busy={pending || undefined}
               onClick={() =>
@@ -145,6 +147,7 @@ function ForgotPasswordForm() {
           variant="ghost"
           size="lg"
           block
+          className={WRAPPING_BLOCK_BUTTON}
           onClick={() => {
             setSentTo(null)
             setResendNote("")

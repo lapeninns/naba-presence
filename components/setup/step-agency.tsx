@@ -8,7 +8,7 @@ import { TimezonePicker } from "@/components/settings/timezone-picker"
 import { Button } from "@/components/ui/button"
 import { FormError } from "@/components/ui/field"
 import { Label } from "@/components/ui/label"
-import { useToastManager } from "@/components/ui/toast"
+import { showToast, useToastManager } from "@/components/ui/toast"
 import { saveSettings } from "@/lib/api/settings"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
@@ -88,8 +88,7 @@ function StepAgency({
             id="setup-agency-timezone-hint"
             className="text-caption text-ink-muted"
           >
-            Opening hours and report windows are read in this timezone unless a
-            listing sets its own.
+            Reports and daily digests are read in this timezone.
           </p>
         </div>
         {saveError ? (
@@ -106,7 +105,9 @@ function StepAgency({
               setSaveError(null)
               try {
                 await save.mutateAsync(current)
-                toast.add({ title: "Timezone saved" })
+                // A local setting, not a Google write: the outcome toast's
+                // local kind (no Undo is offered; the field itself reverts).
+                showToast({ title: "Timezone saved", kind: "local" }, toast)
               } catch (error) {
                 setSaveError(describeActionError(error))
               }

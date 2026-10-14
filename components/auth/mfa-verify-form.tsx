@@ -10,6 +10,7 @@ import {
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
 import {
   Field,
@@ -142,7 +143,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           message={{
             title: "Your sign-in has expired.",
             description:
-              "For your security the code step lasts five minutes. Sign in again to continue.",
+              "For your security the code step ends after five minutes or five wrong codes. Sign in again to continue.",
           }}
         />
         <Button
@@ -201,6 +202,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
         type="submit"
         size="lg"
         block
+        className={WRAPPING_BLOCK_BUTTON}
         disabled={pending || factors === null}
       >
         {pending ? "Checking…" : "Verify and sign in"}
@@ -210,6 +212,7 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
         variant="secondary"
         size="lg"
         block
+        className={WRAPPING_BLOCK_BUTTON}
         disabled={pending}
         onClick={startOver}
       >

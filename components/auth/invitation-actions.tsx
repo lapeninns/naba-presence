@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
@@ -67,6 +68,7 @@ function InvitationActions({
           type="button"
           size="lg"
           block
+          className={WRAPPING_BLOCK_BUTTON}
           onClick={handleAccept}
           disabled={pending}
         >
@@ -85,6 +87,7 @@ function InvitationActions({
         type="button"
         size="lg"
         block
+        className={WRAPPING_BLOCK_BUTTON}
         onClick={handleSignOut}
         disabled={pending}
       >

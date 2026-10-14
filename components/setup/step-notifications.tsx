@@ -28,9 +28,9 @@ function StepNotifications() {
         </span>
         <div className="flex min-w-0 flex-col gap-1">
           <p className="text-body text-pretty text-ink">
-            These are updates Google sends to NabaPresence when a review
-            arrives. They aren’t phone notifications, so your device won’t ask
-            for permission.
+            These are updates Google sends to NabaPresence when something
+            changes on your profile, such as a new review. They aren’t phone
+            notifications, so your device won’t ask for permission.
           </p>
           <p className="text-body text-pretty text-ink-muted">
             Optional. Without this, reviews still arrive on the next scheduled

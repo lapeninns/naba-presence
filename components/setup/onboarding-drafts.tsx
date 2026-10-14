@@ -735,8 +735,8 @@ function DraftDetails({
       <div className="flex flex-col gap-2">
         <h4 className="text-ui font-semibold">Business details</h4>
         <p className="text-caption text-ink-muted">
-          This draft is saved to your account. Keep this setup link to return to
-          it.
+          This draft is saved in NabaPresence, not on Google. Keep this setup
+          link to return to it.
         </p>
         <ShareSetupLink title="Business draft in NabaPresence" />
       </div>
@@ -1221,7 +1221,7 @@ function CreationStatus({
             ? "A local listing already uses this name. Choose a different local name to finish linking."
             : value.errorCode === "location_limit_reached"
               ? "This workspace has reached its plan's location limit. Unlink a location or change plan, then link again. Google creation will not be repeated."
-              : "Refresh the outcome to check for new evidence. A refresh will not repeat Google creation."}
+              : "A refresh reloads the latest outcome. It never sends the creation to Google again."}
         </p>
       )}
       <Button variant="secondary" className="self-start" onClick={onRefresh}>
@@ -1229,8 +1229,8 @@ function CreationStatus({
       </Button>
       {!value.providerResourceName && value.executionState === "unknown" && (
         <p className="text-body text-ink-muted">
-          Check the selected Google account before taking another action. This
-          draft cannot be resent automatically because the result is unknown.
+          Check the selected Google account for this listing before you do
+          anything else. NabaPresence will not send this draft to Google again.
         </p>
       )}
       {value.providerResourceName && value.linkState !== "linked" && (

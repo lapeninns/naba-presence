@@ -15,7 +15,7 @@ export default async function ResetPasswordPage({
       aside="reset"
       eyebrow="Account recovery"
       title="Choose a new password"
-      description="Pick a new password. You will stay signed out everywhere else until you use it."
+      description="Once it’s saved, you’re signed in here and signed out on every other device."
       footer={<AuthLink href="/sign-in">Back to sign in</AuthLink>}
     >
       <ResetPasswordForm tokenHash={params.token_hash} />

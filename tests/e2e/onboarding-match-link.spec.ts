@@ -68,7 +68,7 @@ for (const width of [375, 768, 1280]) {
     const fixture = await setupMatchLink(page, baseURL)
     fixture.failDiscovery()
     await panel(page).getByRole("button", { name: "Check accessible matches" }).click()
-    await expect(panel(page).getByRole("alert")).toContainText("not evidence that a new listing is needed")
+    await expect(panel(page).getByRole("alert")).toContainText("This does not mean a new listing is needed")
     await expect(panel(page).getByRole("button", { name: "Select this existing match" })).toHaveCount(0)
     await capture(page, info, "discovery-error", width)
     fixture.setConflicts(["external_assignment", "existing_link", "local_name", "webhook_assignment"])

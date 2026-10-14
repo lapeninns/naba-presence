@@ -33,7 +33,7 @@ export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
     label: "Agency",
     title: "Confirm your agency",
     description:
-      "How your agency appears to your team, and the timezone reports and opening hours default to.",
+      "How your agency appears to your team, and the timezone reports use.",
     preamble: true,
   },
   {
@@ -62,8 +62,7 @@ export const SETUP_STEP_DEFINITIONS: SetupStepDefinition[] = [
     id: "locations",
     label: "Listings",
     title: "Link this client's listings",
-    description:
-      "Reviews start flowing in for each listing as soon as it is linked.",
+    description: "Reviews start coming in for each listing after it is linked.",
   },
   {
     id: "backfill",
@@ -122,8 +121,7 @@ const BUSINESS_OVERRIDES: Partial<
   },
   locations: {
     title: "Link your listings",
-    description:
-      "Reviews start flowing in for each listing as soon as it is linked.",
+    description: "Reviews start coming in for each listing after it is linked.",
   },
   team: { description: "Who else works on your reviews?" },
   done: {

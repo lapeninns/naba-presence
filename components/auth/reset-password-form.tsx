@@ -12,6 +12,7 @@ import {
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { PasswordField } from "@/components/auth/password-field"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button, buttonVariants } from "@/components/ui/button"
 import * as authApi from "@/lib/api/auth"
 import {
@@ -22,6 +23,7 @@ import {
 import { ApiClientError } from "@/lib/api/client"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { passwordSchema, resetPasswordSchema } from "@/lib/domain/auth"
+import { cn } from "@/lib/utils"
 
 const FIELD_ORDER = ["password", "confirmPassword"] as const
 
@@ -134,7 +136,10 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
         </div>
         <Link
           href="/forgot-password"
-          className={buttonVariants({ size: "lg", block: true })}
+          className={cn(
+            buttonVariants({ size: "lg", block: true }),
+            WRAPPING_BLOCK_BUTTON
+          )}
         >
           Request another link
         </Link>

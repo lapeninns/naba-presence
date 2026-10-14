@@ -71,13 +71,13 @@ export function OnboardingMatchLink({ draft, disabled, onBusyChange, onDirtyChan
   return <section aria-labelledby="existing-match-heading" className="flex min-w-0 flex-col gap-4 border-t border-line-subtle pt-5">
     <div className="space-y-1"><h4 id="existing-match-heading" className="text-title font-semibold text-ink">Link an existing match</h4>
       <p className="text-body text-pretty text-ink-muted">Check which potential matches belong to this Google account, then review the exact local mapping.</p></div>
-    {disabled && <p role="status" className="text-body text-ink-muted">Wait for the current action to finish, or discard the creation decision before reviewing an existing match.</p>}
+    {disabled && <p role="status" className="text-body text-ink-muted">Wait for the current action to finish, or discard or close the new-listing review, before reviewing an existing match.</p>}
     {reviewId ? review.isPending ? <QueryPending label="Restoring existing listing review…" /> : review.isError ? <div className="flex flex-col gap-2">
       <QueryError title="The link review didn’t load" description={describeActionError(review.error)} onRetry={() => void review.refetch()} retryLabel="Retry restoring link review" />
       <Button variant="ghost" className="self-start" disabled={busy} onClick={() => openReview(null)}>Start a fresh link review</Button>
     </div> : review.data && <OnboardingMatchLinkReview key={`${review.data.id}:${review.data.approvedBy ?? "unapproved"}`} value={review.data} busy={busy || disabled} onApprove={() => approve.mutate()} onLink={() => link.mutate()} onRefresh={() => void review.refetch()} onReset={() => { setSelected(""); preview.reset(); approve.reset(); link.reset(); openReview(null) }} /> : <>
       <Button variant="secondary" className="self-start" disabled={disabled || busy || decisionDirty} pending={matches.isFetching} pendingLabel="Checking account access…" onClick={() => { if (discover) void matches.refetch(); else setDiscover(true) }}>Check accessible matches</Button>
-      {discover && matches.isError ? <FormError>{describeActionError(matches.error)} Access could not be established; this is not evidence that a new listing is needed.</FormError> : matches.data && !matches.isFetching && <>
+      {discover && matches.isError ? <FormError>{describeActionError(matches.error)} The account check did not finish. This does not mean a new listing is needed.</FormError> : matches.data && !matches.isFetching && <>
         <p className="text-caption text-ink-muted tabular-nums">Account access checked {new Date(matches.data.observedAt).toLocaleString("en-GB")}.</p>
         <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">{matches.data.matches.map((match) => {
           const source = draft.matchResult?.matches.find((item) => item.name === match.matchName)

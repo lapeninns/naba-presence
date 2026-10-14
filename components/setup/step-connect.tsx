@@ -5,7 +5,9 @@ import { useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { QueryStates } from "@/components/ui/query-states"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -186,7 +188,7 @@ function StepConnect({
                 icon={<CheckIcon />}
                 items={[
                   "See your name and email address, so you know which login is connected",
-                  "Manage your Business Profiles: read reviews, post replies and edit profile details",
+                  "Manage your Business Profiles: reviews and replies, profile details, posts, photos and the listings themselves",
                 ]}
               />
               <ScopeList
@@ -194,7 +196,7 @@ function StepConnect({
                 label="What NabaPresence never does"
                 icon={<XIcon />}
                 items={[
-                  "Send anything to Google until a person approves it",
+                  "Send anything to Google unless someone on your team publishes, approves or schedules it",
                   "See or store your Google password",
                   "Read your Gmail",
                 ]}
@@ -227,67 +229,83 @@ function StepConnect({
                 You haven’t connected a Google account yet.
               </p>
             ) : (
-              <ul className="flex flex-col divide-y divide-line-subtle">
+              // Notion Mail's list rows. Each row carries its own buttons, so
+              // the row itself is not a target (`interactive={false}`). On a
+              // phone the list runs to the screen edge like the step around
+              // it; in the md+ card the rows drop their own gutter so they
+              // line up with the rest of the step.
+              <ListRows bleed>
                 {connections.map((connection) => {
                   const broken =
                     connection.reconnectRequired ||
                     connection.status !== "active"
                   return (
-                    <li
+                    <ListRow
                       key={connection.id}
-                      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 py-3"
-                    >
-                      <span
-                        aria-hidden
-                        className="grid size-8 shrink-0 place-items-center rounded-full bg-fill text-ui font-semibold text-ink-secondary"
-                      >
-                        G
-                      </span>
-                      <div className="flex min-w-0 grow basis-48 flex-col gap-0.5">
-                        <span className="text-body font-semibold [overflow-wrap:anywhere] text-ink">
+                      interactive={false}
+                      emphasis="neutral"
+                      className="md:px-0"
+                      wrapperClassName="md:after:start-12 md:after:end-0 desk:after:start-11"
+                      leading={
+                        <Avatar size="list" aria-hidden>
+                          G
+                        </Avatar>
+                      }
+                      title={
+                        // The whole address, wrapped: which login this is
+                        // must never be cut off.
+                        <span className="wrap-anywhere whitespace-normal">
                           {connection.googleEmail ?? "Google account"}
                         </span>
-                        <span className="text-caption text-ink-muted">
-                          {connection.lastRefreshAt ? (
-                            <RelativeTime
-                              iso={connection.lastRefreshAt}
-                              prefix="Refreshed "
-                            />
-                          ) : (
-                            "Not refreshed yet"
-                          )}
-                        </span>
-                        {broken ? (
-                          <span className="text-caption text-ink-muted">
-                            Reconnect it to use it here. Google opens, then you
-                            come straight back to this step.
-                          </span>
-                        ) : null}
-                      </div>
-                      {broken ? (
-                        <span className="flex flex-wrap items-center gap-2">
+                      }
+                      subtitle={
+                        connection.lastRefreshAt ? (
+                          <RelativeTime
+                            iso={connection.lastRefreshAt}
+                            prefix="Refreshed "
+                          />
+                        ) : (
+                          "Not refreshed yet"
+                        )
+                      }
+                      trailing={
+                        broken ? (
                           <StatusPill tone="bad">Needs reconnecting</StatusPill>
-                          {/* Same reconnect as Settings' connection card:
-                              target this login so Google pre-fills it and
-                              the callback renews it rather than adding one. */}
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            pending={starting && startingFor === connection.id}
-                            pendingLabel="Opening Google…"
-                            disabled={starting}
-                            onClick={() => void connect(connection.id)}
-                            aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
-                          >
-                            Reconnect
-                          </Button>
-                        </span>
-                      ) : (
-                        <span className="flex flex-wrap items-center gap-2">
+                        ) : (
                           <StatusPill tone="ok">Connected</StatusPill>
+                        )
+                      }
+                      tags={
+                        broken ? (
+                          <>
+                            <span className="w-full text-caption text-ink-muted">
+                              Reconnect it to use it here. Google opens, then
+                              you come straight back to this step.
+                            </span>
+                            {/* Same reconnect as Settings' connection card:
+                                target this login so Google pre-fills it and
+                                the callback renews it rather than adding
+                                one. */}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="mt-1"
+                              pending={
+                                starting && startingFor === connection.id
+                              }
+                              pendingLabel="Opening Google…"
+                              disabled={starting}
+                              onClick={() => void connect(connection.id)}
+                              aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
+                            >
+                              Reconnect
+                            </Button>
+                          </>
+                        ) : (
                           <Button
                             size="sm"
                             variant="secondary"
+                            className="mt-1"
                             pending={
                               attachConnection.isPending &&
                               attachConnection.variables?.connectionId ===
@@ -300,12 +318,12 @@ function StepConnect({
                           >
                             Use this account
                           </Button>
-                        </span>
-                      )}
-                    </li>
+                        )
+                      }
+                    />
                   )
                 })}
-              </ul>
+              </ListRows>
             )}
             {usable.length > 0 ? (
               <p className="text-caption text-ink-muted">
