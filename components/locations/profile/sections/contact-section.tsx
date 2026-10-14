@@ -355,6 +355,9 @@ export function OpeningSection({
   // The desk keeps the Select; a phone picks from an inset sheet.
   const desk = useBreakpoint("desk")
   const [picking, setPicking] = useState(false)
+  // "Permanently closed" from the sheet: confirm once the sheet has closed
+  // and handed focus back, so the alert dialog takes focus last.
+  const confirmAfterSheet = useRef(false)
   /** The Select's and the sheet's choice: the same rule for both. */
   const choose = (value: string) => {
     if (value === "CLOSED_PERMANENTLY") {
@@ -428,7 +431,15 @@ export function OpeningSection({
             disabled={disabled}
             onClick={() => setPicking(true)}
           />
-          <Sheet open={picking} onOpenChange={setPicking}>
+          <Sheet
+            open={picking}
+            onOpenChange={setPicking}
+            onOpenChangeComplete={(open) => {
+              if (open || !confirmAfterSheet.current) return
+              confirmAfterSheet.current = false
+              choose("CLOSED_PERMANENTLY")
+            }}
+          >
             <SheetContent variant="inset">
               <SheetHeader>
                 <SheetTitle>Open status</SheetTitle>
@@ -458,9 +469,9 @@ export function OpeningSection({
                         selected={draft.openStatus === "CLOSED_PERMANENTLY"}
                         label={openStatusLabel("CLOSED_PERMANENTLY")}
                         onClick={() => {
+                          confirmAfterSheet.current =
+                            draft.openStatus !== "CLOSED_PERMANENTLY"
                           setPicking(false)
-                          if (draft.openStatus !== "CLOSED_PERMANENTLY")
-                            choose("CLOSED_PERMANENTLY")
                         }}
                       />
                     </>

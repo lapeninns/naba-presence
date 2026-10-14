@@ -782,6 +782,11 @@ describe("ProfileTab on a phone", () => {
       name: "Mark as permanently closed",
     })
     expect(mark).toBeDisabled()
+    // The confirm opens after the sheet has closed, so focus ends inside it.
+    expect(screen.queryByRole("dialog", { name: "Open status" })).toBeNull()
+    await waitFor(() =>
+      expect(confirm.contains(document.activeElement)).toBe(true)
+    )
     await userEvent.click(within(confirm).getByRole("checkbox"))
     await userEvent.click(mark)
     await waitFor(() =>

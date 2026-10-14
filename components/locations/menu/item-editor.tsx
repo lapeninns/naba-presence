@@ -189,7 +189,7 @@ export function MenuItemRow({
         wrap
         emphasis="neutral"
         id={rowId}
-        aria-label={`Edit ${label.displayName || `item ${itemIndex + 1}`}`}
+        aria-label={`Edit ${label.displayName || `untitled item ${itemIndex + 1}`}`}
         aria-describedby={describedBy}
         wrapperClassName="min-w-0 flex-1 after:hidden"
         onClick={onOpen}

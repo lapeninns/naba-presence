@@ -331,7 +331,7 @@ export function CategoriesSection({
           <>
             <SettingsRow
               label="Add another category"
-              disabled={disabled}
+              disabled={disabled || full}
               onClick={() => setPicking("additional")}
             />
             <CategoryPickerSheet
