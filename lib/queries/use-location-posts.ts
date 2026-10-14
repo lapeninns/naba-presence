@@ -4,6 +4,7 @@ import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query"
 
 import { fetchPosts, type PostsState } from "@/lib/api/location-posts"
 import type { PostListFilter } from "@/lib/contracts/location-posts"
+import { GOOGLE_LIVE_READ } from "./google-live"
 import { queryKeys } from "./keys"
 import { uniqueById, usePagedResource } from "./paged-list"
 import { requestOptions } from "./request-options"
@@ -39,6 +40,8 @@ export function usePosts(id: string, filter: PostListFilter = "all") {
     // Switching view keeps the current list on screen while the next loads,
     // instead of dropping the whole tab back to a skeleton.
     placeholderData: keepPreviousData,
+    // The first page reconciles with Google.
+    ...GOOGLE_LIVE_READ,
   })
   return usePagedResource(query, mergePosts)
 }

@@ -24,7 +24,7 @@ import {
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
   attemptStore,
@@ -35,6 +35,7 @@ import {
   runGbpWrite,
   type LinkedLocation,
 } from "@/lib/server/gbp-write"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import {
   getGoogleLocation,
   patchGoogleLocationProfile,
@@ -590,6 +591,11 @@ type PublishProfileInput = {
   expectedGoogleHash: string
   confirmOverwriteGoogleChanges: boolean
   requestId: string
+  /**
+   * Epoch ms by which the Google sequence must end (a request deadline);
+   * absent, the write session derives one from the route's maxDuration.
+   */
+  deadline?: number
 }
 
 const PROFILE_PUBLISHING_DISABLED = {
@@ -635,14 +641,17 @@ async function prepareProfilePublish(input: PublishProfileInput) {
  * business-information editor and bulk business-information and category
  * children take (lib/server/bulk-listing-runner.ts): a bulk website or
  * description write cannot land between this publish's read and its PATCH,
- * and this publish waits for a running bulk child, then reads what it left.
+ * and this publish waits for a running bulk child (up to the write session's
+ * lock budget, then 409 `google_write_busy`), then reads what it left.
  */
 export async function publishProfileToGoogle(input: PublishProfileInput) {
-  return withSessionConnection((connection) =>
-    connection.begin(async (lock) => {
-      await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:business_info`}, 0))`
-      return publishProfileLocked(input)
-    })
+  return withGoogleWriteSession(
+    {
+      surface: "profile",
+      keys: [`${input.session.organisationId}:${input.locationId}:business_info`],
+      deadline: input.deadline,
+    },
+    () => publishProfileLocked(input)
   )
 }
 

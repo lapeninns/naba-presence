@@ -18,6 +18,7 @@ export const runtime = "nodejs"
 export const maxDuration = 60
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"],
   params: z.object({ id: z.uuid() }),
   body: importReviewRefreshRequestSchema,

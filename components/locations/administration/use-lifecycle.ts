@@ -31,8 +31,8 @@ export function useLifecycle(locationId: string, accessBlocked = false) {
   const stale = block !== null
   const unresolved = uncertain || attempt?.confirmationState === "unresolved" || attempt?.confirmationState === "pending" || attempt?.localReconciliation === "pending" || attempt?.localReconciliation === "conflict"
   function invalidate() {
-    void client.invalidateQueries({ queryKey: ["lifecycle-workflows", locationId] })
-    void client.invalidateQueries({ queryKey: ["lifecycle-latest-attempt", locationId] })
+    void client.invalidateQueries({ queryKey: queryKeys.locationLifecycleWorkflows(locationId) })
+    void client.invalidateQueries({ queryKey: queryKeys.locationLifecycleAttempts(locationId) })
     void client.invalidateQueries({ queryKey: queryKeys.locationAdministration(locationId) })
     void client.invalidateQueries({ queryKey: queryKeys.locationActivity(locationId) })
   }

@@ -1,5 +1,7 @@
 import "server-only"
 
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import {
@@ -15,6 +17,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
+import { countGoogleCall } from "@/lib/server/request-metrics"
 import {
   googleTokenUnavailableError,
   handleUnauthenticated,
@@ -80,6 +83,40 @@ export function isAbortError(error: unknown): error is Error {
 
 export function googleTimeoutError() {
   return new ApiError(502, "google_timeout", "The Google provider timed out.")
+}
+
+/**
+ * The deadline (epoch ms) of the Google write session a call runs in
+ * (lib/server/google-write-session.ts), carried the way the audit actor is
+ * (lib/server/audit.ts) so every Google helper inside the session honours it
+ * without a parameter. Outside a session there is none and calls keep their
+ * own timeouts.
+ */
+const writeDeadline = new AsyncLocalStorage<number>()
+
+export function withGoogleWriteDeadline<T>(deadline: number, fn: () => T): T {
+  return writeDeadline.run(deadline, fn)
+}
+
+/** The deadline of the write session this code runs in, if any. */
+export function currentGoogleWriteDeadline(): number | undefined {
+  return writeDeadline.getStore()
+}
+
+/**
+ * A mutation refused before it was sent because the write session could not
+ * wait its full timeout for Google's answer: nothing reached Google, so it is
+ * a plain failure (never ambiguous) and the person can simply try again.
+ */
+export class GoogleWriteBudgetExhaustedError extends ApiError {
+  constructor() {
+    super(
+      503,
+      "google_write_budget_exhausted",
+      "There was not enough time left to send this change to Google safely. Nothing was sent.",
+      { retryable: true }
+    )
+  }
 }
 
 /**
@@ -314,6 +351,16 @@ async function readMutationBody(
   }
 }
 
+/**
+ * Waits `ms` before a retry, or throws the timeout at once when the wait
+ * would reach the call's deadline: the retry could not be sent in time, and
+ * sleeping first would only hold a write lock longer for the same answer.
+ */
+async function sleepBefore(deadline: number, ms: number) {
+  if (Date.now() + ms >= deadline) throw googleTimeoutError()
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export async function googleRequest<T>(
   url: string,
   accessToken: string,
@@ -346,7 +393,22 @@ export async function googleRequest<T>(
     (mode === "mutation"
       ? getServerEnv().GOOGLE_MUTATION_TIMEOUT_MS
       : getServerEnv().GOOGLE_TIMEOUT_MS)
-  const deadline = Date.now() + timeoutMs
+  // Inside a write session the call also ends by the session's deadline, so
+  // its retries and their sleeps cannot carry it past the lock's budget. A
+  // mutation is never started without its full timeout: cut short, its
+  // answer would be lost and the write left ambiguous.
+  const sessionDeadline = writeDeadline.getStore()
+  if (
+    mode === "mutation" &&
+    sessionDeadline !== undefined &&
+    sessionDeadline - Date.now() < timeoutMs
+  ) {
+    throw new GoogleWriteBudgetExhaustedError()
+  }
+  const deadline = Math.min(
+    Date.now() + timeoutMs,
+    sessionDeadline ?? Number.POSITIVE_INFINITY
+  )
   const providerHost = new URL(url).hostname
   const method = init.method ?? "GET"
   return googleTracer.startActiveSpan(
@@ -400,9 +462,7 @@ export async function googleRequest<T>(
               throw googleTimeoutError()
             }
             if (attempt === maxAttempts) throw error
-            await new Promise((resolve) =>
-              setTimeout(resolve, retryDelayMs(attempt))
-            )
+            await sleepBefore(deadline, retryDelayMs(attempt))
             continue
           }
           finalStatus = response.status
@@ -435,10 +495,12 @@ export async function googleRequest<T>(
               Number.isFinite(retryAfter) && retryAfter > 0
                 ? Math.min(retryAfter * 1000, 30_000)
                 : retryDelayMs(attempt)
-            await new Promise((resolve) =>
-              setTimeout(resolve, Math.min(retryAfterMs, timeoutMs))
-            )
-            continue
+            // A wait that would reach the deadline makes this the last
+            // attempt: Google's own answer is the error, at once.
+            if (Date.now() + retryAfterMs < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, retryAfterMs))
+              continue
+            }
           }
           // Before the mutation classification: a rejected credential means
           // Google refused the call outright, so nothing was written and the
@@ -527,6 +589,7 @@ export async function googleRequest<T>(
         }
         googleRequestDuration.record(performance.now() - startedAt, attributes)
         googleRequestCount.add(1, attributes)
+        countGoogleCall(providerHost)
         span.setAttributes({
           ...attributes,
           "nabapresence.google.attempts": attempts,

@@ -21,8 +21,10 @@ import { POST as syncKeywords } from "@/app/api/sync/keywords/route"
 import { POST as syncPerformance } from "@/app/api/sync/performance/route"
 import { POST as syncReconcile } from "@/app/api/sync/reconcile/route"
 import { POST as syncSweep } from "@/app/api/sync/sweep/route"
+import { GET as discoverAccounts } from "@/app/api/google/accounts/route"
+import { GET as discoverLocations } from "@/app/api/google/locations/route"
 import { POST as impersonate } from "@/app/api/support/impersonation/route"
-import { GET as confirmEmail } from "@/app/auth/confirm/route"
+import { POST as confirmEmail } from "@/app/auth/confirm/route"
 import { abuseLimitedError, takeAbuseBudget } from "@/lib/server/abuse-limits"
 import { getDatabase } from "@/lib/server/db"
 import { verifyEmailToken } from "@/lib/server/password-auth"
@@ -79,6 +81,10 @@ function post(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   })
+}
+
+function get(path: string) {
+  return new Request(`http://localhost${path}`)
 }
 
 function call(handler: RouteHandler, req: Request, params: RawParams = {}) {
@@ -273,6 +279,20 @@ describe.each([
     code: "asset_rate_limited",
     keys: { user: session.userId, organisation: session.organisationId },
   },
+  {
+    name: "Google account discovery",
+    send: () => call(discoverAccounts, get("/x")),
+    scope: "google_discovery",
+    code: "discovery_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "Google location discovery",
+    send: () => call(discoverLocations, get("/x?account_name=accounts/1")),
+    scope: "google_discovery",
+    code: "discovery_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
 ])("$name", ({ send, scope, keys, code = "auth_rate_limited" }) => {
   it(`counts against ${scope} and answers 429 when refused`, async () => {
     const response = await send()
@@ -315,12 +335,13 @@ describe("support impersonation", () => {
   })
 })
 
-describe("GET /auth/confirm", () => {
+describe("POST /auth/confirm", () => {
   it("is limited per IP before the token is verified", async () => {
     const response = await confirmEmail(
-      new Request(
-        `http://localhost/auth/confirm?token_hash=${"h".repeat(40)}&type=email`
-      )
+      new Request("http://localhost/auth/confirm", {
+        method: "POST",
+        body: new URLSearchParams({ token_hash: "h".repeat(40), type: "email" }),
+      })
     )
     expect(takeAbuseBudget).toHaveBeenCalledWith("confirm_email", { ip: IP })
     expect(verifyEmailToken).not.toHaveBeenCalled()

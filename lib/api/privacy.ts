@@ -5,6 +5,7 @@ import {
   type LegalHoldCreateInput,
 } from "@/lib/contracts/legal-holds"
 import {
+  privacyErasurePreviewResponseSchema,
   privacyExportResponseSchema,
   privacyRequestCreatedResponseSchema,
   privacyRequestResolutionResponseSchema,
@@ -19,6 +20,7 @@ import { apiFetch, type RequestOptions } from "./client"
 
 export type { LegalHold } from "@/lib/contracts/legal-holds"
 export type {
+  PrivacyErasurePreview,
   PrivacyExportResponse,
   PrivacyRequest,
   RetentionCycleSummary,
@@ -46,6 +48,14 @@ export function updatePrivacyRequest(input: UpdatePrivacyInput) {
     method: "PATCH",
     body: input,
     schema: privacyRequestResolutionResponseSchema,
+  })
+}
+
+/** What fulfilling a request would touch; owners only. */
+export function fetchPrivacyPreview(id: string, options?: RequestOptions) {
+  return apiFetch(`/api/privacy/requests/${encodeURIComponent(id)}/preview`, {
+    schema: privacyErasurePreviewResponseSchema,
+    ...options,
   })
 }
 

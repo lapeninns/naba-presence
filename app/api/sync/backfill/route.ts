@@ -7,6 +7,7 @@ import {
   backfillStartSchema,
 } from "@/lib/contracts/sync"
 import { writeAudit } from "@/lib/server/audit"
+import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
@@ -74,6 +75,7 @@ async function backfillProgress(
 }
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   query: (searchParams) => {
     const externalLocationId = searchParams.get("external_location_id")
@@ -90,6 +92,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"],
   // A person's sync now, counted with the /api/sync/* session runs (W3-07).
   limits: ({ session }) => ({
@@ -97,7 +100,14 @@ export const POST = route({
     user: session.userId,
     organisation: session.organisationId,
   }),
-  handler: async ({ request, session, requestId, clientRequestId, tenant }) => {
+  handler: async ({
+    request,
+    session,
+    requestId,
+    clientRequestId,
+    tenant,
+    deadline,
+  }) => {
     // SYNC_ENABLED is the hard override; the operator pause table
     // (lib/server/pause-controls.ts) pauses the same scope without a
     // redeploy. The backfill reads Google inline, so it gates here.
@@ -129,8 +139,21 @@ export const POST = route({
       })
       return locations
     })
+    // The locations run one after another inside this request, so they
+    // share its deadline (lib/server/deadline.ts). A page is only started
+    // while a whole Google call still fits before it; a location that cannot
+    // start is left as it was, named in `notStartedExternalLocationIds`, and
+    // the next backfill resumes it (and any location stopped between pages)
+    // from its checkpoint. Stopping here, rather than being killed, keeps the
+    // completion audit and settles every checkpoint this request opened.
+    const pageDeadline = deadline - getServerEnv().GOOGLE_TIMEOUT_MS
     const results: Array<{ externalLocationIds: string[] } & SyncOutcome> = []
+    const notStarted: string[] = []
     for (const location of locations) {
+      if (Date.now() >= pageDeadline) {
+        notStarted.push(location.externalLocationId)
+        continue
+      }
       results.push({
         externalLocationIds: [location.externalLocationId],
         ...(await syncLinkedLocation({
@@ -139,6 +162,7 @@ export const POST = route({
           type: "backfill",
           maxPages: input.maxPagesPerLocation,
           requestId,
+          deadline: pageDeadline,
         })),
       })
     }
@@ -154,11 +178,13 @@ export const POST = route({
         requestId: `${correlationId}:finished`,
         metadata: {
           locations: results,
+          notStartedExternalLocationIds: notStarted,
           clientRequestId,
         },
       })
       return {
         batches: results,
+        notStartedExternalLocationIds: notStarted,
         progress: await backfillProgress(sql),
       }
     })
@@ -166,6 +192,7 @@ export const POST = route({
 })
 
 export const DELETE = route({
+  maxDuration,
   entitlement: "exempt",
   roles: ["owner", "admin"],
   body: backfillCancelSchema,

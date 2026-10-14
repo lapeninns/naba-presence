@@ -19,8 +19,9 @@ import {
   ORGANISATION_NAME_MAX,
   organisationRenameSchema,
 } from "@/lib/contracts/session"
-import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
+import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { describeActionError } from "@/lib/errors/action-errors"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 import { queryKeys } from "@/lib/queries/keys"
 import { useSession } from "@/lib/queries/use-session"
 import { workspaceTerms, type WorkspaceTerms } from "@/lib/workspace/terms"
@@ -76,7 +77,13 @@ export function AgencyNameForm() {
 
   const value = draft ?? saved
   const dirty = draft !== null && draft.trim() !== saved
-  const leave = useLeaveGuard({ when: isOwner && dirty })
+  // A reload or closed tab warns and an in-app link or the back button asks
+  // first. Nothing offers a name back later, so it is not stashed.
+  const draftKey = useDraftKey({ resource: "agency-name", schemaVersion: 1 })
+  const unsaved = useUnsavedChanges({
+    scope: draftKey,
+    isDirty: isOwner && dirty,
+  })
 
   const rename = useMutation({
     mutationFn: (name: string) => renameOrganisation(name),
@@ -151,7 +158,7 @@ export function AgencyNameForm() {
         </div>
       ) : null}
       <DiscardDialog
-        {...leave}
+        {...unsaved.leavePrompt}
         title="Leave without saving the name?"
         confirmLabel="Leave and discard"
         announce={false}

@@ -15,8 +15,10 @@
 //   the base, migrate from scratch + no-op + runtime role + db:status,
 //   upgrade from the merge base (schema diff), concurrent migrate, integration,
 //   e2e (port 3100 when free), pnpm audit --prod --audit-level high, and
-//   gitleaks over HEAD's full history when gitleaks is installed (skipped with a
-//   note otherwise).
+//   gitleaks over HEAD's full history (required: without gitleaks installed
+//   the step is skipped with a note and the gate fails). The integration and
+//   e2e steps pass only when their output shows tests ran
+//   (local-receipt.mjs `testCountProblem`).
 //
 // It writes a receipt (scripts/release/local-receipt.mjs) to
 // docs/release/receipts/local/ in the invoking checkout (gitignored), with
@@ -636,7 +638,7 @@ async function main() {
       if (!toolVersion("gitleaks", ["version"], env)) {
         return {
           skipped: true,
-          note: "gitleaks is not installed (brew install gitleaks); not scanned",
+          note: "gitleaks is not installed (brew install gitleaks); not scanned, so the gate fails",
         }
       }
       // .gitleaksignore at the repository root lists historical findings.

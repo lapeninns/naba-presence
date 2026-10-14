@@ -37,7 +37,7 @@ import {
   requireUnchangedTwoPersonPolicy,
   secondApproverSatisfied,
 } from "@/lib/server/authz/approval-policy"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { isBulkReviewOperation } from "@/lib/domain/bulk-reviews"
 import { authorisationAssurance } from "@/lib/server/mfa"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
@@ -399,29 +399,33 @@ async function project(
   const counts: Record<string, number> = {}
   for (const child of children)
     counts[child.status as string] = (counts[child.status as string] ?? 0) + 1
-  return bulkOperationSchema.parse({
-    ...operation,
-    approvalExpiresAt: (operation.approvalExpiresAt as Date).toISOString(),
-    previewExpiresAt: (operation.previewExpiresAt as Date).toISOString(),
-    dispatchExpiresAt:
-      (operation.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
-    createdAt: (operation.createdAt as Date).toISOString(),
-    finishedAt: (operation.finishedAt as Date | null)?.toISOString() ?? null,
-    serverTime: (operation.serverTime as Date).toISOString(),
-    canApprove:
-      isManagerialRole(session.role) &&
-      operation.status === "previewed" &&
-      secondApproverSatisfied(
-        operation.requiresSecondApprover,
-        operation.requestedBy,
-        session.userId
-      ),
-    counts,
-    children: children.map((child) => ({
-      ...child,
-      finishedAt: (child.finishedAt as Date | null)?.toISOString() ?? null,
-    })),
-  })
+  return parseStored(
+    bulkOperationSchema,
+    {
+      ...operation,
+      approvalExpiresAt: (operation.approvalExpiresAt as Date).toISOString(),
+      previewExpiresAt: (operation.previewExpiresAt as Date).toISOString(),
+      dispatchExpiresAt:
+        (operation.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
+      createdAt: (operation.createdAt as Date).toISOString(),
+      finishedAt: (operation.finishedAt as Date | null)?.toISOString() ?? null,
+      serverTime: (operation.serverTime as Date).toISOString(),
+      canApprove:
+        isManagerialRole(session.role) &&
+        operation.status === "previewed" &&
+        secondApproverSatisfied(
+          operation.requiresSecondApprover,
+          operation.requestedBy,
+          session.userId
+        ),
+      counts,
+      children: children.map((child) => ({
+        ...child,
+        finishedAt: (child.finishedAt as Date | null)?.toISOString() ?? null,
+      })),
+    },
+    "bulk_listing_operation"
+  )
 }
 
 async function loadForUpdate(sql: TransactionSql, operationId: string) {
@@ -491,25 +495,29 @@ export async function listBulkOperations(session: Session) {
       from bulk_listing_operation o
       where ${isManagerialRole(session.role) ? sql`true` : sql`o.requested_by = ${session.userId}`}
       order by o.created_at desc limit 50`
-    return bulkOperationListSchema.parse({
-      operations: rows.map((row) => ({
-        ...row,
-        approvalExpiresAt: (row.approvalExpiresAt as Date).toISOString(),
-        previewExpiresAt: (row.previewExpiresAt as Date).toISOString(),
-        dispatchExpiresAt:
-          (row.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
-        createdAt: (row.createdAt as Date).toISOString(),
-        finishedAt: (row.finishedAt as Date | null)?.toISOString() ?? null,
-        canApprove:
-          isManagerialRole(session.role) &&
-          row.status === "previewed" &&
-          secondApproverSatisfied(
-            row.requiresSecondApprover,
-            row.requestedBy,
-            session.userId
-          ),
-      })),
-    })
+    return parseStored(
+      bulkOperationListSchema,
+      {
+        operations: rows.map((row) => ({
+          ...row,
+          approvalExpiresAt: (row.approvalExpiresAt as Date).toISOString(),
+          previewExpiresAt: (row.previewExpiresAt as Date).toISOString(),
+          dispatchExpiresAt:
+            (row.dispatchExpiresAt as Date | null)?.toISOString() ?? null,
+          createdAt: (row.createdAt as Date).toISOString(),
+          finishedAt: (row.finishedAt as Date | null)?.toISOString() ?? null,
+          canApprove:
+            isManagerialRole(session.role) &&
+            row.status === "previewed" &&
+            secondApproverSatisfied(
+              row.requiresSecondApprover,
+              row.requestedBy,
+              session.userId
+            ),
+        })),
+      },
+      "bulk_listing_operation.list"
+    )
   })
 }
 

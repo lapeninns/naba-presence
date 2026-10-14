@@ -1041,6 +1041,60 @@ describeDatabase("Local Posts CRUD", () => {
     expect(row.status).toBe("deleted")
   })
 
+  it("answers a retried delete that already landed as deleted, sending nothing twice", async () => {
+    const { owner, linked, postName } = await linkedTenant()
+    const name = postName("delete-retry")
+    google.respond(
+      { method: "DELETE", pathIncludes: "/localPosts/delete-retry" },
+      () => ({ status: 200, json: {} })
+    )
+    const postId = await createDraft(owner.cookie, linked.locationId, "Retry")
+    await admin`
+      update gbp_local_post
+      set status = 'published', google_post_name = ${name}
+      where id = ${postId}
+    `
+    const target = `${server.baseUrl}/api/locations/${linked.locationId}/posts/${postId}`
+    const intent = randomUUID()
+    const remove = (headers: Record<string, string> = {}) =>
+      fetch(target, {
+        method: "DELETE",
+        headers: { cookie: owner.cookie, ...headers },
+      })
+    const first = await remove({ "Idempotency-Key": intent })
+    expect(first.status, await first.clone().text()).toBe(200)
+    // The answer was lost: the same intent again is the same success.
+    const retried = await remove({ "Idempotency-Key": intent })
+    expect(retried.status, await retried.clone().text()).toBe(200)
+    expect(await retried.json()).toEqual({ status: "deleted" })
+    // A delete of a post that is already gone is done, not missing.
+    const plain = await remove()
+    expect(plain.status, await plain.clone().text()).toBe(200)
+    expect(await plain.json()).toEqual({ status: "deleted" })
+
+    expect(google.calls.filter((call) => call.method === "DELETE")).toHaveLength(1)
+    const attempts = await admin`
+      select 1 from gbp_local_post_attempt where post_id = ${postId}
+    `
+    expect(attempts).toHaveLength(1)
+    const audits = await admin`
+      select 1 from audit_log where subject_id = ${postId} and action = 'post.deleted'
+    `
+    expect(audits).toHaveLength(1)
+
+    // A draft (never on Google) deleted twice is deleted too.
+    const draftId = await createDraft(owner.cookie, linked.locationId, "Draft")
+    const draftTarget = `${server.baseUrl}/api/locations/${linked.locationId}/posts/${draftId}`
+    const draftIntent = randomUUID()
+    for (let i = 0; i < 2; i += 1) {
+      const response = await fetch(draftTarget, {
+        method: "DELETE",
+        headers: { cookie: owner.cookie, "Idempotency-Key": draftIntent },
+      })
+      expect(response.status, await response.clone().text()).toBe(200)
+    }
+  })
+
   // A killed instance leaves the row at 'publishing'. Without the lease the
   // `status <> 'publishing'` claim would make that post unpublishable for
   // good, so the reaper and the claim have to work together.

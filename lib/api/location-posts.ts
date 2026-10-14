@@ -73,18 +73,25 @@ export function decidePostApproval(
   postId: string,
   decision: PostApprovalDecision["decision"],
   /** The post's `contentRevision` as the approver saw it. */
-  expectedRevision: number | undefined
+  expectedRevision: number | undefined,
+  options: MutationOptions = {}
 ): Promise<PostApprovalOutcome> {
   return apiFetch(`/api/locations/${id}/posts/${postId}/approval`, {
     method: "POST",
     body: { decision, expectedRevision } satisfies PostApprovalDecision,
     schema: postApprovalOutcomeSchema,
+    intentId: options.intentId,
   })
 }
 
-export function deletePost(id: string, postId: string) {
+export function deletePost(
+  id: string,
+  postId: string,
+  options: MutationOptions = {}
+) {
   return apiFetch(`/api/locations/${id}/posts/${postId}`, {
     method: "DELETE",
     schema: postDeleteOutcomeSchema,
+    intentId: options.intentId,
   })
 }
