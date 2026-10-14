@@ -8,6 +8,7 @@ import { Alert, AlertActions, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Fieldset, FieldsetLegend } from "@/components/ui/fieldset"
 import { Input } from "@/components/ui/input"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { Field, FieldLabel } from "@/components/ui/field"
 import {
   Select,
@@ -18,7 +19,7 @@ import {
 } from "@/components/ui/select"
 import { DraftNotices } from "@/components/editors/draft-notices"
 import { ServiceApprovalSheet } from "./service-approval-sheet"
-import { HandoffNote, InlineError, RowList } from "./setting-rows"
+import { HandoffNote, InlineError } from "./setting-rows"
 import { useServiceReview } from "./use-service-review"
 import { useServiceWorkspace } from "./service-workspace"
 import { useEditorDraft } from "@/lib/editors/use-editor-draft"
@@ -218,16 +219,19 @@ function ServiceEditor({
           <p className="text-ui text-ink-muted">No services added.</p>
         ) : null}
         {draft.draft.length > 0 ? (
-        <RowList>
+        <ListRows>
         {draft.draft.map((row, index) => (
-          <li
+          <ListRow
             key={index}
-            className="flex min-w-0 flex-col gap-3 py-4"
-          >
-            <div className="flex min-h-(--np-control-h) items-center justify-between gap-3">
-              <h4 className="min-w-0 text-body font-semibold break-words text-ink">
-                {label(row.item) || `Service ${index + 1}`}
-              </h4>
+            interactive={false}
+            flush
+            wrap
+            emphasis="neutral"
+            titleAs="h4"
+            title={label(row.item) || `Service ${index + 1}`}
+            // The row's own control, on the title line where it always was
+            // (before the fields in reading and tab order).
+            meta={
               <Button
                 variant="ghost"
                 size="sm"
@@ -240,7 +244,10 @@ function ServiceEditor({
               >
                 Remove
               </Button>
-            </div>
+            }
+            footerLayout="stack"
+            footer={
+            <div className="flex min-w-0 flex-col gap-3">
             {"freeFormServiceItem" in row.item ? (
               <Field>
                 <FieldLabel htmlFor={`service-${index}-name`}>
@@ -377,9 +384,11 @@ function ServiceEditor({
             >
               Clear price
             </Button>
-          </li>
+            </div>
+            }
+          />
         ))}
-        </RowList>
+        </ListRows>
         ) : null}
         <Field>
           <FieldLabel htmlFor="add-structured-service">
