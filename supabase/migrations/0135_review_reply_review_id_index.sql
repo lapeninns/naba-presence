@@ -16,4 +16,4 @@ drop index concurrently if exists review_reply_review_id_idx;
 create index concurrently review_reply_review_id_idx
   on review_reply (review_id);
 
-insert into schema_migration(version) values ('0136_review_reply_review_id_index') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0135_review_reply_review_id_index') on conflict (version) do nothing;

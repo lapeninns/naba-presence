@@ -10,8 +10,8 @@ import { destroyTenants } from "./helpers/tenant"
 
 // W4-04 / W4-08 (docs/audits/2026-10-14-full-stack-audit): the review
 // timeline and the posts list read audit_log by subject through
-// audit_log_subject_idx (0134), and a review delete's cascades reach draft
-// and review_reply through review_id and pending_draft_id indexes (0135-0138)
+// audit_log_subject_idx (0133), and a review delete's cascades reach draft
+// and review_reply through review_id and pending_draft_id indexes (0134-0137)
 // rather than scanning either table.
 
 const run = process.env.RUN_DB_TESTS === "true"
@@ -498,7 +498,7 @@ describeDatabase("audit_log subject and review cascade indexes", () => {
       { relname: "draft", seqScan: 0 },
       { relname: "review_reply", seqScan: 0 },
     ])
-    // The control: the same delete without 0135-0137 scans both tables.
+    // The control: the same delete without 0134-0136 scans both tables.
     const control = await deleteScans(true)
     expect(
       control.every((row) => row.seqScan > 0),

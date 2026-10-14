@@ -18,4 +18,4 @@ create index concurrently audit_log_subject_idx
   on audit_log (organisation_id, subject_type, subject_id, created_at desc)
   include (action);
 
-insert into schema_migration(version) values ('0134_audit_log_subject_index') on conflict (version) do nothing;
+insert into schema_migration(version) values ('0133_audit_log_subject_index') on conflict (version) do nothing;

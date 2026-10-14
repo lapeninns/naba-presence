@@ -95,11 +95,11 @@ describe("database migration contract", () => {
     // A new `-- migrate:no-transaction` file must be added here on purpose:
     // db:migrate cannot roll it back if it fails half-way.
     expect(noTransaction).toEqual([
-      "0134_audit_log_subject_index.sql",
-      "0135_draft_review_id_index.sql",
-      "0136_review_reply_review_id_index.sql",
-      "0137_review_reply_pending_draft_index.sql",
-      "0138_approval_decision_review_id_index.sql",
+      "0133_audit_log_subject_index.sql",
+      "0134_draft_review_id_index.sql",
+      "0135_review_reply_review_id_index.sql",
+      "0136_review_reply_pending_draft_index.sql",
+      "0137_approval_decision_review_id_index.sql",
       "0157_publish_attempt_draft_id_index.sql",
       "0158_approval_decision_draft_id_index.sql",
       "0159_publish_attempt_event_attempt_index.sql",

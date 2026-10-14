@@ -6,9 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 const replace = vi.fn()
 let search = ""
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace }),
   usePathname: () => "/listings",
   useSearchParams: () => new URLSearchParams(search),
+}))
+vi.mock("@/lib/navigation/shallow-url", () => ({
+  replaceUrl: (href: string) => replace(href),
 }))
 vi.mock("next/link", () => ({
   default: ({
