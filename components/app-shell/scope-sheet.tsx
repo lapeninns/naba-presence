@@ -64,6 +64,12 @@ function ScopeSheet({
 }
 
 type SheetProps = { open: boolean; onOpenChange: (open: boolean) => void }
+type SheetOpenChange = NonNullable<
+  React.ComponentProps<typeof Sheet>["onOpenChange"]
+>
+
+/** Dismissals that mean "go back" while a pushed view is showing. */
+const BACK_REASONS = new Set<string>(["escape-key", "close-watcher"])
 
 /**
  * The filter starts empty every time the sheet opens (and every time the
@@ -143,10 +149,21 @@ function AgencyScopeSheet({ open, onOpenChange }: SheetProps) {
     )
   }
 
+  // Escape (or the Android back gesture) in the pushed client view goes back
+  // one level, like its "‹ Back"; at the top level it closes the sheet.
+  const handleOpenChange: SheetOpenChange = (next, details) => {
+    if (!next && pushed && BACK_REASONS.has(details.reason)) {
+      details.cancel()
+      back()
+      return
+    }
+    onOpenChange(next)
+  }
+
   const needle = query.trim().toLowerCase()
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={handleOpenChange}>
       <SheetContent variant="inset">
         <SheetHeader
           page={pushed ? `client:${pushed.id}` : "clients"}

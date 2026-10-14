@@ -131,6 +131,23 @@ describe("ClientSwitcher", () => {
     expect(options[2]).toHaveAccessibleName("Harbour Kitchen, Action needed")
   })
 
+  it("puts the tick at the end of each row, Notion Mail's switcher look", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    renderSwitcher()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Client: All clients" })
+    )
+    const options = await screen.findAllByRole("menuitemradio")
+    for (const option of options) {
+      expect(option).toHaveAttribute("data-indicator-position", "end")
+      // The check column is the row's last child, after the name.
+      expect(option.lastElementChild).toHaveAttribute(
+        "data-slot",
+        "dropdown-menu-check"
+      )
+    }
+  })
+
   it("names the client in scope, with its health as the description", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c2&queue=failed"

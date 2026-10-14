@@ -387,7 +387,12 @@ describe("NotificationsView rows and empty states", () => {
     expect(headings).toHaveLength(1)
     expect(headings[0]).toHaveTextContent("Notifications")
     const count = document.querySelector('[data-slot="view-header-count"]')
-    expect(count).toHaveTextContent("3(open and unread)")
+    // Seen: the figure. Heard: the number with its words (R2b P1-S2), never
+    // the words alone.
+    expect(count?.querySelector("[aria-hidden]")).toHaveTextContent(/^3$/)
+    expect(count?.querySelector(".sr-only")).toHaveTextContent(
+      /\b3 open and unread\b/
+    )
     expect(
       screen.getByRole("link", { name: "Notification settings" })
     ).toHaveAttribute("href", "/settings/notifications")
@@ -491,23 +496,47 @@ describe("NotificationPreferences", () => {
 
   it("turns every in-app choice on in one request from the group action", async () => {
     const preferences = [
-      { kind: "publication_failed", channel: "in_app", mode: "off", explicit: true },
-      { kind: "publication_failed", channel: "email", mode: "off", explicit: false },
-      { kind: "schedule_missed", channel: "in_app", mode: "immediate", explicit: false },
-      { kind: "schedule_missed", channel: "email", mode: "off", explicit: false },
+      {
+        kind: "publication_failed",
+        channel: "in_app",
+        mode: "off",
+        explicit: true,
+      },
+      {
+        kind: "publication_failed",
+        channel: "email",
+        mode: "off",
+        explicit: false,
+      },
+      {
+        kind: "schedule_missed",
+        channel: "in_app",
+        mode: "immediate",
+        explicit: false,
+      },
+      {
+        kind: "schedule_missed",
+        channel: "email",
+        mode: "off",
+        explicit: false,
+      },
     ]
     const calls = stub((call) =>
       call.method === "PUT"
         ? {
             emailConfigured: true,
             preferences: preferences.map((row) =>
-              row.channel === "in_app" ? { ...row, mode: "immediate", explicit: true } : row
+              row.channel === "in_app"
+                ? { ...row, mode: "immediate", explicit: true }
+                : row
             ),
           }
         : { emailConfigured: true, preferences }
     )
     renderWith(<NotificationPreferences />)
-    fireEvent.click(await screen.findByRole("button", { name: "Turn all on in app" }))
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Turn all on in app" })
+    )
     await waitFor(() =>
       expect(calls.find((call) => call.method === "PUT")?.body).toEqual({
         changes: [
@@ -516,6 +545,8 @@ describe("NotificationPreferences", () => {
         ],
       })
     )
-    expect(await screen.findByRole("button", { name: "Turn all off in app" })).toBeInTheDocument()
+    expect(
+      await screen.findByRole("button", { name: "Turn all off in app" })
+    ).toBeInTheDocument()
   })
 })

@@ -476,6 +476,50 @@ describe("AppBar trailing slot", () => {
     expect(items[0]).toHaveAccessibleName("Notifications")
   })
 
+  it("holds the slot blank, never the bell, while the clients load", () => {
+    vi.spyOn(clientsHook, "useClients").mockImplementation(
+      () =>
+        ({ data: undefined, isPending: true }) as unknown as ReturnType<
+          typeof clientsHook.useClients
+        >
+    )
+    const { bar, within: inBar } = renderBar()
+    // The bell would be swapped for the scope chip a moment later.
+    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
+    expect(inBar.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    const pending = bar.querySelector('[data-slot="app-bar-scope-pending"]')
+    expect(pending).toHaveAttribute("aria-hidden", "true")
+    expect(pending).toHaveClass("size-11")
+    expect(controls(bar)).toHaveLength(1)
+  })
+
+  it("holds the slot blank while a business's locations load", () => {
+    vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+    const { bar, within: inBar } = renderBar({ mode: "business" })
+    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
+    expect(
+      bar.querySelector('[data-slot="app-bar-scope-pending"]')
+    ).not.toBeNull()
+  })
+
+  it("holds nothing on the Inbox while loading: its bell is already there", () => {
+    pathname.current = "/inbox"
+    vi.spyOn(clientsHook, "useClients").mockImplementation(
+      () =>
+        ({ data: undefined, isPending: true }) as unknown as ReturnType<
+          typeof clientsHook.useClients
+        >
+    )
+    const { bar } = renderBar()
+    expect(bar.querySelector('[data-slot="app-bar-scope-pending"]')).toBeNull()
+    const items = controls(bar)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toHaveAccessibleName("Notifications")
+  })
+
   it("never says Client to a business, on any page", () => {
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     for (const path of ["/listings", "/inbox", "/listings/l1"]) {
