@@ -33,6 +33,8 @@ import {
   applyDeletedReply,
   applyFailedReply,
   applyPublishedReply,
+  lockReview,
+  lockReviewForAttempt,
   setReviewWorkflow,
 } from "./settle"
 import type { PublishAttemptOperation, RetryResult } from "./types"
@@ -224,6 +226,7 @@ async function claimRetry(
   organisationId: string,
   attemptId: string
 ): Promise<RetryClaim> {
+  await lockReviewForAttempt(sql, attemptId)
   const precheck = await precheckRetry(sql, attemptId)
   if (!precheck) return { kind: "settled", result: "skipped" }
 
@@ -387,6 +390,7 @@ export async function retryPublishAttempt(
   const call = await replayAtGoogle(organisationId, context)
 
   return withTenant<RetryResult>(organisationId, async (sql) => {
+    await lockReview(sql, context.reviewId)
     if (call.response !== undefined) {
       await settleRetrySuccess(sql, organisationId, context, call.response)
       return "succeeded"

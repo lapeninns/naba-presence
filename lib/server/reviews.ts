@@ -274,7 +274,8 @@ export async function upsertGoogleReview(
   // Taken before the upsert so the guards below are evaluated after any
   // publish intent or settle holding the review has committed: a statement
   // that waits for a row lock still reads its other tables as of the moment
-  // it started.
+  // it started. Review first, then its reply: the order every publishing
+  // transaction follows too (lockReview, lib/server/publishing/settle.ts).
   let mediaUnchanged = false
   let replyUnchanged = false
   if (stored) {

@@ -15,6 +15,41 @@ import type { ReviewWorkflowState } from "@/lib/domain/workflow"
 
 import type { GoogleReviewReply } from "./provider"
 
+/**
+ * The lock order for a review's reply state, shared with review sync
+ * (`upsertGoogleReview`, lib/server/reviews.ts): the `review` row first, then
+ * its `review_reply`, then `publish_attempt` rows. Sync locks the review and
+ * then upserts the reply. A settle that wrote the reply and the attempt first
+ * and the review workflow last held the other half of that pair, and one of
+ * the two transactions died with a deadlock (40P01).
+ *
+ * So every transaction that writes a reply, an attempt or the workflow of a
+ * review calls this before its first write. `for no key update` is the lock
+ * the workflow update takes anyway, so this only takes it earlier. It
+ * conflicts with sync's `for update` and still lets inserts that reference
+ * the review (drafts, approval decisions) check their foreign key.
+ */
+export async function lockReview(sql: TransactionSql, reviewId: string) {
+  await sql`
+    select 1 from review where id = ${reviewId} for no key update
+  `
+}
+
+/** `lockReview` for a transaction that starts from an attempt id. */
+export async function lockReviewForAttempt(
+  sql: TransactionSql,
+  attemptId: string
+) {
+  await sql`
+    select 1
+    from review r
+    join review_reply rr on rr.review_id = r.id
+    join publish_attempt pa on pa.review_reply_id = rr.id
+    where pa.id = ${attemptId}
+    for no key update of r
+  `
+}
+
 export type PublishedReply = {
   /** Google moderation state, `PENDING` when Google returned none. */
   googleState: string

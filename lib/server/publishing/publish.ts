@@ -30,6 +30,7 @@ import { recoverForRequest } from "./recover"
 import {
   applyFailedReply,
   applyPublishedReply,
+  lockReview,
   setReviewWorkflow,
 } from "./settle"
 import type { PublishInput, PublishOutcome } from "./types"
@@ -168,9 +169,10 @@ export async function executePublish(
 
   const call = await publishReplyToGoogle(phaseOne.target, phaseOne.body)
 
-  return withTenant(input.organisationId, (sql) =>
-    call.response !== undefined
+  return withTenant(input.organisationId, async (sql) => {
+    await lockReview(sql, input.reviewId)
+    return call.response !== undefined
       ? settlePublishSuccess(sql, input, phaseOne, call.response)
       : settlePublishFailure(sql, input, phaseOne, call.error)
-  )
+  })
 }

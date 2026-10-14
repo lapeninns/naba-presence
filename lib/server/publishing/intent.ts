@@ -32,7 +32,7 @@ import {
   type ExistingAttempt,
 } from "./attempt"
 import { replyTarget, type ReplyTarget } from "./provider"
-import { setReviewWorkflow } from "./settle"
+import { lockReview, setReviewWorkflow } from "./settle"
 import type { PublishInput, PublishOutcome } from "./types"
 
 /** The review + draft + organisation + reply join a publish is decided on. */
@@ -391,6 +391,7 @@ export async function preparePublish(
   input: PublishInput
 ): Promise<PublishPhaseOne> {
   return withTenant<PublishPhaseOne>(input.organisationId, async (sql) => {
+    await lockReview(sql, input.reviewId)
     const record = await loadPublishRecord(sql, input)
     await requireLocationAccess(sql, input.session, record.location_id)
     assertDraftPublishable(record, input.expectedReviewUpdateTime)

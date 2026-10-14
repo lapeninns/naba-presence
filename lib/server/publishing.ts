@@ -67,6 +67,7 @@ export {
   recoverForRequest,
 } from "@/lib/server/publishing/recover"
 export { retryPublishAttempt } from "@/lib/server/publishing/retry"
+export { lockReview } from "@/lib/server/publishing/settle"
 export type {
   PublishAttemptEventType,
   PublishAttemptOperation,

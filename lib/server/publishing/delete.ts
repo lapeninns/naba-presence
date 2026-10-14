@@ -43,7 +43,7 @@ import {
 } from "./provider"
 import { REPLY_PUBLISHING_PAUSED } from "./publish"
 import { recoverForRequest } from "./recover"
-import { applyDeletedReply, setReviewWorkflow } from "./settle"
+import { applyDeletedReply, lockReview, setReviewWorkflow } from "./settle"
 import type {
   PublishAttemptOperation,
   ReplyDeleteInput,
@@ -282,6 +282,7 @@ async function startDeleteIntent(
 /** The whole phase-one transaction. */
 async function prepareDelete(input: ReplyDeleteInput): Promise<DeletePhaseOne> {
   return withTenant<DeletePhaseOne>(input.organisationId, async (sql) => {
+    await lockReview(sql, input.reviewId)
     const record = await loadDeleteRecord(sql, input.reviewId)
     await requireLocationAccess(sql, input.session, record.location_id)
     if (!(await canPublishLocation(sql, input.session, record.location_id))) {
@@ -426,6 +427,7 @@ export async function executeReplyDelete(
   })
 
   const failure = await withTenant(input.organisationId, async (sql) => {
+    await lockReview(sql, input.reviewId)
     if (call.response !== undefined) {
       await settleDeleteSuccess(sql, input, phaseOne)
       return null
