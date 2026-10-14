@@ -1045,3 +1045,62 @@ describe("InboxView — a and g", () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 })
+
+// W5-02: the inbox read the shared 15 s clock to the millisecond, so the
+// whole view — toolbar, list, every row, the review — re-rendered four times
+// a minute. It only needs the hour (the age presets); the relative times in
+// the rows keep their own subscription.
+describe("InboxView — the clock", () => {
+  afterEach(() => vi.useRealTimers())
+
+  it("does not re-render the inbox on the clock's tick", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-14T10:00:10Z"))
+    renderInbox()
+    act(() => vi.advanceTimersByTime(1_000))
+    const renders = vi.mocked(reviewsHook.useReviews).mock.calls.length
+    act(() => vi.advanceTimersByTime(4 * 15_000))
+    expect(vi.mocked(reviewsHook.useReviews).mock.calls.length).toBe(renders)
+  })
+})
+
+// W2-01: the flattened rows and the load-more handler were rebuilt on every
+// render (the query result is a new object each time), so the list's
+// end-of-list observer was torn down and rebuilt with every render.
+describe("InboxView — list stability", () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("keeps the end-of-list observer across re-renders with the same rows", () => {
+    let observers = 0
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor() {
+          observers += 1
+        }
+        observe() {}
+        disconnect() {}
+      }
+    )
+    const data = { pages: [{ items: [row()], nextCursor: "next" }] }
+    const fetchNextPage = vi.fn()
+    // A fresh result object per render, as TanStack's tracked result is.
+    vi.mocked(reviewsHook.useReviews).mockImplementation(
+      () =>
+        ({
+          data,
+          isPending: false,
+          isError: false,
+          hasNextPage: true,
+          isFetchingNextPage: false,
+          fetchNextPage,
+        }) as unknown as ReturnType<typeof reviewsHook.useReviews>
+    )
+    const view = renderInbox()
+    const settled = observers
+    expect(settled).toBeGreaterThan(0)
+    view.rerender(inboxUi())
+    view.rerender(inboxUi())
+    expect(observers).toBe(settled)
+  })
+})

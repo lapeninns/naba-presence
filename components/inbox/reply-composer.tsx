@@ -136,39 +136,56 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   })
 
   // Seed the textbox once per review, then follow the server only while there
-  // is nothing of the operator's own to lose. A stashed draft from a forced
-  // sign-out wins over the server body. LLM is never called here — only on
-  // Generate.
-  const seededReviewRef = useRef<string | null>(null)
-  const seededBodyRef = useRef("")
-  // Text an Undo put back, which a newer draft must not replace.
-  const restoredBodyRef = useRef<string | null>(null)
+  // is nothing of the operator's own to lose. LLM is never called here —
+  // only on Generate.
+  //
+  // Seeded while rendering ("adjusting state when a prop changes"), not in
+  // an effect: an effect left one committed render with an empty box beside
+  // a review that has a reply, which read as unsaved edits. That commit
+  // armed the leave guard (one extra Back entry per review opened) and
+  // flickered Publish off.
+  const [seededFor, setSeededFor] = useState<string | null>(null)
+  // What the box was last filled with, from the server or a stash.
+  const [seedBase, setSeedBase] = useState("")
+  // Text an Undo or a stash put back, which a newer draft must not replace.
+  const [restoredBody, setRestoredBody] = useState<string | null>(null)
+  if (review && seededFor !== reviewId) {
+    setSeededFor(reviewId)
+    setSeedBase(seededBody)
+    setBody(seededBody)
+    setRestoredBody(null)
+    setMutationVerification(null)
+    setVerdictStale(false)
+    setToneChanged(false)
+  } else if (
+    // A newer draft for the review already on screen: someone else saved
+    // one, or an approval request re-parked a different reply. Leaving the
+    // old text in the box is how an approver reads one reply and approves
+    // another. Adopt it only when the box still holds what we last seeded.
+    review &&
+    seededBody !== seedBase &&
+    (body === seedBase || body === seededBody) &&
+    body !== restoredBody
+  ) {
+    setSeedBase(seededBody)
+    setBody(seededBody)
+  }
+  // A stashed draft from a forced sign-out wins over the server body. Taking
+  // it removes it from sessionStorage, so that happens after the commit, once
+  // per review; it is a real unsaved edit, so it is meant to read dirty.
+  const restoredFor = useRef<string | null>(null)
   useEffect(() => {
     if (!review) return
-    if (seededReviewRef.current !== reviewId) {
-      seededReviewRef.current = reviewId
+    if (restoredFor.current !== reviewId) {
+      restoredFor.current = reviewId
       const stashed = restore()
-      const next = stashed ?? seededBody
-      seededBodyRef.current = next
-      setBody(next)
-      setMutationVerification(null)
-      setVerdictStale(false)
-      setToneChanged(false)
-      return
+      // Unchanged state is a no-op, so no stash costs no render.
+      const adopt = stashed !== null && stashed !== seededBody
+      setSeedBase((current) => (adopt ? stashed : current))
+      setRestoredBody((current) => (adopt ? stashed : current))
+      setBody((current) => (adopt ? stashed : current))
     }
-    // A newer draft for the review already on screen: someone else saved one,
-    // or an approval request re-parked a different reply. Leaving the old
-    // text in the box is how an approver reads one reply and approves
-    // another. Adopt it only when the box still holds what we last seeded.
-    if (
-      seededBody !== seededBodyRef.current &&
-      (body === seededBodyRef.current || body === seededBody) &&
-      body !== restoredBodyRef.current
-    ) {
-      seededBodyRef.current = seededBody
-      setBody(seededBody)
-    }
-  }, [body, review, reviewId, restore, seededBody])
+  }, [review, reviewId, restore, seededBody])
 
   // `r` asks; this decides. The hotkey layer has no idea whether editing is
   // permitted for this review, and it must not: permission lives with the
@@ -297,7 +314,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
                   // Held against the adopt-a-newer-draft rule above: the
                   // refetch carrying the regenerated draft may land after
                   // this, and must not take the restored text back.
-                  restoredBodyRef.current = restorable
+                  setRestoredBody(restorable)
                   setBody(restorable)
                   setVerdictStale(true)
                 },

@@ -13,12 +13,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   DirtyGuardProvider,
   useComposerSave,
+  useIsDirty,
   type ComposerSaveResult,
 } from "@/components/inbox/dirty-context"
 import { ReplyComposer } from "@/components/inbox/reply-composer"
 import { Toaster } from "@/components/ui/toast"
 import type { ReviewDetail } from "@/lib/api/reviews"
-import { __resetDraftSources } from "@/lib/api/draft-stash"
+import { __resetDraftSources, stashDraft } from "@/lib/api/draft-stash"
+import { draftKey } from "@/lib/editors/draft-key"
+import { __resetLeaveGuardForTests } from "@/lib/editors/use-leave-guard"
 import {
   PRIMARY_ACTION_EVENT,
   REPLY_FOCUS_EVENT,
@@ -204,6 +207,87 @@ function mount(
 }
 
 const textbox = () => screen.getByRole("textbox", { name: "Your reply" })
+
+// Every value of the inbox's dirty flag that reached the screen, in order.
+let dirtySeen: boolean[] = []
+function DirtyProbe() {
+  dirtySeen.push(useIsDirty())
+  return null
+}
+
+describe("ReplyComposer — opening a review", () => {
+  beforeEach(() => {
+    dirtySeen = []
+    __resetLeaveGuardForTests()
+    window.history.replaceState(null, "", "/inbox?selected=rev-1")
+  })
+  afterEach(() => __resetLeaveGuardForTests())
+
+  function mountProbed(data: () => ReviewDetail | undefined) {
+    vi.spyOn(creditsHook, "useAiCredits").mockReturnValue({
+      data: undefined,
+    } as UseQueryResult<AiCredits>)
+    vi.spyOn(detailHook, "useReviewDetail").mockImplementation(
+      () => ({ data: data() }) as UseQueryResult<ReviewDetail>
+    )
+    vi.spyOn(draftMutations, "useGenerateOrSaveDraft").mockReturnValue(
+      mockMutation()
+    )
+    const tree = () => (
+      <Host>
+        <ReplyComposer reviewId="rev-1" />
+        <DirtyProbe />
+        <SaveProbe />
+      </Host>
+    )
+    const view = render(tree())
+    return { rerender: () => view.rerender(tree()) }
+  }
+
+  // W2-02: the box used to be filled by an effect, so the first commit held
+  // an empty box beside a review with a reply — dirty. The leave guard armed
+  // on it and pushed a history entry for every review opened, and Publish
+  // flickered off.
+  it("never reads dirty, nor adds a history entry, when the draft is already loaded", () => {
+    const length = window.history.length
+    mountProbed(() => reviewWith(EXISTING))
+    expect(textbox()).toHaveValue("Existing draft body")
+    expect(dirtySeen).not.toContain(true)
+    expect(window.history.length).toBe(length)
+    // A clean, checked draft offers Publish no save of its own.
+    expect(
+      screen.queryByRole("button", { name: "Probe save" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("never reads dirty when the review arrives after the composer mounts", () => {
+    const length = window.history.length
+    const detail: { data?: ReviewDetail } = {}
+    const view = mountProbed(() => detail.data)
+    detail.data = reviewWith(SETTLED)
+    view.rerender()
+    expect(textbox()).toHaveValue("Thanks for the kind words!")
+    expect(dirtySeen).not.toContain(true)
+    expect(window.history.length).toBe(length)
+  })
+
+  it("puts back a reply stashed by a forced sign-out, over the saved draft", async () => {
+    stashDraft(
+      draftKey({
+        userId: null,
+        organisationId: null,
+        resource: "inbox-reply",
+        resourceId: "rev-1",
+        schemaVersion: 1,
+      }),
+      "My unsent words"
+    )
+    mountProbed(() => reviewWith(EXISTING))
+    await waitFor(() => expect(textbox()).toHaveValue("My unsent words"))
+    // A real unsaved edit: the guard is meant to arm for it.
+    expect(dirtySeen.at(-1)).toBe(true)
+  })
+})
 
 describe("ReplyComposer — the editor", () => {
   it("opens as an empty editor with the tone and Generate, calling nothing on mount", () => {
