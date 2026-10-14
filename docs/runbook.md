@@ -547,11 +547,13 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   swept within 4 (`tests/integration/routes/fleet-scale.test.ts`, production
   runner defaults, 240/min shared budget).
 - The owner/admin session POST of `/api/sync/reconcile`, `/performance` and
-  `/keywords` still runs its own organisation inline, and the bearer POST
-  still walks pages for `scripts/scheduler.mjs` (local and non-Vercel
-  deployments). Only presence resources still resume a cursor on the Vercel
-  path (`cron_cursor`); a null cursor means the walk finished, and a cursor
-  three fires in a row could not finish is abandoned for the head.
+  `/keywords` still runs its own organisation inline. `scripts/scheduler.mjs`
+  (local and non-Vercel deployments) fires the same cron GETs as `vercel.json`
+  (`scripts/scheduler-ticks.mjs`), so it enqueues too; the bearer POST still
+  walks pages inline but nothing schedules it. Only presence resources still
+  resume a cursor (`cron_cursor`, on both topologies); a null cursor means the
+  walk finished, and a cursor three fires in a row could not finish is
+  abandoned for the head.
 - The daily sweep does not page. `/api/sync/sweep` (cron) calls
   `enqueue_sweep_checkpoints`, which arms a `sweep` checkpoint for every
   linked location in every organisation in one statement, under the
@@ -574,8 +576,8 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   checkpoints, and the pause is enforced when the jobs runner claims work, so
   checkpoints accumulate and drain after the pause. The per-tenant
   `performance.organisation_failed` / `keywords.organisation_failed` lines with
-  503 `sync_paused` appear only on the session and local-scheduler POST paths;
-  read them as the pause, not as an incident.
+  503 `sync_paused` appear only on the session (and manual bearer) POST
+  paths; read them as the pause, not as an incident.
 - Retention cycle. `/api/cron/retention` with no `cursor` is a dispatcher
   (`lib/server/retention/cycle.ts`). Each five-minute fire resumes the
   running cycle, or at or after 03:00 UTC opens the day's
@@ -638,7 +640,7 @@ DIRECT_DATABASE_URL=... pnpm ops:pause resume --scope publish \
   transaction, not in the round audits or the cycle counts.
 - Presence resources and retention are bounded by a per-page budget
   (`PRESENCE_RESOURCE_BUDGET_MS`, `RETENTION_BUDGET_MS`, 45000 by default), as
-  are the session and scheduler POST paths of reconcile, performance and
+  are the session and bearer POST paths of reconcile, performance and
   keywords (`RECONCILE_BUDGET_MS`, `PERFORMANCE_BUDGET_MS`,
   `KEYWORDS_BUDGET_MS`). Performance and keywords check the deadline between
   locations inside an organisation as well, so an owner's manual refresh

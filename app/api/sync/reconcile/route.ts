@@ -293,9 +293,11 @@ export const POST = route({
 // location in every organisation gets a reconcile checkpoint, and the job
 // runner claims the due ones every minute, fairly across organisations and
 // within its own budget, so no organisation waits on a cursor. An
-// owner/admin session reconciling its own organisation keeps using POST, and
-// so does the self-hosted scheduler (scripts/scheduler.mjs). The kill switch
-// is checked before parsing, preserving the POST order of 401, 503, then 400.
+// owner/admin session reconciling its own organisation keeps using POST. The
+// self-hosted scheduler (scripts/scheduler.mjs) fires this GET too, so both
+// topologies enqueue; the bearer POST's inline walk is not scheduled. The
+// kill switch is checked before parsing, preserving the POST order of 401,
+// 503, then 400.
 export const GET = route({
   auth: "cron",
   handler: async ({ query, requestId }) => {
