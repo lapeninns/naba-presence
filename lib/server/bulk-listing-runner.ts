@@ -19,12 +19,7 @@ import {
   receiptFor,
   type DispatchOutcome,
 } from "@/lib/server/bulk-families"
-import {
-  getDatabase,
-  jsonColumn,
-  withSessionConnection,
-  withTenant,
-} from "@/lib/server/db"
+import { getDatabase, jsonColumn, withTenant } from "@/lib/server/db"
 import { organisationWriteBlock } from "@/lib/server/entitlement-policy"
 import { getServerEnv } from "@/lib/server/env"
 import { resolveGbpLocationContext } from "@/lib/server/gbp-management"
@@ -33,6 +28,7 @@ import {
   requireNoUnresolvedAccountChange,
   withGoogleAccountChangeLock,
 } from "@/lib/server/google-account-change-lock"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { log } from "@/lib/server/logger"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
@@ -385,18 +381,19 @@ export async function processBulkChild(
   const withResourceLock = (
     work: () => Promise<Outcome | { failed: string }>
   ) =>
-    withSessionConnection((connection) =>
-      connection.begin(async (lock): Promise<Outcome | { failed: string }> => {
-        const [claim] = await lock<{ acquired: boolean }[]>`
-          select pg_try_advisory_xact_lock(hashtextextended(${`${organisationId}:${child.locationId}:${family.resourceKey}`}, 0)) as acquired`
-        if (!claim?.acquired) {
+    withGoogleWriteSession<Outcome | { failed: string }>(
+      {
+        surface: `bulk_${family.resourceKey}`,
+        keys: [`${organisationId}:${child.locationId}:${family.resourceKey}`],
+        mode: "try",
+        busy: async (): Promise<Outcome> => {
           await settle(organisationId, childId, "queued", {
             code: "resource_busy",
           })
           return "deferred"
-        }
-        return work()
-      })
+        },
+      },
+      work
     )
   let outcome: Outcome | { failed: string }
   try {

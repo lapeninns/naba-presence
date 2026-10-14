@@ -4,7 +4,8 @@ import { z } from "zod"
 import type { VerificationAttempt } from "@/lib/contracts/google-verification-attempt"
 import { gbpConfirmationStateSchema, gbpExecutionStateSchema } from "@/lib/contracts/gbp-management"
 import { verificationStateResponseSchema } from "@/lib/contracts/google-verification-state"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { approvedGbpChange, readGbpChangeSet } from "@/lib/server/gbp-change-sets"
 import { auditGbpMutation, settleGbpMutation, startGbpMutation } from "@/lib/server/gbp-management"
 import { googleVerificationApi, GoogleMutationAmbiguousError } from "@/lib/server/google"
@@ -87,11 +88,12 @@ export async function readVerificationAttempt(session: Session, locationId: stri
 }
 
 async function withVerificationLock<T>(session: Session, locationId: string, work: () => Promise<T>) {
-  return withSessionConnection((connection) => connection.begin(async (lock) => {
-    const [claim] = await lock<{ readonly acquired: boolean }[]>`select pg_try_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${locationId}:verification`}, 0)) as acquired`
-    if (!claim?.acquired) throw new ApiError(409, "verification_in_progress", "Another verification request is being checked or sent. Refresh its status.")
-    return work()
-  }))
+  return withGoogleWriteSession({
+    surface: "google_verification",
+    keys: [`${session.organisationId}:${locationId}:verification`],
+    mode: "try",
+    busy: () => { throw new ApiError(409, "verification_in_progress", "Another verification request is being checked or sent. Refresh its status.") },
+  }, work)
 }
 
 async function observeAttempt(session: Session, locationId: string, row: AttemptRow, requestId: string) {

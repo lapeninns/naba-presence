@@ -20,7 +20,8 @@ import type {
 } from "@/lib/contracts/location-business-information"
 import { additionalPhonesMatch, addressFieldMatches, assertBusinessInformationMask, assertCompletePhoneNumbers, googleAttributeSchema, openingDatesMatch } from "@/lib/domain/business-information"
 import { GOOGLE_LOCATION_FIELDS, locationFieldCapabilities, metadataEligibility } from "@/lib/domain/google-capabilities"
-import { getDatabase, withSessionConnection, withTenant } from "@/lib/server/db"
+import { getDatabase, withTenant } from "@/lib/server/db"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { approvedGbpChange, listGbpChangeSets, saveGbpChangeSet } from "./gbp-change-sets"
 import { gbpWritesEnabled, getServerEnv } from "@/lib/server/env"
 import {
@@ -200,8 +201,7 @@ export async function updateBusinessInformation(input: BusinessInformationWrite)
   // is read, so an unreviewed update never reaches the provider.
   if (!input.changeSetId) throw new ApiError(409, "approval_required", "Review and approve the exact profile change before publishing.")
   const changeSetId = input.changeSetId
-  return withSessionConnection((connection) => connection.begin(async (lock) => {
-    await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:business_info`}, 0))`
+  return withGoogleWriteSession({ surface: "business_information", keys: [`${input.session.organisationId}:${input.locationId}:business_info`] }, async () => {
     const linked = await loadedContext(input.session, input.locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
     const reviewed = await approvedGbpChange({ session: input.session, linked, changeSetId, payload: input.payload, updateMask: input.updateMask, resourceType: "business_info" })
@@ -209,14 +209,11 @@ export async function updateBusinessInformation(input: BusinessInformationWrite)
     const [existing] = await withTenant(input.session.organisationId, (sql) => sql<BusinessInformationMutationResult[]>`select id, status, execution_state as "executionState", confirmation_state as "confirmationState" from gbp_management_mutation where change_set_id = ${changeSetId}`)
     if (existing) return { ...existing, idempotent: true }
     return executeBusinessInformation(input)
-  }))
+  })
 }
 
 export async function confirmBusinessInformation(session: Session, locationId: string, mutationId: string, requestId: string): Promise<BusinessInformationMutationResult> {
-  return withSessionConnection((connection) => connection.begin(async (sql) => {
-    await sql`select set_config('app.organisation_id', ${session.organisationId}, true)`
-    await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${locationId}:business_info`}, 0))`
-    await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:${locationId}:attributes`}, 0))`
+  return withGoogleWriteSession({ surface: "business_information_confirm", keys: [`${session.organisationId}:${locationId}:business_info`, `${session.organisationId}:${locationId}:attributes`], organisationId: session.organisationId }, async ({ sql }) => {
     const linked = await loadedContext(session, locationId)
     if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot manage this location.")
     const [attempt] = await sql<{ resource_type: "business_info" | "attributes"; status: string; execution_state: string; confirmation_state: string; requested_payload: unknown; google_response: unknown; update_mask: string[]; target_resource_name: string | null; google_account_id: string | null; recovery_ready: boolean }[]>`
@@ -243,7 +240,7 @@ export async function confirmBusinessInformation(session: Session, locationId: s
     })
     await auditGbpMutation({ organisationId: session.organisationId, session, action: attributes !== null ? "business_attributes.confirmed_check" : "business_information.confirmed_check", subjectType: "location", subjectId: locationId, requestId, metadata: { mutationId, executionState: result.executionState, confirmationState: result.confirmationState } })
     return result
-  }))
+  })
 }
 
 function businessInformationMatches(payload: BusinessInformationPayload, observed: Record<string, unknown>, updateMask: readonly string[]) {
@@ -507,8 +504,7 @@ export async function updateBusinessAttributes(input: {
   changeSetId?: string
 }): Promise<BusinessInformationMutationResult> {
   if (!input.changeSetId) throw new ApiError(409, "approval_required", "Review and approve the exact attribute change before publishing.")
-  return withSessionConnection((connection) => connection.begin(async (lock) => {
-    await lock`select pg_advisory_xact_lock(hashtextextended(${`${input.session.organisationId}:${input.locationId}:attributes`}, 0))`
+  return withGoogleWriteSession({ surface: "business_attributes", keys: [`${input.session.organisationId}:${input.locationId}:attributes`] }, async () => {
     if (input.changeSetId) {
       const linked = await loadedContext(input.session, input.locationId)
       if (!linked.canPublish) throw new ApiError(403, "publish_not_allowed", "You cannot publish for this location.")
@@ -518,7 +514,7 @@ export async function updateBusinessAttributes(input: {
       if (existing) return { ...existing, idempotent: true }
     }
     return executeBusinessAttributes(input)
-  }))
+  })
 }
 
 async function executeBusinessAttributes(input: Parameters<typeof updateBusinessAttributes>[0]): Promise<BusinessInformationMutationResult> {
