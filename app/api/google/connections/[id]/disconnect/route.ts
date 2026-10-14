@@ -85,6 +85,18 @@ async function settleStrandedAttempts(
       and pa.status in ('ambiguous', 'retryable')
   `
   if (!stranded.length) return 0
+  // The review rows first, then the reply and the attempt: the lock order
+  // review sync and every publishing settle follow (lockReview,
+  // lib/server/publishing/settle.ts). Taking the attempt first deadlocked
+  // against a recovery or retry settle on the same review. Sorted, so two
+  // transactions locking several of these reviews take them in one order.
+  await sql`
+    select 1
+    from review
+    where id in ${sql([...new Set(stranded.map((attempt) => attempt.reviewId))])}
+    order by id
+    for no key update
+  `
   // The runner holds no lock between reading an attempt and settling it, so
   // one it claimed before this transaction started can commit a readback
   // between the select above and this update -- which then reads the new row
