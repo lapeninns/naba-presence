@@ -34,6 +34,7 @@ import {
   type TemplateBand,
 } from "@/lib/inbox/template-batch"
 import { queryKeys } from "@/lib/queries/keys"
+import { useRetryIntents } from "@/lib/queries/use-bulk-review-action"
 
 type Phase =
   | "setup"
@@ -103,6 +104,10 @@ function TemplateReplyDialog({
   const [done, setDone] = React.useState(0)
   const [halted, setHalted] = React.useState<string | null>(null)
   const stopRef = React.useRef(false)
+  // Each draft and the batch start resend their intent on a retry after a
+  // lost answer, so the server answers from the first attempt.
+  const draftIntents = useRetryIntents()
+  const batchIntents = useRetryIntents()
   // Mirrors stopRef for rendering; the pool reads the ref between calls.
   const [stopping, setStopping] = React.useState(false)
   // The rows the batch was started with. The list refetches underneath as
@@ -152,7 +157,21 @@ function TemplateReplyDialog({
         try {
           // No body and no text: the draft route picks the rating template
           // for this review's rating and language, then verifies it.
-          const result = await generateOrSaveDraft(row.id, {})
+          const intentId = draftIntents.take(row.id)
+          const result = await generateOrSaveDraft(
+            row.id,
+            {},
+            { intentId }
+          ).then(
+            (value) => {
+              draftIntents.settle(row.id, intentId)
+              return value
+            },
+            (error: unknown) => {
+              draftIntents.settle(row.id, intentId, error)
+              throw error
+            }
+          )
           const verdict = result.verification.verdict
           record(row.id, {
             draftId: result.draftId,
@@ -182,16 +201,20 @@ function TemplateReplyDialog({
     setBatch(eligible)
     setHalted(null)
     setPhase("starting")
+    const input = {
+      action: "template_reply" as const,
+      reviewIds: eligible.map((row) => row.id),
+      includeLowRatings,
+    }
+    const intentId = batchIntents.take(input)
     try {
-      const result = await runBulkReviewAction({
-        action: "template_reply",
-        reviewIds: eligible.map((row) => row.id),
-        includeLowRatings,
-      })
+      const result = await runBulkReviewAction(input, { intentId })
+      batchIntents.settle(input, intentId)
       setQueued(result)
       refresh()
       setPhase("queued")
     } catch (error) {
+      batchIntents.settle(input, intentId, error)
       setHalted(describeActionError(error))
       setPhase("setup")
     }

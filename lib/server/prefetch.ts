@@ -374,7 +374,7 @@ export function inboxPrefetch(
     if (state.clientId) {
       const clientId = state.clientId
       entries.push({
-        queryKey: queryKeys.reviewCounts(`organisation:${clientId}`),
+        queryKey: queryKeys.reviewCountsFor({ clientId }),
         load: () => readReviewCounts(session, { clientId }),
       })
     }

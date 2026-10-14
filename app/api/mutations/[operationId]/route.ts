@@ -7,6 +7,7 @@ import { loadMutationReceipt } from "@/lib/server/mutation-operations"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 /**
  * The receipt for one change: what happened to the write recorded under an
@@ -15,6 +16,7 @@ export const runtime = "nodejs"
  * for a location the member cannot see is a 404 like a missing one.
  */
 export const GET = route({
+  maxDuration,
   params: mutationReceiptParamsSchema,
   handler: async ({
     session,

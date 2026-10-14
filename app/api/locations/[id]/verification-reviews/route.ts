@@ -6,6 +6,7 @@ import { route } from "@/lib/server/route"
 export const runtime = "nodejs"
 export const maxDuration = 60
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), body: verificationReviewInputSchema,
   handler: async ({ session, params, body, requestId }) => ({ review: await previewVerificationStart(session, params.id, body, requestId) }),
 })

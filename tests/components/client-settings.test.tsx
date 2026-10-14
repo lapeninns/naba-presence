@@ -103,6 +103,7 @@ function stub({
 afterEach(() => {
   vi.unstubAllGlobals()
   push.mockReset()
+  sessionStorage.clear()
 })
 
 const renderSettings = () =>
@@ -433,5 +434,40 @@ describe("ClientSettings", () => {
     expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
       colour: "#3F5E52",
     })
+  })
+
+  it("warns on a reload while dirty and offers unsaved details back on the next visit", async () => {
+    stub({ attached: true })
+    const first = renderSettings()
+    const name = await screen.findByLabelText("Client name")
+    fireEvent.change(name, { target: { value: "Old Crown Pubs" } })
+    const reload = new Event("beforeunload", { cancelable: true })
+    window.dispatchEvent(reload)
+    expect(reload.defaultPrevented).toBe(true)
+
+    // Gone without anyone agreeing to lose the edit (an unguarded
+    // navigation, a forced sign-out): it is kept in the tab...
+    first.unmount()
+    expect(
+      Object.keys(sessionStorage).some((key) => key.startsWith("naba:draft:"))
+    ).toBe(true)
+
+    // ...and offered back, not left behind unread.
+    renderSettings()
+    const notice = await screen.findByText(
+      "You left unsaved edits to this client’s details"
+    )
+    expect(await screen.findByLabelText("Client name")).toHaveValue(client.name)
+    fireEvent.click(
+      within(notice.closest("[data-slot=draft-restore]") as HTMLElement).getByRole(
+        "button",
+        { name: "Restore unsaved edits" }
+      )
+    )
+    expect(screen.getByLabelText("Client name")).toHaveValue("Old Crown Pubs")
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
+    expect(
+      Object.keys(sessionStorage).some((key) => key.startsWith("naba:draft:"))
+    ).toBe(false)
   })
 })

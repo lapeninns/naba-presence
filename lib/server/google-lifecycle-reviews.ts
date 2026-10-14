@@ -6,13 +6,13 @@ import { approveGbpChange, readGbpChangeSet, saveGbpChangeSet } from "@/lib/serv
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { currentAdministrationContext } from "@/lib/server/google-administration-state"
 import { observeLifecycleBaseline } from "@/lib/server/google-lifecycle-observation"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import type { Session } from "@/lib/server/session"
 
 function project(changeSet: LifecycleReview["changeSet"]): LifecycleReview {
-  const payload = reviewedLifecyclePayloadSchema.parse(changeSet.payload)
-  const baseline = googleLifecycleBaselineSchema.parse({ ...changeSet.baseline, observedAt: payload.observedAt })
-  return lifecycleReviewSchema.parse({ changeSet, request: payload.request, baseline })
+  const payload = parseStored(reviewedLifecyclePayloadSchema, changeSet.payload, "lifecycle_review.payload")
+  const baseline = parseStored(googleLifecycleBaselineSchema, { ...changeSet.baseline, observedAt: payload.observedAt }, "lifecycle_review.baseline")
+  return parseStored(lifecycleReviewSchema, { changeSet, request: payload.request, baseline }, "lifecycle_review")
 }
 function requireEligibility(request: GoogleLifecycleRequest, baseline: LifecycleReview["baseline"]) {
   const reason = lifecyclePreflightReason(request, baseline)
@@ -34,7 +34,7 @@ export async function readLifecycleReview(session: Session, locationId: string, 
   return project(changeSet)
 }
 export async function assertLifecycleCurrent(session: Session, locationId: string, review: LifecycleReview) {
-  const payload = reviewedLifecyclePayloadSchema.parse(review.changeSet.payload)
+  const payload = parseStored(reviewedLifecyclePayloadSchema, review.changeSet.payload, "lifecycle_review.payload")
   const { linked, baseline } = await observeLifecycleBaseline(session, locationId, payload.request)
   if (payload.connectionId !== linked.connectionId || payload.credentialGeneration !== linked.credentialGeneration) throw new ApiError(409, "google_connection_changed", "The Google connection changed after review. Create a fresh lifecycle review.")
   const state = lifecycleBaselineState(baseline)

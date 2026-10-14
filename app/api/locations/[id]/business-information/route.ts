@@ -36,6 +36,7 @@ export const maxDuration = 60
 const paramsSchema = z.object({ id: z.uuid() })
 
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   handler: async ({ session, params, query: search }) => {
     if (search.get("type") === "service_workflows") return listServiceWorkflows(session, params.id, serviceWorkflowsQuerySchema.parse(Object.fromEntries(search)))
@@ -72,6 +73,7 @@ export const GET = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"],
   params: paramsSchema,
@@ -99,6 +101,7 @@ export const PATCH = route({
 })
 
 export const PUT = route({
+  maxDuration,
   roles: ["owner", "admin"], params: paramsSchema, body: z.union([businessInformationPreviewSchema, businessAttributesPreviewSchema]),
   handler: async ({ session, params, body, requestId }) => ({
     changeSet: "attributeMask" in body
@@ -108,6 +111,7 @@ export const PUT = route({
 })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   roles: ["owner", "admin"], params: paramsSchema, body: z.union([businessInformationConfirmationSchema, businessInformationApprovalSchema]),
   handler: async ({ session, params, body, requestId }) => "mutationId" in body

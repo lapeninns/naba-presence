@@ -32,4 +32,25 @@ function useNow(): number {
   )
 }
 
-export { ServerNowProvider, useNow }
+const HOUR_MS = 3_600_000
+
+function readHour(): number {
+  return Math.floor(readClock() / HOUR_MS)
+}
+
+/**
+ * `useNow`, to the hour: the start of the current hour in milliseconds. The
+ * shared tick still runs every 15 s, but the snapshot only changes on the
+ * hour, so React re-renders a caller once an hour rather than four times a
+ * minute. For a view that only needs the hour (the inbox's age presets),
+ * where re-rendering the whole tree with every tick was the cost.
+ */
+function useNowHour(): number {
+  const serverNow = useContext(ServerNowContext)
+  const hour = useSyncExternalStore(subscribeClock, readHour, () =>
+    Math.floor((serverNow ?? readClock()) / HOUR_MS)
+  )
+  return hour * HOUR_MS
+}
+
+export { ServerNowProvider, useNow, useNowHour }
