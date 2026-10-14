@@ -458,6 +458,16 @@ export const reviewDetailSchema = z.object({
         lastErrorCode: z.string().nullable().optional(),
       })
       .nullable(),
+    /**
+     * While the review is `awaiting_approval`: the draft an approval would
+     * publish (the parked one), which need not be the newest in `drafts`.
+     * Approve names this id and the pane shows this text. Null otherwise;
+     * optional so an older server still parses.
+     */
+    pendingDraft: z
+      .object({ id: z.string(), body: z.string() })
+      .nullable()
+      .optional(),
     timeline: z.array(
       z.object({
         action: z.string(),

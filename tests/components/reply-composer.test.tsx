@@ -289,6 +289,20 @@ describe("ReplyComposer — the editor", () => {
     expect(textbox()).not.toHaveAttribute("readonly")
   })
 
+  // The approver reads what Approve would publish: the parked draft, not a
+  // newer one nobody submitted.
+  it("shows an approver the parked draft rather than a newer one", () => {
+    mount({
+      workflowStatus: "awaiting_approval",
+      drafts: [
+        draft({ id: "d-newer", body: "A newer draft nobody submitted" }),
+        draft({ id: "d-parked", body: "The parked draft" }),
+      ],
+      pendingDraft: { id: "d-parked", body: "The parked draft" },
+    })
+    expect(textbox()).toHaveValue("The parked draft")
+  })
+
   it("seeds the box from a live reply, editable in place", async () => {
     const user = userEvent.setup()
     mount(SETTLED)

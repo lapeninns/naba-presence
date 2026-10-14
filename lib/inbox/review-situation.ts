@@ -44,11 +44,15 @@ export function describeReplyState(publishStatus: string | null): {
   tone: SituationTone
 } {
   if (!publishStatus) return REPLY_STATE.not_published
-  return REPLY_STATE[publishStatus] ?? { label: "Not published", tone: "neutral" }
+  return (
+    REPLY_STATE[publishStatus] ?? { label: "Not published", tone: "neutral" }
+  )
 }
 
 /** The only status that means the reply is actually visible on Google. */
-export function isLiveOnGoogle(publishStatus: string | null | undefined): boolean {
+export function isLiveOnGoogle(
+  publishStatus: string | null | undefined
+): boolean {
   return publishStatus === "published"
 }
 
@@ -57,7 +61,10 @@ export function isLiveOnGoogle(publishStatus: string | null | undefined): boolea
 export type ReplyWork = {
   /** What Google is showing right now, or null if nothing is live. */
   liveBody: string | null
-  /** The newest saved draft, or null if none has been saved. */
+  /**
+   * The saved draft the pane shows (`shownDraft`), or null if none has been
+   * saved.
+   */
   draftBody: string | null
   /** A saved draft says something other than what is live. */
   hasUnpublishedChanges: boolean
@@ -74,9 +81,28 @@ function hasReplyOnGoogle(publishStatus: string | null | undefined): boolean {
   return publishStatus === "published" || publishStatus === "accepted"
 }
 
+/**
+ * The draft the pane shows: the parked one while the reply awaits approval
+ * (it need not be the newest; see `pendingDraft` in lib/contracts/reviews.ts),
+ * otherwise the newest. Approve names this draft, so the approver decides on
+ * the text they read.
+ */
+export function shownDraft<D extends { body: string }>(review: {
+  workflowStatus?: string
+  pendingDraft?: { id: string; body: string } | null
+  drafts: readonly D[]
+}): D | { id: string; body: string } | undefined {
+  if (review.workflowStatus === "awaiting_approval" && review.pendingDraft) {
+    return review.pendingDraft
+  }
+  return review.drafts[0]
+}
+
 export function replyWork(review: {
   reply: { body: string | null; publishStatus: string | null } | null
   drafts: readonly { body: string }[]
+  workflowStatus?: string
+  pendingDraft?: { id: string; body: string } | null
 }): ReplyWork {
   // `accepted` counts here so situation chips and the settled composer see
   // Google-synced / in-flight replies; delete and similar actions still use
@@ -84,7 +110,7 @@ export function replyWork(review: {
   const liveBody = hasReplyOnGoogle(review.reply?.publishStatus)
     ? (review.reply?.body ?? null)
     : null
-  const draftBody = review.drafts[0]?.body ?? null
+  const draftBody = shownDraft(review)?.body ?? null
   const hasUnpublishedChanges = Boolean(
     draftBody !== null && liveBody !== null && draftBody !== liveBody
   )

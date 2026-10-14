@@ -173,7 +173,28 @@ export async function readReviewDetail(
           )
         )
         from review_reply rr where rr.review_id = r.id
-      ) as reply
+      ) as reply,
+      -- The draft an approval would publish, while the reply is parked:
+      -- resolved exactly as recordApprovalDecision does (the parked draft,
+      -- else the newest verified one), so the approver reads that text and
+      -- Approve names it. It need not be the newest draft, nor among the 20.
+      (
+        select json_build_object('id', d.id::text, 'body', d.body)
+        from review_reply rr
+        join draft d on d.id = coalesce(
+          rr.pending_draft_id,
+          (
+            select d3.id
+            from draft d3
+            where d3.review_id = r.id
+              and d3.verification_status in ('pass', 'warn')
+            order by d3.created_at desc
+            limit 1
+          )
+        )
+        where rr.review_id = r.id
+          and r.workflow_status = 'awaiting_approval'
+      ) as "pendingDraft"
       ,
       (
         select json_build_object('verdict', vr.verdict, 'reasons', vr.reasons)

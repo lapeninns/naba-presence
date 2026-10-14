@@ -7,6 +7,7 @@ import {
   REVIEW_QUEUES,
   type ReviewDetail,
   type ReviewRow,
+  type ReviewsPage,
 } from "@/lib/contracts/reviews"
 import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 import { queryKeys } from "@/lib/queries/keys"
@@ -62,10 +63,10 @@ function row(id: string, workflowStatus = "verified"): ReviewRow {
   }
 }
 
-function detail(workflowStatus: string): ReviewDetail {
+function detail(workflowStatus: string, id = "rev-5"): ReviewDetail {
   return {
     review: {
-      id: "rev-5",
+      id,
       reviewerDisplayName: "Sam",
       reviewerIsAnonymous: false,
       reviewerProfilePhotoUrl: null,
@@ -120,22 +121,36 @@ function deferred() {
  * The API as the inbox reaches it, counting every request by path. Pages are
  * served by cursor; the publish answers with or without its snapshot.
  */
-function stubApi({ snapshot }: { snapshot: boolean }) {
+function stubApi({
+  snapshot,
+  reviewId = "rev-5",
+}: {
+  snapshot: boolean
+  reviewId?: string
+}) {
   const requests: string[] = []
   const countsGate = { current: null as ReturnType<typeof deferred> | null }
+  // Holds reads answered from before the write (see the version guard tests).
+  const readGate = { current: null as ReturnType<typeof deferred> | null }
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost")
       const method = init?.method ?? "GET"
       requests.push(`${method} ${url.pathname}`)
-      if (method === "POST" && url.pathname === "/api/reviews/rev-5/publish") {
+      if (
+        method === "POST" &&
+        url.pathname === `/api/reviews/${reviewId}/publish`
+      ) {
         return json({
           reviewReplyId: "rr-1",
           publishAttemptId: "pa-1",
           status: "published",
           googleReplyState: "APPROVED",
           ...(snapshot
-            ? { row: row("rev-5", "published"), detail: detail("published") }
+            ? {
+                row: row(reviewId, "published"),
+                detail: detail("published", reviewId),
+              }
             : {}),
         })
       }
@@ -143,10 +158,13 @@ function stubApi({ snapshot }: { snapshot: boolean }) {
         await countsGate.current?.promise
         return json(counts)
       }
-      if (url.pathname === "/api/reviews/rev-5") {
-        return json(detail("verified"))
+      if (url.pathname === `/api/reviews/${reviewId}`) {
+        const gate = readGate.current
+        await gate?.promise
+        return json(detail("verified", reviewId))
       }
       if (url.pathname === "/api/reviews") {
+        await readGate.current?.promise
         const page = Number(url.searchParams.get("cursor") ?? "0")
         return json({
           items: Array.from({ length: PAGE_SIZE }, (_, index) =>
@@ -162,10 +180,10 @@ function stubApi({ snapshot }: { snapshot: boolean }) {
     }
   )
   vi.stubGlobal("fetch", fetchMock)
-  return { requests, countsGate }
+  return { requests, countsGate, readGate }
 }
 
-function renderInbox() {
+function renderInbox(reviewId = "rev-5") {
   const client = makeQueryClient()
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -174,7 +192,7 @@ function renderInbox() {
     () => {
       const queries = {
         reviews: useReviews({}),
-        detail: useReviewDetail("rev-5"),
+        detail: useReviewDetail(reviewId),
         counts: useReviewCounts(),
         clients: useClients(),
       }
@@ -183,7 +201,7 @@ function renderInbox() {
       for (const query of Object.values(queries)) {
         void [query.data, query.isSuccess, query.isFetching]
       }
-      return { ...queries, publish: usePublishReview("rev-5") }
+      return { ...queries, publish: usePublishReview(reviewId) }
     },
     { wrapper }
   )
@@ -302,6 +320,128 @@ describe("a review write's follow-up requests", () => {
     })
     expect(api.requests).toContain("GET /api/reviews/rev-5")
     expect(api.requests).not.toContain("GET /api/reviews")
+  })
+})
+
+/**
+ * A read already in flight when a write lands was answered from before the
+ * write. Left alone it lands over the patch — a next-page fetch writes back
+ * every page it started from — and the row flips back to its old status until
+ * the next refetch. The write cancels those reads before patching.
+ */
+describe("a read in flight when a write is patched in", () => {
+  const PUBLISH = {
+    draftId: "d1",
+    expectedReviewUpdateTime: "2026-09-01T00:00:00.000Z",
+  }
+
+  function statusOf(
+    client: ReturnType<typeof renderInbox>["client"],
+    reviewId: string
+  ) {
+    return {
+      row: flattenReviews(
+        client.getQueryData(queryKeys.reviews("organisation", {}))
+      ).find((item) => item.id === reviewId)?.workflowStatus,
+      detail: client.getQueryData<ReviewDetail>(
+        queryKeys.reviewDetail(reviewId)
+      )?.review.workflowStatus,
+    }
+  }
+
+  it("does not let a list or detail refetch from before the write overwrite it", async () => {
+    const api = stubApi({ snapshot: true })
+    const { client, result } = renderInbox()
+    await loadAllPages(result)
+
+    api.readGate.current = deferred()
+    let refetched: Promise<unknown> = Promise.resolve()
+    act(() => {
+      refetched = Promise.all([
+        result.current.reviews.refetch(),
+        result.current.detail.refetch(),
+      ])
+    })
+    await waitFor(() => expect(result.current.reviews.isFetching).toBe(true))
+
+    await act(async () => {
+      await result.current.publish.mutateAsync(PUBLISH)
+    })
+    expect(statusOf(client, "rev-5")).toEqual({
+      row: "published",
+      detail: "published",
+    })
+
+    // The pre-write answers ("verified") arrive after the patch.
+    await act(async () => {
+      api.readGate.current?.resolve()
+      await refetched
+    })
+    expect(statusOf(client, "rev-5")).toEqual({
+      row: "published",
+      detail: "published",
+    })
+    expect(result.current.reviews.data?.pages).toHaveLength(PAGES)
+    // Still marked stale, so the next mount or focus reads it again.
+    expect(
+      client.getQueryState(queryKeys.reviews("organisation", {}))?.isInvalidated
+    ).toBe(true)
+  })
+
+  it("does not let a next-page fetch write its older pages back over it", async () => {
+    const api = stubApi({ snapshot: true, reviewId: "rev-3" })
+    const { client, result } = renderInbox("rev-3")
+    await waitFor(() => expect(result.current.reviews.isSuccess).toBe(true))
+    await act(async () => {
+      await result.current.reviews.fetchNextPage()
+    })
+    expect(statusOf(client, "rev-3").row).toBe("verified")
+
+    api.readGate.current = deferred()
+    let nextPage: Promise<unknown> = Promise.resolve()
+    act(() => {
+      nextPage = result.current.reviews.fetchNextPage()
+    })
+    await waitFor(() =>
+      expect(result.current.reviews.isFetchingNextPage).toBe(true)
+    )
+
+    await act(async () => {
+      await result.current.publish.mutateAsync(PUBLISH)
+    })
+    await act(async () => {
+      api.readGate.current?.resolve()
+      await nextPage
+    })
+    expect(statusOf(client, "rev-3").row).toBe("published")
+  })
+
+  it("leaves a list's first load alone: it has nothing to patch", async () => {
+    const api = stubApi({ snapshot: true })
+    const { client, result } = renderInbox()
+    await loadAllPages(result)
+
+    // Another list's first load (a filter just changed) is in flight.
+    api.readGate.current = deferred()
+    const otherKey = queryKeys.reviews("organisation", { queue: "needs_reply" })
+    const firstLoad = client.prefetchInfiniteQuery({
+      queryKey: otherKey,
+      queryFn: async () =>
+        (await fetch("/api/reviews")).json() as Promise<ReviewsPage>,
+      initialPageParam: null as string | null,
+    })
+    await waitFor(() =>
+      expect(client.getQueryState(otherKey)?.fetchStatus).toBe("fetching")
+    )
+    await act(async () => {
+      await result.current.publish.mutateAsync(PUBLISH)
+    })
+    expect(client.getQueryState(otherKey)?.fetchStatus).toBe("fetching")
+    await act(async () => {
+      api.readGate.current?.resolve()
+      await firstLoad
+    })
+    expect(client.getQueryState(otherKey)?.status).toBe("success")
   })
 })
 
