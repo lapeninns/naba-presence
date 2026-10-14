@@ -134,7 +134,14 @@ describeDatabase("guarded review ingest", () => {
   }
 
   /** A database time read before the page is "fetched", as the sync does. */
+  /**
+   * The database clock, as a sync reads it before fetching a page. A Date
+   * keeps whole milliseconds, so the current one is waited out first: a
+   * write committed earlier in it would otherwise compare as after the fetch
+   * (`review_reply.updated_at > fetchedAfter`) and hold the reply.
+   */
   async function databaseNow() {
+    await admin`select pg_sleep(0.002)`
     const [{ now }] = await admin<{ now: Date }[]>`select now() as now`
     return now
   }
