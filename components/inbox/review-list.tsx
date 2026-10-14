@@ -390,60 +390,70 @@ function ReviewList({
                 // agency inbox the location name alone ("High Street") does
                 // not say whose business this is, and replying in the wrong
                 // voice is the mistake this line exists to prevent.
+                // The status pill rides this line, at its end, and drops
+                // under it when the line is narrower than 2xs (18rem, a
+                // 320px phone): beside the stars it would squeeze the venue
+                // to nothing. The venue takes the rest with a zero basis, so
+                // it never pushes the pill down on its own.
                 <span
                   data-slot="review-row-venue"
-                  className="flex min-w-0 items-center gap-2"
+                  className="@container/venue block min-w-0"
                 >
-                  <Stars
-                    value={review.rating}
-                    label={
-                      review.rating === null
-                        ? undefined
-                        : ratingLabel(review.rating)
-                    }
-                  />
-                  <span
-                    data-slot="review-row-location"
-                    title={venue}
-                    className="min-w-0 truncate"
-                  >
-                    {venue}
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <Stars
+                      value={review.rating}
+                      label={
+                        review.rating === null
+                          ? undefined
+                          : ratingLabel(review.rating)
+                      }
+                    />
+                    <span
+                      data-slot="review-row-location"
+                      title={venue}
+                      className="min-w-0 flex-1 basis-0 truncate"
+                    >
+                      {venue}
+                    </span>
+                    {review.hasMedia ? (
+                      <ImageIcon
+                        role="img"
+                        aria-label="Has photos"
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-muted"
+                      />
+                    ) : null}
+                    {parsed?.original ? (
+                      <GlobeIcon
+                        role="img"
+                        aria-label="Translated"
+                        strokeWidth={1.75}
+                        className="size-3.5 shrink-0 text-ink-muted"
+                      />
+                    ) : null}
+                    {pillRepeatsQueue ? null : (
+                      <span
+                        data-slot="review-row-status"
+                        className="ml-auto flex shrink-0 @max-2xs/venue:ml-0 @max-2xs/venue:basis-full"
+                      >
+                        <StatusPill
+                          tone={pill.tone}
+                          dashed={pill.dashed}
+                          // The full sentence is the accessible name, so a reader
+                          // hears "Draft checked · Ready to publish" rather than
+                          // the abbreviation the row has room for. Where the title
+                          // already says it (a needs-reply row), not again.
+                          data-slot="reply-status"
+                          data-tone={status.tone}
+                          aria-label={status.text}
+                          aria-hidden={pillSpokenByTitle || undefined}
+                        >
+                          {status.short}
+                        </StatusPill>
+                      </span>
+                    )}
                   </span>
-                  {review.hasMedia ? (
-                    <ImageIcon
-                      role="img"
-                      aria-label="Has photos"
-                      strokeWidth={1.75}
-                      className="size-3.5 shrink-0 text-ink-muted"
-                    />
-                  ) : null}
-                  {parsed?.original ? (
-                    <GlobeIcon
-                      role="img"
-                      aria-label="Translated"
-                      strokeWidth={1.75}
-                      className="size-3.5 shrink-0 text-ink-muted"
-                    />
-                  ) : null}
                 </span>
-              }
-              trailing={
-                pillRepeatsQueue ? undefined : (
-                  <StatusPill
-                    tone={pill.tone}
-                    dashed={pill.dashed}
-                    // The full sentence is the accessible name, so a reader
-                    // hears "Draft checked · Ready to publish" rather than
-                    // the abbreviation the row has room for. Where the title
-                    // already says it (a needs-reply row), not again.
-                    data-slot="reply-status"
-                    data-tone={status.tone}
-                    aria-label={status.text}
-                    aria-hidden={pillSpokenByTitle || undefined}
-                  >
-                    {status.short}
-                  </StatusPill>
-                )
               }
               preview={
                 // What they said — two lines on a phone, where the row is all

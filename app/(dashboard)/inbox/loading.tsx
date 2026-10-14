@@ -29,7 +29,7 @@ export default function InboxLoading() {
       className="min-h-0 flex-1 gap-3 pt-4 max-md:px-4 max-md:pt-3 md:pt-4"
     >
       <div className="flex min-h-0 flex-1 flex-col bg-surface">
-        <div className="flex shrink-0 flex-col gap-3 pt-2 pb-4 md:px-5 md:pt-5">
+        <div className="flex shrink-0 flex-col gap-3 pt-2 pb-4 max-md:-mx-4 max-md:px-4 md:px-5 md:pt-5">
           {/* The band (inbox-toolbar.tsx) at every width: ViewHeader, then
               the Toolbar row (search pill + Filters circle), then the queue
               strip. */}

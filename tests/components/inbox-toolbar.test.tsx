@@ -336,6 +336,48 @@ describe("InboxToolbar", () => {
     )
   })
 
+  // R3 F2-S1: only a tap on the field may focus it. A search that comes
+  // from the URL (a shared link, a reload, Back to a searched inbox) shows
+  // the takeover without moving focus or raising the keyboard.
+  it("arrives in phone search mode from the URL without focusing the field", async () => {
+    mockDesk(false)
+    renderToolbar("3 reviews", { state: { ...state, search: "x" } })
+    // After the hydrated touch answer lands.
+    await waitFor(() => expect(header()).toHaveAttribute("data-search-mode"))
+    const field = screen.getByRole("searchbox", { name: "Search reviews" })
+    expect(document.activeElement).not.toBe(field)
+    expect(field).toHaveValue("x")
+  })
+
+  it("does not focus the field when a search arrives while the band is up", async () => {
+    mockDesk(false)
+    const { rerender, props } = renderToolbar()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("searchbox", { name: "Search reviews" })
+      ).toBeInTheDocument()
+    )
+    rerender(<InboxToolbar {...props} state={{ ...state, search: "x" }} />)
+    await waitFor(() => expect(header()).toHaveAttribute("data-search-mode"))
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("searchbox", { name: "Search reviews" })
+    )
+  })
+
+  it("keeps focus in the field the user tapped, through typing", async () => {
+    mockDesk(false)
+    const user = userEvent.setup()
+    const { rerender, props } = renderToolbar()
+    const field = screen.getByRole("searchbox", { name: "Search reviews" })
+    await user.click(field)
+    await user.keyboard("pa")
+    // The debounced search lands in the URL state while the field has focus.
+    rerender(<InboxToolbar {...props} state={{ ...state, search: "pa" }} />)
+    expect(
+      screen.getByRole("searchbox", { name: "Search reviews" })
+    ).toHaveFocus()
+  })
+
   it("Cancel with nothing typed changes no filter", async () => {
     mockDesk(false)
     const user = userEvent.setup()

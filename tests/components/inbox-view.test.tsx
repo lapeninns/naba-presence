@@ -935,7 +935,10 @@ describe("InboxView — list and detail", () => {
       "pt-2",
       "pb-4",
       "md:px-5",
-      "md:pt-5"
+      "md:pt-5",
+      // Bleeds like the panes on a phone, padded back to the page gutter.
+      "max-md:-mx-4",
+      "max-md:px-4"
     )
     expect(slot("inbox-list-header")).toHaveClass(
       "border-line-subtle",
