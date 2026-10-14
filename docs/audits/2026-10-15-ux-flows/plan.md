@@ -15,7 +15,7 @@ The fixes for [findings.md](findings.md), grouped into independent slices. One s
   - Stage 3: slices waiting on an owner decision.
   - Stage 4: larger or optional work.
 - **Impact** (H 3, M 2, L 1) weighs severity, reach and frequency. **Effort** (S 1, M 2, L 3) is the size of one PR. **Score** = impact ÷ effort.
-- **Shared files in flow slices:** some flow slices touch a shared file: `components/ui/stepper.tsx` (L13, R18), `components/ui/selection-bar.tsx` (R09), `components/ui/toolbar.tsx` and `app/globals.css` (R10), `components/ui/publish-steps.tsx` (L11), `components/app-shell/context-health-chip.tsx` (L03), `components/app-shell/tab-bar.tsx` and `lib/navigation/destinations.ts` (L17), and `components/app-shell/use-needs-reply-count.ts` (R07, R03). Those PRs need a Platform review, and they merge after any earlier slice that edits the same file (listed in **Depends on**).
+- **Shared files in flow slices:** some flow slices touch a shared file: `components/ui/stepper.tsx` (L13, R18), `components/ui/selection-bar.tsx` (R09), `components/ui/toolbar.tsx` and `app/globals.css` (R10), `components/ui/publish-steps.tsx` (L11), `components/app-shell/context-health-chip.tsx` (L03), `components/app-shell/tab-bar.tsx` and `lib/navigation/destinations.ts` (L17), and `components/app-shell/use-needs-reply-count.ts` (R07, R03). Three cross-lane overlaps are ordered the same way: `components/editors/editor-frame.tsx` and `components/listings/review-publish.tsx` (P02, then L11), and `lib/server/prefetch.ts` (L16, then P20). Those PRs need a review from the lane that owns the other slice, and they merge after any earlier slice that edits the same file (listed in **Depends on**).
 - **Closes** lists finding IDs from findings.md. A finding with two slices (for example `DSK-01 L03, P04`) is closed by the first, once the second has landed.
 
 ## Gates for every slice (G)
@@ -64,7 +64,7 @@ Behaviour and permissions stay identical unless the slice says otherwise. No bac
 | 9 | P08 State primitives and system pages | Platform | 1 | SET-19, SET-20 (+ part of SET-09) | M | S | 2 | none |
 | 10 | P11 Shared vocabulary helpers | Platform | 1 | (helpers for CLR-06, LST-17, LST-19) | M | S | 2 | none |
 | 11 | L12 Verification page in plain words | Listings | 1 | LST-09 | M | S | 2 | none |
-| 12 | L11 Publish failure and read-only views | Listings | 1 | LST-13, LST-27 | M | S | 2 | none |
+| 12 | L11 Publish failure and read-only views | Listings | 1 | LST-13, LST-27 | M | S | 2 | P02 |
 | 13 | R18 Client setup connect step | Reviews | 1 | CLR-18, SET-12 | M | S | 2 | none |
 | 14 | P05 Phone app bar and scope chip | Platform | 1 | SET-07, SET-08 | H | M | 1.5 | none |
 | 15 | P04 Navigation-strip primitives | Platform | 1 | MEA-03 (+ primitives for DSK-01, INB-11, CLR-19) | H | M | 1.5 | none |
@@ -99,12 +99,12 @@ Behaviour and permissions stay identical unless the slice says otherwise. No bac
 | 44 | R11 Notifications page | Reviews | 2 | INB-21 | L | S | 1 | P07 |
 | 45 | L08 Booking links on the reviewed-write sheet | Listings | 2 | LST-10, LST-31 (+ single-type picker from SET-13) | M | M | 1 | P03 |
 | 46 | L06 Hours day rows | Listings | 2 | LST-16 | M | M | 1 | P03, L05 |
-| 47 | L13 Invitations on one sheet | Listings | 2 | LST-26 | L | S | 1 | P03 |
+| 47 | L13 Invitations on one sheet | Listings | 2 | LST-26 | L | S | 1 | P03, R18 |
 | 48 | L16 Area data streaming | Listings | 2 | LST-14, MEA-04 | M | M | 1 | L03 |
 | 49 | L17 Calendar off state | Listings | 2 | LST-28 | L | S | 1 | P06, P05, P15 |
 | 50 | R14 Share sheet and public report | Reviews | 2 | CLR-11, CLR-12 | L | S | 1 | P03 |
 | 51 | P17 Google connections page | Platform | 2 | SET-25, SET-28 | L | S | 1 | P05, P09 |
-| 52 | P20 Settings and Team server prefetch | Platform | 2 | SET-22 | M | M | 1 | P12, P14 |
+| 52 | P20 Settings and Team server prefetch | Platform | 2 | SET-22 | M | M | 1 | P12, P14, L16 |
 | 53 | R01b Two-person approval wording | Reviews | 3 | INB-02, INB-03 | H | M | 1.5 | D1, R01a |
 | 54 | R03 Approver signals | Reviews | 3 | INB-05 | H | M | 1.5 | R07; D2 for the notification half |
 | 55 | L18 No-hours state in listing and client health | Listings | 3 | LST-18 (health roll-up) | H | M | 1.5 | D12, L05 |
@@ -136,6 +136,7 @@ flowchart LR
   subgraph S4["Stage 4: larger or optional"]
     R10; P23
   end
+  P02 --> L11
   P11 --> R15
   P11 --> L05
   P05 --> R05
@@ -160,6 +161,7 @@ flowchart LR
   P03 --> L06
   L05 --> L06
   P03 --> L13
+  R18 --> L13
   L03 --> L16
   P06 --> L17
   P05 --> L17
@@ -169,6 +171,7 @@ flowchart LR
   P09 --> P17
   P12 --> P20
   P14 --> P20
+  L16 --> P20
   R01a --> R01b
   R07 --> R03
   L05 --> L18
@@ -298,7 +301,7 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Closes:** LST-13, LST-27
 - **Files:** `lib/editors/use-publish-flow.ts`, `components/listings/review-publish.tsx`, `components/ui/publish-steps.tsx`, `components/editors/editor-frame.tsx`, `components/editors/support-details.tsx`
 - **Before → after:** one failure is stated three times plus a `NOT_FOUND` chip; members see greyed editors and "Edit an area and come back here" → one line on the step, one banner with the next action, and a toast of six words or fewer. Codes go under "Details for support". Read-only roles see read rows and copy matched to their capability.
-- **Checks:** G. `tests/e2e/listings.spec.ts`, `operations-features.spec.ts` (failure path), member cookie.
+- **Checks:** G. A new publish-failure case in `tests/e2e/listings.spec.ts` (the failure case in `operations-features.spec.ts` covers the notification, not this screen), and a member-cookie read-only case.
 
 #### R18 · Client setup connect step (Reviews)
 - **Closes:** CLR-18, SET-12
@@ -346,7 +349,7 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Closes:** SET-21, SET-30
 - **Files:** `components/settings/operations-view.tsx`, the scheduled-jobs info module
 - **Before → after:** ten "Stale" pills in engineering words with no summary, and an accessible time in London time → a one-line `Alert` with what it means and what to do, the details in a disclosure of `ListRow`s, codes in words, and the organisation's time zone in labels.
-- **Checks:** G. `tests/e2e/settings.spec.ts` (operations).
+- **Checks:** G. `tests/e2e/operations-features.spec.ts` (the Operations page case; `settings.spec.ts` only checks the nav link).
 
 #### P19a · Sign-in error copy (Platform)
 - **Closes:** SET-23
@@ -359,7 +362,6 @@ Each slice lists its files, the expected before → after, and its checks on top
 - **Files:** `components/reporting/report-bar-chart.tsx`, `components/reporting/reply-figures.tsx`, `components/reporting/reports-skeleton.tsx`, `components/performance/google-performance-tab.tsx`, `components/performance/keywords-tab.tsx`, `components/performance/location-report.tsx`, `components/performance/refresh-google-button.tsx`, `lib/queries/use-analytics-presence.ts`
 - **Before → after:** colliding peak and latest labels, about 10px bars, average rating as bars, generic loading rows, a directory → figures waterfall, and a refresh that doesn't poll → dated labels, scrub across the plot, weekly grouping on a phone, the rating as a line or KPI, tab-shaped skeletons, parallel queries, and polling while a sync runs.
 - **Checks:** G. `tests/e2e/reports.spec.ts`. perf-lab `/reports` CLS stays under 0.02.
-
 
 #### P22 · Disabled-route paint time (Platform)
 - **Closes:** MEA-02
@@ -526,7 +528,7 @@ Each slice lists its files, the expected before → after, and its checks on top
 | Slice | Lane | Closes | Depends on | Files | Before → after | Extra checks |
 | --- | --- | --- | --- | --- | --- | --- |
 | R10 Inbox bottom toolbar | Reviews | INB-19 | P10, R09 | `components/inbox/inbox-toolbar.tsx`, `components/ui/toolbar.tsx`, `app/globals.css` (chrome contract) | search, filters and sync in the top 30% → a floating bottom toolbar above the tab bar that steps aside for the selection and action bars; pull to refresh with a button alternative | `touch-critical.spec.ts`; chrome budget in `audit:mobile` |
-| P23 Desk quick-look panel | Platform | DSK-23 | P03 | `components/ui/overlay.tsx`, `/design-system`, then `components/clients/clients-index.tsx` and `components/listings/listings-board.tsx` in their lanes | a full page change to see what is waiting → a right panel from `lg` with the row's work and an "Open" link | `clients.spec.ts`, `listings.spec.ts` at 1280 |
+| P23 Desk quick-look panel | Platform | DSK-23 | P03; adoption by R16 and L04 | `components/ui/overlay.tsx`, `/design-system`, then `components/clients/clients-index.tsx` and `components/listings/listings-board.tsx` in their lanes | a full page change to see what is waiting → a right panel from `lg` with the row's work and an "Open" link | `clients.spec.ts`, `listings.spec.ts` at 1280 |
 
 ## Phase 3 hooks
 
