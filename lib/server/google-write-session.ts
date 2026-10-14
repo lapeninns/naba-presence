@@ -5,6 +5,7 @@ import type { TransactionSql } from "postgres"
 
 import { withSessionConnection } from "@/lib/server/db"
 import {
+  currentGoogleWriteDeadline,
   GoogleWriteBudgetExhaustedError,
   withGoogleWriteDeadline,
 } from "@/lib/server/google/transport"
@@ -171,9 +172,15 @@ export async function withGoogleWriteSession<T>(
 ): Promise<T> {
   const startedAt = Date.now()
   let outcome = "error"
+  // A session nested in another (a bulk child's account lock inside its
+  // resource lock) never outlives the outer one.
+  const outer = currentGoogleWriteDeadline()
   const budget = googleWriteBudget({
     now: startedAt,
-    deadline: options.deadline,
+    deadline:
+      outer === undefined
+        ? options.deadline
+        : Math.min(outer, options.deadline ?? outer),
   })
   // Objects, not `let`s: TypeScript does not see assignments made inside
   // the callbacks when it narrows below.

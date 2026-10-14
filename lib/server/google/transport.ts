@@ -97,6 +97,11 @@ export function withGoogleWriteDeadline<T>(deadline: number, fn: () => T): T {
   return writeDeadline.run(deadline, fn)
 }
 
+/** The deadline of the write session this code runs in, if any. */
+export function currentGoogleWriteDeadline(): number | undefined {
+  return writeDeadline.getStore()
+}
+
 /**
  * A mutation refused before it was sent because the write session could not
  * wait its full timeout for Google's answer: nothing reached Google, so it is

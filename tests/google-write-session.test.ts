@@ -259,6 +259,20 @@ describe("withGoogleWriteSession", () => {
     expect(work).not.toHaveBeenCalled()
   })
 
+  it("never lets a nested session outlive the session it runs in", async () => {
+    const { withGoogleWriteSession } = await load()
+    const outer = Date.now() + 30_000
+    const inner = await withGoogleWriteSession(
+      { surface: "outer", keys: ["a"], deadline: outer },
+      () =>
+        withGoogleWriteSession(
+          { surface: "inner", keys: ["b"] },
+          async ({ deadline }) => deadline
+        )
+    )
+    expect(inner).toBe(outer)
+  })
+
   it("refuses without connecting when the deadline leaves no time", async () => {
     const { withGoogleWriteSession, GoogleWriteBudgetExhaustedError } =
       await load()
