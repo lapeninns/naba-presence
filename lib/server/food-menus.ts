@@ -18,7 +18,7 @@ import {
   reconcileCanonicalResource,
   updateCanonicalResource,
 } from "@/lib/server/canonical-resources"
-import { jsonColumn, withSessionConnection, withTenant } from "@/lib/server/db"
+import { jsonColumn, withTenant } from "@/lib/server/db"
 import { getServerEnv } from "@/lib/server/env"
 import type { GbpLocationContext } from "@/lib/server/gbp-management"
 import {
@@ -36,6 +36,7 @@ import {
   GoogleMutationAmbiguousError,
   patchGoogleFoodMenus,
 } from "@/lib/server/google"
+import { withGoogleWriteSession } from "@/lib/server/google-write-session"
 import { recordResourceObservation } from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
 import { operationSummary } from "@/lib/server/mutation-operations"
@@ -273,6 +274,11 @@ type PublishFoodMenusInput = {
   expectedGoogleHash: string
   confirmFullReplacement: boolean
   requestId: string
+  /**
+   * Epoch ms by which the Google sequence must end (a request deadline);
+   * absent, the write session derives one from the route's maxDuration.
+   */
+  deadline?: number
 }
 
 /** Pre-flight: grant, eligibility, confirmation and the stale-snapshot check. */
@@ -457,9 +463,13 @@ export async function publishFoodMenus(
   input: PublishFoodMenusInput
 ): Promise<PublishFoodMenusResult> {
   requireGbpWrite(getServerEnv(), "foodMenus", FOOD_MENUS_PAUSED)
-  return withSessionConnection((connection) =>
-    connection.begin(async (lock) => {
-      await lock`select pg_advisory_xact_lock(hashtextextended(${foodMenusLockKey(input.session.organisationId, input.locationId)}, 0))`
+  return withGoogleWriteSession(
+    {
+      surface: "food_menus",
+      keys: [foodMenusLockKey(input.session.organisationId, input.locationId)],
+      deadline: input.deadline,
+    },
+    async () => {
       const live = await readLiveFoodMenus(input.session, input.locationId)
       assertFoodMenusPublishable(live, input)
       if (live.state.status === "in_sync")
@@ -471,7 +481,7 @@ export async function publishFoodMenus(
         idempotent: result.idempotent,
         operation: operationSummary(result),
       }
-    })
+    }
   )
 }
 

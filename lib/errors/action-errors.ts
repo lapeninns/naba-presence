@@ -256,6 +256,14 @@ const COPY: Record<string, string> = {
     "A publish of this menu is already under way. Wait a moment and try again.",
   gbp_mutation_in_progress:
     "This change is already being applied to Google. Wait a moment and try again.",
+  // A Google write session (lib/server/google-write-session.ts) could not
+  // take the listing's lock, or had too little time left to send the write.
+  // Nothing from this request reached Google in either case, so these are
+  // deliberately not `_in_progress` codes (errorOutcome reads those as sent).
+  google_write_busy:
+    "Another change to this listing is being sent to Google. Wait a moment and try again.",
+  google_write_budget_exhausted:
+    "Google was too slow to finish this change safely, so nothing was sent. Try again in a moment.",
   // The default mismatch code for any Google write whose surface does not
   // override it. A 502 without an entry reads as "temporarily unavailable",
   // which invites a blind retry of a write that may well have landed.
