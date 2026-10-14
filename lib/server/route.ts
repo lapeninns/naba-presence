@@ -20,6 +20,7 @@ import { appOrigins, getServerEnv } from "@/lib/server/env"
 import {
   ApiError,
   apiError,
+  invalidRequestError,
   serverRequestId,
   withRequestIdHeader,
 } from "@/lib/server/http"
@@ -339,6 +340,17 @@ async function readJsonBody(request: Request): Promise<unknown> {
   }
 }
 
+/**
+ * Parses the request's own input. A failure is the caller's: 400
+ * `invalid_request` with `fieldErrors` (invalidRequestError), whatever the
+ * handler later does with a ZodError of its own.
+ */
+function parseInput<T>(schema: ZodType<T>, value: unknown): T {
+  const parsed = schema.safeParse(value)
+  if (!parsed.success) throw invalidRequestError(parsed.error)
+  return parsed.data
+}
+
 function isZodSchema(value: unknown): value is ZodType {
   return (
     typeof value === "object" &&
@@ -384,18 +396,20 @@ export function route<
       }
       const rawParams = (await context?.params) ?? {}
       const params = (
-        config.params ? config.params.parse(rawParams) : rawParams
+        config.params ? parseInput(config.params, rawParams) : rawParams
       ) as P
       const searchParams = new URL(request.url).searchParams
       const query = (
         config.query === undefined
           ? searchParams
           : isZodSchema(config.query)
-            ? config.query.parse(searchParamsToObject(searchParams))
+            ? parseInput(config.query, searchParamsToObject(searchParams))
             : config.query(searchParams)
       ) as Q
       const body = (
-        config.body ? config.body.parse(await readJsonBody(request)) : undefined
+        config.body
+          ? parseInput(config.body, await readJsonBody(request))
+          : undefined
       ) as B
       // Only a session's mutations take an intent: cron and public routes
       // (Pub/Sub, RISC) never record receipts, and a sender or proxy adding

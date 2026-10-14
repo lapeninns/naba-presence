@@ -36,7 +36,7 @@ import {
   requireSecondApprover,
   requireUnchangedTwoPersonPolicy,
 } from "@/lib/server/authz/approval-policy"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { authorisationAssurance } from "@/lib/server/mfa"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
@@ -209,7 +209,7 @@ async function project(
   session: Session,
   row: Row
 ): Promise<PublicationSchedule> {
-  const rule = scheduleRuleSchema.parse(row.rule)
+  const rule = parseStored(scheduleRuleSchema, row.rule, "schedule.rule")
   // A one-time slot is shown as the strict plan would run it; a waiting one
   // is also checked against the bookable window, since approval needs that.
   // A live one-time row always has its offset or is waiting or in review
@@ -235,32 +235,36 @@ async function project(
         }
   const counts = await sql<{ status: string; count: number }[]>`
     select status, count(*)::int as count from post_publication_occurrence where schedule_id = ${row.id} and schedule_revision = ${row.revision} group by status`
-  return scheduleSchema.parse({
-    ...row,
-    rule,
-    eventOffsets: row.eventOffsets ?? null,
-    template: {
-      ...row.template,
-      topicType: String(row.template.topicType ?? ""),
-      summary: String(row.template.summary ?? ""),
+  return parseStored(
+    scheduleSchema,
+    {
+      ...row,
+      rule,
+      eventOffsets: row.eventOffsets ?? null,
+      template: {
+        ...row.template,
+        topicType: String(row.template.topicType ?? ""),
+        summary: String(row.template.summary ?? ""),
+      },
+      approvedAt: row.approvedAt?.toISOString() ?? null,
+      requiresSecondApprover: row.requireTwoPersonApproval,
+      canApprove:
+        isManagerialRole(session.role) &&
+        row.status === "awaiting_approval" &&
+        (!row.requireTwoPersonApproval || row.requestedBy !== session.userId),
+      preview: {
+        total: expansion.occurrences.length,
+        first: expansion.occurrences.slice(0, 12),
+        skippedDates: expansion.skippedDates,
+        adjusted: expansion.occurrences.filter(
+          (occurrence) => occurrence.adjustment !== "none"
+        ).length,
+        problem: once && !once.ok ? once.problem : null,
+      },
+      counts: Object.fromEntries(counts.map((row) => [row.status, row.count])),
     },
-    approvedAt: row.approvedAt?.toISOString() ?? null,
-    requiresSecondApprover: row.requireTwoPersonApproval,
-    canApprove:
-      isManagerialRole(session.role) &&
-      row.status === "awaiting_approval" &&
-      (!row.requireTwoPersonApproval || row.requestedBy !== session.userId),
-    preview: {
-      total: expansion.occurrences.length,
-      first: expansion.occurrences.slice(0, 12),
-      skippedDates: expansion.skippedDates,
-      adjusted: expansion.occurrences.filter(
-        (occurrence) => occurrence.adjustment !== "none"
-      ).length,
-      problem: once && !once.ok ? once.problem : null,
-    },
-    counts: Object.fromEntries(counts.map((row) => [row.status, row.count])),
-  })
+    "schedule"
+  )
 }
 
 /** The statuses a schedule can still publish from (or be approved into). */
@@ -1142,14 +1146,19 @@ export async function actOnPublicationSchedule(
         // The approver must still be an owner or admin, holding the security
         // version their approval recorded (operator MFA recovery since then
         // voids it).
-        await requireCurrentManager(sql, session.organisationId, row.approvedBy, {
-          securityVersion: row.approvedSecurityVersion,
-          refusal: {
-            code: "approval_actor_access_changed",
-            message:
-              "An initiating or approving user's access changed. The schedule needs a fresh approval.",
-          },
-        })
+        await requireCurrentManager(
+          sql,
+          session.organisationId,
+          row.approvedBy,
+          {
+            securityVersion: row.approvedSecurityVersion,
+            refusal: {
+              code: "approval_actor_access_changed",
+              message:
+                "An initiating or approving user's access changed. The schedule needs a fresh approval.",
+            },
+          }
+        )
         await sql`update post_publication_schedule set status = 'active', updated_at = now() where id = ${scheduleId}`
       }
     } else {
