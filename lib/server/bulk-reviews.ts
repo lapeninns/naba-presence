@@ -8,6 +8,7 @@ import type {
 } from "@/lib/contracts/reviews"
 import { BULK_DISPATCH_TTL_MS } from "@/lib/domain/bulk-merge"
 import {
+  TEMPLATE_SKIP_CODES,
   templateSkipCode,
   type BulkReviewInput,
 } from "@/lib/domain/bulk-reviews"
@@ -19,6 +20,10 @@ import {
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import { authorisationAssurance } from "@/lib/server/mfa"
+import {
+  beginOperation,
+  claimAmbientIntent,
+} from "@/lib/server/mutation-operations"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { requireLocationAction } from "@/lib/server/permissions"
 import { recordApprovalDecision } from "@/lib/server/review-approval"
@@ -150,6 +155,102 @@ async function insertBatch(
   return batch.id
 }
 
+/**
+ * Starting a review batch once per intent, and each review in one live batch
+ * at a time.
+ *
+ * Starts are serialised per organisation (a transaction lock), so a second
+ * start reads what the first committed: its intent's receipt and its queued
+ * children. The receipt is the mutation ledger's (0086), recorded under the
+ * request's `Idempotency-Key`; a retry of the same start after a lost answer
+ * is answered with the first start's batch instead of starting another over
+ * the same reviews (which would record each approval twice and run each
+ * template draft's checks twice). Without an intent nothing is recorded and
+ * every start makes its own batch, as before.
+ */
+type IntentClaim =
+  | { kind: "none" }
+  | { kind: "claimed"; receiptId: string }
+  | { kind: "replay"; result: BulkReviewResult }
+
+async function claimBatchIntent(
+  sql: TransactionSql,
+  session: Session,
+  operation: BulkReviewInput["operation"],
+  request: unknown
+): Promise<IntentClaim> {
+  await sql`select pg_advisory_xact_lock(hashtextextended(${`${session.organisationId}:bulk_review_start`}, 0))`
+  const intentId = claimAmbientIntent()
+  if (!intentId) return { kind: "none" }
+  const { operation: receipt, created } = await beginOperation(sql, {
+    organisationId: session.organisationId,
+    intentId,
+    actorUserId: session.userId,
+    descriptor: {
+      surface: "review_bulk",
+      action: operation,
+      targetType: "bulk_listing_operation",
+    },
+    payloadHash: stableGoogleHash({ operation, request }),
+    attemptTable: null,
+  })
+  if (created) return { kind: "claimed", receiptId: receipt.id }
+  const [batch] = await sql<{ operationId: string | null }[]>`
+    select target_ref as "operationId" from mutation_operation where id = ${receipt.id}`
+  // The first start made no batch (nothing was eligible): nothing was
+  // recorded either, so planning again is the same answer.
+  if (!batch?.operationId) return { kind: "claimed", receiptId: receipt.id }
+  const children = await sql<
+    { reviewId: string; status: string; skipReason: string | null }[]
+  >`
+    select review_id::text as "reviewId", status, skip_reason as "skipReason"
+    from bulk_listing_child
+    where operation_id = ${batch.operationId} and review_id is not null
+    order by seq`
+  return {
+    kind: "replay",
+    result: {
+      operationId: batch.operationId,
+      results: children.map((child): Row =>
+        child.status === "skipped"
+          ? {
+              reviewId: child.reviewId,
+              status: "skipped",
+              ...(child.skipReason ? { code: child.skipReason } : {}),
+            }
+          : { reviewId: child.reviewId, status: "queued" }
+      ),
+    },
+  }
+}
+
+/** Points the start's receipt at the batch it made (or at none). */
+async function settleBatchIntent(
+  sql: TransactionSql,
+  claim: IntentClaim,
+  operationId: string | null
+) {
+  if (claim.kind !== "claimed") return
+  await sql`
+    update mutation_operation
+    set state = 'saved_locally', target_ref = ${operationId}, updated_at = now()
+    where id = ${claim.receiptId}`
+}
+
+/**
+ * True when a review already has a child queued or under way in another
+ * batch: a second batch over it would draft, check or approve it again.
+ */
+async function reviewInLiveBatch(sql: TransactionSql, reviewId: string) {
+  const [row] = await sql<{ busy: boolean }[]>`
+    select exists (
+      select 1 from bulk_listing_child c
+      where c.review_id = ${reviewId}
+        and c.status in ('queued', 'running', 'ambiguous')
+    ) as busy`
+  return row.busy
+}
+
 /** A row's outcome when the batch was started: queued, or why not. */
 function rowsFor(planned: Planned[], operationId: string | null): Row[] {
   return planned.map((entry): Row => {
@@ -177,6 +278,13 @@ export async function startBulkReviewApprovals(
   ctx: Ctx
 ): Promise<BulkReviewResult> {
   return withTenant(session.organisationId, async (sql) => {
+    const claim = await claimBatchIntent(
+      sql,
+      session,
+      "review_approval",
+      approvals
+    )
+    if (claim.kind === "replay") return claim.result
     const targets = new Map<string, Frozen>()
     const planned: Planned[] = []
     const unknown: Row[] = []
@@ -196,6 +304,17 @@ export async function startBulkReviewApprovals(
         reviewId: item.reviewId,
         draftId: item.draftId,
         reviewUpdateTime: item.reviewUpdateTime,
+      }
+      // Already being sent by another batch: no second decision for it.
+      if (await reviewInLiveBatch(sql, item.reviewId)) {
+        planned.push({
+          reviewId: item.reviewId,
+          locationId: review.locationId,
+          input,
+          frozen: null,
+          skip: TEMPLATE_SKIP_CODES.busy,
+        })
+        continue
       }
       try {
         const settled = await sql.savepoint(async (sp) => {
@@ -259,6 +378,7 @@ export async function startBulkReviewApprovals(
       planned,
       ctx
     )
+    await settleBatchIntent(sql, claim, operationId)
     return {
       ...(operationId ? { operationId } : {}),
       results: [...rowsFor(planned, operationId), ...unknown],
@@ -279,6 +399,13 @@ export async function startBulkTemplateReplies(
   ctx: Ctx
 ): Promise<BulkReviewResult> {
   return withTenant(session.organisationId, async (sql) => {
+    const claim = await claimBatchIntent(
+      sql,
+      session,
+      "review_template_reply",
+      input
+    )
+    if (claim.kind === "replay") return claim.result
     const targets = new Map<string, Frozen>()
     const planned: Planned[] = []
     const unknown: Row[] = []
@@ -324,6 +451,10 @@ export async function startBulkTemplateReplies(
         skip = templateSkipCode(review, {
           includeLowRatings: input.includeLowRatings,
         })
+        // Queued in another batch but not yet drafted: still untouched to
+        // the rule above, so only the batch itself can tell.
+        if (!skip && (await reviewInLiveBatch(sql, reviewId)))
+          skip = TEMPLATE_SKIP_CODES.busy
         if (!skip)
           frozen = await freezeTarget(sql, session, review.locationId, targets)
       } catch (error) {
@@ -345,6 +476,7 @@ export async function startBulkTemplateReplies(
       planned,
       ctx
     )
+    await settleBatchIntent(sql, claim, operationId)
     return {
       ...(operationId ? { operationId } : {}),
       results: [...rowsFor(planned, operationId), ...unknown],

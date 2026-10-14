@@ -73,10 +73,10 @@ import { ORGANISATION_NAME_MAX } from "@/lib/contracts/session"
 import { useSession } from "@/lib/queries/use-session"
 import { workspaceTerms } from "@/lib/workspace/terms"
 import { DiscardDialog } from "@/components/editors/discard-dialog"
+import { StashedEditsNotice } from "@/components/editors/stashed-edits-notice"
 import { useDraftKey } from "@/lib/editors/use-draft-key"
 import { useKeepFocusClear } from "@/lib/editors/use-keep-focus-clear"
-import { useLeaveGuard } from "@/lib/editors/use-leave-guard"
-import { useDirtyGuard } from "@/lib/hooks/use-dirty-guard"
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes"
 
 type FormState = {
   approvalRequired: boolean
@@ -96,6 +96,36 @@ function toState(settings: OrgSettings): FormState {
     defaultTimezone: settings.defaultTimezone,
     directPublishConsent: false,
   }
+}
+
+type PolicyDraft = { form: FormState; name: string | null }
+
+/**
+ * A stashed policy draft, or null when malformed or no different from what
+ * is saved. The direct-publish consent is never restored: it is given by
+ * ticking it, not carried over from an earlier visit.
+ */
+function parsePolicyDraft(
+  value: unknown,
+  saved: { form: FormState; name: string }
+): PolicyDraft | null {
+  if (typeof value !== "object" || value === null) return null
+  const { form, name } = value as Record<string, unknown>
+  if (typeof form !== "object" || form === null) return null
+  if (name !== null && typeof name !== "string") return null
+  const restored = { ...saved.form }
+  for (const key of Object.keys(saved.form) as (keyof FormState)[]) {
+    const field = (form as Record<string, unknown>)[key]
+    if (typeof field !== typeof saved.form[key]) return null
+    Object.assign(restored, { [key]: field })
+  }
+  restored.directPublishConsent = false
+  const changed =
+    (name !== null && name.trim() !== saved.name) ||
+    (Object.keys(saved.form) as (keyof FormState)[]).some(
+      (key) => restored[key] !== saved.form[key]
+    )
+  return changed ? { form: restored, name } : null
 }
 
 /** The words the save bar uses to list what changed. */
@@ -237,17 +267,28 @@ export function PolicyForm({ role }: { role: string | null }) {
   const isDirty = changed.length > 0
 
   // Arms beforeunload while dirty (spec §6) and keeps the edits through a
-  // forced sign-out; an in-app link or the back button asks first.
+  // forced sign-out, offering them back on the next visit; an in-app link
+  // or the back button asks first.
   const draftKey = useDraftKey({
     resource: "settings-policy",
-    schemaVersion: 1,
+    schemaVersion: 2,
   })
-  const { markDiscarded } = useDirtyGuard({
-    key: draftKey,
+  const unsaved = useUnsavedChanges<PolicyDraft>({
+    scope: draftKey,
     isDirty,
-    snapshot: () => JSON.stringify({ ...current, name: nameDraft }),
+    restore: {
+      snapshot: () => ({
+        form: current ?? ({} as FormState),
+        name: nameDraft,
+      }),
+      parse: (value) =>
+        initial
+          ? parsePolicyDraft(value, { form: initial, name: savedName })
+          : null,
+      // Judged against the saved policy, and only by someone who may edit it.
+      ready: initial !== null && canEdit,
+    },
   })
-  const leave = useLeaveGuard({ when: isDirty, onLeave: markDiscarded })
 
   const mutation = useMutation({
     mutationFn: (input: SettingsPatchInput) => saveSettings(input),
@@ -442,6 +483,18 @@ export function PolicyForm({ role }: { role: string | null }) {
       onSubmit={(event) => void onSubmit(event)}
       noValidate
     >
+      {unsaved.stashed ? (
+        <StashedEditsNotice
+          noun="this page"
+          onRestore={() => {
+            const restored = unsaved.restoreStashed()
+            if (!restored) return
+            setForm(restored.form)
+            if (isOwner && restored.name !== null) setNameDraft(restored.name)
+          }}
+          onDismiss={unsaved.dismissStashed}
+        />
+      ) : null}
       {readOnly ? (
         <Alert variant="info" icon={<Eye strokeWidth={1.75} aria-hidden />}>
           <AlertTitle>You can look, but not change this</AlertTitle>
@@ -693,7 +746,7 @@ export function PolicyForm({ role }: { role: string | null }) {
         }
       />
       <DiscardDialog
-        {...leave}
+        {...unsaved.leavePrompt}
         title="Leave without saving?"
         confirmLabel="Leave and discard"
         announce={false}

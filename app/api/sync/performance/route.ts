@@ -46,6 +46,7 @@ function budgetMs() {
 }
 
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "same",
   handler: async ({ request, requestId }) => {
@@ -67,6 +68,7 @@ export const POST = route({
 // malformed cron path fails loudly. The ingestion kill switch is enforced at
 // the runner's claim; enqueueing while paused is harmless.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     performanceSyncSchema.parse(cronPageInput(query))

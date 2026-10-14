@@ -9,9 +9,13 @@ import type { ReviewRow } from "@/lib/contracts/reviews"
 
 const generateOrSaveDraft = vi.fn()
 const publishReview = vi.fn()
+const runBulkReviewAction = vi.fn()
 
 vi.mock("@/lib/api/drafts", () => ({
   generateOrSaveDraft: (...args: unknown[]) => generateOrSaveDraft(...args),
+}))
+vi.mock("@/lib/api/review-bulk", () => ({
+  runBulkReviewAction: (...args: unknown[]) => runBulkReviewAction(...args),
 }))
 vi.mock("@/lib/api/publish", () => ({
   publishReview: (...args: unknown[]) => publishReview(...args),
@@ -66,7 +70,7 @@ function draftFor(id: string, verdict = "pass") {
   }
 }
 
-function renderDialog(rows: ReviewRow[]) {
+function renderDialog(rows: ReviewRow[], options: { bulkEngine?: boolean } = {}) {
   const onFinished = vi.fn()
   const onOpenChange = vi.fn()
   render(
@@ -76,6 +80,7 @@ function renderDialog(rows: ReviewRow[]) {
         rows={rows}
         onOpenChange={onOpenChange}
         onFinished={onFinished}
+        bulkEngine={options.bulkEngine}
       />
     </QueryClientProvider>
   )
@@ -125,7 +130,14 @@ describe("TemplateReplyDialog", () => {
     await user.click(screen.getByRole("button", { name: "Create 2 drafts" }))
     await screen.findByText(/drafts are checked and ready/)
     expect(generateOrSaveDraft).toHaveBeenCalledTimes(2)
-    expect(generateOrSaveDraft).toHaveBeenCalledWith("a", {})
+    // Each draft carries its own intent (the draft route's generation key).
+    expect(generateOrSaveDraft).toHaveBeenCalledWith("a", {}, {
+      intentId: expect.any(String),
+    })
+    const [first, second] = generateOrSaveDraft.mock.calls.map(
+      (call) => call[2].intentId
+    )
+    expect(second).not.toBe(first)
     // Nothing is published until the operator asks.
     expect(publishReview).not.toHaveBeenCalled()
 
@@ -140,6 +152,36 @@ describe("TemplateReplyDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Done" }))
     expect(onFinished).toHaveBeenCalledWith(["a", "bb"])
+  })
+
+  it("resends a batch start's intent after a lost answer, and only then", async () => {
+    const user = userEvent.setup()
+    runBulkReviewAction
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(
+        new ApiClientError(503, "publishing_paused", "Paused")
+      )
+      .mockRejectedValueOnce(
+        new ApiClientError(503, "publishing_paused", "Paused")
+      )
+    renderDialog([row("a")], { bulkEngine: true })
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await user.click(await screen.findByRole("button", { name: "Reply to 1" }))
+      await waitFor(() =>
+        expect(runBulkReviewAction).toHaveBeenCalledTimes(attempt + 1)
+      )
+    }
+    expect(runBulkReviewAction).toHaveBeenCalledWith(
+      { action: "template_reply", reviewIds: ["a"], includeLowRatings: false },
+      { intentId: expect.any(String) }
+    )
+    const intents = runBulkReviewAction.mock.calls.map(
+      (call) => call[1].intentId
+    )
+    // The lost answer may have started the batch: the retry is the same start.
+    expect(intents[1]).toBe(intents[0])
+    // A definite refusal started nothing: the next press is a new start.
+    expect(intents[2]).not.toBe(intents[1])
   })
 
   it("holds back drafts that fail their checks", async () => {

@@ -21,7 +21,7 @@ import { SEEDED_BY_SHELL } from "@/lib/queries/use-shell-status"
 export function useNeedsReplyCount(enabled = true): number | undefined {
   const counts = useQuery({
     enabled,
-    queryKey: queryKeys.reviewCounts("organisation"),
+    queryKey: queryKeys.reviewCountsFor(),
     queryFn: ({ signal }) =>
       fetchReviewCounts({}, { signal, background: true }),
     ...SEEDED_BY_SHELL,

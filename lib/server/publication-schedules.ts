@@ -36,7 +36,7 @@ import {
   requireSecondApprover,
   requireUnchangedTwoPersonPolicy,
 } from "@/lib/server/authz/approval-policy"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
 import { authorisationAssurance } from "@/lib/server/mfa"
 import { recordOperationalEvent } from "@/lib/server/notifications/operational"
@@ -209,7 +209,7 @@ async function project(
   session: Session,
   row: Row
 ): Promise<PublicationSchedule> {
-  const rule = scheduleRuleSchema.parse(row.rule)
+  const rule = parseStored(scheduleRuleSchema, row.rule, "schedule.rule")
   // A one-time slot is shown as the strict plan would run it; a waiting one
   // is also checked against the bookable window, since approval needs that.
   // A live one-time row always has its offset or is waiting or in review
@@ -235,32 +235,36 @@ async function project(
         }
   const counts = await sql<{ status: string; count: number }[]>`
     select status, count(*)::int as count from post_publication_occurrence where schedule_id = ${row.id} and schedule_revision = ${row.revision} group by status`
-  return scheduleSchema.parse({
-    ...row,
-    rule,
-    eventOffsets: row.eventOffsets ?? null,
-    template: {
-      ...row.template,
-      topicType: String(row.template.topicType ?? ""),
-      summary: String(row.template.summary ?? ""),
+  return parseStored(
+    scheduleSchema,
+    {
+      ...row,
+      rule,
+      eventOffsets: row.eventOffsets ?? null,
+      template: {
+        ...row.template,
+        topicType: String(row.template.topicType ?? ""),
+        summary: String(row.template.summary ?? ""),
+      },
+      approvedAt: row.approvedAt?.toISOString() ?? null,
+      requiresSecondApprover: row.requireTwoPersonApproval,
+      canApprove:
+        isManagerialRole(session.role) &&
+        row.status === "awaiting_approval" &&
+        (!row.requireTwoPersonApproval || row.requestedBy !== session.userId),
+      preview: {
+        total: expansion.occurrences.length,
+        first: expansion.occurrences.slice(0, 12),
+        skippedDates: expansion.skippedDates,
+        adjusted: expansion.occurrences.filter(
+          (occurrence) => occurrence.adjustment !== "none"
+        ).length,
+        problem: once && !once.ok ? once.problem : null,
+      },
+      counts: Object.fromEntries(counts.map((row) => [row.status, row.count])),
     },
-    approvedAt: row.approvedAt?.toISOString() ?? null,
-    requiresSecondApprover: row.requireTwoPersonApproval,
-    canApprove:
-      isManagerialRole(session.role) &&
-      row.status === "awaiting_approval" &&
-      (!row.requireTwoPersonApproval || row.requestedBy !== session.userId),
-    preview: {
-      total: expansion.occurrences.length,
-      first: expansion.occurrences.slice(0, 12),
-      skippedDates: expansion.skippedDates,
-      adjusted: expansion.occurrences.filter(
-        (occurrence) => occurrence.adjustment !== "none"
-      ).length,
-      problem: once && !once.ok ? once.problem : null,
-    },
-    counts: Object.fromEntries(counts.map((row) => [row.status, row.count])),
-  })
+    "schedule"
+  )
 }
 
 /** The statuses a schedule can still publish from (or be approved into). */
@@ -408,7 +412,9 @@ async function requireSourceAsFrozen(
   locationId: string,
   row: Row
 ) {
-  const once = scheduleRuleSchema.parse(row.rule).frequency === "once"
+  const once =
+    parseStored(scheduleRuleSchema, row.rule, "post_schedule.rule")
+      .frequency === "once"
   if (!row.sourcePostId) {
     if (once)
       throw new ApiError(
@@ -500,7 +506,7 @@ export async function invalidateSourceSchedules(
     { required: boolean }[]
   >`select require_two_person_approval as required from organisation limit 1`
   for (const row of rows) {
-    const rule = scheduleRuleSchema.parse(row.rule)
+    const rule = parseStored(scheduleRuleSchema, row.rule, "post_schedule.rule")
     let payloadHash: string | null = null
     // A post still being published (in flight) is re-frozen like a draft:
     // approval refuses it until its publish has settled one way or the other.
@@ -835,7 +841,7 @@ export async function approvePublicationSchedule(
     await requireScheduling(
       sql,
       session.organisationId,
-      scheduleRuleSchema.parse(row.rule)
+      parseStored(scheduleRuleSchema, row.rule, "post_schedule.rule")
     )
     if (row.status !== "awaiting_approval")
       throw new ApiError(
@@ -886,7 +892,7 @@ export async function approvePublicationSchedule(
     // resolved offset is stored: for such a row the time happens once, so it
     // is not a guess and its hash, which leaves that offset out, still holds.
     const { occurrences, offsetMinutes } = planSlots(
-      scheduleRuleSchema.parse(row.rule),
+      parseStored(scheduleRuleSchema, row.rule, "post_schedule.rule"),
       row.timezone,
       row.offsetMinutes,
       409
@@ -1019,7 +1025,8 @@ export async function revisePublicationSchedule(
       )
     if (once) await requireOnlyOnceSchedule(sql, row.sourcePostId!, scheduleId)
     const template =
-      source?.template ?? localPostInputSchema.parse(row.template)
+      source?.template ??
+      parseStored(localPostInputSchema, row.template, "post_schedule.template")
     validateShape(template, input.rule, input.eventOffsets)
     const { offsetMinutes } = planSlots(
       input.rule,
@@ -1118,7 +1125,7 @@ export async function actOnPublicationSchedule(
         await requireScheduling(
           sql,
           session.organisationId,
-          scheduleRuleSchema.parse(row.rule)
+          parseStored(scheduleRuleSchema, row.rule, "post_schedule.rule")
         )
         await sql`update post_publication_schedule set status = 'awaiting_approval', updated_at = now() where id = ${scheduleId}`
       } else {
@@ -1131,7 +1138,7 @@ export async function actOnPublicationSchedule(
         await requireScheduling(
           sql,
           session.organisationId,
-          scheduleRuleSchema.parse(row.rule)
+          parseStored(scheduleRuleSchema, row.rule, "post_schedule.rule")
         )
         await requireUnchangedTwoPersonPolicy(
           sql,
@@ -1142,14 +1149,19 @@ export async function actOnPublicationSchedule(
         // The approver must still be an owner or admin, holding the security
         // version their approval recorded (operator MFA recovery since then
         // voids it).
-        await requireCurrentManager(sql, session.organisationId, row.approvedBy, {
-          securityVersion: row.approvedSecurityVersion,
-          refusal: {
-            code: "approval_actor_access_changed",
-            message:
-              "An initiating or approving user's access changed. The schedule needs a fresh approval.",
-          },
-        })
+        await requireCurrentManager(
+          sql,
+          session.organisationId,
+          row.approvedBy,
+          {
+            securityVersion: row.approvedSecurityVersion,
+            refusal: {
+              code: "approval_actor_access_changed",
+              message:
+                "An initiating or approving user's access changed. The schedule needs a fresh approval.",
+            },
+          }
+        )
         await sql`update post_publication_schedule set status = 'active', updated_at = now() where id = ${scheduleId}`
       }
     } else {
@@ -1196,13 +1208,17 @@ export async function listScheduleOccurrences(
         ${query.clientId ? sql`and l.client_id = ${query.clientId}` : sql``}
       order by o.intended_at, o.id
       limit 2000`
-    return occurrencesResponseSchema.parse({
-      occurrences: rows.map((row) => ({
-        ...row,
-        intendedAt: (row.intendedAt as Date).toISOString(),
-        deadlineAt: (row.deadlineAt as Date).toISOString(),
-      })),
-    })
+    return parseStored(
+      occurrencesResponseSchema,
+      {
+        occurrences: rows.map((row) => ({
+          ...row,
+          intendedAt: (row.intendedAt as Date).toISOString(),
+          deadlineAt: (row.deadlineAt as Date).toISOString(),
+        })),
+      },
+      "post_schedule.occurrences"
+    )
   })
 }
 
@@ -1289,22 +1305,26 @@ export async function listLegacySchedules(
       where r.location_id = ${locationId} and r.status = 'needs_review' and p.status <> 'deleted'
       order by r.scheduled_publish_time nulls last, r.id
       limit 100`
-    return legacySchedulesResponseSchema.parse({
-      legacySchedules: rows.map((row) => ({
-        id: row.id,
-        postId: row.postId,
-        summary: row.summary ?? "",
-        topicType: row.topicType,
-        scheduledPublishTime: row.scheduledPublishTime?.toISOString() ?? null,
-        repeats: row.repeats,
-        // A post that already has a live one-time schedule (one requested
-        // before this review closed rows, or by a member) cannot take a
-        // second: the old time is dismissed instead.
-        schedulable: publishableSource(row) && !row.onceScheduled,
-        alreadyScheduled: row.onceScheduled,
-        createdAt: row.createdAt.toISOString(),
-      })),
-    })
+    return parseStored(
+      legacySchedulesResponseSchema,
+      {
+        legacySchedules: rows.map((row) => ({
+          id: row.id,
+          postId: row.postId,
+          summary: row.summary ?? "",
+          topicType: row.topicType,
+          scheduledPublishTime: row.scheduledPublishTime?.toISOString() ?? null,
+          repeats: row.repeats,
+          // A post that already has a live one-time schedule (one requested
+          // before this review closed rows, or by a member) cannot take a
+          // second: the old time is dismissed instead.
+          schedulable: publishableSource(row) && !row.onceScheduled,
+          alreadyScheduled: row.onceScheduled,
+          createdAt: row.createdAt.toISOString(),
+        })),
+      },
+      "post_schedule.legacy_schedules"
+    )
   })
 }
 

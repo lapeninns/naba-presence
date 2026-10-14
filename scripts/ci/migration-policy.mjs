@@ -8,6 +8,11 @@
 //   - a new migration's name does not match NNNN_snake_case.sql
 //   - a new version is at or below the merge base's highest version, or two
 //     new files share a version
+//   - a new migration contains contract-type or table-locking DDL (drop,
+//     rename, set not null, a non-concurrent index on an existing table, ...;
+//     contractOperations in scripts/migration-rules.mjs) without a
+//     `-- migrate:contract <reason>` header, or an invalid
+//     `-- migrate:lock-timeout` header
 // Needs full history (actions/checkout fetch-depth: 0). Writes
 // MIGRATION_BASE_SHA to $GITHUB_ENV when set, for the upgrade test.
 
@@ -15,8 +20,13 @@ import { execFileSync } from "node:child_process"
 import { appendFileSync } from "node:fs"
 
 import {
+  CONTRACT_MARKER,
   MIGRATION_FILE_PATTERN,
+  contractOperations,
+  contractReason,
   highestVersion,
+  migrationLockTimeout,
+  prepareMigration,
   versionNumber,
 } from "../migration-rules.mjs"
 
@@ -94,6 +104,28 @@ for (const file of added.sort()) {
     )
   }
   seen.set(version, file)
+
+  const text = git("show", `HEAD:${DIRECTORY}/${file}`)
+  try {
+    const { transactional } = prepareMigration(file, text)
+    migrationLockTimeout(file, text, { transactional })
+  } catch (error) {
+    failures.push(error.message)
+  }
+  const reason = contractReason(text)
+  const operations = contractOperations(text)
+  if (operations.length > 0 && !reason) {
+    for (const { line, operation } of operations) {
+      failures.push(
+        `${file}:${line}: ${operation} is a contract or table-locking change; ` +
+          `ship it in its own PR after the code stops depending on the old ` +
+          `shape, with a "${CONTRACT_MARKER} <reason>" header (docs/ci.md, ` +
+          `"Migration safety")`
+      )
+    }
+  } else if (reason) {
+    console.log(`migration-policy: ${file} is a contract migration: ${reason}`)
+  }
 }
 
 console.log(

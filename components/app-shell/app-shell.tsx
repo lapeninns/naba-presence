@@ -37,26 +37,12 @@ import { ShellNotices } from "./shell-notices"
 import { ShellOAuthReturn } from "./shell-oauth-return"
 import { TabBar } from "./tab-bar"
 import { Toolbar } from "./topbar"
+import type { ShellSession } from "./shell-session"
 import { useNeedsReplyCount } from "./use-needs-reply-count"
 
-// `Session` (lib/server/session) lives behind a `server-only` import gate, so
-// this client component can't reference it directly. `ShellSession` mirrors
-// its fields exactly — the dashboard layout hands its server `Session` object
-// straight to this prop, and structural typing accepts it without a cast.
-export type ShellSession = {
-  sessionId: string
-  userId: string
-  organisationId: string
-  organisationName: string
-  displayName: string
-  email: string
-  role: "owner" | "admin" | "member" | "viewer"
-  canPublish: boolean
-  workspaceMode: WorkspaceMode
-  /** Set only inside a support impersonation session. */
-  supportActor?: string | null
-  impersonationReason?: string | null
-}
+// The shell's session props are display fields only (shell-session.ts):
+// the dashboard layout projects its server `Session` with `toShellSession`.
+export type { ShellSession }
 
 /**
  * A session cookie is required before any protected query can succeed. The

@@ -7,6 +7,7 @@ import { useRef, useState } from "react"
 import { SettingsSection } from "@/components/settings/settings-section"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogBody,
@@ -47,7 +48,10 @@ import {
 } from "@/lib/api/privacy"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { queryKeys } from "@/lib/queries/keys"
-import { usePrivacyRequests } from "@/lib/queries/use-privacy"
+import {
+  usePrivacyPreview,
+  usePrivacyRequests,
+} from "@/lib/queries/use-privacy"
 import {
   privacyRequestFormSchema,
   REQUEST_TYPE_OPTIONS,
@@ -56,6 +60,7 @@ import {
 } from "@/lib/settings/forms/privacy-request"
 import type { PrivacyGating } from "@/lib/settings/gating"
 import {
+  describeErasurePreview,
   fulfilDescription,
   hasPendingWithdrawal,
   isOpenRequest,
@@ -232,10 +237,14 @@ type Resolution = { request: PrivacyRequest; mode: "fulfil" | "reject" }
 
 /**
  * Fulfil or reject one open request, with the resolution note the route
- * requires. A legal hold refuses an erasure (409) and keeps the dialog open
- * saying so; a reply Google would not drop (409) is not a failure here: the
- * local erasure committed and the job tick retries the withdrawal, so the
- * dialog closes and the row shows it in progress.
+ * requires. An erasure first shows what it matches (GET .../preview) and
+ * sends that preview's confirmation back; when the matches may span more
+ * than one person the owner also ticks that they checked them. A match set
+ * that changed in between (409 `privacy_erasure_unconfirmed`) is counted
+ * again and nothing is erased. A legal hold refuses an erasure (409) and
+ * keeps the dialog open saying so; a reply Google would not drop (409) is
+ * not a failure here: the local erasure committed and the job tick retries
+ * the withdrawal, so the dialog closes and the row shows it in progress.
  */
 function ResolveDialog({
   target,
@@ -252,11 +261,19 @@ function ResolveDialog({
     title: string
     message: string
   } | null>(null)
+  const [acknowledged, setAcknowledged] = useState(false)
+  const erasure =
+    target?.mode === "fulfil" && target.request.requestType === "erasure"
+  const preview = usePrivacyPreview(erasure ? target.request.id : null)
+  const matches = preview.data
+    ? describeErasurePreview(preview.data.preview)
+    : null
 
   const close = () => {
     setNote("")
     setNoteError(null)
     setFormError(null)
+    setAcknowledged(false)
     onClose()
   }
 
@@ -268,10 +285,11 @@ function ResolveDialog({
       request,
       mode,
       resolutionNote,
-    }: Resolution & { resolutionNote: string }) =>
+      confirmation,
+    }: Resolution & { resolutionNote: string; confirmation?: string }) =>
       updatePrivacyRequest(
         mode === "fulfil"
-          ? { id: request.id, action: "fulfil", resolutionNote }
+          ? { id: request.id, action: "fulfil", resolutionNote, confirmation }
           : { id: request.id, status: "rejected", resolutionNote }
       ),
     onSuccess: async (result, input) => {
@@ -298,6 +316,16 @@ function ResolveDialog({
             type: "warning",
           })
           close()
+          return
+        }
+        if (error.code === "privacy_erasure_unconfirmed") {
+          setAcknowledged(false)
+          await preview.refetch()
+          setFormError({
+            title: "The matching reviews changed",
+            message:
+              "Nothing was erased. Check the new counts above and confirm again.",
+          })
           return
         }
         if (error.code === "privacy_legal_hold") {
@@ -331,8 +359,17 @@ function ResolveDialog({
     }
     setNoteError(null)
     setFormError(null)
-    resolve.mutate({ ...target, resolutionNote: trimmed })
+    resolve.mutate({
+      ...target,
+      resolutionNote: trimmed,
+      confirmation: erasure ? preview.data?.preview.confirmation : undefined,
+    })
   }
+
+  // An erasure is only sent against counts the owner has seen, and ticked
+  // through when they may cover more than one person.
+  const awaitingConfirmation =
+    erasure && (!matches || (matches.acknowledge !== null && !acknowledged))
 
   const request = target?.request
   const fulfil = target?.mode === "fulfil"
@@ -364,6 +401,48 @@ function ResolveDialog({
         </DialogHeader>
         <form noValidate onSubmit={onSubmit} className="contents">
           <DialogBody>
+            {erasure ? (
+              preview.isError ? (
+                <Alert variant="destructive">
+                  <AlertTitle>
+                    We couldn’t count the matching reviews
+                  </AlertTitle>
+                  <AlertDescription>
+                    {describeActionError(preview.error)}{" "}
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => void preview.refetch()}
+                    >
+                      Try again
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              ) : matches ? (
+                <Alert
+                  data-testid="erasure-preview"
+                  variant={matches.acknowledge ? "warning" : "default"}
+                >
+                  <AlertTitle>{matches.title}</AlertTitle>
+                  <AlertDescription>
+                    {matches.lines.map((line) => (
+                      <p key={line}>{line}</p>
+                    ))}
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <p className="text-ink-muted" role="status">
+                  Counting the reviews this erasure matches…
+                </p>
+              )
+            ) : null}
+            {matches?.acknowledge ? (
+              <Checkbox
+                checked={acknowledged}
+                onCheckedChange={(checked) => setAcknowledged(Boolean(checked))}
+                label={matches.acknowledge}
+              />
+            ) : null}
             <Field error={noteError ?? undefined}>
               <FieldLabel>Resolution note</FieldLabel>
               <Textarea
@@ -388,11 +467,14 @@ function ResolveDialog({
             <DialogClose render={<Button variant="ghost">Cancel</Button>} />
             <Button
               type="submit"
-              variant={fulfil ? "default" : "danger"}
+              variant={fulfil && !erasure ? "default" : "danger"}
+              disabled={awaitingConfirmation}
               pending={resolve.isPending}
               pendingLabel={fulfil ? "Fulfilling…" : "Rejecting…"}
             >
-              {fulfil ? "Fulfil request" : "Reject request"}
+              {fulfil
+                ? (matches?.submitLabel ?? "Fulfil request")
+                : "Reject request"}
             </Button>
           </DialogFooter>
         </form>
