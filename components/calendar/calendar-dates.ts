@@ -92,9 +92,17 @@ export function stepAnchor(
   )
 }
 
+/** Thin and narrow no-break spaces, which ICU versions use differently. */
+const ICU_SPACES = /[\u2009\u202f]/g
+
 /**
  * "October 2026" for a month; "12 – 18 Oct 2026" (or "28 Sept – 4 Oct 2026")
  * for a week or the agenda's 31 days, never two ISO dates.
+ *
+ * The range is spaced with plain spaces whatever the ICU data says: newer ICU
+ * (Node's) puts thin spaces (U+2009) around the dash where browsers put plain
+ * ones, and that one-character difference made the server's heading differ
+ * from the browser's, so the calendar failed to hydrate (React #418).
  */
 export function periodHeading(
   view: CalendarView,
@@ -113,7 +121,9 @@ export function periodHeading(
     month: "short",
     year: "numeric",
     timeZone: "UTC",
-  }).formatRange(range.from, last)
+  })
+    .formatRange(range.from, last)
+    .replace(ICU_SPACES, " ")
 }
 
 /** "Tuesday 14 October". */

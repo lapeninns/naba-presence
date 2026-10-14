@@ -400,6 +400,8 @@ export function PostComposerSheet({
   const weekdaysLabelId = useId()
   const mediaLabelId = useId()
   const previewId = useId()
+  const disabledReasonId = useId()
+  const saveReasonId = useId()
   // On a phone the preview waits under the fields until asked for.
   const [previewOpen, setPreviewOpen] = useState(true)
   // Photos are carried over as they are: there is no upload or removal in
@@ -452,6 +454,15 @@ export function PostComposerSheet({
   })
 
   const disabled = Boolean(disabledReason)
+  // Why Save is off, in words. A disabled composer's reason is the note in
+  // the body; otherwise Save waits for a change (the condition on the
+  // button below), and the footer says so.
+  const saveReason =
+    disabled || isDirty
+      ? null
+      : editing
+        ? "No changes to save yet."
+        : "Nothing to save yet. Write the post first."
   const event = values.topicType !== "STANDARD"
   const offer = values.topicType === "OFFER"
   const summaryLength = values.summary.length
@@ -1002,7 +1013,11 @@ export function PostComposerSheet({
                 </p>
               ) : null}
               {disabledReason ? (
-                <p role="note" className="pt-3 text-caption text-ink-muted">
+                <p
+                  id={disabledReasonId}
+                  role="note"
+                  className="pt-3 text-caption text-ink-muted"
+                >
                   {disabledReason}
                 </p>
               ) : null}
@@ -1060,9 +1075,14 @@ export function PostComposerSheet({
         </SheetBody>
 
         <SheetFooter className="sm:items-center">
-          <span className="hidden text-caption text-ink-muted sm:mr-auto sm:block">
-            Posts publish when you press Publish; scheduling isn’t available.
-          </span>
+          {/* Shown at every width: on a phone it wraps above the buttons. */}
+          <div className="flex min-w-0 flex-col gap-0.5 text-caption text-pretty text-ink-muted sm:mr-auto sm:flex-1">
+            {saveReason ? <p id={saveReasonId}>{saveReason}</p> : null}
+            <p>
+              Posts publish when you press Publish; scheduling isn’t
+              available.
+            </p>
+          </div>
           {/* Marked as the overlay's close control so a dirty composer
                 asks before Cancel throws a half-written post away, as a
                 swipe or Escape does. */}
@@ -1072,6 +1092,9 @@ export function PostComposerSheet({
           <Button
             onClick={submit}
             disabled={disabled || !isDirty}
+            aria-describedby={
+              disabled ? disabledReasonId : saveReason ? saveReasonId : undefined
+            }
             pending={create.isPending}
             pendingLabel="Saving…"
           >

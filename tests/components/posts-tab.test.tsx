@@ -99,6 +99,47 @@ describe("PostsTab", () => {
     ).toBeEnabled()
   })
 
+  // RC3 #15 and #20: Save draft was off with no reason, and the footer's
+  // "scheduling isn't available" note was hidden below 640px.
+  it("says in words why Save draft is off, and keeps the footer note at every width", async () => {
+    const user = userEvent.setup()
+    usePostsMock.mockReturnValue({
+      data: makeState(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await user.click(screen.getByRole("button", { name: "New post" }))
+    const sheet = await screen.findByRole("dialog")
+    const save = within(sheet).getByRole("button", { name: "Save draft" })
+    expect(save).toBeDisabled()
+    expect(save).toHaveAccessibleDescription(
+      "Nothing to save yet. Write the post first."
+    )
+    expect(
+      within(sheet).getByText("Nothing to save yet. Write the post first.")
+    ).toBeVisible()
+
+    const note = within(sheet).getByText(/scheduling isn’t available/)
+    for (let node: HTMLElement | null = note; node && node !== sheet; node = node.parentElement)
+      expect(node.className).not.toMatch(/(^|\s)(hidden|max-sm:hidden|sr-only)(\s|$)/)
+
+    await user.type(
+      within(sheet).getByRole("textbox", { name: "Post summary" }),
+      "Late opening on Friday"
+    )
+    expect(save).toBeEnabled()
+    expect(save).not.toHaveAttribute("aria-describedby")
+    expect(
+      within(sheet).queryByText("Nothing to save yet. Write the post first.")
+    ).toBeNull()
+  })
+
   it("sets a post to repeat weekly and shows the repeat on the list", async () => {
     const user = userEvent.setup()
     usePostsMock.mockReturnValue({
