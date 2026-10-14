@@ -110,6 +110,12 @@ const COPY: Record<string, string> = {
   // allowance: waiting is enough.
   draft_rate_limited:
     "Too many drafts were requested in a short time. Wait a moment and try again.",
+  verify_rate_limited:
+    "Too many drafts were checked in a short time. Wait a moment and try again.",
+  sync_rate_limited:
+    "Too many syncs were requested in a short time. Scheduled syncs keep running; try again in a few minutes.",
+  bulk_rate_limited:
+    "Too many requests like this in a short time. Wait a few minutes and try again.",
   discovery_rate_limited:
     "Google accounts and locations were refreshed too often. Wait a few minutes and try again.",
   google_writes_paused: "Publishing to Google is currently unavailable.",

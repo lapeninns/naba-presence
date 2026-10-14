@@ -162,20 +162,20 @@ export const FLEET_LEASE_SECONDS = 90
 /** A run still going renews its lease this often, well inside the expiry. */
 const FLEET_LEASE_RENEW_MS = 30_000
 
-async function renewFleetLease(connection: Sql, key: LeaseKey, holder: string) {
+async function renewFleetLease(connection: Sql, name: string, holder: string) {
   try {
     const renewed = await connection`
       update fleet_lease
       set expires_at = now() + make_interval(secs => ${FLEET_LEASE_SECONDS})
-      where name = ${key}
+      where name = ${name}
         and holder = ${holder}
       returning name
     `
     // Only possible after this holder stopped renewing for a whole expiry
     // (a frozen instance that thawed): another tick may now hold the lease.
-    if (!renewed.length) log.warn("leases.lease_lost", { key })
+    if (!renewed.length) log.warn("leases.lease_lost", { key: name })
   } catch (error) {
-    log.warn("leases.renew_failed", { key, error })
+    log.warn("leases.renew_failed", { key: name, error })
   }
 }
 
@@ -194,13 +194,19 @@ async function renewFleetLease(connection: Sql, key: LeaseKey, holder: string) {
  *
  * Plain pooled statements, so a tick no longer holds a session-pooler
  * connection for its whole run.
+ *
+ * `options.scope` narrows the lease to one subject under the tick (an
+ * organisation's own sync now: `naba:reconcile:<organisationId>`), so tenants
+ * never wait on each other's manual runs. The run is still recorded on the
+ * tick's heartbeat row.
  */
 export async function withFleetLease<T>(
   key: LeaseKey,
   fn: () => Promise<T>,
-  options: { trigger?: TickTrigger } = {}
+  options: { trigger?: TickTrigger; scope?: string } = {}
 ): Promise<T | { skipped: true }> {
   const trigger = options.trigger ?? "cron"
+  const name = options.scope ? `${key}:${options.scope}` : key
   const connection = getDatabase()
   const holder = randomUUID()
   // Concurrent takers serialise on the row: the loser re-checks the expiry
@@ -208,7 +214,7 @@ export async function withFleetLease<T>(
   const [taken] = await connection<{ name: string }[]>`
     insert into fleet_lease (name, holder, acquired_at, expires_at)
     values (
-      ${key},
+      ${name},
       ${holder},
       now(),
       now() + make_interval(secs => ${FLEET_LEASE_SECONDS})
@@ -228,7 +234,7 @@ export async function withFleetLease<T>(
   // and never be overtaken by it.
   let renewal: Promise<void> = Promise.resolve()
   const timer = setInterval(() => {
-    renewal = renewal.then(() => renewFleetLease(connection, key, holder))
+    renewal = renewal.then(() => renewFleetLease(connection, name, holder))
   }, FLEET_LEASE_RENEW_MS)
   timer.unref?.()
   try {
@@ -250,7 +256,7 @@ export async function withFleetLease<T>(
     await connection`
       update fleet_lease
       set expires_at = now()
-      where name = ${key}
+      where name = ${name}
         and holder = ${holder}
     `.catch((error: unknown) => {
       log.warn("leases.release_failed", { key, error })

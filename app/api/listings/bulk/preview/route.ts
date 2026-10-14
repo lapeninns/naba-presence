@@ -9,5 +9,11 @@ export const maxDuration = 60
 export const POST = route({
   maxDuration,
   body: bulkPreviewRequestSchema,
+  // Reads every targeted listing's current value (W3-07).
+  limits: ({ session }) => ({
+    scope: "bulk_request",
+    user: session.userId,
+    organisation: session.organisationId,
+  }),
   handler: async ({ session, body, requestId }) => ({ operation: await previewBulkOperation(session, body, requestId) }),
 })

@@ -412,6 +412,79 @@ describeDatabase("scheduler fleet leases", () => {
     ).toHaveLength(1)
   })
 
+  describe("Sync now locks only its own organisation (W8-08)", () => {
+    function syncNow(cookie: string) {
+      return fetch(`${server.baseUrl}/api/sync/reconcile`, {
+        method: "POST",
+        headers: { cookie, "content-type": "application/json" },
+        body: "{}",
+      })
+    }
+
+    function respondSlowly() {
+      stub.reset()
+      stub.respond({ method: "GET", pathIncludes: "/reviews" }, () => ({
+        status: 200,
+        json: { reviews: [] },
+        delayMs: 300,
+      }))
+    }
+
+    it("lets two tenants sync at once", async () => {
+      const first = await linkedFixture()
+      const second = await linkedFixture()
+      respondSlowly()
+
+      const responses = await Promise.all([
+        syncNow(first.owner.cookie),
+        syncNow(second.owner.cookie),
+      ])
+      for (const response of responses) {
+        expect(response.status, await response.clone().text()).toBe(200)
+        const body = (await response.json()) as {
+          skipped?: true
+          processed: number
+        }
+        expect(body.skipped).toBeUndefined()
+        expect(body.processed).toBe(1)
+      }
+      for (const fixture of [first, second]) {
+        expect(
+          stub.calls.filter(
+            (call) =>
+              call.method === "GET" &&
+              call.path.includes(fixture.linked.googleLocationName)
+          )
+        ).toHaveLength(1)
+      }
+    })
+
+    it("skips while the same organisation's sync holds its lease, and never waits on the fleet's", async () => {
+      const held = await linkedFixture()
+      const free = await linkedFixture()
+      respondSlowly()
+      const heldKey = `naba:reconcile:${held.owner.organisationId}`
+      await holdLease(heldKey)
+      await holdLease("naba:reconcile")
+      try {
+        const skipped = await syncNow(held.owner.cookie)
+        expect(skipped.status, await skipped.clone().text()).toBe(200)
+        expect(await skipped.json()).toMatchObject({ skipped: true })
+
+        const ran = await syncNow(free.owner.cookie)
+        expect(ran.status, await ran.clone().text()).toBe(200)
+        expect(await ran.json()).not.toHaveProperty("skipped")
+
+        // The cron walk still takes the fleet lease.
+        const cron = await cronPost("/api/sync/reconcile")
+        expect(await cron.json()).toMatchObject({ skipped: true })
+      } finally {
+        await releaseLease(heldKey)
+        await releaseLease("naba:reconcile")
+      }
+    })
+  })
+
   it("reaches the second tenant by following the returned cursor", async () => {
     const first = await linkedFixture()
     const second = await linkedFixture()

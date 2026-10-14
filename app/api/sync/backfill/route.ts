@@ -94,6 +94,12 @@ export const GET = route({
 export const POST = route({
   maxDuration,
   roles: ["owner", "admin"],
+  // A person's sync now, counted with the /api/sync/* session runs (W3-07).
+  limits: ({ session }) => ({
+    scope: "sync_manual",
+    user: session.userId,
+    organisation: session.organisationId,
+  }),
   handler: async ({
     request,
     session,
