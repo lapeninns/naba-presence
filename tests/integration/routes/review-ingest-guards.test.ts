@@ -617,7 +617,7 @@ describeDatabase("guarded review ingest", () => {
       await backfill(fixture)
       expect(await rowVersions(fixture)).toEqual(before)
 
-      const replyRemoved = { ...replied }
+      const replyRemoved: Payload = { ...replied }
       delete replyRemoved.reviewReply
       serve([plain, replyRemoved])
       await backfill(fixture)
