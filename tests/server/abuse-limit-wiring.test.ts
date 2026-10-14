@@ -12,6 +12,8 @@ import {
 import { POST as uploadAsset } from "@/app/api/assets/route"
 import { POST as enrollMfa } from "@/app/api/auth/mfa/enroll/route"
 import { POST as draft } from "@/app/api/reviews/[id]/drafts/route"
+import { GET as discoverAccounts } from "@/app/api/google/accounts/route"
+import { GET as discoverLocations } from "@/app/api/google/locations/route"
 import { POST as impersonate } from "@/app/api/support/impersonation/route"
 import { GET as confirmEmail } from "@/app/auth/confirm/route"
 import { abuseLimitedError, takeAbuseBudget } from "@/lib/server/abuse-limits"
@@ -70,6 +72,10 @@ function post(
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
   })
+}
+
+function get(path: string) {
+  return new Request(`http://localhost${path}`)
 }
 
 function call(handler: RouteHandler, req: Request, params: RawParams = {}) {
@@ -196,6 +202,20 @@ describe.each([
       ),
     scope: "asset_upload",
     code: "asset_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "Google account discovery",
+    send: () => call(discoverAccounts, get("/x")),
+    scope: "google_discovery",
+    code: "discovery_rate_limited",
+    keys: { user: session.userId, organisation: session.organisationId },
+  },
+  {
+    name: "Google location discovery",
+    send: () => call(discoverLocations, get("/x?account_name=accounts/1")),
+    scope: "google_discovery",
+    code: "discovery_rate_limited",
     keys: { user: session.userId, organisation: session.organisationId },
   },
 ])("$name", ({ send, scope, keys, code = "auth_rate_limited" }) => {
