@@ -12,7 +12,10 @@ import {
 } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
-import { HoursEditor } from "@/components/locations/hours-editor"
+import {
+  HoursEditor,
+  type HoursEditorHandle,
+} from "@/components/locations/hours-editor"
 import { LocationTab } from "@/components/locations/location-tab"
 import { Button } from "@/components/ui/button"
 import {
@@ -195,6 +198,8 @@ function HoursForm({
   // Validation shows after the first save or review attempt, then follows
   // every edit so a fixed field clears its message straight away.
   const [attempts, setAttempts] = useState(0)
+  // A special day's fields sit in its sheet: a summary link opens it first.
+  const editorRef = useRef<HoursEditorHandle>(null)
 
   const issues = useMemo(() => validateHours(draft), [draft])
   const fieldErrors = useMemo(() => {
@@ -502,6 +507,7 @@ function HoursForm({
             : `${issues.length} problems to fix before saving or publishing`
         }
         focusKey={attempts}
+        onNavigate={(fieldId) => editorRef.current?.reveal(fieldId)}
       />
 
       <p className="flex flex-wrap items-center gap-2 text-ui text-ink-secondary">
@@ -520,6 +526,7 @@ function HoursForm({
       </p>
 
       <HoursEditor
+        ref={editorRef}
         value={draft}
         onChange={setDraft}
         disabled={disabled}

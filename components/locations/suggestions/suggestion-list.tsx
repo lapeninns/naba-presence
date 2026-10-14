@@ -7,6 +7,8 @@ import { useState } from "react"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { DiffView } from "@/components/ui/diff-view"
+import { ListRow } from "@/components/ui/list-row"
+import { SettingsGroup } from "@/components/ui/settings-row"
 import { StatusPill } from "@/components/ui/status-pill"
 import { useToastManager } from "@/components/ui/toast"
 import { ApiClientError } from "@/lib/api/client"
@@ -134,10 +136,11 @@ const DECISION_TOAST: Record<Decision, { title: string; description: string }> =
   }
 
 /**
- * One resource's worth of pending suggestions from Google: a group whose
- * label names the resource and its pending count, with a link to the editor
- * on the right, then one list row per decision. On a phone the group has no
- * card chrome, only hairlines between rows; the desk keeps a bordered card.
+ * One resource's worth of pending suggestions from Google: a settings group
+ * whose label names the resource and its pending count, with a link to the
+ * editor on the right, then one list row per decision, its actions in the
+ * row's footer. On a phone the group has no card chrome, only hairlines
+ * between rows; the desk keeps a bordered card.
  *
  * Each row shows what NabaPresence holds ("Here now") against what Google
  * shows ("On Google"), then Accept / Ignore. Accepting changes the local
@@ -251,37 +254,39 @@ export function SuggestionList({
     run(proposal, action)
   }
 
-  return (
-    <section
-      aria-labelledby={headingId}
-      data-slot="suggestion-list"
-      className="flex flex-col gap-1.5"
+  const openEditor = (
+    <Link
+      href={editorHref}
+      className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "-mr-2")}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h2 id={headingId} className="text-caption font-medium text-ink-muted">
-          {label}{" "}
-          <span className="font-normal tabular-nums">
-            · {proposals.length} waiting
-          </span>
-        </h2>
-        <Link
-          href={editorHref}
-          className={cn(
-            buttonVariants({ variant: "ghost", size: "sm" }),
-            "ml-auto"
-          )}
-        >
-          Open {label.toLowerCase()}
-        </Link>
-      </div>
+      Open {label.toLowerCase()}
+    </Link>
+  )
 
-      {proposals.length === 0 ? (
-        <p className="py-3 text-ui text-ink-muted desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface desk:px-(--np-card-pad)">
-          Nothing waiting here. Changes made on Google appear here for review.
-        </p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface">
-          {proposals.map((proposal) => {
+  return (
+    <>
+      <SettingsGroup
+        data-slot="suggestion-list"
+        headingId={headingId}
+        label={
+          <>
+            {label}{" "}
+            <span className="font-normal tabular-nums">
+              · {proposals.length} waiting
+            </span>
+          </>
+        }
+        actions={openEditor}
+        card
+        bodyAs={proposals.length === 0 ? "div" : "ul"}
+        className="mt-0"
+      >
+        {proposals.length === 0 ? (
+          <p className="py-3 text-ui text-ink-muted desk:px-(--np-card-pad)">
+            Nothing waiting here. Changes made on Google appear here for review.
+          </p>
+        ) : (
+          proposals.map((proposal) => {
             const missing =
               proposal.kind === "item_missing_from_google" ||
               proposal.kind === "section_missing_from_google"
@@ -291,157 +296,174 @@ export function SuggestionList({
             const failure = failures[proposal.id]
             const working = workingId === proposal.id
             return (
-              <li
+              <ListRow
                 key={proposal.id}
-                data-slot="suggestion"
-                className="flex flex-col gap-3 py-4 desk:px-(--np-card-pad)"
-              >
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="mr-auto min-w-0 text-body font-medium break-words text-ink">
-                    {proposalTitle(proposal)}
-                  </span>
-                  <StatusPill
-                    tone={isAmbiguous(proposal) ? "attention" : "pending"}
-                  >
-                    {isAmbiguous(proposal)
-                      ? "Can't match automatically"
-                      : KIND_LABELS[proposal.kind]}
-                  </StatusPill>
-                  {alsoEditedHere ? (
-                    <StatusPill tone="attention">Also edited here</StatusPill>
-                  ) : null}
-                </div>
-                {isAmbiguous(proposal) ? (
-                  // The two-column Here/Google summary would be meaningless:
-                  // the row stands for several items that cannot be told apart.
-                  <p className="text-ui text-ink-secondary">
-                    {ambiguousLabels(proposal).length
-                      ? `${ambiguousLabels(proposal)
-                          .map((name) => `“${name}”`)
-                          .join(
-                            ", "
-                          )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or accept Google's menu as a whole.`
-                      : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or accept Google's menu as a whole."}
-                  </p>
-                ) : (
-                  <DiffView
-                    caption={`${proposalTitle(proposal)}: what NabaPresence holds against what Google shows`}
-                    beforeLabel="Here now"
-                    afterLabel="On Google"
-                    rows={[
-                      {
-                        field: proposalFieldLabel(proposal),
-                        before: valueSummary(proposal.canonicalValue),
-                        after: valueSummary(proposal.googleValue),
-                        state: "changed",
-                      },
-                    ]}
-                  />
-                )}
-                {proposal.warnings
-                  .filter(
-                    (warning) =>
-                      warning !== "canonical_also_changed" &&
-                      warning !== "no_baseline" &&
-                      warning !== AMBIGUOUS_LABELS_WARNING
-                  )
-                  .map((warning) => (
-                    <p key={warning} className="text-caption text-ink-muted">
-                      {warning}
-                    </p>
-                  ))}
-                {failure ? (
-                  <div
-                    role="alert"
-                    className="flex flex-wrap items-center gap-2 text-ui"
-                  >
-                    <StatusPill tone="at-risk">Not applied</StatusPill>
-                    <span className="min-w-0 grow basis-64 text-ink">
-                      {failure.message}
-                    </span>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={disabled}
-                      disabledReason={gateReason}
-                      onClick={() => startDecision(proposal, failure.action)}
+                as="li"
+                flush
+                wrap
+                interactive={false}
+                emphasis="neutral"
+                wrapperProps={{ "data-slot": "suggestion" }}
+                wrapperClassName="desk:px-(--np-card-pad)"
+                title={proposalTitle(proposal)}
+                subtitle={
+                  <span className="flex flex-wrap items-center gap-1.5 pt-1">
+                    <StatusPill
+                      tone={isAmbiguous(proposal) ? "attention" : "pending"}
                     >
-                      <RefreshCwIcon aria-hidden />
-                      Retry
-                    </Button>
-                  </div>
-                ) : null}
-                <div className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {missing ? (
-                      <>
-                        <Button
-                          variant="secondary"
-                          disabled={disabled}
-                          disabledReason={gateReason}
-                          pending={
-                            working && decide.variables?.action === "keep_local"
-                          }
-                          onClick={() => startDecision(proposal, "keep_local")}
-                        >
-                          Keep here
-                        </Button>
-                        <Button
-                          variant="danger-outline"
-                          disabled={disabled}
-                          disabledReason={gateReason}
-                          pending={
-                            working &&
-                            decide.variables?.action === "delete_local"
-                          }
-                          onClick={() =>
-                            startDecision(proposal, "delete_local")
-                          }
-                        >
-                          Remove here
-                        </Button>
-                      </>
+                      {isAmbiguous(proposal)
+                        ? "Can't match automatically"
+                        : KIND_LABELS[proposal.kind]}
+                    </StatusPill>
+                    {alsoEditedHere ? (
+                      <StatusPill tone="attention">Also edited here</StatusPill>
+                    ) : null}
+                  </span>
+                }
+                footerLayout="stack"
+                footer={
+                  <div className="flex min-w-0 flex-col gap-3 pt-2">
+                    {isAmbiguous(proposal) ? (
+                      // The two-column Here/Google summary would be meaningless:
+                      // the row stands for several items that cannot be told apart.
+                      <p className="text-ui text-ink-secondary">
+                        {ambiguousLabels(proposal).length
+                          ? `${ambiguousLabels(proposal)
+                              .map((name) => `“${name}”`)
+                              .join(
+                                ", "
+                              )} appears more than once at the same price, so these items can't be matched one by one. Rename them here or on Google, or accept Google's menu as a whole.`
+                          : "Items in this section can't be matched one by one. Rename the duplicates here or on Google, or accept Google's menu as a whole."}
+                      </p>
                     ) : (
-                      <>
+                      <DiffView
+                        caption={`${proposalTitle(proposal)}: what NabaPresence holds against what Google shows`}
+                        beforeLabel="Here now"
+                        afterLabel="On Google"
+                        rows={[
+                          {
+                            field: proposalFieldLabel(proposal),
+                            before: valueSummary(proposal.canonicalValue),
+                            after: valueSummary(proposal.googleValue),
+                            state: "changed",
+                          },
+                        ]}
+                      />
+                    )}
+                    {proposal.warnings
+                      .filter(
+                        (warning) =>
+                          warning !== "canonical_also_changed" &&
+                          warning !== "no_baseline" &&
+                          warning !== AMBIGUOUS_LABELS_WARNING
+                      )
+                      .map((warning) => (
+                        <p
+                          key={warning}
+                          className="text-caption text-ink-muted"
+                        >
+                          {warning}
+                        </p>
+                      ))}
+                    {failure ? (
+                      <div
+                        role="alert"
+                        className="flex flex-wrap items-center gap-2 text-ui"
+                      >
+                        <StatusPill tone="at-risk">Not applied</StatusPill>
+                        <span className="min-w-0 grow basis-64 text-ink">
+                          {failure.message}
+                        </span>
                         <Button
                           variant="secondary"
+                          size="sm"
                           disabled={disabled}
                           disabledReason={gateReason}
-                          pending={
-                            working && decide.variables?.action === "apply"
+                          onClick={() =>
+                            startDecision(proposal, failure.action)
                           }
-                          pendingLabel="Accepting…"
-                          onClick={() => startDecision(proposal, "apply")}
                         >
-                          <CheckIcon aria-hidden />
-                          Accept
+                          <RefreshCwIcon aria-hidden />
+                          Retry
                         </Button>
-                        <Button
-                          variant="ghost"
-                          disabled={disabled}
-                          disabledReason={gateReason}
-                          pending={
-                            working && decide.variables?.action === "ignore"
-                          }
-                          pendingLabel="Ignoring…"
-                          onClick={() => startDecision(proposal, "ignore")}
-                        >
-                          Ignore
-                        </Button>
-                      </>
-                    )}
+                      </div>
+                    ) : null}
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {missing ? (
+                          <>
+                            <Button
+                              variant="secondary"
+                              disabled={disabled}
+                              disabledReason={gateReason}
+                              pending={
+                                working &&
+                                decide.variables?.action === "keep_local"
+                              }
+                              onClick={() =>
+                                startDecision(proposal, "keep_local")
+                              }
+                            >
+                              Keep here
+                            </Button>
+                            <Button
+                              variant="danger-outline"
+                              disabled={disabled}
+                              disabledReason={gateReason}
+                              pending={
+                                working &&
+                                decide.variables?.action === "delete_local"
+                              }
+                              onClick={() =>
+                                startDecision(proposal, "delete_local")
+                              }
+                            >
+                              Remove here
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="secondary"
+                              disabled={disabled}
+                              disabledReason={gateReason}
+                              pending={
+                                working && decide.variables?.action === "apply"
+                              }
+                              pendingLabel="Accepting…"
+                              onClick={() => startDecision(proposal, "apply")}
+                            >
+                              <CheckIcon aria-hidden />
+                              Accept
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              disabled={disabled}
+                              disabledReason={gateReason}
+                              pending={
+                                working && decide.variables?.action === "ignore"
+                              }
+                              pendingLabel="Ignoring…"
+                              onClick={() => startDecision(proposal, "ignore")}
+                            >
+                              Ignore
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-caption text-ink-muted">
+                        {missing
+                          ? "Only changes NabaPresence’s copy."
+                          : "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-caption text-ink-muted">
-                    {missing
-                      ? "Only changes NabaPresence’s copy."
-                      : "Accept takes Google’s value into NabaPresence’s copy. Ignore keeps yours, and the next publish of this area puts yours back on Google over this change."}
-                  </p>
-                </div>
-              </li>
+                }
+              />
             )
-          })}
-        </ul>
-      )}
+          })
+        )}
+      </SettingsGroup>
 
       <OverwriteConfirmDialog
         open={confirming !== null}
@@ -476,6 +498,6 @@ export function SuggestionList({
           if (confirming) run(confirming.proposal, confirming.action, true)
         }}
       />
-    </section>
+    </>
   )
 }

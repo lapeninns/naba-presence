@@ -71,14 +71,15 @@ export function LodgingEditor({ value, baseline, disabled, errors, onChange }: {
       setOpened(new Set(event.target.value ? groups.map((node) => node.key) : []))
     }} placeholder="Rooms, parking, accessibility…" /></Field>
     {visible.length === 0 ? <p role="status" className="text-ui text-ink-muted">No lodging details match this search.</p> : null}
-    {/* One list of disclosure rows (hairlines between, one card around), not
-        a card per group. A group holding invalid details says so in words
+    {/* One list of disclosure rows with hairlines between, not a card per
+        group: flat on a phone (settings-group rows), one quiet card around
+        them on a desk. A group holding invalid details says so in words
         beside its name. */}
-    {visible.length ? <ul className="flex min-w-0 flex-col divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface">{visible.map((node) => {
+    {visible.length ? <ul className="flex min-w-0 flex-col divide-y divide-line-subtle border-y border-line-subtle desk:overflow-hidden desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface">{visible.map((node) => {
       const expanded = opened.has(node.key), count = invalidCount(node.key)
       return <li key={node.key} data-invalid={count ? "" : undefined} className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2 pr-3">
-          <Button id={`${id}-${node.key}-toggle`} type="button" variant="ghost" className="min-h-(--np-row-h) min-w-0 flex-1 justify-start rounded-none px-(--np-card-pad) py-3 font-medium focus-visible:[box-shadow:inset_var(--np-focus-halo)]" aria-expanded={expanded} aria-controls={`${id}-${node.key}`} aria-describedby={count ? `${id}-${node.key}-invalid` : undefined} onClick={() => setOpened((previous) => {
+        <div className="flex min-w-0 items-center gap-2 desk:pr-3">
+          <Button id={`${id}-${node.key}-toggle`} type="button" variant="ghost" className="min-h-(--np-settings-row-h) min-w-0 flex-1 justify-start rounded-none px-0 py-3 font-medium desk:px-(--np-card-pad) focus-visible:[box-shadow:inset_var(--np-focus-halo)]" aria-expanded={expanded} aria-controls={`${id}-${node.key}`} aria-describedby={count ? `${id}-${node.key}-invalid` : undefined} onClick={() => setOpened((previous) => {
             const next = new Set(previous)
             if (next.has(node.key)) next.delete(node.key)
             else next.add(node.key)
@@ -88,7 +89,7 @@ export function LodgingEditor({ value, baseline, disabled, errors, onChange }: {
           </Button>
           <LodgingErrorMarker id={`${id}-${node.key}-invalid`} count={count} />
         </div>
-        {expanded ? <div id={`${id}-${node.key}`} className="min-w-0 border-t border-line-subtle p-(--np-card-pad)">
+        {expanded ? <div id={`${id}-${node.key}`} className="min-w-0 border-t border-line-subtle py-(--np-card-pad) desk:px-(--np-card-pad)">
           <LodgingFieldControl node={node} value={draft[node.key]} original={original[node.key]} disabled={disabled} errors={errors} onChange={(next) => {
             const updated = { ...draft }
             if (next === undefined) delete updated[node.key]

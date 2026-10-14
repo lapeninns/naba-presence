@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { describe, expect, it, vi } from "vitest"
@@ -16,8 +22,30 @@ function Harness() {
   return <HoursEditor value={value} onChange={setValue} disabled={false} />
 }
 
+/** A special day's fields live in its sheet: open it from its row. */
+async function openSpecialDay(name: RegExp) {
+  fireEvent.click(screen.getByRole("button", { name }))
+  return screen.findByRole("dialog")
+}
+
+/** Close the special-day sheet with its Done button. */
+async function closeSheet(dialog: HTMLElement) {
+  fireEvent.click(within(dialog).getByRole("button", { name: "Done" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+}
+
+/** Add a special day (its sheet opens at once) and give it a date. */
+async function addSpecialDay(date: string) {
+  fireEvent.click(screen.getByRole("button", { name: "Add a special day" }))
+  const dialog = await screen.findByRole("dialog")
+  fireEvent.change(within(dialog).getByLabelText(/^Special date \d$/), {
+    target: { value: date },
+  })
+  await closeSheet(dialog)
+}
+
 describe("HoursEditor special hours", () => {
-  it("marks and describes a malformed special closing time without invalidating its valid opening time", () => {
+  it("marks and describes a malformed special closing time without invalidating its valid opening time", async () => {
     const value = emptyHours()
     value.special = [
       {
@@ -46,28 +74,29 @@ describe("HoursEditor special hours", () => {
         )}
       />
     )
-    const closes = screen.getByLabelText("Special date 1 closes")
+    // The closed sheet's row still says what is wrong, in words.
+    const row = screen.getByRole("button", { name: /24 Dec 2099/ })
+    expect(row).toHaveAccessibleDescription(closingIssue.message)
+    const dialog = await openSpecialDay(/24 Dec 2099/)
+    const closes = within(dialog).getByLabelText("Special date 1 closes")
     expect(closes).toHaveAttribute("aria-invalid", "true")
     expect(closes).toHaveAccessibleDescription(closingIssue.message)
-    expect(screen.getByText(closingIssue.message)).toBeVisible()
-    expect(screen.getByLabelText("Special date 1 opens")).not.toHaveAttribute(
-      "aria-invalid",
-      "true"
-    )
+    expect(within(dialog).getByText(closingIssue.message)).toBeVisible()
+    expect(
+      within(dialog).getByLabelText("Special date 1 opens")
+    ).not.toHaveAttribute("aria-invalid", "true")
   })
 
-  it("never logs a duplicate-key warning when two rows share the same effectiveDate", () => {
+  it("never logs a duplicate-key warning when two rows share the same effectiveDate", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
     render(<Harness />)
 
-    const add = screen.getByRole("button", { name: "Add a special day" })
-    fireEvent.click(add) // row 0 (unrelated, stays undated)
-    fireEvent.click(add) // row 1
-    fireEvent.click(add) // row 2
-
-    const dates = screen.getAllByLabelText(/^Special date \d$/)
-    fireEvent.change(dates[1], { target: { value: "2026-12-25" } })
-    fireEvent.change(dates[2], { target: { value: "2026-12-25" } }) // deliberate collision with row 1
+    await addSpecialDay("") // row 0 (unrelated, stays undated)
+    await addSpecialDay("2026-12-25") // row 1
+    await addSpecialDay("2026-12-25") // row 2: deliberate collision with row 1
+    expect(screen.getAllByRole("button", { name: /25 Dec 2026/ })).toHaveLength(
+      2
+    )
 
     const duplicateKeyWarning = errorSpy.mock.calls.some(
       (args) =>
@@ -78,25 +107,26 @@ describe("HoursEditor special hours", () => {
     errorSpy.mockRestore()
   })
 
-  it("keeps focus on a colliding-date row's input when an earlier row sharing its date is removed", () => {
+  it("keeps a colliding-date row's own element when an earlier row sharing its date is removed", async () => {
     render(<Harness />)
 
-    const add = screen.getByRole("button", { name: "Add a special day" })
-    fireEvent.click(add) // row 0 (removed below)
-    fireEvent.click(add) // row 1 (stays focused)
+    await addSpecialDay("2026-12-25") // row 0 (removed below)
+    await addSpecialDay("2026-12-25") // row 1: same date, two overrides for the same holiday
 
-    const dates = screen.getAllByLabelText(/^Special date \d$/)
-    fireEvent.change(dates[0], { target: { value: "2026-12-25" } })
-    fireEvent.change(dates[1], { target: { value: "2026-12-25" } }) // same date as row 0 — two overrides for the same holiday
+    const rows = screen.getAllByRole("button", { name: /25 Dec 2026/ })
+    expect(rows).toHaveLength(2)
+    const kept = rows[1]!
 
-    const focusedInput = screen.getAllByLabelText(/^Special date \d$/)[1]
-    focusedInput.focus()
-    expect(document.activeElement).toBe(focusedInput)
+    // Remove row 0 from its sheet, leaving row 1 in place.
+    fireEvent.click(rows[0]!)
+    const dialog = await screen.findByRole("dialog")
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
 
-    const removeButtons = screen.getAllByRole("button", { name: "Remove" })
-    fireEvent.click(removeButtons[0]) // remove row 0, leaving the focused row 1 in place
-
-    expect(document.activeElement).toBe(focusedInput)
+    // The stable key keeps row 1's node: nothing remounts or jumps.
+    expect(screen.getAllByRole("button", { name: /25 Dec 2026/ })).toEqual([
+      kept,
+    ])
   })
 })
 
@@ -114,23 +144,20 @@ describe("HoursEditor day switch and special-day order", () => {
     expect(screen.getByLabelText("Monday period 1 opens")).toHaveValue("11:30")
   })
 
-  it("lists special days by date and marks the ones already past", () => {
+  it("lists special days by date and marks the ones already past", async () => {
     render(<Harness />)
-    const add = screen.getByRole("button", { name: "Add a special day" })
-    fireEvent.click(add)
-    fireEvent.click(add)
-    const dates = screen.getAllByLabelText(/^Special date \d$/)
-    fireEvent.change(dates[0], { target: { value: "2099-12-25" } })
-    fireEvent.change(dates[1], { target: { value: "2000-01-01" } })
+    await addSpecialDay("2099-12-25")
+    await addSpecialDay("2000-01-01")
 
     const ordered = screen
-      .getAllByLabelText(/^Special date \d$/)
-      .map((input) => (input as HTMLInputElement).value)
-    expect(ordered).toEqual(["2000-01-01", "2099-12-25"])
+      .getAllByRole("button", { name: /Dec 2099|Jan 2000/ })
+      .map((row) => row.textContent)
+    expect(ordered[0]).toMatch(/1 Jan 2000/)
+    expect(ordered[1]).toMatch(/25 Dec 2099/)
     expect(screen.getAllByText("Past")).toHaveLength(1)
   })
 
-  it("wires the special-day closing time to the same error as its opening time", () => {
+  it("wires the special-day closing time to the same error as its opening time", async () => {
     const special = {
       ...emptyHours(),
       special: [
@@ -152,7 +179,8 @@ describe("HoursEditor day switch and special-day order", () => {
         }}
       />
     )
-    const closes = screen.getByLabelText("Special date 1 closes")
+    const dialog = await openSpecialDay(/24 Dec 2099/)
+    const closes = within(dialog).getByLabelText("Special date 1 closes")
     expect(closes).toHaveAttribute("id", "special-0-closes")
     expect(closes).toHaveAttribute("aria-invalid", "true")
     expect(closes).toHaveAccessibleDescription(
@@ -239,7 +267,7 @@ describe("HoursEditor service and boundary preservation", () => {
     expect(screen.queryByRole("button", { name: /Remove UNKNOWN/ })).toBeNull()
   })
 
-  it("shows 24:00 and special end dates without clearing their values", () => {
+  it("shows 24:00 and special end dates without clearing their values", async () => {
     const initial = emptyHours()
     initial.regular[1] = {
       dayOfWeek: 1,
@@ -258,13 +286,16 @@ describe("HoursEditor service and boundary preservation", () => {
     const change = vi.fn()
     render(<HoursEditor value={initial} onChange={change} disabled={false} />)
     expect(screen.getByLabelText("Monday period 1 closes")).toHaveValue("24:00")
-    expect(screen.getByLabelText("Special date 1 closing date")).toHaveValue(
-      "2100-01-01"
-    )
     fireEvent.change(screen.getByLabelText("Monday period 1 opens"), {
       target: { value: "01:00" },
     })
     expect(change.mock.calls[0][0].special).toEqual(initial.special)
+    const dialog = await openSpecialDay(/31 Dec 2099/)
+    expect(
+      within(dialog).getByLabelText("Special date 1 closing date")
+    ).toHaveValue("2100-01-01")
+    // Opening the sheet is not an edit.
+    expect(change).toHaveBeenCalledTimes(1)
   })
 
   it("offers only supported IDs for creation and requires explicit removal confirmation", async () => {
@@ -284,12 +315,18 @@ describe("HoursEditor service and boundary preservation", () => {
       />
     )
     await user.click(
-      screen.getByRole("combobox", { name: "Service schedule to add" })
+      screen.getByRole("button", { name: "Add service schedule" })
     )
+    const picker = await screen.findByRole("listbox", {
+      name: "Service schedule to add",
+    })
     expect(
-      (await screen.findAllByRole("option")).map((o) => o.textContent)
+      within(picker)
+        .getAllByRole("option")
+        .map((o) => o.textContent)
     ).toEqual(["Bar"])
     await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
     fireEvent.click(
       screen.getByRole("button", { name: "Remove Kitchen schedule" })
     )
@@ -386,7 +423,7 @@ describe("HoursEditor phone-first controls", () => {
     })
   })
 
-  it("chooses Closed or Custom hours for a special day as a radio pair", () => {
+  it("chooses Closed or Custom hours for a special day as a radio pair", async () => {
     function Controlled() {
       const [hours, setHours] = useState<NormalizedHours>({
         ...emptyHours(),
@@ -402,7 +439,8 @@ describe("HoursEditor phone-first controls", () => {
       return <HoursEditor value={hours} onChange={setHours} disabled={false} />
     }
     render(<Controlled />)
-    const group = screen.getByRole("radiogroup", {
+    const dialog = await openSpecialDay(/24 Dec 2099/)
+    const group = within(dialog).getByRole("radiogroup", {
       name: "Special date 1 hours",
     })
     expect(within(group).getByRole("radio", { name: "Closed" })).toBeChecked()
@@ -410,8 +448,12 @@ describe("HoursEditor phone-first controls", () => {
     expect(
       within(group).getByRole("radio", { name: "Custom hours" })
     ).toBeChecked()
-    expect(screen.getByLabelText("Special date 1 opens")).toHaveValue("09:00")
-    expect(screen.getByLabelText("Special date 1 closes")).toHaveValue("17:00")
+    expect(within(dialog).getByLabelText("Special date 1 opens")).toHaveValue(
+      "09:00"
+    )
+    expect(within(dialog).getByLabelText("Special date 1 closes")).toHaveValue(
+      "17:00"
+    )
   })
 
   it("copies a day's hours from a dialog that does not open over another dialog", async () => {

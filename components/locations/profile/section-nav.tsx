@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { tabItemClassName, tabsRowClassName } from "@/components/ui/tabs"
+import {
+  tabItemClassName,
+  tabsRowClassName,
+  useScrollFade,
+} from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
 export type SectionNavEntry = {
@@ -185,39 +189,28 @@ export function SectionNav({
 
   // Fade the strip's edge where more tabs sit past it (`data-fade`, drawn
   // by the shared tab row), so it says there is more without a scrollbar.
-  // A desk rail never overflows sideways, so it never fades.
+  // A desk rail never overflows sideways, so it never fades. The list is
+  // always mounted (inside a hidden nav until the sections are measured),
+  // so the shared hook finds it on its first run and its resize observer
+  // follows the tabs as they arrive.
+  useScrollFade(listRef)
+  // A tab arriving or leaving changes what overflows without resizing the
+  // strip itself: ask the hook (it listens for scroll) to look again.
   useEffect(() => {
-    const list = listRef.current
-    if (!list) return
-    const update = () => {
-      const max = list.scrollWidth - list.clientWidth
-      const start = list.scrollLeft > 1
-      const end = max - list.scrollLeft > 1
-      const fade = start && end ? "both" : start ? "start" : end ? "end" : ""
-      if (fade) list.dataset.fade = fade
-      else delete list.dataset.fade
-    }
-    update()
-    list.addEventListener("scroll", update, { passive: true })
-    const resize =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update)
-    resize?.observe(list)
-    return () => {
-      list.removeEventListener("scroll", update)
-      resize?.disconnect()
-    }
+    listRef.current?.dispatchEvent(new Event("scroll"))
   }, [present])
 
   const shown = present
     .map((id) => entries.find((entry) => entry.id === id))
     .filter((entry): entry is SectionNavEntry => entry !== undefined)
-  if (shown.length === 0) return <nav ref={navRef} aria-label={label} hidden />
-
   return (
     <nav
       ref={navRef}
       aria-label={label}
-      data-slot="section-nav"
+      // Hidden, and so out of the accessibility tree, until the sections on
+      // the page have been measured.
+      hidden={shown.length === 0}
+      data-slot={shown.length === 0 ? undefined : "section-nav"}
       className={cn(
         // Phone: a sticky tab strip under the app bar (the same offset the
         // page's scroll padding uses). From md the editor scrolls in its own
@@ -249,10 +242,9 @@ export function SectionNav({
                 jumpToSection(entry.id)
               }}
               className={cn(
+                // The current section is `aria-current="location"`: the
+                // shared tab drawing gives it ink, semibold and the underline.
                 tabItemClassName,
-                // The current section: ink, semibold and the ink underline
-                // (the shared tab cue, keyed to this nav's aria-current).
-                "aria-[current=location]:font-semibold aria-[current=location]:text-ink aria-[current=location]:after:bg-ink",
                 // The desk rail: calm rows, the current one filled. No
                 // underline and no border; the weight and fill carry it.
                 "desk:flex desk:h-auto desk:min-h-9 desk:w-full desk:rounded-(--np-radius-control) desk:px-2.5 desk:py-1.5 desk:whitespace-normal desk:after:hidden",

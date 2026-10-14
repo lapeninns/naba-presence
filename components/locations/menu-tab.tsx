@@ -13,6 +13,7 @@ import {
   MenuEditor,
   stripDraftKeys,
   validateMenu,
+  type MenuFieldNavigator,
   type MenuProblem,
 } from "@/components/locations/menu-editor"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -59,7 +60,7 @@ export function MenuTab({ locationId }: { locationId: string }) {
           />
         ) : (
           <Empty
-            framed
+            placement="page"
             icon={<UtensilsCrossed aria-hidden />}
             titleAs="h2"
             title="This location can’t have a food menu"
@@ -96,6 +97,9 @@ function MenuForm({
   const [checked, setChecked] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const [focusProblems, setFocusProblems] = useState(false)
+  // Item fields live in their sheets: a summary link asks the editor to
+  // open the field's menu, section or sheet before focus moves.
+  const navigator = useRef<MenuFieldNavigator>(null)
 
   // The menu as Google would receive it: the editor's typing state removed.
   const clean = useMemo(() => stripDraftKeys(draft), [draft])
@@ -324,6 +328,7 @@ function MenuForm({
         errors={problems}
         autoFocus={focusProblems}
         focusKey={attempt}
+        onNavigate={(fieldId) => navigator.current?.(fieldId)}
         title={
           problems.length === 1
             ? "1 problem to fix before saving or publishing"
@@ -333,7 +338,7 @@ function MenuForm({
 
       {noMenu ? (
         <Empty
-          framed
+          placement="page"
           icon={<UtensilsCrossed aria-hidden />}
           titleAs="h3"
           title="No food menu yet"
@@ -374,6 +379,7 @@ function MenuForm({
           disabled={disabled || flow.isPublishing}
           problems={problems}
           validationAttempt={attempt}
+          navigatorRef={navigator}
           changedPaths={rows.flatMap((row) =>
             row.draftPath ? [row.draftPath] : []
           )}

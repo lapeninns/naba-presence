@@ -1,11 +1,12 @@
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { describe, expect, it, vi } from "vitest"
 import {
   MenuEditor,
   stripDraftKeys,
   validateMenu,
+  type MenuFieldNavigator,
 } from "@/components/locations/menu-editor"
 import { compareMenuReplacement } from "@/lib/locations/menu-diff"
 import { ValidationSummary } from "@/components/ui/validation-summary"
@@ -38,10 +39,14 @@ function Harness({
 }) {
   const [menus, setMenus] = useState(initial)
   const [attempt, setAttempt] = useState(0)
+  const navigator = useRef<MenuFieldNavigator>(null)
   const problems = attempt > 0 ? validateMenu(menus) : []
   return (
     <>
-      <ValidationSummary errors={problems} />
+      <ValidationSummary
+        errors={problems}
+        onNavigate={(fieldId) => navigator.current?.(fieldId)}
+      />
       <MenuEditor
         menus={menus}
         disabled={false}
@@ -52,6 +57,7 @@ function Harness({
         problems={problems}
         validationAttempt={attempt}
         changedPaths={changedPaths}
+        navigatorRef={navigator}
       />
       <button onClick={() => setAttempt((current) => current + 1)}>
         Validate
@@ -60,6 +66,19 @@ function Harness({
         {JSON.stringify(stripDraftKeys(menus))}
       </output>
     </>
+  )
+}
+
+/** An item's row (its fields are in the item's sheet). */
+const itemRow = (name: string) =>
+  screen.getByRole("button", { name: `Edit ${name}` })
+
+async function closeItem(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Done" })
+  )
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   )
 }
 
@@ -74,8 +93,10 @@ describe("large menu navigation", () => {
     expect(
       screen.getByText("1 of 274 items shown · 33 sections total")
     ).toBeInTheDocument()
-    expect(screen.getByDisplayValue("Dish 33-8")).toBeVisible()
-    expect(screen.queryByDisplayValue("Dish 1-1")).not.toBeInTheDocument()
+    expect(itemRow("Dish 33-8")).toBeVisible()
+    expect(
+      screen.queryByRole("button", { name: "Edit Dish 1-1" })
+    ).not.toBeInTheDocument()
     expect(screen.getByTestId("serialized").textContent).toBe(original)
     expect(changed).not.toHaveBeenCalled()
   })
@@ -85,9 +106,12 @@ describe("large menu navigation", () => {
     await user.click(
       screen.getByRole("checkbox", { name: "Changed items only" })
     )
-    const item = screen.getByDisplayValue("Dish 13-3")
+    await user.click(itemRow("Dish 13-3"))
+    const item = await screen.findByDisplayValue("Dish 13-3")
     await user.clear(item)
     await user.type(item, "Changed dish")
+    // The open sheet keeps its item even though the filter no longer has it.
+    expect(item).toHaveValue("Changed dish")
     const saved = JSON.parse(
       screen.getByTestId("serialized").textContent ?? "[]"
     )
@@ -116,29 +140,47 @@ describe("large menu navigation", () => {
     await user.click(search)
     await user.paste("absent")
     await user.click(validate)
-    const lastSection = screen.getByRole("region", { name: "Section 33", hidden: true })
-    const field = within(lastSection).getByRole("textbox", {
+    const lastSection = screen.getByRole("region", {
+      name: "Section 33",
+      hidden: true,
+    })
+    // The invalid item's row is shown, saying what is wrong in words.
+    const row = within(lastSection).getByRole("button", { name: "Edit untitled item 8" })
+    expect(row).toBeVisible()
+    expect(row).toHaveAccessibleDescription(
+      expect.stringContaining("Section 33, item 8: name this item.")
+    )
+    // The summary's link opens that item's sheet on the field.
+    await user.click(
+      screen.getByRole("link", { name: "Section 33, item 8: name this item." })
+    )
+    const field = await screen.findByRole("textbox", {
       name: "Item name — section 33, item 8",
     })
     expect(field).toBeVisible()
+    await waitFor(() => expect(field).toHaveFocus())
+    await closeItem(user)
     await user.click(search)
     await user.paste("absent")
     await user.click(validate)
     expect(
-      within(screen.getByRole("region", { name: "Section 33", hidden: true })).getByRole(
-        "textbox", { name: "Item name — section 33, item 8" }
-      )
+      within(
+        screen.getByRole("region", { name: "Section 33", hidden: true })
+      ).getByRole("button", { name: "Edit untitled item 8" })
     ).toBeVisible()
     expect(search).toHaveValue("")
     expect(
-      within(screen.getByRole("region", { name: "Section 33", hidden: true })).getByRole(
-        "button",
-        { name: "Collapse Section 33" }
-      )
+      within(
+        screen.getByRole("region", { name: "Section 33", hidden: true })
+      ).getByRole("button", { name: "Collapse Section 33" })
     ).toHaveAttribute("aria-expanded", "true")
-    expect(screen.getByText("274 of 274 items shown · 33 sections total")).toBeVisible()
+    expect(
+      screen.getByText("274 of 274 items shown · 33 sections total")
+    ).toBeVisible()
     expect(initial[0].sections).toHaveLength(33)
-    expect(initial[0].sections.flatMap((section) => section.items)).toHaveLength(274)
+    expect(
+      initial[0].sections.flatMap((section) => section.items)
+    ).toHaveLength(274)
   }, 15_000)
   it("keeps duplicate-name field identity when reordered", async () => {
     const user = userEvent.setup()
@@ -148,13 +190,26 @@ describe("large menu navigation", () => {
     for (const item of initial[0].sections[0].items)
       item.labels[0].displayName = "Soup"
     render(<Harness initial={initial} />)
-    const first = screen.getByDisplayValue("Ingredients 1-1")
+    const first = screen
+      .getByText("Ingredients 1-1")
+      .closest('[data-slot="menu-item-row"]')
     await user.click(
       screen.getAllByRole("button", { name: "Actions for Soup" })[0]
     )
     await user.click(await screen.findByRole("menuitem", { name: "Move down" }))
-    expect(screen.getByDisplayValue("Ingredients 1-1")).toBe(first)
-    expect(first).toHaveAttribute(
+    const moved = screen
+      .getByText("Ingredients 1-1")
+      .closest('[data-slot="menu-item-row"]')
+    expect(moved).toBe(first)
+    expect(
+      within(screen.getByRole("list", { name: "Items in Section 1" }))
+        .getAllByRole("listitem")
+        .indexOf(moved as HTMLElement)
+    ).toBe(1)
+    await user.click(
+      within(moved as HTMLElement).getByRole("button", { name: "Edit Soup" })
+    )
+    expect(await screen.findByDisplayValue("Ingredients 1-1")).toHaveAttribute(
       "aria-label",
       "Description — section 1, item 2"
     )
@@ -166,7 +221,7 @@ describe("large menu navigation", () => {
     await user.click(screen.getByRole("combobox", { name: "Jump to section" }))
     await user.click(await screen.findByRole("option", { name: "Section 33" }))
     expect(screen.getByDisplayValue("Section 33")).toHaveFocus()
-    expect(screen.getByDisplayValue("Dish 33-8")).toBeVisible()
+    expect(itemRow("Dish 33-8")).toBeVisible()
     await user.click(screen.getByRole("searchbox", { name: "Search menu" }))
     await user.click(screen.getByRole("combobox", { name: "Jump to section" }))
     await user.click(await screen.findByRole("option", { name: "Section 33" }))
@@ -192,7 +247,7 @@ describe("large menu navigation", () => {
       await user.click(
         screen.getByRole("checkbox", { name: "Changed items only" })
       )
-      expect(screen.getByDisplayValue("Dish 33-8")).toBeVisible()
+      expect(itemRow("Dish 33-8")).toBeVisible()
       expect(screen.getByTestId("serialized").textContent).toBe(
         JSON.stringify(initial)
       )
@@ -204,15 +259,24 @@ describe("large menu navigation", () => {
     const search = screen.getByRole("searchbox", { name: "Search menu" })
     await user.click(search)
     await user.paste("Ingredients 33-8")
-    const description = screen.getByRole("textbox", {
+    await user.click(itemRow("Dish 33-8"))
+    const description = await screen.findByRole("textbox", {
       name: "Description — section 33, item 8",
     })
     await user.clear(description)
     await user.type(description, "New recipe")
     expect(description).toHaveFocus()
     expect(description).toHaveValue("New recipe")
+    // Behind the open (modal) sheet, its row stays in the filtered list.
+    expect(
+      screen.getByRole("button", { name: "Edit Dish 33-8", hidden: true })
+    ).toBeInTheDocument()
+    await closeItem(user)
     await user.click(search)
     expect(description).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit Dish 33-8" })
+    ).not.toBeInTheDocument()
     expect(screen.getByText(/No items match these filters/)).toBeVisible()
   })
   it("keeps the searched section name mounted until editing ends", async () => {

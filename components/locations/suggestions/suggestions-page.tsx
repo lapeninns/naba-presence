@@ -113,7 +113,7 @@ function SuggestionsView({
   if (failed) {
     return (
       <Empty
-        framed
+        placement="page"
         tone="bad"
         icon={<CircleAlertIcon />}
         titleAs="h2"
@@ -161,7 +161,7 @@ function SuggestionsView({
   if (!enabled) {
     return (
       <Empty
-        framed
+        placement="page"
         icon={<CircleCheckIcon />}
         titleAs="h2"
         title="Suggested updates aren’t checked for this listing"
@@ -191,7 +191,7 @@ function SuggestionsView({
       <div className="flex flex-col gap-4">
         {gate}
         <Empty
-          framed
+          placement="page"
           tone="ok"
           icon={<CircleCheckIcon />}
           titleAs="h2"
