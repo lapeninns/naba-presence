@@ -6,7 +6,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
-import { executeReplyDelete } from "@/lib/server/publishing"
+import { executeReplyDelete, lockReviews } from "@/lib/server/publishing"
 import { supersedeAttempts } from "@/lib/server/publishing/attempt"
 import { withTenant } from "@/lib/server/db"
 import type { ReplyDeleteInput } from "@/lib/server/publishing/types"
@@ -137,6 +137,8 @@ export async function eraseReviews(
   organisationId: string,
   reviewIds: string[]
 ): Promise<ErasureScrub> {
+  // Several reviews in one transaction: in id order (lockReviews).
+  await lockReviews(sql, reviewIds)
   const media = await sql`
     delete from review_media_item
     where review_id in ${sql(reviewIds)}

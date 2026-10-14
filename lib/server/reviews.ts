@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { TransactionSql } from "postgres"
+import type { Fragment, TransactionSql } from "postgres"
 
 import { detectLanguage } from "@/lib/domain/language"
 import { parseReplyModeration } from "@/lib/domain/reply-state"
@@ -173,7 +173,10 @@ const IN_FLIGHT_ATTEMPT_STATUSES = [
  * clock has fallen more than a twenty-fourth of the window behind: expiry
  * stays "N days after last receipt", renewed at most every N hours.
  */
-function storedReviewIsCurrent(sql: TransactionSql, contentHash: string) {
+function storedReviewIsCurrent(
+  sql: TransactionSql,
+  contentHash: string | Fragment
+) {
   return sql`(
     review.content_hash = ${contentHash}
     and review.provider_deleted_at is null
@@ -209,6 +212,40 @@ function replyHeld(sql: TransactionSql, fetchedAfter: Date | null) {
         and publish_attempt.status in ${sql(IN_FLIGHT_ATTEMPT_STATUSES)}
     )
   )`
+}
+
+/**
+ * Locks, in ascending id order, the stored reviews a page of payloads is
+ * about to write: those `upsertGoogleReview` will not skip as current, or
+ * every one of them when `all` (a sweep stamps `last_seen_at` on the whole
+ * page). Upserting a page locks each review it changes, in Google's order,
+ * and holds them all until the page commits, so without this a page and a
+ * bulk approval over the same reviews could each hold one the other wanted
+ * next (lockReviews, lib/server/publishing/settle.ts).
+ */
+async function lockPageReviews(
+  sql: TransactionSql,
+  organisationId: string,
+  payloads: readonly Record<string, unknown>[],
+  all: boolean
+) {
+  const named = payloads.filter(
+    (payload) => typeof payload.name === "string" && payload.name
+  )
+  if (!named.length) return
+  const nameHashes = named.map((payload) => sha256(String(payload.name)))
+  const contentHashes = named.map((payload) => sha256(JSON.stringify(payload)))
+  await sql`
+    select 1
+    from review
+    join unnest(${nameHashes}::text[], ${contentHashes}::text[])
+      as page(name_hash, content_hash)
+      on page.name_hash = review.google_review_name_hash
+    where review.organisation_id = ${organisationId}
+      and (${all} or not ${storedReviewIsCurrent(sql, sql`page.content_hash`)})
+    order by review.id
+    for update of review
+  `
 }
 
 export async function upsertGoogleReview(
@@ -835,6 +872,12 @@ export async function syncLinkedLocation(input: {
         async (sql) => {
           let committed = 0
           const seen = new Set<string>()
+          await lockPageReviews(
+            sql,
+            input.organisationId,
+            page.reviews ?? [],
+            pageReviewNameHashes.length > 0
+          )
           for (const review of page.reviews ?? []) {
             const hash = sha256(String(review.name ?? review.reviewId))
             if (seen.has(hash)) continue
@@ -972,16 +1015,24 @@ export async function syncLinkedLocation(input: {
     }
     await withTenant(input.organisationId, async (sql) => {
       if (input.type === "sweep" && header.sweepStartedAt) {
-        const tombstoned = await sql<{ id: string }[]>`
-          update review
-          set provider_deleted_at = now()
-          where external_location_id = ${input.externalLocationId}
+        const unseen = sql`
+          external_location_id = ${input.externalLocationId}
             and provider_deleted_at is null
             and update_time < ${header.sweepStartedAt}
             and (
               last_seen_at is null
               or last_seen_at < ${header.sweepStartedAt}
             )
+        `
+        // In id order before the write, as every multi-review write is
+        // (lockReviews, lib/server/publishing/settle.ts).
+        await sql`
+          select 1 from review where ${unseen} order by id for no key update
+        `
+        const tombstoned = await sql<{ id: string }[]>`
+          update review
+          set provider_deleted_at = now()
+          where ${unseen}
           returning id::text as id
         `
         await writeAudit(sql, {

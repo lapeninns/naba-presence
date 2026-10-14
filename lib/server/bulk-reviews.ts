@@ -21,6 +21,7 @@ import { ApiError } from "@/lib/server/http"
 import { authorisationAssurance } from "@/lib/server/mfa"
 import { isOrgFeatureEnabled } from "@/lib/server/org-features"
 import { requireLocationAction } from "@/lib/server/permissions"
+import { lockReviews } from "@/lib/server/publishing"
 import { recordApprovalDecision } from "@/lib/server/review-approval"
 import { rowFromError } from "@/lib/server/review-bulk-outcome"
 import type { Session } from "@/lib/server/session"
@@ -180,6 +181,13 @@ export async function startBulkReviewApprovals(
     const targets = new Map<string, Frozen>()
     const planned: Planned[] = []
     const unknown: Row[] = []
+    // Every decision locks its review (recordApprovalDecision), and they all
+    // commit together: take them in id order up front, so two overlapping
+    // batches listed in different orders cannot deadlock (lockReviews).
+    await lockReviews(
+      sql,
+      approvals.map((item) => item.reviewId)
+    )
     for (const item of approvals) {
       const [review] = await sql<{ locationId: string }[]>`
         select location_id::text as "locationId" from review where id = ${item.reviewId}`
@@ -282,6 +290,9 @@ export async function startBulkTemplateReplies(
     const targets = new Map<string, Frozen>()
     const planned: Planned[] = []
     const unknown: Row[] = []
+    // The child rows reference their reviews; take those references in id
+    // order, not the selection's (lockReviews).
+    await lockReviews(sql, input.reviewIds, "key share")
     for (const reviewId of input.reviewIds) {
       const [review] = await sql<
         {

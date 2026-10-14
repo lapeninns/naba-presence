@@ -18,6 +18,7 @@ import {
   withdrawReplies,
   type ErasureScrub,
 } from "@/lib/server/privacy/fulfil"
+import { lockReviews } from "@/lib/server/publishing"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -276,7 +277,9 @@ export const PATCH = route({
         ) {
           // coalesce for the same reason as `erased_at`: the date processing
           // was restricted is the first request's, and a second request
-          // naming the same subject must not move it forward.
+          // naming the same subject must not move it forward. Locked in id
+          // order first, as every multi-review write is (lockReviews).
+          await lockReviews(sql, reviewIds)
           const reviews = await sql`
             update review
             set restricted_at = coalesce(restricted_at, now())

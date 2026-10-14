@@ -35,6 +35,32 @@ export async function lockReview(sql: TransactionSql, reviewId: string) {
   `
 }
 
+/**
+ * `lockReview` for a transaction that locks several reviews: all of them, in
+ * ascending id order, before the first write. Two transactions that each
+ * locked their reviews in their own order (one bulk approval in the order
+ * the inbox listed them, another in the reverse) could each hold a review
+ * the other wanted next, and one died with 40P01.
+ *
+ * `key share` is for a transaction that only references the reviews (a
+ * bulk batch's child rows): the lock its foreign key checks take anyway.
+ */
+export async function lockReviews(
+  sql: TransactionSql,
+  reviewIds: readonly string[],
+  strength: "no key update" | "key share" = "no key update"
+) {
+  const ids = [...new Set(reviewIds)]
+  if (!ids.length) return
+  await sql`
+    select 1
+    from review
+    where id in ${sql(ids)}
+    order by id
+    ${strength === "key share" ? sql`for key share` : sql`for no key update`}
+  `
+}
+
 /** `lockReview` for a transaction that starts from an attempt id. */
 export async function lockReviewForAttempt(
   sql: TransactionSql,
