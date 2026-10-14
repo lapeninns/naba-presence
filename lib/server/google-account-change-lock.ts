@@ -22,13 +22,16 @@ export async function requireNoUnresolvedPlaceAction(session: Session, googleAcc
   })
 }
 
-/** Access, lifecycle and action-link writes on one Google account wait for each other's unresolved outcomes. */
-export async function requireNoUnresolvedAccountChange(session: Session, googleAccountId: string) {
+/**
+ * Access, lifecycle and action-link writes on one Google account wait for each other's unresolved outcomes.
+ * `message` is the caller's wording for an unresolved access or lifecycle change.
+ */
+export async function requireNoUnresolvedAccountChange(session: Session, googleAccountId: string, message = "An access or lifecycle change awaits confirmation. Read its saved outcome before changing action links.") {
   await requireNoUnresolvedPlaceAction(session, googleAccountId)
   await withTenant(session.organisationId, async (sql) => {
     const [row] = await sql`select id from gbp_management_mutation where google_account_id = ${googleAccountId}
       and resource_type in ('account_admin', 'location_admin', 'invitation', 'location_lifecycle')
       and (status in ('started', 'validated', 'ambiguous') or confirmation_state in ('pending', 'unresolved') or local_reconciliation_state in ('pending', 'conflict')) limit 1`
-    if (row) throw new ApiError(409, "google_confirmation_unresolved", "An access or lifecycle change awaits confirmation. Read its saved outcome before changing action links.")
+    if (row) throw new ApiError(409, "google_confirmation_unresolved", message)
   })
 }
