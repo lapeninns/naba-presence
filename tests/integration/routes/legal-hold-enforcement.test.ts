@@ -233,6 +233,105 @@ describeDatabase("legal hold enforcement", () => {
     expect(await holdsOn(review.reviewId)).toEqual([{ released: false }])
   }, 40_000)
 
+  async function expiredReviewWithMedia() {
+    const { owner, review } = await disconnectedReview()
+    await admin`
+      update review
+      set
+        review_text = 'Evidence the hold has to keep.',
+        raw_payload = '{"kept": true}'::jsonb,
+        raw_content_expires_at = now() - interval '1 day'
+      where id = ${review.reviewId}
+    `
+    await admin`
+      insert into review_media_item (
+        organisation_id, review_id, thumbnail_url, thumbnail_label
+      )
+      values (
+        ${owner.organisationId}, ${review.reviewId},
+        'https://example.test/evidence.jpg', 'Evidence photo'
+      )
+    `
+    return { owner, review }
+  }
+
+  async function mediaOn(reviewId: string) {
+    const [row] = await admin<{ media: number }[]>`
+      select count(*)::int as media
+      from review_media_item where review_id = ${reviewId}
+    `
+    return row!.media
+  }
+
+  it("keeps a review's media when the hold commits while the media step waits on it", async () => {
+    const { owner, review } = await expiredReviewWithMedia()
+
+    const hold = await openHold({
+      organisationId: owner.organisationId,
+      reviewId: review.reviewId,
+      approvedBy: owner.userId,
+    })
+    // The media step runs before the review redaction, so it is the first
+    // statement to reach the held review: review_media_legal_hold_guard
+    // (0142) makes it wait for the hold instead of deleting past it.
+    const purge = purgeOrganisation({
+      organisationId: owner.organisationId,
+      requestId: `hold-race-media-${randomUUID()}`,
+      clientRequestId: null,
+      deletesEnabled: true,
+      deadline: 0,
+    })
+    await blockedBehind(hold.pid)
+    hold.commit()
+    await hold.done
+    const result = await purge
+
+    expect(result.counts.media ?? 0).toBe(0)
+    expect(result.counts.reviews ?? 0).toBe(0)
+    expect(await mediaOn(review.reviewId)).toBe(1)
+    expect(await holdsOn(review.reviewId)).toEqual([{ released: false }])
+
+    // The next round sees the hold up front and leaves the media alone.
+    const next = await purgeOrganisation({
+      organisationId: owner.organisationId,
+      requestId: `hold-race-media-next-${randomUUID()}`,
+      clientRequestId: null,
+      deletesEnabled: true,
+      deadline: Date.now() + 30_000,
+    })
+    expect(next.counts.media ?? 0).toBe(0)
+    expect(await mediaOn(review.reviewId)).toBe(1)
+  }, 40_000)
+
+  it("still deletes an unheld review's expired media, and leaves non-retention media deletes alone", async () => {
+    const { owner, review } = await expiredReviewWithMedia()
+
+    const result = await purgeOrganisation({
+      organisationId: owner.organisationId,
+      requestId: `media-unheld-${randomUUID()}`,
+      clientRequestId: null,
+      deletesEnabled: true,
+      deadline: Date.now() + 30_000,
+    })
+    expect(result.counts.media).toBe(1)
+    expect(await mediaOn(review.reviewId)).toBe(0)
+
+    // Outside a retention round the guard does not fire: a sync replacing
+    // a held review's media is unaffected.
+    const held = await expiredReviewWithMedia()
+    await admin`
+      insert into legal_hold (organisation_id, review_id, reason, approved_by)
+      values (
+        ${held.owner.organisationId}, ${held.review.reviewId},
+        'Held during sync.', ${held.owner.userId}
+      )
+    `
+    await admin`
+      delete from review_media_item where review_id = ${held.review.reviewId}
+    `
+    expect(await mediaOn(held.review.reviewId)).toBe(0)
+  }, 40_000)
+
   it("still purges a disconnected review whose holds were all released, with the released hold", async () => {
     const { owner, connection, review } = await disconnectedReview()
     await admin`
