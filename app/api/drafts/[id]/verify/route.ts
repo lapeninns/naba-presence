@@ -18,6 +18,7 @@ import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import { PHASE_THREE_RESERVE_MS } from "@/lib/server/review-drafts"
+import { readReviewWriteSnapshot } from "@/lib/server/review-reads"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -215,8 +216,16 @@ export const POST = route({
           clientRequestId,
         },
       })
-      return verification
+      return { verification, reviewId: current.review_id }
     })
-    return { verification: result } satisfies VerifyResult
+    return {
+      verification: result.verification,
+      ...(await readReviewWriteSnapshot(
+        tenant,
+        session,
+        result.reviewId,
+        requestId
+      )),
+    } satisfies VerifyResult
   },
 })

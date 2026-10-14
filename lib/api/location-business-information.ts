@@ -34,8 +34,14 @@ export type {
   GoogleAttribute,
 } from "@/lib/contracts/location-business-information"
 
-export function fetchBusinessInformation(id: string, options?: RequestOptions): Promise<BusinessInformationState> {
-  return apiFetch(`/api/locations/${id}/business-information`, {
+/**
+ * Google's side of the listing. Within the editor's staleness budget the
+ * server answers from its last Google read (`source: "stored"`); `refresh`
+ * reads Google now.
+ */
+export function fetchBusinessInformation(id: string, options?: RequestOptions, params: { refresh?: boolean } = {}): Promise<BusinessInformationState> {
+  const suffix = params.refresh ? "?refresh=1" : ""
+  return apiFetch(`/api/locations/${id}/business-information${suffix}`, {
     schema: businessInformationResponseSchema,
     ...options,
   }).then((r) => r.businessInformation)

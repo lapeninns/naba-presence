@@ -11,6 +11,7 @@ import {
   type EditorStatus,
 } from "@/components/editors/editor-footer"
 import { EditorFrame } from "@/components/editors/editor-frame"
+import { GoogleFreshness } from "@/components/editors/google-freshness"
 import { ReviewChangesSheet } from "@/components/editors/review-changes-sheet"
 import {
   HoursEditor,
@@ -57,7 +58,7 @@ import {
   type HoursChangeRow,
 } from "@/lib/locations/hours-diff"
 import { queryKeys } from "@/lib/queries/keys"
-import { useHours } from "@/lib/queries/use-location-hours"
+import { useHours, useRefreshHours } from "@/lib/queries/use-location-hours"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
 const STATUS: Record<HoursState["status"], EditorStatus> = {
@@ -193,6 +194,7 @@ function HoursForm({
     () => new Set()
   )
   const [reconciling, setReconciling] = useState(false)
+  const refresh = useRefreshHours(locationId)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   // Validation shows after the first save or review attempt, then follows
@@ -412,7 +414,8 @@ function HoursForm({
   async function reconcile() {
     setReconciling(true)
     try {
-      const fresh = await fetchHours(locationId)
+      // Google's boundaries as they are now, not as last observed.
+      const fresh = await fetchHours(locationId, undefined, { refresh: true })
       setDraft((current) =>
         reconcileLegacyHoursBoundaries(current, fresh.google)
       )
@@ -524,6 +527,13 @@ function HoursForm({
           .
         </span>
       </p>
+
+      <GoogleFreshness
+        observedAt={hours.observedAt}
+        refreshing={refresh.isPending}
+        failed={refresh.isError}
+        onRefresh={() => refresh.mutate()}
+      />
 
       <HoursEditor
         ref={editorRef}

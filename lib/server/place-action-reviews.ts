@@ -4,6 +4,7 @@ import { approveGbpChange, readGbpChangeSet, saveGbpChangeSet } from "@/lib/serv
 import { stableGoogleHash } from "@/lib/server/gbp-management"
 import { currentPlaceActionContext, observePlaceActions, requirePlaceActionProposal } from "@/lib/server/place-action-review-state"
 import { ApiError } from "@/lib/server/http"
+import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 export function projectPlaceActionReview(changeSet: PlaceActionReview["changeSet"]) {
@@ -16,10 +17,23 @@ export function projectPlaceActionReview(changeSet: PlaceActionReview["changeSet
 export function requireSamePlaceActionBinding(before: Awaited<ReturnType<typeof currentPlaceActionContext>>, after: Awaited<ReturnType<typeof currentPlaceActionContext>>) {
   if (before.connectionId !== after.connectionId || before.googleAccountId !== after.googleAccountId || before.googleLocationName !== after.googleLocationName || before.credentialGeneration !== after.credentialGeneration) throw new ApiError(409, "google_target_changed", "The linked Google target or credentials changed. Create a fresh action link review.")
 }
+/**
+ * Runs a check against Google's live links. When it refuses, the editor's
+ * stored read (W3-2) may be what the operator reviewed from: it is dropped,
+ * so the refresh the refusal asks for reads Google.
+ */
+async function refusedAgainstGoogle(session: Session, locationId: string, check: () => void) {
+  try {
+    check()
+  } catch (error) {
+    await forgetObservedGooglePayload({ organisationId: session.organisationId, locationId, resources: ["placeActions"] })
+    throw error
+  }
+}
 export async function previewPlaceAction(session: Session, locationId: string, request: ReviewedPlaceActionRequest, requestId: string) {
   const linked = await currentPlaceActionContext(session, locationId)
   const observation = await observePlaceActions(linked)
-  requirePlaceActionProposal(request, observation.baseline)
+  await refusedAgainstGoogle(session, locationId, () => requirePlaceActionProposal(request, observation.baseline))
   const current = await currentPlaceActionContext(session, locationId)
   requireSamePlaceActionBinding(linked, current)
   const payload = reviewedPlaceActionPayloadSchema.parse({ request, connectionId: linked.connectionId, credentialGeneration: linked.credentialGeneration, observedAt: observation.observedAt })
@@ -33,8 +47,10 @@ export async function assertPlaceActionCurrent(session: Session, locationId: str
   const payload = reviewedPlaceActionPayloadSchema.parse(review.changeSet.payload)
   if (payload.connectionId !== linked.connectionId || payload.credentialGeneration !== linked.credentialGeneration) throw new ApiError(409, "google_connection_changed", "The Google connection changed after review. Create a fresh review.")
   const observation = await observePlaceActions(linked)
-  if (stableGoogleHash(observation.baseline) !== review.changeSet.baselineHash) throw new ApiError(409, "google_baseline_stale", "Google action links or supported action types changed after review. Refresh and review again.")
-  requirePlaceActionProposal(payload.request, observation.baseline)
+  await refusedAgainstGoogle(session, locationId, () => {
+    if (stableGoogleHash(observation.baseline) !== review.changeSet.baselineHash) throw new ApiError(409, "google_baseline_stale", "Google action links or supported action types changed after review. Refresh and review again.")
+    requirePlaceActionProposal(payload.request, observation.baseline)
+  })
   return { linked, payload, observation }
 }
 export async function approvePlaceActionReview(session: Session, locationId: string, reviewId: string, expectedPayloadHash: string, requestId: string) {

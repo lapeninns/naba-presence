@@ -213,6 +213,14 @@ export const POST = route({
           is_active as "isActive"
       `
       if (isRelink) {
+        // In id order before the write, as every multi-review write is
+        // (lockReviews, lib/server/publishing/settle.ts).
+        await sql`
+          select 1 from review
+          where external_location_id = ${external.id}
+          order by id
+          for no key update
+        `
         await sql`
           update review
           set location_id = ${locationId}

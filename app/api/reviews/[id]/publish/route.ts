@@ -7,6 +7,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { executePublish } from "@/lib/server/publishing"
+import { readReviewWriteSnapshot } from "@/lib/server/review-reads"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -20,7 +21,7 @@ export const POST = route({
   mfa: "step_up",
   params: reviewIdParamsSchema,
   body: publishInputSchema,
-  handler: async ({ session, params, body: input, requestId }) => {
+  handler: async ({ session, params, body: input, requestId, tenant }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
         503,
@@ -44,6 +45,12 @@ export const POST = route({
           publishAttemptId: outcome.attemptId,
           status: outcome.status,
           googleReplyState: outcome.googleReplyState,
+          ...(await readReviewWriteSnapshot(
+            tenant,
+            session,
+            params.id,
+            requestId
+          )),
         },
         { status: 202 }
       )
@@ -70,6 +77,8 @@ export const POST = route({
       status: outcome.status,
       googleReplyState: outcome.googleReplyState,
       idempotent: outcome.idempotent,
+      // The row and detail as they now stand, for the client to patch.
+      ...(await readReviewWriteSnapshot(tenant, session, params.id, requestId)),
     }
   },
 })

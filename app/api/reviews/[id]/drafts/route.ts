@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { draftInputSchema, reviewIdParamsSchema } from "@/lib/contracts/reviews"
 import { createReviewDraft } from "@/lib/server/review-drafts"
+import { readReviewWriteSnapshot } from "@/lib/server/review-reads"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -43,8 +44,12 @@ export const POST = route({
       tenant,
       deadline,
     })
+    const body = {
+      ...result,
+      ...(await readReviewWriteSnapshot(tenant, session, params.id, requestId)),
+    }
     return replayed
-      ? NextResponse.json(result)
-      : NextResponse.json(result, { status: 201 })
+      ? NextResponse.json(body)
+      : NextResponse.json(body, { status: 201 })
   },
 })

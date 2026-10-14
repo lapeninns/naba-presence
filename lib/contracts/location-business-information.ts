@@ -1,6 +1,7 @@
 // Contract for /api/locations/[id]/business-information. Client-safe: zod
 // and lib/domain/business-information only.
 import { z } from "zod"
+import { editorReadSourceSchema } from "@/lib/contracts/editor-freshness"
 import { googleCapabilityDetailsSchema } from "@/lib/domain/google-capabilities"
 import { googleServiceCategorySchema } from "@/lib/domain/google-services"
 import { googleAttributeNameSchema, googleAttributeWriteSchema } from "@/lib/domain/google-attributes"
@@ -44,6 +45,13 @@ export const businessInformationStateSchema = z.object({
   canPublish: z.boolean(),
   writesEnabled: z.boolean(),
   capabilityDetails: googleCapabilityDetailsSchema.optional(),
+  /**
+   * When Google was last read for this state, and whether this response
+   * read it (`live`) or served that read within the editor's staleness
+   * budget (`stored`). Optional so an older server still parses.
+   */
+  observedAt: z.string().optional(),
+  source: editorReadSourceSchema.optional(),
 })
 export type BusinessInformationState = z.infer<typeof businessInformationStateSchema>
 

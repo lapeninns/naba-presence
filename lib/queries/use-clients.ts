@@ -15,13 +15,15 @@ import {
 } from "@/lib/api/clients"
 import { CLIENTS_POLL_MS } from "@/lib/queries/use-shell-status"
 import { summariseHealth, type ClientHealth } from "@/lib/clients/health"
+import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 import { queryKeys } from "@/lib/queries/keys"
+import { requestOptions } from "@/lib/queries/request-options"
 
 /** Every client the signed-in user can see, with counts and health. */
 export function useClients({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: queryKeys.clients,
-    queryFn: ({ signal }) => fetchClients(signal),
+    queryFn: (ctx) => fetchClients(requestOptions(ctx)),
     enabled,
     // The shell reads this for its health chip, so it has to notice a client's
     // connection breaking without the operator reloading: the shell's poll
@@ -35,7 +37,7 @@ export function useClients({ enabled = true }: { enabled?: boolean } = {}) {
 export function useArchivedClients(enabled: boolean) {
   return useQuery({
     queryKey: queryKeys.clientsArchived,
-    queryFn: ({ signal }) => fetchArchivedClients(signal),
+    queryFn: (ctx) => fetchArchivedClients(requestOptions(ctx)),
     enabled,
   })
 }
@@ -43,7 +45,7 @@ export function useArchivedClients(enabled: boolean) {
 export function useClient(clientId: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.client(clientId ?? "none"),
-    queryFn: ({ signal }) => fetchClient(clientId!, signal),
+    queryFn: (ctx) => fetchClient(clientId!, requestOptions(ctx)),
     enabled: Boolean(clientId),
   })
 }
@@ -51,7 +53,7 @@ export function useClient(clientId: string | null | undefined) {
 export function useClientSetup(clientId: string | null | undefined) {
   return useQuery({
     queryKey: queryKeys.clientSetup(clientId ?? "none"),
-    queryFn: ({ signal }) => fetchClientSetup(clientId!, signal),
+    queryFn: (ctx) => fetchClientSetup(clientId!, requestOptions(ctx)),
     enabled: Boolean(clientId),
   })
 }
@@ -92,10 +94,9 @@ export function useClientMutations() {
   // directory show, so every mutation clears those too rather than trying to
   // predict which filters are live.
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.clientsAll })
     void queryClient.invalidateQueries({ queryKey: queryKeys.locations })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.reviewsAll })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.reviewCountsAll })
+    // Lists, counts and the clients themselves.
+    invalidateReviewBatch(queryClient)
   }
 
   return {

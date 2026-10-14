@@ -1,8 +1,22 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page, type Response } from "@playwright/test"
 import { startVerificationBackend } from "./helpers/verification-backend"
 import { approvePin, assertPinPrivacy, capturePin, sendPin, type VerificationBackend } from "./helpers/verification-pin-backend"
 
 let backend: VerificationBackend
+// Approval refetches current Google state, and the page rightly withholds a send
+// while that read fails. Drift lands after this last good read, so the send
+// reaches the server, whose own drift check is what these tests cover.
+async function stateReadAfterApproval(page: Page) {
+  let approved = false
+  const onResponse = (response: Response) => {
+    if (response.request().method() === "POST" && /\/verification-completion-reviews\/[^/]+$/.test(new URL(response.url()).pathname)) approved = true
+  }
+  page.on("response", onResponse)
+  try {
+    const read = await page.waitForResponse((response) => approved && response.request().method() === "GET" && new URL(response.url()).pathname.endsWith("/verification-state"))
+    expect(read.ok()).toBe(true)
+  } finally { page.off("response", onResponse) }
+}
 test.beforeAll(async () => { backend = await startVerificationBackend() })
 test.afterAll(async () => { await backend.stop() })
 test.beforeEach(async ({ context }) => {
@@ -14,7 +28,9 @@ for (const width of [375, 768, 1280]) {
     for (const kind of ["expiry", "policy", "generation", "target", "phase", "pin"] as const) {
       test(`requires a fresh review after ${kind} changes without a provider send`, async ({ page }, info) => {
         const fixture = await backend.fixture(page, "SMS", true); await fixture.open()
+        const settled = stateReadAfterApproval(page)
         const panel = await approvePin(page), reviewId = await fixture.reviewId("verification_complete")
+        await settled
         switch (kind) {
           case "expiry": await backend.admin`update gbp_change_set set approval_expires_at = now() - interval '1 minute' where id = ${reviewId}`; break
           case "policy": await backend.admin`update organisation set require_two_person_approval = true where id = ${fixture.owner.organisationId}`; break

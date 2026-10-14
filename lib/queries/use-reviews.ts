@@ -21,7 +21,8 @@ export function useReviews(filters: ReviewsFilters) {
       settlingInterval(
         (query.state.data?.pages ?? []).flatMap((page) =>
           page.items.map((item) => item.workflowStatus)
-        )
+        ),
+        query
       ),
   })
 }

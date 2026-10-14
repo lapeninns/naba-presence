@@ -334,7 +334,11 @@ for (const width of [375, 768, 1280])
         "#section-action-links"
       )
       f.state.types = ["FUTURE_ACTION"]
-      await page.reload()
+      // Within the editors' staleness budget a reload serves the stored
+      // observation (W3-2); "Check Google now" reads the new types.
+      await page
+        .getByRole("button", { name: "Check Google now", exact: true })
+        .click()
       await expect(
         page.getByRole("link", {
           name: "Manage action links in Google",

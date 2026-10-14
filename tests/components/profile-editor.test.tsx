@@ -1295,3 +1295,65 @@ describe("ProfileTab section navigation", () => {
     expect(screen.getByRole("heading", { name: "Saved lodging work" })).toHaveFocus()
   })
 })
+
+it("publishes from the save's answer without fetching the profile again (W0-04)", async () => {
+  sessionStorage.clear()
+  const savedProfile = {
+    ...PROFILE.profile,
+    canonicalResource: { revision: "4", updatedAt: "2026-08-02T00:00:00.000Z" },
+    canonicalHash: "e".repeat(64),
+    fields: PROFILE.profile.fields.map((entry) =>
+      entry.key === "name"
+        ? { ...entry, status: "core_dirty", canonicalValue: "Camden House" }
+        : entry
+    ),
+    observedAt: "2026-08-01T00:00:00.000Z",
+    source: "stored",
+  }
+  const profileCalls: string[] = []
+  let publishBody: Record<string, unknown> | null = null
+  const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+    const url = String(input)
+    if (url.includes("/capabilities"))
+      return jsonResponse({ capabilities: { canEditCanonical: true, canPublish: true } })
+    if (url.includes("/profile") && !url.includes("/import-review")) {
+      const method = init?.method ?? "GET"
+      profileCalls.push(method)
+      if (method === "PUT")
+        return jsonResponse({ saved: true, revision: "4", profile: savedProfile })
+      if (method === "POST") {
+        publishBody = JSON.parse(String(init?.body))
+        return jsonResponse({ status: "published", attemptId: "a1", idempotent: false })
+      }
+      return jsonResponse(PROFILE)
+    }
+    const review = reviewRoute(url, init, { reviewed: null })
+    if (review) return review
+    if (url.includes("/business-information")) return jsonResponse(BUSINESS)
+    return jsonResponse({ items: [], counts: {} })
+  })
+  vi.stubGlobal("fetch", fetcher)
+  renderWithProviders(<ProfileTab locationId="loc-1" />)
+  const name = await screen.findByRole("textbox", { name: "Business name" })
+  await waitFor(() => expect(name).toBeEnabled())
+  await userEvent.clear(name)
+  await userEvent.type(name, "Camden House")
+  await userEvent.click(screen.getByRole("button", { name: "Review changes" }))
+  const review = await screen.findByRole("dialog")
+  await userEvent.click(
+    await within(review).findByRole("button", { name: "Publish to Google" })
+  )
+  await waitFor(() => expect(publishBody).not.toBeNull())
+  // The save answered with the saved profile: no GET between it and the
+  // publish, which carries the revision and hash that answer named.
+  const put = profileCalls.indexOf("PUT")
+  expect(profileCalls.slice(put, profileCalls.indexOf("POST") + 1)).toEqual([
+    "PUT",
+    "POST",
+  ])
+  expect(publishBody).toMatchObject({
+    selectedFields: ["name"],
+    expectedCanonicalRevision: "4",
+    expectedCanonicalHash: "e".repeat(64),
+  })
+})

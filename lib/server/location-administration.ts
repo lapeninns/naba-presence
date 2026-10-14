@@ -32,6 +32,7 @@ import {
 } from "@/lib/server/gbp-management"
 import { ApiError } from "@/lib/server/http"
 import { requireGbpDispatch } from "@/lib/server/pause-controls"
+import { forgetObservedGooglePayload } from "@/lib/server/resource-observations"
 import type { Session } from "@/lib/server/session"
 
 const COMPLETE_LOCATION_MASK = [
@@ -380,6 +381,12 @@ export async function mutateLocationAdministration(input: {
     } else {
       const updateMask = input.payload.updateMask as string[]
       const payload = input.payload.location as Record<string, unknown>
+      // The patch may change fields the listing editors show.
+      await forgetObservedGooglePayload({
+        organisationId: input.session.organisationId,
+        locationId: input.locationId,
+        resources: ["profile", "hours", "businessInformation"],
+      })
       await patchGoogleLocation(
         token,
         {

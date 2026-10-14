@@ -4,6 +4,7 @@ import {
   describeReplyState,
   isLiveOnGoogle,
   replyWork,
+  shownDraft,
 } from "@/lib/inbox/review-situation"
 
 /**
@@ -63,6 +64,36 @@ describe("replyWork", () => {
     expect(replyWork({ reply: null, drafts: [draft("Draft")] }).settled).toBe(
       false
     )
+  })
+})
+
+describe("shownDraft", () => {
+  const drafts = [
+    { id: "d-newer", body: "Unsubmitted." },
+    { id: "d-parked", body: "Parked." },
+  ]
+  const pendingDraft = { id: "d-parked", body: "Parked." }
+
+  it("shows the parked draft while the reply awaits approval", () => {
+    const review = { workflowStatus: "awaiting_approval", pendingDraft, drafts }
+    expect(shownDraft(review)).toEqual(pendingDraft)
+    expect(replyWork({ ...review, reply: null }).draftBody).toBe("Parked.")
+  })
+
+  it("shows the newest draft otherwise, or when the server sent none", () => {
+    expect(
+      shownDraft({ workflowStatus: "verified", pendingDraft, drafts })?.id
+    ).toBe("d-newer")
+    expect(
+      shownDraft({ workflowStatus: "awaiting_approval", drafts })?.id
+    ).toBe("d-newer")
+    expect(
+      shownDraft({
+        workflowStatus: "awaiting_approval",
+        pendingDraft: null,
+        drafts,
+      })?.id
+    ).toBe("d-newer")
   })
 })
 

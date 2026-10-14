@@ -20,8 +20,10 @@ import type { ProfileState } from "@/lib/contracts/location-profile"
 import { writeAudit } from "@/lib/server/audit"
 import {
   ensureCanonicalResource,
+  readCanonicalResource,
   reconcileCanonicalResource,
   updateCanonicalResource,
+  type CanonicalResource,
 } from "@/lib/server/canonical-resources"
 import { sha256 } from "@/lib/server/crypto"
 import { jsonColumn, withTenant } from "@/lib/server/db"
@@ -40,7 +42,12 @@ import {
   getGoogleLocation,
   patchGoogleLocationProfile,
 } from "@/lib/server/google"
-import { recordResourceObservation } from "@/lib/server/resource-observations"
+import { shouldReadLive } from "@/lib/server/editor-freshness"
+import {
+  forgetObservedGooglePayload,
+  readObservedGooglePayload,
+  recordResourceObservation,
+} from "@/lib/server/resource-observations"
 import { ApiError } from "@/lib/server/http"
 import { operationSummary } from "@/lib/server/mutation-operations"
 import {
@@ -81,6 +88,8 @@ type StoredFieldState = {
   baselineCanonicalHash: string | null
   baselineGoogleHash: string | null
   lastReconciledAt: Date | null
+  /** Google's value hash at the field's latest observation. */
+  googleHash: string | null
 }
 
 /** The GET response shape is owned by the wire contract; re-exported for server callers. */
@@ -98,14 +107,17 @@ const profileAttempts = attemptStore({
 })
 
 async function loadStoredStates(organisationId: string, locationId: string) {
-  return withTenant(organisationId, async (sql) => {
-    const rows = await sql<StoredFieldState[]>`
-      select field_key as "fieldKey", baseline_canonical_hash as "baselineCanonicalHash",
-        baseline_google_hash as "baselineGoogleHash", last_reconciled_at as "lastReconciledAt"
-      from profile_field_state where location_id = ${locationId}
-    `
-    return new Map(rows.map((row) => [row.fieldKey, row]))
-  })
+  return withTenant(organisationId, (sql) => readStoredStates(sql, locationId))
+}
+
+async function readStoredStates(sql: TransactionSql, locationId: string) {
+  const rows = await sql<StoredFieldState[]>`
+    select field_key as "fieldKey", baseline_canonical_hash as "baselineCanonicalHash",
+      baseline_google_hash as "baselineGoogleHash", last_reconciled_at as "lastReconciledAt",
+      google_hash as "googleHash"
+    from profile_field_state where location_id = ${locationId}
+  `
+  return new Map(rows.map((row) => [row.fieldKey, row]))
 }
 
 function fieldComparisons(input: {
@@ -135,42 +147,43 @@ function fieldComparisons(input: {
   })
 }
 
-async function persistObservedFields(input: {
-  organisationId: string
-  context: ProfileContext
-  canonicalRevision: string
-  fields: ReturnType<typeof fieldComparisons>
-  attemptedAt: Date
-}) {
-  await withTenant(input.organisationId, async (sql) => {
-    for (const field of input.fields) {
-      const establishBaseline = field.status === "in_sync"
-      await sql`
-        insert into profile_field_state (
-          organisation_id, location_id, external_location_id, field_key, policy, status,
-          canonical_value, google_value, canonical_hash, google_hash,
-          baseline_canonical_hash, baseline_google_hash, canonical_revision, last_reconciled_at, observed_at
-        ) values (
-          ${input.organisationId}, ${input.context.locationId}, ${input.context.externalLocationId},
-          ${field.key}, ${field.policy}, ${field.status},
-          ${jsonColumn(sql, { value: field.canonicalValue })}, ${jsonColumn(sql, { value: field.googleValue })},
-          ${field.canonicalHash}, ${field.googleHash},
-          ${establishBaseline ? field.canonicalHash : null},
-          ${establishBaseline ? field.googleHash : null}, ${input.canonicalRevision},
-          ${establishBaseline ? new Date() : null}, ${input.attemptedAt}
-        ) on conflict (organisation_id, location_id, field_key) do update set
-          policy = excluded.policy, status = excluded.status,
-          canonical_value = excluded.canonical_value, google_value = excluded.google_value,
-          canonical_hash = excluded.canonical_hash, google_hash = excluded.google_hash,
-          baseline_canonical_hash = coalesce(profile_field_state.baseline_canonical_hash, excluded.baseline_canonical_hash),
-          baseline_google_hash = coalesce(profile_field_state.baseline_google_hash, excluded.baseline_google_hash),
-          canonical_revision = excluded.canonical_revision, observed_at = excluded.observed_at,
-          snapshot_expires_at = now() + interval '30 days',
-          last_reconciled_at = coalesce(profile_field_state.last_reconciled_at, excluded.last_reconciled_at)
-        where excluded.observed_at > profile_field_state.observed_at
-      `
-    }
-  })
+async function persistObservedFields(
+  sql: TransactionSql,
+  input: {
+    organisationId: string
+    context: ProfileContext
+    canonicalRevision: string
+    fields: ReturnType<typeof fieldComparisons>
+    attemptedAt: Date
+  }
+) {
+  for (const field of input.fields) {
+    const establishBaseline = field.status === "in_sync"
+    await sql`
+      insert into profile_field_state (
+        organisation_id, location_id, external_location_id, field_key, policy, status,
+        canonical_value, google_value, canonical_hash, google_hash,
+        baseline_canonical_hash, baseline_google_hash, canonical_revision, last_reconciled_at, observed_at
+      ) values (
+        ${input.organisationId}, ${input.context.locationId}, ${input.context.externalLocationId},
+        ${field.key}, ${field.policy}, ${field.status},
+        ${jsonColumn(sql, { value: field.canonicalValue })}, ${jsonColumn(sql, { value: field.googleValue })},
+        ${field.canonicalHash}, ${field.googleHash},
+        ${establishBaseline ? field.canonicalHash : null},
+        ${establishBaseline ? field.googleHash : null}, ${input.canonicalRevision},
+        ${establishBaseline ? new Date() : null}, ${input.attemptedAt}
+      ) on conflict (organisation_id, location_id, field_key) do update set
+        policy = excluded.policy, status = excluded.status,
+        canonical_value = excluded.canonical_value, google_value = excluded.google_value,
+        canonical_hash = excluded.canonical_hash, google_hash = excluded.google_hash,
+        baseline_canonical_hash = coalesce(profile_field_state.baseline_canonical_hash, excluded.baseline_canonical_hash),
+        baseline_google_hash = coalesce(profile_field_state.baseline_google_hash, excluded.baseline_google_hash),
+        canonical_revision = excluded.canonical_revision, observed_at = excluded.observed_at,
+        snapshot_expires_at = now() + interval '30 days',
+        last_reconciled_at = coalesce(profile_field_state.last_reconciled_at, excluded.last_reconciled_at)
+      where excluded.observed_at > profile_field_state.observed_at
+    `
+  }
 }
 
 async function fetchGoogleProfile(
@@ -186,14 +199,23 @@ async function fetchGoogleProfile(
   )) as GoogleLocationProfile
 }
 
-async function readLiveProfile(session: Session, locationId: string) {
-  const context = await withTenant(session.organisationId, (sql) =>
-    loadLinkedLocation(sql, session, locationId, {
-      notLinked: {
-        message: "Link this location to Google before managing its profile.",
-      },
-    })
-  )
+const LINKED_PROFILE_LOCATION = {
+  notLinked: {
+    message: "Link this location to Google before managing its profile.",
+  },
+}
+
+async function readLiveProfile(
+  session: Session,
+  locationId: string,
+  /** Already loaded (and authorized) in this request. */
+  loaded?: LinkedLocation
+) {
+  const context =
+    loaded ??
+    (await withTenant(session.organisationId, (sql) =>
+      loadLinkedLocation(sql, session, locationId, LINKED_PROFILE_LOCATION)
+    ))
   const attemptedAt = new Date()
   let accessToken: string
   let googleLocation: GoogleLocationProfile
@@ -240,90 +262,235 @@ async function readLiveProfile(session: Session, locationId: string) {
 
 type LiveProfile = Awaited<ReturnType<typeof readLiveProfile>>
 
+/**
+ * What a successful profile read keeps for the editor (the observation's
+ * `observed_google_payload`): Google's location as read, and when.
+ */
+type ObservedProfilePayload = {
+  observedAt: string
+  location: GoogleLocationProfile
+}
+
+type ProfileReadOptions = {
+  /** Read Google now, past the staleness budget. */
+  refresh?: boolean
+  /** The staleness budget; `Infinity` serves any valid stored read. */
+  maxAgeMs?: number
+}
+
+type LatestProfileAttempt = {
+  id: string
+  direction: string
+  status: string
+  selectedFields: string[]
+  createdAt: Date
+  finishedAt: Date | null
+}
+
+async function latestProfileAttempt(sql: TransactionSql, locationId: string) {
+  const [row] = await sql<LatestProfileAttempt[]>`
+    select id::text as id, direction, status, selected_fields as "selectedFields",
+      created_at as "createdAt", finished_at as "finishedAt"
+    from profile_sync_attempt where location_id = ${locationId}
+    order by created_at desc limit 1
+  `
+  return row ?? null
+}
+
+/**
+ * The editor's profile, served from the latest observation within the
+ * staleness budget, read from Google (and recorded) otherwise. Publishing
+ * and imports always read Google themselves.
+ */
 export async function getProfileState(
   session: Session,
-  locationId: string
+  locationId: string,
+  options: ProfileReadOptions = {}
 ): Promise<ProfileState> {
-  return (await readProfileStateBundle(session, locationId)).state
+  return (await readProfileStateBundle(session, locationId, options)).state
 }
 
 /**
  * Same as getProfileState but also returns the location context, so callers
  * that need external ids (the import-review raiser) avoid a second
  * context+Google round-trip.
+ *
+ * Within the staleness budget (`readStoredProfile`) this is ONE read-only
+ * tenant transaction and no Google call (W0-04, W3-2). A live read (stale,
+ * `refresh`, or nothing usable stored) records what it observed, field
+ * states and observation together, in one transaction.
  */
 export async function readProfileStateBundle(
   session: Session,
-  locationId: string
+  locationId: string,
+  options: ProfileReadOptions = {}
 ): Promise<{ state: ProfileState; context: ProfileContext }> {
-  const [live, stored] = await Promise.all([
-    readLiveProfile(session, locationId),
-    loadStoredStates(session.organisationId, locationId),
-  ])
-  const fields = fieldComparisons({
-    canonical: live.canonical,
-    google: live.google,
-    stored,
-  })
-  await persistObservedFields({
-    organisationId: session.organisationId,
-    context: live.context,
-    canonicalRevision: live.resource.revision,
-    attemptedAt: live.attemptedAt,
-    fields,
-  })
-  await withTenant(session.organisationId, (sql) =>
-    recordResourceObservation(sql, {
+  const read = options.refresh
+    ? null
+    : await readStoredProfile(session, locationId, options.maxAgeMs)
+  if (read?.stored) return read.stored
+  const live = await readLiveProfile(session, locationId, read?.linked)
+  const observed = await withTenant(session.organisationId, async (sql) => {
+    const stored = await readStoredStates(sql, locationId)
+    const fields = fieldComparisons({
+      canonical: live.canonical,
+      google: live.google,
+      stored,
+    })
+    await persistObservedFields(sql, {
+      organisationId: session.organisationId,
+      context: live.context,
+      canonicalRevision: live.resource.revision,
+      attemptedAt: live.attemptedAt,
+      fields,
+    })
+    await recordResourceObservation(sql, {
       organisationId: session.organisationId,
       locationId,
       resource: "profile",
       attemptedAt: live.attemptedAt,
+      googlePayload: {
+        observedAt: live.attemptedAt.toISOString(),
+        location: live.googleLocation,
+      } satisfies ObservedProfilePayload,
     })
-  )
-  const latestAttempt = await withTenant(
-    session.organisationId,
-    async (sql) => {
-      const [row] = await sql<
-        {
-          id: string
-          direction: string
-          status: string
-          selectedFields: string[]
-          createdAt: Date
-          finishedAt: Date | null
-        }[]
-      >`
-      select id::text as id, direction, status, selected_fields as "selectedFields",
-        created_at as "createdAt", finished_at as "finishedAt"
-      from profile_sync_attempt where location_id = ${locationId}
-      order by created_at desc limit 1
-    `
-      return row ?? null
+    return { fields, attempt: await latestProfileAttempt(sql, locationId) }
+  })
+  return {
+    state: profileState({
+      context: live.context,
+      resource: live.resource,
+      googleLocation: live.googleLocation,
+      canonicalHash: live.canonicalHash,
+      googleHash: live.googleHash,
+      fields: observed.fields,
+      latestAttempt: observed.attempt,
+      observedAt: live.attemptedAt,
+      source: "live",
+    }),
+    context: live.context,
+  }
+}
+
+/**
+ * The editor's profile from the latest observation, in ONE read-only tenant
+ * transaction and no Google call. `stored` is null when Google must be read
+ * (the `linked` location loaded here is reused for it):
+ *   - no saved profile or observed payload yet, or the payload is past the
+ *     budget;
+ *   - a read or the sweep failed since (an open retries Google);
+ *   - a field's stored Google hash is not the payload's (another writer
+ *     changed the field states since), or a field in sync still lacks its
+ *     baseline, which only a recorded (live) read establishes.
+ * Google writers to the location's profile fields drop the payload
+ * (`forgetObservedGooglePayload`), so a later open reads what they left.
+ */
+async function readStoredProfile(
+  session: Session,
+  locationId: string,
+  maxAgeMs?: number
+) {
+  return withTenant(session.organisationId, async (sql) => {
+    const linked = await loadLinkedLocation(
+      sql,
+      session,
+      locationId,
+      LINKED_PROFILE_LOCATION
+    )
+    const [resource, observation, stored] = await Promise.all([
+      readCanonicalResource<NormalizedProfile>({
+        sql,
+        organisationId: session.organisationId,
+        locationId,
+        resourceType: "profile",
+      }),
+      readObservedGooglePayload(sql, {
+        organisationId: session.organisationId,
+        locationId,
+        resource: "profile",
+      }),
+      readStoredStates(sql, locationId),
+    ])
+    const payload = observation?.payload as ObservedProfilePayload | null
+    if (
+      !resource ||
+      !observation ||
+      observation.failed ||
+      !payload?.location ||
+      shouldReadLive({ observedAt: payload.observedAt, maxAgeMs })
+    )
+      return { linked, stored: null }
+    const google = normalizeGoogleProfile(payload.location)
+    const fields = fieldComparisons({
+      canonical: resource.payload,
+      google,
+      stored,
+    })
+    const consistent = fields.every((field) => {
+      const row = stored.get(field.key)
+      return (
+        row?.googleHash === field.googleHash &&
+        (field.status !== "in_sync" ||
+          (row.baselineCanonicalHash !== null &&
+            row.baselineGoogleHash !== null))
+      )
+    })
+    if (!consistent) return { linked, stored: null }
+    return {
+      linked,
+      stored: {
+        state: profileState({
+          context: linked,
+          resource,
+          googleLocation: payload.location,
+          canonicalHash: hashProfile(resource.payload),
+          googleHash: hashGoogleProfile(payload.location, google),
+          fields,
+          latestAttempt: await latestProfileAttempt(sql, locationId),
+          observedAt: new Date(payload.observedAt),
+          source: "stored",
+        }),
+        context: linked,
+      },
     }
-  )
+  })
+}
+
+function profileState(input: {
+  context: ProfileContext
+  resource: CanonicalResource<NormalizedProfile>
+  googleLocation: GoogleLocationProfile
+  canonicalHash: string
+  googleHash: string
+  fields: ReturnType<typeof fieldComparisons>
+  latestAttempt: LatestProfileAttempt | null
+  observedAt: Date
+  source: ProfileState["source"]
+}): ProfileState {
+  const { latestAttempt } = input
   const primaryCategory =
-    live.googleLocation.categories?.primaryCategory?.displayName ??
-    live.googleLocation.categories?.primaryCategory?.name ??
+    input.googleLocation.categories?.primaryCategory?.displayName ??
+    input.googleLocation.categories?.primaryCategory?.name ??
     null
   const additionalCategories =
-    live.googleLocation.categories?.additionalCategories?.flatMap(
+    input.googleLocation.categories?.additionalCategories?.flatMap(
       (category) => category.displayName ?? category.name ?? []
     ) ?? []
-  const state: ProfileState = {
+  return {
     location: {
-      id: live.context.locationId,
-      name: live.context.locationName,
-      googleLocationName: live.context.googleLocationName,
+      id: input.context.locationId,
+      name: input.context.locationName,
+      googleLocationName: input.context.googleLocationName,
     },
     canonicalResource: {
-      revision: live.resource.revision,
-      updatedAt: live.resource.updatedAt.toISOString(),
+      revision: input.resource.revision,
+      updatedAt: input.resource.updatedAt.toISOString(),
     },
-    canonicalHash: live.canonicalHash,
-    googleHash: live.googleHash,
-    canPublish: live.context.canPublish,
+    canonicalHash: input.canonicalHash,
+    googleHash: input.googleHash,
+    canPublish: input.context.canPublish,
     googleWritesEnabled: gbpWritesEnabled(getServerEnv(), "profileWrites"),
-    fields,
+    fields: input.fields,
     googleDetails: { primaryCategory, additionalCategories },
     latestAttempt: latestAttempt
       ? {
@@ -332,8 +499,9 @@ export async function readProfileStateBundle(
           finishedAt: latestAttempt.finishedAt?.toISOString() ?? null,
         }
       : null,
+    observedAt: input.observedAt.toISOString(),
+    source: input.source,
   }
-  return { state, context: live.context }
 }
 
 function assertSelectedFields(
@@ -422,35 +590,49 @@ export async function saveCanonicalProfile(input: {
   values: Partial<NormalizedProfile>
   requestId: string
 }) {
-  const live = await readLiveProfile(input.session, input.locationId)
-  if (!live.context.canPublish)
-    throw new ApiError(
-      403,
-      "canonical_edit_permission_required",
-      "You cannot edit this location."
-    )
-  if (live.resource.revision !== input.expectedCanonicalRevision) {
-    throw new ApiError(
-      409,
-      "canonical_resource_stale",
-      "The profile changed after it was loaded."
-    )
-  }
+  // NabaPresence's own copy only: no Google read (a save works while Google
+  // is unreachable, as hours does). Publishing reads Google itself.
   const allowed = new Set(
     PROFILE_FIELD_KEYS.filter(
       (key) => PROFILE_FIELD_POLICIES[key] === "bidirectional"
     )
   )
-  const canonical = { ...live.canonical }
-  for (const [key, value] of Object.entries(input.values) as Array<
-    [ProfileFieldKey, string | null]
-  >) {
-    if (allowed.has(key))
-      canonical[key] = typeof value === "string" ? value.trim() || null : null
-  }
   const updated = await withTenant(
     input.session.organisationId,
     async (sql) => {
+      const linked = await loadLinkedLocation(
+        sql,
+        input.session,
+        input.locationId,
+        LINKED_PROFILE_LOCATION
+      )
+      if (!linked.canPublish)
+        throw new ApiError(
+          403,
+          "canonical_edit_permission_required",
+          "You cannot edit this location."
+        )
+      const current = await readCanonicalResource<NormalizedProfile>({
+        sql,
+        organisationId: input.session.organisationId,
+        locationId: input.locationId,
+        resourceType: "profile",
+      })
+      if (current?.revision !== input.expectedCanonicalRevision) {
+        throw new ApiError(
+          409,
+          "canonical_resource_stale",
+          "The profile changed after it was loaded."
+        )
+      }
+      const canonical = { ...current.payload }
+      for (const [key, value] of Object.entries(input.values) as Array<
+        [ProfileFieldKey, string | null]
+      >) {
+        if (allowed.has(key))
+          canonical[key] =
+            typeof value === "string" ? value.trim() || null : null
+      }
       const resource = await updateCanonicalResource({
         sql,
         organisationId: input.session.organisationId,
@@ -657,6 +839,14 @@ export async function publishProfileToGoogle(input: PublishProfileInput) {
 
 async function publishProfileLocked(input: PublishProfileInput) {
   const { selected, live, patch } = await prepareProfilePublish(input)
+  // Whatever the write's outcome, the stored read predates it; a verified
+  // success records its readback as the new one (onSuccess).
+  await forgetObservedGooglePayload({
+    organisationId: input.session.organisationId,
+    locationId: input.locationId,
+    // The business-information editor shows the same location fields.
+    resources: ["profile", "businessInformation"],
+  })
   const organisationId = input.session.organisationId
   const patchGoogle = (validateOnly: boolean) =>
     patchGoogleLocationProfile(
@@ -733,15 +923,28 @@ async function publishProfileLocked(input: PublishProfileInput) {
       hash: (readback) => hashGoogleProfile(readback.location, readback.profile),
       mismatch: { code: "google_readback_mismatch", message: "Google accepted the patch but read-back did not match." },
     },
-    onSuccess: (sql, ctx) => {
+    onSuccess: async (sql, ctx) => {
       if (!ctx.readback) throw new Error("Profile publication requires independent readback.")
-      return markFieldsPublished(sql, {
+      await markFieldsPublished(sql, {
         organisationId,
         locationId: input.locationId,
         live,
         selected,
         readback: ctx.readback.profile,
         readbackHash: ctx.readbackHash as string,
+      })
+      // The readback is a full profile read: the editor's next open is
+      // served from it instead of reading Google a third time.
+      const observedAt = new Date()
+      await recordResourceObservation(sql, {
+        organisationId,
+        locationId: input.locationId,
+        resource: "profile",
+        attemptedAt: observedAt,
+        googlePayload: {
+          observedAt: observedAt.toISOString(),
+          location: ctx.readback.location,
+        } satisfies ObservedProfilePayload,
       })
     },
     audit: (ctx) => ({

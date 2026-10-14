@@ -101,6 +101,7 @@ import {
   type PauseSnapshot,
 } from "@/lib/server/pause-controls"
 import {
+  lockReview,
   recoverAttempt,
   retryPublishAttempt,
   writePublishAttemptEvent,
@@ -568,6 +569,7 @@ async function settleDisconnectedRecovery(
   requestId: string,
   attempt: { reviewId: string; reviewReplyId: string }
 ): Promise<void> {
+  await lockReview(sql, attempt.reviewId)
   await sql`
     update publish_attempt
     set

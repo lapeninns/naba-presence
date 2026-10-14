@@ -97,6 +97,9 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const { liveBody, draftBody } = replyWork({
     reply: review?.reply ?? null,
     drafts: review?.drafts ?? [],
+    // An approver reads the parked draft, not a newer one.
+    workflowStatus: review?.workflowStatus,
+    pendingDraft: review?.pendingDraft,
   })
   const seededBody = draftBody ?? liveBody ?? ""
 

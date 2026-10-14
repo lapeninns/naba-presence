@@ -50,6 +50,7 @@ import { fetchOrganisations } from "@/lib/api/session"
 import { abandonAllDrafts, clearAllStashedDrafts } from "@/lib/api/draft-stash"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { useHydrated } from "@/lib/hooks/use-hydrated"
+import { requestOptions } from "@/lib/queries/request-options"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { workspaceTerms, type WorkspaceMode } from "@/lib/workspace/terms"
@@ -134,7 +135,7 @@ function useAccount(session: ShellSession | null) {
 
   const organisations = useQuery({
     queryKey: ["organisations"],
-    queryFn: ({ signal }) => fetchOrganisations({ signal }),
+    queryFn: (ctx) => fetchOrganisations(requestOptions(ctx)),
     enabled: Boolean(session),
     staleTime: 5 * 60 * 1000,
   })

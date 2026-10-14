@@ -124,8 +124,12 @@ export function throughWire<T>(schema: ZodType<T>, payload: unknown): T {
 
 export type PrefetchEntry = {
   queryKey: QueryKey
+  /** Resolving to `PREFETCH_SKIP` leaves the key out (nothing new to add). */
   load: () => Promise<unknown>
 }
+
+/** What an entry's `load` returns when it has nothing to hydrate. */
+export const PREFETCH_SKIP: unique symbol = Symbol("prefetch-skip")
 
 /**
  * Runs every entry concurrently, stores the successful ones under their
@@ -143,7 +147,8 @@ export async function prefetch(
   results.forEach((result, index) => {
     const { queryKey } = list[index]
     if (result.status === "fulfilled") {
-      client.setQueryData(queryKey, result.value)
+      if (result.value !== PREFETCH_SKIP)
+        client.setQueryData(queryKey, result.value)
       return
     }
     const error = result.reason
@@ -449,12 +454,15 @@ function streamable(locationId: string): boolean {
 /**
  * /listings/{id}/hours: what `useHours(id)` reads on its first render.
  *
- * The hours read refreshes what the listing summary holds (Google's hours,
- * the reconcile time), which is why `useHours` invalidates the summary after
- * every fetch. The summary is re-read once the hours read has settled and
- * hydrated after it, so the header's status pill follows the hours read as
- * it did when the browser fetched it. (An existing query hydrates only from
- * newer data, so it never moves the pill backwards.)
+ * A live hours read refreshes what the listing summary holds (Google's
+ * hours, the reconcile time), which is why `useHours` invalidates the
+ * summary after one. The summary is then re-read once the hours read has
+ * settled and hydrated after it, so the header's status pill follows the
+ * hours read as it did when the browser fetched it. (An existing query
+ * hydrates only from newer data, so it never moves the pill backwards.) An
+ * hours read served from the stored observation changed nothing, so the
+ * page's own summary read (`listingPagePrefetch`) stands and is not
+ * repeated.
  */
 export function hoursTabPrefetch(
   locationId: string
@@ -468,7 +476,8 @@ export function hoursTabPrefetch(
       {
         queryKey: queryKeys.listingSummary(locationId),
         load: async () => {
-          await loadHours().catch(() => undefined)
+          const read = await loadHours().catch(() => undefined)
+          if (read?.source === "stored") return PREFETCH_SKIP
           return readListingSummary(session, locationId)
         },
       },

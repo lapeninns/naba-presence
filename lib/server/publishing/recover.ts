@@ -29,6 +29,7 @@ import {
   applyDeletedReply,
   applyFailedReply,
   applyPublishedReply,
+  lockReview,
   setReviewWorkflow,
 } from "./settle"
 import type {
@@ -211,6 +212,7 @@ async function settleRecovery(
   result: RecoveryResult,
   review: GoogleReviewResource
 ) {
+  await lockReview(sql, context.review_id)
   await writePublishAttemptEvent(sql, {
     organisationId,
     publishAttemptId: context.id,

@@ -22,7 +22,13 @@ import { renderWithProviders } from "../helpers/render"
 
 const usePostsMock = vi.fn()
 const useCapsMock = vi.fn()
+const refreshPosts = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  isError: false,
+}))
 vi.mock("@/lib/queries/use-location-posts", () => ({
+  useRefreshPosts: () => refreshPosts,
   usePosts: () => usePostsMock(),
 }))
 vi.mock("@/lib/queries/use-location-capabilities", () => ({

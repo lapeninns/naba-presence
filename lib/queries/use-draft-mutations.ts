@@ -10,12 +10,12 @@ import {
 } from "@/lib/api/drafts"
 import { intentFingerprint, mintIntentId } from "@/lib/api/client"
 import { isUnconfirmedFailure } from "@/lib/errors/action-errors"
-import { useInvalidateReviewWrites } from "./invalidate"
+import { useApplyReviewWrite } from "./invalidate"
 import { queryKeys } from "./keys"
 import { replyMutationKey } from "./use-reply-pending"
 
 export function useGenerateOrSaveDraft(reviewId: string) {
-  const invalidate = useInvalidateReviewWrites(reviewId)
+  const apply = useApplyReviewWrite(reviewId)
   const client = useQueryClient()
   // The generation id of each input whose last attempt may still have run
   // (an uncertain failure, or `generation_in_progress`): pressing Generate
@@ -45,12 +45,10 @@ export function useGenerateOrSaveDraft(reviewId: string) {
         throw error
       }
     },
-    onSuccess: async () => {
-      await Promise.all([
-        invalidate(),
-        // A generation spends a credit: refresh the balance and the chart.
-        client.invalidateQueries({ queryKey: queryKeys.aiCreditsAll }),
-      ])
+    onSuccess: (result) => {
+      // A generation spends a credit: refresh the balance and the chart.
+      void client.invalidateQueries({ queryKey: queryKeys.aiCreditsAll })
+      return apply(result)
     },
     // A 402 means the balance on screen was stale.
     onError: () =>
@@ -59,10 +57,10 @@ export function useGenerateOrSaveDraft(reviewId: string) {
 }
 
 export function useVerifyDraft(reviewId: string) {
-  const invalidate = useInvalidateReviewWrites(reviewId)
+  const apply = useApplyReviewWrite(reviewId)
   return useMutation({
     mutationKey: replyMutationKey(reviewId, "draft"),
     mutationFn: (draftId: string) => verifyDraft(draftId),
-    onSuccess: invalidate,
+    onSuccess: apply,
   })
 }

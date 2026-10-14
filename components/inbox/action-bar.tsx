@@ -40,7 +40,7 @@ import { useVerifyDraft } from "@/lib/queries/use-draft-mutations"
 import { ApiClientError } from "@/lib/api/client"
 import { usePublishReview } from "@/lib/queries/use-publish-review"
 import { useReviewDetail } from "@/lib/queries/use-review-detail"
-import { isLiveOnGoogle } from "@/lib/inbox/review-situation"
+import { isLiveOnGoogle, shownDraft } from "@/lib/inbox/review-situation"
 import { publishFailureCause } from "@/lib/inbox/publish-failure"
 import {
   isAdvancingOutcome,
@@ -220,9 +220,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   }
 
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
-    // An approval names the draft the composer shows and the review as read,
-    // so a pane gone stale is refused (409) rather than approving unseen text.
-    const shownDraftId = review.drafts[0]?.id
+    // An approval names the draft the composer shows (the parked one) and
+    // the review as read, so a pane gone stale is refused (409) rather than
+    // approving unseen text.
+    const shownDraftId = shownDraft(review)?.id
     if (decision === "approve" && !shownDraftId) return
     try {
       const result = await approval.mutateAsync(

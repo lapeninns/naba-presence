@@ -5,6 +5,7 @@ import {
 import { getServerEnv } from "@/lib/server/env"
 import { ApiError } from "@/lib/server/http"
 import { executeReplyDelete } from "@/lib/server/publishing"
+import { readReviewWriteSnapshot } from "@/lib/server/review-reads"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
@@ -14,7 +15,7 @@ export const DELETE = route({
   maxDuration,
   mfa: "step_up",
   params: reviewIdParamsSchema,
-  handler: async ({ session, params, requestId }) => {
+  handler: async ({ session, params, requestId, tenant }) => {
     if (!getServerEnv().PUBLISH_ENABLED) {
       throw new ApiError(
         503,
@@ -38,6 +39,7 @@ export const DELETE = route({
     return {
       status: outcome.status,
       publishAttemptId: outcome.attemptId,
+      ...(await readReviewWriteSnapshot(tenant, session, params.id, requestId)),
     } satisfies DeleteReplyResult
   },
 })

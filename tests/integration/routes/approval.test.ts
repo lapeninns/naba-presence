@@ -263,7 +263,9 @@ describeDatabase("reply approval", () => {
   })
 
   // What the inbox pane binds an approval to (components/inbox/action-bar.tsx):
-  // the draft the composer shows — the newest — and the review's update time.
+  // the draft the composer shows — the parked one, `pendingDraft`, else the
+  // newest (shownDraft in lib/inbox/review-situation.ts) — and the review's
+  // update time.
   async function readPane(
     fixture: Awaited<ReturnType<typeof createFixture>>,
     cookie: string
@@ -274,12 +276,38 @@ describeDatabase("reply approval", () => {
     )
     expect(response.status).toBe(200)
     const { review } = (await response.json()) as {
-      review: { updateTime: string; drafts: { id: string }[] }
+      review: {
+        updateTime: string
+        drafts: { id: string; body: string }[]
+        pendingDraft?: { id: string; body: string } | null
+      }
     }
+    const shown = review.pendingDraft ?? review.drafts[0]
     return {
-      draftId: review.drafts[0].id,
+      draftId: shown.id,
       expectedReviewUpdateTime: review.updateTime,
+      body: shown.body,
+      newestDraftId: review.drafts[0].id,
     }
+  }
+
+  async function insertNewerDraft(
+    fixture: Awaited<ReturnType<typeof createFixture>>
+  ) {
+    const [draft] = await admin<{ id: string }[]>`
+      insert into draft (
+        organisation_id, review_id, source, tone, body, body_bytes,
+        evidence_hash, verification_status, created_at
+      )
+      select organisation_id, review_id, 'human', tone,
+        'A newer draft nobody submitted.',
+        octet_length('A newer draft nobody submitted.'),
+        evidence_hash, verification_status, created_at + interval '1 minute'
+      from draft
+      where id = ${fixture.draft.draftId}
+      returning id::text as id
+    `
+    return draft.id
   }
 
   async function expectNothingDecided(
@@ -300,48 +328,79 @@ describeDatabase("reply approval", () => {
     })
     expect((await publish(fixture, requester.cookie)).status).toBe(202)
 
-    const pane = await readPane(fixture, fixture.owner.cookie)
-    expect(pane.draftId).toBe(fixture.draft.draftId)
+    const { draftId, expectedReviewUpdateTime } = await readPane(
+      fixture,
+      fixture.owner.cookie
+    )
+    expect(draftId).toBe(fixture.draft.draftId)
     const approved = await decide(fixture, fixture.owner.cookie, {
       decision: "approve",
-      ...pane,
+      draftId,
+      expectedReviewUpdateTime,
     })
     expect(approved.status).toBe(200)
     expect(stub.calls.filter((call) => call.method === "PUT")).toHaveLength(1)
   })
 
-  // W1-F1: the pane shows the newest draft. When that is not the parked one
-  // the approver never read what would publish, so the approval is refused.
-  it("refuses an approval from a pane showing a draft that is not the parked one", async () => {
+  // A draft newer than the parked one (one nobody submitted) used to be what
+  // the pane showed and named, so Approve answered 409 every time. The pane
+  // now reads the parked draft from the detail, shows its text and names it.
+  it("approves the parked draft the pane shows when a newer draft exists", async () => {
     const fixture = await createFixture()
     const requester = await createActor(fixture.owner.organisationId, {
       role: "member",
       canPublish: false,
     })
     expect((await publish(fixture, requester.cookie)).status).toBe(202)
-    // A draft saved after the request was parked: the pane now shows it.
-    await admin`
-      insert into draft (
-        organisation_id, review_id, source, tone, body, body_bytes,
-        evidence_hash, verification_status, created_at
-      )
-      select organisation_id, review_id, 'human', tone,
-        'A newer draft the approver is now reading.',
-        octet_length('A newer draft the approver is now reading.'),
-        evidence_hash, verification_status, created_at + interval '1 minute'
-      from draft
-      where id = ${fixture.draft.draftId}
+    const [parked] = await admin<{ body: string }[]>`
+      select body from draft where id = ${fixture.draft.draftId}
     `
+    const newer = await insertNewerDraft(fixture)
 
     const pane = await readPane(fixture, fixture.owner.cookie)
-    expect(pane.draftId).not.toBe(fixture.draft.draftId)
+    expect(pane.newestDraftId).toBe(newer)
+    expect(pane.draftId).toBe(fixture.draft.draftId)
+    expect(pane.body).toBe(parked.body)
+    const approved = await decide(fixture, fixture.owner.cookie, {
+      decision: "approve",
+      draftId: pane.draftId,
+      expectedReviewUpdateTime: pane.expectedReviewUpdateTime,
+    })
+    expect(approved.status).toBe(200)
+    const puts = stub.calls.filter((call) => call.method === "PUT")
+    expect(puts).toHaveLength(1)
+    expect((puts[0].body as { comment: string }).comment).toBe(parked.body)
+  })
+
+  // A client that names a draft other than the parked one (an older pane
+  // that showed the newest) never read what would publish: refused.
+  it("refuses an approval naming a draft that is not the parked one", async () => {
+    const fixture = await createFixture()
+    const requester = await createActor(fixture.owner.organisationId, {
+      role: "member",
+      canPublish: false,
+    })
+    expect((await publish(fixture, requester.cookie)).status).toBe(202)
+    const newer = await insertNewerDraft(fixture)
+
+    const pane = await readPane(fixture, fixture.owner.cookie)
     const stale = await decide(fixture, fixture.owner.cookie, {
       decision: "approve",
-      ...pane,
+      draftId: newer,
+      expectedReviewUpdateTime: pane.expectedReviewUpdateTime,
     })
     expect(stale.status).toBe(409)
     expect((await stale.json()).error).toBe("approval_draft_changed")
     await expectNothingDecided(fixture)
+  })
+
+  it("leaves pendingDraft null once the reply is no longer parked", async () => {
+    const fixture = await createFixture()
+    const response = await fetch(
+      `${server.baseUrl}/api/reviews/${fixture.review.reviewId}`,
+      { headers: { cookie: fixture.owner.cookie } }
+    )
+    expect((await response.json()).review.pendingDraft).toBeNull()
   })
 
   it("refuses an approval when the review changed after the pane loaded", async () => {
@@ -361,7 +420,8 @@ describeDatabase("reply approval", () => {
 
     const stale = await decide(fixture, fixture.owner.cookie, {
       decision: "approve",
-      ...pane,
+      draftId: pane.draftId,
+      expectedReviewUpdateTime: pane.expectedReviewUpdateTime,
     })
     expect(stale.status).toBe(409)
     expect((await stale.json()).error).toBe("review_changed")
@@ -396,9 +456,11 @@ describeDatabase("reply approval", () => {
       note: "Please make the reply more specific.",
     })
     expect(rejected.status).toBe(200)
-    expect(await rejected.json()).toEqual({
-      status: "returned_to_draft",
-    })
+    // Plus the review as it now stands (row, detail): see
+    // review-write-snapshot.test.ts.
+    const rejectedBody = await rejected.json()
+    expect(rejectedBody).toMatchObject({ status: "returned_to_draft" })
+    expect(rejectedBody.row.workflowStatus).toBe("drafted")
     const [state] = await admin<
       {
         workflow_status: string

@@ -33,7 +33,7 @@ import {
   templateBand,
   type TemplateBand,
 } from "@/lib/inbox/template-batch"
-import { queryKeys } from "@/lib/queries/keys"
+import { invalidateReviewBatch } from "@/lib/queries/invalidate"
 import { useRetryIntents } from "@/lib/queries/use-bulk-review-action"
 
 type Phase =
@@ -128,11 +128,13 @@ function TemplateReplyDialog({
       [id]: { ...current[id], ...patch },
     }))
 
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.reviewsAll })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.reviewCountsAll })
-    void queryClient.invalidateQueries({ queryKey: queryKeys.clientsAll })
-  }
+  // The lists, counts and client badges, and the detail of every review the
+  // batch touched — an open pane among them would otherwise stay stale.
+  const refresh = (rows: readonly ReviewRow[]) =>
+    invalidateReviewBatch(
+      queryClient,
+      rows.map((row) => row.id)
+    )
 
   const fail = (id: string, error: unknown) => {
     record(id, { problem: describeActionError(error) })
@@ -191,7 +193,7 @@ function TemplateReplyDialog({
       },
       { concurrency: DRAFT_CONCURRENCY, shouldStop: () => stopRef.current }
     )
-    refresh()
+    refresh(targets)
     setPhase("review")
   }
 
@@ -211,7 +213,7 @@ function TemplateReplyDialog({
       const result = await runBulkReviewAction(input, { intentId })
       batchIntents.settle(input, intentId)
       setQueued(result)
-      refresh()
+      refresh(eligible)
       setPhase("queued")
     } catch (error) {
       batchIntents.settle(input, intentId, error)
@@ -251,7 +253,7 @@ function TemplateReplyDialog({
       },
       { concurrency: PUBLISH_CONCURRENCY, shouldStop: () => stopRef.current }
     )
-    refresh()
+    refresh(targets)
     setPhase("done")
   }
 

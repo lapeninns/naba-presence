@@ -614,7 +614,7 @@ describe("ActionBar", () => {
   })
 
   // W1-F1: an approval names what the approver read — the draft the composer
-  // shows (the newest) and the review's update time — like bulk approve.
+  // shows and the review's update time — like bulk approve.
   it("approves the draft on screen against the review as read", async () => {
     const user = userEvent.setup()
     const approval = mutation()
@@ -622,6 +622,36 @@ describe("ActionBar", () => {
       detailWith({
         workflowStatus: "awaiting_approval",
         updateTime: "2026-07-31T09:00:00.000Z",
+      }),
+      mutation(),
+      approval
+    )
+    renderActionBar()
+    await user.click(screen.getByRole("button", { name: "Approve reply" }))
+    await waitFor(() => expect(approval.mutateAsync).toHaveBeenCalledTimes(1))
+    expect(approval.mutateAsync).toHaveBeenCalledWith({
+      decision: "approve",
+      draftId: "d1",
+      expectedReviewUpdateTime: "2026-07-31T09:00:00.000Z",
+    })
+  })
+
+  // The parked draft need not be the newest: Approve names the one awaiting
+  // approval (what the composer shows), not a newer draft nobody submitted,
+  // which the server would refuse with 409 on every press.
+  it("approves the parked draft, not a newer one", async () => {
+    const user = userEvent.setup()
+    const approval = mutation()
+    const base = detailWith({}).review
+    stubHooks(
+      detailWith({
+        workflowStatus: "awaiting_approval",
+        updateTime: "2026-07-31T09:00:00.000Z",
+        drafts: [
+          { ...base.drafts[0], id: "d-newer", body: "Unsubmitted." },
+          ...base.drafts,
+        ],
+        pendingDraft: { id: "d1", body: base.drafts[0].body },
       }),
       mutation(),
       approval

@@ -142,6 +142,80 @@ describeDatabase("bulk review actions", () => {
     expect(puts()).toBe(0)
   })
 
+  // The list row names the parked draft, as the single approve pane does; the
+  // newest draft (`draftId`) can be one nobody submitted for approval.
+  it("approves the parked draft the list names when a newer draft exists", async () => {
+    stub.reset()
+    const parked = await awaitingApproval()
+    const [submitted] = await admin<{ body: string }[]>`
+      select body from draft where id = ${parked.shown.draftId}
+    `
+    const [newer] = await admin<{ id: string }[]>`
+      insert into draft (
+        organisation_id, review_id, source, tone, body, body_bytes,
+        evidence_hash, verification_status, created_at
+      )
+      select organisation_id, review_id, 'human', tone,
+        'A newer draft nobody submitted.',
+        octet_length('A newer draft nobody submitted.'),
+        evidence_hash, verification_status, created_at + interval '1 minute'
+      from draft
+      where id = ${parked.shown.draftId}
+      returning id::text as id
+    `
+    const listed = await fetch(`${server.baseUrl}/api/reviews`, {
+      headers: { cookie: parked.owner.cookie },
+    })
+    expect(listed.status).toBe(200)
+    const row = (
+      (await listed.json()) as {
+        items: { id: string; draftId: string; pendingDraftId: string; updateTime: string }[]
+      }
+    ).items.find((item) => item.id === parked.reviewId)!
+    expect(row.draftId).toBe(newer!.id)
+    expect(row.pendingDraftId).toBe(parked.shown.draftId)
+
+    // The newest draft is not what the server would approve.
+    const stale = await post(parked.owner.cookie, {
+      action: "approve",
+      approvals: [
+        { reviewId: row.id, draftId: row.draftId, reviewUpdateTime: row.updateTime },
+      ],
+    })
+    expect(await stale.json()).toEqual({
+      results: [
+        { reviewId: parked.reviewId, status: "skipped", code: "approval_draft_changed" },
+      ],
+    })
+    expect(puts()).toBe(0)
+
+    const response = await post(parked.owner.cookie, {
+      action: "approve",
+      approvals: [
+        { reviewId: row.id, draftId: row.pendingDraftId, reviewUpdateTime: row.updateTime },
+      ],
+    })
+    expect(await response.json()).toEqual({
+      results: [{ reviewId: parked.reviewId, status: "ok" }],
+    })
+    const sent = stub.calls.filter((call) => call.method === "PUT")
+    expect(sent).toHaveLength(1)
+    expect((sent[0]!.body as { comment: string }).comment).toBe(submitted!.body)
+  })
+
+  it("lists no pending draft for a reply that is not parked", async () => {
+    const tenant = await fixture()
+    await seedReview(admin, { organisationId: tenant.organisationId })
+    const listed = await fetch(`${server.baseUrl}/api/reviews`, {
+      headers: { cookie: tenant.cookie },
+    })
+    const { items } = (await listed.json()) as {
+      items: { pendingDraftId: string | null }[]
+    }
+    expect(items).toHaveLength(1)
+    expect(items[0]!.pendingDraftId).toBeNull()
+  })
+
   it("refuses an approval when the review changed after it was shown", async () => {
     stub.reset()
     const parked = await awaitingApproval()

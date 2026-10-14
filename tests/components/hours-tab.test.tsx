@@ -11,8 +11,14 @@ import type { HoursState } from "@/lib/api/location-hours"
 
 const useHoursMock = vi.fn()
 const useCapsMock = vi.fn()
+const refreshHours = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  isPending: false,
+  isError: false,
+}))
 vi.mock("@/lib/queries/use-location-hours", () => ({
   useHours: () => useHoursMock(),
+  useRefreshHours: () => refreshHours,
 }))
 vi.mock("@/lib/queries/use-location-capabilities", () => ({
   useLocationCapabilities: () => useCapsMock(),
@@ -108,6 +114,24 @@ describe("HoursTab", () => {
         name: "Match Google closing boundaries",
       })
     ).toBeEnabled()
+  })
+
+  it("says when Google was last checked and checks it again on request", async () => {
+    useHoursMock.mockReturnValue({
+      data: makeHours({
+        observedAt: new Date(Date.now() - 3 * 60_000).toISOString(),
+        source: "stored",
+      }),
+      isPending: false,
+    })
+    renderTab()
+    expect(screen.getByText(/Checked with Google/)).toHaveTextContent(
+      "Checked with Google 3 minutes ago."
+    )
+    await userEvent.click(
+      screen.getByRole("button", { name: "Check Google now" })
+    )
+    expect(refreshHours.mutate).toHaveBeenCalledOnce()
   })
 
   it("renders each weekday and one primary action for an owner", () => {
