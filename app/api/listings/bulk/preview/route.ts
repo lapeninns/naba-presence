@@ -7,6 +7,7 @@ export const maxDuration = 60
 
 /** Persists a reviewed target set with each listing's current and proposed value. */
 export const POST = route({
+  maxDuration,
   body: bulkPreviewRequestSchema,
   handler: async ({ session, body, requestId }) => ({ operation: await previewBulkOperation(session, body, requestId) }),
 })

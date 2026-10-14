@@ -13,6 +13,8 @@ import {
   startBulkTemplateReplies,
 } from "@/lib/server/bulk-reviews"
 import { ApiError } from "@/lib/server/http"
+import { hasTimeFor } from "@/lib/server/deadline"
+import { getServerEnv } from "@/lib/server/env"
 import { requireRecentMfa } from "@/lib/server/mfa"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import { requireLocationAction } from "@/lib/server/permissions"
@@ -62,11 +64,26 @@ type Row = BulkReviewResult["results"][number]
  * loop and template replies are not offered here (404 feature_disabled;
  * the inbox runs them itself). Assign and "no reply needed" are always
  * synchronous.
+ *
+ * The per-row approve loop publishes to Google one row after another inside
+ * this request, so it stops at the request deadline (lib/server/deadline.ts)
+ * instead of being killed mid-publish: a row is only started while one whole
+ * publish (its write and its readback) still fits, and every row after that
+ * is `skipped` with `bulk_time_budget_reached` — nothing was recorded or sent
+ * for it, so the operator can approve it again.
  */
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin", "member"],
   body: bulkReviewActionSchema,
-  handler: async ({ session, body, requestId, clientRequestId, tenant }) => {
+  handler: async ({
+    session,
+    body,
+    requestId,
+    clientRequestId,
+    tenant,
+    deadline,
+  }) => {
     if (body.action === "approve" || body.action === "template_reply") {
       // Approving publishes, and so does a template-reply batch (its starter
       // decides it; the approval records this session's assurance, 0106);
@@ -101,7 +118,17 @@ export const POST = route({
     const results: Row[] = []
 
     if (body.action === "approve") {
+      const env = getServerEnv()
+      const rowBudgetMs = env.GOOGLE_MUTATION_TIMEOUT_MS + env.GOOGLE_TIMEOUT_MS
       for (const item of body.approvals) {
+        if (!hasTimeFor(deadline, rowBudgetMs)) {
+          results.push({
+            reviewId: item.reviewId,
+            status: "skipped",
+            code: "bulk_time_budget_reached",
+          })
+          continue
+        }
         results.push(
           await approveRow(session, item, {
             requestId,

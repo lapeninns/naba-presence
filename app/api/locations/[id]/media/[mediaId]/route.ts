@@ -7,9 +7,15 @@ import {
 import { submitListingChange } from "@/lib/server/listing-change-registry"
 import { route } from "@/lib/server/route"
 
+// Not 60: its Google calls (freshness read, write and read-back in a row) do
+// not stop at ctx.deadline yet, so this keeps the platform default it ran
+// under.
+export const maxDuration = 300
+
 const paramsSchema = z.object({ id: z.string(), mediaId: z.string() })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   body: mediaUpdateRequestSchema,
@@ -26,6 +32,7 @@ export const PATCH = route({
 })
 
 export const DELETE = route({
+  maxDuration,
   mfa: "step_up",
   params: paramsSchema,
   body: mediaDeleteRequestSchema,

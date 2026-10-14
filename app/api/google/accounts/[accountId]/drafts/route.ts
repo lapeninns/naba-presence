@@ -4,12 +4,15 @@ import { createOnboardingDraft, listOnboardingDrafts } from "@/lib/server/google
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"], params: z.object({ accountId: z.uuid() }),
   query: googleOnboardingDraftListInputSchema,
   handler: ({ session, params, query }) => listOnboardingDrafts(session, params.accountId, query),
 })
 export const POST = route({
+  maxDuration,
   roles: ["owner", "admin"], params: z.object({ accountId: z.uuid() }),
   body: googleOnboardingDraftCreateSchema,
   handler: ({ session, params, body, requestId }) => createOnboardingDraft(session, params.accountId, body, requestId),

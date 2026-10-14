@@ -5,6 +5,7 @@ import { listListingChanges } from "@/lib/server/listing-changes"
 import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
+export const maxDuration = 60
 
 const paramsSchema = z.object({ id: z.uuid() })
 
@@ -14,6 +15,7 @@ const paramsSchema = z.object({ id: z.uuid() })
  * see the location sees them; `canDecide` says who may decide.
  */
 export const GET = route({
+  maxDuration,
   params: paramsSchema,
   handler: async ({ session, params }) =>
     ({

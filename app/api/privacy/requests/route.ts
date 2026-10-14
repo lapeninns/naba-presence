@@ -111,6 +111,7 @@ const WITHDRAWAL_STALLED_SQL = `(
 )`
 
 export const GET = route({
+  maxDuration,
   roles: ["owner", "admin"],
   handler: async ({ tenant }) => {
     // Stalled withdrawals first, then open requests, the closest to their
@@ -159,6 +160,7 @@ export const GET = route({
 })
 
 export const POST = route({
+  maxDuration,
   mfa: "step_up",
   entitlement: "exempt",
   roles: ["owner", "admin"],
@@ -215,6 +217,7 @@ export const POST = route({
 })
 
 export const PATCH = route({
+  maxDuration,
   mfa: "step_up",
   entitlement: "exempt",
   roles: ["owner"],
