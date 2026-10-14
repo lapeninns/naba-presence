@@ -237,6 +237,27 @@ describe("BulkActionBar", () => {
     })
   })
 
+  // Single approve names the parked draft; so does bulk. The newest draft can
+  // be one nobody submitted, which the server would refuse.
+  it("approves the parked draft, not a newer one", async () => {
+    const user = userEvent.setup()
+    renderBar([row("a", { draftId: "newer", pendingDraftId: "parked" })], ["a"])
+    await user.click(await screen.findByRole("button", { name: /^Approve/ }))
+    await user.click(
+      screen.getByRole("button", { name: "Approve and publish 1" })
+    )
+    expect(mutateAsync).toHaveBeenCalledWith({
+      action: "approve",
+      approvals: [
+        {
+          reviewId: "a",
+          draftId: "parked",
+          reviewUpdateTime: "2026-09-01T10:00:00.000Z",
+        },
+      ],
+    })
+  })
+
   it("does not offer to approve a row with no draft to read", async () => {
     renderBar([row("a"), row("b", { draftId: null })], ["a", "b"])
     expect(

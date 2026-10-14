@@ -123,13 +123,18 @@ function BulkActionBar({
 
   if (chosen.length === 0) return templateDialog
 
-  // Approval is bound to the draft on screen: a row with no draft has
-  // nothing the operator could have read, so it cannot be approved here.
+  // Approval is bound to the draft the list showed: the parked one (what the
+  // server approves and single approve names), not the newest. A row with no
+  // draft has nothing the operator could have read, so it cannot be approved
+  // here. `pendingDraftId` is absent from older servers; fall back to the
+  // newest draft as before.
+  const approvalDraftId = (row: (typeof chosen)[number]) =>
+    row.pendingDraftId ?? row.draftId
   const approvable = chosen.filter(
     (row) =>
       row.workflowStatus === "awaiting_approval" &&
       row.capabilities.canPublish &&
-      row.draftId !== null
+      approvalDraftId(row) !== null
   )
 
   const run = async (
@@ -147,7 +152,7 @@ function BulkActionBar({
               // review_changed) instead of approving it unread.
               approvals: approvable.map((row) => ({
                 reviewId: row.id,
-                draftId: row.draftId!,
+                draftId: approvalDraftId(row)!,
                 reviewUpdateTime: row.updateTime,
               })),
             }

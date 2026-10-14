@@ -188,6 +188,24 @@ export function buildInboxQuery(
       d.id::text as "draftId",
       d.body as "draftBody",
       d.verification_status as "verificationStatus",
+      -- The draft an approval would publish, while the reply is parked:
+      -- resolved as recordApprovalDecision does (the parked draft, else the
+      -- newest verified one), so bulk approve names what the server would
+      -- approve. It need not be "draftId" (the newest draft).
+      case
+        when r.workflow_status = 'awaiting_approval' and rr.id is not null
+        then coalesce(
+          rr.pending_draft_id,
+          (
+            select pd.id
+            from draft pd
+            where pd.review_id = r.id
+              and pd.verification_status in ('pass', 'warn')
+            order by pd.created_at desc
+            limit 1
+          )
+        )::text
+      end as "pendingDraftId",
       rr.publish_status as "replyStatus",
       rr.google_reply_state as "googleReplyState",
       rr.google_policy_violation as "googlePolicyViolation",
