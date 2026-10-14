@@ -74,6 +74,7 @@ import { useLocationDirectory } from "@/lib/queries/use-locations"
 import { useSessionRole } from "@/lib/queries/use-session"
 import { formatNumber } from "@/lib/format"
 import { useNow } from "@/lib/time/server-now"
+import { pushUrl, replaceUrl } from "@/lib/navigation/shallow-url"
 
 /**
  * On a phone the panes run edge to edge (reference `.panel` below md): the
@@ -204,15 +205,20 @@ function InboxViewInner({
     }
   }, [reviewsQuery])
 
+  // Selection, queue, filters and search live in the address, but only the
+  // client reads them: each change rewrites the URL through the history API
+  // (lib/navigation/shallow-url.ts), so a row click or a keystroke costs no
+  // server round trip. The page's server prefetch reads the address on the
+  // first load only.
   const updateState = useCallback(
     (partial: Partial<InboxState>, mode: "replace" | "push") => {
       const next = serializeInboxState({ ...state, ...partial })
       const query = next.toString()
       const href = query ? `/inbox?${query}` : "/inbox"
-      if (mode === "push") router.push(href)
-      else router.replace(href)
+      if (mode === "push") pushUrl(href)
+      else replaceUrl(href)
     },
-    [router, state]
+    [state]
   )
 
   // One change of client scope for every control that makes it: the top-bar
@@ -311,7 +317,7 @@ function InboxViewInner({
   )
   // Like a filter change: a dirty reply stays open while the list widens.
   const onClearFilters = useCallback(() => {
-    router.replace(
+    replaceUrl(
       `/inbox?${serializeInboxState({
         queue: state.queue,
         locationIds: [],
@@ -321,7 +327,7 @@ function InboxViewInner({
         selected: readIsDirty() ? state.selected : undefined,
       }).toString()}`
     )
-  }, [readIsDirty, router, state.queue, state.selected])
+  }, [readIsDirty, state.queue, state.selected])
   // Same gate as the handlers above: returning to the list also drops
   // `selected`, which would otherwise silently unmount a dirty composer.
   // When the review was pushed over the list, Back to Inbox pops that entry
@@ -398,15 +404,15 @@ function InboxViewInner({
       isDesktop: isSplitView(),
     })
     if (id) {
-      // Nobody asked for this navigation, so it must not move the page:
-      // Next's default scrolls to and focuses the segment, which slid the
-      // org-wide reconnect banner under the toolbar on every desktop load.
-      router.replace(
-        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`,
-        { scroll: false }
+      // Nobody asked for this navigation, so it must not move the page. A
+      // history rewrite neither scrolls nor focuses (Next's navigation did
+      // both, which slid the org-wide reconnect banner under the toolbar on
+      // every desktop load).
+      replaceUrl(
+        `/inbox?${serializeInboxState({ ...state, selected: id }).toString()}`
       )
     }
-  }, [reviewsReady, reviews, state, router, readIsDirty])
+  }, [reviewsReady, reviews, state, readIsDirty])
 
   // After a successful publish, move to the next review so the 674-item
   // backlog is a loop rather than "Back to reviews" + another click. The move
