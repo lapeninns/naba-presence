@@ -329,11 +329,16 @@ describe("type roles", () => {
     }
   })
 
-  it("keeps the serif for titles and the customer's words only", () => {
-    // The interface is the platform sans; the serif is a second voice for
-    // page titles and review text, reached through display/reading.
+  it("sets titles and the customer's words in the sans (D1, amendment 2026-10-13)", () => {
+    // One voice: display, heading and reading resolve to the platform sans.
+    // Reverting the --font-display line to the serif stack is the whole
+    // rollback, so the pin is on that one declaration.
     expect(globals).toMatch(/--font-sans:\s*-apple-system/)
-    expect(globals).toMatch(/--font-display:\s*"Iowan Old Style"/)
+    expect(globals).toMatch(/--font-display:\s*var\(--font-sans\);/)
+    expect(globals).not.toMatch(/--font-display:\s*"Iowan Old Style"/)
+    expect(globals).not.toMatch(
+      /--font-(display|heading|reading):[^;]*(?<!sans-)serif\s*;/
+    )
     expect(globals).toContain("--font-heading: var(--font-display)")
     expect(globals).toContain("--font-reading: var(--font-display)")
   })
@@ -404,5 +409,147 @@ describe("primitives read tokens, not literals", () => {
     )
     expect(pageFrame).not.toContain("100svh")
     expect(pageFrame).toContain("@container")
+  })
+})
+
+describe("Drop 3 layout and focus utilities", () => {
+  it("defines the inset row focus ring with a forced-colours outline inside the box", () => {
+    const block = globals.match(/@utility focus-ring-inset \{[\s\S]*?\n\}/)?.[0]
+    expect(block).toBeDefined()
+    // A dedicated inset shadow: `inset var(--np-focus-halo)` would only
+    // inset the halo's first shadow.
+    expect(block).toMatch(
+      /&:focus-visible \{\s*outline: none;\s*box-shadow: inset 0 0 0 2px var\(--np-focus-ring\);/
+    )
+    expect(block).toContain("@media (forced-colors: active)")
+    expect(block).toContain("outline: 2px solid CanvasText !important;")
+    expect(block).toContain("outline-offset: -2px !important;")
+  })
+
+  it("defines the tall height variant at 620px (38.75rem)", () => {
+    expect(globals).toMatch(
+      /@custom-variant tall \(@media \(min-height: 38\.75rem\)\);/
+    )
+  })
+})
+
+describe("user tags never look like status (R2b P1-S1, D3)", () => {
+  const hueOf = (theme: "light" | "dark", name: string) => {
+    const value = resolveToken(tokens[theme], name, theme)
+    const match = /oklch\(\s*[\d.]+%?\s+([\d.]+)\s+([\d.]+)/.exec(value)
+    if (!match) throw new Error(`${name} (${theme}) is not oklch: ${value}`)
+    return { chroma: Number(match[1]), hue: Number(match[2]) }
+  }
+  const gap = (a: number, b: number) => {
+    const d = Math.abs(a - b) % 360
+    return Math.min(d, 360 - d)
+  }
+  const names = (theme: "light" | "dark", pattern: RegExp) =>
+    Object.keys({ ...tokens.light, ...tokens[theme] }).filter((name) =>
+      pattern.test(name)
+    )
+
+  it.each(["light", "dark"] as const)(
+    "keeps every tag hue at least 35° from every status hue (%s)",
+    (theme) => {
+      const statusHues = names(
+        theme,
+        /^--np-(success|warning|danger|info)-(ink|tint|solid|line)$/
+      ).map((name) => ({ name, ...hueOf(theme, name) }))
+      expect(statusHues.length).toBeGreaterThanOrEqual(16)
+      const tags = names(theme, /^--np-tag-[a-z]+-(bg|ink)$/)
+      expect(tags.length).toBe(8)
+      for (const tag of tags) {
+        const { hue } = hueOf(theme, tag)
+        for (const status of statusHues) {
+          expect(
+            gap(hue, status.hue),
+            `${tag} ${hue}° vs ${status.name} ${status.hue}°`
+          ).toBeGreaterThanOrEqual(35)
+        }
+      }
+    }
+  )
+
+  it("has retired the orange and green tag tones", () => {
+    expect(globals).not.toMatch(/--np-tag-(orange|green)-/)
+    expect(globals).not.toMatch(/--np-ramp-tag-(orange|green)-/)
+  })
+})
+
+describe("charcoal stays the dark counter-surface in both themes (D4, FINAL-QA #3/#19)", () => {
+  const lightnessOf = (theme: "light" | "dark", name: string) => {
+    const value = resolveToken(
+      { ...tokens.light, ...tokens[theme] },
+      name,
+      theme
+    )
+    const match = /oklch\(\s*([\d.]+)/.exec(value)
+    if (!match) throw new Error(`${name} (${theme}) is not oklch: ${value}`)
+    return Number(match[1])
+  }
+
+  it.each(["light", "dark"] as const)(
+    "%s: charcoal is dark and its ink is light, never an inverse slab",
+    (theme) => {
+      expect(lightnessOf(theme, "--np-charcoal")).toBeLessThan(0.4)
+      expect(lightnessOf(theme, "--np-ink-on-charcoal")).toBeGreaterThan(0.9)
+      expect(lightnessOf(theme, "--np-ink-muted-on-charcoal")).toBeGreaterThan(
+        0.7
+      )
+    }
+  )
+
+  it("dark: charcoal sits above the canvas and cards, so the bar reads as raised", () => {
+    const charcoal = lightnessOf("dark", "--np-charcoal")
+    for (const surface of [
+      "--np-surface-canvas",
+      "--np-surface",
+      "--np-surface-raised",
+    ]) {
+      expect(charcoal).toBeGreaterThan(lightnessOf("dark", surface))
+    }
+  })
+})
+
+describe("dark theme without script (FINAL-QA #19)", () => {
+  const plain = globals.replace(/\/\*[\s\S]*?\*\//g, "")
+  const declarations = (body: string) =>
+    [...body.matchAll(/(--[\w-]+|color-scheme)\s*:\s*([^;]+);/g)].map(
+      ([, name, value]) => `${name}: ${value.trim()}`
+    )
+  const bodyAfter = (opener: RegExp) => {
+    const match = opener.exec(plain)
+    if (!match) throw new Error(`no block for ${opener}`)
+    const start = match.index + match[0].length
+    let depth = 1
+    let end = start
+    while (depth > 0 && end < plain.length) {
+      if (plain[end] === "{") depth += 1
+      else if (plain[end] === "}") depth -= 1
+      end += 1
+    }
+    return plain.slice(start, end - 1)
+  }
+
+  it("mirrors every .dark declaration, in order, for a system-dark page with no theme class", () => {
+    const dark = declarations(bodyAfter(/(^|\})\s*\.dark\s*\{/m))
+    const twin = declarations(
+      bodyAfter(
+        /@media \(prefers-color-scheme: dark\)\s*\{\s*:root:where\(:not\(\.light\)\)\s*\{/
+      )
+    )
+    expect(dark.length).toBeGreaterThan(50)
+    expect(dark).toContain("color-scheme: dark")
+    expect(twin).toEqual(dark)
+  })
+
+  it("lets dark: utilities follow the system until next-themes sets a class", () => {
+    expect(plain).toMatch(
+      /@custom-variant dark\s*\{\s*&:is\(\.dark \*\)\s*\{\s*@slot;/
+    )
+    expect(plain).toMatch(
+      /@media \(prefers-color-scheme: dark\)\s*\{\s*&:is\(:root:where\(:not\(\.light\)\) \*\)\s*\{\s*@slot;/
+    )
   })
 })

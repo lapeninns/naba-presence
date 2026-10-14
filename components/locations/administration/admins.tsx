@@ -22,7 +22,7 @@ import { useResetOnRevision } from "@/lib/locations/use-reset-on-revision"
 import { queryKeys } from "@/lib/queries/keys"
 import { useResourceMutation } from "@/lib/queries/use-resource-mutation"
 
-import { AdminsTable, type AdminRow } from "./admins-table"
+import { AdminsList, type AdminRow } from "./admins-table"
 import { useAdministrationSection } from "./context"
 import { StaleRosterPlaceholder, useAdministrationAccess } from "./access-workspace"
 
@@ -58,7 +58,7 @@ export function ownerLockReason(
   return null
 }
 
-/** One admins sub-resource (`locationAdmins` / `accountAdmins`) as a table with row actions. */
+/** One admins sub-resource (`locationAdmins` / `accountAdmins`) as a list of rows with their actions. */
 export function AdminsSection({
   data,
   caption,
@@ -75,13 +75,13 @@ export function AdminsSection({
   if (rosterUpdating || rosterUnavailable)
     return <StaleRosterPlaceholder what={scope === "account" ? "account admins" : "people with access"} />
   return (
-    <AdminsTable
+    <AdminsList
       admins={admins}
       caption={caption}
       renderActions={(admin) => {
         const locked = ownerLockReason(admin, admins)
         return locked ? (
-          <span className="inline-flex max-w-sm items-start gap-1.5 text-left text-caption text-ink-muted">
+          <span className="inline-flex max-w-sm min-w-0 items-start gap-1.5 text-left text-caption text-ink-muted">
             <LockIcon
               className="mt-0.5 size-3.5 shrink-0"
               strokeWidth={1.75}

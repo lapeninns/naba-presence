@@ -30,7 +30,8 @@ function renderCard(
   pubsubTopic: string | null = "projects/p/topics/reviews",
   accounts: Account[] = [
     { id: "a1", googleAccountName: "accounts/1", isActive: true },
-  ]
+  ],
+  notificationTypes: string[] = ["NEW_REVIEW"]
 ) {
   workspaceMock.mockReturnValue({
     query: { data: { connections: [{ id: "c1", status: "active" }] } },
@@ -46,7 +47,7 @@ function renderCard(
         setting: {
           name: "accounts/1/notificationSetting",
           pubsubTopic,
-          notificationTypes: ["NEW_REVIEW"],
+          notificationTypes,
         },
       },
       isPending: false,
@@ -91,6 +92,18 @@ describe("NotificationsCard", () => {
     const details = container.querySelector("details")
     expect(details).not.toHaveAttribute("open")
     expect(details).toHaveTextContent("Advanced: Google Cloud Pub/Sub topic")
+  })
+
+  it("says new reviews still wait for the scheduled check when Google is not sending them", () => {
+    renderCard("projects/p/topics/reviews", undefined, ["UPDATED_REVIEW"])
+    expect(
+      screen.getByText(
+        "On, but not for new reviews. They arrive on the scheduled check."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("On. Google sends new reviews as they happen.")
+    ).not.toBeInTheDocument()
   })
 
   it("opens Advanced when a topic is already set", () => {

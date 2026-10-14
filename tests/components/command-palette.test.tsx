@@ -129,6 +129,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
   push.mockReset()
   replace.mockReset()
@@ -264,7 +265,195 @@ describe("CommandPalette review search", () => {
     renderPalette()
     const dialog = await openPalette()
     const input = within(dialog).getByRole("combobox")
-    expect(input).toHaveClass("max-sm:text-body")
+    // The primitive's 16px floor on a touch screen; nothing here sizes the
+    // field down to `text-ui`.
+    expect(input).toHaveClass("pointer-coarse:text-base!")
     expect(input).not.toHaveClass("text-ui")
+  })
+
+  it("draws the primitive's phone takeover, with D8 group labels", async () => {
+    renderPalette()
+    const dialog = await openPalette()
+    expect(dialog).toHaveAttribute("data-phone", "takeover")
+    expect(
+      dialog.querySelector('[data-slot="command-takeover-bar"]')
+    ).not.toBeNull()
+    // The palette's own field row and heading override are gone.
+    expect(dialog.querySelector('[data-slot="command-palette-bar"]')).toBeNull()
+    expect(dialog.querySelector(".font-sans")).toBeNull()
+  })
+
+  it("says nothing matched and still offers the review search", async () => {
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    await user.type(within(dialog).getByRole("combobox"), "cold soup")
+    expect(
+      within(dialog).getByText(/^Nothing matched “cold soup”\./)
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole("option", {
+        name: "Search reviews for “cold soup”",
+      })
+    ).toBeInTheDocument()
+  })
+})
+
+/**
+ * Whether `element`, or anything between it and `root`, carries a class
+ * that hides it (`hidden`, or a breakpoint-prefixed `…:hidden`). jsdom
+ * applies no Tailwind, so the classes are the evidence.
+ */
+function cssHidden(element: HTMLElement, root: HTMLElement): boolean {
+  for (
+    let node: HTMLElement | null = element;
+    node && node !== root;
+    node = node.parentElement
+  ) {
+    if (/(^|\s)([\w-]+:)*hidden(\s|$)/.test(node.className)) return true
+  }
+  return false
+}
+
+/** Pretends the viewport is a phone (below `sm`) or a desk. */
+function stubViewport(desk: boolean) {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: desk,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }))
+  )
+}
+
+describe("CommandPalette phone takeover", () => {
+  it("phone, empty field, groups are listed", async () => {
+    stubViewport(false)
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    // The takeover lists what it can do as soon as it opens: no hint in
+    // place of the rows, and nothing hidden from a phone.
+    expect(
+      dialog.querySelector('[data-slot="command-palette-hint"]')
+    ).toBeNull()
+    for (const heading of ["Clients", "Switch client", "Go to", "Actions"]) {
+      const group = await within(dialog).findByRole(
+        "group",
+        { name: heading },
+        LAZY
+      )
+      expect(cssHidden(group, dialog)).toBe(false)
+      const options = within(group).getAllByRole("option")
+      expect(options.length).toBeGreaterThan(0)
+      for (const option of options) {
+        expect(option).toBeVisible()
+        expect(cssHidden(option, dialog)).toBe(false)
+      }
+    }
+    expect(
+      within(dialog).getByRole("option", { name: /^Old Crown/ })
+    ).toBeVisible()
+    // ArrowDown moves the highlight to a row the operator can see, and the
+    // field points assistive tech at that same row.
+    const input = within(dialog).getByRole("combobox")
+    await user.click(input)
+    await waitFor(() =>
+      expect(
+        within(dialog).getAllByRole("option", { selected: true })
+      ).toHaveLength(1)
+    )
+    const first = within(dialog).getByRole("option", { selected: true })
+    await user.keyboard("{ArrowDown}")
+    const highlighted = within(dialog).getByRole("option", { selected: true })
+    expect(highlighted).not.toBe(first)
+    expect(highlighted).toBeVisible()
+    expect(cssHidden(highlighted, dialog)).toBe(false)
+    expect(input).toHaveAttribute("aria-activedescendant", highlighted.id)
+  })
+
+  it("opens the highlighted row on Enter before anything is typed on a phone", async () => {
+    stubViewport(false)
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    // cmdk has highlighted a row the operator can see; Enter opens it.
+    await waitFor(() =>
+      expect(
+        within(dialog).getAllByRole("option", { selected: true })
+      ).toHaveLength(1)
+    )
+    await user.click(within(dialog).getByRole("combobox"))
+    await user.keyboard("{Enter}")
+    expect(push).toHaveBeenCalledWith("/clients/c1")
+  })
+
+  it("keeps Enter on the highlighted row at the desk", async () => {
+    stubViewport(true)
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    // cmdk has highlighted a row and the field has focus: Enter would act.
+    await waitFor(() =>
+      expect(
+        within(dialog).getAllByRole("option", { selected: true })
+      ).toHaveLength(1)
+    )
+    await user.click(within(dialog).getByRole("combobox"))
+    await user.keyboard("{Enter}")
+    expect(push).toHaveBeenCalledWith("/clients/c1")
+  })
+
+  it("draws the trigger as a bare icon on a phone, keeping its name", () => {
+    renderPalette()
+    const button = screen.getByRole("button", {
+      name: "Search clients, listings, pages and actions",
+    })
+    expect(button).toHaveClass(
+      "max-md:size-11",
+      "max-md:border-transparent",
+      "max-md:bg-transparent",
+      "focus-halo"
+    )
+  })
+
+  it("closes on Cancel and gives focus back to the button", async () => {
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(push).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /^Search (clients, )?listings/ })
+      ).toHaveFocus()
+    )
+  })
+
+  it("clears the field from the clear button, only while there is text", async () => {
+    const user = userEvent.setup()
+    renderPalette()
+    const dialog = await openPalette()
+    const input = within(dialog).getByRole("combobox")
+    expect(
+      within(dialog).queryByRole("button", { name: "Clear search" })
+    ).toBeNull()
+    await user.type(input, "harbour")
+    await user.click(
+      within(dialog).getByRole("button", { name: "Clear search" })
+    )
+    expect(input).toHaveValue("")
+    expect(input).toHaveFocus()
+    expect(
+      within(dialog).queryByRole("button", { name: "Clear search" })
+    ).toBeNull()
+    expect(screen.getByRole("dialog", { name: "Commands" })).toBeInTheDocument()
   })
 })

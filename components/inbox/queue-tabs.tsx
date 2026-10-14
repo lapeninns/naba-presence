@@ -2,13 +2,9 @@
 
 import { useEffect, useId, useRef } from "react"
 
-import {
-  segmentedItemClassName,
-  segmentedThumbClassName,
-  segmentedTrackClassName,
-  useSegmentedOverflow,
-} from "@/components/ui/segmented-control"
+import { ChipRow } from "@/components/ui/chip"
 import { Skeleton } from "@/components/ui/skeleton"
+import { TabCount, textTabItemClassName } from "@/components/ui/tabs"
 import { formatNumber } from "@/lib/format"
 import {
   REVIEW_QUEUE_LABELS,
@@ -25,16 +21,18 @@ import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 /**
  * How far inside the strip's edge the current queue is kept: the width of
- * the track's edge fade, so the queue never sits half-faded.
+ * the row's edge fade (`ChipRow`'s 2.5rem mask), so the queue never sits
+ * half-faded.
  */
-const EDGE_PX = 24
+const EDGE_PX = 40
 
 /**
  * Scrolls the strip, and only the strip, until `item` sits clear of the
  * faded edges. `scrollIntoView` would also scroll the page to the toolbar,
- * which is not what landing on `?queue=failed` should do. The same sum as
- * the segmented control's own reveal: the track is `relative`, so
- * `offsetLeft` is measured from it.
+ * which is not what landing on `?queue=failed` should do. The row's own
+ * reveal (`ChipRow`) follows `aria-current="page"`; a queue is a button
+ * with `aria-current="true"`, so the strip keeps this one. The row is
+ * `relative`, so `offsetLeft` is measured from it.
  */
 function revealInStrip(strip: HTMLElement, item: HTMLElement) {
   if (strip.scrollWidth <= strip.clientWidth) return
@@ -48,26 +46,38 @@ function revealInStrip(strip: HTMLElement, item: HTMLElement) {
 }
 
 /**
- * The five queues as one strip in the inbox toolbar: the segmented control's
- * track and segments (components/ui/segmented-control.tsx), with the current
- * queue on the raised white thumb and a non-zero Failed count in the danger
- * ink, because that number is itself the exception.
+ * One queue: the primitive's text tab (Notion Mail's label tabs,
+ * `textTabItemClassName`): `text-body` in the secondary ink, the current one
+ * 600 in ink with a 2px ink underline, the cue that is not colour and not
+ * the accent. The primitive keys that drawing on `aria-current="page"` (a
+ * link); a queue is a button whose `aria-current` is "true", so the same
+ * three rules are said for that value here. At least 44px wide on touch.
+ */
+const TAB_CLASS = cn(
+  textTabItemClassName,
+  "min-w-(--np-touch) justify-center desk:min-w-0",
+  "aria-[current=true]:font-semibold aria-[current=true]:text-ink aria-[current=true]:after:bg-ink"
+)
+
+/**
+ * The five queues as one strip of text tabs in the inbox toolbar, with a
+ * non-zero Failed count in the danger ink, because that number is itself
+ * the exception.
  *
- * The OBJECT is the segmented control; the SEMANTICS are navigation, which
- * is none of the control's three modes. Each queue is a guarded URL change
+ * The strip is the primitive chip row (one row that scrolls sideways with
+ * faded edges); the SEMANTICS are navigation, not `TextTabs`' links nor a
+ * tablist. Each queue is a guarded URL change
  * (a dirty reply asks first, and a new page of rows is fetched), so the
  * strip stays a `nav` labelled "Review queues" — the landmark screen-reader
  * users jump to — of plain buttons with `aria-current`. Tabs would select on
  * every arrow press, and an arrow that throws a discard prompt or a fetch is
- * not a way to look along a row. Hence the exported recipes rather than
- * `<SegmentedControl>`, as its own comment intends for this case.
+ * not a way to look along a row; a link would skip the dirty-reply guard.
+ * Hence the exported text-tab recipe on buttons rather than `<TextTabs>`.
  *
  * On a phone the strip is wider than the screen, so it scrolls sideways
  * rather than wrapping or cutting a label: the edge that hides a queue
  * fades, and the current queue is scrolled into the strip on arrival (a
- * link to Failed lands with Failed in sight) and whenever it changes. The
- * track is the control height — 44px on touch, every segment's hit area
- * reaching its full height — and 36px at the desk.
+ * link to Failed lands with Failed in sight) and whenever it changes.
  */
 function QueueTabs({
   queue,
@@ -86,9 +96,8 @@ function QueueTabs({
   const business = useWorkspaceMode() === "business"
   const current = visibleQueue(queue)
   const stripRef = useRef<HTMLDivElement>(null)
-  useSegmentedOverflow(stripRef)
 
-  // The counts landing changes every segment's width, so the current one is
+  // The counts landing changes every tab's width, so the current one is
   // revealed again then as well as when it changes.
   useEffect(() => {
     const strip = stripRef.current
@@ -104,11 +113,7 @@ function QueueTabs({
       aria-describedby={noteId}
       className={cn("flex max-w-full min-w-0", className)}
     >
-      <div
-        ref={stripRef}
-        data-slot="queue-strip"
-        className={segmentedTrackClassName}
-      >
+      <ChipRow ref={stripRef} data-slot="queue-strip" className="gap-0.5">
         {VISIBLE_QUEUES.map((item) => {
           const count = counts?.byQueue?.[item] ?? 0
           const active = current === item
@@ -132,10 +137,7 @@ function QueueTabs({
               ]
                 .filter(Boolean)
                 .join(", ")}
-              className={cn(
-                segmentedItemClassName,
-                active && [segmentedThumbClassName, "font-semibold text-ink"]
-              )}
+              className={TAB_CLASS}
             >
               <span>{REVIEW_QUEUE_LABELS[item]}</span>
               {countsPending ? (
@@ -143,24 +145,21 @@ function QueueTabs({
                 // the operator there is nothing to do when there may be plenty.
                 <Skeleton className="h-3 w-4" />
               ) : (
-                <span
+                <TabCount
                   aria-hidden
                   className={cn(
-                    "font-mono text-count tabular-nums",
                     alert
                       ? "font-semibold text-danger-ink"
-                      : active
-                        ? "text-ink-secondary"
-                        : "text-ink-muted"
+                      : active && "text-ink-secondary"
                   )}
                 >
                   {count > 0 ? formatNumber(count) : "–"}
-                </span>
+                </TabCount>
               )}
             </button>
           )
         })}
-      </div>
+      </ChipRow>
       {/* Counts come from GET /api/reviews/counts, which is scoped by client
           but knows nothing about the rating, search, age or assignee filters
           the list applies. Saying so is cheaper than a number that quietly

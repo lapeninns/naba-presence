@@ -30,7 +30,7 @@ import { placeActionInputSchema } from "@/lib/contracts/location-place-actions"
 import { OverwriteConfirmDialog } from "@/components/locations/overwrite-confirm-dialog"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, cardClassName } from "@/components/ui/card"
+import { cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
@@ -52,14 +52,16 @@ import {
 import { Empty } from "@/components/ui/empty"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { ListRow, ListRowTag } from "@/components/ui/list-row"
+import { OptionRow, OptionRowGroup } from "@/components/ui/option-row"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { StatusPill } from "@/components/ui/status-pill"
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import {
   type PlaceActionLink,
   type PlaceActionType,
@@ -95,7 +97,7 @@ const TYPE_ICON: Record<string, LucideIcon> = {
 export function BookingTab({ locationId }: { locationId: string }) {
   const workflow = usePlaceActionReview(locationId)
   return (
-    <div id="section-action-links" className="flex min-w-0 flex-col gap-5">
+    <div id="section-action-links" className="flex min-w-0 flex-col gap-6">
       <LocationTab
         locationId={locationId}
         loadingLabel="action links"
@@ -124,6 +126,17 @@ function formatObserved(value: string) {
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
 }
+
+/**
+ * Link rows sit in a `SettingsGroup` (flat on a phone, a bordered card on
+ * the desk), as `ListRow`s that carry their own actions in the footer: flush
+ * to the text column on a phone, inset inside the desk card.
+ */
+const linkRowClassName = "desk:px-2"
+/** A plain block inside a desk card group, aligned with the rows' words. */
+const cardBlockClassName = "py-2 desk:px-2"
+/** A group's label: a quiet heading in sentence case, never a card title. */
+const groupLabelClassName = "text-caption font-medium text-ink-muted"
 
 function BookingLinks({
   locationId,
@@ -189,41 +202,40 @@ function BookingLinks({
     )
     return (
       <div className="flex min-w-0 flex-col gap-4">
-        <Card flush>
-          <Empty
-            icon={<Unlink />}
-            titleAs="h2"
-            title={
-              unsupported
-                ? "Manage these action types in Google"
-                : "Google doesn’t offer action links for this listing"
-            }
-            description={
-              unsupported
-                ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them."
-                : "Google reports no action types for this exact listing. Check its category before preparing a new link."
-            }
-            action={
-              unsupported ? (
-                <a
-                  href="https://business.google.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(buttonVariants({ variant: "secondary" }))}
-                >
-                  Manage action links in Google
-                </a>
-              ) : (
-                <Link
-                  href={`/listings/${locationId}/profile`}
-                  className={cn(buttonVariants({ variant: "secondary" }))}
-                >
-                  Check categories
-                </Link>
-              )
-            }
-          />
-        </Card>
+        <Empty
+          framed
+          icon={<Unlink />}
+          titleAs="h2"
+          title={
+            unsupported
+              ? "Manage these action types in Google"
+              : "Google doesn’t offer action links for this listing"
+          }
+          description={
+            unsupported
+              ? "Google returned action types this editor cannot safely edit. Open Google Business Profile to manage them."
+              : "Google reports no action types for this exact listing. Check its category before preparing a new link."
+          }
+          action={
+            unsupported ? (
+              <a
+                href="https://business.google.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                Manage action links in Google
+              </a>
+            ) : (
+              <Link
+                href={`/listings/${locationId}/profile`}
+                className={cn(buttonVariants({ variant: "secondary" }))}
+              >
+                Check categories
+              </Link>
+            )
+          }
+        />
         {/* The empty state above already carries the Google handoff. */}
         <GoogleManagedLinks
           links={state.unsupportedLinks ?? []}
@@ -247,7 +259,7 @@ function BookingLinks({
   const hasProviderLinks = state.links.some((link) => !link.isEditable)
 
   return (
-    <div className="@container/booking flex flex-col gap-5">
+    <div className="@container/booking flex flex-col gap-6">
       {workflow.unresolved ? (
         <Alert variant="info">
           <AlertTitle>Action link changes are paused</AlertTitle>
@@ -287,93 +299,87 @@ function BookingLinks({
         )
       ) : null}
 
-      <div className="grid grid-cols-1 items-start gap-6 @[880px]/booking:grid-cols-[minmax(0,1fr)_--spacing(80)]">
-        <div className="flex min-w-0 flex-col gap-4">
+      <div className="grid grid-cols-1 items-start gap-6 @4xl/booking:grid-cols-[minmax(0,1fr)_--spacing(80)]">
+        <div className="flex min-w-0 flex-col gap-6">
           {state.links.length === 0 ? (
-            <Card flush>
-              <Empty
-                icon={<Link2 />}
-                titleAs="h2"
-                title="No action links yet"
-                description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
-              />
-            </Card>
+            <Empty
+              framed
+              icon={<Link2 />}
+              titleAs="h2"
+              title="No action links yet"
+              description="Prepare a supported action link below. Review, approval and sending are separate steps; Google decides its public appearance."
+            />
           ) : (
             groupTypes.map((type) => {
               const links = state.links.filter(
                 (link) => link.placeActionType === type
               )
               const Icon = TYPE_ICON[type] ?? Link2
-              const headingId = `booking-${type}`
               return (
-                <section
+                <SettingsGroup
                   key={type}
-                  aria-labelledby={headingId}
-                  className={cardClassName({
-                    className: "@container/group overflow-hidden",
-                  })}
-                >
-                  <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
-                    <div className="flex min-w-0 items-start gap-2.5">
+                  headingId={`booking-${type}`}
+                  className="mt-0 min-w-0"
+                  card
+                  label={
+                    <span className="inline-flex items-center gap-2">
                       <Icon
-                        className="mt-0.5 size-4 shrink-0 text-ink-secondary"
+                        className="size-4 shrink-0"
                         strokeWidth={1.75}
                         aria-hidden
                       />
-                      <div className="min-w-0">
-                        <h2
-                          id={headingId}
-                          className="text-title font-semibold text-ink"
-                        >
-                          {actionTypeLabel(type)}
-                        </h2>
-                        {ACTION_TYPE_COPY[type] ? (
-                          <p className="text-ui text-ink-muted">
-                            {ACTION_TYPE_COPY[type].description}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <span className="shrink-0 font-mono text-caption text-ink-muted tabular-nums">
+                      {actionTypeLabel(type)}
+                    </span>
+                  }
+                  caption={ACTION_TYPE_COPY[type]?.description}
+                  actions={
+                    <span className="text-caption text-ink-muted tabular-nums">
                       {links.length} {links.length === 1 ? "link" : "links"}
                     </span>
-                  </div>
-                  <ul className="divide-y divide-line">
-                    {links.map((link) => {
-                      const observed = formatObserved(link.observedAt)
-                      return (
-                        <li
-                          key={link.id}
-                          className="grid grid-cols-1 items-center gap-x-4 gap-y-2 px-5 py-3 @[560px]/group:grid-cols-[minmax(0,1fr)_auto]"
-                        >
-                          <div className="flex min-w-0 flex-col gap-1.5">
-                            <span className="font-mono text-caption break-all text-ink-secondary">
-                              {link.uri}
-                            </span>
-                            <span className="flex flex-wrap items-center gap-1.5">
-                              {link.isPreferred ? (
-                                <StatusPill tone="accent">Preferred</StatusPill>
-                              ) : null}
+                  }
+                  listProps={{ className: "divide-y divide-line-subtle" }}
+                >
+                  {links.map((link) => {
+                    const observed = formatObserved(link.observedAt)
+                    const note = !link.isEditable
+                      ? "Added by a booking provider · can’t be edited here"
+                      : observed
+                        ? `Checked on Google ${observed}`
+                        : null
+                    return (
+                      <ListRow
+                        key={link.id}
+                        as="li"
+                        flush
+                        wrap
+                        interactive={false}
+                        emphasis="neutral"
+                        wrapperClassName={linkRowClassName}
+                        title={link.uri}
+                        subtitle={
+                          !link.isEditable || note ? (
+                            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
                               {!link.isEditable ? (
-                                <StatusPill tone="outline" plain>
+                                <span className="inline-flex items-center gap-1 font-medium text-ink-secondary">
                                   <Lock
                                     className="size-3"
                                     strokeWidth={1.75}
                                     aria-hidden
                                   />
                                   Managed by Google
-                                </StatusPill>
+                                </span>
                               ) : null}
-                              <span className="text-caption text-ink-muted">
-                                {!link.isEditable
-                                  ? "Added by a booking provider · can’t be edited here"
-                                  : observed
-                                    ? `Checked on Google ${observed}`
-                                    : null}
-                              </span>
+                              <span className="text-ink-muted">{note}</span>
                             </span>
-                          </div>
-                          {link.isEditable ? (
+                          ) : undefined
+                        }
+                        tags={
+                          link.isPreferred ? (
+                            <ListRowTag tone="accent">Preferred</ListRowTag>
+                          ) : undefined
+                        }
+                        footer={
+                          link.isEditable ? (
                             <LinkActions
                               typeLabel={actionTypeLabel(type)}
                               canPrefer={!link.isPreferred && links.length > 1}
@@ -382,18 +388,18 @@ function BookingLinks({
                               onPrefer={() => setPreferTarget(link)}
                               onRemove={() => setDeleteTarget(link)}
                             />
-                          ) : null}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </section>
+                          ) : undefined
+                        }
+                      />
+                    )
+                  })}
+                </SettingsGroup>
               )
             })
           )}
 
           {hasProviderLinks ? (
-            <p className="text-caption text-ink-muted">
+            <p className="text-caption text-ink-muted sm:px-1">
               Links a booking provider added through Google’s partner programme
               belong to that provider. Only they can change or remove them.
             </p>
@@ -499,10 +505,11 @@ function LinkActions({
   onRemove: () => void
 }) {
   return (
-    <div className="-ml-2.5 flex items-center gap-1 @[560px]/group:ml-0 @[560px]/group:justify-end">
+    <div className="-ml-2.5 flex items-center gap-1">
       <Button
         variant="ghost"
         size="sm"
+        className="text-ink-secondary"
         disabled={disabled}
         onClick={onEdit}
         aria-label={`Edit the ${typeLabel} link`}
@@ -570,57 +577,57 @@ function GoogleManagedLinks({
 }) {
   if (links.length === 0) return null
   return (
-    <section
-      aria-labelledby="booking-google-managed"
-      className={cardClassName({ className: "overflow-hidden" })}
-    >
-      <div className="flex flex-col gap-1 border-b border-line px-5 py-4">
-        <h2
-          id="booking-google-managed"
-          className="text-title font-semibold text-ink"
-        >
-          Managed in Google
-        </h2>
-        <p className="text-ui text-ink-muted">
+    <SettingsGroup
+      label="Managed in Google"
+      headingId="booking-google-managed"
+      className="mt-0 min-w-0"
+      card
+      caption={
+        <>
           Google lists {links.length === 1 ? "an action link" : "action links"}{" "}
           of a type this editor can’t change yet. They stay in place and are
           part of every review’s Google baseline.
-        </p>
-      </div>
-      <ul className="divide-y divide-line">
-        {links.map((link) => (
-          <li
-            key={link.name}
-            className="flex min-w-0 flex-col gap-1.5 px-5 py-3"
-          >
-            <span className="font-mono text-caption break-all text-ink-secondary">
-              {link.uri}
-            </span>
-            <span className="flex flex-wrap items-center gap-1.5">
-              <StatusPill tone="outline" plain>
-                <Lock className="size-3" strokeWidth={1.75} aria-hidden />
-                {humaniseActionType(link.placeActionType)}
-              </StatusPill>
-              <span className="text-caption text-ink-muted">
-                Can’t be edited here
-              </span>
-            </span>
-          </li>
-        ))}
-      </ul>
-      {handoff ? (
-        <div className="border-t border-line px-5 py-3">
+        </>
+      }
+      listProps={{ className: "divide-y divide-line-subtle" }}
+      footer={
+        handoff ? (
           <a
             href="https://business.google.com/"
             target="_blank"
             rel="noopener noreferrer"
-            className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "text-accent-ink"
+            )}
           >
             Manage these links in Google
           </a>
-        </div>
-      ) : null}
-    </section>
+        ) : undefined
+      }
+    >
+      {links.map((link) => (
+        <ListRow
+          key={link.name}
+          as="li"
+          flush
+          wrap
+          interactive={false}
+          emphasis="neutral"
+          wrapperClassName={linkRowClassName}
+          title={link.uri}
+          subtitle={
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
+              <span className="inline-flex items-center gap-1 font-medium text-ink-secondary">
+                <Lock className="size-3" strokeWidth={1.75} aria-hidden />
+                {humaniseActionType(link.placeActionType)}
+              </span>
+              <span className="text-ink-muted">Can’t be edited here</span>
+            </span>
+          }
+        />
+      ))}
+    </SettingsGroup>
   )
 }
 
@@ -630,9 +637,9 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
   return (
     <aside
       aria-labelledby={headingId}
-      className="flex flex-col gap-2.5 @[880px]/booking:sticky @[880px]/booking:top-4"
+      className="flex flex-col gap-2 @4xl/booking:sticky @4xl/booking:top-4"
     >
-      <h2 id={headingId} className="text-title font-semibold text-ink">
+      <h2 id={headingId} className={cn(groupLabelClassName, "sm:px-1")}>
         How customers see it
       </h2>
       <div className={cardClassName({ className: "overflow-hidden" })}>
@@ -652,7 +659,7 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
                 <span
                   key={type}
                   title={preferred?.uri}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-(--np-radius-pill) border border-line-strong bg-surface px-3.5 text-ui font-semibold text-info-ink"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-(--np-radius-pill) border border-line-strong bg-surface px-3.5 text-ui font-medium text-ink"
                 >
                   <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
                   {actionTypeLabel(type)}
@@ -667,7 +674,7 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
         </p>
       </div>
       {types.length > 0 ? (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-ui">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-ui sm:px-1">
           {types.map((type) => {
             const preferred =
               links.find(
@@ -676,7 +683,7 @@ function BookingPreview({ links }: { links: PlaceActionLink[] }) {
             return (
               <div key={type} className="contents">
                 <dt className="text-ink-muted">{actionTypeLabel(type)}</dt>
-                <dd className="font-mono text-caption break-all text-ink-secondary">
+                <dd className="break-all text-ink-secondary">
                   {preferred ? hostOf(preferred.uri) : ""}
                 </dd>
               </div>
@@ -749,6 +756,7 @@ function AddLinkForm({
     editor.setDraft((current) => ({ ...current, preferred: next }))
   const [error, setError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
+  const [typeOpen, setTypeOpen] = useState(false)
 
   const sameType = state.links.filter((link) => link.placeActionType === type)
 
@@ -786,81 +794,91 @@ function AddLinkForm({
       noValidate
       onSubmit={submit}
       aria-labelledby={headingId}
-      className={cardClassName({ className: "flex flex-col gap-4 p-5" })}
+      className="flex min-w-0 flex-col"
     >
-      <DraftNotices drafts={[editor]} noun="this action link" />
-      <div className="flex flex-col gap-0.5">
-        <h2 id={headingId} className="text-title font-semibold text-ink">
-          Add an action link
-        </h2>
-        <p className="text-ui text-ink-muted">
-          Prepare a review first. Approval saves the exact request; sending to
-          Google is a separate action.
-        </p>
-      </div>
-      <div className="grid gap-4 @[560px]/booking:grid-cols-[minmax(0,--spacing(60))_minmax(0,1fr)] @[560px]/booking:items-start">
-        <Field>
-          <FieldLabel>Type</FieldLabel>
-          <Select
-            value={type}
-            onValueChange={(next) => setType(next as PlaceActionType)}
+      <SettingsGroup
+        label="Add an action link"
+        headingId={headingId}
+        caption="Prepare a review first. Approval saves the exact request; sending to Google is a separate action."
+        bodyAs="div"
+        card
+        className="mt-0"
+        footer={
+          <Button
+            type="submit"
+            variant="secondary"
             disabled={disabled}
+            pending={workflow.busy}
+            pendingLabel="Preparing review…"
           >
-            <SelectTrigger className="w-full" aria-label="Booking link type">
-              <SelectValue>
-                {(value: string | null) =>
-                  value ? actionTypeLabel(value) : ""
-                }
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {state.supportedTypes.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {actionTypeLabel(t)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field error={error ?? undefined}>
-          <FieldLabel htmlFor={uriId}>Link</FieldLabel>
-          <Input
-            ref={uriRef}
-            id={uriId}
-            type="url"
-            value={uri}
-            onChange={(event) => {
-              setUri(event.target.value)
-              if (error) setError(checkBookingUrl(event.target.value, sameType))
-            }}
-            placeholder="https://…"
-            inputMode="url"
-            autoComplete="off"
-            disabled={disabled}
-          />
-          <FieldError />
-        </Field>
-      </div>
-      {failure ? <FailureNote message={failure} /> : null}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-        <Checkbox
-          checked={preferred}
-          onCheckedChange={(value) => setPreferred(value === true)}
+            Review action link
+          </Button>
+        }
+      >
+        <DraftNotices drafts={[editor]} noun="this action link" />
+        {/* The type is a short choice list: a row that opens it. */}
+        <SettingsRow
+          label="Type"
+          value={actionTypeLabel(type)}
           disabled={disabled}
-          label="Make this the preferred link"
-          description="Google shows the preferred link first when a button has more than one."
-          labelClassName="text-ui"
+          onClick={() => setTypeOpen(true)}
         />
-        <Button
-          type="submit"
-          variant="secondary"
-          disabled={disabled}
-          pending={workflow.busy}
-          pendingLabel="Preparing review…"
-        >
-          Review action link
-        </Button>
-      </div>
+        <div className={cardBlockClassName}>
+          <Field error={error ?? undefined}>
+            <FieldLabel htmlFor={uriId}>Link</FieldLabel>
+            <Input
+              ref={uriRef}
+              id={uriId}
+              type="url"
+              value={uri}
+              onChange={(event) => {
+                setUri(event.target.value)
+                if (error)
+                  setError(checkBookingUrl(event.target.value, sameType))
+              }}
+              placeholder="https://…"
+              inputMode="url"
+              autoComplete="off"
+              disabled={disabled}
+            />
+            <FieldError />
+          </Field>
+          {failure ? <FailureNote message={failure} /> : null}
+        </div>
+        <div className={cardBlockClassName}>
+          <Checkbox
+            checked={preferred}
+            onCheckedChange={(value) => setPreferred(value === true)}
+            disabled={disabled}
+            label="Make this the preferred link"
+            description="Google shows the preferred link first when a button has more than one."
+            labelClassName="text-ui"
+          />
+        </div>
+      </SettingsGroup>
+      <Sheet open={typeOpen} onOpenChange={setTypeOpen}>
+        <SheetContent variant="inset">
+          <SheetHeader>
+            <SheetTitle>Booking link type</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            <OptionRowGroup applyOnChoose label="Booking link type">
+              {state.supportedTypes.map((t) => (
+                <OptionRow
+                  key={t}
+                  indicator="check"
+                  selected={t === type}
+                  label={actionTypeLabel(t)}
+                  onClick={() => {
+                    setType(t as PlaceActionType)
+                    setTypeOpen(false)
+                  }}
+                />
+              ))}
+            </OptionRowGroup>
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </form>
   )
 }

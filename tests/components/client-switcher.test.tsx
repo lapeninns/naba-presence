@@ -131,6 +131,23 @@ describe("ClientSwitcher", () => {
     expect(options[2]).toHaveAccessibleName("Harbour Kitchen, Action needed")
   })
 
+  it("puts the tick at the end of each row, Notion Mail's switcher look", async () => {
+    stubClients([OLD_CROWN, HARBOUR])
+    renderSwitcher()
+    await userEvent.click(
+      screen.getByRole("button", { name: "Client: All clients" })
+    )
+    const options = await screen.findAllByRole("menuitemradio")
+    for (const option of options) {
+      expect(option).toHaveAttribute("data-indicator-position", "end")
+      // The check column is the row's last child, after the name.
+      expect(option.lastElementChild).toHaveAttribute(
+        "data-slot",
+        "dropdown-menu-check"
+      )
+    }
+  })
+
   it("names the client in scope, with its health as the description", () => {
     stubClients([OLD_CROWN, HARBOUR])
     location.search = "clientId=c2&queue=failed"
@@ -371,21 +388,21 @@ describe("ClientScopeSheet", () => {
     location.search = "clientId=c2"
     renderPhoneScope()
     const sheet = await openSheet("Client: Harbour Kitchen")
-    const group = within(sheet).getByRole("radiogroup", { name: "Client" })
-    const radios = within(group).getAllByRole("radio")
-    expect(radios).toHaveLength(3)
-    expect(radios[0]).toHaveAccessibleName("All clients")
-    expect(radios[1]).toHaveAccessibleName("Old Crown")
+    const group = within(sheet).getByRole("listbox", { name: "Client" })
+    const options = within(group).getAllByRole("option")
+    expect(options).toHaveLength(3)
+    expect(options[0]).toHaveAccessibleName("All clients")
+    expect(options[1]).toHaveAccessibleName("Old Crown")
     // Health is printed as words in the row, not only announced.
-    expect(within(radios[1]).getByText("In sync")).toBeVisible()
-    expect(within(radios[2]).getByText("Action needed")).toBeVisible()
-    expect(radios[1]).toHaveAccessibleDescription("In sync")
-    expect(radios[2]).toHaveAccessibleDescription("Action needed")
-    expect(radios[2]).toHaveAttribute("aria-checked", "true")
-    expect(radios[0]).toHaveAttribute("aria-checked", "false")
+    expect(within(options[1]).getByText("In sync")).toBeVisible()
+    expect(within(options[2]).getByText("Action needed")).toBeVisible()
+    expect(options[1]).toHaveAccessibleDescription("In sync")
+    expect(options[2]).toHaveAccessibleDescription("Action needed")
+    expect(options[2]).toHaveAttribute("aria-selected", "true")
+    expect(options[0]).toHaveAttribute("aria-selected", "false")
     // One Tab stop for the group: the checked row.
-    expect(radios[2]).toHaveAttribute("tabindex", "0")
-    expect(radios[0]).toHaveAttribute("tabindex", "-1")
+    expect(options[2]).toHaveAttribute("tabindex", "0")
+    expect(options[0]).toHaveAttribute("tabindex", "-1")
     // Two clients: no filter field.
     expect(within(sheet).queryByRole("searchbox")).toBeNull()
   })
@@ -396,7 +413,7 @@ describe("ClientScopeSheet", () => {
     renderPhoneScope()
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
     expect(replace).toHaveBeenLastCalledWith(
       "/inbox?queue=failed&clientId=c2",
@@ -414,7 +431,7 @@ describe("ClientScopeSheet", () => {
     renderPhoneScope()
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
     expect(push).toHaveBeenCalledWith("/clients/c2/settings")
   })
@@ -426,7 +443,7 @@ describe("ClientScopeSheet", () => {
     renderPhoneScope({ remembered: "c1" })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "All clients" })
+      within(sheet).getByRole("option", { name: "All clients" })
     )
     expect(replace).toHaveBeenLastCalledWith("/listings?order=client", {
       scroll: false,
@@ -445,7 +462,7 @@ describe("ClientScopeSheet", () => {
     renderPhoneScope({ remembered: "c1", children: <Page /> })
     const sheet = await openSheet("Client: Old Crown")
     await userEvent.click(
-      within(sheet).getByRole("radio", { name: "Harbour Kitchen" })
+      within(sheet).getByRole("option", { name: "Harbour Kitchen" })
     )
     expect(handler).toHaveBeenCalledWith("c2")
     expect(replace).not.toHaveBeenCalled()
@@ -459,11 +476,11 @@ describe("ClientScopeSheet", () => {
     stubClients([OLD_CROWN, HARBOUR])
     renderPhoneScope()
     const sheet = await openSheet("Client: All clients")
-    const all = within(sheet).getByRole("radio", { name: "All clients" })
+    const all = within(sheet).getByRole("option", { name: "All clients" })
     all.focus()
     await user.keyboard("{ArrowDown}")
     expect(
-      within(sheet).getByRole("radio", { name: "Old Crown" })
+      within(sheet).getByRole("option", { name: "Old Crown" })
     ).toHaveFocus()
     expect(replace).not.toHaveBeenCalled()
     await user.keyboard("{ArrowDown}{Enter}")
@@ -487,10 +504,10 @@ describe("ClientScopeSheet", () => {
     // iOS does not zoom on focus.
     expect(search.tagName).toBe("INPUT")
     expect(search).toHaveClass("text-body")
-    expect(within(sheet).getAllByRole("radio")).toHaveLength(10)
+    expect(within(sheet).getAllByRole("option")).toHaveLength(10)
 
     await user.type(search, "client e")
-    const matches = within(sheet).getAllByRole("radio")
+    const matches = within(sheet).getAllByRole("option")
     expect(matches).toHaveLength(1)
     expect(matches[0]).toHaveAccessibleName("Client E")
     await user.click(matches[0])
@@ -511,7 +528,7 @@ describe("ClientScopeSheet", () => {
       within(sheet).getByRole("searchbox", { name: "Search clients" }),
       "zzz"
     )
-    expect(within(sheet).queryAllByRole("radio")).toHaveLength(0)
+    expect(within(sheet).queryAllByRole("option")).toHaveLength(0)
     expect(within(sheet).getByText("No client matches that.")).toBeVisible()
   })
 })

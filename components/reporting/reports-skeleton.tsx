@@ -96,7 +96,7 @@ export function ReportsSkeleton({
         <Skeleton className="h-4 w-96 max-w-full" />
       </div>
       <div className="flex items-end gap-3">
-        <Skeleton className="h-(--np-control-h) flex-1 rounded-(--np-radius-control) md:hidden" />
+        <Skeleton className="h-(--np-touch) flex-1 rounded-(--np-radius-pill) md:hidden" />
         {[0, 1, 2].map((field) => (
           <div key={field} className="hidden flex-col gap-1.5 md:flex">
             <Skeleton className="h-3.5 w-16" />

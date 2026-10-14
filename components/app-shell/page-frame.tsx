@@ -1,3 +1,4 @@
+import { Empty } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
 /**
@@ -61,8 +62,8 @@ function PageFrame({
  *
  * The toolbar above carries only the trail; the title lives here with its
  * actions so it scrolls with the page it names. One `h1` per page, and this
- * is it, set in the display serif: the serif is kept for page titles and the
- * customer's own words, so it always marks "where you are".
+ * is it, set in the display role (`font-display`, which the type tokens point
+ * at the system sans): the one large title that marks "where you are".
  *
  * `actions` are laid out right-aligned in the order given; put the primary
  * action LAST so it sits at the trailing edge. On a narrow page they take the
@@ -98,7 +99,7 @@ function PageHeader({
   return (
     <header className={cn("flex shrink-0 flex-col gap-4", className)}>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex min-w-0 flex-[1_1_22.5rem] flex-col gap-1.5">
+        <div className="flex min-w-0 grow basis-90 flex-col gap-1">
           {eyebrow ? <p className={EYEBROW_CLASS}>{eyebrow}</p> : null}
           <div className="flex min-w-0 flex-wrap items-center gap-2.5">
             {/* Focusable by script only: the shell moves focus here after a
@@ -112,7 +113,7 @@ function PageHeader({
             {meta}
           </div>
           {description ? (
-            <p className="max-w-[70ch] text-body text-pretty text-ink-muted">
+            <p className="max-w-prose text-body text-pretty text-ink-muted">
               {description}
             </p>
           ) : null}
@@ -128,18 +129,25 @@ function PageHeader({
   )
 }
 
-/** The mono, upper-case context line above a title (reference `.eyebrow`). */
-const EYEBROW_CLASS =
-  "font-mono text-count font-medium tracking-[0.06em] text-ink-muted uppercase"
+/**
+ * The quiet context line above a title (reference `.eyebrow`): sans, sentence
+ * case, muted. Mono is kept for IDs and codes (D1), not for labels.
+ */
+const EYEBROW_CLASS = "text-caption font-medium text-ink-muted"
 
 /**
- * A whole page that is one message: access denied, not found, an error
- * boundary. A tinted mark, the mono eyebrow, a serif `h1`, one sentence and
- * its actions, left-aligned like every other page header so the shell reads
- * the same whether the page worked or not.
+ * A whole page that is one message: access denied, not found, an archived
+ * record. Drawn by the shared empty state (`Empty`, components/ui/empty.tsx):
+ * an optional glyph in its mark, the eyebrow, a short title, one muted
+ * sentence saying why, and the next action. `placement="page"` (the default)
+ * fills the page and sits the message at about 35% of its height, so it reads
+ * calm whether the page worked or not; `inline` is for a message with more
+ * of the page under it (AccessDenied's access details). `tone` only colours
+ * the glyph's mark, never a box.
  *
- * Renders NO landmark: inside the dashboard AppShell owns the single
- * `<main>`; a route file outside it (the root 404) supplies its own.
+ * The title is the page's one `h1`. Renders NO landmark: inside the
+ * dashboard AppShell owns the single `<main>`; a route file outside it (the
+ * root 404) supplies its own.
  */
 function PageEmptyState({
   title,
@@ -148,65 +156,63 @@ function PageEmptyState({
   icon,
   eyebrow,
   tone = "neutral",
+  placement = "page",
   children,
   className,
 }: {
   title: string
   description?: React.ReactNode
-  /** The page's actions, primary first. */
+  /** The page's next action; one primary, any second one quiet. */
   action?: React.ReactNode
-  /** A lucide glyph, drawn in a 44px tinted square above the title. */
+  /** A lucide glyph, drawn in the empty state's mark above the title. */
   icon?: React.ReactNode
   /** e.g. "Page not found · 404". */
   eyebrow?: React.ReactNode
   tone?: "neutral" | "warning" | "danger"
+  /** `page` (default): the message is the page. `inline`: more follows it. */
+  placement?: "page" | "inline"
   /** Extra lines under the description (a requested path, an error id). */
   children?: React.ReactNode
   className?: string
 }) {
   return (
-    <div
+    <Empty
       data-slot="page-empty-state"
-      className={cn(
-        "flex flex-wrap items-end justify-between gap-4",
-        className
-      )}
+      data-tone={tone}
+      placement={placement}
+      titleAs={PAGE_TITLE_AS}
+      icon={icon}
+      tone={EMPTY_TONE[tone]}
+      className={cn("mx-auto w-full max-w-md", className)}
+      title={title}
+      description={
+        description || children ? (
+          <>
+            {description ? <p>{description}</p> : null}
+            {children}
+          </>
+        ) : undefined
+      }
+      action={action}
     >
-      <div className="flex min-w-0 flex-[1_1_22.5rem] flex-col gap-1.5">
-        {icon ? (
-          <span
-            aria-hidden
-            className={cn(
-              "mb-1.5 flex size-11 items-center justify-center rounded-lg [&_svg]:size-5",
-              tone === "neutral" && "bg-fill text-ink-secondary",
-              tone === "warning" && "bg-warning-tint text-warning-ink",
-              tone === "danger" && "bg-danger-tint text-danger-ink"
-            )}
-          >
-            {icon}
-          </span>
-        ) : null}
-        {eyebrow ? <p className={EYEBROW_CLASS}>{eyebrow}</p> : null}
-        <h1
-          tabIndex={-1}
-          className="font-display text-page-title font-semibold text-balance text-ink outline-none"
-        >
-          {title}
-        </h1>
-        {description ? (
-          <p className="max-w-[70ch] text-body text-pretty text-ink-muted">
-            {description}
-          </p>
-        ) : null}
-        {children}
-      </div>
-      {action ? (
-        <div className="flex flex-wrap items-center gap-2 @max-[480px]:w-full @max-[480px]:*:flex-1">
-          {action}
-        </div>
-      ) : null}
-    </div>
+      {/* Empty draws its children between the glyph and the title. */}
+      {eyebrow ? <p className={EYEBROW_CLASS}>{eyebrow}</p> : null}
+    </Empty>
   )
 }
+
+const EMPTY_TONE = {
+  neutral: "neutral",
+  warning: "warn",
+  danger: "bad",
+} as const
+
+/**
+ * Empty's `titleAs` stops at h2 so an inline empty state never takes the
+ * page's h1 by accident. This one IS the page, so its title is the h1 (the
+ * one the shell's route focus lands on, route-focus.tsx). Empty renders the
+ * element it is given; the cast only widens its type.
+ */
+const PAGE_TITLE_AS = "h1" as unknown as "h2"
 
 export { EYEBROW_CLASS, PageEmptyState, PageFrame, PageHeader, type PageWidth }

@@ -10,7 +10,6 @@ import { PhotosGrid } from "@/components/locations/photos/photos-grid"
 import { PhotosToolbar } from "@/components/locations/photos/photos-toolbar"
 import { UnresolvedCreates } from "@/components/locations/photos/unresolved-creates"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { fetchMedia, type MediaState } from "@/lib/api/location-media"
 import type { ListPaging } from "@/lib/queries/paged-list"
@@ -79,19 +78,14 @@ export function PhotosLibrary({
   // Inside the listing area the header above already carries the "Photos"
   // h1, the status pill and the model note ("Changes here go to Google
   // straight away."), so the frame keeps its title for the outline only and
-  // repeats none of them.
+  // repeats none of them. The one primary, "Add photos", trails the browse
+  // row (Notion Mail's toolbar) rather than sitting in a head row of its own.
   return (
     <EditorFrame
       title="Photo library"
       titleHidden
       gateReason={writeReason}
       gateTitle="You can look, but not change these photos"
-      actions={
-        <Button disabled={disabled} onClick={() => setAddOpen(true)}>
-          <PlusIcon aria-hidden />
-          Add photos
-        </Button>
-      }
     >
       <div className="flex flex-col gap-4">
         <UnresolvedCreates
@@ -106,17 +100,21 @@ export function PhotosLibrary({
           onStateChange={onStateChange}
           refreshing={refresh.isPending}
           onRefresh={refreshFromGoogle}
+          action={
+            <Button disabled={disabled} onClick={() => setAddOpen(true)}>
+              <PlusIcon aria-hidden />
+              Add photos
+            </Button>
+          }
         />
 
         {media.total === 0 ? (
-          <Card flush>
-            <PhotosEmpty
-              filtersActive={filtersActive}
-              onClearFilters={() =>
-                onStateChange({ ownership: "all", category: "all" })
-              }
-            />
-          </Card>
+          <PhotosEmpty
+            filtersActive={filtersActive}
+            onClearFilters={() =>
+              onStateChange({ ownership: "all", category: "all" })
+            }
+          />
         ) : (
           <PhotosGrid
             locationId={locationId}
@@ -143,7 +141,7 @@ export function PhotosLibrary({
   )
 }
 
-// No "Add photos" action here on purpose: the heading directly above always
+// No "Add photos" action here on purpose: the browse row directly above always
 // renders one, wired to the same handler. Offering it twice on one screen
 // gave the same action two accessible names in the same view.
 function PhotosEmpty({
@@ -155,6 +153,8 @@ function PhotosEmpty({
 }) {
   return (
     <Empty
+      variant="empty"
+      framed
       icon={filtersActive ? <FilterIcon /> : <ImagesIcon />}
       titleAs="h3"
       title={filtersActive ? "No matching photos" : "No photos yet"}

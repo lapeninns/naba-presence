@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -58,6 +58,48 @@ describe("ReportToolbar", () => {
     await waitFor(() =>
       expect(screen.queryByText("fields in the sheet")).not.toBeInTheDocument()
     )
+  })
+
+  // RC3 #9: on a phone the pill wrapped to three lines, cut the client's
+  // name and left a "·" hanging at a line end ("· 0 locations ·").
+  it("keeps the client's name on its own line and the rest on one line with no stray separator", () => {
+    render(
+      <ReportToolbar
+        summary={["Harbour Collective", "0 locations", "Last 28 days"]}
+        fields={() => null}
+      />
+    )
+    const pill = screen.getByRole("button", {
+      name: /^Harbour Collective.*0 locations.*Last 28 days$/,
+    })
+    const name = within(pill).getByText("Harbour Collective")
+    const rest = within(pill).getByText("0 locations").parentElement!
+    // Two single lines, never a wrapping row.
+    expect(name.parentElement).toHaveClass("flex-col")
+    expect(name.parentElement).not.toHaveClass("flex-wrap")
+    expect(rest).not.toHaveClass("flex-wrap")
+    expect(name).toHaveClass("truncate")
+    expect(name).not.toContainElement(within(pill).getByText("0 locations"))
+    // The lesser parts truncate first; the period never does.
+    expect(within(pill).getByText("0 locations")).toHaveClass(
+      "min-w-0",
+      "truncate"
+    )
+    expect(within(pill).getByText("Last 28 days")).toHaveClass(
+      "shrink-0",
+      "whitespace-nowrap"
+    )
+    // Exactly one visible separator, between the two parts of that line.
+    const dots = within(pill).getAllByText("·")
+    expect(dots).toHaveLength(1)
+    const visible = (rest.textContent ?? "").replace(/,/g, "").trim()
+    expect(visible).toMatch(/^0 locations\s+·\s+Last 28 days$/)
+  })
+
+  it("draws a lone part with no separator", () => {
+    render(<ReportToolbar summary={["Last 28 days"]} fields={() => null} />)
+    const pill = screen.getByRole("button", { name: "Last 28 days" })
+    expect(within(pill).queryByText("·")).not.toBeInTheDocument()
   })
 })
 

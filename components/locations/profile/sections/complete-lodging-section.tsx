@@ -10,6 +10,7 @@ import { LodgingEditor } from "./lodging-editor"
 import { LodgingReview } from "./lodging-review"
 import { LodgingSuggestions } from "./lodging-suggestions"
 import { useLodgingWorkspace } from "./lodging-workspace"
+import { InlineError } from "./setting-rows"
 
 export function CompleteLodgingSection({ locationId, loaded, suggested, suggestedError, disabled, publishReason, googleHash, savedReviews }: {
   readonly locationId: string; readonly loaded: Record<string, unknown>; readonly suggested: unknown
@@ -44,11 +45,11 @@ export function CompleteLodgingSection({ locationId, loaded, suggested, suggeste
     })
   }, [reportDraft, preview, proposal, blocked, googleHash, discard])
   useEffect(() => () => reportDraft?.({ dirty: false, blocked: null }, null), [reportDraft])
-  return <div className="flex min-w-0 flex-col gap-5">
+  return <div className="flex min-w-0 flex-col gap-(--np-gap-section)">
     <DraftNotices drafts={[editor]} noun="these lodging details" />
     <LodgingSuggestions value={draft} response={suggested} error={suggestedError} disabled={unavailable} onChange={setDraft} />
     <LodgingEditor value={draft} baseline={loaded} disabled={unavailable} errors={proposal.fieldErrors} onChange={setDraft} />
-    {!proposal.valid ? <p role="alert" className="text-ui text-danger-ink">Correct the highlighted lodging details before preparing a review. Unsupported values in a changed list must be reviewed in Google.</p> : null}
+    {!proposal.valid ? <InlineError>Correct the highlighted lodging details before preparing a review. Unsupported values in a changed list must be reviewed in Google.</InlineError> : null}
     <LodgingReview locationId={locationId} payload={proposal.payload} updateMask={proposal.updateMask} googleHash={googleHash} saved={savedReviews} disabled={disabled || Boolean(publishReason)} previewDisabled={!proposal.valid} onLock={setLocked} />
     <GateNote reason={disabled ? null : publishReason} />
   </div>

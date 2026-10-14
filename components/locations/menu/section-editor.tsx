@@ -3,21 +3,24 @@
 import { ChevronDownIcon, ChevronUpIcon, Plus } from "lucide-react"
 
 import {
-  FieldCaption,
   InlineError,
   RowActionsMenu,
 } from "@/components/locations/menu/item-editor"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Textarea } from "@/components/ui/textarea"
 import { readLabel } from "@/lib/locations/forms/menu-editor"
 
 type Json = Record<string, unknown>
 
 /**
- * One section card: a sunken head with the disclosure toggle, the section
- * name, its item count and order/remove controls; then, while expanded, the
- * section description, its items (`children`) and Add item. A collapsed
+ * One section as a settings group: its name is the group's label, with the
+ * item count as the caption and the disclosure toggle and the order/remove
+ * menu on the label's right. The section name field leads the group; while
+ * expanded, the section description, its item rows (`children`, each an
+ * `li`) and Add item follow. On a phone the group has no card chrome, only
+ * the hairlines between rows; the desk keeps a bordered card. A collapsed
  * section unmounts its fields; the draft keeps everything typed in them.
  */
 export function MenuSectionEditor({
@@ -64,46 +67,31 @@ export function MenuSectionEditor({
   const toggleName = label.displayName || "this section"
 
   return (
-    <section
-      aria-label={name}
-      className="@container/section scroll-mt-20 rounded-lg border border-line bg-surface"
-    >
-      <div
-        data-slot="field"
-        className="flex flex-wrap items-center gap-2 rounded-t-lg border-b border-line bg-surface-alt px-4 py-3"
-      >
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-expanded={expanded}
-          aria-controls={panelId}
-          aria-label={`${expanded ? "Collapse" : "Expand"} ${toggleName}`}
-          onClick={onToggle}
-        >
-          {expanded ? (
-            <ChevronUpIcon aria-hidden />
-          ) : (
-            <ChevronDownIcon aria-hidden />
-          )}
-        </Button>
-        <Input
-          id={ids.name}
-          onFocus={onActivate}
-          onBlur={onDeactivate}
-          aria-label={`Section ${sectionIndex + 1} name`}
-          aria-invalid={nameError ? true : undefined}
-          aria-describedby={nameError ? `${ids.name}-error` : undefined}
-          placeholder="Section name, e.g. Starters"
-          value={label.displayName}
-          disabled={disabled}
-          onChange={(event) => onName(event.target.value)}
-          className="min-w-0 grow basis-48 font-semibold"
-        />
-        <span className="font-mono text-caption text-ink-muted tabular-nums">
+    <SettingsGroup
+      label={name}
+      headingAs="h3"
+      caption={
+        <span className="tabular-nums">
           {itemCount} {itemCount === 1 ? "item" : "items"}
         </span>
-        {!disabled ? (
-          <span className="ml-auto">
+      }
+      actions={
+        <>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-expanded={expanded}
+            aria-controls={panelId}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${toggleName}`}
+            onClick={onToggle}
+          >
+            {expanded ? (
+              <ChevronUpIcon aria-hidden />
+            ) : (
+              <ChevronDownIcon aria-hidden />
+            )}
+          </Button>
+          {!disabled ? (
             <RowActionsMenu
               label={`Actions for section ${name}`}
               title={name}
@@ -113,48 +101,80 @@ export function MenuSectionEditor({
               onRemove={onRemove}
               removeLabel="Remove section"
             />
-          </span>
-        ) : null}
-        {nameError ? (
-          <div className="basis-full">
+          ) : null}
+        </>
+      }
+      card
+      bodyAs="div"
+      className="@container/section mt-0 scroll-mt-20"
+    >
+      <SettingsRow
+        label="Section name"
+        controlId={ids.name}
+        className="desk:px-3"
+        control={
+          <div data-slot="field" className="flex min-w-0 flex-col gap-1">
+            <Input
+              id={ids.name}
+              onFocus={onActivate}
+              onBlur={onDeactivate}
+              aria-label={`Section ${sectionIndex + 1} name`}
+              aria-invalid={nameError ? true : undefined}
+              aria-describedby={nameError ? `${ids.name}-error` : undefined}
+              placeholder="Section name, e.g. Starters"
+              value={label.displayName}
+              disabled={disabled}
+              onChange={(event) => onName(event.target.value)}
+              className="font-semibold"
+            />
             <InlineError id={`${ids.name}-error`} message={nameError} />
           </div>
-        ) : null}
-      </div>
+        }
+      />
 
       {expanded ? (
-        <div id={panelId} className="flex flex-col gap-2.5 p-4">
-          <div className="flex min-w-0 flex-col gap-1">
-            <FieldCaption htmlFor={ids.description}>
-              Section description{" "}
-              <span className="font-normal">(optional)</span>
-            </FieldCaption>
-            <Textarea
-              id={ids.description}
-              aria-label={`Section ${sectionIndex + 1} description`}
-              placeholder="A short introduction to this section"
-              value={label.description}
-              disabled={disabled}
-              autoSize
-              minRows={1}
-              maxRows={6}
-              // A one-line start is shorter than a field on touch; the
-              // field height wins over the rows' inline minimum.
-              className="min-h-(--np-field-h)!"
-              onChange={(event) => onDescription(event.target.value)}
-            />
-          </div>
+        <div id={panelId} className="flex flex-col desk:px-3">
+          <SettingsRow
+            label={
+              <>
+                Section description{" "}
+                <span className="font-normal text-ink-muted">(optional)</span>
+              </>
+            }
+            controlId={ids.description}
+            control={
+              <Textarea
+                id={ids.description}
+                aria-label={`Section ${sectionIndex + 1} description`}
+                placeholder="A short introduction to this section"
+                value={label.description}
+                disabled={disabled}
+                // Two lines is the shortest start that clears the touch field
+                // height without overriding the primitive's own minimum.
+                autoSize
+                minRows={2}
+                maxRows={6}
+                onChange={(event) => onDescription(event.target.value)}
+              />
+            }
+          />
           {itemCount === 0 ? (
-            <p className="text-caption text-ink-muted">
+            <p className="py-2 text-caption text-ink-muted">
               No items in this section yet.
             </p>
-          ) : null}
-          {children}
+          ) : (
+            <ul
+              aria-label={`Items in ${name}`}
+              className="flex min-w-0 flex-col border-y border-line-subtle"
+            >
+              {children}
+            </ul>
+          )}
           {!disabled ? (
             <Button
-              variant="secondary"
+              variant="ghost"
               size="sm"
-              className="self-start"
+              className="my-2 self-start"
               onClick={onAddItem}
             >
               <Plus aria-hidden />
@@ -163,6 +183,6 @@ export function MenuSectionEditor({
           ) : null}
         </div>
       ) : null}
-    </section>
+    </SettingsGroup>
   )
 }

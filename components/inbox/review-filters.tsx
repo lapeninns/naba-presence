@@ -1,11 +1,7 @@
 "use client"
 
-import { useEffect, useId, useState } from "react"
+import { useEffect, useState } from "react"
 
-import { cn } from "@/lib/utils"
-
-import { SearchInput } from "@/components/ui/input"
-import { Kbd } from "@/components/ui/kbd"
 import {
   Select,
   SelectContent,
@@ -28,33 +24,22 @@ import type { InboxState } from "@/lib/inbox/url-state"
 // the rendered items come from the contract's sort vocabulary.
 
 /**
- * The review search, and the inbox's only one at every width ("Search
- * reviews" is its name, label and placeholder): one field, debounced into
- * the URL. The local draft
- * follows the URL when it is cleared from elsewhere ("Clear all filters",
- * the search chip). The shell's ⌘K launcher is Commands — clients,
- * venues and actions — and deliberately does not look inside review text, so
- * this is the one place to type words a customer wrote.
+ * The review search's draft, debounced into the URL. The field itself is
+ * the `Toolbar` primitive's (InboxToolbar draws it); this is what it types
+ * into. The local draft follows the URL when it is cleared from elsewhere
+ * ("Clear all filters", the search chip). The shell's ⌘K launcher is
+ * Commands — clients, venues and actions — and deliberately does not look
+ * inside review text, so this is the one place to type words a customer
+ * wrote.
+ *
+ * `cancel` is the phone's "Cancel": it empties the draft and sends the same
+ * `{ search: "" }` the debounce would, at once rather than 300ms later, so
+ * the queues come back with the tap rather than after it.
  */
-function ReviewSearchField({
-  ref,
-  state,
-  onChange,
-  showShortcut = false,
-  className,
-}: {
-  /** The input itself, so the `/` shortcut can put the caret in it. */
-  ref?: React.Ref<HTMLInputElement>
-  state: InboxState
+function useReviewSearch(
+  state: InboxState,
   onChange: (partial: Partial<InboxState>) => void
-  /**
-   * Draws the `/` key hint at the trailing edge while the field is empty —
-   * on a desk only, since a phone has no key to press.
-   */
-  showShortcut?: boolean
-  className?: string
-}) {
-  const searchId = useId()
+) {
   const [searchDraft, setSearchDraft] = useState(state.search)
   // "Adjusting state when a prop changes" (react.dev/learn/you-might-not-need-an-effect):
   // setting state during render — not inside an effect body — keeps this a single
@@ -72,34 +57,12 @@ function ReviewSearchField({
 
   const searchPending = searchDraft !== state.search
 
-  return (
-    <div className={cn("relative flex min-w-0", className)}>
-      <label htmlFor={searchId} className="sr-only">
-        Search reviews
-      </label>
-      <SearchInput
-        ref={ref}
-        id={searchId}
-        role="searchbox"
-        aria-label="Search reviews"
-        aria-busy={searchPending || undefined}
-        value={searchDraft}
-        placeholder="Search reviews"
-        enterKeyHint="search"
-        onChange={(event) => setSearchDraft(event.target.value)}
-        className="w-full"
-        inputClassName={showShortcut ? "desk:pr-7" : undefined}
-      />
-      {showShortcut && searchDraft === "" ? (
-        <Kbd
-          aria-hidden
-          className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 desk:inline-flex"
-        >
-          /
-        </Kbd>
-      ) : null}
-    </div>
-  )
+  function cancel() {
+    setSearchDraft("")
+    if (state.search !== "") onChange({ search: "" })
+  }
+
+  return { searchDraft, setSearchDraft, searchPending, cancel }
 }
 
 function ReviewSortSelect({
@@ -135,4 +98,4 @@ function ReviewSortSelect({
   )
 }
 
-export { ReviewSearchField, ReviewSortSelect }
+export { ReviewSortSelect, useReviewSearch }

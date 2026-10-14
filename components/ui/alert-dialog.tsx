@@ -6,7 +6,7 @@ import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog
 import { cn } from "@/lib/utils"
 import {
   alertPopupClassName,
-  overlayFooterBarClassName,
+  overlayFooterCalmClassName,
   overlayFooterClassName,
   overlayScrimClassName,
   overlayScrollPaddingClassName,
@@ -33,7 +33,8 @@ const AlertPresentationContext = React.createContext<"dialog" | "sheet">(
 )
 
 /**
- * One question. A narrow centred card from `sm`; on a phone a card anchored
+ * One question, asked calmly: a `text-title` 600 title, the muted body, the
+ * answers under it. A narrow centred card from `sm`; on a phone a card anchored
  * to the bottom edge, so the answer is under the thumb. There is no close
  * button and no swipe: the answer is one of the footer buttons, and the
  * destructive confirmation names the object it acts on ("Delete reply",
@@ -80,7 +81,7 @@ function AlertDialogTitle({
   return (
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
-      className={cn("text-section font-semibold text-ink", className)}
+      className={cn("text-title font-semibold text-ink", className)}
       {...props}
     />
   )
@@ -99,10 +100,11 @@ function AlertDialogDescription({
 }
 
 /**
- * The dialog's footer bar (sunken surface under a hairline, pinned to the
- * bottom, clear of the keyboard). Centred: a right-aligned row, primary on
- * the right. Phone: full-width buttons stacked with the primary (last in
- * source order) at the bottom, nearest the thumb.
+ * The answers: a calm row on the alert's own surface (no hairline, no
+ * sunken bar), pinned to the bottom and clear of the keyboard. Centred: a
+ * right-aligned row, primary on the right. Phone: full-width buttons stacked
+ * with the primary (last in source order) at the bottom, nearest the thumb.
+ * A destructive answer keeps the `danger` button.
  */
 function AlertDialogFooter({
   className,
@@ -115,7 +117,7 @@ function AlertDialogFooter({
       data-docked=""
       className={cn(
         overlayFooterClassName[presentation],
-        overlayFooterBarClassName,
+        overlayFooterCalmClassName,
         "mt-2",
         className
       )}

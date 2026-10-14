@@ -24,9 +24,9 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogBody,
@@ -41,6 +41,8 @@ import { Empty } from "@/components/ui/empty"
 import { QueryError } from "@/components/ui/query-states"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusPill, type PillTone } from "@/components/ui/status-pill"
+import { useOutcomeToast } from "@/components/ui/toast"
+import { TypedConfirmation } from "@/components/ui/typed-confirmation"
 import {
   Table,
   TableBody,
@@ -225,8 +227,17 @@ export function ReconnectDialogView({
 }
 
 /**
- * Disconnect, with its consequences laid out in order and an
- * acknowledgement before the button arms (reference `#disconnect`).
+ * What the person types to arm Disconnect when the login has no email on
+ * record. Shown in the label, so it is always visible and never empty (an
+ * empty `expected` never matches, which would leave the dialog stuck).
+ */
+const DISCONNECT_WORD = "DISCONNECT"
+
+/**
+ * Disconnect, with its consequences laid out in order and a typed
+ * confirmation before the button arms (reference `#disconnect`; Notion
+ * Mail's alert, upgraded to typing the login per the account-removal rule).
+ * The pending label on the button stands in for a progress HUD.
  */
 function DisconnectDialog({
   connection,
@@ -243,15 +254,18 @@ function DisconnectDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
 }) {
-  const [ack, setAck] = useState(false)
-  const email = connection?.googleEmail ?? "this Google account"
+  const [typed, setTyped] = useState("")
+  const [armed, setArmed] = useState(false)
+  const googleEmail = connection?.googleEmail ?? null
+  const email = googleEmail ?? "this Google account"
+  const expected = googleEmail ?? DISCONNECT_WORD
   const names = joinNames(served)
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next)
-        if (!next) setAck(false)
+        if (!next) setTyped("")
       }}
     >
       <AlertDialogContent className="grid-cols-[minmax(0,1fr)]">
@@ -266,25 +280,33 @@ function DisconnectDialog({
             as its longest label and the words line up. */}
         <ol className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 gap-y-2 text-ui text-ink">
           <li className="col-span-2 grid grid-cols-subgrid">
-            <span className="font-mono text-caption text-ink-muted">Now</span>
+            <span className="text-caption font-medium text-ink-muted">
+              Now
+            </span>
             <span>
-              Linked locations and notifications are deactivated. Nothing can
-              publish through this login.
+              Its listings are unlinked and Google notifications turn off.
+              Nothing can sync or publish through this login.
             </span>
           </li>
           <li className="col-span-2 grid grid-cols-subgrid">
-            <span className="font-mono text-caption text-ink-muted">
+            <span className="text-caption font-medium text-ink-muted">
               After 7 days
             </span>
             <span>
-              The account’s data is permanently removed. This can’t be undone.
+              Their reviews and the Google data we hold for them are
+              permanently deleted, unless this login is reconnected first.
+              Reviews under a legal hold are kept. The listings stay in
+              NabaPresence, unlinked.
             </span>
           </li>
         </ol>
-        <Checkbox
-          checked={ack}
-          onCheckedChange={(value) => setAck(value === true)}
-          label="I understand this deactivates linked locations and purges the data after 7 days."
+        <TypedConfirmation
+          expected={expected}
+          value={typed}
+          onValueChange={setTyped}
+          onMatchChange={setArmed}
+          fieldClassName="[overflow-wrap:anywhere]"
+          description="This unlinks its listings now. They stay in NabaPresence; their reviews and Google data are deleted after 7 days."
         />
         <AlertDialogFooter>
           <AlertDialogClose
@@ -292,7 +314,7 @@ function DisconnectDialog({
           />
           <Button
             variant="danger"
-            disabled={!ack}
+            disabled={!armed}
             pending={pending}
             pendingLabel="Disconnecting…"
             onClick={onConfirm}
@@ -325,6 +347,7 @@ export function ConnectionCard({
   clientsByConnection?: ReadonlyMap<string, ServedClient[]>
 } = {}) {
   const { query, connect, disconnect } = useConnectionWorkspace()
+  const toast = useOutcomeToast()
   const business = useWorkspaceMode() === "business"
   // Null outside the app router (component tests render it bare).
   const params = useSearchParams() as URLSearchParams | null
@@ -357,7 +380,7 @@ export function ConnectionCard({
         </span>
         {Array.from({ length: 2 }, (_, index) => (
           <div key={index} className="flex items-center gap-3 p-3.5">
-            <Skeleton className="size-8 rounded-(--np-radius-control)" />
+            <Skeleton className="size-8 rounded-(--np-radius-pill)" />
             <div className="flex flex-1 flex-col gap-1.5">
               <Skeleton className="h-3.5 w-1/3" />
               <Skeleton className="h-3 w-1/4" />
@@ -445,12 +468,11 @@ export function ConnectionCard({
               >
                 <TableCell label="Google login">
                   <span className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      aria-hidden
-                      className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ink-secondary"
-                    >
-                      <Globe className="size-4" strokeWidth={1.75} />
-                    </span>
+                    <Avatar aria-hidden>
+                      <AvatarFallback>
+                        <Globe className="size-4" strokeWidth={1.75} />
+                      </AvatarFallback>
+                    </Avatar>
                     <span className="min-w-0 font-semibold [overflow-wrap:anywhere] text-ink">
                       {name}
                     </span>
@@ -481,7 +503,7 @@ export function ConnectionCard({
                   </TableCell>
                 ) : null}
                 <TableCell label="Last refresh">
-                  <span className="font-mono text-caption whitespace-nowrap text-ink-muted tabular-nums">
+                  <span className="text-caption whitespace-nowrap text-ink-muted tabular-nums">
                     {formatWhen(connection.lastRefreshAt)}
                   </span>
                 </TableCell>
@@ -557,8 +579,14 @@ export function ConnectionCard({
         onOpenChange={setDisconnectOpen}
         onConfirm={() => {
           if (disconnectTarget) {
+            const label = disconnectTarget.googleEmail ?? "Google account"
             disconnect.mutate(disconnectTarget.id, {
-              onSuccess: () => setDisconnectOpen(false),
+              onSuccess: () => {
+                setDisconnectOpen(false)
+                // The outcome, with no Undo (D5): disconnecting asks Google to
+                // revoke the grant and schedules the purge.
+                toast.show({ kind: "google", title: `Disconnected ${label}` })
+              },
             })
           }
         }}

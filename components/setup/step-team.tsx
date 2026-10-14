@@ -20,10 +20,10 @@ function StepTeam({
   const role = useSessionRole()
   return (
     <>
-      <p className="text-ui text-ink-muted">
+      <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink-muted">
         {business
-          ? "Optional. Invited teammates can see every location by default. You can narrow that to chosen locations from Team once they accept."
-          : `Optional. Invited teammates can see every client by default. You can narrow that to ${clientName} alone from Team once they accept.`}
+          ? "Optional. Invited teammates can see every location by default. For members and viewers, you can narrow that to chosen locations from Team once they accept."
+          : `Optional. Invited teammates can see every client by default. For members and viewers, you can limit that to ${clientName} when you invite them, or later from Team.`}
       </p>
       <InvitationsPanel actorRole={(role ?? "owner") as MemberRole} />
     </>

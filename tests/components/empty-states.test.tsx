@@ -48,9 +48,14 @@ describe("EmptyState", () => {
     expect(
       screen.getByText("Reconnect Google to sync and reply to your reviews.")
     ).toBeInTheDocument()
+    // The label says what the page is for here (it was "Manage
+    // connection"); the destination is unchanged.
     expect(
-      screen.getByRole("link", { name: "Manage connection" })
+      screen.getByRole("link", { name: "Reconnect Google" })
     ).toHaveAttribute("href", "/settings/connections")
+    expect(
+      screen.queryByRole("link", { name: "Manage connection" })
+    ).not.toBeInTheDocument()
   })
 
   it.each([
@@ -183,4 +188,78 @@ describe("EmptyState", () => {
       unmount()
     }
   })
+
+  it("titles every state with an h2 at weight 500", () => {
+    render(<EmptyState reason="checked" />)
+    const heading = screen.getByRole("heading", {
+      level: 2,
+      name: "No reviews yet.",
+    })
+    // The Empty primitive's own title weight: text-title at 500.
+    expect(heading).toHaveClass("text-title", "font-medium")
+  })
+
+  it.each([
+    ["queue_empty", "needs_reply"],
+    ["queue_empty", "done"],
+    ["checked", undefined],
+    ["no_clients", undefined],
+    ["disconnected", undefined],
+    ["not_connected", undefined],
+    ["never_imported", undefined],
+    ["importing", undefined],
+    ["import_failed", undefined],
+  ] as const)(
+    "draws a hidden line illustration for %s (%s), in place of the mark",
+    (reason, queue) => {
+      const { container } = render(<EmptyState reason={reason} queue={queue} />)
+      // The Empty primitive's illustration slot, holding our line art.
+      const slot = container.querySelector('[data-slot="empty-illustration"]')
+      expect(slot).toBeInTheDocument()
+      expect(slot).toHaveAttribute("aria-hidden", "true")
+      expect(slot).toHaveClass("text-ink")
+      const art = slot?.querySelector("svg")
+      expect(art).toHaveAttribute("stroke", "currentColor")
+      expect(art).toHaveAttribute("stroke-width", "1.5")
+      // Colour comes from ink tokens, never a literal.
+      expect(slot?.outerHTML).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/i)
+      // One drawing, not a drawing and a mark.
+      expect(
+        container.querySelector(
+          '[data-slot="empty"] > span[aria-hidden]:not([data-slot="empty-illustration"])'
+        )
+      ).toBeNull()
+    }
+  )
+
+  it.each(["filtered", "unknown"] as const)(
+    "keeps the small mark and no illustration for %s",
+    (reason) => {
+      const { container } = render(
+        <EmptyState reason={reason} onClear={() => {}} />
+      )
+      expect(
+        container.querySelector('[data-slot="empty-illustration"]')
+      ).toBeNull()
+      expect(
+        container.querySelector('[data-slot="empty"] > span[aria-hidden] svg')
+      ).toBeInTheDocument()
+    }
+  )
+
+  it.each(["disconnected", "import_failed"] as const)(
+    "gives the %s problem a danger mark that is a shape, not only a colour",
+    (reason) => {
+      const { container } = render(<EmptyState reason={reason} />)
+      expect(container.querySelector('[data-slot="empty"]')).toHaveAttribute(
+        "data-tone",
+        "bad"
+      )
+      const mark = container.querySelector(
+        '[data-slot="empty-illustration"] .text-danger-ink'
+      )
+      expect(mark?.querySelector("circle")).toBeInTheDocument()
+      expect(mark?.querySelectorAll("path").length).toBeGreaterThanOrEqual(2)
+    }
+  )
 })

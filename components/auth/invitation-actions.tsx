@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
 import * as authApi from "@/lib/api/auth"
 import { authErrorMessage, type AuthMessage } from "@/lib/api/auth-errors"
@@ -57,7 +58,7 @@ function InvitationActions({
 
   if (sameEmail) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         {error ? <AuthErrorAlert message={error} /> : null}
         <p className="text-body [overflow-wrap:anywhere] text-ink-muted">
           You are signed in as {viewer.email}, the address this invitation was
@@ -66,7 +67,8 @@ function InvitationActions({
         <Button
           type="button"
           size="lg"
-          className="h-11 w-full"
+          block
+          className={WRAPPING_BLOCK_BUTTON}
           onClick={handleAccept}
           disabled={pending}
         >
@@ -77,14 +79,15 @@ function InvitationActions({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <p className="text-body [overflow-wrap:anywhere] text-ink-muted">
         {`You are signed in as ${viewer.email}, but this invitation is for ${invitedEmail}.`}
       </p>
       <Button
         type="button"
         size="lg"
-        className="h-11 w-full"
+        block
+        className={WRAPPING_BLOCK_BUTTON}
         onClick={handleSignOut}
         disabled={pending}
       >

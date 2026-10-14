@@ -146,7 +146,8 @@ function sameText(a: React.ReactNode, b: React.ReactNode) {
 
 /**
  * Field-level before and after for every write that reaches Google: the
- * shared `DiffView` (reference `.diff`) with the editor's row type. A real
+ * shared `DiffView` (reference `.diff`), drawn flat, with the editor's row
+ * type. A real
  * table, so a screen reader announces "Phone, On Google now, 01223 277 217"
  * rather than two disconnected lists; under 560px of its own width the
  * columns stack and each value carries its column label.
@@ -191,6 +192,7 @@ function ChangeDiff({
     <DiffView
       rows={diffRows}
       caption={caption}
+      variant="flat"
       {...changeDiffLabels(phase, confirmedAt)}
     />
   )

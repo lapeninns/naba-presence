@@ -56,13 +56,17 @@ export function PostPreview({
         .join(" – ")
     : ""
   return (
-    <figure className="m-0 flex flex-col overflow-hidden rounded-lg border border-line bg-surface">
-      <figcaption className="border-b border-line bg-surface-alt px-3 py-2 font-mono text-caption tracking-[0.06em] text-ink-muted uppercase">
+    <figure className="m-0 flex flex-col overflow-hidden rounded-(--np-radius-card) border border-line-subtle bg-surface">
+      <figcaption className="border-b border-line-subtle bg-surface-alt px-3 py-2 text-caption font-medium text-ink-muted">
         Preview
       </figcaption>
       {imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- a remote Google/merchant URL shown as-is
-        <img src={imageUrl} alt="The post's photo" className="aspect-[4/3] w-full bg-surface-alt object-cover" />
+        <img
+          src={imageUrl}
+          alt="The post's photo"
+          className="aspect-[4/3] w-full bg-surface-alt object-cover"
+        />
       ) : null}
       <div className="flex flex-col gap-2 p-4">
         {topicType !== "STANDARD" ? (
@@ -75,7 +79,7 @@ export function PostPreview({
                 </span>
               )}
             </p>
-            <p className="font-mono text-caption text-ink-muted tabular-nums">
+            <p className="text-caption text-ink-muted tabular-nums">
               {when || "Dates not set"}
             </p>
             {recurrence ? (

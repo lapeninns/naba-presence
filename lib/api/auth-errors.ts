@@ -29,7 +29,7 @@ const BY_CODE: Record<string, AuthMessage> = {
   },
   auth_rate_limited: {
     title: "Too many attempts.",
-    description: "Wait a minute, then try again.",
+    description: "Wait a while, then try again.",
   },
   password_auth_disabled: {
     title: "Sign-in is temporarily unavailable.",

@@ -3,6 +3,7 @@
 import {
   ArrowRightLeft,
   Building2,
+  CircleX,
   MapPin,
   MessageSquareText,
 } from "lucide-react"
@@ -45,6 +46,12 @@ import { PALETTE_ACTIONS, paletteEntriesFor } from "./command-palette"
  */
 
 const ICON_CLASS = "size-4 shrink-0 text-ink-muted"
+
+/**
+ * A result row: the primitive's 36px desk row (44px on a touch screen),
+ * and a 48px row with room around the icon in the phone takeover.
+ */
+const ROW_CLASS = "max-sm:min-h-12 max-sm:gap-3 max-sm:px-4"
 
 /**
  * The Inbox's review search with `query` filled in, keeping the remembered
@@ -102,6 +109,7 @@ function CommandPaletteDialog({
   // fresh field. Adjusted during render rather than in an effect, so the
   // stale words never paint.
   const [query, setQuery] = React.useState("")
+  const inputRef = React.useRef<HTMLInputElement>(null)
   const [wasOpen, setWasOpen] = React.useState(open)
   if (open !== wasOpen) {
     setWasOpen(open)
@@ -125,9 +133,15 @@ function CommandPaletteDialog({
     // has typed something the last row hands those words over to it,
     // rather than this field quietly failing to find a customer's words and
     // the operator concluding the review does not exist.
+    //
+    // One popup, two drawings, chosen by CSS alone (never a media query at
+    // render): the primitive's `takeover` (below `sm` the full-screen search
+    // takeover, a pill field and Cancel along the top, results between it
+    // and the keyboard; from `sm` the desk's ⌘K card, 12vh from the top).
     <CommandDialog
       open={open}
       onOpenChange={onOpenChange}
+      phone="takeover"
       title="Commands"
       description={
         business
@@ -135,23 +149,34 @@ function CommandPaletteDialog({
           : "Jump to a client or a location, or run an action. Type a customer's words to search reviews in the Inbox."
       }
     >
-      {/* `text-body` keeps the field at 16px on a phone (iOS zooms the page
-          on focus below that); the primitive's `text-title` is larger still
-          where there is room. Nothing here sizes it down to `text-ui`. */}
       <CommandInput
+        ref={inputRef}
         value={query}
         onValueChange={setQuery}
-        className="max-sm:text-body"
-        placeholder={
-          business
-            ? "Go to a location or an action, or search reviews…"
-            : "Go to a client, a location or an action, or search reviews…"
+        // Short enough for a 390px phone; the description names what it finds.
+        placeholder="Search reviews or jump to…"
+        trailing={
+          query ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("")
+                inputRef.current?.focus()
+              }}
+              className="-mr-2 flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted focus-halo transition-colors duration-(--np-duration-fast) hover:text-ink focus-visible:outline-none"
+            >
+              <CircleX className="size-4" strokeWidth={1.75} aria-hidden />
+            </button>
+          ) : null
         }
       />
-      <CommandList>
+
+      <CommandList className="max-sm:px-0">
         <CommandEmpty>
-          Nothing matched that. To search review text, use Search reviews in the
-          Inbox.
+          {trimmed
+            ? `Nothing matched “${trimmed}”. To search review text, choose Search reviews below.`
+            : "Nothing matched that."}
         </CommandEmpty>
 
         {!business && clients.data?.items.length ? (
@@ -161,6 +186,7 @@ function CommandPaletteDialog({
                 key={client.id}
                 value={`client ${client.name}`}
                 onSelect={() => go(`/clients/${client.id}`)}
+                className={ROW_CLASS}
               >
                 <StatusPill tone={healthTone(client.health)} variant="dot" />
                 <span className="flex-1 truncate">{client.name}</span>
@@ -181,6 +207,7 @@ function CommandPaletteDialog({
                 key={location.id}
                 value={`listing ${location.name}`}
                 onSelect={() => go(`/listings/${location.id}`)}
+                className={ROW_CLASS}
               >
                 <MapPin className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 <span className="flex-1 truncate">{location.name}</span>
@@ -210,6 +237,7 @@ function CommandPaletteDialog({
                 onSelect={() =>
                   go(destinationHref(destination, mode, remembered))
                 }
+                className={ROW_CLASS}
               >
                 <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {destination.label}
@@ -226,6 +254,7 @@ function CommandPaletteDialog({
                 key={item.label}
                 value={`action ${item.label}`}
                 onSelect={() => go(item.href)}
+                className={ROW_CLASS}
               >
                 <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
                 {item.label}
@@ -234,16 +263,18 @@ function CommandPaletteDialog({
           })}
         </CommandGroup>
         {trimmed ? (
-          // Always present while there is a query (`forceMount` keeps it
-          // through the filter whatever the words) and always LAST: its
-          // value never matches, so cmdk sorts it below every real match and
-          // Enter still jumps to the client or listing the words name. With
-          // nothing else matching it is the one row, and Enter searches.
+          // Always present while there is a query (`forceMount` keeps
+          // it through the filter whatever the words) and always LAST:
+          // its value never matches, so cmdk sorts it below every real
+          // match and Enter still jumps to the client or listing the
+          // words name. With nothing else matching it is the one row,
+          // and Enter searches.
           <CommandGroup heading="Search" forceMount>
             <CommandItem
               value="__review-search__"
               forceMount
               onSelect={() => go(reviewSearchHref(trimmed, mode, remembered))}
+              className={ROW_CLASS}
             >
               <MessageSquareText
                 className={ICON_CLASS}
@@ -280,6 +311,7 @@ function SwitchClientCommands({ onDone }: { onDone: () => void }) {
         <CommandItem
           value="switch client all clients"
           onSelect={() => choose(null)}
+          className={ROW_CLASS}
         >
           <Building2 className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
           <span className="flex-1 truncate">Switch client: All clients</span>
@@ -292,6 +324,7 @@ function SwitchClientCommands({ onDone }: { onDone: () => void }) {
             key={client.id}
             value={`switch client ${client.name} ${client.id}`}
             onSelect={() => choose(client.id)}
+            className={ROW_CLASS}
           >
             <ArrowRightLeft
               className={ICON_CLASS}

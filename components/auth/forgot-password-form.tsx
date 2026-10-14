@@ -10,8 +10,14 @@ import {
 } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import * as authApi from "@/lib/api/auth"
 import {
@@ -97,20 +103,21 @@ function ForgotPasswordForm() {
 
   if (sentTo) {
     return (
-      <div className="flex flex-col items-start gap-4">
-        <div className="flex w-full flex-col gap-2.5 rounded-lg bg-surface-alt p-4">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-lg bg-surface-alt p-4">
           <p
             role="status"
             className="text-ui [overflow-wrap:anywhere] text-ink"
           >
             If an account exists for {sentTo}, a reset link is on its way.
           </p>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-2">
             <Button
               type="button"
-              variant="outline"
-              size="sm"
-              className="pointer-coarse:min-h-11"
+              variant="secondary"
+              size="lg"
+              block
+              className={WRAPPING_BLOCK_BUTTON}
               disabled={pending}
               aria-busy={pending || undefined}
               onClick={() =>
@@ -138,8 +145,9 @@ function ForgotPasswordForm() {
         <Button
           type="button"
           variant="ghost"
-          size="sm"
-          className="pointer-coarse:min-h-11"
+          size="lg"
+          block
+          className={WRAPPING_BLOCK_BUTTON}
           onClick={() => {
             setSentTo(null)
             setResendNote("")
@@ -153,7 +161,7 @@ function ForgotPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} email={email} />
@@ -172,13 +180,14 @@ function ForgotPasswordForm() {
           value={email}
           onChange={(event) => setEmail(event.currentTarget.value)}
         />
+        <FieldDescription>The address you sign in with.</FieldDescription>
         <FieldError />
       </Field>
 
       <Button
         type="submit"
         size="lg"
-        className="h-11 w-full"
+        block
         disabled={pending}
         aria-busy={pending || undefined}
       >

@@ -6,7 +6,6 @@ import {
   MessageSquareText,
   Ellipsis,
   UserPlus,
-  X,
 } from "lucide-react"
 import Link from "next/link"
 import * as React from "react"
@@ -21,7 +20,6 @@ import {
   AlertDialogFooter,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { ActionBar } from "@/components/ui/action-bar"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -36,6 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useMenuSheet } from "@/components/ui/menu-surface"
+import { SelectionBar, SelectionBarTile } from "@/components/ui/selection-bar"
 import { useToastManager } from "@/components/ui/toast"
 import type {
   BulkReviewActionInput,
@@ -52,12 +51,14 @@ import { useBulkReviewAction } from "@/lib/queries/use-bulk-review-action"
 import { useMembers } from "@/lib/queries/use-members"
 
 /**
- * Actions over a selection: the list's charcoal bar, pinned under the rows
- * and docked to the bottom of a phone while anything is ticked. One row —
- * how many are selected, an overflow (⋯) for the rarer actions, and one
- * primary — so it is a single thumb-height line on a phone. A desk adds a
- * quick ✕ to clear; on touch, Clear is in the overflow (and the list
- * header's Done clears too).
+ * Actions over a selection: the shared SelectionBar, docked to the bottom
+ * of a phone while anything is ticked, where it takes the tab bar's slot
+ * (D4), and sticky at the foot of the list from md. Its header is "N
+ * selected" and "Clear selection"; its tiles are an overflow (⋯) for the
+ * rarer actions and one primary — 64px tiles, icon over label, on a phone,
+ * inline buttons from md. The primary is the charcoal tile when it leads to
+ * Google (approve and publish, the template batch), the plain tile when it
+ * is local (no reply needed).
  *
  * Reports eligibility BEFORE acting — "3 of 5 can be approved" — because the
  * alternative is an operator pressing Approve on five rows and being told
@@ -226,194 +227,170 @@ function BulkActionBar({
   )
   const plural = (count: number) => (count === 1 ? "review" : "reviews")
 
-  const primaryButton =
+  const primaryTile =
     primary === "approve" ? (
-      <Button
-        variant="on-dark"
+      <SelectionBarTile
+        tone="charcoal"
+        icon={<Check aria-hidden />}
+        label={
+          approvable.length === chosen.length
+            ? `Approve ${approvable.length}`
+            : `Approve ${approvable.length} of ${chosen.length}`
+        }
         disabled={bulk.isPending}
         onClick={() => setConfirmApprove(true)}
-      >
-        <Check aria-hidden data-icon="inline-start" />
-        {approvable.length === chosen.length
-          ? `Approve ${approvable.length}`
-          : `Approve ${approvable.length} of ${chosen.length}`}
-      </Button>
+      />
     ) : primary === "template" ? (
-      <Button
-        variant="on-dark"
+      <SelectionBarTile
+        tone="charcoal"
+        icon={<MessageSquareText aria-hidden />}
+        label="Reply with template"
         disabled={bulk.isPending}
         onClick={() => setTemplateRows(chosen)}
-      >
-        <MessageSquareText aria-hidden data-icon="inline-start" />
-        Reply with template
-      </Button>
+      />
     ) : (
-      <Button
-        variant="on-dark"
+      <SelectionBarTile
+        icon={<CircleSlash aria-hidden />}
+        label="No reply needed"
         disabled={bulk.isPending}
         onClick={() => setConfirmReviewed(true)}
-      >
-        No reply needed
-      </Button>
+      />
     )
+
+  // Results and notes sit above the header and the tiles, so the tiles
+  // never move under a thumb.
+  const notes =
+    partial || outcome?.operationId || failures.length > 0 ? (
+      <div className="flex flex-col gap-1">
+        {partial ? (
+          <p>
+            {chosen.length - approvable.length} of these are not ready for your
+            approval, so Approve will skip them.
+          </p>
+        ) : null}
+
+        {outcome?.operationId ? (
+          <p className="text-ink" aria-live="polite">
+            The approved replies are sent in the background.{" "}
+            <Link
+              href={`/listings/bulk/${outcome.operationId}`}
+              className="font-semibold underline underline-offset-2"
+            >
+              Follow this batch
+            </Link>
+          </p>
+        ) : null}
+
+        {failures.length > 0 ? (
+          <ul
+            className="flex max-h-32 flex-col gap-1 overflow-y-auto"
+            aria-live="polite"
+          >
+            {failures.map((row) => (
+              <li
+                key={row.reviewId}
+                className="flex flex-wrap items-baseline gap-x-2 text-ink"
+              >
+                <span className="font-semibold">
+                  {BULK_ROW_STATUS_LABEL[row.status]}
+                </span>
+                <span className="min-w-0 truncate">
+                  {describeRow(row.reviewId)}
+                </span>
+                <span className="text-ink-muted">
+                  {row.code ? describeErrorCode(row.code) : "No reason given."}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    ) : undefined
 
   return (
     <>
-      {/* The shared ActionBar, docked: the one bar that owns the bottom edge
-          while rows are ticked. On a phone it is fixed to the bottom of the
-          screen (the chrome contract in globals.css steps the tab bar aside for
-          it, and it rides the keyboard); from md it sticks to the foot of the
-          list. Only on the page while something is ticked (the early return
-          above). The bar's own padding is dropped for this one's two stacked
-          parts, notes over a single row; the dock edge stays under them. */}
-      <ActionBar
+      {/* The one bar that owns the bottom edge while rows are ticked: on a
+          phone it is fixed to the bottom of the screen (the chrome contract
+          in globals.css steps the tab bar aside for it, and it rides the
+          keyboard); from md it sticks to the foot of the list. Only on the
+          page while something is ticked (the early return above). Its
+          "Clear selection" empties the selection and leaves select mode as
+          it is; the list header's Cancel/Done leaves select mode. */}
+      <SelectionBar
         data-slot="bulk-action-bar"
         label="Selected reviews"
-        dock
-        safeArea={false}
-        className="shrink-0 flex-col flex-nowrap items-stretch gap-0 rounded-none p-0 pb-[var(--np-dock-bottom)] shadow-none max-md:p-0 max-md:pb-[var(--np-dock-bottom)] md:rounded-b-(--np-radius-card)"
+        count={chosen.length}
+        onCancel={clear}
+        cancelLabel="Clear selection"
+        notes={notes}
+        className="shrink-0"
       >
-        {/* Results and notes sit above the row, so the row itself stays one
-          line (64px at most) and the buttons never move under a thumb. */}
-        {partial || outcome?.operationId || failures.length > 0 ? (
-          <div className="flex flex-col gap-1 px-3 pt-2.5">
-            {partial ? (
-              <p className="text-caption text-ink-muted-on-charcoal">
-                {chosen.length - approvable.length} of these are not ready for
-                your approval, so Approve will skip them.
-              </p>
-            ) : null}
-
-            {outcome?.operationId ? (
-              <p
-                className="text-caption text-ink-on-charcoal"
-                aria-live="polite"
-              >
-                The approved replies are sent in the background.{" "}
-                <Link
-                  href={`/listings/bulk/${outcome.operationId}`}
-                  className="font-semibold underline underline-offset-2"
-                >
-                  Follow this batch
-                </Link>
-              </p>
-            ) : null}
-
-            {failures.length > 0 ? (
-              <ul
-                className="flex max-h-32 flex-col gap-1 overflow-y-auto"
-                aria-live="polite"
-              >
-                {failures.map((row) => (
-                  <li
-                    key={row.reviewId}
-                    className="flex flex-wrap items-baseline gap-x-2 text-caption text-ink-on-charcoal"
-                  >
-                    <span className="font-semibold">
-                      {BULK_ROW_STATUS_LABEL[row.status]}
-                    </span>
-                    <span className="min-w-0 truncate">
-                      {describeRow(row.reviewId)}
-                    </span>
-                    <span className="text-ink-muted-on-charcoal">
-                      {row.code
-                        ? describeErrorCode(row.code)
-                        : "No reason given."}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="flex items-center gap-2 px-3 py-2.5">
-          <strong className="min-w-0 flex-1 truncate text-ui font-semibold text-ink-on-charcoal tabular-nums">
-            {chosen.length} selected
-          </strong>
-
-          <Button
-            size="icon"
-            variant="ghost-dark"
-            aria-label="Clear selection"
-            // Desk only: on touch the row keeps to count, ⋯ and one primary,
-            // and Clear is an overflow item.
-            className="hidden desk:inline-flex"
-            onClick={clear}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            disabled={bulk.isPending}
+            render={
+              <SelectionBarTile
+                icon={<Ellipsis aria-hidden />}
+                // The tile's caption is "More"; the name "More actions"
+                // begins with the words on screen (2.5.3).
+                label="More"
+                aria-label="More actions"
+              />
+            }
+          />
+          <DropdownMenuContent
+            side="top"
+            align="end"
+            title={`${chosen.length} selected`}
           >
-            <X aria-hidden />
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  size="icon"
-                  variant="ghost-dark"
-                  aria-label="More actions"
-                  disabled={bulk.isPending}
-                />
-              }
-            >
-              <Ellipsis aria-hidden />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              side="top"
-              align="end"
-              title={`${chosen.length} selected`}
-            >
-              {menuIsSheet ? null : (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <UserPlus aria-hidden />
-                    Assign…
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {assigneeItems}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {/* Triage, not a reply: it clears the reviews from Needs reply
-                and sends nothing to Google. "Mark reviewed" read as though it
-                might do either. Confirmed, because there is no way back. */}
-              {primary !== "mark_reviewed" ? (
-                <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
-                  <CircleSlash aria-hidden />
-                  No reply needed
-                </DropdownMenuItem>
-              ) : null}
-              {/* Stars with no words: one standard reply each, checked and then
-                published (or submitted) as a batch. Offered only when the
-                selection has some. */}
-              {ratingOnly && primary !== "template" ? (
-                <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
-                  <MessageSquareText aria-hidden />
-                  Reply with template
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuItem className="desk:hidden" onClick={clear}>
-                <X aria-hidden />
-                Clear selection
+            {menuIsSheet ? null : (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <UserPlus aria-hidden />
+                  Assign…
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>{assigneeItems}</DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {/* Triage, not a reply: it clears the reviews from Needs reply
+              and sends nothing to Google. "Mark reviewed" read as though it
+              might do either. Confirmed, because there is no way back. */}
+            {primary !== "mark_reviewed" ? (
+              <DropdownMenuItem onClick={() => setConfirmReviewed(true)}>
+                <CircleSlash aria-hidden />
+                No reply needed
               </DropdownMenuItem>
-              {/* The people come last in the sheet: a long team would
-                otherwise push the actions out of reach. */}
-              {menuIsSheet ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel>Assign to</DropdownMenuLabel>
-                    {assigneeItems}
-                  </DropdownMenuGroup>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            ) : null}
+            {/* Stars with no words: one standard reply each, checked and then
+              published (or submitted) as a batch. Offered only when the
+              selection has some. */}
+            {ratingOnly && primary !== "template" ? (
+              <DropdownMenuItem onClick={() => setTemplateRows(chosen)}>
+                <MessageSquareText aria-hidden />
+                Reply with template
+              </DropdownMenuItem>
+            ) : null}
+            {/* The people come last in the sheet: a long team would
+              otherwise push the actions out of reach. */}
+            {menuIsSheet ? (
+              <>
+                {/* A rule only under an action row: with "No reply
+                  needed" as the primary (so no rating-only rows either),
+                  the people are the sheet's only rows. */}
+                {primary !== "mark_reviewed" ? <DropdownMenuSeparator /> : null}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                  {assigneeItems}
+                </DropdownMenuGroup>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-          {/* Approving publishes: each approved reply goes to Google at once.
-            A batch of that is confirmed, like every other publish. */}
-          {primaryButton}
-        </div>
-      </ActionBar>
+        {/* Approving publishes: each approved reply goes to Google at once.
+          A batch of that is confirmed, like every other publish. */}
+        {primaryTile}
+      </SelectionBar>
 
       <AlertDialog open={confirmApprove} onOpenChange={setConfirmApprove}>
         <AlertDialogContent

@@ -1,11 +1,7 @@
-import {
-  ArrowRightIcon,
-  CircleCheckIcon,
-  Link2Icon,
-  PlusIcon,
-} from "lucide-react"
+import { ChevronRightIcon, CircleCheckIcon, PlusIcon } from "lucide-react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import type * as React from "react"
 
 import { AccessDeniedPage } from "@/components/app-shell/access-denied"
 import { ClientScopeProvider } from "@/components/app-shell/client-context"
@@ -14,6 +10,7 @@ import { ClientAvatar } from "@/components/clients/client-avatar"
 import { SetupWizard } from "@/components/setup/setup-wizard"
 import { buttonVariants } from "@/components/ui/button"
 import { Empty } from "@/components/ui/empty"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { clientIdParamsSchema } from "@/lib/contracts/clients"
 import { withTenant } from "@/lib/server/db"
 import { clientVisibilityPredicate } from "@/lib/server/permissions"
@@ -23,6 +20,27 @@ import { cn } from "@/lib/utils"
 import { cardClassName } from "@/components/ui/card"
 
 export const metadata = { title: "Setup · NabaPresence" }
+
+/**
+ * The chooser's client rows are Notion Mail list rows: the whole row is the
+ * link (it keeps the old button's name, "Resume setup for X"), the client's
+ * own mark leads, and the action's word sits on the right. Inside a card the
+ * row takes the card's gutter, and the card's own hairlines divide the rows
+ * edge to edge as before.
+ */
+const ROW_CLASS = "px-(--np-card-pad)"
+const ROW_WRAPPER_CLASS = "after:hidden"
+/** A client's name is its identity: it wraps, never cut off. */
+const NAME_CLASS = "whitespace-normal break-words"
+
+function RowAction({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 text-ui font-medium text-accent-ink">
+      {children}
+      <ChevronRightIcon aria-hidden className="size-4" />
+    </span>
+  )
+}
 
 /**
  * The setup flow always runs FOR a client, named in the query string.
@@ -153,13 +171,12 @@ export default async function SetupPage({
         aria-labelledby="setup-waiting"
         className={cardClassName({ className: "overflow-hidden" })}
       >
-        <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
+        <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
           <h2 id="setup-waiting" className="text-title font-semibold text-ink">
             Waiting to be set up
           </h2>
           <p className="text-ui text-ink-muted">
-            A client stays here until at least one of its listings is linked to
-            Google.
+            Clients with no listing linked to Google yet, newest first.
           </p>
         </div>
         {unfinished.length === 0 ? (
@@ -171,32 +188,24 @@ export default async function SetupPage({
             description="Every client you look after has at least one listing linked to Google."
           />
         ) : (
-          <ul className="divide-y divide-line">
+          <ListRows className="divide-y divide-line-subtle">
             {unfinished.map((entry) => (
-              <li
+              <ListRow
                 key={entry.id}
-                className="flex flex-wrap items-center gap-3 px-(--np-card-pad) py-3.5"
-              >
-                <ClientAvatar name={entry.name} colour={entry.colour} />
-                <div className="flex min-w-0 flex-[1_1_12rem] flex-col">
-                  <span className="text-body font-semibold break-words text-ink">
-                    {entry.name}
-                  </span>
-                  <span className="text-caption text-ink-muted">
-                    No listings linked yet
-                  </span>
-                </div>
-                <Link
-                  href={`/setup?client=${entry.id}`}
-                  aria-label={`Resume setup for ${entry.name}`}
-                  className={cn(buttonVariants({ variant: "secondary" }))}
-                >
-                  Resume setup
-                  <ArrowRightIcon aria-hidden />
-                </Link>
-              </li>
+                href={`/setup?client=${entry.id}`}
+                aria-label={`Resume setup for ${entry.name}`}
+                emphasis="neutral"
+                className={ROW_CLASS}
+                wrapperClassName={ROW_WRAPPER_CLASS}
+                leading={
+                  <ClientAvatar name={entry.name} colour={entry.colour} />
+                }
+                title={<span className={NAME_CLASS}>{entry.name}</span>}
+                meta={<RowAction>Resume setup</RowAction>}
+                subtitle="No listings linked yet"
+              />
             ))}
-          </ul>
+          </ListRows>
         )}
       </section>
       {established.length > 0 ? (
@@ -204,7 +213,7 @@ export default async function SetupPage({
           aria-labelledby="setup-add-listings"
           className={cardClassName({ className: "overflow-hidden" })}
         >
-          <div className="flex flex-col gap-0.5 border-b border-line px-(--np-card-pad) py-4">
+          <div className="flex flex-col gap-0.5 border-b border-line-subtle px-(--np-card-pad) py-4">
             <h2
               id="setup-add-listings"
               className="text-title font-semibold text-ink"
@@ -215,34 +224,28 @@ export default async function SetupPage({
               Link more of a client’s Google Business Profile locations.
             </p>
           </div>
-          <ul className="divide-y divide-line">
+          <ListRows className="divide-y divide-line-subtle">
             {established.map((entry) => (
-              <li
+              <ListRow
                 key={entry.id}
-                className="flex flex-wrap items-center gap-3 px-(--np-card-pad) py-3.5"
-              >
-                <ClientAvatar name={entry.name} colour={entry.colour} />
-                <div className="flex min-w-0 flex-[1_1_12rem] flex-col">
-                  <span className="text-body font-semibold break-words text-ink">
-                    {entry.name}
-                  </span>
-                  <span className="text-caption text-ink-muted">
-                    {entry.linked === 1
-                      ? "1 listing linked"
-                      : `${entry.linked} listings linked`}
-                  </span>
-                </div>
-                <Link
-                  href={`/setup?client=${entry.id}&step=locations`}
-                  aria-label={`Add listings to ${entry.name}`}
-                  className={cn(buttonVariants({ variant: "secondary" }))}
-                >
-                  <Link2Icon aria-hidden />
-                  Add listings
-                </Link>
-              </li>
+                href={`/setup?client=${entry.id}&step=locations`}
+                aria-label={`Add listings to ${entry.name}`}
+                emphasis="neutral"
+                className={ROW_CLASS}
+                wrapperClassName={ROW_WRAPPER_CLASS}
+                leading={
+                  <ClientAvatar name={entry.name} colour={entry.colour} />
+                }
+                title={<span className={NAME_CLASS}>{entry.name}</span>}
+                meta={<RowAction>Add listings</RowAction>}
+                subtitle={
+                  entry.linked === 1
+                    ? "1 listing linked"
+                    : `${entry.linked} listings linked`
+                }
+              />
             ))}
-          </ul>
+          </ListRows>
         </section>
       ) : null}
       <section
@@ -252,7 +255,7 @@ export default async function SetupPage({
           className: "flex flex-wrap items-center justify-between gap-4",
         })}
       >
-        <div className="flex min-w-0 flex-[1_1_18rem] flex-col gap-1">
+        <div className="flex min-w-0 grow basis-72 flex-col gap-1">
           <h2
             id="setup-start-new"
             className="text-title font-semibold text-ink"

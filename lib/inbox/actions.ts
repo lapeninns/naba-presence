@@ -1,3 +1,4 @@
+import type { OutcomeToastOptions } from "@/components/ui/toast"
 import {
   isAllowedReviewTransition,
   REVIEW_WORKFLOW_STATES,
@@ -85,7 +86,8 @@ export function evaluateRequestApproval(input: {
   if (!state || !isAllowedReviewTransition(state, "publish_requested")) {
     return {
       enabled: false,
-      reason: "This reply cannot be submitted for approval from its current status.",
+      reason:
+        "This reply cannot be submitted for approval from its current status.",
     }
   }
   return { enabled: true }
@@ -123,10 +125,13 @@ export function evaluateDelete(input: {
   return { enabled: true }
 }
 
-export type OutcomeToast = {
-  title: string
-  description?: string
-  type: "success" | "info" | "warning" | "error"
+export type OutcomeToastContext = {
+  /**
+   * Where the review can be seen on Google (`review.googleReplyUrl`). The
+   * toast primitive draws it as "View on Google" only when it is a safe
+   * https link (components/ui/toast.tsx `isSafeToastHref`).
+   */
+  googleReplyUrl?: string | null
 }
 
 // Maps a SERVER-CONFIRMED resolved status (never a thrown ApiClientError code
@@ -138,40 +143,63 @@ export type OutcomeToast = {
 // moderation declined the reply content (see lib/server/publishing.ts); a
 // user-initiated Reject decision instead resolves as `returned_to_draft`,
 // which is a distinct, unambiguous wire value.
-export function describeOutcomeToast(status: string): OutcomeToast {
+//
+// The copy states the outcome, not the step (D5): what is now true, in a
+// short title and one plain line. None of these offers Undo: publish,
+// approve and delete are Google writes, and a reject is undone by submitting
+// again, not from a toast.
+//
+// Each outcome carries the toast primitive's kind, so the type system and
+// the Toaster enforce D5 rather than the copy alone: "google" for what
+// reached (or is on its way to) Google, which can never offer Undo, and
+// "local" for workflow-only outcomes (sent back, an unpublished draft
+// removed).
+export function describeOutcomeToast(
+  status: string,
+  context: OutcomeToastContext = {}
+): OutcomeToastOptions {
   switch (status) {
-    case "published":
+    case "published": {
+      const url = context.googleReplyUrl
       return {
+        kind: "google",
         title: "Reply published",
-        description: "It is live on Google now.",
+        description: "Live on Google.",
         type: "success",
+        ...(url ? { link: { href: url } } : {}),
       }
+    }
     case "awaiting_approval":
       return {
+        kind: "google",
         title: "Submitted for approval",
-        description: "A manager needs to approve it before it goes live.",
+        description: "It goes live on Google once a manager approves it.",
         type: "info",
       }
     case "rejected":
       return {
+        kind: "google",
         title: "Google declined this reply",
-        description: "Edit the draft and try publishing again.",
+        description: "Edit the reply, then publish it again.",
         type: "error",
       }
     case "returned_to_draft":
       return {
+        kind: "local",
         title: "Reply sent back for edits",
-        description: "The author can revise it and submit again.",
+        description: "Its author can revise it and submit it again.",
         type: "success",
       }
     case "deleted":
       return {
+        kind: "google",
         title: "Reply deleted",
-        description: "It is no longer shown on Google.",
+        description: "Removed from Google.",
         type: "success",
       }
     case "cancelled":
       return {
+        kind: "local",
         title: "Draft reply removed",
         description: "Nothing was live on Google.",
         type: "success",
@@ -180,6 +208,7 @@ export function describeOutcomeToast(status: string): OutcomeToast {
       // e.g. "pending" — an honest, non-committal message; never claims
       // the reply is published.
       return {
+        kind: "google",
         title: "Reply submitted",
         description: "Its status will update shortly.",
         type: "info",

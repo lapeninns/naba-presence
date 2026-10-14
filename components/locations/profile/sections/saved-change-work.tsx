@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react"
 import type { SavedWorkItem } from "@/components/reviewed-write"
+import { StatusPill } from "@/components/ui/status-pill"
 import type { GbpChangeSet } from "@/lib/contracts/gbp-change-set"
 import { useDeadline } from "@/lib/editors/use-deadline"
 
@@ -24,7 +25,27 @@ function DeadlineStage({
     : change.approvedBy
       ? "Approved request"
       : "Awaiting approval"
-  return `${subject} ${expired ? "expired" : "expires"} · ${status}`
+  // The stage is a status word with its tone's dot (words first, the dot
+  // only reinforces): an expired or recorded request needs nothing more, an
+  // approved one can be sent, one awaiting approval needs someone.
+  const tone =
+    recorded || expired
+      ? "neutral"
+      : change.approvedBy
+        ? "pending"
+        : "attention"
+  return (
+    <>
+      {`${subject} ${expired ? "expired" : "expires"} · `}
+      <StatusPill
+        tone={tone}
+        variant="inline"
+        className="align-baseline text-caption"
+      >
+        {status}
+      </StatusPill>
+    </>
+  )
 }
 
 /**

@@ -6,7 +6,21 @@
 @source "../components";
 @source "../lib";
 
-@custom-variant dark (&:is(.dark *));
+/* `.dark` is set by next-themes' blocking script before first paint. Without
+   script (or before it has run) there is no theme class at all, so the
+   operating system's scheme decides: same specificity, same values. With
+   script, the class is always `light` or `dark`, and the fallback is inert.
+   (FINAL-QA #19.) */
+@custom-variant dark {
+  &:is(.dark *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:is(:root:where(:not(.light)) *) {
+      @slot;
+    }
+  }
+}
 
 /* Chrome that spends vertical space — a stack of segmented controls, a
    multi-row toolbar — is only affordable when the viewport is both wide and
@@ -24,6 +38,13 @@
    above the buttons) folds to one row here, so the app bar plus the bar stay
    within a quarter of the screen. Pair it with `max-md:` for phones. */
 @custom-variant short (@media not all and (min-height: 40rem));
+
+/* A tall viewport: at least 38.75rem (620px) high. Chrome that only earns
+   its vertical space when there is room for it (a page or area frame's
+   sticky header block, a second header row) switches on here instead of a
+   hand-written `[@media(min-height:620px)]:`. Mirrored as `tall` in
+   lib/ui/breakpoints.ts for matchMedia. */
+@custom-variant tall (@media (min-height: 38.75rem));
 
 /* Hover motion only where a fine pointer can actually hover. */
 @custom-variant hover-fine (@media (hover: hover) and (pointer: fine));
@@ -76,9 +97,9 @@
      - INK LADDER      ink / ink-secondary / ink-muted / ink-faint
      - ONE ACCENT      green, on the primary action, focus and the current
                        item. Never a decorative fill.
-     - TWO VOICES      a system sans for the interface; a serif for page
-                       titles and the customer's own words. Figures and IDs
-                       are mono.
+     - ONE VOICE       the system sans for everything: chrome, page titles
+                       and the customer's own words. IDs, codes and table
+                       figures are mono.
      - DARK BAR        charcoal, once per screen, holds the action that
                        reaches Google (composer footer, editor footer, bulk
                        bar) and toasts.
@@ -86,19 +107,20 @@
 --------------------------------------------------------------------------- */
 
 @theme inline {
-  /* The interface is set in the platform's own sans. The serif is reserved
-     for page titles and the customer's words (`font-display`,
-     `text-reading`). JetBrains Mono, self-hosted by app/layout.tsx, is the
-     figure face: counts, timestamps, IDs, keycaps. */
+  /* One sans for the whole interface, titles and the customer's words
+     included (Notion Mail type identity, D1, spec amendment 2026-10-13):
+     display, heading and reading all point at the sans. Reverting this
+     block's display line to the Iowan serif stack restores the two voices.
+     JetBrains Mono, self-hosted by app/layout.tsx, is for IDs, codes and
+     table figures only; list timestamps are sans `tabular-nums`. Feature
+     code never sets a font family. */
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue",
     sans-serif;
   --font-mono:
     var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular,
     Menlo, monospace;
-  --font-display:
-    "Iowan Old Style", "Charter", "Bitstream Charter", Georgia,
-    "Times New Roman", serif;
+  --font-display: var(--font-sans);
   --font-heading: var(--font-display);
   --font-reading: var(--font-display);
 
@@ -134,7 +156,7 @@
   --text-display: var(--np-text-display);
   --text-display--line-height: 1.1;
   --text-display--letter-spacing: -0.015em;
-  /* The customer's words: serif, 17/28 at every size, the largest readable
+  /* The customer's words: sans, 17/28 at every size, the largest readable
      body on the screen. Not a heading role. */
   --text-reading: var(--np-text-reading);
   --text-reading--line-height: var(--np-text-reading-lh);
@@ -184,6 +206,20 @@
   --color-material-sidebar: var(--np-material-sidebar);
   --color-material-toolbar: var(--np-material-toolbar);
   --color-material-popover: var(--np-material-popover);
+  --color-indicator-unread: var(--np-indicator-unread);
+  --color-avatar-bg: var(--np-avatar-bg);
+  --color-avatar-ink: var(--np-avatar-ink);
+  --color-banner-bg: var(--np-banner-bg);
+  --color-banner-ink: var(--np-banner-ink);
+  /* User tags only; never a status. */
+  --color-tag-neutral-bg: var(--np-tag-neutral-bg);
+  --color-tag-neutral-ink: var(--np-tag-neutral-ink);
+  --color-tag-blue-bg: var(--np-tag-blue-bg);
+  --color-tag-blue-ink: var(--np-tag-blue-ink);
+  --color-tag-pink-bg: var(--np-tag-pink-bg);
+  --color-tag-pink-ink: var(--np-tag-pink-ink);
+  --color-tag-purple-bg: var(--np-tag-purple-bg);
+  --color-tag-purple-ink: var(--np-tag-purple-ink);
 
   --radius-sm: var(--np-radius-tag);
   --radius-md: var(--np-radius-control);
@@ -192,11 +228,16 @@
   --radius-2xl: var(--np-radius-modal);
   --radius-3xl: var(--np-radius-sheet);
   --radius-4xl: var(--np-radius-sheet);
+  --radius-menu: var(--np-radius-menu);
+  --radius-toast: var(--np-radius-toast);
+  --radius-sheet-inset: var(--np-radius-sheet-inset);
+  --radius-pill: var(--np-radius-pill);
 
   --shadow-np-raised: var(--np-shadow-raised);
   --shadow-np-pop: var(--np-shadow-pop);
   --shadow-np-modal: var(--np-shadow-modal);
   --shadow-np-hairline: var(--np-shadow-hairline);
+  --shadow-np-float: var(--np-shadow-float);
   /* One-sided hairlines for chrome that meets the page on one edge (the
      app bar and toolbar above, the tab bar below, the rail beside). Inset,
      so they never change layout; written against --np-line here rather than
@@ -355,6 +396,22 @@
   --np-ramp-info-500: oklch(0.46 0.13 250);
   --np-ramp-info-600: oklch(0.56 0.15 250);
 
+  /* Tags: a DECORATIVE ramp for user-defined labels only, never a status.
+     A tint at L 0.95 under an ink at L 0.45. Every tag hue sits at least
+     35° from every status hue (danger 25–27, warning 65–85, success 150,
+     info 250; both themes), which leaves 185–215 and 285–350: neutral 285
+     (near grey), blue 200, purple 300, pink 350. Orange and green had no
+     room and are retired (R2b P1-S1); tests/design-system-contract pins
+     the gap. */
+  --np-ramp-tag-neutral-100: oklch(0.94 0.008 285);
+  --np-ramp-tag-neutral-600: oklch(0.45 0.015 285);
+  --np-ramp-tag-blue-100: oklch(0.95 0.025 200);
+  --np-ramp-tag-blue-600: oklch(0.45 0.07 200);
+  --np-ramp-tag-pink-100: oklch(0.95 0.025 350);
+  --np-ramp-tag-pink-600: oklch(0.45 0.13 350);
+  --np-ramp-tag-purple-100: oklch(0.95 0.025 300);
+  --np-ramp-tag-purple-600: oklch(0.45 0.13 300);
+
   /* ---- 2. SEMANTIC ROLES ---------------------------------------------- */
   /* Paper, card, rail. `surface-alt` is the sunken step: table heads, card
      footers, rails, the review quote block. */
@@ -424,6 +481,25 @@
   --np-info-on-solid: var(--np-ramp-neutral-0);
   --np-info-line: var(--np-ramp-info-600);
 
+  /* List chrome. The unread dot is the info solid (a graphic, 3:1), not the
+     accent; avatars are neutral, never a status hue; the banner is the
+     warning tint. */
+  --np-indicator-unread: var(--np-info-solid);
+  --np-avatar-bg: var(--np-fill);
+  --np-avatar-ink: var(--np-ink-secondary);
+  --np-banner-bg: var(--np-warning-tint);
+  --np-banner-ink: var(--np-warning-ink);
+
+  /* User tags (decorative ramp above). Banned for status. */
+  --np-tag-neutral-bg: var(--np-ramp-tag-neutral-100);
+  --np-tag-neutral-ink: var(--np-ramp-tag-neutral-600);
+  --np-tag-blue-bg: var(--np-ramp-tag-blue-100);
+  --np-tag-blue-ink: var(--np-ramp-tag-blue-600);
+  --np-tag-pink-bg: var(--np-ramp-tag-pink-100);
+  --np-tag-pink-ink: var(--np-ramp-tag-pink-600);
+  --np-tag-purple-bg: var(--np-ramp-tag-purple-100);
+  --np-tag-purple-ink: var(--np-ramp-tag-purple-600);
+
   --np-selection-bg: var(--np-accent-tint);
   --np-hover-bg: var(--np-ramp-neutral-150);
   --np-focus-ring: var(--np-ramp-accent-400);
@@ -462,13 +538,18 @@
   /* Shape. */
   --np-radius-tag: 6px;
   --np-radius-control: 8px;
-  --np-radius-menu: 10px;
+  --np-radius-menu: 14px;
   --np-radius-field: 8px;
   --np-radius-card: 12px;
   --np-radius-panel: 12px;
   --np-radius-modal: 16px;
   --np-radius-sheet: 20px;
   --np-radius-pill: 999px;
+  /* A sheet floating clear of the screen edges (short choice lists), and
+     the toast. The inset keeps 8px clear of the edge and the notch. */
+  --np-radius-sheet-inset: 28px;
+  --np-radius-toast: 12px;
+  --np-sheet-inset: max(8px, var(--np-safe-left));
   --np-corner-shape: round;
 
   /* Elevation. Cards are drawn by a 1px line, not a shadow; `raised` lifts a
@@ -485,6 +566,9 @@
   /* The bottom sheet: the modal shadow plus a solid bleed 3rem under its
      bottom edge, covering the gap an upward over-drag opens. */
   --np-shadow-sheet: var(--np-shadow-modal), 0 3rem 0 0 var(--np-surface);
+  /* Floating circles and pills (swipe actions). */
+  --np-shadow-float:
+    0 1px 2px oklch(0.22 0.02 240 / 0.06), 0 4px 16px oklch(0.22 0.02 240 / 0.1);
 
   /* Motion: one ease-out, short durations, nothing bounces. */
   --np-duration-fast: 140ms;
@@ -566,7 +650,10 @@
   /* Stacking layers, lowest first. Popovers sit above dialogs because a
      select or menu opened inside a dialog portals to <body> after it; toasts
      sit above both so a result is never hidden by the sheet that caused it.
-     Read them through the `z-*` utilities below, never a bare number. */
+     Read them through the `z-*` utilities below, never a bare number.
+     `under` paints a decoration (a touch overhang) beneath its own
+     element's content, inside that element's stacking context. */
+  --np-z-under: -1;
   --np-z-raised: 1;
   --np-z-sticky: 10;
   --np-z-chrome: 20;
@@ -597,6 +684,17 @@
   --np-field-bg: var(--np-surface);
   --np-table-header-bg: var(--np-surface-alt);
   --np-pill-h: 24px;
+  /* Tag and filter chips: 28px drawn, with a 44px hit area on touch. */
+  --np-chip-h: 28px;
+
+  /* Mail-style list rows: a 36px avatar, 12px of row padding, and a divider
+     that starts at the text column. Settings rows are 56px on touch. */
+  --np-avatar-list: 36px;
+  --np-row-mail-py: 12px;
+  --np-row-inset-start: calc(
+    var(--np-page-pad-x) + var(--np-avatar-list) + 12px
+  );
+  --np-settings-row-h: 56px;
   --np-menu-item-h: 44px;
 
   /* Field text sits 12px / 8px inside the field, less its 1px border. */
@@ -679,7 +777,11 @@
   color-scheme: dark;
 
   /* Built for dark, not inverted: a blue-black canvas, cards one step up,
-     the accent lifted so it reads, and the dark bar flips to near-white. */
+     the accent lifted so it reads. The dark bar stays charcoal (D4): a
+     raised grey above the blue-black canvas and cards, with light ink, so
+     the composer footer, editor footer, toasts and the sign-in panel read
+     as the same counter-surface they are in the light theme rather than a
+     light slab (FINAL-QA #3, #19). */
   --np-surface-canvas: oklch(0.18 0.012 240);
   --np-surface: oklch(0.22 0.014 240);
   --np-surface-alt: oklch(0.2 0.013 240);
@@ -687,9 +789,9 @@
   --np-surface-sunken: oklch(0.2 0.013 240);
   --np-surface-overlay: oklch(0.24 0.014 240);
 
-  --np-charcoal: oklch(0.92 0.006 250);
-  --np-ink-on-charcoal: oklch(0.2 0.014 240);
-  --np-ink-muted-on-charcoal: oklch(0.4 0.014 240);
+  --np-charcoal: oklch(0.3 0.016 240);
+  --np-ink-on-charcoal: oklch(0.96 0.006 250);
+  --np-ink-muted-on-charcoal: oklch(0.8 0.012 240);
 
   --np-ink: oklch(0.95 0.006 250);
   --np-ink-secondary: oklch(0.85 0.01 240);
@@ -737,6 +839,22 @@
   --np-info-on-solid: oklch(0.16 0.03 250);
   --np-info-line: oklch(0.6 0.12 250);
 
+  --np-indicator-unread: var(--np-info-solid);
+  --np-avatar-bg: var(--np-fill);
+  --np-avatar-ink: var(--np-ink-secondary);
+  --np-banner-bg: var(--np-warning-tint);
+  --np-banner-ink: var(--np-warning-ink);
+
+  /* Tags: a dark tint under a light ink. */
+  --np-tag-neutral-bg: oklch(0.3 0.012 285);
+  --np-tag-neutral-ink: oklch(0.85 0.01 285);
+  --np-tag-blue-bg: oklch(0.3 0.05 200);
+  --np-tag-blue-ink: oklch(0.85 0.07 200);
+  --np-tag-pink-bg: oklch(0.3 0.06 350);
+  --np-tag-pink-ink: oklch(0.85 0.08 350);
+  --np-tag-purple-bg: oklch(0.3 0.06 300);
+  --np-tag-purple-ink: oklch(0.85 0.08 300);
+
   --np-selection-bg: var(--np-accent-tint);
   --np-hover-bg: oklch(0.28 0.015 240);
   --np-focus-ring: oklch(0.72 0.15 145);
@@ -772,9 +890,143 @@
   /* The bottom sheet: the modal shadow plus a solid bleed 3rem under its
      bottom edge, covering the gap an upward over-drag opens. */
   --np-shadow-sheet: var(--np-shadow-modal), 0 3rem 0 0 var(--np-surface);
+  --np-shadow-float:
+    0 1px 2px oklch(0 0 0 / 0.4), 0 4px 16px oklch(0 0 0 / 0.5);
 
   --np-field-bg: var(--np-surface);
   --np-table-header-bg: var(--np-surface-alt);
+}
+
+/* The no-script twin of `.dark` (see the `dark` variant above): applies only
+   while <html> carries no theme class and the system asks for dark. It must
+   stay identical to `.dark`; tests/design-system-contract.test.ts compares
+   them declaration by declaration. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not(.light)) {
+    color-scheme: dark;
+
+    /* Built for dark, not inverted: a blue-black canvas, cards one step up,
+       the accent lifted so it reads. The dark bar stays charcoal (D4): a
+       raised grey above the blue-black canvas and cards, with light ink, so
+       the composer footer, editor footer, toasts and the sign-in panel read
+       as the same counter-surface they are in the light theme rather than a
+       light slab (FINAL-QA #3, #19). */
+    --np-surface-canvas: oklch(0.18 0.012 240);
+    --np-surface: oklch(0.22 0.014 240);
+    --np-surface-alt: oklch(0.2 0.013 240);
+    --np-surface-raised: oklch(0.24 0.014 240);
+    --np-surface-sunken: oklch(0.2 0.013 240);
+    --np-surface-overlay: oklch(0.24 0.014 240);
+
+    --np-charcoal: oklch(0.3 0.016 240);
+    --np-ink-on-charcoal: oklch(0.96 0.006 250);
+    --np-ink-muted-on-charcoal: oklch(0.8 0.012 240);
+
+    --np-ink: oklch(0.95 0.006 250);
+    --np-ink-secondary: oklch(0.85 0.01 240);
+    --np-ink-muted: oklch(0.72 0.014 240);
+    --np-ink-faint: oklch(0.72 0.014 240);
+    --np-ink-quaternary: oklch(0.5 0.014 240);
+    --np-ink-inverse: oklch(0.18 0.012 240);
+
+    --np-fill: oklch(0.28 0.015 240);
+    --np-fill-secondary: oklch(0.25 0.014 240);
+    --np-fill-tertiary: oklch(0.21 0.013 240);
+
+    --np-line-subtle: oklch(0.27 0.014 240);
+    --np-line: oklch(0.32 0.014 240);
+    --np-line-strong: oklch(0.56 0.014 240);
+    --np-line-focus: oklch(0.72 0.15 145);
+
+    --np-accent: oklch(0.74 0.14 150);
+    --np-accent-hover: oklch(0.82 0.12 150);
+    --np-accent-active: oklch(0.82 0.12 150);
+    --np-accent-tint: oklch(0.3 0.05 150);
+    --np-accent-tint-strong: oklch(0.36 0.07 150);
+    --np-accent-vivid: oklch(0.72 0.15 145);
+    --np-accent-ink: oklch(0.8 0.12 150);
+    --np-ink-on-accent: oklch(0.18 0.02 150);
+
+    --np-success-ink: oklch(0.8 0.12 150);
+    --np-success-tint: oklch(0.29 0.05 150);
+    --np-success-solid: oklch(0.7 0.14 150);
+    --np-success-on-solid: oklch(0.18 0.02 150);
+    --np-success-line: oklch(0.6 0.12 150);
+    --np-warning-ink: oklch(0.85 0.12 80);
+    --np-warning-tint: oklch(0.31 0.05 75);
+    --np-warning-solid: oklch(0.79 0.15 78);
+    --np-warning-on-solid: oklch(0.2 0.04 70);
+    --np-warning-line: oklch(0.66 0.13 75);
+    --np-danger-ink: oklch(0.8 0.1 25);
+    --np-danger-tint: oklch(0.3 0.06 25);
+    --np-danger-solid: oklch(0.66 0.17 27);
+    --np-danger-on-solid: oklch(0.16 0.03 27);
+    --np-danger-line: oklch(0.62 0.15 27);
+    --np-info-ink: oklch(0.8 0.09 250);
+    --np-info-tint: oklch(0.3 0.05 250);
+    --np-info-solid: oklch(0.68 0.13 250);
+    --np-info-on-solid: oklch(0.16 0.03 250);
+    --np-info-line: oklch(0.6 0.12 250);
+
+    --np-indicator-unread: var(--np-info-solid);
+    --np-avatar-bg: var(--np-fill);
+    --np-avatar-ink: var(--np-ink-secondary);
+    --np-banner-bg: var(--np-warning-tint);
+    --np-banner-ink: var(--np-warning-ink);
+
+    /* Tags: a dark tint under a light ink. */
+    --np-tag-neutral-bg: oklch(0.3 0.012 285);
+    --np-tag-neutral-ink: oklch(0.85 0.01 285);
+    --np-tag-blue-bg: oklch(0.3 0.05 200);
+    --np-tag-blue-ink: oklch(0.85 0.07 200);
+    --np-tag-pink-bg: oklch(0.3 0.06 350);
+    --np-tag-pink-ink: oklch(0.85 0.08 350);
+    --np-tag-purple-bg: oklch(0.3 0.06 300);
+    --np-tag-purple-ink: oklch(0.85 0.08 300);
+
+    --np-selection-bg: var(--np-accent-tint);
+    --np-hover-bg: oklch(0.28 0.015 240);
+    --np-focus-ring: oklch(0.72 0.15 145);
+    --np-focus-halo:
+      0 0 0 2px var(--np-surface), 0 0 0 4px var(--np-focus-ring);
+    /* A field's focus ring: a 3px tint outside its border, danger while
+       invalid. */
+    --np-field-ring: 0 0 0 3px var(--np-accent-tint);
+    --np-field-ring-invalid: 0 0 0 3px var(--np-danger-tint);
+
+    --np-material-sidebar: oklch(0.18 0.012 240);
+    --np-material-toolbar: oklch(0.18 0.012 240);
+    --np-material-popover: oklch(0.24 0.014 240);
+    --np-material-sidebar-opaque: oklch(0.18 0.012 240);
+    --np-material-toolbar-opaque: oklch(0.18 0.012 240);
+    --np-material-popover-opaque: oklch(0.24 0.014 240);
+    --np-scrim: oklch(0.08 0.01 240 / 0.6);
+
+    --np-chart-1: oklch(0.72 0.14 150);
+    --np-chart-2: oklch(0.52 0.09 150);
+    --np-chart-3: oklch(0.62 0.02 240);
+    --np-chart-4: oklch(0.7 0.11 250);
+    --np-chart-5: oklch(0.76 0.12 70);
+    --np-chart-6: oklch(0.68 0.15 27);
+    --np-chart-grid: var(--np-line-subtle);
+    --np-chart-axis: var(--np-ink-muted);
+    --np-rating: oklch(0.8 0.15 80);
+
+    --np-shadow-hairline: 0 0 0 1px var(--np-line);
+    --np-shadow-raised: 0 1px 2px oklch(0 0 0 / 0.3);
+    --np-shadow-pop:
+      0 1px 2px oklch(0 0 0 / 0.4), 0 10px 30px oklch(0 0 0 / 0.5);
+    --np-shadow-modal:
+      0 1px 2px oklch(0 0 0 / 0.4), 0 16px 48px oklch(0 0 0 / 0.6);
+    /* The bottom sheet: the modal shadow plus a solid bleed 3rem under its
+       bottom edge, covering the gap an upward over-drag opens. */
+    --np-shadow-sheet: var(--np-shadow-modal), 0 3rem 0 0 var(--np-surface);
+    --np-shadow-float:
+      0 1px 2px oklch(0 0 0 / 0.4), 0 4px 16px oklch(0 0 0 / 0.5);
+
+    --np-field-bg: var(--np-surface);
+    --np-table-header-bg: var(--np-surface-alt);
+  }
 }
 
 /* DESK. A fine pointer with at least 48rem of width earns the operator's-desk
@@ -796,11 +1048,15 @@
     --np-text-title-lh: 1.5rem;
     --np-text-section: 1.125rem; /* 18 */
     --np-text-section-lh: 1.625rem;
-    /* Serif and fluid on a desk: 23px at 48rem, 28px from ~1180px. */
+    /* Fluid on a desk: 23px at 48rem, 28px from ~1180px. */
     --np-text-page-title: clamp(1.375rem, 1.1vw + 0.9375rem, 1.75rem);
     --np-text-display: clamp(1.75rem, 2vw + 1rem, 2.25rem);
     --np-card-pad: 20px;
     --np-panel-pad: 20px;
+    --np-chip-h: 24px;
+    --np-avatar-list: 32px;
+    --np-row-mail-py: 10px;
+    --np-settings-row-h: 44px;
   }
 
   :root,
@@ -947,6 +1203,9 @@
 /* Stacking layers (see `--np-z-*`). Overlays and chrome take their layer
    from here so a menu inside a sheet, or a toast over a dialog, is never a
    z-index guess. */
+@utility z-under {
+  z-index: var(--np-z-under);
+}
 @utility z-raised {
   z-index: var(--np-z-raised);
 }
@@ -1023,6 +1282,26 @@
     &:focus-visible {
       outline: 2px solid CanvasText !important;
       outline-offset: 2px !important;
+    }
+  }
+}
+
+/* Focus for a row inside a clipping list (an `overflow-hidden` grouped
+   card, a scrolling list): a 2px accent ring drawn INSIDE the row's box, so
+   the list's edge can never cut it off. Its own inset shadow, not
+   `inset var(--np-focus-halo)`: an `inset` keyword only applies to the
+   first shadow of a list, so the halo's accent ring would stay outside.
+   Forced-colours mode drops box-shadow, so it draws a real CanvasText
+   outline, also inside the box. */
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--np-focus-ring);
+  }
+  @media (forced-colors: active) {
+    &:focus-visible {
+      outline: 2px solid CanvasText !important;
+      outline-offset: -2px !important;
     }
   }
 }

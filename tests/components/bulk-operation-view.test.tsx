@@ -23,8 +23,9 @@ const describeChildChange = (
     ...child,
   })
 
+const session = vi.hoisted(() => ({ role: "owner" }))
 vi.mock("@/lib/queries/use-session", () => ({
-  useSessionRole: () => "owner",
+  useSessionRole: () => session.role,
 }))
 const push = vi.fn()
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }))
@@ -114,6 +115,7 @@ const operation: Operation = {
 }
 
 afterEach(() => {
+  session.role = "owner"
   vi.unstubAllGlobals()
   vi.useRealTimers()
   push.mockReset()
@@ -756,5 +758,55 @@ describe("BulkOperationView follow-ups (P09-R9)", () => {
     expect(
       screen.queryByRole("button", { name: /New preview/ })
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("BulkOperationView for a member or viewer", () => {
+  const serve = (view: Operation) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>(
+        async () =>
+          new Response(JSON.stringify({ operation: view }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          })
+      )
+    )
+  const note =
+    "Only owners and admins can approve, start, cancel or retry a bulk change."
+
+  it.each([
+    ["previewed", "member"],
+    ["running", "viewer"],
+    ["completed_with_failures", "member"],
+  ] as const)(
+    "explains why a %s batch has no actions for a %s, in words true for that status",
+    async (status, role) => {
+      session.role = role
+      serve({
+        ...operation,
+        status,
+        approvedBy: status === "previewed" ? null : operation.requestedBy,
+      })
+      renderWithProviders(<BulkOperationView operationId={operation.id} />)
+      expect(await screen.findByText(note)).toBeInTheDocument()
+      expect(screen.queryByText(/approve or start a bulk/)).toBeNull()
+    }
+  )
+
+  it("says nothing once the batch is finished", async () => {
+    session.role = "member"
+    serve({ ...operation, status: "completed", counts: { succeeded: 1 } })
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    await screen.findAllByText("Old Crown")
+    expect(screen.queryByText(note)).toBeNull()
+  })
+
+  it("shows the note to no owner", async () => {
+    serve({ ...operation, status: "running" })
+    renderWithProviders(<BulkOperationView operationId={operation.id} />)
+    await screen.findAllByText("Old Crown")
+    expect(screen.queryByText(note)).toBeNull()
   })
 })

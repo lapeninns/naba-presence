@@ -7,6 +7,7 @@ import { OperationReceiptNotice } from "@/components/locations/operation-outcome
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { OptionRow } from "@/components/ui/option-row"
 import {
   PublishSteps,
   type PublishStep as PublishStepView,
@@ -147,22 +148,30 @@ function ReviewChangesSheet({
 
         <SheetBody>
           {selection && selection.options.length > 1 ? (
-            <fieldset className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt px-4 py-3">
-              <legend className="px-1 text-ui font-semibold text-ink">
+            // Flat, over one hairline: the choice reads as the sheet's
+            // header field, not a card nested in the sheet.
+            <fieldset className="flex flex-col gap-2 border-b border-line pb-4">
+              <legend className="mb-2 text-caption font-medium text-ink-muted">
                 Choose what to publish
               </legend>
-              {selection.options.map((option) => (
-                <Checkbox
-                  key={option.key}
-                  checked={selection.selected.has(option.key)}
-                  disabled={publishing}
-                  onCheckedChange={(checked) =>
-                    selection.onChange(option.key, Boolean(checked))
-                  }
-                  label={option.label}
-                  labelClassName="text-ui"
-                />
-              ))}
+              {/* Option rows (Drop 1): the whole row is the checkbox, its
+                  label the name, the tick trailing. -mx-3 lines the words
+                  up with the legend; the row's own padding is its target. */}
+              <div className="-mx-3 flex flex-col">
+                {selection.options.map((option) => {
+                  const checked = selection.selected.has(option.key)
+                  return (
+                    <OptionRow
+                      key={option.key}
+                      indicator="checkbox"
+                      selected={checked}
+                      disabled={publishing}
+                      onClick={() => selection.onChange(option.key, !checked)}
+                      label={option.label}
+                    />
+                  )
+                })}
+              </div>
               <p className="text-caption text-ink-muted">
                 {selection.note ??
                   "Anything left out stays as Google has it now."}
@@ -224,7 +233,7 @@ function ReviewChangesSheet({
             >
               <h3
                 id="review-progress"
-                className="text-ui font-semibold text-ink"
+                className="text-caption font-medium text-ink-muted"
               >
                 Progress
               </h3>

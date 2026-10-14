@@ -2,13 +2,8 @@
 
 import { useQueryClient } from "@tanstack/react-query"
 
-import {
-  Alert,
-  AlertActions,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { RelativeTime } from "@/components/ui/relative-time"
 import {
   decideListingChangeRequest,
@@ -31,6 +26,8 @@ type Decision = { change: ListingChangeRequest; decision: "approve" | "reject" }
  * `listingChangeApprovals`) keeps it from even asking where listing approval
  * is off.
  *
+ * Each request is a list row (what it publishes, who asked and when), with
+ * its explanation, what it sends and its decisions in the row's footer.
  * Another publisher gets Approve and send / Reject; the author can withdraw
  * their own request. Approving sends exactly the request shown (the decision
  * names its payload hash) and answers with the write's outcome.
@@ -87,71 +84,102 @@ export function ListingChangeRequests({
   if (pending.length === 0) return null
 
   return (
-    <div className="flex flex-col gap-2" data-testid="listing-change-requests">
-      {pending.map((change) => {
-        const busy =
-          decide.isPending && decide.variables?.change.id === change.id
-        return (
-          <Alert key={change.id} variant="info">
-            <AlertTitle>{change.label}: waiting for approval</AlertTitle>
-            <AlertDescription>
-              <p>
-                {change.isOwn
-                  ? "You asked"
-                  : `${change.author.name ?? "A publisher"} asked`}{" "}
-                <RelativeTime iso={change.createdAt} />
-                {change.fieldMask.length > 0
-                  ? ` to change ${change.fieldMask.join(", ")}`
-                  : ""}
-                . Nothing has gone to Google yet.{" "}
-                {change.isOwn
-                  ? "Another publisher needs to approve it."
-                  : change.canDecide
-                    ? "Approving sends exactly the values below to Google."
-                    : "A publisher other than its author needs to approve it."}
-              </p>
-              {change.details.length > 0 ? (
-                <dl
-                  className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-ui"
-                  aria-label={`What this change sends: ${change.label}`}
-                >
-                  {change.details.map((detail, index) => (
-                    <div key={index} className="contents">
-                      <dt className="text-ink-muted">{detail.label}</dt>
-                      <dd className="min-w-0 break-words">{detail.value}</dd>
+    <section
+      data-testid="listing-change-requests"
+      aria-label="Changes waiting for approval"
+      className="overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
+    >
+      <p role="status" className="sr-only">
+        {pending.length === 1
+          ? "1 change is waiting for approval."
+          : `${pending.length} changes are waiting for approval.`}
+      </p>
+      <ListRows>
+        {pending.map((change) => {
+          const busy =
+            decide.isPending && decide.variables?.change.id === change.id
+          return (
+            <ListRow
+              key={change.id}
+              interactive={false}
+              wrap
+              emphasis="neutral"
+              wrapperProps={{ "data-slot": "listing-change-request" }}
+              wrapperClassName="px-(--np-card-pad)"
+              flush
+              title={<>{change.label}: waiting for approval</>}
+              subtitle={
+                <span className="text-caption text-ink-muted">
+                  {change.isOwn
+                    ? "You asked"
+                    : `${change.author.name ?? "A publisher"} asked`}{" "}
+                  · <RelativeTime iso={change.createdAt} />
+                </span>
+              }
+              footerLayout="stack"
+              footer={
+                <div className="flex min-w-0 flex-col gap-2 pt-1">
+                  <p className="text-ui text-ink-secondary">
+                    {change.fieldMask.length > 0
+                      ? `To change ${change.fieldMask.join(", ")}. `
+                      : ""}
+                    Nothing has gone to Google yet.{" "}
+                    {change.isOwn
+                      ? "Another publisher needs to approve it."
+                      : change.canDecide
+                        ? "Approving sends exactly the values below to Google."
+                        : "A publisher other than its author needs to approve it."}
+                  </p>
+                  {change.details.length > 0 ? (
+                    <dl
+                      className="grid grid-cols-[minmax(0,auto)_minmax(0,1fr)] gap-x-3 gap-y-1 text-ui"
+                      aria-label={`What this change sends: ${change.label}`}
+                    >
+                      {change.details.map((detail, index) => (
+                        <div key={index} className="contents">
+                          <dt className="text-ink-muted">{detail.label}</dt>
+                          <dd className="min-w-0 break-words text-ink">
+                            {detail.value}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+                  {change.canDecide || change.isOwn ? (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      {change.canDecide ? (
+                        <Button
+                          disabled={decide.isPending}
+                          aria-busy={
+                            busy && decide.variables?.decision === "approve"
+                          }
+                          onClick={() =>
+                            decide.mutate({ change, decision: "approve" })
+                          }
+                        >
+                          Approve and send
+                        </Button>
+                      ) : null}
+                      <Button
+                        variant="secondary"
+                        disabled={decide.isPending}
+                        aria-busy={
+                          busy && decide.variables?.decision === "reject"
+                        }
+                        onClick={() =>
+                          decide.mutate({ change, decision: "reject" })
+                        }
+                      >
+                        {change.isOwn ? "Withdraw" : "Reject"}
+                      </Button>
                     </div>
-                  ))}
-                </dl>
-              ) : null}
-            </AlertDescription>
-            {change.canDecide || change.isOwn ? (
-              <AlertActions>
-                {change.canDecide ? (
-                  <Button
-                    size="sm"
-                    disabled={decide.isPending}
-                    aria-busy={busy && decide.variables?.decision === "approve"}
-                    onClick={() =>
-                      decide.mutate({ change, decision: "approve" })
-                    }
-                  >
-                    Approve and send
-                  </Button>
-                ) : null}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={decide.isPending}
-                  aria-busy={busy && decide.variables?.decision === "reject"}
-                  onClick={() => decide.mutate({ change, decision: "reject" })}
-                >
-                  {change.isOwn ? "Withdraw" : "Reject"}
-                </Button>
-              </AlertActions>
-            ) : null}
-          </Alert>
-        )
-      })}
-    </div>
+                  ) : null}
+                </div>
+              }
+            />
+          )
+        })}
+      </ListRows>
+    </section>
   )
 }

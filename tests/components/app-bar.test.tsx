@@ -23,10 +23,11 @@ import * as clientsHook from "@/lib/queries/use-clients"
 import * as locationsHook from "@/lib/queries/use-locations"
 import type { WorkspaceMode } from "@/lib/workspace/terms"
 
-// The phone app bar's leading control: a labelled back control on a deep
-// page (derived from the trail, or a page's <PageChrome back> override),
-// otherwise the client chip (agency, more than one client) or the
-// workspace's name.
+// The phone app bar: leading, a labelled back control on a deep page
+// (derived from the trail, or a page's <PageChrome back> override),
+// otherwise the workspace's name; the echoed title with the view's count;
+// trailing, at most two controls, the scope chip (agency, more than one
+// client) being one of them.
 
 function client(id: string, name: string): ClientSummary {
   return {
@@ -86,10 +87,14 @@ function renderBar({
   mode = "agency",
   page,
   onOpenClientScope = vi.fn(),
+  needsReply,
+  unread,
 }: {
   mode?: WorkspaceMode
   page?: React.ReactNode
   onOpenClientScope?: () => void
+  needsReply?: number
+  unread?: number
 } = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -97,6 +102,16 @@ function renderBar({
   queryClient.setQueryData(queryKeys.session, {
     session: { role: "owner", workspaceMode: mode },
   })
+  if (needsReply !== undefined) {
+    queryClient.setQueryData(queryKeys.reviewCounts("organisation"), {
+      byQueue: { needs_reply: needsReply },
+    })
+  }
+  if (unread !== undefined) {
+    queryClient.setQueryData(queryKeys.notifications("badge"), {
+      unreadCount: unread,
+    })
+  }
   render(
     <QueryClientProvider client={queryClient}>
       <ClientScopeRoot rememberedClientId={null}>
@@ -146,15 +161,24 @@ describe("AppBar leading control", () => {
     expect(bar.queryByRole("button", { name: /^Client:/ })).toBeNull()
   })
 
-  it("puts the client chip there for an agency with more than one client", async () => {
+  it("puts the client chip in the trailing slot for an agency with more than one client", async () => {
+    // F1 Notion Mail header: the scope trigger moved from leading to
+    // trailing (the NM account avatar), so the workspace name now stays
+    // leading beside it.
     clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
     const onOpenClientScope = vi.fn()
-    const { within: bar } = renderBar({ onOpenClientScope })
-    const chip = bar.getByRole("button", { name: "Client: All clients" })
+    const { bar, within: inBar } = renderBar({ onOpenClientScope })
+    const chip = inBar.getByRole("button", { name: "Client: All clients" })
     expect(chip).toHaveAttribute("aria-haspopup", "dialog")
     await userEvent.click(chip)
     expect(onOpenClientScope).toHaveBeenCalledTimes(1)
-    expect(bar.queryByText("Lapen Inns Agency")).not.toBeInTheDocument()
+    const actions = bar.querySelector('[data-slot="app-bar-actions"]')!
+    expect(actions).toContainElement(chip)
+    expect(actions.lastElementChild).toBe(chip)
+    expect(inBar.getByText("Lapen Inns Agency")).toHaveAttribute(
+      "data-slot",
+      "workspace-name"
+    )
   })
 
   it("never shows the client chip to a business", () => {
@@ -349,5 +373,210 @@ describe("PageChrome overrides", () => {
     expect(
       await screen.findByRole("link", { name: "Back to Listings" })
     ).toBeInTheDocument()
+  })
+})
+
+describe("AppBar view count", () => {
+  it("follows the echoed title with the count a page registered", async () => {
+    const { bar } = renderBar({
+      page: <PageChrome title="Posts" count={7} countLabel="scheduled" />,
+    })
+    const count = await screen.findByText("7", {
+      selector: '[data-slot="app-bar-count"]',
+    })
+    const heading = bar.querySelector('[data-slot="app-bar-heading"]')!
+    const title = bar.querySelector('[data-slot="app-bar-title"]')!
+    expect(title).toHaveTextContent("Posts")
+    expect(heading).toContainElement(count)
+    expect(title.nextElementSibling).toBe(count)
+    // Muted and regular weight, so the title stays the title.
+    expect(count.className).toContain("text-ink-muted")
+    expect(count.className).toContain("font-normal")
+    expect(count.className).toContain("tabular-nums")
+    // Visual only, inside the aria-hidden echo.
+    expect(heading).toHaveAttribute("aria-hidden", "true")
+  })
+
+  it("shows no count for zero", () => {
+    const { bar } = renderBar({ page: <PageChrome count={0} /> })
+    expect(bar.querySelector('[data-slot="app-bar-count"]')).toBeNull()
+  })
+
+  it("falls back to the needs-reply count on the Inbox", async () => {
+    pathname.current = "/inbox"
+    renderBar({ needsReply: 12 })
+    expect(
+      await screen.findByText("12", { selector: '[data-slot="app-bar-count"]' })
+    ).toBeInTheDocument()
+  })
+
+  it("prefers the page's count to the Inbox fallback", async () => {
+    pathname.current = "/inbox"
+    renderBar({ needsReply: 12, page: <PageChrome count={3} /> })
+    expect(
+      await screen.findByText("3", { selector: '[data-slot="app-bar-count"]' })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("12")).toBeNull()
+  })
+
+  it("leaves the Inbox count off a pushed review", async () => {
+    pathname.current = "/inbox"
+    const { bar } = renderBar({
+      needsReply: 12,
+      page: <PageChrome back={{ href: "/inbox", label: "Inbox" }} />,
+    })
+    await screen.findByRole("link", { name: "Back to Inbox" })
+    expect(bar.querySelector('[data-slot="app-bar-count"]')).toBeNull()
+  })
+
+  it("hides the Inbox count at zero", () => {
+    pathname.current = "/inbox"
+    const { bar } = renderBar({ needsReply: 0 })
+    expect(bar.querySelector('[data-slot="app-bar-count"]')).toBeNull()
+  })
+})
+
+describe("AppBar trailing slot", () => {
+  function controls(bar: HTMLElement) {
+    const actions = bar.querySelector('[data-slot="app-bar-actions"]')!
+    return Array.from(actions.querySelectorAll("a, button"))
+  }
+
+  // The chrome contract's selector (globals.css): a bar docked to the bottom
+  // anywhere on the page hides the tab bar.
+  const DOCKED = "[body:has([data-docked=bottom])_&]"
+
+  it("is search then the scope chip on a page with a scope switcher", () => {
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar } = renderBar()
+    const items = controls(bar)
+    // Search, the bell held for the docked case, then the chip.
+    expect(items).toHaveLength(3)
+    expect(items[0]).toHaveAccessibleName(
+      "Search clients, listings, pages and actions"
+    )
+    expect(items[2]).toHaveAccessibleName("Client: All clients")
+    // At rest the bell moves into More: it is not displayed in the bar.
+    expect(items[1]).toHaveAccessibleName("Notifications")
+    expect(items[1].className.split(" ")).toContain("hidden")
+    expect(items[2].className.split(" ")).not.toContain("hidden")
+  })
+
+  it("swaps the scope chip for the bell and its count while a bar is docked", async () => {
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar } = renderBar({ unread: 4 })
+    const bell = await screen.findByRole("link", {
+      name: "Notifications, 4 unread",
+    })
+    const chip = screen.getByRole("button", { name: "Client: All clients" })
+    expect(bar).toContainElement(bell)
+    // Docked: the tab bar (and More's badge) steps aside, the bell shows in
+    // the chip's place with its count, and the chip hides. Same selector as
+    // the tab bar's, so nothing reads the dock in JS (hydration-safe).
+    expect(bell.className.split(" ")).toContain(`${DOCKED}:grid`)
+    expect(chip.className.split(" ")).toContain(`${DOCKED}:hidden`)
+    expect(
+      bell.querySelector('[data-slot="notifications-count"]')
+    ).toHaveTextContent("4")
+    // The search control is never swapped.
+    expect(controls(bar)[0]).toHaveAccessibleName(
+      "Search clients, listings, pages and actions"
+    )
+  })
+
+  it("keeps the chip when docked on a page whose bell already shows", () => {
+    pathname.current = "/inbox"
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar } = renderBar()
+    const items = controls(bar)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAccessibleName("Notifications")
+    expect(items[1].className).not.toContain(DOCKED)
+  })
+
+  it("is notifications then the scope chip on the Inbox", () => {
+    pathname.current = "/inbox"
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    const { bar } = renderBar()
+    const items = controls(bar)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAccessibleName("Notifications")
+    expect(items[1]).toHaveAccessibleName("Client: All clients")
+  })
+
+  it("is search and notifications with nothing to switch", () => {
+    const { bar } = renderBar()
+    const items = controls(bar)
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveAccessibleName(
+      "Search clients, listings, pages and actions"
+    )
+    expect(items[1]).toHaveAccessibleName("Notifications")
+  })
+
+  it("is notifications alone on the Inbox with nothing to switch", () => {
+    pathname.current = "/inbox"
+    const { bar } = renderBar()
+    const items = controls(bar)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toHaveAccessibleName("Notifications")
+  })
+
+  it("holds the slot blank, never the bell, while the clients load", () => {
+    vi.spyOn(clientsHook, "useClients").mockImplementation(
+      () =>
+        ({ data: undefined, isPending: true }) as unknown as ReturnType<
+          typeof clientsHook.useClients
+        >
+    )
+    const { bar, within: inBar } = renderBar()
+    // The bell would be swapped for the scope chip a moment later.
+    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
+    expect(inBar.queryByRole("button", { name: /^Client:/ })).toBeNull()
+    const pending = bar.querySelector('[data-slot="app-bar-scope-pending"]')
+    expect(pending).toHaveAttribute("aria-hidden", "true")
+    expect(pending).toHaveClass("size-11")
+    expect(controls(bar)).toHaveLength(1)
+  })
+
+  it("holds the slot blank while a business's locations load", () => {
+    vi.spyOn(locationsHook, "useLocationDirectory").mockReturnValue({
+      data: undefined,
+      isPending: true,
+    } as unknown as ReturnType<typeof locationsHook.useLocationDirectory>)
+    const { bar, within: inBar } = renderBar({ mode: "business" })
+    expect(inBar.queryByRole("link", { name: /^Notifications/ })).toBeNull()
+    expect(
+      bar.querySelector('[data-slot="app-bar-scope-pending"]')
+    ).not.toBeNull()
+  })
+
+  it("holds nothing on the Inbox while loading: its bell is already there", () => {
+    pathname.current = "/inbox"
+    vi.spyOn(clientsHook, "useClients").mockImplementation(
+      () =>
+        ({ data: undefined, isPending: true }) as unknown as ReturnType<
+          typeof clientsHook.useClients
+        >
+    )
+    const { bar } = renderBar()
+    expect(bar.querySelector('[data-slot="app-bar-scope-pending"]')).toBeNull()
+    const items = controls(bar)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toHaveAccessibleName("Notifications")
+  })
+
+  it("never says Client to a business, on any page", () => {
+    clientList = [client("c1", "Old Crown Group"), client("c2", "Harbour")]
+    for (const path of ["/listings", "/inbox", "/listings/l1"]) {
+      pathname.current = path
+      const { bar } = renderBar({ mode: "business" })
+      expect(bar.textContent ?? "").not.toMatch(/client/i)
+      for (const control of controls(bar)) {
+        expect(control.getAttribute("aria-label") ?? "").not.toMatch(/client/i)
+      }
+      expect(controls(bar).length).toBeLessThanOrEqual(2)
+      document.body.innerHTML = ""
+    }
   })
 })

@@ -1,10 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
+import { useId, useMemo, type ReactNode } from "react"
 
 import { SectionCard } from "@/components/locations/profile/section-card"
 import { TypedAttributeControl } from "@/components/locations/typed-attribute-control"
-import { GroupedList } from "@/components/ui/grouped-list"
+import { SettingsGroup } from "@/components/ui/settings-row"
 import type {
   AttributeMetadata,
   GoogleAttribute,
@@ -12,8 +12,11 @@ import type {
 import { groupByLabel } from "@/lib/locations/google-values"
 
 /**
- * Google's attributes, grouped as Google groups them: one bordered list per
- * group (reference `.attr-group`), a row per attribute.
+ * Google's attributes, grouped as Google groups them: one settings group per
+ * Google group (flat on a phone, a quiet card on a desk), and a settings row
+ * per attribute drawn by the typed control's `row` layout (label at the
+ * leading edge, the Yes / No / Not set choice, Select or URL field at the
+ * trailing edge).
  *
  * Attributes go out with the rest of the listing, through the one review
  * sheet, so an operator doesn't have to remember that this section used to
@@ -48,7 +51,11 @@ export function AttributesSection({
         initial === undefined
           ? []
           : metadata
-              .filter((meta) => JSON.stringify(draft[meta.parent]) !== JSON.stringify(initial[meta.parent]))
+              .filter(
+                (meta) =>
+                  JSON.stringify(draft[meta.parent]) !==
+                  JSON.stringify(initial[meta.parent])
+              )
               .map((meta) => meta.parent)
       ),
     [metadata, draft, initial]
@@ -69,13 +76,11 @@ export function AttributesSection({
       bare
     >
       {grouped.map(([group, items]) => (
-        <GroupedList key={group} header={group}>
+        <AttributeGroup key={group} label={group}>
           {items.map((meta) => (
-            <li
-              key={meta.parent}
-              className="flex min-h-12 items-center border-t border-line px-4 py-2.5 first:border-t-0"
-            >
+            <li key={meta.parent} className="min-w-0 desk:px-2">
               <TypedAttributeControl
+                layout="row"
                 metadata={meta}
                 attribute={draft[meta.parent]}
                 disabled={disabled}
@@ -85,8 +90,42 @@ export function AttributesSection({
               />
             </li>
           ))}
-        </GroupedList>
+        </AttributeGroup>
       ))}
     </SectionCard>
+  )
+}
+
+/**
+ * One Google attribute group. The label is an `h4` under the section's
+ * `h3` (SettingsGroup only draws h2/h3 headings), so it sits above an
+ * unlabelled SettingsGroup that names its rows' list instead: the group
+ * keeps SettingsGroup's flat phone rows and desk card, and the outline
+ * stays Attributes > group.
+ */
+function AttributeGroup({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  const id = useId()
+  return (
+    <div className="flex min-w-0 flex-col">
+      <h4
+        id={`${id}-label`}
+        className="flex min-h-(--np-touch) items-center text-caption font-medium text-ink-muted desk:min-h-8"
+      >
+        {label}
+      </h4>
+      <SettingsGroup
+        card
+        className="mt-0"
+        listProps={{ "aria-labelledby": `${id}-label` }}
+      >
+        {children}
+      </SettingsGroup>
+    </div>
   )
 }

@@ -39,6 +39,25 @@ const MINIMUM: Record<PairKind, number> = {
   graphic: 3,
 }
 
+/**
+ * A user tag's ink on its own tint and on a card. The tag ramp is decorative
+ * (user labels, never a status), but a tag carries words, so both are text.
+ */
+const tagPairs = (tag: "neutral" | "blue" | "pink" | "purple"): ContrastPair[] => [
+  {
+    fg: `--np-tag-${tag}-ink`,
+    bg: `--np-tag-${tag}-bg`,
+    kind: "text",
+    note: `${tag} tag label on its own tint`,
+  },
+  {
+    fg: `--np-tag-${tag}-ink`,
+    bg: "--np-surface",
+    kind: "text",
+    note: `${tag} tag label outside its chip (tag manager, inline mention)`,
+  },
+]
+
 const statusPairs = (status: "success" | "warning" | "danger" | "info"): ContrastPair[] => [
   {
     fg: `--np-${status}-ink`,
@@ -73,6 +92,9 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-ink", bg: "--np-surface-raised", kind: "text", note: "text on a raised surface" },
   { fg: "--np-ink", bg: "--np-surface-sunken", kind: "text", note: "text in a table header or well" },
   { fg: "--np-ink", bg: "--np-surface-overlay", kind: "text", note: "text in a popover or dialog" },
+  { fg: "--np-ink-secondary", bg: "--np-surface-canvas", kind: "text", note: "field labels and read list rows" },
+  { fg: "--np-ink-secondary", bg: "--np-surface", kind: "text", note: "field labels in a card" },
+  { fg: "--np-ink-secondary", bg: "--np-surface-overlay", kind: "text", note: "field labels in a dialog or sheet" },
   { fg: "--np-ink-muted", bg: "--np-surface-canvas", kind: "text", note: "captions and secondary text" },
   { fg: "--np-ink-muted", bg: "--np-surface", kind: "text", note: "secondary text in a card" },
   { fg: "--np-ink-muted", bg: "--np-surface-sunken", kind: "text", note: "table column headers" },
@@ -104,6 +126,7 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-rating", bg: "--np-surface-alt", kind: "graphic", note: "star rating on a list row" },
   { fg: "--np-ink-on-charcoal", bg: "--np-charcoal", kind: "text", note: "composer footer and bulk bar labels" },
   { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "text", note: "dark action bar meta" },
+  { fg: "--np-ink-muted-on-charcoal", bg: "--np-charcoal", kind: "graphic", note: "quiet button edge and the sign-in panel's icon ring on charcoal" },
 
   // Materials, measured against their opaque twins: the translucent value
   // composites over content and cannot be measured, so the twin is the floor.
@@ -164,6 +187,19 @@ export const CONTRAST_PAIRS: ContrastPair[] = [
   { fg: "--np-danger-solid", bg: "--np-surface", kind: "graphic", note: "at-risk status dot" },
   { fg: "--np-info-solid", bg: "--np-surface", kind: "graphic", note: "pending status dot" },
   { fg: "--np-warning-ink", bg: "--np-surface", kind: "graphic", note: "attention status dot" },
+
+  // Mail-style list chrome (Notion Mail foundation).
+  { fg: "--np-indicator-unread", bg: "--np-surface", kind: "graphic", note: "unread dot on a list row" },
+  { fg: "--np-indicator-unread", bg: "--np-surface-alt", kind: "graphic", note: "unread dot on a hovered list row" },
+  { fg: "--np-indicator-unread", bg: "--np-fill", kind: "graphic", note: "unread dot on a selected list row" },
+  { fg: "--np-avatar-ink", bg: "--np-avatar-bg", kind: "text", note: "initials in a neutral avatar" },
+  { fg: "--np-banner-ink", bg: "--np-banner-bg", kind: "text", note: "announcement banner text" },
+
+  // User tags: decorative hues, measured because they carry words.
+  ...tagPairs("neutral"),
+  ...tagPairs("blue"),
+  ...tagPairs("pink"),
+  ...tagPairs("purple"),
 ]
 
 export type PairResult = {
@@ -253,7 +289,7 @@ export function auditTokens(parsed: ParsedTokens): AuditReport {
   // overlay and form-control geometry, and the field rings, whose colour comes
   // from a themed role).
   const themeIndependent =
-    /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|material-blur|material-saturate|measure|form-rail|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
+    /^--np-(radius|corner|duration|ease|stagger|sidebar-width|rail-width|touch|toolbar|appbar|tabbar|actionbar|page|gap|card|panel|row|cell|control|list|field-h|field-pad|field-ring|pill|menu|overlay|dialog|sheet|drawer|selection|segment|avatar-list|settings-row|chip-h|material-blur|material-saturate|measure|form-rail|focus-halo|text-|safe-|keyboard-inset|dock-bottom|z-)/
   const lightNames = semanticTokenNames(parsed.light)
   const darkOwn = new Set(
     Object.keys(parsed.dark).filter((name) => parsed.dark[name] !== parsed.light[name])

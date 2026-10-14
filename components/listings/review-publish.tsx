@@ -2,12 +2,15 @@
 
 import {
   CheckIcon,
-  CircleAlertIcon,
+  ClockIcon,
   EyeIcon,
   PencilIcon,
   RefreshCwIcon,
+  StoreIcon,
   UnplugIcon,
   UploadIcon,
+  UtensilsIcon,
+  type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
 import {
@@ -31,9 +34,10 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, cardClassName } from "@/components/ui/card"
+import { cardClassName } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Empty } from "@/components/ui/empty"
+import { ListRow } from "@/components/ui/list-row"
 import {
   PublishSteps,
   type PublishStep as PublishStepRow,
@@ -310,6 +314,13 @@ const AREA_LABEL: Record<AreaKey, string> = {
   menu: "Food menu",
 }
 
+/** The neutral leading mark of each area's row (an icon, never a status). */
+const AREA_ICON: Record<AreaKey, LucideIcon> = {
+  profile: StoreIcon,
+  hours: ClockIcon,
+  menu: UtensilsIcon,
+}
+
 /**
  * One area's pre-publication diff: what Google shows now against what it
  * will show after publishing, field by field. Below 560px of its own width
@@ -341,6 +352,7 @@ function AreaSection({
   }
 }) {
   const label = AREA_LABEL[area]
+  const Icon = AREA_ICON[area]
   const headingId = `review-${area}`
   const conflict = review?.needsAck ?? false
   return (
@@ -350,12 +362,52 @@ function AreaSection({
       data-area={area}
       className={cardClassName({ className: "flex flex-col overflow-hidden" })}
     >
-      <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <h2 id={headingId} className="text-title font-semibold text-ink">
+      {/* The row: a neutral area mark, the area and its state in words,
+          how many fields change, and the way to edit it. It carries its
+          own control (Edit), so the row itself is not one target. */}
+      <ListRow
+        interactive={false}
+        emphasis="neutral"
+        className="px-4"
+        wrapperClassName="border-b border-line after:hidden"
+        leading={
+          <span className="flex size-7 items-center justify-center rounded-full bg-fill-secondary text-ink-muted">
+            <Icon className="size-4" strokeWidth={1.75} />
+          </span>
+        }
+        // A span with the heading role: the row's title slot is phrasing
+        // content, so an <h2> cannot sit in it; the outline is unchanged.
+        title={
+          <span
+            role="heading"
+            aria-level={2}
+            id={headingId}
+            className="text-title font-semibold"
+          >
             {label}
-          </h2>
-          {review ? (
+          </span>
+        }
+        meta={
+          <Link
+            href={listingHref(locationId, area)}
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+            aria-label={`Edit ${label.toLowerCase()}`}
+          >
+            <PencilIcon aria-hidden />
+            Edit
+          </Link>
+        }
+        subtitle={
+          review && review.rows.length > 0 ? (
+            <span className="text-caption text-ink-muted tabular-nums">
+              {review.rows.length === 1
+                ? "1 field"
+                : `${formatNumber(review.rows.length)} fields`}
+            </span>
+          ) : undefined
+        }
+        trailing={
+          review ? (
             review.blockedReason ? (
               <StatusPill tone="attention">Needs review</StatusPill>
             ) : review.rows.length === 0 ? (
@@ -365,24 +417,9 @@ function AreaSection({
             ) : (
               <StatusPill tone="pending">Not on Google yet</StatusPill>
             )
-          ) : null}
-          {review && review.rows.length > 0 ? (
-            <span className="font-mono text-caption text-ink-muted tabular-nums">
-              {review.rows.length === 1
-                ? "1 field"
-                : `${formatNumber(review.rows.length)} fields`}
-            </span>
-          ) : null}
-        </div>
-        <Link
-          href={listingHref(locationId, area)}
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-          aria-label={`Edit ${label.toLowerCase()}`}
-        >
-          <PencilIcon aria-hidden />
-          Edit
-        </Link>
-      </div>
+          ) : undefined
+        }
+      />
       {include && review && review.rows.length > 0 ? (
         <div className="border-b border-line bg-surface-alt px-4 py-2.5">
           <Checkbox
@@ -406,23 +443,19 @@ function AreaSection({
           </Alert>
         ) : null}
         {error ? (
-          <div role="alert" className="flex flex-wrap items-center gap-3">
-            <p className="min-w-0 grow basis-64 text-ui text-ink">
-              <CircleAlertIcon
-                className="mr-1.5 inline size-4 align-[-3px] text-danger-ink"
-                aria-hidden
-              />
-              We couldn’t read {label.toLowerCase()} from Google, so its changes
-              can’t be shown or published.{" "}
-              <span className="text-ink-muted">
-                {describeActionError(error)}
-              </span>
-            </p>
-            <Button variant="secondary" size="sm" onClick={onRetry}>
-              <RefreshCwIcon aria-hidden />
-              Try again
-            </Button>
-          </div>
+          <Empty
+            role="alert"
+            variant="error"
+            size="sm"
+            title={`We couldn’t read ${label.toLowerCase()} from Google`}
+            description={`So its changes can’t be shown or published. ${describeActionError(error)}`}
+            action={
+              <Button variant="secondary" size="sm" onClick={onRetry}>
+                <RefreshCwIcon aria-hidden />
+                Try again
+              </Button>
+            }
+          />
         ) : pending || !review ? (
           <p
             aria-busy="true"
@@ -710,24 +743,22 @@ function ReviewPublish({
           />
 
           {summary.isError && !summary.data ? (
-            <Card flush>
-              <Empty
-                tone="bad"
-                icon={<CircleAlertIcon />}
-                titleAs="h2"
-                title="We couldn’t check this listing"
-                description={`The listing summary didn’t load, so we can’t say which areas have changes. Nothing was sent to Google. ${describeActionError(summary.error)}`}
-                action={
-                  <Button
-                    variant="secondary"
-                    onClick={() => void summary.refetch()}
-                  >
-                    <RefreshCwIcon aria-hidden />
-                    Try again
-                  </Button>
-                }
-              />
-            </Card>
+            <Empty
+              variant="error"
+              framed
+              titleAs="h2"
+              title="We couldn’t check this listing"
+              description={`The listing summary didn’t load, so we can’t say which areas have changes. Nothing was sent to Google. ${describeActionError(summary.error)}`}
+              action={
+                <Button
+                  variant="secondary"
+                  onClick={() => void summary.refetch()}
+                >
+                  <RefreshCwIcon aria-hidden />
+                  Try again
+                </Button>
+              }
+            />
           ) : summary.isPending ? (
             <ReviewSkeleton />
           ) : areas.length === 0 || done ? (
@@ -738,41 +769,41 @@ function ReviewPublish({
                   steps={toStepRows(flow.results, null)}
                 />
               ) : null}
-              <Card flush>
-                <Empty
-                  tone="ok"
-                  icon={<CheckIcon />}
-                  titleAs="h2"
-                  title={
-                    nothingSent
-                      ? "Nothing needed sending"
-                      : done
-                        ? describeOutcome(publishOutcome(flow.results)).title
-                        : "Nothing to publish"
-                  }
-                  description={
-                    nothingSent
-                      ? "Every area already matched Google when it was checked, so nothing was sent."
-                      : done
-                        ? publishOutcome(flow.results) === "confirmed_applied"
-                          ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
-                          : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
-                        : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
-                  }
-                  action={
-                    <Link
-                      href={listingHref(locationId)}
-                      className={cn(
-                        buttonVariants({
-                          variant: done ? "default" : "secondary",
-                        })
-                      )}
-                    >
-                      Back to listing
-                    </Link>
-                  }
-                />
-              </Card>
+              <Empty
+                variant="empty"
+                framed
+                tone="ok"
+                icon={<CheckIcon />}
+                titleAs="h2"
+                title={
+                  nothingSent
+                    ? "Nothing needed sending"
+                    : done
+                      ? describeOutcome(publishOutcome(flow.results)).title
+                      : "Nothing to publish"
+                }
+                description={
+                  nothingSent
+                    ? "Every area already matched Google when it was checked, so nothing was sent."
+                    : done
+                      ? publishOutcome(flow.results) === "confirmed_applied"
+                        ? "Google accepted every change and read it back as sent. The overview and the board now show the new state."
+                        : "Google accepted every change. Some haven’t been read back yet, so check the listing before relying on them."
+                      : `There are no saved changes waiting for ${entry.name}. Edit an area and come back here to publish it.`
+                }
+                action={
+                  <Link
+                    href={listingHref(locationId)}
+                    className={cn(
+                      buttonVariants({
+                        variant: done ? "default" : "secondary",
+                      })
+                    )}
+                  >
+                    Back to listing
+                  </Link>
+                }
+              />
             </div>
           ) : (
             // A phone's publish bar is docked to the bottom edge, outside
@@ -815,35 +846,60 @@ function ReviewPublish({
                 </Alert>
               ) : null}
 
-              {areas.map((area) => {
-                const source =
-                  area === "profile" ? profile : area === "hours" ? hours : menu
-                return (
-                  <AreaSection
-                    key={area}
-                    locationId={locationId}
-                    area={area}
-                    review={source.review}
-                    pending={source.query.isPending}
-                    error={source.query.error}
-                    onRetry={() => void source.query.refetch()}
-                    include={
-                      areas.length > 1
-                        ? {
-                            checked: !excluded.includes(area),
-                            disabled: flow.isPublishing,
-                            onChange: (checked) =>
-                              setExcluded((current) =>
-                                checked
-                                  ? current.filter((key) => key !== area)
-                                  : [...current, area]
-                              ),
+              {/* The areas as one labelled list, in publish order. "To review",
+                  not "waiting": an area here can already be in sync. */}
+              <div className="flex flex-col gap-2">
+                <p
+                  id="review-areas-label"
+                  className="text-caption font-medium text-ink-muted"
+                >
+                  Areas to review ·{" "}
+                  <span className="tabular-nums">
+                    {areas.length === 1
+                      ? "1 area"
+                      : `${formatNumber(areas.length)} areas`}
+                  </span>
+                </p>
+                <ul
+                  aria-labelledby="review-areas-label"
+                  className="flex flex-col gap-3"
+                >
+                  {areas.map((area) => {
+                    const source =
+                      area === "profile"
+                        ? profile
+                        : area === "hours"
+                          ? hours
+                          : menu
+                    return (
+                      <li key={area}>
+                        <AreaSection
+                          locationId={locationId}
+                          area={area}
+                          review={source.review}
+                          pending={source.query.isPending}
+                          error={source.query.error}
+                          onRetry={() => void source.query.refetch()}
+                          include={
+                            areas.length > 1
+                              ? {
+                                  checked: !excluded.includes(area),
+                                  disabled: flow.isPublishing,
+                                  onChange: (checked) =>
+                                    setExcluded((current) =>
+                                      checked
+                                        ? current.filter((key) => key !== area)
+                                        : [...current, area]
+                                    ),
+                                }
+                              : undefined
                           }
-                        : undefined
-                    }
-                  />
-                )
-              })}
+                        />
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
 
               {unresolved.length > 0 ? (
                 <Alert variant="warning">
@@ -938,7 +994,7 @@ function ReviewPublish({
                         "Reading each area from Google…"
                       ) : (
                         <>
-                          <span className="font-mono tabular-nums">
+                          <span className="tabular-nums">
                             {formatNumber(rows)}
                           </span>{" "}
                           {rows === 1 ? "field" : "fields"} will change on

@@ -68,32 +68,32 @@ export function OnboardingMatchLink({ draft, disabled, onBusyChange, onDirtyChan
   const selectedAccessible = available.some((match) => match.matchName === selected)
   const error = preview.error ?? approve.error ?? link.error
   const descriptions = { not_accessible: "Not found in this selected account. Review ownership options above or choose the correct account.", identity_unconfirmed: "Google has not supplied enough consistent identity evidence to link this match.", ambiguous: "Multiple resources share this identity. Resolve the ambiguity in Google and refresh matching." } as const
-  return <section aria-labelledby="existing-match-heading" className="flex min-w-0 flex-col gap-4 border-t border-line pt-4">
-    <div className="space-y-1"><h4 id="existing-match-heading" className="text-title font-semibold">Link an existing match</h4>
-      <p className="text-ui text-ink-muted">Check which potential matches belong to this Google account, then review the exact local mapping.</p></div>
-    {disabled && <p role="status" className="text-ui text-ink-muted">Wait for the current action to finish, or discard the creation decision before reviewing an existing match.</p>}
+  return <section aria-labelledby="existing-match-heading" className="flex min-w-0 flex-col gap-4 border-t border-line-subtle pt-5">
+    <div className="space-y-1"><h4 id="existing-match-heading" className="text-title font-semibold text-ink">Link an existing match</h4>
+      <p className="text-body text-pretty text-ink-muted">Check which potential matches belong to this Google account, then review the exact local mapping.</p></div>
+    {disabled && <p role="status" className="text-body text-ink-muted">Wait for the current action to finish, or discard or close the new-listing review, before reviewing an existing match.</p>}
     {reviewId ? review.isPending ? <QueryPending label="Restoring existing listing review…" /> : review.isError ? <div className="flex flex-col gap-2">
       <QueryError title="The link review didn’t load" description={describeActionError(review.error)} onRetry={() => void review.refetch()} retryLabel="Retry restoring link review" />
       <Button variant="ghost" className="self-start" disabled={busy} onClick={() => openReview(null)}>Start a fresh link review</Button>
     </div> : review.data && <OnboardingMatchLinkReview key={`${review.data.id}:${review.data.approvedBy ?? "unapproved"}`} value={review.data} busy={busy || disabled} onApprove={() => approve.mutate()} onLink={() => link.mutate()} onRefresh={() => void review.refetch()} onReset={() => { setSelected(""); preview.reset(); approve.reset(); link.reset(); openReview(null) }} /> : <>
       <Button variant="secondary" className="self-start" disabled={disabled || busy || decisionDirty} pending={matches.isFetching} pendingLabel="Checking account access…" onClick={() => { if (discover) void matches.refetch(); else setDiscover(true) }}>Check accessible matches</Button>
-      {discover && matches.isError ? <FormError>{describeActionError(matches.error)} Access could not be established; this is not evidence that a new listing is needed.</FormError> : matches.data && !matches.isFetching && <>
-        <p className="text-caption text-ink-muted">Account access checked {new Date(matches.data.observedAt).toLocaleString("en-GB")}.</p>
-        <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">{matches.data.matches.map((match) => {
+      {discover && matches.isError ? <FormError>{describeActionError(matches.error)} The account check did not finish. This does not mean a new listing is needed.</FormError> : matches.data && !matches.isFetching && <>
+        <p className="text-caption text-ink-muted tabular-nums">Account access checked {new Date(matches.data.observedAt).toLocaleString("en-GB")}.</p>
+        <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">{matches.data.matches.map((match) => {
           const source = draft.matchResult?.matches.find((item) => item.name === match.matchName)
-          return <li key={match.matchName} className="space-y-2 p-4">
-            <p className="text-ui font-semibold break-words">{source?.location.title || match.matchName}</p>
+          return <li key={match.matchName} className="flex min-w-0 flex-col items-start gap-2 py-3">
+            <p className="text-body font-medium break-words text-ink">{source?.location.title || match.matchName}</p>
             {match.status === "accessible" ? <>
-              <p className="text-ui text-ink-muted">Accessible in this account: {match.location.title || match.location.name}</p>
+              <p className="text-caption text-ink-muted">Accessible in this account: {match.location.title || match.location.name}</p>
               <SupportDetails items={[match.location.name]} />
               <Button variant="secondary" disabled={disabled || busy} aria-pressed={selected === match.matchName} onClick={() => { setSelected(match.matchName); preview.reset() }}>{selected === match.matchName ? "Selected for link review" : "Select this existing match"}</Button>
-            </> : <p className="text-ui text-ink-muted">{descriptions[match.status]}</p>}
+            </> : <p className="text-body text-ink-muted">{descriptions[match.status]}</p>}
           </li>
         })}</ul>
-        {available.length === 0 && <p role="status" className="text-ui">No unambiguous accessible match is available for linking in this account.</p>}
+        {available.length === 0 && <p role="status" className="text-body">No unambiguous accessible match is available for linking in this account.</p>}
         {selected && <>
           <Field><FieldLabel>Local name for this existing listing</FieldLabel><Input value={localName} maxLength={200} disabled={busy || disabled} onChange={(event) => { setLocalName(event.target.value); preview.reset() }} /><FieldDescription>A distinct local name is required. Existing local listings are never merged automatically.</FieldDescription></Field>
-          <Button className="self-start" pending={preview.isPending} pendingLabel="Preparing link review…" disabled={disabled || busy || !selectedAccessible || !localName.trim()} onClick={() => preview.mutate()}>Review existing listing link</Button>
+          <Button className="self-stretch sm:self-start" pending={preview.isPending} pendingLabel="Preparing link review…" disabled={disabled || busy || !selectedAccessible || !localName.trim()} onClick={() => preview.mutate()}>Review existing listing link</Button>
         </>}
       </>}
       {decisionDirty && <Button variant="ghost" className="self-start" disabled={busy} onClick={() => { setSelected(""); setLocalName(draft.payload.title ?? ""); preview.reset() }}>Discard link decision</Button>}

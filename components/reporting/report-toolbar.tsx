@@ -46,7 +46,10 @@ export function ReportToolbar({
   sheetDescription = "Choose whose figures to show and for which period.",
   className,
 }: {
-  /** Short phrases naming the scope, in order; the last never truncates. */
+  /**
+   * Short phrases naming the scope, in order. On a phone the first has its
+   * own line; the rest share a second, where the last never truncates.
+   */
   summary: ReadonlyArray<string>
   fields: (placement: ReportToolbarPlacement) => React.ReactNode
   extras?: React.ReactNode
@@ -59,7 +62,7 @@ export function ReportToolbar({
 }) {
   const [open, setOpen] = React.useState(false)
   const parts = summary.filter(Boolean)
-  const last = parts.length - 1
+  const [first, ...rest] = parts
 
   return (
     <section
@@ -70,45 +73,70 @@ export function ReportToolbar({
         className
       )}
     >
-      {/* Phone: the scope in one tappable line. The visible words are the
+      {/* Phone: the scope in one tappable pill. The visible words are the
           start of the accessible name (WCAG 2.5.3); truncation is CSS only,
-          so the full scope is still what a screen reader hears. Parts wrap
-          to a second line before any one of them is cut short. */}
+          so the full scope is still what a screen reader hears. At most two
+          lines: the first part, then the rest. */}
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger
           render={
+            // One quiet pill row (the scope switcher): the grey fill, not a
+            // bordered control, so the figures stay the loudest thing.
             <Button
-              variant="secondary"
-              className="h-auto min-h-(--np-control-h) min-w-0 flex-1 justify-start py-2 md:hidden print:hidden"
+              variant="ghost"
+              pill
+              className="h-auto min-h-(--np-touch) min-w-0 flex-1 justify-start bg-fill-secondary py-2 font-normal md:hidden print:hidden"
             />
           }
         >
-          <SlidersHorizontalIcon aria-hidden strokeWidth={1.75} />
-          <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1 text-left">
-            {parts.map((part, index) => (
-              <React.Fragment key={`${index}-${part}`}>
-                {index > 0 ? (
-                  <>
-                    {" "}
-                    <span aria-hidden className="shrink-0 text-ink-muted">
-                      ·
+          <SlidersHorizontalIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="text-ink-secondary"
+          />
+          <span className="flex min-w-0 flex-1 flex-col text-left">
+            {/* The first part (whose figures: the client, or the location)
+                has a line of its own and keeps all of it, so it is never
+                the part that is cut. */}
+            <span className="truncate">
+              {first}
+              {rest.length ? <span className="sr-only">,</span> : null}
+            </span>
+            {rest.length ? (
+              // The rest on one quiet line: the middle parts truncate first
+              // and the last (the period) never does. A separator only ever
+              // sits between two parts on this line, never at a line end.
+              <span className="flex min-w-0 items-center gap-x-1 text-caption text-ink-muted">
+                {rest.map((part, index) => (
+                  <React.Fragment key={`${index}-${part}`}>
+                    {index > 0 ? (
+                      <>
+                        {" "}
+                        <span aria-hidden className="shrink-0">
+                          ·
+                        </span>
+                        <span className="sr-only">,</span>{" "}
+                      </>
+                    ) : null}
+                    <span
+                      className={cn(
+                        index === rest.length - 1
+                          ? "shrink-0 whitespace-nowrap"
+                          : "min-w-0 truncate"
+                      )}
+                    >
+                      {part}
                     </span>
-                    <span className="sr-only">,</span>{" "}
-                  </>
-                ) : null}
-                <span
-                  className={cn(
-                    index === last
-                      ? "whitespace-nowrap"
-                      : "max-w-full truncate"
-                  )}
-                >
-                  {part}
-                </span>
-              </React.Fragment>
-            ))}
+                  </React.Fragment>
+                ))}
+              </span>
+            ) : null}
           </span>
-          <ChevronDownIcon aria-hidden strokeWidth={1.75} className="ml-auto" />
+          <ChevronDownIcon
+            aria-hidden
+            strokeWidth={1.75}
+            className="ml-auto text-ink-muted"
+          />
         </SheetTrigger>
         <SheetContent side="bottom">
           <SheetHeader>
@@ -122,7 +150,7 @@ export function ReportToolbar({
             ) : null}
           </SheetBody>
           <SheetFooter>
-            <SheetClose render={<Button className="w-full sm:w-auto" />}>
+            <SheetClose render={<Button block className="sm:w-auto" />}>
               Done
             </SheetClose>
           </SheetFooter>

@@ -471,12 +471,25 @@ describe("ListingsBoard", () => {
     } as unknown as UseQueryResult<ListingSummary[]>)
     render(<ListingsBoard role="owner" />)
     expect(screen.getByText("Checking each listing…")).toBeInTheDocument()
+    // "Not checked" would contradict "Checking each listing…": the pill
+    // waits for the summaries instead.
     const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
-    expect(within(crown).getByText("Not checked")).toBeInTheDocument()
+    expect(within(crown).queryByText("Not checked")).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole("table")).queryByText("Not checked")
+    ).not.toBeInTheDocument()
     expect(
       within(screen.getByRole("table")).queryByText("In sync")
     ).not.toBeInTheDocument()
     const cafe = screen.getByRole("row", { name: /Pier Cafe/ })
     expect(within(cafe).getByText("Pending verification")).toBeInTheDocument()
+  })
+
+  it("says a listing is not checked once the summaries have loaded without it", () => {
+    stub({ entries, summaries: [] })
+    render(<ListingsBoard role="owner" />)
+    expect(screen.queryByText("Checking each listing…")).not.toBeInTheDocument()
+    const crown = screen.getByRole("row", { name: /Old Crown Girton/ })
+    expect(within(crown).getByText("Not checked")).toBeInTheDocument()
   })
 })

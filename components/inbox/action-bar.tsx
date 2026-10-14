@@ -25,9 +25,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast, useToastManager } from "@/components/ui/toast"
 import { Textarea } from "@/components/ui/textarea"
 import { useComposerSave, useIsDirty } from "@/components/inbox/dirty-context"
 import { describeOutcomeToast, evaluateDelete } from "@/lib/inbox/actions"
@@ -55,10 +56,16 @@ const REJECT_NOTE_LIMIT = 2000
  * The pane's footer actions: ONE filled button for the step the bar exists
  * for (publish, submit, approve, retry), sized to its words at the control
  * height (44px on touch) so the docked bar on a phone stays one row beside
- * the status words. Everything else sits behind the ⋯ menu: Delete always,
- * and Reject below md, where it would crowd the primary off the row; from md
- * up Reject is a grey button beside Approve. Why a button is off is said by
- * the status line beside it, not hidden in a title attribute.
+ * the status words. Everything else sits behind the ⋯ menu: Delete always
+ * (last, as the danger row, behind a confirm), and Reject below md, where it
+ * would crowd the primary off the row; from md up Reject is a quiet button
+ * beside Approve. Why a button is off is said by the status line beside it,
+ * not hidden in a title attribute.
+ *
+ * They are drawn for the CHARCOAL bar (D4: the action that reaches Google
+ * lives on the one dark bar): the primary keeps the accent fill (its own
+ * ink holds ≥5:1 on it), every other control is `ghost-dark`, light ink with
+ * the on-charcoal edge, inside the on-charcoal focus outline the bar sets.
  *
  * Publish is one press: when the text on screen is not yet a checked draft,
  * it saves it (the drafts route checks what it stores), stops if the check
@@ -71,6 +78,9 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const approval = useApprovalDecision(reviewId)
   const remove = useDeleteReply(reviewId)
   const toasts = useToastManager()
+  // Outcomes go through the typed toast (D5): a Google write's kind can
+  // never carry Undo, and "View on Google" is the primitive's own link.
+  const outcomeToast = useOutcomeToast()
   // Live composer dirtiness (reactive; only this sibling re-renders on it):
   // with unsaved edits the persisted draft is not what is on screen.
   const isDirty = useIsDirty()
@@ -185,7 +195,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
       // ApiClientError — decides the toast, so a `rejected` (Google declined
       // the reply) or any other non-published outcome can never render as
       // "published" (fix-round-1 CRITICAL #1).
-      toasts.add(describeOutcomeToast(result.status))
+      // An outcome, never an Undo (D5): a published reply links to the
+      // review on Google when the detail carries that link.
+      outcomeToast.show(
+        describeOutcomeToast(result.status, {
+          googleReplyUrl: review.googleReplyUrl,
+        })
+      )
       // `pending` moves on too: Google has the reply, nothing more can be
       // done to it here, and waiting on it left the operator parked on a
       // review whose only button read "Publishing…".
@@ -206,7 +222,11 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const onDecision = async (decision: "approve" | "reject", note?: string) => {
     try {
       const result = await approval.mutateAsync({ decision, note })
-      toasts.add(describeOutcomeToast(result.status))
+      outcomeToast.show(
+        describeOutcomeToast(result.status, {
+          googleReplyUrl: review.googleReplyUrl,
+        })
+      )
       if (decision === "approve" && isAdvancingOutcome(result.status)) {
         announceOutcome(result.status)
       }
@@ -222,7 +242,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
   const onDelete = async () => {
     try {
       const result = await remove.mutateAsync()
-      toasts.add(describeOutcomeToast(result.status))
+      outcomeToast.show(describeOutcomeToast(result.status))
       setDeleteOpen(false)
     } catch (error) {
       toasts.add({ title: describeActionError(error), type: "error" })
@@ -278,13 +298,13 @@ function ActionBar({ reviewId }: { reviewId: string }) {
     <div className="flex min-w-0 items-center justify-end">
       <div className="flex items-center justify-end gap-2">
         {inFlight ? (
-          <Button variant="secondary" pending pendingLabel="Publishing…">
+          <Button variant="ghost-dark" pending pendingLabel="Publishing…">
             Publishing…
           </Button>
         ) : awaitingApproval ? (
           <>
             <Button
-              variant="secondary"
+              variant="ghost-dark"
               className="max-md:hidden"
               disabled={!primary.enabled || approval.isPending}
               onClick={() => setRejectOpen(true)}
@@ -352,7 +372,7 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             <DropdownMenuTrigger
               render={
                 <Button
-                  variant="ghost"
+                  variant="ghost-dark"
                   size="icon"
                   aria-label="Review actions"
                   // Holding only Reject, the menu is the phone's way to it;
@@ -363,7 +383,10 @@ function ActionBar({ reviewId }: { reviewId: string }) {
             >
               <MoreHorizontalIcon aria-hidden strokeWidth={1.75} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent>
+            {/* On a phone the menu is the shared bottom action sheet
+                (menu-surface): this title over 44px rows, the destructive
+                row last in the danger ink after a rule, and a Cancel. */}
+            <DropdownMenuContent align="end" side="top" title="Review actions">
               {offerReject ? (
                 <DropdownMenuItem
                   className="md:hidden"
@@ -375,13 +398,20 @@ function ActionBar({ reviewId }: { reviewId: string }) {
                 </DropdownMenuItem>
               ) : null}
               {deleteState.enabled ? (
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => setDeleteOpen(true)}
-                >
-                  <Trash2Icon aria-hidden />
-                  Delete published reply
-                </DropdownMenuItem>
+                <>
+                  {/* The destructive row comes last, after a rule (phone
+                      only: from md the Reject row above it is hidden). */}
+                  {offerReject ? (
+                    <DropdownMenuSeparator className="md:hidden" />
+                  ) : null}
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2Icon aria-hidden />
+                    Delete published reply
+                  </DropdownMenuItem>
+                </>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>

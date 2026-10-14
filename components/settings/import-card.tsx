@@ -409,7 +409,7 @@ export function ImportCard({
           if (!open) setRelinkTarget(null)
         }}
         title={`Move ${relinkTarget?.title ?? "this location"}’s history?`}
-        description="This Google location was linked before. Confirming re-links it here and moves its historical reviews to this location."
+        description="This Google location is linked to another location. Confirming moves the link and its historical reviews here."
         confirmLabel="Confirm and link"
         requireAcknowledgement
         acknowledgementLabel="I understand historical reviews will move to this location."

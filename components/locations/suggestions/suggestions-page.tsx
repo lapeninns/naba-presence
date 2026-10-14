@@ -8,7 +8,6 @@ import { LocationTab } from "@/components/locations/location-tab"
 import { SuggestionList } from "@/components/locations/suggestions/suggestion-list"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button, buttonVariants } from "@/components/ui/button"
-import { Card, cardClassName } from "@/components/ui/card"
 import { Empty } from "@/components/ui/empty"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToastManager } from "@/components/ui/toast"
@@ -48,20 +47,26 @@ export function SuggestionsTab({ locationId }: { locationId: string }) {
   )
 }
 
+/** The shape of the loaded page: the summary line, then a group of rows. */
 function SuggestionsSkeleton() {
   return (
-    <div aria-busy="true" className="flex flex-col gap-4">
-      <Skeleton className="h-14 w-full rounded-(--np-radius-card)" />
-      {[0, 1].map((index) => (
-        <div
-          key={index}
-          className={cardClassName({ className: "flex flex-col gap-2.5 p-4" })}
-        >
-          <Skeleton className="h-4 w-1/3" />
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-(--np-control-h-sm) w-40" />
-        </div>
-      ))}
+    <div aria-busy="true" className="flex flex-col gap-6">
+      <Skeleton className="h-6 w-2/3" />
+      <div className="flex flex-col gap-1.5">
+        <Skeleton className="h-4 w-1/4" />
+        <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle desk:rounded-(--np-radius-card) desk:border desk:border-line desk:bg-surface">
+          {[0, 1].map((index) => (
+            <li
+              key={index}
+              className="flex flex-col gap-3 py-4 desk:px-(--np-card-pad)"
+            >
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-(--np-control-h) w-40" />
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }
@@ -107,27 +112,26 @@ function SuggestionsView({
   const failed = [profileReview, menuReview].find((query) => query.isError)
   if (failed) {
     return (
-      <Card flush>
-        <Empty
-          tone="bad"
-          icon={<CircleAlertIcon />}
-          titleAs="h2"
-          title="We couldn’t load Google’s suggestions"
-          description={`Nothing was accepted or ignored. ${describeActionError(failed.error)}`}
-          action={
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void profileReview.refetch()
-                void menuReview.refetch()
-              }}
-            >
-              <RefreshCwIcon aria-hidden />
-              Try again
-            </Button>
-          }
-        />
-      </Card>
+      <Empty
+        placement="page"
+        tone="bad"
+        icon={<CircleAlertIcon />}
+        titleAs="h2"
+        title="We couldn’t load Google’s suggestions"
+        description={`Nothing was accepted or ignored. ${describeActionError(failed.error)}`}
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void profileReview.refetch()
+              void menuReview.refetch()
+            }}
+          >
+            <RefreshCwIcon aria-hidden />
+            Try again
+          </Button>
+        }
+      />
     )
   }
 
@@ -156,30 +160,29 @@ function SuggestionsView({
 
   if (!enabled) {
     return (
-      <Card flush>
-        <Empty
-          icon={<CircleCheckIcon />}
-          titleAs="h2"
-          title="Suggested updates aren’t checked for this listing"
-          description="NabaPresence isn’t comparing this listing with Google for suggested updates, so there is nothing to review here. The check is switched off for this whole NabaPresence installation, so whoever runs it for your team can turn it on. Until then, the profile and menu editors still show where Google differs."
-          action={
-            <>
-              <Link
-                href={listingHref(locationId, "profile")}
-                className={cn(buttonVariants({ variant: "secondary" }))}
-              >
-                Open the business profile
-              </Link>
-              <Link
-                href={listingHref(locationId, "menu")}
-                className={cn(buttonVariants({ variant: "ghost" }))}
-              >
-                Open the food menu
-              </Link>
-            </>
-          }
-        />
-      </Card>
+      <Empty
+        placement="page"
+        icon={<CircleCheckIcon />}
+        titleAs="h2"
+        title="Suggested updates aren’t checked for this listing"
+        description="NabaPresence isn’t comparing this listing with Google for suggested updates, so there is nothing to review here. The check is switched off for this whole NabaPresence installation, so whoever runs it for your team can turn it on. Until then, the profile and menu editors still show where Google differs."
+        action={
+          <>
+            <Link
+              href={listingHref(locationId, "profile")}
+              className={cn(buttonVariants({ variant: "secondary" }))}
+            >
+              Open the business profile
+            </Link>
+            <Link
+              href={listingHref(locationId, "menu")}
+              className={cn(buttonVariants({ variant: "ghost" }))}
+            >
+              Open the food menu
+            </Link>
+          </>
+        }
+      />
     )
   }
 
@@ -187,41 +190,38 @@ function SuggestionsView({
     return (
       <div className="flex flex-col gap-4">
         {gate}
-        <Card flush>
-          <Empty
-            tone="ok"
-            icon={<CircleCheckIcon />}
-            titleAs="h2"
-            title="No suggestions from Google"
-            description="When Google or a customer changes this listing on Google, the change shows up here for you to accept or ignore."
-            action={
-              <Button
-                variant="secondary"
-                onClick={() => refreshFromGoogle("all")}
-                pending={refreshing}
-                pendingLabel="Checking…"
-              >
-                <RefreshCwIcon aria-hidden />
-                Check Google now
-              </Button>
-            }
-          />
-        </Card>
+        <Empty
+          placement="page"
+          tone="ok"
+          icon={<CircleCheckIcon />}
+          titleAs="h2"
+          title="No suggestions from Google"
+          description="When Google or a customer changes this listing on Google, the change shows up here for you to accept or ignore."
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => refreshFromGoogle("all")}
+              pending={refreshing}
+              pendingLabel="Checking…"
+            >
+              <RefreshCwIcon aria-hidden />
+              Check Google now
+            </Button>
+          }
+        />
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       {gate}
       <div
         data-slot="suggestions-summary"
-        className={cardClassName({
-          className: "flex flex-wrap items-center gap-3 px-4 py-3",
-        })}
+        className="flex flex-wrap items-center gap-x-3 gap-y-1"
       >
-        <p className="min-w-0 grow basis-48 text-ui text-ink">
-          <span className="mr-2 align-middle font-mono text-section font-semibold tabular-nums">
+        <p className="min-w-0 grow basis-48 text-ui text-ink-muted">
+          <span className="mr-1.5 align-baseline text-section font-semibold text-ink tabular-nums">
             {formatNumber(total)}
           </span>
           {total === 1 ? "suggestion" : "suggestions"} waiting ·{" "}

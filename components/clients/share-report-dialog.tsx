@@ -119,10 +119,14 @@ export function ShareReportButton({
   clientId,
   clientName,
   variant = "secondary",
+  compact = false,
 }: {
   clientId: string
   clientName: string
   variant?: "default" | "secondary" | "ghost"
+  /** Below md, the icon alone (the name stays "Share report"), so a row it
+   *  shares with the report scope pill keeps the scope uncut. */
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   // Mounted on first use and kept, so it costs nothing on a page where it is
@@ -132,13 +136,18 @@ export function ShareReportButton({
     <>
       <Button
         variant={variant}
+        className={
+          compact ? "max-md:min-w-(--np-touch) max-md:px-0" : undefined
+        }
         onClick={() => {
           setUsed(true)
           setOpen(true)
         }}
       >
         <Share2Icon aria-hidden strokeWidth={1.75} />
-        Share report
+        <span className={compact ? "max-md:sr-only" : undefined}>
+          Share report
+        </span>
       </Button>
       {used ? (
         <ShareReportDialog
@@ -297,10 +306,17 @@ export function ShareReportDialog({
                 onValueChange={(value) =>
                   setDays(value as ReportShareExpiryDays)
                 }
-                className="flex-row flex-wrap gap-x-6"
+                // Option rows: the length, the date it resolves to under it,
+                // and the radio at the trailing edge, each a touch-height row.
+                className="gap-0 divide-y divide-line overflow-hidden rounded-(--np-radius-card) border border-line bg-surface"
               >
                 {REPORT_SHARE_EXPIRY_OPTIONS.map((option) => (
-                  <RadioGroupItem key={option.days} value={option.days}>
+                  <RadioGroupItem
+                    key={option.days}
+                    value={option.days}
+                    description={`Until ${formatDay(inDays(option.days))}`}
+                    labelClassName="flex-row-reverse justify-between gap-3 px-(--np-card-pad) desk:min-h-(--np-touch) desk:py-2.5"
+                  >
                     {option.label}
                   </RadioGroupItem>
                 ))}
@@ -528,7 +544,7 @@ function ExistingLinks({
           {query.data.items.map((share) => (
             <li
               key={share.id}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2.5"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-(--np-card-pad) py-2.5"
             >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="flex flex-wrap items-center gap-2 text-ui text-ink">

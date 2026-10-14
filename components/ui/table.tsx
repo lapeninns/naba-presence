@@ -3,6 +3,7 @@
 import * as React from "react"
 
 import { Checkbox } from "@/components/ui/checkbox"
+import { LIST_BLEED_CLASS } from "@/components/ui/list-row"
 import { cn } from "@/lib/utils"
 
 /**
@@ -32,8 +33,13 @@ import { cn } from "@/lib/utils"
  * - `desk-only`: dropped from the card (it belongs on the detail screen).
  * - `select`: the row's checkbox, in a 44px leading slot. Set automatically
  *   when a cell holds only a `Checkbox`.
+ * - `leading`: an avatar or icon in a `--np-avatar-list` column before the
+ *   text (the list-row anatomy, `responsive="list"`); the cell right after
+ *   it is the title when no cell says `primary`. In card mode it is simply
+ *   the first thing on the title line.
  */
 type TableCellPriority =
+  | "leading"
   | "primary"
   | "secondary"
   | "trailing"
@@ -83,7 +89,7 @@ const RECORD_CLASS = cn(
   // when the table sets no priorities. It grows to fill the title line from
   // a 1px basis, not 0: with a zero basis it and the full-width line break
   // fit on one flex line together, and the title collapsed to nothing.
-  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]))]:order-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]))]:flex-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]))]:basis-px @max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]))]:text-body",
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]),td[data-priority=leading]+td:not([data-priority]))]:order-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]),td[data-priority=leading]+td:not([data-priority]))]:flex-1 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]),td[data-priority=leading]+td:not([data-priority]))]:basis-px @max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]),td[data-priority=leading]+td:not([data-priority]))]:text-body",
 
   // trailing and actions share the title line. Actions are forced back into
   // the flow: older tables pinned them with `absolute`, which would now sit
@@ -111,15 +117,60 @@ const RECORD_CLASS = cn(
   // detail: labelled values in an even two-column grid; `span` takes the
   // whole width. Every cell without a priority (other than the title and
   // actions) lands here.
-  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))]:order-7 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))]:basis-1/2 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))]:pe-3 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))]:pt-2 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))]:[overflow-wrap:anywhere]",
-  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))[data-span]]:basis-full",
-  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))[data-label]]:before:block @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))[data-label]]:before:text-caption @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))[data-label]]:before:font-medium @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))[data-label]]:before:text-ink-muted @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td))[data-label]]:before:content-[attr(data-label)]",
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))]:order-7 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))]:basis-1/2 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))]:pe-3 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))]:pt-2 @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))]:[overflow-wrap:anywhere]",
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))[data-span]]:basis-full",
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))[data-label]]:before:block @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))[data-label]]:before:text-caption @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))[data-label]]:before:font-medium @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))[data-label]]:before:text-ink-muted @max-3xl/table:[&_tbody>tr>:is(td[data-priority=detail],td:not([data-priority]):not([data-actions]):not(:first-child):not([data-priority=select]+td):not([data-priority=leading]+td))[data-label]]:before:content-[attr(data-label)]",
+
+  // leading (card mode): the first thing on the title line.
+  "@max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:order-0 @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:me-3 @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:shrink-0",
 
   // desk-only: not on the card.
   "@max-3xl/table:[&_tbody>tr>td[data-priority=desk-only]]:hidden",
 
+  // A numeric cell is a table figure only in a table: on a card it is a
+  // label/value pair, set in sans like the caption beside it (D1).
+  "@max-3xl/table:[&_tbody>tr>td[data-numeric]]:font-sans",
+
   // A group-header row stays one full-width band.
   "@max-3xl/table:[&_tbody>tr[data-group]]:block @max-3xl/table:[&_tbody>tr[data-group]]:bg-surface-alt @max-3xl/table:[&_tbody>tr[data-group]]:py-2 @max-3xl/table:[&_tbody>tr[data-group]]:before:hidden"
+)
+
+/**
+ * `responsive="list"`: the record card drawn with the list-row anatomy
+ * (Notion Mail's mail row, `ListRow`), layered over `RECORD_CLASS`. The
+ * same `tr`/`td` cells, restyled, so the table, its caption and every
+ * `td[data-priority]`/`td[data-label]` stay what tests and assistive tech
+ * read.
+ *
+ * - No card border between records: one 1px `line-subtle` hairline under
+ *   the text column, from `--np-row-inset-start` (or the page padding when
+ *   there is no leading cell) to `--np-page-pad-x`, never under the last
+ *   row. Drawn as a background image because `::before` is the line break
+ *   and `::after` the chevron.
+ * - Padding is the page's (`--np-page-pad-x`) and the mail row's
+ *   (`--np-row-mail-py`), so the rows line up with ListRows on the same
+ *   screen; `bleed` on the Table takes them edge to edge on a phone.
+ * - A `leading` cell (an avatar) sits in a `--np-avatar-list` column, out
+ *   of flow, so every line is indented to the text column.
+ * - Title `text-body` medium ink; subtitle `text-ui` ink-secondary; meta
+ *   and details stay caption muted.
+ */
+const LIST_CLASS = cn(
+  "@max-3xl/table:[&_tbody>tr]:min-h-(--np-touch) @max-3xl/table:[&_tbody>tr]:border-b-0 @max-3xl/table:[&_tbody>tr]:px-(--np-page-pad-x) @max-3xl/table:[&_tbody>tr]:py-(--np-row-mail-py)",
+  "@max-3xl/table:[&_tbody>tr]:[background-image:linear-gradient(var(--color-line-subtle),var(--color-line-subtle))] @max-3xl/table:[&_tbody>tr]:[background-size:calc(100%_-_2_*_var(--np-page-pad-x))_1px] @max-3xl/table:[&_tbody>tr]:[background-position:right_var(--np-page-pad-x)_bottom] @max-3xl/table:[&_tbody>tr]:[background-repeat:no-repeat]",
+  "@max-3xl/table:[&_tbody>tr:last-child]:[background-image:none] @max-3xl/table:[&_tbody>tr[data-group]]:[background-image:none]",
+
+  // leading: the avatar column; the text column starts at the inset.
+  "@max-3xl/table:[&_tbody>tr:has(>td[data-priority=leading])]:[background-size:calc(100%_-_var(--np-row-inset-start)_-_var(--np-page-pad-x))_1px] @max-3xl/table:[&_tbody>tr:has(>td[data-priority=leading])]:ps-(--np-row-inset-start)",
+  "@max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:absolute @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:start-(--np-page-pad-x) @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:top-(--np-row-mail-py) @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:me-0 @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:grid @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:size-(--np-avatar-list) @max-3xl/table:[&_tbody>tr>td[data-priority=leading]]:place-items-center",
+  // With a selection checkbox too: the checkbox keeps its 48px column at
+  // the start and the avatar moves past it.
+  "@max-3xl/table:[&_tbody>tr:has(>td[data-priority=select]):has(>td[data-priority=leading])]:ps-[calc(--spacing(15)+var(--np-avatar-list))] @max-3xl/table:[&_tbody>tr:has(>td[data-priority=select])>td[data-priority=leading]]:start-12",
+
+  // The list-row type.
+  "@max-3xl/table:[&_tbody>tr>:is(td[data-priority=primary],td:first-child:not([data-priority]),td[data-priority=select]+td:not([data-priority]),td[data-priority=leading]+td:not([data-priority]))]:font-medium",
+  "@max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:text-ui @max-3xl/table:[&_tbody>tr>td[data-priority=secondary]]:text-ink-secondary",
+  "@max-3xl/table:[&_tbody>tr[data-interactive]]:after:border-ink-muted"
 )
 
 /**
@@ -178,13 +229,23 @@ function Table({
   className,
   surface = false,
   responsive = false,
+  bleed = false,
   containerClassName,
   scrollFocus = "auto",
   ...props
 }: React.ComponentProps<"table"> & {
   surface?: boolean
-  /** Record cards below 48rem of container width. */
-  responsive?: boolean
+  /**
+   * Record cards below 48rem of container width. `"list"` draws them with
+   * the list-row anatomy (see `LIST_CLASS`): no card edge, inset hairlines,
+   * a `leading` avatar column.
+   */
+  responsive?: boolean | "list"
+  /**
+   * With `responsive="list"`: on a phone the rows run edge to edge
+   * (cancelling the page frame's padding) and `surface` draws no card.
+   */
+  bleed?: boolean
   containerClassName?: string
   /** When the scroll container is a tab stop; see above. */
   scrollFocus?: "auto" | "always" | "never"
@@ -193,14 +254,22 @@ function Table({
   const scrolls = useScrollsHorizontally(ref)
   const focusable =
     scrollFocus === "always" || (scrollFocus === "auto" && scrolls)
+  const list = responsive === "list"
   return (
     <div
       ref={ref}
       data-slot="table-container"
       data-scrolls={scrolls || undefined}
+      data-bleed={(list && bleed) || undefined}
       className={cn(
         "@container/table w-full min-w-0 overflow-x-auto focus-halo",
         surface && "rounded-(--np-radius-card) border border-line bg-surface",
+        // A list on a phone is flat: no card around its rows.
+        list &&
+          surface &&
+          "max-md:rounded-none max-md:border-0 max-md:bg-transparent",
+        // The same bleed as `ListRows bleed`, so the two line up on a screen.
+        list && bleed && cn(LIST_BLEED_CLASS, "max-md:w-auto"),
         containerClassName
       )}
       tabIndex={focusable ? 0 : undefined}
@@ -211,6 +280,7 @@ function Table({
         className={cn(
           "w-full caption-bottom border-collapse text-ui text-ink",
           responsive && RECORD_CLASS,
+          list && LIST_CLASS,
           className
         )}
         {...props}
@@ -221,7 +291,7 @@ function Table({
 
 /**
  * The header row sits on the sunken surface (reference `thead th`): caption
- * semibold muted labels. `sticky` pins it while a long table scrolls inside
+ * medium muted labels in sentence case (D8; never mono uppercase). `sticky` pins it while a long table scrolls inside
  * its own scroll port.
  */
 function TableHeader({
@@ -269,7 +339,7 @@ function TableRow({
         "border-b border-line transition-colors duration-(--np-duration-fast) ease-spring-snappy last:border-0 hover-fine:hover:bg-surface-alt",
         "aria-selected:bg-accent-tint data-[selected=true]:bg-accent-tint",
         group &&
-          "bg-surface-alt text-caption font-semibold text-ink-secondary hover-fine:hover:bg-surface-alt [&>td]:py-2",
+          "bg-surface-alt text-caption font-medium text-ink-muted hover-fine:hover:bg-surface-alt [&>td]:py-2",
         interactive &&
           "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--np-focus-ring) active:bg-surface-alt",
         className
@@ -282,6 +352,8 @@ function TableRow({
 /**
  * `numeric` right-aligns the column in mono tabular figures, so a column of
  * counts lines up. Set it on the head and every cell.
+ * On a record card a numeric cell is a labelled value, so it drops mono
+ * (tabular figures stay).
  */
 function TableHead({
   className,
@@ -293,7 +365,7 @@ function TableHead({
       scope="col"
       data-slot="table-head"
       className={cn(
-        "h-10 px-(--np-cell-px) py-2 text-left align-middle text-caption font-semibold whitespace-nowrap text-ink-muted",
+        "h-10 px-(--np-cell-px) py-2 text-left align-middle text-caption font-medium whitespace-nowrap text-ink-muted",
         numeric && "text-right",
         className
       )}
@@ -359,6 +431,7 @@ function TableCell({
       data-label={label || undefined}
       data-span={span || undefined}
       data-priority={resolved}
+      data-numeric={numeric || undefined}
       className={cn(
         "px-(--np-cell-px) py-(--np-row-py) align-middle",
         numeric && "text-right font-mono whitespace-nowrap tabular-nums",

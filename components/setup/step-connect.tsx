@@ -1,11 +1,13 @@
 "use client"
 
-import { CircleCheckIcon, Link2Icon } from "lucide-react"
+import { CheckIcon, CircleCheckIcon, Link2Icon, XIcon } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Avatar } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { QueryStates } from "@/components/ui/query-states"
 import { RelativeTime } from "@/components/ui/relative-time"
 import { StatusPill } from "@/components/ui/status-pill"
@@ -14,7 +16,6 @@ import { describeActionError } from "@/lib/errors/action-errors"
 import { useClientMutations } from "@/lib/queries/use-clients"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
 import { describeGoogleConnectStatus } from "@/lib/setup/oauth-status"
-import { cardClassName } from "@/components/ui/card"
 
 /**
  * Choose the Google login that manages this client's Business Profile.
@@ -145,23 +146,23 @@ function StepConnect({
             </Alert>
           ) : null}
 
-          <div
-            className={cardClassName({
-              className:
-                "flex flex-col gap-3 p-3.5 @min-[520px]/wiz:flex-row @min-[520px]/wiz:items-center",
-            })}
-          >
+          {/* The focused step (Notion Mail's "Connect" sheet, in page): a
+              neutral tile, the ask, one full-width sign-in, then what the
+              consent covers and what it never does. The scopes are the ones
+              `lib/server/google/oauth.ts` requests (openid, email, profile,
+              business.manage) and nothing more. */}
+          <div className="flex max-w-lg flex-col items-start gap-4">
             <span
               aria-hidden
-              className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ink-secondary [&_svg]:size-4"
+              className="grid size-11 shrink-0 place-items-center rounded-lg bg-fill text-ink [&_svg]:size-5"
             >
               <Link2Icon strokeWidth={1.75} />
             </span>
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <h3 className="text-body font-semibold text-ink">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h3 className="text-title font-semibold text-ink">
                 Connect a Google account
               </h3>
-              <p className="text-ui text-ink-muted">
+              <p className="text-body text-pretty text-ink-muted">
                 Sign in to the Google account that manages{" "}
                 {business ? "your" : `${clientName}’s`} Business Profile. You’ll
                 sign in on Google’s own page and come straight back to the next
@@ -170,15 +171,41 @@ function StepConnect({
             </div>
             <Button
               id="setup-connect-google"
+              size="lg"
+              block
               variant={usable.length === 0 ? "default" : "secondary"}
               onClick={() => void connect()}
               pending={starting && startingFor === null}
               pendingLabel="Opening Google…"
               disabled={starting}
-              className="self-start @min-[520px]/wiz:self-center"
             >
               Sign in with Google
             </Button>
+            <div className="grid w-full gap-4 @min-[520px]/wiz:grid-cols-2">
+              <ScopeList
+                id="setup-connect-allows"
+                label="What Google asks you to allow"
+                icon={<CheckIcon />}
+                items={[
+                  "See your name and email address, so you know which login is connected",
+                  "Manage your Business Profiles: reviews and replies, profile details, posts, photos and the listings themselves",
+                ]}
+              />
+              <ScopeList
+                id="setup-connect-never"
+                label="What NabaPresence never does"
+                icon={<XIcon />}
+                items={[
+                  "Send anything to Google unless someone on your team publishes, approves or schedules it",
+                  "See or store your Google password",
+                  "Read your Gmail",
+                ]}
+              />
+            </div>
+            <p className="text-caption text-ink-muted">
+              You can disconnect the account at any time from Settings, under
+              Google connections.
+            </p>
           </div>
 
           <section
@@ -187,7 +214,7 @@ function StepConnect({
           >
             <h3
               id="setup-connected-logins"
-              className="font-mono text-[0.71875rem] leading-4 font-medium tracking-[0.06em] text-ink-muted uppercase"
+              className="text-ui font-medium text-ink-muted"
             >
               Use an account already connected
             </h3>
@@ -202,70 +229,83 @@ function StepConnect({
                 You haven’t connected a Google account yet.
               </p>
             ) : (
-              <ul className="flex flex-col gap-2">
+              // Notion Mail's list rows. Each row carries its own buttons, so
+              // the row itself is not a target (`interactive={false}`). On a
+              // phone the list runs to the screen edge like the step around
+              // it; in the md+ card the rows drop their own gutter so they
+              // line up with the rest of the step.
+              <ListRows bleed>
                 {connections.map((connection) => {
                   const broken =
                     connection.reconnectRequired ||
                     connection.status !== "active"
                   return (
-                    <li
+                    <ListRow
                       key={connection.id}
-                      className={cardClassName({
-                        className:
-                          "flex flex-wrap items-start gap-x-3 gap-y-1.5 p-3.5",
-                      })}
-                    >
-                      <span
-                        aria-hidden
-                        className="grid size-8 shrink-0 place-items-center rounded-(--np-radius-control) bg-fill text-ui font-semibold text-ink-secondary"
-                      >
-                        G
-                      </span>
-                      <div className="flex min-w-0 flex-[1_1_12rem] flex-col gap-0.5">
-                        <span className="text-body font-semibold [overflow-wrap:anywhere] text-ink">
+                      interactive={false}
+                      emphasis="neutral"
+                      className="md:px-0"
+                      wrapperClassName="md:after:start-12 md:after:end-0 desk:after:start-11"
+                      leading={
+                        <Avatar size="list" aria-hidden>
+                          G
+                        </Avatar>
+                      }
+                      title={
+                        // The whole address, wrapped: which login this is
+                        // must never be cut off.
+                        <span className="wrap-anywhere whitespace-normal">
                           {connection.googleEmail ?? "Google account"}
                         </span>
-                        <span className="text-caption text-ink-muted">
-                          {connection.lastRefreshAt ? (
-                            <RelativeTime
-                              iso={connection.lastRefreshAt}
-                              prefix="Refreshed "
-                            />
-                          ) : (
-                            "Not refreshed yet"
-                          )}
-                        </span>
-                        {broken ? (
-                          <span className="text-caption text-ink-muted">
-                            Reconnect it to use it here. Google opens, then you
-                            come straight back to this step.
-                          </span>
-                        ) : null}
-                      </div>
-                      {broken ? (
-                        <span className="flex flex-wrap items-center gap-2">
+                      }
+                      subtitle={
+                        connection.lastRefreshAt ? (
+                          <RelativeTime
+                            iso={connection.lastRefreshAt}
+                            prefix="Refreshed "
+                          />
+                        ) : (
+                          "Not refreshed yet"
+                        )
+                      }
+                      trailing={
+                        broken ? (
                           <StatusPill tone="bad">Needs reconnecting</StatusPill>
-                          {/* Same reconnect as Settings' connection card:
-                              target this login so Google pre-fills it and
-                              the callback renews it rather than adding one. */}
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            pending={starting && startingFor === connection.id}
-                            pendingLabel="Opening Google…"
-                            disabled={starting}
-                            onClick={() => void connect(connection.id)}
-                            aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
-                          >
-                            Reconnect
-                          </Button>
-                        </span>
-                      ) : (
-                        <span className="flex flex-wrap items-center gap-2">
+                        ) : (
                           <StatusPill tone="ok">Connected</StatusPill>
+                        )
+                      }
+                      tags={
+                        broken ? (
+                          <>
+                            <span className="w-full text-caption text-ink-muted">
+                              Reconnect it to use it here. Google opens, then
+                              you come straight back to this step.
+                            </span>
+                            {/* Same reconnect as Settings' connection card:
+                                target this login so Google pre-fills it and
+                                the callback renews it rather than adding
+                                one. */}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="mt-1"
+                              pending={
+                                starting && startingFor === connection.id
+                              }
+                              pendingLabel="Opening Google…"
+                              disabled={starting}
+                              onClick={() => void connect(connection.id)}
+                              aria-label={`Reconnect ${connection.googleEmail ?? "this Google account"}`}
+                            >
+                              Reconnect
+                            </Button>
+                          </>
+                        ) : (
                           <Button
                             size="sm"
                             variant="secondary"
+                            className="mt-1"
                             pending={
                               attachConnection.isPending &&
                               attachConnection.variables?.connectionId ===
@@ -278,12 +318,12 @@ function StepConnect({
                           >
                             Use this account
                           </Button>
-                        </span>
-                      )}
-                    </li>
+                        )
+                      }
+                    />
                   )
                 })}
-              </ul>
+              </ListRows>
             )}
             {usable.length > 0 ? (
               <p className="text-caption text-ink-muted">
@@ -293,15 +333,43 @@ function StepConnect({
               </p>
             ) : null}
           </section>
-
-          <p className="text-caption text-ink-muted">
-            NabaPresence reads reviews, replies to them and edits the profile
-            fields you approve. Nothing reaches Google until a person approves
-            it.
-          </p>
         </div>
       )}
     </QueryStates>
+  )
+}
+
+/** One half of the consent explanation: a plain label over short lines. */
+function ScopeList({
+  id,
+  label,
+  icon,
+  items,
+}: {
+  id: string
+  label: string
+  icon: React.ReactNode
+  items: string[]
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <p id={id} className="text-ui font-medium text-ink-muted">
+        {label}
+      </p>
+      <ul aria-labelledby={id} className="flex flex-col gap-2">
+        {items.map((item) => (
+          <li key={item} className="flex items-start gap-2 text-ui text-ink">
+            <span
+              aria-hidden
+              className="mt-0.5 shrink-0 text-ink-secondary [&_svg]:size-4"
+            >
+              {icon}
+            </span>
+            <span className="min-w-0">{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

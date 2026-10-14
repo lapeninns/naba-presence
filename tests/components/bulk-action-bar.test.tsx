@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, within } from "@testing-library/react"
 import * as React from "react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -158,12 +158,15 @@ describe("BulkActionBar", () => {
     const bar = await screen.findByRole("region", { name: "Selected reviews" })
     expect(bar).toHaveAttribute("data-docked", "bottom")
     expect(bar).toHaveAttribute("data-slot", "bulk-action-bar")
-    // The shared ActionBar's dock: fixed on a phone, sticky from md, riding
-    // the keyboard, with a spacer keeping the last row reachable above it.
-    expect(bar).toHaveClass("sticky", "z-chrome", "max-md:fixed")
-    expect(bar.className).toContain("pb-[var(--np-dock-bottom)]")
+    // The shared SelectionBar's dock: fixed on a phone, sticky from md,
+    // riding the keyboard, with a spacer keeping the last row reachable
+    // above it.
+    expect(bar).toHaveClass("md:sticky", "z-chrome", "max-md:fixed")
+    expect(bar.className).toContain(
+      "max-md:pb-[max(--spacing(2),var(--np-dock-bottom))]"
+    )
     expect(
-      bar.parentElement?.querySelector('[data-slot="action-bar-spacer"]')
+      bar.parentElement?.querySelector('[data-slot="selection-bar-spacer"]')
     ).not.toBeNull()
   })
 
@@ -423,11 +426,55 @@ describe("BulkActionBar", () => {
   })
 
   it("keeps the touch row to the count, the overflow and one primary", async () => {
+    const user = userEvent.setup()
     renderBar([row("a")], ["a"])
-    // The quick clear is a desk extra; on touch it is an overflow item.
+    const bar = await screen.findByRole("region", { name: "Selected reviews" })
+    // Clear is the bar header's own 44px text button at every width, beside
+    // "1 selected"; the tiles are only the overflow and one primary.
+    const clearButton = within(bar).getByRole("button", {
+      name: "Clear selection",
+    })
+    expect(clearButton).toHaveAttribute("data-slot", "selection-bar-cancel")
+    expect(clearButton).toHaveClass("min-h-(--np-touch)", "min-w-(--np-touch)")
     expect(
-      await screen.findByRole("button", { name: "Clear selection" })
-    ).toHaveClass("hidden", "desk:inline-flex")
+      within(within(bar).getByRole("toolbar")).getAllByRole("button")
+    ).toHaveLength(2)
+    await user.click(clearButton)
+    expect(
+      screen.queryByRole("region", { name: "Selected reviews" })
+    ).not.toBeInTheDocument()
+  })
+
+  // SelectionBar look: below md the overflow and the primary are 64px tiles,
+  // an icon over a caption (inline buttons from md); the Approve that
+  // publishes to Google is the charcoal tile; "N selected" stays in it.
+  it("draws the phone's actions as 64px tiles, icon over label", async () => {
+    renderBar([row("a")], ["a"])
+    const bar = await screen.findByRole("region", { name: "Selected reviews" })
+    expect(within(bar).getByText("1 selected")).toBeInTheDocument()
+    expect(
+      within(bar).getByRole("button", { name: "Approve 1" })
+    ).toHaveAttribute("data-tone", "charcoal")
+    expect(
+      within(bar).getByRole("button", { name: "More actions" })
+    ).toHaveAttribute("data-tone", "default")
+    expect(
+      within(bar).getByRole("button", { name: "Approve 1" })
+    ).toHaveAttribute("data-slot", "selection-bar-tile")
+    for (const name of ["Approve 1", "More actions"]) {
+      const tile = within(bar).getByRole("button", { name })
+      expect(tile).toHaveClass(
+        "min-h-16",
+        "min-w-16",
+        "flex-col",
+        "text-caption",
+        "md:flex-row"
+      )
+      expect(tile.querySelector("svg")).not.toBeNull()
+    }
+    // The overflow tile's caption begins its accessible name (2.5.3).
+    const more = within(bar).getByRole("button", { name: "More actions" })
+    expect(more).toHaveTextContent("More")
   })
 
   it("lists the assignees in the phone's action sheet instead of a flyout", async () => {
@@ -438,8 +485,12 @@ describe("BulkActionBar", () => {
       await screen.findByRole("button", { name: "More actions" })
     )
     expect(
-      await screen.findByRole("menuitem", { name: "Clear selection" })
+      await screen.findByRole("menuitem", { name: "No reply needed" })
     ).toBeInTheDocument()
+    // Clear is the bar's own button now, not repeated in the sheet.
+    expect(
+      screen.queryByRole("menuitem", { name: "Clear selection" })
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("menuitem", { name: "Assign…" })
     ).not.toBeInTheDocument()

@@ -9,6 +9,11 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
+  OptionRow,
+  OptionRowGroup,
+  OptionSeparator,
+} from "@/components/ui/option-row"
+import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control"
@@ -21,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import {
   Sheet,
+  SheetBack,
   SheetBody,
   SheetContent,
   SheetDescription,
@@ -46,11 +52,23 @@ import {
   slotProblemMessage,
   type ScheduleRule,
 } from "@/lib/domain/publication-schedule"
+import {
+  PRESET_TIME,
+  formatWallDay,
+  presetDates,
+  type SchedulePreset,
+} from "@/components/locations/posts/schedule-dates"
 import { usableSuggestion } from "@/lib/locations/schedule-display"
 import { queryKeys } from "@/lib/queries/keys"
 import { COMMON_TIMEZONES, timezoneLabel } from "@/lib/settings/timezones"
+import { cn } from "@/lib/utils"
 
 type Frequency = ScheduleRule["frequency"]
+/** Which preset row is chosen; "custom" is a date and time of one's own. */
+type When = SchedulePreset | "custom"
+/** The inset sheet's pages: the preset rows, and the pushed full form. */
+type Page = "presets" | "custom"
+const TITLE = "Schedule publication"
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 /** Read only from the open handler, never during render. */
@@ -102,6 +120,15 @@ function initial(
  * organisation has repeating schedules switched on (`recurring`).
  * `suggested` pre-fills a new schedule's date and time (an old per-post
  * time under review); `newTime` titles the sheet for a missed slot.
+ *
+ * A new one-time schedule (no `existing`, `suggested`, `newTime` or
+ * repeating option) opens as an inset sheet on preset rows (Notion Mail's
+ * "Schedule send"): "Tomorrow morning" and "Next Monday", each at 09:00 in
+ * the venue's zone and shown resolved with that zone, and "Pick a date and
+ * time", which pushes the full form inside the sheet (Back returns). A
+ * preset only fills the form's date and time: the same validation,
+ * expansion preview and single "Submit schedule for approval" follow, and
+ * nothing publishes. Every other case opens the full form directly.
  */
 export function SchedulePostSheet({
   locationId,
@@ -136,6 +163,12 @@ export function SchedulePostSheet({
     initial(existing, 0, recurring, zone, suggested)
   )
   const [failure, setFailure] = useState<string | null>(null)
+  const offerPresets = !existing && !recurring && !newTime && !suggested
+  const [when, setWhen] = useState<When>("tomorrow")
+  const [page, setPage] = useState<Page>("presets")
+  // Read from the moment the sheet opened, in the venue's zone.
+  const presets =
+    offerPresets && openedAt ? presetDates(openedAt, timezone) : null
   // Any change to the opening values: a swipe or tap outside then asks
   // before throwing the schedule away.
   const [touched, setTouched] = useState(false)
@@ -275,10 +308,56 @@ export function SchedulePostSheet({
   function show() {
     const at = currentTime()
     setOpenedAt(at)
-    setForm(initial(existing, at, recurring, zone, suggested))
+    // The form opens on its usual default (the date 24 hours on, at 09:00)
+    // in the zone last chosen here, never reset to the venue's.
+    const start = initial(existing, at, recurring, zone, suggested)
+    setForm(start)
+    if (offerPresets) {
+      // A preset row is chosen only when it is exactly that default.
+      const dates = presetDates(at, timezone)
+      const match =
+        zone === timezone && start.localTime === PRESET_TIME
+          ? (["tomorrow", "monday"] as const).find(
+              (preset) => dates[preset] === start.startDate
+            )
+          : undefined
+      setWhen(match ?? "custom")
+      setPage("presets")
+    }
     setTouched(false)
     setOpen(true)
   }
+  /** A preset fills the form's date and time, and nothing else. */
+  function choose(next: SchedulePreset) {
+    setWhen(next)
+    if (!presets) return
+    setTouched(true)
+    setZone(timezone)
+    setForm((current) => ({
+      ...current,
+      startDate: presets[next],
+      localTime: PRESET_TIME,
+      offsetMinutes: null,
+    }))
+  }
+  /** "Thu 15 Oct, 09:00 · venue time (Europe/London)", or why it can't be. */
+  function presetLine(date: string) {
+    const plan = planOnceSlot(
+      { startDate: date, localTime: PRESET_TIME },
+      timezone,
+      null,
+      new Date(openedAt)
+    )
+    const line = `${formatWallDay(date)}, ${PRESET_TIME} · venue time (${timezone})`
+    return plan.ok ? line : `${line}. ${slotProblemMessage(plan.problem)}`
+  }
+  /** The custom row's sub-label: the date and time chosen, once there is one. */
+  const customLine =
+    when === "custom" && parsed.success
+      ? `${formatWallDay(parsed.data.startDate)}, ${parsed.data.localTime} · ${timezoneLabel(zone)}`
+      : "Choose the day, the time and the timezone."
+  const onPresets = offerPresets && page === "presets"
+  const showForm = !offerPresets || page === "custom"
   useImperativeHandle(openRef, () => ({ open: show }))
 
   return (
@@ -306,14 +385,30 @@ export function SchedulePostSheet({
           confirmLabel: "Discard schedule",
         }}
       >
-        <SheetContent side="right" size="wide" className="flex flex-col gap-0">
-          <SheetHeader>
+        <SheetContent
+          side="right"
+          // The presets are a short choice list: an inset sheet on a phone,
+          // a centred dialog from `sm`. The full form keeps the wide sheet.
+          variant={offerPresets ? "inset" : "edge"}
+          size={offerPresets ? "default" : "wide"}
+          className="flex flex-col gap-0"
+        >
+          <SheetHeader
+            page={offerPresets ? page : undefined}
+            back={
+              offerPresets && page === "custom" ? (
+                <SheetBack to={TITLE} onClick={() => setPage("presets")} />
+              ) : undefined
+            }
+          >
             <SheetTitle>
               {newTime
                 ? "Choose a new publication time"
                 : existing
                   ? "Change publication schedule"
-                  : "Schedule publication"}
+                  : offerPresets && page === "custom"
+                    ? "Pick a date and time"
+                    : TITLE}
             </SheetTitle>
             <SheetDescription>
               When NabaPresence publishes this post, separate from any repeat in
@@ -321,7 +416,14 @@ export function SchedulePostSheet({
               {existing ? ", and changing it needs a fresh approval" : ""}.
             </SheetDescription>
           </SheetHeader>
-          <SheetBody className="flex flex-col gap-5">
+          <SheetBody
+            className={cn(
+              "flex flex-col",
+              offerPresets ? "gap-3" : "gap-5",
+              // The pushed form keeps its fields off the inset card's edge.
+              offerPresets && page === "custom" && "px-4"
+            )}
+          >
             {recurring ? (
               <SegmentedControl
                 semantics="radio"
@@ -339,52 +441,87 @@ export function SchedulePostSheet({
                 </SegmentedControlItem>
               </SegmentedControl>
             ) : null}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel>
-                  {form.frequency === "once" ? "Date" : "Starting"}
-                </FieldLabel>
-                <Input
-                  type="date"
-                  value={form.startDate}
-                  onChange={(event) => set("startDate", event.target.value)}
+            {onPresets && presets ? (
+              <div className="flex flex-col gap-1">
+                <OptionRowGroup label="When to publish">
+                  <OptionRow
+                    indicator="radio"
+                    selected={when === "tomorrow"}
+                    label="Tomorrow morning"
+                    description={presetLine(presets.tomorrow)}
+                    onClick={() => choose("tomorrow")}
+                  />
+                  <OptionRow
+                    indicator="radio"
+                    selected={when === "monday"}
+                    label="Next Monday"
+                    description={presetLine(presets.monday)}
+                    onClick={() => choose("monday")}
+                  />
+                </OptionRowGroup>
+                <OptionSeparator />
+                {/* Pushes the full form, prefilled with what is chosen. */}
+                <OptionRow
+                  indicator="chevron"
+                  label="Pick a date and time"
+                  description={customLine}
+                  onClick={() => {
+                    setWhen("custom")
+                    setPage("custom")
+                  }}
                 />
-              </Field>
-              <Field>
-                <FieldLabel>Local time</FieldLabel>
-                <Input
-                  type="time"
-                  value={form.localTime}
-                  onChange={(event) => set("localTime", event.target.value)}
-                />
-              </Field>
-            </div>
-            <Field>
-              <FieldLabel>Timezone</FieldLabel>
-              <Select
-                value={zone}
-                onValueChange={(value) => {
-                  if (!value) return
-                  setTouched(true)
-                  setZone(value)
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(value: string | null) =>
-                      value ? timezoneLabel(value) : ""
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {zones.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {timezoneLabel(option)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+              </div>
+            ) : null}
+            {showForm ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field>
+                    <FieldLabel>
+                      {form.frequency === "once" ? "Date" : "Starting"}
+                    </FieldLabel>
+                    <Input
+                      type="date"
+                      value={form.startDate}
+                      onChange={(event) => set("startDate", event.target.value)}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>Local time</FieldLabel>
+                    <Input
+                      type="time"
+                      value={form.localTime}
+                      onChange={(event) => set("localTime", event.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Field>
+                  <FieldLabel>Timezone</FieldLabel>
+                  <Select
+                    value={zone}
+                    onValueChange={(value) => {
+                      if (!value) return
+                      setTouched(true)
+                      setZone(value)
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue>
+                        {(value: string | null) =>
+                          value ? timezoneLabel(value) : ""
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {zones.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {timezoneLabel(option)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </>
+            ) : null}
             {slot?.kind === "ambiguous" ? (
               <div className="flex flex-col gap-1.5">
                 <span id={`${id}-offset`} className="text-ui text-ink">
@@ -532,7 +669,11 @@ export function SchedulePostSheet({
             ) : null}
             <section
               aria-labelledby={`${id}-preview`}
-              className="flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt p-3"
+              className={cn(
+                "flex flex-col gap-2 rounded-(--np-radius-card) border border-line bg-surface-alt p-3",
+                // On the preset rows the preview lines up with their text.
+                onPresets && "mx-1"
+              )}
             >
               <h3
                 id={`${id}-preview`}
@@ -591,10 +732,15 @@ export function SchedulePostSheet({
             ) : null}
           </SheetBody>
           <SheetFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
+            {offerPresets ? null : (
+              // The inset sheet has its own close in the header; its one
+              // control down here is the submit.
+              <Button variant="ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            )}
             <Button
+              block={offerPresets}
               disabled={Boolean(problem)}
               pending={save.isPending}
               onClick={() => save.mutate()}

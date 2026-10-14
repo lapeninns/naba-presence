@@ -27,9 +27,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { SettingsGroup, SettingsRow } from "@/components/ui/settings-row"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
-import { useToastManager } from "@/components/ui/toast"
+import { useOutcomeToast } from "@/components/ui/toast"
 import { GOOGLE_NOTIFICATION_TYPES } from "@/lib/domain/google-contract"
 import { deriveAutoSelection } from "@/lib/connections/derive-auto-selection"
 import { useConnectionWorkspace } from "@/lib/queries/use-connection-workspace"
@@ -87,7 +87,7 @@ export function NotificationsCard() {
     null
 
   const setting = useNotificationSetting(accountId)
-  const toast = useToastManager()
+  const toast = useOutcomeToast()
   const ids = useId()
   const [topic, setTopic] = useState<string | null>(null)
   const [types, setTypes] = useState<Set<string> | null>(null)
@@ -239,6 +239,13 @@ export function NotificationsCard() {
   const currentTypes = types ?? new Set(server.notificationTypes ?? [])
   const topicEmpty = currentTopic.trim() === ""
   const dirty = topic !== null || types !== null
+  // The status line reports what Google has saved, not the unsaved edits
+  // (the footer says "Unsaved changes" for those), and "as they happen" only
+  // when new reviews are among the saved types.
+  const savedOn = (server.pubsubTopic ?? "").trim() !== ""
+  const savedNewReviews = (server.notificationTypes ?? []).includes(
+    "NEW_REVIEW"
+  )
   // Open by default only when a topic is already saved, and always when the
   // topic needs fixing; otherwise it follows the operator's own toggling
   // (never the field's contents, which would snap it shut mid-edit).
@@ -269,12 +276,13 @@ export function NotificationsCard() {
         onSuccess: () => {
           setTopic(null)
           setTypes(null)
-          toast.add({
+          // Written to Google's notification setting: an outcome, no Undo.
+          toast.show({
+            kind: "google",
             title:
               trimmed === ""
                 ? "Notifications turned off"
                 : "Notifications saved",
-            type: "success",
           })
         },
         onError: (error) => setSaveError(describeActionError(error)),
@@ -289,9 +297,11 @@ export function NotificationsCard() {
       {header}
       <div className="flex flex-col gap-5 p-(--np-card-pad)">
         <p className="text-ui text-ink-secondary" role="status">
-          {topicEmpty
+          {!savedOn
             ? "Off. Reviews arrive on the scheduled check."
-            : "On. Google sends new reviews as they happen."}
+            : savedNewReviews
+              ? "On. Google sends new reviews as they happen."
+              : "On, but not for new reviews. They arrive on the scheduled check."}
         </p>
         {/* The topic is Google Cloud plumbing, not something an agency
             chooses: it comes from whoever runs this NabaPresence install.
@@ -339,22 +349,22 @@ export function NotificationsCard() {
           aria-labelledby={typesLabelId}
           className="flex flex-col gap-1.5"
         >
-          <span id={typesLabelId} className="text-ui font-semibold text-ink">
+          <span id={typesLabelId} className="text-ui font-medium text-ink-muted">
             What Google should tell us about
           </span>
-          <ul className="flex flex-col divide-y divide-line rounded-(--np-radius-control) border border-line">
+          {/* Unlabelled: the group above names these rows, so the section
+              adds no landmark of its own. */}
+          <SettingsGroup card className="mt-0">
             {GOOGLE_NOTIFICATION_TYPES.map((type) => (
-              <li key={type} className="px-3">
-                <Switch
-                  label={describeNotificationType(type)}
-                  labelClassName="text-ui"
-                  checked={currentTypes.has(type)}
-                  disabled={topicEmpty}
-                  onCheckedChange={() => toggle(type)}
-                />
-              </li>
+              <SettingsRow
+                key={type}
+                label={describeNotificationType(type)}
+                checked={currentTypes.has(type)}
+                disabled={topicEmpty}
+                onCheckedChange={() => toggle(type)}
+              />
             ))}
-          </ul>
+          </SettingsGroup>
           {topicEmpty ? (
             <p className="text-caption text-ink-muted">
               Add a Pub/Sub topic under Advanced to choose what Google sends.

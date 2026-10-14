@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/combobox"
 import { Field, FieldLabel, FormError } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { usePhoneOverlay } from "@/components/ui/overlay"
 import {
   Select,
   SelectContent,
@@ -87,9 +88,11 @@ const ASSIGNEE_ITEMS: Record<string, string> = {
 }
 
 /**
- * Every narrowing the inbox offers, in one sheet (reference `#filters`). The
- * Sheet primitive draws it as a bottom sheet on a phone, where the thumb is,
- * and as a right-hand panel from there up.
+ * Every narrowing the inbox offers, in one sheet (reference `#filters`). On a
+ * phone it is the Sheet's `full` variant: the bottom sheet at full height,
+ * where the thumb is, with the title centred in the bar (more than seven
+ * controls, so not the `inset` card). From there up it stays the default
+ * edge sheet, a right-hand panel beside the list it narrows.
  *
  * The toolbar keeps a few of these on screen where the width allows (see
  * FilterToolbar); the sheet holds all of them at every width, so a phone
@@ -134,6 +137,7 @@ function FiltersSheet({
   const assigneeId = useId()
   const ageId = useId()
   const ownerId = useId()
+  const phone = usePhoneOverlay()
   const clientItems: Record<string, string> = {
     "": "All clients",
     ...Object.fromEntries(clients.map((client) => [client.id, client.name])),
@@ -158,7 +162,11 @@ function FiltersSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent data-slot="inbox-filters-sheet" className="sm:max-w-md">
+      <SheetContent
+        data-slot="inbox-filters-sheet"
+        variant={phone ? "full" : "edge"}
+        className="sm:max-w-md"
+      >
         <SheetHeader>
           <SheetTitle>Filters</SheetTitle>
           <SheetDescription>

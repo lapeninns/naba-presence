@@ -1,12 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { SlidersHorizontalIcon } from "lucide-react"
 
 import { FiltersSheet } from "@/components/inbox/more-filters"
 import { ReviewSortSelect } from "@/components/inbox/review-filters"
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
-import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -14,6 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { FilterButton } from "@/components/ui/toolbar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { REVIEW_AGE_LABELS, isReviewAge } from "@/lib/inbox/review-age"
 import {
   approvalOwner,
@@ -145,15 +149,16 @@ function OwnerSelect({
 }
 
 /**
- * The filter end of the toolbar (reference `.filters`): as few controls as
- * the width allows, and everything behind one Filters sheet.
+ * The filter end of the toolbar (reference `.filters`), in the `Toolbar`
+ * primitive's filter slot beside the search: as few controls as the width
+ * allows, and everything behind one Filters sheet.
  *
  * - `xl` and up: age, "waiting on" (Approval only) and sort stay on screen
  *   beside the button. Rating is in the sheet, where its five toggles have
  *   room, and its chip shows above the list once it is on.
  * - `lg` to `xl`: sort and the button.
- * - Below `lg`: the button alone; beside the queue strip a sort select has
- *   no room to say what it sorts by. On a phone it sits beside the search.
+ * - Below `lg`: the button alone; beside a narrow search a sort select has
+ *   no room to say what it sorts by.
  *
  * The sheet always holds every control, so nothing is out of reach at any
  * width; the inline copies are shortcuts to the ones used most.
@@ -211,26 +216,25 @@ function FilterToolbar({
         className="w-auto shrink-0 max-lg:hidden"
       />
 
-      <Button
-        type="button"
-        variant="secondary"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={count > 0 ? `Filters, ${count} active` : "Filters"}
-        onClick={() => setOpen(true)}
-        className="shrink-0"
-      >
-        <SlidersHorizontalIcon aria-hidden data-icon="inline-start" />
-        Filters
-        {count > 0 ? (
-          <span
-            aria-hidden
-            className="inline-flex h-5 min-w-5 items-center justify-center rounded-(--np-radius-pill) bg-ink px-1 font-mono text-caption leading-none font-semibold text-canvas tabular-nums"
-          >
-            {count}
-          </span>
-        ) : null}
-      </Button>
+      {/* The Toolbar's Filter button (Notion Mail's circle): 44px on
+          touch, the control height at the desk. Its name says how many are
+          on ("Filters, 2 active"); while any is, the icon takes the accent
+          ink and the count badge rides its corner. The word is not drawn, so
+          a desk pointer gets it as a tooltip (never on touch, and never the
+          name: the button carries its own). */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <FilterButton
+              count={count}
+              aria-haspopup="dialog"
+              aria-expanded={open}
+              onClick={() => setOpen(true)}
+            />
+          }
+        />
+        <TooltipContent>Filters</TooltipContent>
+      </Tooltip>
 
       <FiltersSheet
         open={open}

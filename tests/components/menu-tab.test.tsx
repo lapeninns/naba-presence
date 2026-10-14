@@ -71,6 +71,24 @@ function renderTab() {
   return { ...view, rerenderTab: () => view.rerender(tree()) }
 }
 
+/** Opens an item's sheet from its row; its fields are edited there. */
+async function openItem(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await user.click(screen.getByRole("button", { name: `Edit ${name}` }))
+  return screen.findByRole("dialog")
+}
+
+async function closeItem(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Done" })
+  )
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+}
+
 afterEach(() => {
   vi.clearAllMocks()
   vi.restoreAllMocks()
@@ -90,8 +108,9 @@ describe("MenuTab", () => {
     })
     renderTab()
     expect(screen.getByDisplayValue("Starters")).toBeInTheDocument()
-    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
-    expect(screen.getByDisplayValue("6.50")).toBeInTheDocument()
+    const soup = screen.getByRole("button", { name: "Edit Soup" })
+    expect(soup).toHaveTextContent("Soup")
+    expect(soup).toHaveTextContent("£6.50")
     expect(
       screen.getByRole("button", { name: "Review changes" })
     ).toBeInTheDocument()
@@ -118,9 +137,11 @@ describe("MenuTab", () => {
     })
     renderTab()
 
+    await openItem(user, "Soup")
     const item = screen.getByDisplayValue("Soup")
     await user.clear(item)
     await user.type(item, "Broth")
+    await closeItem(user)
 
     await user.click(screen.getByRole("button", { name: "Discard" }))
     const dialog = await screen.findByRole("alertdialog")
@@ -130,7 +151,9 @@ describe("MenuTab", () => {
     await user.click(
       within(dialog).getByRole("button", { name: "Keep editing" })
     )
-    expect(screen.getByDisplayValue("Broth")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Edit Broth" })
+    ).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "Save here" }))
     await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1))
@@ -210,9 +233,11 @@ describe("menu draft preservation across revisions", () => {
       .spyOn(menuApi, "saveFoodMenus")
       .mockRejectedValue(new Error("Save failed"))
     const view = renderTab()
+    await openItem(user, "Soup")
     const name = screen.getByDisplayValue("Soup")
     await user.clear(name)
     await user.type(name, "My soup")
+    await closeItem(user)
     await user.click(screen.getByRole("button", { name: "Save here" }))
     await waitFor(() => expect(save).toHaveBeenCalled())
     await waitFor(() =>
@@ -228,7 +253,9 @@ describe("menu draft preservation across revisions", () => {
       refetch: vi.fn(),
     })
     view.rerenderTab()
-    expect(screen.getByDisplayValue("My soup")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Edit My soup" })
+    ).toBeInTheDocument()
     expect(
       screen.getByText("Someone else saved this menu while you were editing")
     ).toBeInTheDocument()
@@ -262,9 +289,11 @@ describe("menu draft preservation across revisions", () => {
       .spyOn(menuApi, "publishFoodMenus")
       .mockResolvedValue({ status: "published" })
     const view = renderTab()
+    await openItem(user, "Soup")
     const price = screen.getByDisplayValue("6.50")
     await user.clear(price)
     await user.type(price, "7.00")
+    await closeItem(user)
     await user.click(screen.getByRole("button", { name: "Review changes" }))
     await user.click(screen.getByRole("button", { name: "Publish to Google" }))
     await waitFor(() => expect(publish).toHaveBeenCalled())
@@ -280,7 +309,10 @@ describe("menu draft preservation across revisions", () => {
       screen.queryByText("Someone else saved this menu while you were editing")
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Save here" })).toBeDisabled()
-    expect(screen.getByDisplayValue("7")).toBeInTheDocument()
+    // The row reads the stored price, not the typed "7.00".
+    expect(
+      screen.getByRole("button", { name: "Edit Soup", hidden: true })
+    ).toHaveAccessibleDescription("£7")
   })
   it("keeps typing focus after review and focuses errors only on another attempt", async () => {
     const user = userEvent.setup()
@@ -312,5 +344,42 @@ describe("menu draft preservation across revisions", () => {
         name: "1 problem to fix before saving or publishing",
       })
     ).toHaveFocus()
+  })
+  it("opens an item's sheet on the field a summary link names", async () => {
+    const user = userEvent.setup()
+    useMenuMock.mockReturnValue({
+      data: makeMenus(),
+      isPending: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    useCapsMock.mockReturnValue({
+      data: { canEditCanonical: true, canPublish: true },
+    })
+    renderTab()
+    await openItem(user, "Soup")
+    await user.clear(screen.getByDisplayValue("Soup"))
+    await closeItem(user)
+    await user.click(screen.getByRole("button", { name: "Review changes" }))
+    const summary = screen.getByRole("alert", {
+      name: "1 problem to fix before saving or publishing",
+    })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await user.click(
+      within(summary).getByRole("link", {
+        name: "Starters, item 1: name this item.",
+      })
+    )
+    const field = await screen.findByRole("textbox", {
+      name: "Item name — section 1, item 1",
+    })
+    await waitFor(() => expect(field).toHaveFocus())
+    expect(field).toHaveAttribute("aria-invalid", "true")
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        "Starters, item 1: name this item."
+      )
+    ).toBeInTheDocument()
   })
 })

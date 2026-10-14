@@ -1,12 +1,19 @@
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   MenuEditor,
   stripDraftKeys,
   validateMenu,
+  type MenuFieldNavigator,
 } from "@/components/locations/menu-editor"
 import { ValidationSummary } from "@/components/ui/validation-summary"
 import type { FoodMenu } from "@/lib/api/location-menu"
@@ -21,6 +28,44 @@ async function rowAction(
 ) {
   await user.click(screen.getByRole("button", { name: trigger }))
   await user.click(await screen.findByRole("menuitem", { name: action }))
+}
+
+/**
+ * The menu switcher is the shared Select (a combobox and a listbox), not a
+ * native <select>: open it and pick the menu by name.
+ */
+function menuSwitcher() {
+  return screen.getByRole("combobox", { name: "Menu" })
+}
+
+/**
+ * Items are list rows; their fields live in the item's sheet. Opens the
+ * sheet from the row ("Edit Soup") and returns it.
+ */
+async function openItem(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await user.click(screen.getByRole("button", { name: `Edit ${name}` }))
+  return screen.findByRole("dialog")
+}
+
+/** Closes the open item sheet with its Done button. */
+async function closeItem(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Done" })
+  )
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  )
+}
+
+async function chooseMenu(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+) {
+  await user.click(menuSwitcher())
+  await user.click(await screen.findByRole("option", { name }))
 }
 
 function fixture(): FoodMenu[] {
@@ -87,15 +132,21 @@ function Harness({
 }) {
   const [menus, setMenus] = useState(initial)
   const [attempt, setAttempt] = useState(0)
+  const navigator = useRef<MenuFieldNavigator>(null)
   const problems = attempt > 0 ? validateMenu(menus) : []
   return (
     <>
-      <ValidationSummary errors={problems} focusKey={attempt} />
+      <ValidationSummary
+        errors={problems}
+        focusKey={attempt}
+        onNavigate={(fieldId) => navigator.current?.(fieldId)}
+      />
       <MenuEditor
         menus={menus}
         disabled={disabled}
         problems={problems}
         validationAttempt={attempt}
+        navigatorRef={navigator}
         onChange={(next) => {
           setMenus(next)
           onChange(next)
@@ -121,13 +172,18 @@ describe("MenuEditor structured workspace", () => {
     const onChange = vi.fn()
     render(<Harness onChange={onChange} />)
     expect(onChange).not.toHaveBeenCalled()
-    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Lunch")
+    // The item is a row: its name, price (as typed) and description.
+    const soup = screen.getByRole("button", { name: "Edit Soup" })
+    expect(soup).toHaveTextContent("Soup")
+    expect(soup).toHaveTextContent("€6.50")
+    expect(soup).toHaveAccessibleDescription("€6.50 Made fresh")
+    expect(menuSwitcher()).toHaveTextContent(/^Lunch$/)
   })
 
   it("keeps a decimal point and fractional digits during ordinary typing", async () => {
     const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     const price = screen.getByLabelText("Price (EUR)")
     await user.clear(price)
     await user.type(price, "12.")
@@ -142,7 +198,9 @@ describe("MenuEditor structured workspace", () => {
   })
 
   it("keeps prices exact rather than rounding to two places", async () => {
+    const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     fireEvent.change(screen.getByLabelText("Price (EUR)"), {
       target: { value: "12.999" },
     })
@@ -157,9 +215,11 @@ describe("MenuEditor structured workspace", () => {
   it("does not serialize invalid input and marks it invalid", async () => {
     const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     const price = screen.getByLabelText("Price (EUR)")
     fireEvent.change(price, { target: { value: "12,50" } })
     expect(price).toHaveValue("12,50")
+    await closeItem(user)
     expect(screen.getByTestId("valid")).toHaveTextContent("false")
     expect(wire()[0].sections[0].items[0].attributes.price.units).toBe("6")
     expect(screen.getByRole("tab", { name: "Preview" })).toHaveAttribute(
@@ -167,14 +227,30 @@ describe("MenuEditor structured workspace", () => {
       "true"
     )
     await user.click(screen.getByRole("button", { name: "Validate" }))
+    // The closed sheet's error is said on the row, in words.
+    const message = "Lunch · Soup: enter the price as an amount, like 12.50."
+    expect(
+      screen.getByRole("button", { name: "Edit Soup" })
+    ).toHaveAccessibleDescription(expect.stringContaining(message))
+    // The summary's link opens the sheet on the field.
+    await user.click(
+      within(screen.getByRole("alert")).getByRole("link", {
+        name: /enter the price as an amount/,
+      })
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText("Price (EUR)")).toHaveFocus()
+    )
     expect(screen.getByLabelText("Price (EUR)")).toHaveAttribute(
       "aria-invalid",
       "true"
     )
   })
 
-  it("keeps the currency when a price is cleared and re-entered", () => {
+  it("keeps the currency when a price is cleared and re-entered", async () => {
+    const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     const price = screen.getByLabelText("Price (EUR)")
     fireEvent.change(price, { target: { value: "" } })
     expect(wire()[0].sections[0].items[0].attributes.price).toBeUndefined()
@@ -191,41 +267,70 @@ describe("MenuEditor structured workspace", () => {
   it("retains unfinished input across a menu switch and shows hidden errors", async () => {
     const user = userEvent.setup()
     render(<Harness />)
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Dinner" })
-    )
+    await chooseMenu(user, "Dinner")
+    await openItem(user, "Curry")
     fireEvent.change(screen.getByLabelText("Price (GBP)"), {
       target: { value: "." },
     })
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Lunch" })
-    )
+    await closeItem(user)
+    await chooseMenu(user, "Lunch")
     expect(screen.getByTestId("valid")).toHaveTextContent("false")
     await user.click(screen.getByRole("button", { name: "Validate" }))
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Dinner")
-    expect(screen.getByLabelText("Price (GBP)")).toHaveValue(".")
+    expect(menuSwitcher()).toHaveTextContent(/^Dinner$/)
+    expect(
+      screen.getByRole("button", { name: "Edit Curry" })
+    ).toHaveTextContent("£.")
     const summary = screen.getByRole("alert")
     expect(summary).toHaveTextContent("Dinner · Curry")
+    await user.click(within(summary).getByRole("link", { name: /Curry/ }))
+    await waitFor(() =>
+      expect(screen.getByLabelText("Price (GBP)")).toHaveFocus()
+    )
+    expect(screen.getByLabelText("Price (GBP)")).toHaveValue(".")
+  })
+
+  it("leaves a summary link to a field in another menu where it was", async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    await openItem(user, "Soup")
+    fireEvent.change(screen.getByLabelText("Price (EUR)"), {
+      target: { value: "1,5" },
+    })
+    await closeItem(user)
+    await chooseMenu(user, "Dinner")
+    await openItem(user, "Curry")
+    fireEvent.change(screen.getByLabelText("Price (GBP)"), {
+      target: { value: "." },
+    })
+    await closeItem(user)
+    await user.click(screen.getByRole("button", { name: "Validate" }))
+    // Dinner has a problem, so it stays the menu on screen.
+    expect(menuSwitcher()).toHaveTextContent(/^Dinner$/)
+    // Lunch's field isn't on screen: its link neither switches menu nor
+    // opens a sheet, as the inline field's link couldn't reach it either.
+    await user.click(
+      within(screen.getByRole("alert")).getByRole("link", { name: /Soup/ })
+    )
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(menuSwitcher()).toHaveTextContent(/^Dinner$/)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("edits the second menu without overwriting the first", async () => {
     const user = userEvent.setup()
     render(<Harness />)
     const first = wire()[0]
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Dinner" })
-    )
+    await chooseMenu(user, "Dinner")
     await user.clear(screen.getByLabelText("Menu name"))
     await user.type(screen.getByLabelText("Menu name"), "Evening menu")
     expect(wire()[0]).toEqual(first)
     expect(wire()[1].labels[0].displayName).toBe("Evening menu")
   })
 
-  it("preserves translations and options after a name edit", () => {
+  it("preserves translations and options after a name edit", async () => {
+    const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     fireEvent.change(screen.getByDisplayValue("Soup"), {
       target: { value: "Tomato soup" },
     })
@@ -238,12 +343,20 @@ describe("MenuEditor structured workspace", () => {
   it("keeps a raw price when collapsing and reopening its section", async () => {
     const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     fireEvent.change(screen.getByLabelText("Price (EUR)"), {
       target: { value: "12." },
     })
+    await closeItem(user)
     await user.click(screen.getByRole("button", { name: "Collapse Starters" }))
-    expect(screen.queryByLabelText("Price (EUR)")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit Soup" })
+    ).not.toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Expand Starters" }))
+    expect(screen.getByRole("button", { name: "Edit Soup" })).toHaveTextContent(
+      "€12."
+    )
+    await openItem(user, "Soup")
     expect(screen.getByLabelText("Price (EUR)")).toHaveValue("12.")
   })
 
@@ -258,7 +371,9 @@ describe("MenuEditor structured workspace", () => {
       within(dialog).getByRole("button", { name: "Keep editing" })
     )
     expect(onChange).not.toHaveBeenCalled()
-    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Edit Soup" })
+    ).toBeInTheDocument()
   })
 
   it("undo restores only the removed item, preserving later edits", async () => {
@@ -270,13 +385,19 @@ describe("MenuEditor structured workspace", () => {
         name: "Remove item",
       })
     )
-    expect(screen.queryByDisplayValue("Soup")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit Soup" })
+    ).not.toBeInTheDocument()
+    await openItem(user, "Salad")
     fireEvent.change(screen.getByDisplayValue("Salad"), {
       target: { value: "Garden salad" },
     })
+    await closeItem(user)
     await user.click(screen.getByRole("button", { name: "Undo removal" }))
-    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
-    expect(screen.getByDisplayValue("Garden salad")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Edit Soup" })).toHaveFocus()
+    expect(
+      screen.getByRole("button", { name: "Edit Garden salad" })
+    ).toBeInTheDocument()
     expect(
       wire()[0].sections[0].items.map(
         (item: { labels: Array<{ displayName: string }> }) =>
@@ -312,7 +433,7 @@ describe("MenuEditor structured workspace", () => {
       })
     )
     expect(wire()).toHaveLength(1)
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Dinner")
+    expect(menuSwitcher()).toHaveTextContent(/^Dinner$/)
     await user.click(screen.getByRole("button", { name: "Undo removal" }))
     expect(wire().map((menu: FoodMenu) => menu.labels)).toEqual([
       [{ displayName: "Lunch" }],
@@ -323,9 +444,11 @@ describe("MenuEditor structured workspace", () => {
   it("supports reordering without moving raw input to the wrong item", async () => {
     const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     fireEvent.change(screen.getByLabelText("Price (EUR)"), {
       target: { value: "12." },
     })
+    await closeItem(user)
     await rowAction(user, "Actions for Soup", "Move down")
     expect(
       wire()[0].sections[0].items.map(
@@ -333,20 +456,32 @@ describe("MenuEditor structured workspace", () => {
           item.labels[0]?.displayName
       )
     ).toEqual(["Salad", "Soup"])
+    await openItem(user, "Soup")
     expect(screen.getByLabelText("Price (EUR)")).toHaveValue("12.")
+    expect(screen.getByLabelText("Price (EUR)")).toHaveAttribute(
+      "aria-label",
+      "Price (EUR) — section 1, item 2"
+    )
   })
 
   it("duplicates an item with its options and independent identity", async () => {
     const user = userEvent.setup()
     render(<Harness />)
     await rowAction(user, "Actions for Soup", "Duplicate")
-    const copy = screen.getByDisplayValue("Soup (copy)")
-    expect(copy).toHaveFocus()
+    // The copy opens in its sheet, on its name.
+    const copy = await screen.findByDisplayValue("Soup (copy)")
+    await waitFor(() => expect(copy).toHaveFocus())
     expect(wire()[0].sections[0].items[1].options).toEqual(
       wire()[0].sections[0].items[0].options
     )
     fireEvent.change(copy, { target: { value: "Soup, large" } })
-    expect(screen.getByDisplayValue("Soup")).toBeInTheDocument()
+    await closeItem(user)
+    expect(
+      screen.getByRole("button", { name: "Edit Soup" })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Edit Soup, large" })
+    ).toBeInTheDocument()
   })
 
   it("supports the empty to menu to section to item flow", async () => {
@@ -360,7 +495,10 @@ describe("MenuEditor structured workspace", () => {
     expect(section).toHaveFocus()
     await user.type(section, "Mains")
     await user.click(screen.getByRole("button", { name: "Add item" }))
-    await user.type(screen.getByLabelText("Item name"), "Curry")
+    // The new item opens in its sheet, on its name.
+    const name = await screen.findByLabelText("Item name")
+    await waitFor(() => expect(name).toHaveFocus())
+    await user.type(name, "Curry")
     expect(screen.getByTestId("valid")).toHaveTextContent("true")
     expect(wire()[0].sections[0].items[0].labels[0].displayName).toBe("Curry")
   })
@@ -370,7 +508,7 @@ describe("MenuEditor structured workspace", () => {
     render(<Harness />)
     await user.click(screen.getByRole("button", { name: "New menu" }))
     expect(screen.getByLabelText("Menu name")).toHaveFocus()
-    expect(screen.getByLabelText("Menu")).toHaveDisplayValue("Untitled menu 3")
+    expect(menuSwitcher()).toHaveTextContent(/^Untitled menu 3$/)
     expect(screen.getByTestId("valid")).toHaveTextContent("false")
     await user.click(screen.getByRole("button", { name: "Validate" }))
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -381,9 +519,11 @@ describe("MenuEditor structured workspace", () => {
   it("renders a labelled preview without treating a missing price as free", async () => {
     const user = userEvent.setup()
     render(<Harness />)
+    await openItem(user, "Soup")
     fireEvent.change(screen.getByLabelText("Price (EUR)"), {
       target: { value: "" },
     })
+    await closeItem(user)
     await user.click(screen.getByRole("tab", { name: "Preview" }))
     const preview = screen.getByRole("region", { name: "Menu preview" })
     expect(preview).toHaveTextContent("Soup")
@@ -403,11 +543,11 @@ describe("MenuEditor structured workspace", () => {
     expect(
       screen.queryByRole("button", { name: "Actions for Soup" })
     ).not.toBeInTheDocument()
-    await user.selectOptions(
-      screen.getByLabelText("Menu"),
-      screen.getByRole("option", { name: "Dinner" })
-    )
-    expect(screen.getByDisplayValue("Curry")).toBeInTheDocument()
+    await chooseMenu(user, "Dinner")
+    // An item still opens to be read, with its fields locked.
+    await openItem(user, "Curry")
+    expect(screen.getByDisplayValue("Curry")).toBeDisabled()
+    expect(screen.getByLabelText("Price (GBP)")).toBeDisabled()
     expect(onChange).not.toHaveBeenCalled()
   })
 
@@ -433,7 +573,9 @@ describe("MenuEditor structured workspace", () => {
       <MenuEditor menus={replacement} disabled={false} onChange={() => {}} />
     )
     expect(screen.getByLabelText("Menu name")).toHaveValue("Replacement")
-    expect(screen.queryByDisplayValue("Soup")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Edit Soup" })
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Undo removal" })
     ).not.toBeInTheDocument()

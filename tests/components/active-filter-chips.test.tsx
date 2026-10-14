@@ -152,4 +152,38 @@ describe("ActiveFilterChips", () => {
     expect(screen.getByText("Date range: 9 Jul – 15 Jul")).toBeInTheDocument()
     expect(screen.getByText("Sort: Lowest rated")).toBeInTheDocument()
   })
+
+  it("lays the chips in one scrolling row, never cutting a label, Clear all last", () => {
+    const { container } = render(
+      <ActiveFilterChips
+        state={state}
+        locations={[{ id: "loc-1", name: "Riverside" }]}
+        onChange={() => {}}
+        onClear={() => {}}
+      />
+    )
+    const row = container.querySelector('[data-slot="active-filter-chips"]')
+    expect(row).toHaveClass("overflow-x-auto")
+    expect(row).not.toHaveClass("flex-wrap")
+    expect(row?.lastElementChild).toHaveAccessibleName("Clear all filters")
+    // The primitive FilterChip, applied: the whole chip removes it.
+    const chips = row!.querySelectorAll('[data-slot="filter-chip"]')
+    expect(chips.length).toBe(3)
+    for (const chip of Array.from(chips)) {
+      expect(chip.tagName).toBe("BUTTON")
+      expect(chip).toHaveAccessibleName(/^Remove filter: /)
+      expect(chip).toHaveAttribute("data-active")
+      expect(chip.querySelector("svg")).toHaveAttribute("aria-hidden", "true")
+      expect(chip).toHaveClass(
+        "h-(--np-chip-h)",
+        "bg-accent-tint",
+        "text-accent-ink",
+        "font-semibold"
+      )
+      // Drawn small; the touch extension, not the drawing, reaches 44px.
+      expect(chip.className).not.toMatch(/pointer-coarse:h-/)
+      expect(chip.querySelector(".truncate")).toBeNull()
+      expect(chip).not.toHaveClass("max-w-full")
+    }
+  })
 })

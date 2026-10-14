@@ -13,8 +13,7 @@ import { PostSchedules } from "@/components/locations/posts/post-schedules"
 import { PostsActionBar } from "@/components/locations/posts-action-bar"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { ChipRow, ToggleChip } from "@/components/ui/chip"
+import { FilterChip, FilterChipStrip } from "@/components/ui/chip"
 import { Empty } from "@/components/ui/empty"
 import type { LifecycleStage } from "@/components/ui/lifecycle"
 import { LoadMore } from "@/components/ui/load-more"
@@ -116,7 +115,7 @@ function problem(post: Post): React.ReactNode {
       <>
         Google didn’t accept this post, so nothing is live.{" "}
         {post.lastErrorCode ? (
-          <span className="font-mono text-caption text-ink-muted">
+          <span className="text-caption text-ink-muted">
             {post.lastErrorCode}
           </span>
         ) : null}
@@ -288,24 +287,30 @@ function PostsList({
       ) : null}
 
       {counts.all === 0 ? (
-        <Card flush>
-          <Empty
-            icon={<Megaphone aria-hidden />}
-            titleAs="h3"
-            title="No posts yet"
-            description="A post is a short update, event or offer that shows on the listing for a week or so. Use New post above to write the first one."
-          />
-        </Card>
+        <Empty
+          placement="inline"
+          icon={<Megaphone aria-hidden />}
+          titleAs="h3"
+          title="No posts yet"
+          description={
+            // Why it is empty, then the next step, or why there is none.
+            composeReason || editReason
+              ? "A post is a short update, event or offer that shows on the listing on Google for about a week. The note above says why new posts can’t be written right now."
+              : "A post is a short update, event or offer that shows on the listing on Google for about a week. Write the first one with New post; nothing reaches Google until you publish it."
+          }
+        />
       ) : (
         <div className="flex flex-col gap-3">
-          <ChipRow role="group" aria-label="Filter posts by status">
+          <FilterChipStrip role="group" aria-label="Filter posts by status">
             {POST_FILTERS.map((option) => {
               const count = counts[option.value]
               return (
-                <ToggleChip
+                <FilterChip
                   key={option.value}
                   pressed={filter === option.value}
                   count={count}
+                  // A bucket with posts that need attention keeps its
+                  // count in the danger ink; the label says what it counts.
                   countTone={
                     option.value === "attention" && count > 0
                       ? "alert"
@@ -314,32 +319,31 @@ function PostsList({
                   onClick={() => setFilter(option.value)}
                 >
                   {option.label}
-                </ToggleChip>
+                </FilterChip>
               )
             })}
-          </ChipRow>
+          </FilterChipStrip>
 
           {shown.length === 0 && !switching ? (
-            <Card flush>
-              <Empty
-                icon={<FilterIcon aria-hidden />}
-                titleAs="h3"
-                title="No posts in this view"
-                description={`Nothing matches “${POST_FILTERS.find((f) => f.value === filter)?.label}”.`}
-                action={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setFilter("all")}
-                  >
-                    Show all posts
-                  </Button>
-                }
-              />
-            </Card>
+            <Empty
+              placement="inline"
+              icon={<FilterIcon aria-hidden />}
+              titleAs="h3"
+              title="No posts in this view"
+              description={`Nothing matches “${POST_FILTERS.find((f) => f.value === filter)?.label}”.`}
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setFilter("all")}
+                >
+                  Show all posts
+                </Button>
+              }
+            />
           ) : (
             <ul
-              className="flex flex-col gap-3"
+              className="flex flex-col divide-y divide-line-subtle rounded-(--np-radius-card) border border-line-subtle bg-surface"
               aria-busy={switching || undefined}
             >
               {shown.map((post) => {
@@ -348,16 +352,16 @@ function PostsList({
                 const scheduled = scheduling
                   ? scheduledByPost.get(post.id)
                   : undefined
-                const meta = [
+                const meta = changedAt
+                  ? `Changed ${formatPostTimestamp(changedAt, timezone)}`
+                  : "Date unavailable"
+                const details = [
                   scheduled ? scheduleSummary(scheduled) : "",
                   postSchedule(post),
                   postRecurrence(post.event, timezone),
                   postActionLabel(post)
                     ? `${postActionLabel(post)} button`
                     : "",
-                  changedAt
-                    ? `Changed ${formatPostTimestamp(changedAt, timezone)}`
-                    : "Date unavailable",
                 ]
                   .filter(Boolean)
                   .join(" · ")
@@ -375,6 +379,7 @@ function PostsList({
                       status={status.label}
                       tone={status.tone}
                       meta={meta}
+                      details={details || undefined}
                       lang={post.languageCode}
                       thumbnailUrl={postImageUrl(post)}
                       problem={problem(post)}

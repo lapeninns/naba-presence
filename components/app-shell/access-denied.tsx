@@ -42,9 +42,13 @@ function AccessDenied({
   const { orgLower } = useWorkspaceTerms()
   return (
     <div className="flex flex-col gap-(--np-gap-section)">
+      {/* Neutral, not a warning: nothing is wrong, the page belongs to a
+          role. The sentence names the role and who can grant it. Inline,
+          not page placement: the access details below belong on screen
+          with it. */}
       <PageEmptyState
-        tone="warning"
-        icon={<Lock strokeWidth={1.75} />}
+        placement="inline"
+        icon={<Lock />}
         eyebrow="No access · 403"
         title="You don’t have access to this page"
         description={`${area} is limited to ${whoCanHelp}. Ask ${whoCanHelp} in your ${orgLower} if you need it.`}
@@ -88,7 +92,7 @@ function SignedInAccessCards({
   const request = `Hi, could you give me access to ${area} in NabaPresence? I'm ${session.displayName} (${session.email}), currently a ${roleLabel.toLowerCase()} in ${session.organisationName}.`
 
   return (
-    <div className="grid gap-4 @3xl:grid-cols-2">
+    <div className="mx-auto grid w-full max-w-xl gap-6">
       <SystemCard title="Your access">
         <DetailList
           items={[
@@ -103,7 +107,7 @@ function SignedInAccessCards({
               term: "Your role",
               value: (
                 <span className="flex flex-col items-start gap-1">
-                  <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 font-mono text-count font-medium tracking-[0.02em] text-ink-secondary uppercase">
+                  <span className="inline-flex h-5 items-center rounded-sm bg-fill px-1.5 text-caption font-medium text-ink-secondary">
                     {roleLabel}
                   </span>
                   {explanation ? (

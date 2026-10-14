@@ -57,6 +57,18 @@ describe("EditorFooter", () => {
     ).toHaveAttribute("data-docked", "bottom")
   })
 
+  it("starts at the form column beside a desk label rail only when asked", () => {
+    const { unmount } = render(footer({ status: "edited", isDirty: true }))
+    expect(
+      screen.getByRole("region", { name: "Editor actions" }).className
+    ).not.toMatch(/--np-form-rail-w/)
+    unmount()
+    render(footer({ status: "edited", isDirty: true, rail: true }))
+    expect(
+      screen.getByRole("region", { name: "Editor actions" }).className
+    ).toContain("desk:ml-[calc(var(--np-form-rail-w)+--spacing(6))]")
+  })
+
   it("keeps the view-only bar inline, with the reason in words", () => {
     render(footer({ readOnlyReason: "Your role can only look." }))
     const bar = screen.getByRole("region", { name: "Editor actions" })
@@ -104,5 +116,29 @@ describe("EditorFrame inside an area", () => {
       screen.getByRole("heading", { level: 2, name: "Administrators" })
     ).not.toHaveClass("sr-only")
     expect(screen.getByText("2 people")).toBeInTheDocument()
+  })
+})
+
+describe("EditorFrame head", () => {
+  it("rules the visible head off from the fields with one hairline", () => {
+    render(
+      <EditorFrame title="Administrators" gateReason="Your role can only look.">
+        <p>fields</p>
+      </EditorFrame>
+    )
+    const head = document.querySelector('[data-slot="editor-frame-head"]')
+    expect(head).toHaveClass("border-b", "border-line")
+    expect(head).toHaveTextContent("Your role can only look.")
+  })
+
+  it("draws no rule over a lone gate inside an area", () => {
+    render(
+      <EditorFrame title="Hours" titleHidden gateReason="Publishing is paused.">
+        <p>fields</p>
+      </EditorFrame>
+    )
+    const head = document.querySelector('[data-slot="editor-frame-head"]')
+    expect(head).not.toHaveClass("border-b")
+    expect(head).toHaveTextContent("Publishing is paused.")
   })
 })

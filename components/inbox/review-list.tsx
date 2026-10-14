@@ -3,8 +3,11 @@
 import { useEffect, useRef } from "react"
 import { GlobeIcon, ImageIcon } from "lucide-react"
 
+import { ReviewAvatar } from "@/components/inbox/review-avatar"
 import { Checkbox } from "@/components/ui/checkbox"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { RelativeTime } from "@/components/ui/relative-time"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Stars } from "@/components/ui/stars"
 import { StatusPill } from "@/components/ui/status-pill"
 import { replyStatusPill } from "@/components/inbox/situation-tone"
@@ -12,6 +15,7 @@ import { formatDate, formatDateTime } from "@/lib/format"
 import type { ReviewRow } from "@/lib/api/reviews"
 import { deriveReplyStatus, replyStateFromRow } from "@/lib/inbox/reply-state"
 import { parseReviewText } from "@/lib/inbox/review-text"
+import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { mediaQuery } from "@/lib/ui/breakpoints"
 import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
@@ -138,6 +142,7 @@ function ReviewList({
   isLoadingMore?: boolean
 }) {
   const business = useWorkspaceMode() === "business"
+  const desk = useHydratedBreakpoint("desk")
   const containerRef = useRef<HTMLUListElement>(null)
 
   function focusRow(index: number) {
@@ -250,11 +255,14 @@ function ReviewList({
           <div className="h-full w-1/3 animate-pulse bg-primary" />
         </div>
       ) : null}
-      {/* Native <ul>/<li> give the list/listitem roles; the row stays a real
-          <button> (role button) so getByRole("button", { name }) works and the
-          list satisfies aria-required-children. Roving tabindex lives on the
-          buttons. */}
-      <ul ref={containerRef} data-density="compact" className="flex flex-col">
+      {/* ListRows is a native <ul>/<li> (list/listitem roles); each row
+          stays a real <button> (role button, `data-slot="review-row"`) so
+          getByRole("button", { name }) works and the list satisfies
+          aria-required-children. Roving tabindex lives on the buttons. The
+          primitive owns the padding, the inset hairline (none under the
+          selected row or the last), the hover and selected fills and the
+          inset focus ring. */}
+      <ListRows ref={containerRef} data-density="compact">
         {reviews.map((review, index) => {
           const selected = review.id === selectedId
           // Roving tabindex: the selected row is the tab stop; if nothing is
@@ -281,174 +289,226 @@ function ReviewList({
               ? `${review.location.clientName} · ${review.location.name}`
               : review.location.name
 
-          return (
-            <li
-              key={review.id}
-              className={cn(
-                "group/row relative flex border-b border-line transition-[background-color] duration-(--np-duration-fast) ease-out-strong",
-                selected ? "bg-fill" : "hover-fine:hover:bg-surface-alt",
-                // The selected row is raised with an ink bar down its leading
-                // edge (reference `.q-item[aria-selected]`): the accent stays
-                // reserved for the one action that publishes.
-                selected &&
-                  "before:absolute before:inset-y-2 before:left-0 before:z-raised before:w-0.75 before:rounded-r-full before:bg-ink before:content-['']"
-              )}
-            >
-              {selection ? (
-                // Never hover-only: a touch screen has no hover, and a
-                // keyboard user needs to see what they tick. Always there on
-                // a desk; on touch only in select mode, so the row keeps its
-                // width until the operator asks to batch. Its own 44px
-                // column, not laid over the row, so the box and the row are
-                // two targets — and the whole column is the box's target:
-                // the box is `static` and its hit-area pseudo-element fills
-                // the column, so a tap anywhere in it is a tap on the box.
-                <span
-                  data-slot="review-row-select"
-                  className={cn(
-                    "relative w-11 shrink-0 justify-center pt-3.5",
-                    selection.selectMode ? "flex" : "hidden desk:flex"
-                  )}
-                >
-                  <Checkbox
-                    checked={selection.selected.has(review.id)}
-                    aria-label={`Select the review from ${displayName}`}
-                    className="static after:inset-0"
-                    onClick={(event) => {
-                      if ((event as React.MouseEvent).shiftKey) {
-                        selection.extendTo(review.id)
-                        return
-                      }
-                      selection.toggle(review.id)
-                    }}
-                  />
-                </span>
-              ) : null}
-              <button
-                type="button"
-                data-slot="review-row"
-                aria-current={selected ? "true" : undefined}
-                tabIndex={isTabStop ? 0 : -1}
-                onClick={() => {
-                  if (selection?.selectMode && tapTogglesSelection()) {
-                    selection.toggle(review.id)
-                    return
-                  }
-                  void onSelect(review.id)
-                }}
-                onKeyDown={(event) => onKeyDown(event, index)}
-                className={cn(
-                  "relative block min-w-0 flex-1 py-3 pr-3.5 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                  !selection
-                    ? "pl-4"
-                    : selection.selectMode
-                      ? "pl-0"
-                      : "pl-4 desk:pl-0",
-                  selected ? "bg-fill" : "active:bg-surface-alt"
-                )}
-              >
-                <span className="flex min-w-0 flex-col">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Stars
-                      value={review.rating}
-                      label={
-                        review.rating === null
-                          ? undefined
-                          : ratingLabel(review.rating)
-                      }
-                    />
-                    <span className="min-w-0 truncate text-ui font-semibold text-ink">
-                      {displayName}
-                    </span>
-                    {/* When it was written, as the detail pane says — the two
-                        used to disagree, one showing the edit and the other
-                        the original. An edit is noted beside it. The exact
-                        times are spoken, not left to a hover title a touch
-                        screen never shows; the title stays for a mouse. */}
-                    <time
-                      dateTime={review.createTime}
-                      title={exactTime}
-                      className="ml-auto shrink-0 font-mono text-count whitespace-nowrap text-ink-muted tabular-nums"
-                    >
-                      <ListTime
-                        iso={review.createTime}
-                        timezone={timezone}
-                        edited={edited}
-                      />
-                      <span className="sr-only">{exactTime}</span>
-                    </time>
-                  </span>
+          // Needs a reply is this inbox's "unread": the primitive's weight,
+          // full ink and dot. Everything already handled drops back to the
+          // secondary ink. The status word stays — the dot and the weight
+          // only reinforce it.
+          const needsReply = status.short === "Needs reply"
+          // The primitive always speaks its unread word after the name, so
+          // the words are said there, once: "Needs reply" where the queue
+          // drops the pill, the pill's own sentence where the pill shows —
+          // and then the pill is drawn but not spoken a second time.
+          const pillSpokenByTitle = needsReply && !pillRepeatsQueue
+          // The tick box takes the avatar's place: on a desk always, on touch
+          // only in select mode. Not mounted on touch outside select mode,
+          // so nothing sits over the avatar where a tap should open the
+          // row; until the client knows (null) CSS decides.
+          const showControl = Boolean(
+            selection && (selection.selectMode || desk !== false)
+          )
 
+          return (
+            <ListRow
+              key={review.id}
+              render={<button type="button" data-slot="review-row" />}
+              selected={selected}
+              tabIndex={isTabStop ? 0 : -1}
+              onClick={() => {
+                if (selection?.selectMode && tapTogglesSelection()) {
+                  selection.toggle(review.id)
+                  return
+                }
+                void onSelect(review.id)
+              }}
+              onKeyDown={(event) => onKeyDown(event, index)}
+              emphasis={needsReply ? "unread" : "read"}
+              unreadLabel={pillSpokenByTitle ? status.text : "Needs reply"}
+              // The non-colour half of the selection cue beside the fill
+              // (the primitive has none): an ink bar down the leading edge
+              // (reference `.q-item[aria-selected]`), the accent staying
+              // reserved for the one action that publishes.
+              wrapperClassName={
+                selected
+                  ? "before:absolute before:inset-y-2 before:start-0 before:z-raised before:w-0.75 before:rounded-e-full before:bg-ink before:content-['']"
+                  : undefined
+              }
+              leading={
+                selection?.selectMode && showControl ? null : (
+                  <ReviewAvatar
+                    name={displayName}
+                    anonymous={review.reviewer.isAnonymous}
+                    photoUrl={review.reviewer.profilePhotoUrl}
+                    size="list"
+                    className={showControl ? "desk:hidden" : undefined}
+                  />
+                )
+              }
+              leadingControl={
+                selection && showControl ? (
+                  // Never hover-only: a touch screen has no hover, and a
+                  // keyboard user needs to see what they tick. The box is
+                  // its own control outside the row's button, with the
+                  // Checkbox's own 44px touch hit area.
                   <span
-                    lang={parsed?.bodyLang ?? undefined}
-                    dir="auto"
-                    // One line beside the thread, where the queue is narrow and
-                    // the full words are a glance away; two on a phone, where
-                    // the row is all there is.
+                    data-slot="review-row-select"
                     className={cn(
-                      "mt-0.5 line-clamp-2 text-ui lg:line-clamp-1",
-                      parsed ? "text-ink-secondary" : "text-ink-muted italic"
+                      "size-full items-center justify-center",
+                      selection.selectMode ? "flex" : "hidden desk:flex"
                     )}
                   >
-                    {parsed?.body ?? "A rating with no written review."}
+                    <Checkbox
+                      // Above ListRow's 44px overhang (QA #1): the overhang
+                      // is the control wrapper's `after:`, drawn over its
+                      // own children, so a tap on the box hit the wrapper
+                      // and only reached the box by a forwarded click,
+                      // which touch tooling (and assistive pointers) read
+                      // as the row intercepting. Raised inside the wrapper's
+                      // stacking context, the box and its own 44px halo
+                      // are the topmost target; the overhang still passes
+                      // on a press beyond them.
+                      className="z-raised"
+                      checked={selection.selected.has(review.id)}
+                      aria-label={`Select the review from ${displayName}`}
+                      onClick={(event) => {
+                        if ((event as React.MouseEvent).shiftKey) {
+                          selection.extendTo(review.id)
+                          return
+                        }
+                        selection.toggle(review.id)
+                      }}
+                    />
                   </span>
-
-                  <span className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-                    {/* Client first: in an agency inbox the location name
-                        alone ("High Street") does not say whose business this
-                        is, and replying in the wrong voice is the mistake this
-                        line exists to prevent. */}
-                    <span className="min-w-0 truncate text-caption text-ink-muted">
+                ) : undefined
+              }
+              title={displayName}
+              meta={
+                // When it was written, as the detail pane says. An edit is
+                // noted beside it. The exact times are spoken, not left to a
+                // hover title a touch screen never shows; the title stays
+                // for a mouse.
+                <time dateTime={review.createTime} title={exactTime}>
+                  <ListTime
+                    iso={review.createTime}
+                    timezone={timezone}
+                    edited={edited}
+                  />
+                  <span className="sr-only">{exactTime}</span>
+                </time>
+              }
+              subtitle={
+                // The rating and whose business it is. Client first: in an
+                // agency inbox the location name alone ("High Street") does
+                // not say whose business this is, and replying in the wrong
+                // voice is the mistake this line exists to prevent.
+                // The venue wraps onto more lines rather than truncating
+                // (QA #2): two venues of one client often share a long
+                // prefix ("Journey Hospitality · Stub location …"), and an
+                // ellipsis made them look the same. The line overrides the
+                // subtitle slot's nowrap.
+                // The status pill rides this line, at its end, only where
+                // the line is at least sm (24rem) wide, a desk's list; on a
+                // phone (390px leaves ~19rem) it drops under the venue, as
+                // the pre-redesign row did, so the client · location gets
+                // the width beside the stars. The venue takes the rest with
+                // a zero basis, so it never pushes the pill down on its own.
+                <span
+                  data-slot="review-row-venue"
+                  className="@container/venue block min-w-0 whitespace-normal"
+                >
+                  {/* Start-aligned, each item centred in one line's height,
+                      so the stars sit on the venue's first line when it
+                      wraps (QA N4), not midway down the block. */}
+                  <span className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1">
+                    <span className="flex h-lh shrink-0 items-center">
+                      <Stars
+                        value={review.rating}
+                        label={
+                          review.rating === null
+                            ? undefined
+                            : ratingLabel(review.rating)
+                        }
+                      />
+                    </span>
+                    <span
+                      data-slot="review-row-location"
+                      title={venue}
+                      className="min-w-0 flex-1 basis-0 wrap-break-word"
+                    >
                       {venue}
                     </span>
                     {review.hasMedia ? (
-                      <ImageIcon
-                        role="img"
-                        aria-label="Has photos"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-muted"
-                      />
+                      <span className="flex h-lh shrink-0 items-center">
+                        <ImageIcon
+                          role="img"
+                          aria-label="Has photos"
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink-muted"
+                        />
+                      </span>
                     ) : null}
                     {parsed?.original ? (
-                      <GlobeIcon
-                        role="img"
-                        aria-label="Translated"
-                        strokeWidth={1.75}
-                        className="size-3.5 shrink-0 text-ink-muted"
-                      />
+                      <span className="flex h-lh shrink-0 items-center">
+                        <GlobeIcon
+                          role="img"
+                          aria-label="Translated"
+                          strokeWidth={1.75}
+                          className="size-3.5 shrink-0 text-ink-muted"
+                        />
+                      </span>
                     ) : null}
                     {pillRepeatsQueue ? null : (
-                      <StatusPill
-                        tone={pill.tone}
-                        dashed={pill.dashed}
-                        // The full sentence is the accessible name, so a
-                        // reader hears "Draft checked · Ready to publish"
-                        // rather than the abbreviation the row has room for.
-                        data-slot="reply-status"
-                        data-tone={status.tone}
-                        aria-label={status.text}
+                      <span
+                        data-slot="review-row-status"
+                        className="ml-auto flex shrink-0 self-center @max-sm/venue:ml-0 @max-sm/venue:basis-full"
                       >
-                        {status.short}
-                      </StatusPill>
+                        <StatusPill
+                          tone={pill.tone}
+                          dashed={pill.dashed}
+                          // The full sentence is the accessible name, so a reader
+                          // hears "Draft checked · Ready to publish" rather than
+                          // the abbreviation the row has room for. Where the title
+                          // already says it (a needs-reply row), not again.
+                          data-slot="reply-status"
+                          data-tone={status.tone}
+                          aria-label={status.text}
+                          aria-hidden={pillSpokenByTitle || undefined}
+                        >
+                          {status.short}
+                        </StatusPill>
+                      </span>
                     )}
-                    {/* The non-colour half of the selection cue, for
-                        greyscale, forced colours and screen readers. */}
-                    {selected ? (
-                      <span className="sr-only">Selected review</span>
-                    ) : null}
                   </span>
                 </span>
-              </button>
-            </li>
+              }
+              preview={
+                // What they said — two lines on a phone, where the row is all
+                // there is; one on a desk, beside the thread.
+                <>
+                  <span
+                    data-slot="review-row-preview"
+                    lang={parsed?.bodyLang ?? undefined}
+                    dir="auto"
+                    className={cn(!parsed && "text-ink-muted italic")}
+                  >
+                    {parsed?.body ?? "A rating with no written review."}
+                  </span>
+                  {/* The non-colour half of the selection cue, for
+                      greyscale, forced colours and screen readers. */}
+                  {selected ? (
+                    <span className="sr-only">Selected review</span>
+                  ) : null}
+                </>
+              }
+            />
           )
         })}
-      </ul>
+      </ListRows>
       {onReachEnd ? (
         <div ref={sentinelRef} aria-hidden className="h-px shrink-0" />
       ) : null}
       {isLoadingMore ? (
         <p
-          className="px-3 py-2.5 text-caption text-ink-muted"
+          className="px-(--np-page-pad-x) py-2.5 text-caption text-ink-muted"
           aria-live="polite"
         >
           Loading more reviews…
@@ -458,7 +518,65 @@ function ReviewList({
   )
 }
 
-export { ReviewList }
+/**
+ * The rows in outline while the list loads, drawn BY the row primitive
+ * (`ListRow interactive={false}`) so the padding, the leading column, the
+ * inset hairline and the line heights are the real rows': the avatar, the
+ * name and age, the stars and venue beside the status pill, and two lines
+ * of words (one on a desk). Nothing moves when the real rows replace it.
+ * Shared by the list's pending state (inbox-view.tsx) and the route's
+ * loading outline (app/(dashboard)/inbox/loading.tsx). Decorative: the
+ * container says it is busy.
+ */
+function ReviewRowsSkeleton({
+  rows = 6,
+  className,
+  ...props
+}: React.ComponentProps<"div"> & {
+  rows?: number
+}) {
+  return (
+    <div
+      data-slot="review-rows-skeleton"
+      className={cn("flex flex-col", className)}
+      {...props}
+    >
+      {Array.from({ length: rows }, (_, index) => (
+        <ListRow
+          key={index}
+          interactive={false}
+          aria-hidden
+          leading={
+            <Skeleton className="size-(--np-avatar-list) rounded-(--np-radius-pill)" />
+          }
+          title={<SkeletonLine className="h-3.5 w-32" />}
+          meta={<SkeletonLine className="h-3 w-10" />}
+          subtitle={<SkeletonLine className="h-3 w-40" />}
+          trailing={
+            <SkeletonLine className="h-(--np-pill-h) w-16 rounded-(--np-radius-pill)" />
+          }
+          preview={
+            <>
+              <SkeletonLine className="h-3 w-full" />
+              <SkeletonLine className="h-3 w-2/3" />
+            </>
+          }
+        />
+      ))}
+    </div>
+  )
+}
+
+/** A skeleton bar that sits on a row's text line, as tall as its line box. */
+function SkeletonLine({ className }: { className?: string }) {
+  return (
+    <Skeleton
+      className={cn("inline-block max-w-full align-middle", className)}
+    />
+  )
+}
+
+export { ReviewList, ReviewRowsSkeleton }
 
 /**
  * Bring a row into view by scrolling only its nearest scrolling container,

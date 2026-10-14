@@ -1,6 +1,9 @@
 "use client"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
+import { ListRow, ListRows } from "@/components/ui/list-row"
+import { SettingsGroup } from "@/components/ui/settings-row"
+import { cn } from "@/lib/utils"
 import { fetchPlaceActionWorkflows } from "@/lib/api/place-action-reviews"
 import { resourceDisabledReason } from "@/lib/locations/gating"
 import { queryKeys } from "@/lib/queries/keys"
@@ -14,7 +17,6 @@ import { reviewedPlaceActionPayloadSchema } from "@/lib/contracts/place-action-r
 import { actionTypeLabel } from "@/lib/editors/booking-presentation"
 import type { usePlaceActionReview } from "./use-place-action-review"
 import { PlaceActionApprovalSheet } from "./place-action-approval-sheet"
-import { cardClassName } from "@/components/ui/card"
 /**
  * What a saved request does, in the customer's words: "Add Shop online link"
  * plus the link it concerns. Never the raw Google resource name.
@@ -68,89 +70,127 @@ export function SavedPlaceActionWork({
   if (!enabled) return null
   const items = query.data?.pages.flatMap((page) => page.items) ?? []
   return (
-    <section
-      aria-label="Saved action link work"
-      className="flex min-w-0 flex-col gap-3"
-    >
-      <h2 className="text-title font-semibold text-ink">
-        Saved action link work
-      </h2>
-      <p className="text-ui text-ink-muted">
-        Recorded outcomes remain available when Google cannot be read. Expired
-        approvals cannot be sent again.
-      </p>
-      {workflow.error && !workflow.open ? (
-        <p role="alert" className="text-ui text-danger-ink">
-          {workflow.error}
-        </p>
-      ) : null}
-      {query.isPending ? (
-        <p role="status" className="text-ui text-ink-muted">
-          Loading saved action link work…
-        </p>
-      ) : query.isError ? (
-        <p
-          role="alert"
-          className="flex flex-wrap items-center gap-2 text-ui text-ink"
-        >
-          Saved action link work could not be loaded.{" "}
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => void query.refetch()}
+    <>
+      <SettingsGroup
+        // The region keeps its own name (an e2e capture selects it by
+        // `aria-label`); the heading says the same words.
+        aria-label="Saved action link work"
+        aria-labelledby={undefined}
+        label="Saved action link work"
+        caption="Recorded outcomes remain available when Google cannot be read. Expired approvals cannot be sent again."
+        bodyAs="div"
+        card
+        className="mt-0 min-w-0"
+        footer={
+          query.hasNextPage ? (
+            <Button
+              variant="secondary"
+              disabled={query.isFetchingNextPage}
+              onClick={() => void query.fetchNextPage()}
+            >
+              Load more action link work
+            </Button>
+          ) : undefined
+        }
+      >
+        {workflow.error && !workflow.open ? (
+          <p role="alert" className={cn(blockClassName, "text-danger-ink")}>
+            {workflow.error}
+          </p>
+        ) : null}
+        {query.isPending ? (
+          <p role="status" className={cn(blockClassName, "text-ink-muted")}>
+            Loading saved action link work…
+          </p>
+        ) : query.isError ? (
+          <p
+            role="alert"
+            className={cn(
+              blockClassName,
+              "flex flex-wrap items-center gap-2 text-ink"
+            )}
           >
-            Retry saved action link work
-          </Button>
-        </p>
-      ) : items.length === 0 ? (
-        <p className="text-ui text-ink-muted">No saved action link requests.</p>
-      ) : (
-        items.map((item) => (
-          <div
-            key={item.changeSet.id}
-            className={cardClassName({
-              className: "flex min-w-0 flex-col gap-2 p-3",
-            })}
-          >
-            <SavedPlaceActionLabel changeSet={item.changeSet} />
-            <p className="text-caption text-ink-muted">
-              {item.attemptId ? (
-                "Request outcome recorded"
-              ) : (
-                <>
-                  {item.changeSet.approvedBy
-                    ? "Approved request"
-                    : "Awaiting approval"}{" "}
-                  · <ApprovalExpiry expiresAt={item.changeSet.expiresAt} />
-                </>
-              )}
-            </p>
+            Saved action link work could not be loaded.{" "}
             <Button
               size="sm"
               variant="secondary"
-              disabled={
-                workflow.busy ||
-                (workflow.unresolved &&
-                  workflow.review?.changeSet.id !== item.changeSet.id)
-              }
-              onClick={() => workflow.restore(item.changeSet)}
+              onClick={() => void query.refetch()}
             >
-              {item.attemptId
-                ? "Open action link outcome"
-                : "Open action link review"}
+              Retry saved action link work
             </Button>
-          </div>
-        ))
-      )}
-      {query.hasNextPage ? (
-        <Button
-          variant="secondary"
-          disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
-        >
-          Load more action link work
-        </Button>
-      ) : null}
+          </p>
+        ) : items.length === 0 ? (
+          <p className={cn(blockClassName, "text-ink-muted")}>
+            No saved action link requests.
+          </p>
+        ) : (
+          // One list row per saved request, its state and its one action
+          // under the words.
+          <ListRows>
+            {items.map((item) => {
+              const label = placeActionWorkLabel(item.changeSet)
+              return (
+                <ListRow
+                  key={item.changeSet.id}
+                  flush
+                  wrap
+                  interactive={false}
+                  emphasis="neutral"
+                  wrapperClassName="desk:px-2"
+                  title={label.title}
+                  subtitle={label.uri ?? undefined}
+                  footerLayout="stack"
+                  footer={
+                    <>
+                      <p className="text-caption text-ink-muted">
+                        {item.attemptId ? (
+                          "Request outcome recorded"
+                        ) : (
+                          <>
+                            {item.changeSet.approvedBy
+                              ? "Approved request"
+                              : "Awaiting approval"}{" "}
+                            ·{" "}
+                            <ApprovalExpiry
+                              expiresAt={item.changeSet.expiresAt}
+                            />
+                          </>
+                        )}
+                      </p>
+                      {/* Google's resource name is for support, not for
+                          deciding. */}
+                      <SupportDetails
+                        items={[
+                          item.changeSet.targetResourceName
+                            ? `Google target: ${item.changeSet.targetResourceName}`
+                            : null,
+                        ]}
+                      />
+                      <div className="flex">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={
+                            workflow.busy ||
+                            (workflow.unresolved &&
+                              workflow.review?.changeSet.id !==
+                                item.changeSet.id)
+                          }
+                          onClick={() => workflow.restore(item.changeSet)}
+                        >
+                          {item.attemptId
+                            ? "Open action link outcome"
+                            : "Open action link review"}
+                        </Button>
+                      </div>
+                    </>
+                  }
+                />
+              )
+            })}
+          </ListRows>
+        )}
+      </SettingsGroup>
       <PlaceActionApprovalSheet
         workflow={workflow}
         disabled={
@@ -158,30 +198,9 @@ export function SavedPlaceActionWork({
           Boolean(resourceDisabledReason(caps, "booking", true))
         }
       />
-    </section>
-  )
-}
-
-function SavedPlaceActionLabel({
-  changeSet,
-}: {
-  readonly changeSet: GbpChangeSet
-}) {
-  const label = placeActionWorkLabel(changeSet)
-  return (
-    <>
-      <p className="text-ui font-semibold text-ink">{label.title}</p>
-      {label.uri ? (
-        <p className="text-ui break-all text-ink">{label.uri}</p>
-      ) : null}
-      {/* Google's resource name is for support, not for deciding. */}
-      <SupportDetails
-        items={[
-          changeSet.targetResourceName
-            ? `Google target: ${changeSet.targetResourceName}`
-            : null,
-        ]}
-      />
     </>
   )
 }
+
+/** A plain block in the group, aligned with the rows' words. */
+const blockClassName = "py-2 text-ui desk:px-2"

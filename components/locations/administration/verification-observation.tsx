@@ -3,6 +3,7 @@
 import { formatInstant } from "@/components/editors/change-diff"
 import { Instant, TechnicalDetails } from "@/components/reviewed-write"
 import { Card, CardContent } from "@/components/ui/card"
+import { ListRow, ListRows } from "@/components/ui/list-row"
 import { StatusPill } from "@/components/ui/status-pill"
 import type {
   ObservedMerchantState,
@@ -141,38 +142,42 @@ export function VerificationRequestHistory({
         update this list.
       </p>
     )
+  // Read-only records drawn as list rows: method and state on the first
+  // line, when it started under it, then the unknown-method code and the
+  // exact reference one tap away. `interactive={false}`: the disclosure is
+  // the row's only control.
   return (
-    <ul
-      aria-label="Google verification request history"
-      className="flex min-w-0 list-none flex-col gap-2"
-    >
-      {verifications.map((item) => (
-        <li key={item.name}>
-          <Card size="sm">
-            <CardContent className="flex min-w-0 flex-col gap-2">
-              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                <span className="text-ui font-semibold text-ink">
-                  {verificationMethodName(item.method)}
+    <div className="rounded-(--np-radius-card) border border-line bg-surface">
+      <ListRows aria-label="Google verification request history">
+        {verifications.map((item) => (
+          <ListRow
+            key={item.name}
+            interactive={false}
+            emphasis="neutral"
+            title={verificationMethodName(item.method)}
+            subtitle={
+              item.createTime ? (
+                <span className="block whitespace-normal">
+                  Started <Instant value={item.createTime} />
                 </span>
-                <StatusPill tone={phasePresentation[item.phase].tone}>
-                  {phasePresentation[item.phase].label}
-                </StatusPill>
-              </div>
-              <VerificationMethodCode method={item.method} />
-              <p className="text-caption text-ink-muted">
-                {item.createTime ? (
-                  <>
-                    Started <Instant value={item.createTime} />
-                  </>
-                ) : (
-                  "Start time not reported by Google"
-                )}
-              </p>
-              <VerificationRequestReference name={item.name} />
-            </CardContent>
-          </Card>
-        </li>
-      ))}
-    </ul>
+              ) : (
+                "Start time not reported by Google"
+              )
+            }
+            trailing={
+              <StatusPill tone={phasePresentation[item.phase].tone}>
+                {phasePresentation[item.phase].label}
+              </StatusPill>
+            }
+            tags={
+              <span className="flex w-full min-w-0 flex-col gap-2">
+                <VerificationMethodCode method={item.method} />
+                <VerificationRequestReference name={item.name} />
+              </span>
+            }
+          />
+        ))}
+      </ListRows>
+    </div>
   )
 }

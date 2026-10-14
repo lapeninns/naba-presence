@@ -18,7 +18,12 @@ import { PasswordRequirements } from "@/components/auth/password-requirements"
 import { ResendConfirmationButton } from "@/components/auth/resend-confirmation-button"
 import { Button } from "@/components/ui/button"
 import { ChoiceCard } from "@/components/ui/choice-card"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { Input, inputHints } from "@/components/ui/input"
 import { RadioGroup } from "@/components/ui/radio-group"
 import {
@@ -267,8 +272,8 @@ function SignInForm({
 
   if (stage === "confirm-sent") {
     return (
-      <div className="flex flex-col gap-5">
-        <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
           <span
             aria-hidden
             className="mb-1 grid size-11 place-items-center rounded-lg bg-accent-tint text-accent-ink"
@@ -278,18 +283,23 @@ function SignInForm({
           <h2 className="text-section font-semibold text-ink">
             Check your email
           </h2>
+          {/* Neutral on purpose, like the reset screen: the server answers
+              an address that already has an account exactly as it answers a
+              new one, and no email goes to it, so "we sent" would be untrue
+              there and would confirm the account exists elsewhere. */}
           <p className="text-body text-ink-muted">
-            We sent a confirmation link to{" "}
+            If{" "}
             <span className="font-semibold [overflow-wrap:anywhere] text-ink">
               {email}
-            </span>
-            . Open it, then sign in.
+            </span>{" "}
+            can be used for a new account, a confirmation link is on its way.
+            Open it, then sign in.
           </p>
         </div>
-        <div className="flex flex-col gap-2.5 rounded-lg bg-surface-alt p-4">
+        <div className="flex flex-col gap-3 rounded-lg bg-surface-alt p-4">
           <p className="text-ui text-ink">
             Not there after a few minutes? Check spam or promotions, then send a
-            fresh link.
+            fresh link. Already have an account? Sign in instead.
           </p>
           <ResendConfirmationButton
             email={email}
@@ -301,7 +311,7 @@ function SignInForm({
           type="button"
           variant="ghost"
           size="lg"
-          className="w-full"
+          block
           onClick={() => {
             setStage("form")
             switchMode("sign-in")
@@ -318,7 +328,7 @@ function SignInForm({
       onSubmit={handleSubmit}
       onFocusCapture={() => void loadAuthSchemas()}
       noValidate
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-5"
     >
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
@@ -407,6 +417,15 @@ function SignInForm({
           onChange={(event) => setEmail(event.currentTarget.value)}
           readOnly={Boolean(invitedEmail)}
         />
+        {/* Helper text only where it answers a question: which address to
+            use when creating an account. Signing in needs no hint. */}
+        {invitedEmail ? (
+          <FieldDescription>
+            The address this invitation was sent to.
+          </FieldDescription>
+        ) : mode === "create-account" ? (
+          <FieldDescription>You’ll sign in with this address.</FieldDescription>
+        ) : null}
         <FieldError />
       </Field>
 
@@ -455,7 +474,7 @@ function SignInForm({
       <Button
         type="submit"
         size="lg"
-        className="h-11 w-full"
+        block
         disabled={pending}
         aria-busy={pending || undefined}
       >

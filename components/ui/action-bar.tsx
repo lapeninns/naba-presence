@@ -79,8 +79,8 @@ export type ActionBarAction = {
  * keyboard (`--np-keyboard-inset`). Layout is all CSS (`max-md:`), so the
  * server's HTML is right for both widths and nothing flashes on hydration.
  *
- * In the dark theme charcoal is near-white with dark ink — always read the
- * role utilities, never assume the bar is black.
+ * In the dark theme charcoal is a raised grey above the canvas, still with
+ * light ink — always read the role utilities, never assume the bar's colour.
  */
 function ActionBar({
   status,
@@ -199,9 +199,30 @@ function ActionBar({
 const DOCK_BAR_HEIGHT = "--np-dock-bar-h"
 
 /**
+ * Every docked bar mounted now, with its measured height (0 while it is in
+ * flow, from `md`). The document property is derived from all of them, so
+ * two docked bars (an ActionBar and a SelectionBar during a hand-over, or
+ * two that mount out of order) never clear each other's reservation: the
+ * property goes only when the last one leaves, and while several are fixed
+ * it holds the tallest.
+ */
+const dockedBars = new Map<symbol, number>()
+
+function publishDockBarHeight() {
+  const root = document.documentElement
+  const tallest = Math.max(0, ...dockedBars.values())
+  if (tallest > 0) root.style.setProperty(DOCK_BAR_HEIGHT, `${tallest}px`)
+  else root.style.removeProperty(DOCK_BAR_HEIGHT)
+}
+
+const DOCK_SPACER_CLASS =
+  "h-[var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))] md:hidden"
+
+/**
  * Keeps the page's last line reachable above a docked (fixed) bar: an
- * in-flow box the bar's whole height. Phone only; from `md` the bar is back
- * in flow.
+ * in-flow box the bar's whole height, rendered immediately before the bar.
+ * Phone only; from `md` the bar is back in flow. Shared by ActionBar and
+ * SelectionBar (and any other bar that docks to the bottom edge).
  *
  * The height is measured, not assumed. A docked bar is one
  * `--np-actionbar-h` row plus the dock edge (home indicator or keyboard)
@@ -211,24 +232,31 @@ const DOCK_BAR_HEIGHT = "--np-dock-bar-h"
  * `--np-dock-bar-h`, which this spacer and the CHROME CONTRACT's scroll
  * padding (globals.css) read, so a two-row bar covers neither the page's
  * last line nor a field the browser scrolls into view. Before the first
- * measurement, and once the bar is gone, both fall back to the one-row sum.
+ * measurement, and once every docked bar is gone, both fall back to the
+ * one-row sum (`className` carries a bar's own fallback).
  */
-function DockSpacer() {
+function DockSpacer({
+  className = DOCK_SPACER_CLASS,
+  "data-slot": slot = "action-bar-spacer",
+}: {
+  /** The spacer's height rule, with this bar's fallback height. */
+  className?: string
+  "data-slot"?: string
+}) {
   const ref = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => {
     const bar = ref.current?.nextElementSibling
     if (!(bar instanceof HTMLElement)) return
-    const root = document.documentElement
+    const key = Symbol("docked-bar")
     const publish = () => {
       // Fixed only below md; in flow (from md) it needs no reservation.
-      if (getComputedStyle(bar).position === "fixed") {
-        root.style.setProperty(
-          DOCK_BAR_HEIGHT,
-          `${bar.getBoundingClientRect().height}px`
-        )
-      } else {
-        root.style.removeProperty(DOCK_BAR_HEIGHT)
-      }
+      dockedBars.set(
+        key,
+        getComputedStyle(bar).position === "fixed"
+          ? bar.getBoundingClientRect().height
+          : 0
+      )
+      publishDockBarHeight()
     }
     publish()
     const observer =
@@ -240,17 +268,11 @@ function DockSpacer() {
     return () => {
       observer?.disconnect()
       window.removeEventListener("resize", publish)
-      root.style.removeProperty(DOCK_BAR_HEIGHT)
+      dockedBars.delete(key)
+      publishDockBarHeight()
     }
   }, [])
-  return (
-    <div
-      ref={ref}
-      aria-hidden
-      data-slot="action-bar-spacer"
-      className="h-[var(--np-dock-bar-h,calc(var(--np-actionbar-h)+var(--np-dock-bottom)))] md:hidden"
-    />
-  )
+  return <div ref={ref} aria-hidden data-slot={slot} className={className} />
 }
 
 /**
@@ -390,4 +412,4 @@ function ActionBarMuted({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-export { ActionBar, ActionBarMuted }
+export { ActionBar, ActionBarMuted, DockSpacer }

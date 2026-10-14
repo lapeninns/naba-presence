@@ -31,13 +31,21 @@ import {
 } from "./notifications-link"
 import { ShellLink } from "./shell-link"
 
-/** A sheet row: 44px or more, icon, label, optional trailing detail. */
+/**
+ * A drawer row, after Notion Mail's "Navigate to" list: 48px or more, a
+ * 20px outline icon, the label, and any count as plain right-aligned text.
+ * No dividers between rows; the one green accent marks the current page
+ * (tint, weight and accent ink, so it reads in greyscale too).
+ */
 const ROW_CLASS = cn(
-  "flex min-h-12 w-full items-center gap-3 rounded-md px-2 text-left text-body text-ink",
+  "flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-left text-body text-ink",
   "transition-colors duration-(--np-duration-fast) hover:bg-fill",
   "focus-halo focus-visible:outline-none",
   "aria-[current=page]:bg-accent-tint aria-[current=page]:font-semibold aria-[current=page]:text-accent-ink"
 )
+
+/** A group's label: sentence case, quiet, above its rows (D8). */
+const GROUP_LABEL_CLASS = "px-3 pb-1 text-caption font-medium text-ink-muted"
 
 const ICON_CLASS = "size-5 shrink-0 text-ink-muted"
 
@@ -80,7 +88,7 @@ function MoreSheet({
         className="max-h-[calc(100dvh-var(--np-safe-top)-1.5rem)]"
       >
         <SheetHeader className="pb-1">
-          <SheetTitle>More</SheetTitle>
+          <SheetTitle className="text-title">More</SheetTitle>
           {/* A business has no clients in its words (business-mode spec:
               never "client" or "agency"). */}
           <SheetDescription className="sr-only">
@@ -89,7 +97,7 @@ function MoreSheet({
               : "Search, the client you are working on, the rest of NabaPresence and your account."}
           </SheetDescription>
         </SheetHeader>
-        <SheetBody className="gap-3 pb-[calc(--spacing(5)+var(--np-safe-bottom))]">
+        <SheetBody className="gap-6 pb-[calc(--spacing(5)+var(--np-safe-bottom))]">
           {/* Only rendered while open, so the reads below cost nothing on
               pages where the sheet is never opened. */}
           {open ? (
@@ -132,101 +140,111 @@ function MoreSheetContent({
   const agency = context.mode === "agency"
   const healthDetailId = React.useId()
 
+  const goToLabelId = React.useId()
+
   return (
     <>
-      <button type="button" onClick={onOpenPalette} className={ROW_CLASS}>
-        <Search className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
-        <span className="min-w-0 flex-1 truncate">
-          {agency
-            ? "Search clients, listings and pages"
-            : "Search listings and pages"}
-        </span>
-      </button>
+      {/* Groups are separated by space, not rules (Notion Mail's drawer). */}
+      <div className="flex flex-col">
+        <button type="button" onClick={onOpenPalette} className={ROW_CLASS}>
+          <Search className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+          <span className="min-w-0 flex-1 truncate">
+            {agency
+              ? "Search clients, listings and pages"
+              : "Search listings and pages"}
+          </span>
+        </button>
 
-      <ul className="flex flex-col">
-        {agency && scope.visible ? (
-          <li>
-            <button
-              type="button"
-              aria-haspopup="dialog"
-              onClick={onOpenClientScope}
-              className={ROW_CLASS}
-            >
-              <Building2
-                className={ICON_CLASS}
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-caption text-ink-muted">Working on</span>
-                <span className="truncate font-medium">{scope.label}</span>
-                {scope.healthWords ? (
-                  <span className="truncate text-caption text-ink-muted">
-                    {scope.healthWords}
+        <ul className="flex flex-col">
+          {agency && scope.visible ? (
+            <li>
+              <button
+                type="button"
+                aria-haspopup="dialog"
+                onClick={onOpenClientScope}
+                className={ROW_CLASS}
+              >
+                <Building2
+                  className={ICON_CLASS}
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-caption text-ink-muted">
+                    Working on
                   </span>
-                ) : null}
-              </span>
-              <span className="text-ui text-accent-ink">Change</span>
-            </button>
-          </li>
-        ) : null}
-        {health.isPending ? null : (
-          <li>
-            {/* Health in words, never a dot alone: the dot repeats the tone
+                  <span className="truncate font-medium">{scope.label}</span>
+                  {scope.healthWords ? (
+                    <span className="truncate text-caption text-ink-muted">
+                      {scope.healthWords}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="text-ui text-accent-ink">Change</span>
+              </button>
+            </li>
+          ) : null}
+          {health.isPending ? null : (
+            <li>
+              {/* Health in words, never a dot alone: the dot repeats the tone
                 for a glance, the label says what it means. */}
-            <ShellLink
-              href={health.href}
-              onClick={onClose}
-              data-slot="health-row"
-              data-tone={health.tone}
-              aria-describedby={healthDetailId}
-              className={ROW_CLASS}
-            >
-              <span
-                aria-hidden
-                className="grid size-5 shrink-0 place-items-center"
+              <ShellLink
+                href={health.href}
+                onClick={onClose}
+                data-slot="health-row"
+                data-tone={health.tone}
+                aria-describedby={healthDetailId}
+                className={ROW_CLASS}
               >
                 <span
-                  className={cn(
-                    "size-2.5 rounded-full",
-                    TONE_CLASSES[health.tone].dot
-                  )}
+                  aria-hidden
+                  className="grid size-5 shrink-0 place-items-center"
+                >
+                  <span
+                    className={cn(
+                      "size-2.5 rounded-full",
+                      TONE_CLASSES[health.tone].dot
+                    )}
+                  />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-caption text-ink-muted">
+                    Connections
+                  </span>
+                  <span className="truncate font-medium">{health.label}</span>
+                </span>
+                <ChevronRight
+                  className={ICON_CLASS}
+                  strokeWidth={1.75}
+                  aria-hidden
                 />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="text-caption text-ink-muted">Connections</span>
-                <span className="truncate font-medium">{health.label}</span>
-              </span>
-              <ChevronRight
-                className={ICON_CLASS}
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              <span id={healthDetailId} hidden>
-                {health.scopedName
-                  ? `Connection status for ${health.scopedName}`
-                  : "Connection status"}
-              </span>
-            </ShellLink>
-          </li>
-        )}
-      </ul>
+                <span id={healthDetailId} hidden>
+                  {health.scopedName
+                    ? `Connection status for ${health.scopedName}`
+                    : "Connection status"}
+                </span>
+              </ShellLink>
+            </li>
+          )}
+        </ul>
+      </div>
 
-      <nav aria-label="More" className="border-t border-line pt-2">
-        <ul className="flex flex-col">
+      {/* The landmark keeps its name, "More"; the visible label groups it. */}
+      <nav aria-label="More" className="flex flex-col">
+        <h3 id={goToLabelId} className={GROUP_LABEL_CLASS}>
+          Go to
+        </h3>
+        <ul aria-labelledby={goToLabelId} className="flex flex-col">
           {destinations.map((destination) => {
             const Icon = destination.icon
             const count = destination.id === "notifications" ? unread : 0
+            const current = isActivePath(pathname, destination.href)
             return (
               <li key={destination.id}>
                 <ShellLink
                   href={destination.href}
                   onClick={onClose}
-                  aria-current={
-                    isActivePath(pathname, destination.href)
-                      ? "page"
-                      : undefined
-                  }
+                  aria-current={current ? "page" : undefined}
                   aria-label={
                     destination.id === "notifications"
                       ? notificationsName(unread)
@@ -234,23 +252,26 @@ function MoreSheetContent({
                   }
                   className={ROW_CLASS}
                 >
-                  <Icon className={ICON_CLASS} strokeWidth={1.75} aria-hidden />
+                  <Icon
+                    className={cn(ICON_CLASS, current && "text-accent-ink")}
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
                   <span className="min-w-0 flex-1 truncate">
                     {destination.label}
                   </span>
                   {count > 0 ? (
+                    // Plain figures, not a pill: the count is in the name.
                     <span
                       aria-hidden
-                      className="rounded-full bg-primary px-2 py-0.5 font-mono text-count text-primary-foreground tabular-nums"
+                      className={cn(
+                        "shrink-0 text-count font-normal tabular-nums",
+                        current ? "text-accent-ink" : "text-ink-muted"
+                      )}
                     >
                       {count > 99 ? "99+" : count}
                     </span>
                   ) : null}
-                  <ChevronRight
-                    className={ICON_CLASS}
-                    strokeWidth={1.75}
-                    aria-hidden
-                  />
                 </ShellLink>
               </li>
             )
@@ -258,7 +279,7 @@ function MoreSheetContent({
         </ul>
       </nav>
 
-      <AccountPanel session={session} className="border-t border-line pt-4" />
+      <AccountPanel session={session} />
     </>
   )
 }

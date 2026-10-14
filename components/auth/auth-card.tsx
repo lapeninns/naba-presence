@@ -39,7 +39,7 @@ const ASIDES: Record<
       {
         icon: ShieldCheck,
         title: "Approve replies before they go live",
-        text: "Drafts are checked against your reply policy, and a reply can need a second person’s approval.",
+        text: "Your reply policy can hold replies for approval, and can require a second person to approve each one.",
       },
       {
         icon: Send,
@@ -99,7 +99,7 @@ const ASIDES: Record<
       {
         icon: Send,
         title: "Publish to each Business Profile",
-        text: "Through the Google logins already connected. You don’t connect your own.",
+        text: "Through the Google logins already connected, so you don’t need to connect your own.",
       },
     ],
     footnote:
@@ -128,10 +128,10 @@ function AuthAside({ variant }: { variant: AsideVariant }) {
         </span>
       </Link>
       <div className="flex flex-col gap-8">
-        <p className="max-w-[20ch] font-display text-display font-semibold text-balance">
+        <p className="max-w-88 text-display font-semibold text-balance">
           {aside.statement}
         </p>
-        <ul className="flex max-w-[44ch] flex-col gap-5">
+        <ul className="flex max-w-96 flex-col gap-5">
           {aside.beats.map((beat) => (
             <li
               key={beat.text}
@@ -225,9 +225,9 @@ function AuthCard({
       <main
         id="main"
         tabIndex={-1}
-        className="flex min-w-0 flex-col bg-surface pt-safe pb-dock px-safe outline-none"
+        className="flex min-w-0 flex-col bg-surface pt-safe px-safe pb-dock outline-none"
       >
-        <div className="mx-auto flex w-full max-w-100 flex-1 flex-col gap-4 px-4 pt-5 pb-9 sm:gap-5 sm:px-0 sm:pt-10 sm:pb-12 lg:justify-center lg:py-12">
+        <div className="mx-auto flex w-full max-w-100 flex-1 flex-col gap-6 px-4 pt-6 pb-10 sm:gap-8 sm:px-0 sm:pt-12 sm:pb-12 lg:justify-center lg:py-16">
           <Link
             href="/sign-in"
             className={cn(
@@ -238,7 +238,7 @@ function AuthCard({
             <BrandMark size="lg" />
           </Link>
 
-          <header className="flex flex-col gap-1.5">
+          <header className="flex flex-col gap-2">
             {mark ? (
               <span
                 aria-hidden
@@ -251,7 +251,7 @@ function AuthCard({
             <h1
               ref={titleRef}
               tabIndex={-1}
-              className="font-display text-page-title font-semibold text-balance text-ink outline-none"
+              className="text-page-title font-semibold text-balance text-ink outline-none"
             >
               {title}
             </h1>
@@ -262,10 +262,10 @@ function AuthCard({
             ) : null}
           </header>
 
-          <div className="flex flex-col gap-5">{children}</div>
+          <div className="flex flex-col gap-6">{children}</div>
 
           {footer ? (
-            <footer className="flex flex-col items-center gap-1.5 text-center text-ui text-ink-muted">
+            <footer className="flex flex-col items-center gap-2 text-center text-ui text-ink-muted">
               {footer}
             </footer>
           ) : null}

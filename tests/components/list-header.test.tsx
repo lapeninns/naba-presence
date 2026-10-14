@@ -133,12 +133,14 @@ describe("ListHeader", () => {
     expect(readout()).toBe("none · off")
   })
 
-  it("lines the box up with the rows' 44px column and leaves the target to the Checkbox", () => {
+  it("lines the box up with the rows' leading column and leaves the target to the Checkbox", () => {
     const { container } = renderHeader()
     const column = container.querySelector<HTMLElement>(
       "[data-slot=inbox-select-all]"
     )!
-    expect(column).toHaveClass("w-11")
+    // ListRow's leading column, where the rows' tick boxes sit.
+    expect(column).toHaveClass("size-(--np-avatar-list)")
+    expect(column.className).not.toMatch(/-ml-|w-11/)
     // No local <label> wrapper: the primitive's own 44px touch hit area
     // (selectionHitAreaClassName) is the target.
     expect(column.tagName).toBe("SPAN")
@@ -148,7 +150,7 @@ describe("ListHeader", () => {
     expect(box).toHaveClass(...selectionHitAreaClassName.split(" "))
   })
 
-  it("toggles select mode with Select and Done", async () => {
+  it("toggles select mode with Select and Cancel", async () => {
     const user = userEvent.setup()
     renderHeader()
     await user.click(screen.getByRole("button", { name: "Select" }))
@@ -156,10 +158,50 @@ describe("ListHeader", () => {
     await user.click(
       screen.getByRole("checkbox", { name: "Select every review in this view" })
     )
-    // Done ends the mode and drops what was ticked.
-    await user.click(screen.getByRole("button", { name: "Done" }))
+    // Cancel ends the mode and drops what was ticked.
+    const cancel = screen.getByRole("button", { name: "Cancel selection" })
+    // The visible word is part of the name (WCAG 2.5.3).
+    expect(cancel).toHaveTextContent("Cancel")
+    await user.click(cancel)
     expect(readout()).toBe("none · off")
     expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument()
+  })
+
+  it("reads '0 selected' on touch in select mode until the selection bar takes over", async () => {
+    const user = userEvent.setup()
+    const { container } = renderHeader()
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Select" }))
+    const selected = container.querySelector<HTMLElement>(
+      "[data-slot=inbox-selected-count]"
+    )!
+    expect(selected).toHaveTextContent("0 selected")
+    // Touch only: a desk keeps its count, as its boxes are always there.
+    expect(selected).toHaveClass("desk:hidden")
+    expect(
+      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
+    ).toHaveClass("hidden", "desk:inline")
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select every review in this view" })
+    )
+    // QA #11: once something is ticked the selection bar says "2 selected"
+    // beside "Clear selection", so the band says it no more and shows the
+    // list's count beside its one Cancel.
+    expect(
+      container.querySelector("[data-slot=inbox-selected-count]")
+    ).toBeNull()
+    expect(screen.queryByText(/selected$/)).toBeNull()
+    expect(
+      screen.getByText("2 reviews", { selector: "span:not([role=status])" })
+    ).not.toHaveClass("hidden")
+    expect(
+      screen.getAllByRole("button", { name: /cancel/i })
+    ).toHaveLength(1)
+    expect(
+      screen.getByRole("button", { name: "Cancel selection" })
+    ).toBeVisible()
   })
 
   it("shows the select-all box on touch only in select mode", async () => {

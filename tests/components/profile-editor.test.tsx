@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
@@ -732,6 +732,231 @@ describe("ProfileTab address lines", () => {
     await userEvent.type(address, "12 High Street{Enter}Old Town")
     // The draft keeps clean lines; the textarea keeps what was typed.
     expect(address).toHaveValue("12 High Street\nOld Town")
+  })
+})
+
+describe("ProfileTab on a phone", () => {
+  /** A touch phone: no `desk` (or any other) media query matches. */
+  function stubPhone() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }))
+    )
+  }
+
+  it("picks the open status from a sheet and still confirms permanent closure", async () => {
+    stubPhone()
+    stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const status = await screen.findByRole("button", { name: /Open status/ })
+    await waitFor(() => expect(status).toBeEnabled())
+    expect(status).toHaveTextContent("Open")
+    await userEvent.click(status)
+    const sheet = await screen.findByRole("dialog", { name: "Open status" })
+    await userEvent.click(
+      within(sheet).getByRole("option", { name: "Temporarily closed" })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Open status/ })).toHaveTextContent(
+        "Temporarily closed"
+      )
+    )
+    await userEvent.click(screen.getByRole("button", { name: /Open status/ }))
+    const again = await screen.findByRole("dialog", { name: "Open status" })
+    await userEvent.click(
+      within(again).getByRole("option", { name: "Permanently closed" })
+    )
+    const confirm = await screen.findByRole("alertdialog", {
+      name: "Mark as permanently closed?",
+    })
+    const mark = within(confirm).getByRole("button", {
+      name: "Mark as permanently closed",
+    })
+    expect(mark).toBeDisabled()
+    // The confirm opens after the sheet has closed, so focus ends inside it.
+    expect(screen.queryByRole("dialog", { name: "Open status" })).toBeNull()
+    await waitFor(() =>
+      expect(confirm.contains(document.activeElement)).toBe(true)
+    )
+    await userEvent.click(within(confirm).getByRole("checkbox"))
+    await userEvent.click(mark)
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Open status/ })).toHaveTextContent(
+        "Permanently closed"
+      )
+    )
+  })
+})
+
+describe("ProfileTab on a phone: sheet focus return", () => {
+  /** A touch phone: no `desk` (or any other) media query matches. */
+  function stubPhone() {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }))
+    )
+  }
+  const category = (id: string) => ({
+    name: `categories/gcid:${id}`,
+    displayName: id,
+  })
+  /** stubRoutes, plus Google's category search answering with `found`. */
+  function stubWithCategories(
+    additional: { name: string; displayName: string }[],
+    found: { name: string; displayName: string }[]
+  ) {
+    const base = stubRoutes({
+      business: {
+        businessInformation: {
+          ...BUSINESS.businessInformation,
+          location: {
+            ...BUSINESS.businessInformation.location,
+            categories: {
+              primaryCategory: category("Hotel"),
+              additionalCategories: additional,
+            },
+          },
+        },
+      },
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (...args: [RequestInfo, RequestInit?]) =>
+        String(args[0]).includes("type=categories")
+          ? jsonResponse({ result: { categories: found } })
+          : base(...args)
+      )
+    )
+  }
+
+  // A tap in Safari never focuses the button it hits: fireEvent.click opens
+  // the sheet without moving focus, so only `finalFocus` can bring it back.
+  it("returns focus to the primary category row that opened the sheet", async () => {
+    stubPhone()
+    stubWithCategories([], [category("Spa")])
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const row = await screen.findByRole("button", { name: /Primary category/ })
+    await waitFor(() => expect(row).toBeEnabled())
+    fireEvent.click(row)
+    await screen.findByRole("dialog", { name: "Change primary category" })
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Change primary category" })
+      ).toBeNull()
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Primary category/ })
+      ).toHaveFocus()
+    )
+  })
+
+  it("returns focus to the additional category row that opened the sheet", async () => {
+    stubPhone()
+    stubWithCategories([], [category("Spa")])
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const row = await screen.findByRole("button", {
+      name: /Add another category/,
+    })
+    await waitFor(() => expect(row).toBeEnabled())
+    fireEvent.click(row)
+    const sheet = await screen.findByRole("dialog", {
+      name: "Add another category",
+    })
+    await userEvent.type(
+      within(sheet).getByLabelText("Search Google categories"),
+      "spa"
+    )
+    await userEvent.click(
+      await within(sheet).findByRole("checkbox", { name: "Spa" })
+    )
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Add another category" })
+      ).toBeNull()
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Add another category/ })
+      ).toHaveFocus()
+    )
+  })
+
+  it("focuses the Additional categories label when the 9th category disables the opener", async () => {
+    stubPhone()
+    stubWithCategories(
+      ["A", "B", "C", "D", "E", "F", "G", "H"].map(category),
+      [category("Spa")]
+    )
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const row = await screen.findByRole("button", {
+      name: /Add another category/,
+    })
+    await waitFor(() => expect(row).toBeEnabled())
+    await userEvent.click(row)
+    const sheet = await screen.findByRole("dialog", {
+      name: "Add another category",
+    })
+    await userEvent.type(
+      within(sheet).getByLabelText("Search Google categories"),
+      "spa"
+    )
+    await userEvent.click(
+      await within(sheet).findByRole("checkbox", { name: "Spa" })
+    )
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Add another category" })
+      ).toBeNull()
+    )
+    // The list is full, so the row that opened the sheet is disabled.
+    expect(
+      screen.getByRole("button", { name: /Add another category/ })
+    ).toBeDisabled()
+    await waitFor(() =>
+      expect(screen.getByText("Additional categories")).toHaveFocus()
+    )
+    expect(document.body).not.toHaveFocus()
+  })
+
+  it("returns focus to the open status row after a choice", async () => {
+    stubPhone()
+    stubRoutes()
+    renderWithProviders(<ProfileTab locationId="loc-1" />)
+    const status = await screen.findByRole("button", { name: /Open status/ })
+    await waitFor(() => expect(status).toBeEnabled())
+    fireEvent.click(status)
+    const sheet = await screen.findByRole("dialog", { name: "Open status" })
+    fireEvent.click(
+      within(sheet).getByRole("option", { name: "Temporarily closed" })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Open status" })).toBeNull()
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Open status/ })).toHaveFocus()
+    )
   })
 })
 

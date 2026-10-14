@@ -14,7 +14,6 @@ import {
 } from "@/lib/billing/presentation"
 import { describeActionError } from "@/lib/errors/action-errors"
 import { useChangePlan, useStartCheckout } from "@/lib/queries/use-billing"
-import { cardClassName } from "@/components/ui/card"
 
 /** What a failed billing action says (a refused redirect names itself). */
 export function billingActionError(error: unknown): string {
@@ -105,7 +104,7 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
           Continuing it opens the same Stripe page.
         </p>
       ) : null}
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+      <ul className="m-0 flex list-none flex-col divide-y divide-line border-y border-line p-0">
         {overview.catalog.map((plan) => {
           const current = overview.plan?.id === plan.id
           const scheduled = overview.pendingPlan?.id === plan.id
@@ -142,10 +141,7 @@ export function PlanPicker({ overview }: { overview: BillingOverview }) {
               key={plan.id}
               data-slot="plan-option"
               data-plan-code={plan.code}
-              className={cardClassName({
-                className:
-                  "flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between",
-              })}
+              className="flex min-h-(--np-row-h) flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
               <div className="flex min-w-0 flex-col gap-1">
                 <p className="m-0 flex flex-wrap items-center gap-2 text-body font-semibold text-ink">

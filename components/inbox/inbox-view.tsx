@@ -22,7 +22,7 @@ import {
   SelectionProvider,
   useSelection,
 } from "@/components/inbox/selection-context"
-import { ReviewList } from "@/components/inbox/review-list"
+import { ReviewList, ReviewRowsSkeleton } from "@/components/inbox/review-list"
 import { EmptyState, Statement } from "@/components/inbox/empty-states"
 import { DetailErrorBoundary } from "@/components/inbox/detail-error-boundary"
 import { ReviewDetail } from "@/components/inbox/review-detail"
@@ -37,7 +37,6 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 import { Button } from "@/components/ui/button"
 import { QueryStates } from "@/components/ui/query-states"
-import { Skeleton } from "@/components/ui/skeleton"
 import { emptyCounts, emptyReason } from "@/lib/inbox/empty-reason"
 import { useClients } from "@/lib/queries/use-clients"
 import {
@@ -78,9 +77,10 @@ import { useNow } from "@/lib/time/server-now"
 
 /**
  * On a phone the panes run edge to edge (reference `.panel` below md): the
- * page gutter is cancelled and the card loses its side borders and corners.
+ * page's phone gutter (`max-md:px-4`, app/(dashboard)/inbox/page.tsx) is
+ * cancelled, so a row's hairline and fill reach the screen's edges.
  */
-const PHONE_BLEED = "max-md:-mx-4 max-md:rounded-none max-md:border-x-0"
+const PHONE_BLEED = "max-md:-mx-4"
 
 /** The nearest ancestor that scrolls: the shell's column, or the document. */
 function scrollParent(node: HTMLElement | null): HTMLElement | null {
@@ -503,26 +503,11 @@ function InboxViewInner({
     !reviewsQuery.isPending &&
     !reviewsQuery.isFetchingNextPage
 
-  // The same three lines a real row draws: the stars, name and age; two
-  // lines of review; the venue and the status.
+  // The rows a real list draws, in outline: the avatar, then the name and
+  // age, the stars and venue, and the review's words — at the rows' own
+  // heights, so nothing moves when they arrive.
   function renderListSkeleton() {
-    return (
-      <div aria-busy="true" className="flex flex-col">
-        {[0, 1, 2, 3, 4, 5].map((index) => (
-          <div
-            key={index}
-            className="flex gap-2.5 border-b border-line py-3 pr-3.5 pl-3"
-          >
-            <span className="w-5.5 shrink-0" />
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
-              <Skeleton className="h-3.5 w-[55%]" />
-              <Skeleton className="h-3.5 w-[90%]" />
-              <Skeleton className="h-3.5 w-[35%]" />
-            </div>
-          </div>
-        ))}
-      </div>
-    )
+    return <ReviewRowsSkeleton aria-busy="true" />
   }
 
   function renderList() {
@@ -758,7 +743,12 @@ function InboxViewInner({
   const workspaceControls = (
     <div
       data-slot="inbox-workspace-controls"
-      className="flex shrink-0 flex-col gap-3"
+      // Edge to edge on a phone like the panes below it, with the page's
+      // own gutter as padding, so the white band has no grey margins.
+      className={cn(
+        "flex shrink-0 flex-col gap-3 pt-2 pb-4 max-md:px-4 md:px-5 md:pt-5",
+        PHONE_BLEED
+      )}
     >
       <InboxToolbar
         state={state}
@@ -801,7 +791,7 @@ function InboxViewInner({
       aria-label="Reviews"
       data-slot="inbox-list-pane"
       className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col rounded-(--np-radius-card) border border-line bg-surface lg:[@media(min-height:620px)]:overflow-hidden",
+        "flex min-h-0 min-w-0 flex-1 flex-col bg-surface lg:[@media(min-height:620px)]:overflow-hidden",
         PHONE_BLEED
       )}
     >
@@ -819,7 +809,7 @@ function InboxViewInner({
           ("Showing 50 of 120"): it says only that more follow. The rows
           also load on their own as the end scrolls into view. */}
       {loaded && reviews.length > 0 && reviewsQuery.hasNextPage ? (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line py-1 pr-1 pl-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-line-subtle py-1 pr-1 pl-(--np-page-pad-x)">
           <span className="text-caption text-ink-muted">
             More reviews below
           </span>
@@ -892,6 +882,11 @@ function InboxViewInner({
               : (selectedRow.reviewer.displayName ?? "Anonymous")
             : undefined
         }
+        // Client first in an agency, as the row says it; a business has no
+        // client to name.
+        clientName={
+          business ? null : (selectedRow?.location.clientName ?? null)
+        }
         focusHeading={advance?.reviewId === state.selected}
         back={back}
         nav={nav}
@@ -916,7 +911,7 @@ function InboxViewInner({
       aria-label="Selected review"
       data-slot="inbox-inspector"
       className={cn(
-        "flex min-h-0 min-w-0 flex-col rounded-(--np-radius-card) border border-line bg-surface group-data-[view=list]/inbox:max-lg:hidden lg:[@media(min-height:620px)]:overflow-hidden",
+        "flex min-h-0 min-w-0 flex-col bg-surface group-data-[view=list]/inbox:max-lg:hidden lg:[@media(min-height:620px)]:overflow-hidden",
         PHONE_BLEED
       )}
     >
@@ -997,7 +992,9 @@ function InboxViewInner({
       // `min-h-0` only where the workspace is locked to the window: there
       // the panes share the height and scroll inside. Everywhere else the
       // inbox is as tall as its content and the page scrolls.
-      className="group/inbox relative flex flex-1 flex-col gap-3 xl:gap-4 lg:[@media(min-height:620px)]:min-h-0"
+      // One white surface, no gaps: the controls, a single hairline, then
+      // the list and the review side by side (or in turn on a phone).
+      className="group/inbox relative flex flex-1 flex-col bg-surface lg:[@media(min-height:620px)]:min-h-0"
     >
       <InboxHotkeys handlers={hotkeyHandlers} />
       {/* A review pushed over the list (below lg) is a level down from the
@@ -1030,12 +1027,12 @@ function InboxViewInner({
         // Reference `.work`: the queue beside the thread from lg, a third of
         // the room between 300px and 420px (shared with loading.tsx).
         style={INBOX_SPLIT_STYLE}
-        className="grid flex-1 grid-cols-1 gap-3 lg:grid-cols-[var(--inbox-list-w)_minmax(0,1fr)] xl:gap-4 lg:[@media(min-height:620px)]:min-h-0 lg:[@media(min-height:620px)]:grid-rows-[minmax(0,1fr)]"
+        className="grid flex-1 grid-cols-1 border-t border-line lg:grid-cols-[var(--inbox-list-w)_minmax(0,1fr)] lg:[@media(min-height:620px)]:min-h-0 lg:[@media(min-height:620px)]:grid-rows-[minmax(0,1fr)]"
       >
         <div
           data-slot="inbox-list-column"
           className={cn(
-            "flex min-w-0 flex-col lg:[@media(min-height:620px)]:min-h-0",
+            "flex min-w-0 flex-col lg:border-r lg:border-line lg:[@media(min-height:620px)]:min-h-0",
             hiddenInDetail
           )}
         >

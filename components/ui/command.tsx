@@ -22,19 +22,35 @@ import { cn } from "@/lib/utils"
  * cmdk owns the listbox semantics, the filtering and the arrow-key roving
  * focus; this file supplies the chrome (reference `.palette`): a 620px
  * panel 12vh from the top, a borderless title-size search row over a
- * hairline, mono uppercase group labels, rows that take the accent tint when
- * selected, and an optional footer of key hints (`footer` / `CommandFooter`).
- * On a phone it is a full-height sheet instead. The dialog keeps a real title and description,
- * visually hidden — a dialog with no accessible name is announced as an
- * unnamed region, which is precisely the state a keyboard user lands in when
- * they hit the shortcut.
+ * hairline, sentence-case group labels (D8), rows that take the accent tint
+ * when selected, and an optional footer of key hints (`footer` /
+ * `CommandFooter`). The dialog keeps a real title and description, visually
+ * hidden — a dialog with no accessible name is announced as an unnamed
+ * region, which is precisely the state a keyboard user lands in when they
+ * hit the shortcut.
+ *
+ * On a phone (`phone`):
+ *
+ *   sheet     (the default) a full-height bottom sheet, chosen when the
+ *             palette opens (see `useOverlayPresentation`)
+ *   takeover  Notion Mail's search takeover (brief §1.6): the whole screen,
+ *             a pill search field with a text "Cancel" beside it, results
+ *             under it. Switched by CSS below `sm`, not by a media query in
+ *             script, so the server's markup is right at every width and the
+ *             desk palette is exactly the dialog above.
  */
+const CommandTakeoverContext = React.createContext<{
+  cancelLabel: string
+} | null>(null)
+
 function CommandDialog({
   open,
   onOpenChange,
   title = "Search",
   description = "Find a client, a location or an action.",
   footer,
+  phone = "sheet",
+  cancelLabel = "Cancel",
   children,
 }: {
   open: boolean
@@ -43,9 +59,44 @@ function CommandDialog({
   description?: string
   /** Key hints under the list, e.g. `<CommandFooter>`. */
   footer?: React.ReactNode
+  /** The phone drawing: `sheet` (default) or the full-screen `takeover`. */
+  phone?: "sheet" | "takeover"
+  /** The takeover's Cancel, beside the field on a phone. */
+  cancelLabel?: string
   children: React.ReactNode
 }) {
   const presentation = useOverlayPresentation("auto", open)
+  const takeover = React.useMemo(() => ({ cancelLabel }), [cancelLabel])
+  if (phone === "takeover") {
+    // One element at every width: the desk dialog's classes, and below `sm`
+    // the full screen (inset 0, no radius, no shadow, under the status bar)
+    // where it fades in rather than rising. The results run between the
+    // field and the keyboard (`--np-dock-bottom`).
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          presentation="dialog"
+          showCloseButton={false}
+          data-phone="takeover"
+          className={cn(
+            DESK_PALETTE_CLASS,
+            "max-sm:inset-0 max-sm:top-0 max-sm:left-0 max-sm:flex max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:translate-x-0 max-sm:flex-col max-sm:rounded-none max-sm:pt-safe max-sm:shadow-none max-sm:data-starting-style:translate-y-0 max-sm:data-starting-style:scale-100"
+          )}
+        >
+          <DialogTitle className="sr-only">{title}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {description}
+          </DialogDescription>
+          <CommandTakeoverContext.Provider value={takeover}>
+            <Command className="bg-surface max-sm:min-h-0 max-sm:flex-1 max-sm:[&_[data-slot=command-list]]:max-h-none max-sm:[&_[data-slot=command-list]]:min-h-0 max-sm:[&_[data-slot=command-list]]:flex-1 max-sm:[&_[data-slot=command-list]]:pb-[calc(--spacing(2)+var(--np-dock-bottom))]">
+              {children}
+            </Command>
+          </CommandTakeoverContext.Provider>
+          {footer}
+        </DialogContent>
+      </Dialog>
+    )
+  }
   if (presentation === "sheet") {
     // On a phone the palette is a full-height sheet: the search row pinned
     // under the drag handle, the results scrolling between it and the
@@ -87,7 +138,7 @@ function CommandDialog({
       <DialogContent
         presentation="dialog"
         showCloseButton={false}
-        className="top-[12vh] block w-[min(620px,calc(100vw-24px))] max-w-none translate-y-0 gap-0 overflow-hidden p-0 data-starting-style:translate-y-2 sm:max-w-none"
+        className={DESK_PALETTE_CLASS}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
@@ -97,6 +148,10 @@ function CommandDialog({
     </Dialog>
   )
 }
+
+/** The desk palette: 620px, 12vh from the top, settling 8px as it fades in. */
+const DESK_PALETTE_CLASS =
+  "top-[12vh] block w-[min(620px,calc(100vw-24px))] max-w-none translate-y-0 gap-0 overflow-hidden p-0 data-starting-style:translate-y-2 sm:max-w-none"
 
 function Command({
   className,
@@ -113,12 +168,26 @@ function Command({
 
 function CommandInput({
   className,
+  wrapperClassName,
+  trailing,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
-  return (
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  /** Classes for the search row around the field (icon, field, trailing). */
+  wrapperClassName?: string
+  /** After the field, inside the row: a clear button, a spinner. */
+  trailing?: React.ReactNode
+}) {
+  const takeover = React.useContext(CommandTakeoverContext)
+  const row = (
     <div
       data-slot="command-search"
-      className="flex items-center gap-2.5 border-b border-line px-[18px]"
+      className={cn(
+        "flex items-center gap-2.5 border-b border-line px-[18px]",
+        // The takeover's phone field: a 40px pill on the secondary fill.
+        takeover &&
+          "max-sm:h-(--np-touch) max-sm:min-w-0 max-sm:flex-1 max-sm:gap-2 max-sm:rounded-pill max-sm:border-b-0 max-sm:bg-fill-secondary max-sm:px-3",
+        wrapperClassName
+      )}
     >
       <SearchIcon
         className="size-4 shrink-0 text-ink-muted"
@@ -128,7 +197,10 @@ function CommandInput({
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "h-14 w-full min-w-0 bg-transparent text-title text-ink outline-none placeholder:text-ink-muted",
+          // A placeholder too long for a narrow field ends in an ellipsis
+          // rather than being cut mid-word (FINAL-QA #14).
+          "h-14 w-full min-w-0 bg-transparent text-title text-ellipsis text-ink outline-none placeholder:text-ink-muted",
+          takeover && "max-sm:h-(--np-touch)",
           className,
           // iOS zooms the page into a focused field under 16px; no caller
           // className may take a touch search field below that.
@@ -136,6 +208,28 @@ function CommandInput({
         )}
         {...props}
       />
+      {trailing}
+    </div>
+  )
+  if (!takeover) return row
+  // From `sm` the bar is `display: contents` and its Cancel is hidden, so
+  // the desk search row is the plain one above.
+  return (
+    <div
+      data-slot="command-takeover-bar"
+      className="flex shrink-0 items-center gap-1 py-2 pr-1 pl-(--np-page-pad-x) sm:contents"
+    >
+      {row}
+      <DialogClose
+        render={
+          <Button
+            variant="ghost"
+            className="shrink-0 px-2.5 text-body font-normal text-accent-ink sm:hidden"
+          />
+        }
+      >
+        {takeover.cancelLabel}
+      </DialogClose>
     </div>
   )
 }
@@ -176,7 +270,8 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "overflow-hidden text-ink [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:tracking-[0.04em] [&_[cmdk-group-heading]]:text-ink-muted [&_[cmdk-group-heading]]:uppercase",
+        // D8: a sentence-case label, caption size, medium, muted ink.
+        "overflow-hidden text-ink [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-ink-muted",
         className
       )}
       {...props}

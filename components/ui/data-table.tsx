@@ -32,7 +32,9 @@ export type DataTableColumn<Row> = {
   /** Take the whole width of a record card's detail grid. */
   span?: boolean
   /**
-   * Where the column goes in a responsive record card: `primary` (the
+   * Where the column goes in a responsive record card: `leading` (an
+   * avatar or icon before the text; the list-row column with
+   * `responsive="list"`), `primary` (the
    * headline, usually the sort column), `secondary` (a subtitle),
    * `trailing` (the status or figure), `actions`, `meta` (joined into one
    * muted line), `detail` (a labelled pair; the default), `desk-only`
@@ -71,8 +73,19 @@ type DataTableProps<Row> = {
    * `priority`. With `selection`, the checkbox moves to the card's leading
    * slot and the select-all checkbox stays above the cards as a bar with
    * the selected count. See `Table`.
+   *
+   * `"list"`: the same record cards drawn as Notion Mail list rows (no
+   * card edge, an inset `line-subtle` hairline from `--np-row-inset-start`,
+   * a `leading` avatar column, the page's padding, a chevron on a clickable
+   * row). Still the same `<table>`, caption and cells: only the phone
+   * drawing changes, and the desk keeps the table.
    */
-  responsive?: boolean
+  responsive?: boolean | "list"
+  /**
+   * With `responsive="list"`: on a phone the rows run edge to edge and a
+   * `surface` card is dropped.
+   */
+  bleed?: boolean
   className?: string
 }
 
@@ -93,6 +106,14 @@ type DataTableProps<Row> = {
  *   { id: "status", header: "Publishing", priority: "trailing", cell: … }
  *   { id: "menu", header: "", priority: "actions", cell: … }
  *
+ * As Notion Mail rows (`responsive="list"`, e.g. the clients index):
+ *
+ *   { id: "avatar", header: "", priority: "leading", cell: … }
+ *   { id: "name", header: "Client", priority: "primary", cell: … }
+ *   { id: "health", header: "Health", priority: "secondary", cell: … }
+ *   { id: "work", header: "Open work", priority: "trailing", cell: … }
+ *   { id: "sync", header: "Last sync", priority: "meta", cell: … }
+ *
  * The caption is mandatory and visually hidden. A page with three tables gives
  * a screen-reader user three identical "table" landmarks otherwise, and the
  * only way to tell them apart is to read into each one.
@@ -109,6 +130,7 @@ function DataTable<Row>({
   empty,
   surface = false,
   responsive = false,
+  bleed = false,
   className,
 }: DataTableProps<Row>) {
   const ids = rows.map(rowId)
@@ -142,7 +164,7 @@ function DataTable<Row>({
       {/* The card ground belongs to Table's scroll container, not to a box
           around it: a wide table then scrolls inside its own card instead of
           sliding out from under one. */}
-      <Table surface={surface} responsive={responsive}>
+      <Table surface={surface} responsive={responsive} bleed={bleed}>
         <caption className="sr-only">{caption}</caption>
         <TableHeader sticky={stickyHeader}>
           <TableRow>

@@ -1,17 +1,16 @@
 import type * as React from "react"
 
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Empty } from "@/components/ui/empty"
 
 /**
- * The one card the public report shows when there is no report to show (a
+ * The one state the public report shows when there is no report to show (a
  * link that does not work, or a failed read): the page's `h1`, one sentence
- * and at most one action, centred on the screen. No links into the app.
+ * and at most one action. No links into the app.
+ *
+ * The shared `Empty` state at page placement (the mark, title and sentence
+ * at about a third of the screen's height, NM's "All caught up" layout), in
+ * its own `<main>`: this page has no app shell, so the state IS the page and
+ * its title is the page's one `h1`.
  */
 export function ShareStateCard({
   icon,
@@ -28,26 +27,19 @@ export function ShareStateCard({
     <main
       id="main"
       tabIndex={-1}
-      className="flex min-h-svh flex-col items-center justify-center px-4 py-10 outline-none"
+      className="flex min-h-svh flex-col outline-none"
     >
-      <Card className="w-full max-w-md">
-        <CardHeader className="gap-1.5">
-          <span
-            aria-hidden
-            className="mb-2.5 grid size-11 place-items-center rounded-(--np-radius-card) bg-fill text-ink-secondary [&_svg]:size-5 [&_svg]:[stroke-width:1.75]"
-          >
-            {icon}
-          </span>
-          <CardTitle
-            as="h1"
-            className="font-display text-page-title text-balance"
-          >
-            {title}
-          </CardTitle>
-          <CardDescription className="text-body">{description}</CardDescription>
-        </CardHeader>
-        {action ? <CardContent>{action}</CardContent> : null}
-      </Card>
+      <Empty
+        placement="page"
+        titleAs="h1"
+        icon={icon}
+        title={title}
+        description={description}
+        action={
+          action ? <div className="w-full max-w-xs">{action}</div> : undefined
+        }
+        className="min-h-svh"
+      />
     </main>
   )
 }

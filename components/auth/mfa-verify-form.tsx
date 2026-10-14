@@ -10,8 +10,14 @@ import {
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
 import { focusFirstCodeBox } from "@/components/auth/focus-code-box"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
 import { Button } from "@/components/ui/button"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "@/components/ui/field"
 import { OtpField } from "@/components/ui/otp-field"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { ApiClientError } from "@/lib/api/client"
@@ -132,18 +138,18 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
 
   if (expired) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <AuthErrorAlert
           message={{
             title: "Your sign-in has expired.",
             description:
-              "For your security the code step lasts five minutes. Sign in again to continue.",
+              "For your security the code step ends after five minutes or five wrong codes. Sign in again to continue.",
           }}
         />
         <Button
           type="button"
           size="lg"
-          className="w-full"
+          block
           onClick={() => hardNavigate("/sign-in")}
         >
           Sign in again
@@ -187,21 +193,26 @@ function MfaVerifyForm({ nextPath }: { nextPath?: string | null }) {
           value={code}
           onValueChange={setCode}
         />
+        <FieldDescription>
+          From your authenticator app. Codes refresh every 30 seconds.
+        </FieldDescription>
         <FieldError>{codeError}</FieldError>
       </Field>
       <Button
         type="submit"
         size="lg"
-        className="w-full"
+        block
+        className={WRAPPING_BLOCK_BUTTON}
         disabled={pending || factors === null}
       >
         {pending ? "Checking…" : "Verify and sign in"}
       </Button>
       <Button
         type="button"
-        variant="ghost"
+        variant="secondary"
         size="lg"
-        className="w-full"
+        block
+        className={WRAPPING_BLOCK_BUTTON}
         disabled={pending}
         onClick={startOver}
       >

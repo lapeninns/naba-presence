@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 import { useWorkspaceMode } from "@/lib/workspace/mode"
 
 import { useClientScope } from "./client-context"
+import { NOTICE_ACTION_CLASS, NOTICE_STRIP_CLASS } from "./shell-notices"
 import {
   CONNECTIONS_PATH,
   hidesReconnectBanner,
@@ -184,11 +185,13 @@ export function ReconnectBanner({ className }: { className?: string }) {
         }
         actions={
           canReconnect ? (
-            <span className="flex min-w-0 flex-wrap items-center gap-2 sm:max-w-[28rem]">
+            <span className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 sm:max-w-[28rem]">
               <Button
-                variant="outline"
-                size="sm"
-                className="max-w-full min-w-0 justify-start overflow-hidden pointer-coarse:min-h-11"
+                variant="link"
+                className={cn(
+                  NOTICE_ACTION_CLASS,
+                  "max-w-full min-w-0 justify-start overflow-hidden"
+                )}
                 // The address is hidden on a phone; the name keeps it.
                 aria-label={`Reconnect ${first.googleEmail ?? "Google"}`}
                 onClick={() => {
@@ -209,8 +212,8 @@ export function ReconnectBanner({ className }: { className?: string }) {
                   href={CONNECTIONS_PATH}
                   prefetch={false}
                   className={cn(
-                    buttonVariants({ variant: "ghost", size: "sm" }),
-                    "pointer-coarse:min-h-11"
+                    buttonVariants({ variant: "link" }),
+                    NOTICE_ACTION_CLASS
                   )}
                 >
                   See all
@@ -261,16 +264,16 @@ function Banner({
       // not re-read as an alert on every page it persists across.
       role="status"
       data-slot="reconnect-banner"
+      // The shell's notice strip on the danger tint: the same hue the health
+      // chip gives a disconnected login ("at-risk"), so one condition reads
+      // as one severity wherever it shows.
       className={cn(
-        "flex shrink-0 flex-wrap items-start gap-x-3 gap-y-2 bg-danger-tint px-5 py-2 text-ui text-ink sm:items-center sm:py-2.5 md:px-(--np-page-pad-x)",
+        NOTICE_STRIP_CLASS,
+        "bg-danger-tint text-ink [&>svg]:text-danger-ink",
         className
       )}
     >
-      <Icon
-        className="mt-0.5 size-4 shrink-0 text-danger-ink sm:mt-0"
-        strokeWidth={1.75}
-        aria-hidden
-      />
+      <Icon strokeWidth={1.75} aria-hidden />
       <p className="min-w-0 flex-[1_1_12rem] text-pretty [overflow-wrap:anywhere]">
         {message}
       </p>
@@ -281,7 +284,7 @@ function Banner({
           onClick={onDismiss}
           aria-label="Hide until next session"
           title="Hide until next session. The health chip in the header still shows it."
-          className="grid size-7 shrink-0 place-items-center rounded-md text-ink-muted focus-halo transition-colors hover:bg-fill hover:text-ink focus-visible:outline-none pointer-coarse:size-11"
+          className="grid size-7 shrink-0 place-items-center rounded-md text-ink-secondary focus-halo transition-colors hover:bg-fill hover:text-ink focus-visible:outline-none pointer-coarse:size-11"
         >
           <XIcon className="size-4" strokeWidth={1.75} aria-hidden />
         </button>

@@ -126,7 +126,6 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   // stale, so the message under the editor goes until the next check.
   const [verdictStale, setVerdictStale] = useState(false)
   const [saving, setSaving] = useState(false)
-
   const isDirty = body !== seededBody
   const askDiscard = useAskDiscardConfirm()
   const { confirmDiscard, restore, markDiscarded } = useDirtyGuard({
@@ -388,15 +387,16 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
   const showFail = verification?.verdict === "fail"
   const empty = body.trim() === ""
   const showCredits = Boolean(aiCredits.data) && editable
+  const reviewerGreeting = greetingName(
+    review.reviewerDisplayName,
+    review.reviewerIsAnonymous
+  )
   // Advice, ticked off as they type; never a gate — the verification above
   // is the only check that can stop a publish.
   const guidance = editable
     ? replyGuidance({
         body,
-        reviewerName: greetingName(
-          review.reviewerDisplayName,
-          review.reviewerIsAnonymous
-        ),
+        reviewerName: reviewerGreeting,
         rating: review.rating,
       })
     : []
@@ -411,7 +411,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           lang={review.detectedLanguageCode ?? undefined}
           dir="auto"
           className={cn(
-            "m-0 rounded-lg border border-line bg-surface px-4 py-3 text-body whitespace-pre-line",
+            "m-0 rounded-(--np-radius-card) border border-line bg-surface px-4 py-3 text-body whitespace-pre-line",
             seededBody ? "text-ink" : "text-ink-muted"
           )}
         >
@@ -538,16 +538,33 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
       </label>
       {generateErrorNote}
 
-      {/* One bordered card whose edge takes the focus ring while the
-          textarea inside is borderless: the tone and Generate docked on a
-          bar above the words, the guidance and length beneath them. */}
-      <div className="flex min-w-0 flex-col overflow-hidden rounded-(--np-radius-card) border border-line bg-surface transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink">
+      {/* The editor surface under the "Reply as …" header row: a quiet
+          hairline edge at rest (where the field ends must stay visible),
+          a stronger edge and halo while the words are focused. The
+          insert bar sits over one hairline above the words; the guidance
+          and the length beneath them. */}
+      <div
+        data-slot="reply-editor"
+        className="flex min-w-0 flex-col rounded-(--np-radius-card) border border-line transition-[border-color,box-shadow] duration-(--np-duration-fast) focus-within:border-line-strong focus-within:ring-3 focus-within:ring-fill has-[[aria-invalid=true]]:border-danger-ink motion-reduce:transition-none"
+      >
+        {/* The insert bar: plain text in, never rich text. AI rewrite (the
+            tone and Generate) and the count. */}
         <div
           data-slot="composer-prompt-bar"
-          className="flex flex-wrap items-center gap-2 border-b border-line p-1.5"
+          className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-t-(--np-radius-card) border-b border-line bg-surface p-1.5"
         >
           {toneControl}
           <span aria-hidden className="flex-1" />
+          <span
+            data-slot="char-count"
+            // Neutral on purpose: Google's limit is in bytes, which the
+            // foot's length note states; a red character count would claim a
+            // limit in a unit it does not show.
+            className="px-1 text-count whitespace-nowrap text-ink-muted tabular-nums"
+          >
+            {body.length.toLocaleString("en-GB")}{" "}
+            {body.length === 1 ? "character" : "characters"}
+          </span>
           {editable && isDirty && seededBody !== "" ? (
             <Button
               variant="ghost"
@@ -562,7 +579,7 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
             </Button>
           ) : null}
           <Button
-            variant={empty || toneChanged ? "secondary" : "ghost"}
+            variant="secondary"
             disabled={!canGenerate}
             pending={generateOrSave.isPending && !saving}
             pendingLabel="Writing…"
@@ -611,15 +628,17 @@ function ReplyComposer({ reviewId }: { reviewId: string }) {
           placeholder="Write a reply, or generate one in the chosen tone."
           className={cn(
             // text-body is 16px on touch, so iOS does not zoom into the box.
-            "rounded-none border-0 bg-transparent px-4 pt-3.5 pb-3 text-body shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
-            generateOrSave.isPending && !saving && "animate-pulse"
+            "rounded-none border-0 bg-transparent px-3 pt-3.5 pb-3 text-body shadow-none read-only:cursor-default focus:shadow-none focus-visible:shadow-none",
+            generateOrSave.isPending &&
+              !saving &&
+              "animate-pulse motion-reduce:animate-none"
           )}
         />
 
         {guidance.length > 0 || nearLimit || overLimit || showCredits ? (
           <div
             data-slot="composer-foot"
-            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-line px-4 py-2.5"
+            className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 py-2.5"
           >
             {guidance.length > 0 ? (
               <ul

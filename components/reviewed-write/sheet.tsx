@@ -17,6 +17,9 @@ import { ReviewedWriteSteps, type ReviewedWriteStage } from "./steps"
  * actions): a bottom sheet on a phone and a side panel from `sm`, with the
  * steps under the title and the actions pinned in the footer, in the thumb
  * zone. The body scrolls; the footer never does.
+ *
+ * Calm, words-first: the title in `text-title`, the description muted, the
+ * steps under them. The body's own sections draw their hairlines.
  */
 export function ReviewedWriteSheet({
   open,
@@ -43,7 +46,13 @@ export function ReviewedWriteSheet({
         <SheetHeader>
           <SheetTitle>{title}</SheetTitle>
           {description ? <SheetDescription>{description}</SheetDescription> : null}
-          {stage ? <ReviewedWriteSteps stage={stage} secondApprover={secondApprover} /> : null}
+          {stage ? (
+            <ReviewedWriteSteps
+              stage={stage}
+              secondApprover={secondApprover}
+              className="mt-2"
+            />
+          ) : null}
         </SheetHeader>
         <SheetBody>{children}</SheetBody>
         <SheetFooter className="sm:items-center">{footer}</SheetFooter>

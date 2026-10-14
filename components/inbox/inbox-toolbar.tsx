@@ -1,29 +1,71 @@
 "use client"
 
-import { useEffect, useRef, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 
 import type { LocationOption } from "@/components/inbox/active-filter-chips"
 import { FilterToolbar } from "@/components/inbox/filter-toolbar"
 import { QueueTabs } from "@/components/inbox/queue-tabs"
-import { ReviewSearchField } from "@/components/inbox/review-filters"
-import type { ReviewCounts } from "@/lib/contracts/reviews"
+import { useReviewSearch } from "@/components/inbox/review-filters"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Toolbar } from "@/components/ui/toolbar"
+import { ViewHeader } from "@/components/ui/view-header"
+import { REVIEW_QUEUE_LABELS, type ReviewCounts } from "@/lib/contracts/reviews"
+import { formatNumber } from "@/lib/format"
+import { useHydratedBreakpoint } from "@/lib/hooks/use-media-query"
 import { SEARCH_FOCUS_EVENT } from "@/lib/inbox/events"
 import type { InboxState, Queue } from "@/lib/inbox/url-state"
+import { cn } from "@/lib/utils"
 
 /**
- * The inbox's one compact band (reference `.toolbar`). It replaces a page
- * header, a hero count, a chip row and a filter row, so the list starts high
- * on every screen.
+ * The count after the title (Notion Mail's "Inbox 99+"): how many reviews
+ * need a reply, for `ViewHeader`'s count slot, which draws it beside the h1
+ * (never inside it, so the heading's name stays "Inbox" whatever the number
+ * is) and says it to a screen reader in words ("12 need a reply", the tab
+ * bar's own wording).
  *
- * - From `md`: the title, the search and the page actions on the first row;
- *   the queues and the filters on the second. From `xl` the reminder
- *   sentence sits beside the title.
- * - Phones: three rows on a grid — the title (smaller) with the actions, the
- *   search with the Filters button, then the queue strip across the full
- *   width. The search is always there rather than folded behind an icon: it
- *   is the inbox's one search, and an icon beside the shell's own would be a
- *   second magnifier that means something else. The two row wrappers step
- *   aside (`display: contents`) so their children land on the grid.
+ * A skeleton while the counts are in flight, never a "0": a zero before the
+ * number lands says there is nothing to do when there may be plenty. A
+ * queue with nothing in it shows no figure, as the tab bar does.
+ */
+function headerCount(
+  counts: ReviewCounts | undefined,
+  countsPending: boolean
+): { count?: ReactNode; countLabel?: string } {
+  if (countsPending) {
+    return { count: <Skeleton className="inline-block h-5 w-8 align-middle" /> }
+  }
+  const needsReply = counts?.byQueue?.needs_reply ?? 0
+  if (needsReply <= 0) return {}
+  return {
+    count: formatNumber(needsReply),
+    countLabel: `${formatNumber(needsReply)} ${needsReply === 1 ? "needs" : "need"} a reply`,
+  }
+}
+
+/**
+ * The inbox's band above the list, composed from the primitives:
+ *
+ * - `ViewHeader`: "Inbox" (the page's h1, or a `p` while an open review's
+ *   head is the h1), the needs-reply count after it, and the page actions
+ *   (shortcuts and sync). From `xl` the reminder sentence sits before them.
+ * - `Toolbar`: the review search (Notion Mail's filled pill, "Search
+ *   reviews") with the filter end of the band in its filter slot.
+ * - The queue strip under it, across the full width.
+ *
+ * The search is always there rather than folded behind an icon: it is the
+ * inbox's one search, and an icon beside the shell's own would be a second
+ * magnifier that means something else.
+ *
+ * Search mode (Notion Mail's search takeover) is the Toolbar's, on a touch
+ * layout only (anything that is not `desk`, as the Toolbar decides): focusing
+ * the field, or arriving with a search in force, folds the title, the
+ * actions, the filters and the queue strip away and puts a "Cancel" beside
+ * the field, with the list's count under it as the results label. Cancel
+ * (or Escape) empties the field and sends `{ search: "" }` through
+ * `onFilterChange` at once. It is not left on blur: a blur that unfolded the
+ * strip would move the list under a finger already on its way to a row. The
+ * title stays the page's h1 for assistive tech (`sr-only`, not removed).
+ * Nothing folds at the desk.
  */
 function InboxToolbar({
   state,
@@ -62,7 +104,49 @@ function InboxToolbar({
   titleIsHeading?: boolean
 }) {
   const searchRef = useRef<HTMLInputElement>(null)
-  const Title = titleIsHeading ? "h1" : "p"
+  const { searchDraft, setSearchDraft, searchPending, cancel } =
+    useReviewSearch(state, onFilterChange)
+  // The Toolbar's own test for a touch layout, as a render input: search
+  // mode never takes over the desk. Unknown (server and hydration render)
+  // counts as not touch, so a hard load never decides on a guess.
+  const touch = useHydratedBreakpoint("desk") === false
+  // Entered by focusing the field (the Toolbar reports it); left only by
+  // Cancel or Escape.
+  const [searchEngaged, setSearchEngaged] = useState(false)
+  // Opening a review (on a phone its head takes the h1) ends an empty
+  // search's takeover, so coming back finds the queues and Sync again
+  // rather than a Cancel for a search that was never typed.
+  const [wasHeading, setWasHeading] = useState(titleIsHeading)
+  if (wasHeading !== titleIsHeading) {
+    setWasHeading(titleIsHeading)
+    if (!titleIsHeading) setSearchEngaged(false)
+  }
+  const searchMode = touch && (searchEngaged || state.search !== "")
+  // Only a tap on the field may focus it (R3 F2-S1). The Toolbar focuses its
+  // field on any switch into search mode, so a mode that comes from state —
+  // a ?search= link, a reload, the post-hydration touch answer, Back to a
+  // searched inbox — mounts a fresh Toolbar that is told not to take focus
+  // on mount. A tap (engaged) keeps the same instance, so focus stays put.
+  const searchModeFromState = searchMode && !searchEngaged
+  const queueLabel =
+    REVIEW_QUEUE_LABELS[state.queue as keyof typeof REVIEW_QUEUE_LABELS] ?? null
+
+  // Leaving search mode puts focus on the Filters button (R2b P2-S3). The
+  // Toolbar's own fallback takes the first button in the filter slot, which
+  // here is a desk-only inline filter, hidden on the phone where search mode
+  // happens, so focus would drop to the document. Runs after the Toolbar's
+  // effect in the same commit, so this is where focus lands.
+  const bandRef = useRef<HTMLDivElement>(null)
+  const leavingSearchRef = useRef(false)
+  useEffect(() => {
+    if (searchMode || !leavingSearchRef.current) return
+    leavingSearchRef.current = false
+    bandRef.current
+      ?.querySelector<HTMLElement>(
+        '[data-slot="inbox-filter-toolbar"] button[aria-haspopup="dialog"]'
+      )
+      ?.focus()
+  }, [searchMode])
 
   // `/` from the hotkey layer puts the caret in the search.
   useEffect(() => {
@@ -74,56 +158,92 @@ function InboxToolbar({
   }, [])
 
   return (
-    <header
+    <div
+      ref={bandRef}
       data-slot="inbox-toolbar"
-      className="flex shrink-0 flex-col gap-3 max-md:grid max-md:grid-cols-[minmax(0,1fr)_auto] max-md:gap-x-2 max-md:gap-y-2.5"
+      data-search-mode={searchMode ? "" : undefined}
+      className="flex shrink-0 flex-col gap-3"
     >
-      <div className="flex min-w-0 items-center gap-3 max-md:contents">
-        <div className="flex min-w-0 flex-1 items-baseline gap-3 max-md:col-start-1 max-md:row-start-1">
-          <Title className="font-display text-section font-semibold text-ink md:text-page-title">
-            Inbox
-          </Title>
-          <p className="min-w-0 truncate text-ui text-ink-muted max-xl:hidden">
-            Only verified replies reach Google.
-          </p>
-        </div>
-
-        <ReviewSearchField
-          ref={searchRef}
-          state={state}
-          onChange={onFilterChange}
-          showShortcut
-          className="shrink max-md:col-start-1 max-md:row-start-2 md:w-56 lg:w-72"
-        />
-
-        {actions ? (
-          <div className="flex shrink-0 items-center justify-end gap-2 max-md:col-start-2 max-md:row-start-1">
-            {actions}
-          </div>
-        ) : null}
-      </div>
-
-      <div className="flex min-w-0 items-center gap-3 max-md:contents">
-        <QueueTabs
-          queue={state.queue}
-          counts={counts}
-          countsPending={countsPending}
-          onQueueChange={onQueueChange}
-          className="max-md:col-span-2 max-md:row-start-3"
-        />
-        <FilterToolbar
-          state={state}
-          resultLabel={resultLabel}
-          locations={locations}
-          clients={clients}
-          showLocationFilter={showLocationFilter}
-          onChange={onFilterChange}
-          onQueueChange={onQueueChange}
-          onClear={onClear}
-          className="flex-1 max-md:col-start-2 max-md:row-start-2"
+      <div
+        data-slot="inbox-title-row"
+        className={cn("min-w-0", searchMode && "sr-only")}
+      >
+        <ViewHeader
+          title="Inbox"
+          titleAs={titleIsHeading ? "h1" : "p"}
+          {...headerCount(counts, countsPending)}
+          actions={
+            <div
+              hidden={searchMode}
+              className="flex min-w-0 items-center justify-end gap-2"
+            >
+              <p className="min-w-0 truncate text-ui text-ink-muted max-xl:hidden">
+                Only verified replies reach Google.
+              </p>
+              {actions}
+            </div>
+          }
         />
       </div>
-    </header>
+
+      <Toolbar
+        key={searchModeFromState ? "search-from-state" : "search-by-user"}
+        focusSearchOnMount={false}
+        sticky={false}
+        className="py-0"
+        searchLabel="Search reviews"
+        searchPlaceholder="Search reviews"
+        searchValue={searchDraft}
+        onSearchChange={setSearchDraft}
+        searchInputProps={{ "aria-busy": searchPending || undefined }}
+        searchRef={searchRef}
+        searchMode={searchMode}
+        onSearchModeChange={(next) => {
+          if (next) {
+            setSearchEngaged(true)
+            return
+          }
+          leavingSearchRef.current = true
+          cancel()
+          setSearchEngaged(false)
+        }}
+        filter={
+          <FilterToolbar
+            state={state}
+            resultLabel={resultLabel}
+            locations={locations}
+            clients={clients}
+            showLocationFilter={showLocationFilter}
+            onChange={onFilterChange}
+            onQueueChange={onQueueChange}
+            onClear={onClear}
+          />
+        }
+      />
+
+      {searchMode ? (
+        // The results label under the field: the list's own count, so it
+        // can never disagree with the rows. Not live (so not the Toolbar's
+        // `resultsLabel`, a status): the list header already announces a
+        // new count once per search.
+        <p
+          data-slot="inbox-search-results"
+          className="min-w-0 text-ui text-ink-muted"
+        >
+          {queueLabel ? `Results in ${queueLabel}` : "Results"} · {resultLabel}
+        </p>
+      ) : null}
+
+      <QueueTabs
+        queue={state.queue}
+        counts={counts}
+        countsPending={countsPending}
+        // Stays in search mode (R2b P2-S2): a search runs inside a queue,
+        // so the queue is named above and can still be changed without
+        // losing the words typed.
+        onQueueChange={onQueueChange}
+      />
+    </div>
   )
 }
 

@@ -49,7 +49,7 @@ export function LodgingScalarControl({ node, value, original, disabled, error, a
       : hint ? <FieldDescription>{hint}</FieldDescription>
       : value === undefined && !error ? <FieldDescription>{added ? "Not set yet." : "Google has not recorded a value for this detail."}</FieldDescription> : null}
     <FieldError />
-    {dirty ? <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => onChange(original)}>Reset {node.label.toLowerCase()}</Button> : null}
+    {dirty ? <Button type="button" size="sm" variant="ghost" className="self-start" disabled={disabled} onClick={() => onChange(original)}>Reset {node.label.toLowerCase()}</Button> : null}
   </Field>
 }
 

@@ -6,6 +6,9 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { endImpersonation } from "@/lib/api/auth"
 import { hardNavigate } from "@/lib/client/hard-navigate"
+import { cn } from "@/lib/utils"
+
+import { NOTICE_ACTION_CLASS, NOTICE_STRIP_CLASS } from "./shell-notices"
 
 /**
  * Shown on every page of a support impersonation session.
@@ -17,6 +20,10 @@ import { hardNavigate } from "@/lib/client/hard-navigate"
  * `support.impersonation.ended` before clearing the session, so the audit
  * trail has an end for every start instead of waiting out the one-hour
  * expiry.
+ *
+ * Drawn as the shell's notice strip, but in charcoal rather than a status
+ * tint: every other notice is about the workspace, this one is about who
+ * is acting, so it must never be mistaken for one of them.
  */
 export function ImpersonationBanner({
   supportActor,
@@ -44,27 +51,23 @@ export function ImpersonationBanner({
     <div
       role="status"
       data-slot="impersonation-banner"
-      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 bg-warning-tint px-5 py-2 text-ui text-ink sm:py-2.5 md:px-(--np-page-pad-x)"
+      className={cn(NOTICE_STRIP_CLASS, "on-charcoal")}
     >
-      <UserRoundCog
-        className="size-4 shrink-0 text-warning-ink"
-        strokeWidth={1.75}
-        aria-hidden
-      />
+      <UserRoundCog strokeWidth={1.75} aria-hidden />
       <p className="min-w-0 flex-[1_1_12rem] text-pretty [overflow-wrap:anywhere]">
         <strong className="font-semibold">
           Support session: {supportActor} is acting as {customerName}
         </strong>{" "}
-        <span className="text-ink-secondary">
+        <span className="text-ink-muted-on-charcoal">
           in {organisationName}. Every change is recorded against your name.
         </span>
       </p>
       <Button
-        variant="outline"
-        size="sm"
+        variant="link"
         pending={ending}
         pendingLabel="Ending…"
         onClick={() => void onEnd()}
+        className={cn(NOTICE_ACTION_CLASS, "text-ink-on-charcoal")}
       >
         End impersonation
       </Button>

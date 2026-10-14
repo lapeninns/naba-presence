@@ -74,7 +74,7 @@ import {
 } from "@/lib/locations/onboarding-opening"
 
 /** A section of the draft form: a heading, then its fields. */
-const SECTION_CLASS = "border-t border-line pt-5"
+const SECTION_CLASS = "border-t border-line-subtle pt-5"
 /** Two columns from `sm`; one on a phone. */
 const SECTION_GRID_CLASS = "grid min-w-0 gap-4 sm:grid-cols-2"
 
@@ -116,7 +116,7 @@ export function OnboardingDrafts({
   return (
     <section
       aria-labelledby="onboarding-drafts-heading"
-      className="flex min-w-0 flex-col gap-4 border-t border-line pt-6"
+      className="flex min-w-0 flex-col gap-4 border-t border-line-subtle pt-6"
     >
       <div className="space-y-1">
         <h3
@@ -125,14 +125,14 @@ export function OnboardingDrafts({
         >
           Find your business on Google
         </h3>
-        <p className="text-ui text-ink-muted">
+        <p className="max-w-(--np-measure-reading) text-body text-pretty text-ink-muted">
           If the listing is not in the accessible listings above, save its
           details and check for potential matches. Saving and searching do not
           create a public listing.
         </p>
       </div>
       {!connectionId ? (
-        <p className="text-ui text-ink-muted">
+        <p className="text-body text-ink-muted">
           Connect this client to Google before searching.
         </p>
       ) : accounts.query.isError ? (
@@ -174,7 +174,7 @@ export function OnboardingDrafts({
             </FieldDescription>
           </Field>
           {active.length === 0 && (
-            <p role="status" className="text-ui text-ink-muted">
+            <p role="status" className="text-body text-ink-muted">
               Select an active account in the previous setup step.
             </p>
           )}
@@ -294,7 +294,7 @@ function DraftWorkspace({
     return (
       <div className="flex flex-col gap-3">
         <Button
-          className="self-start"
+          className="self-stretch sm:self-start"
           pending={create.isPending}
           pendingLabel="Saving draft…"
           onClick={() => create.mutate()}
@@ -308,7 +308,7 @@ function DraftWorkspace({
           </FormError>
         )}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <h4 className="text-ui font-semibold">Saved business drafts</h4>
+          <h4 className="text-ui font-medium text-ink-muted">Saved business drafts</h4>
           <Button
             variant="ghost"
             size="sm"
@@ -326,21 +326,21 @@ function DraftWorkspace({
             description={`${describeActionError(list.error)} Use Refresh drafts to try again.`}
           />
         ) : !list.data.drafts.length ? (
-          <p className="text-ui text-ink-muted">
+          <p className="text-body text-ink-muted">
             No saved drafts for this client and account.
           </p>
         ) : (
-          <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">
+          <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
             {list.data.drafts.map((item) => (
               <li
                 key={item.id}
-                className="flex min-w-0 flex-wrap items-center justify-between gap-3 p-4"
+                className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-3"
               >
                 <div className="min-w-0">
-                  <p className="text-ui font-semibold break-words">
+                  <p className="text-body font-medium break-words text-ink">
                     {item.payload.title || "Untitled business"}
                   </p>
-                  <p className="text-caption text-ink-muted">
+                  <p className="text-caption text-ink-muted tabular-nums">
                     Saved {new Date(item.updatedAt).toLocaleString("en-GB")}
                   </p>
                 </div>
@@ -735,8 +735,8 @@ function DraftDetails({
       <div className="flex flex-col gap-2">
         <h4 className="text-ui font-semibold">Business details</h4>
         <p className="text-caption text-ink-muted">
-          This draft is saved to your account. Keep this setup link to return to
-          it.
+          This draft is saved in NabaPresence, not on Google. Keep this setup
+          link to return to it.
         </p>
         <ShareSetupLink title="Business draft in NabaPresence" />
       </div>
@@ -1026,7 +1026,7 @@ function DraftDetails({
           </div>
         </Fieldset>
       </Fieldset>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <Button
           variant="secondary"
           pending={save.isPending}
@@ -1081,26 +1081,26 @@ function DraftDetails({
       {!dirty && !areaEntryDirty && !relationshipEntryDirty && !hoursEntryDirty && !moreHoursEntryDirty && draft.matchResult && (
         <div className="flex flex-col gap-3">
           <div className="space-y-1">
-            <h4 className="text-ui font-semibold">Potential matches</h4>
-            <p className="text-caption text-ink-muted">
+            <h4 className="text-ui font-medium text-ink-muted">Potential matches</h4>
+            <p className="text-caption text-ink-muted tabular-nums">
               Checked{" "}
               {new Date(draft.matchResult.checkedAt).toLocaleString("en-GB")}.
               Results do not prove ownership or access.
             </p>
           </div>
           {draft.matchResult.matches.length === 0 ? (
-            <p role="status" className="text-ui text-ink-muted">
+            <p role="status" className="text-body text-ink-muted">
               Google returned no potential matches. This search has not created
               a listing.
             </p>
           ) : (
-            <ul className="divide-y divide-line rounded-(--np-radius-card) border border-line">
+            <ul className="flex flex-col divide-y divide-line-subtle border-y border-line-subtle">
               {draft.matchResult.matches.map((match) => (
-                <li key={match.name} className="flex min-w-0 flex-col items-start gap-2 p-4">
-                  <p className="text-body font-semibold break-words">
+                <li key={match.name} className="flex min-w-0 flex-col items-start gap-2 py-3">
+                  <p className="text-body font-medium break-words text-ink">
                     {match.location.title || "Unnamed business"}
                   </p>
-                  <p className="text-ui text-ink-muted">
+                  <p className="text-caption text-ink-muted">
                     {[
                       ...(match.location.storefrontAddress?.addressLines ?? []),
                       match.location.storefrontAddress?.locality,
@@ -1202,13 +1202,13 @@ function CreationStatus({
   return (
     <div className="flex flex-col gap-4" aria-label="Creation outcome">
       <div className="space-y-2" role="status">
-        <h4 className="text-title font-semibold">{execution}</h4>
-        <p className="text-ui">
+        <h4 className="text-title font-semibold text-ink">{execution}</h4>
+        <p className="text-body">
           {value.confirmationState === "confirmed"
             ? "An independent Google read confirmed the approved details."
             : "The approved details have not been independently confirmed."}
         </p>
-        <p className="text-ui">
+        <p className="text-body">
           {value.linkState === "linked"
             ? "The listing is linked in NabaPresence. Initial synchronisation was requested."
             : "The listing is not yet linked in NabaPresence."}
@@ -1216,21 +1216,21 @@ function CreationStatus({
       </div>
       <SupportDetails items={[value.providerResourceName]} />
       {value.errorCode && (
-        <p className="text-ui text-ink-muted">
+        <p className="text-body text-ink-muted">
           {value.errorCode === "onboarding_local_name_conflict"
             ? "A local listing already uses this name. Choose a different local name to finish linking."
             : value.errorCode === "location_limit_reached"
               ? "This workspace has reached its plan's location limit. Unlink a location or change plan, then link again. Google creation will not be repeated."
-              : "Refresh the outcome to check for new evidence. A refresh will not repeat Google creation."}
+              : "A refresh reloads the latest outcome. It never sends the creation to Google again."}
         </p>
       )}
       <Button variant="secondary" className="self-start" onClick={onRefresh}>
         Refresh creation outcome
       </Button>
       {!value.providerResourceName && value.executionState === "unknown" && (
-        <p className="text-ui text-ink-muted">
-          Check the selected Google account before taking another action. This
-          draft cannot be resent automatically because the result is unknown.
+        <p className="text-body text-ink-muted">
+          Check the selected Google account for this listing before you do
+          anything else. NabaPresence will not send this draft to Google again.
         </p>
       )}
       {value.providerResourceName && value.linkState !== "linked" && (
@@ -1249,7 +1249,7 @@ function CreationStatus({
             <FieldError />
           </Field>
           <Button
-            className="self-start"
+            className="self-stretch sm:self-start"
             pending={link.isPending}
             pendingLabel="Linking…"
             disabled={!localName.trim()}
@@ -1265,7 +1265,7 @@ function CreationStatus({
       {value.locationId && (
         <Link
           href={`/listings/${value.locationId}/verification`}
-          className={cn(buttonVariants(), "self-start")}
+          className={cn(buttonVariants(), "self-stretch sm:self-start")}
         >
           Continue to verification
         </Link>

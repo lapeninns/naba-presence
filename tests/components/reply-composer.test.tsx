@@ -749,3 +749,32 @@ describe("ReplyComposer — first draft on `g`", () => {
     expect(mutateAsync).not.toHaveBeenCalled()
   })
 })
+
+// The insert bar is AI rewrite (tone and Generate) and a neutral count; the
+// limit itself is the foot's, in the unit Google counts (bytes).
+describe("ReplyComposer — the insert bar", () => {
+  it("counts the characters neutrally and leaves the limit to the foot", () => {
+    mount(EXISTING)
+    const count = document.querySelector<HTMLElement>(
+      '[data-slot="char-count"]'
+    )!
+    expect(count).toHaveTextContent("19 characters")
+    expect(count).toHaveClass("text-count", "tabular-nums", "text-ink-muted")
+    fireEvent.change(textbox(), { target: { value: "a".repeat(4097) } })
+    expect(count).toHaveTextContent("4,097 characters")
+    // Characters are not the limit's unit, so the bar never turns red on a
+    // byte count it does not show.
+    expect(count).toHaveClass("text-ink-muted")
+    expect(count).not.toHaveClass("text-danger-ink")
+    expect(textbox()).toHaveAttribute("aria-invalid", "true")
+  })
+  it("offers no template or variable insert (D10)", () => {
+    mount(EXISTING)
+    expect(
+      screen.queryByRole("button", { name: "Insert template" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Insert variable" })
+    ).not.toBeInTheDocument()
+  })
+})

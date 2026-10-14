@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import {
   useEffect,
   useRef,
@@ -9,10 +10,10 @@ import {
 } from "react"
 
 import { AuthErrorAlert } from "@/components/auth/auth-error-alert"
-import { AuthLink } from "@/components/auth/auth-link"
 import { PasswordField } from "@/components/auth/password-field"
 import { PasswordRequirements } from "@/components/auth/password-requirements"
-import { Button } from "@/components/ui/button"
+import { WRAPPING_BLOCK_BUTTON } from "@/components/auth/wrapping-button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import * as authApi from "@/lib/api/auth"
 import {
   authErrorMessage,
@@ -22,6 +23,7 @@ import {
 import { ApiClientError } from "@/lib/api/client"
 import { hardNavigate } from "@/lib/client/hard-navigate"
 import { passwordSchema, resetPasswordSchema } from "@/lib/domain/auth"
+import { cn } from "@/lib/utils"
 
 const FIELD_ORDER = ["password", "confirmPassword"] as const
 
@@ -122,15 +124,25 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
 
   if (!isUsableToken(tokenHash)) {
     return (
-      <div className="flex flex-col items-start gap-2.5 rounded-lg bg-surface-alt p-4">
-        <p className="text-body font-semibold text-ink">
-          This link is missing or incomplete
-        </p>
-        <p className="text-ui text-ink-muted">
-          Open the newest reset email and use its link, or request a new one to
-          continue.
-        </p>
-        <AuthLink href="/forgot-password">Request another link</AuthLink>
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1.5 rounded-lg bg-surface-alt p-4">
+          <p className="text-body font-semibold text-ink">
+            This link is missing or incomplete
+          </p>
+          <p className="text-ui text-ink-muted">
+            Open the newest reset email and use its link, or request a new one
+            to continue.
+          </p>
+        </div>
+        <Link
+          href="/forgot-password"
+          className={cn(
+            buttonVariants({ size: "lg", block: true }),
+            WRAPPING_BLOCK_BUTTON
+          )}
+        >
+          Request another link
+        </Link>
       </div>
     )
   }
@@ -144,7 +156,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
       {message ? (
         <div ref={alertRef} tabIndex={-1} className="outline-none">
           <AuthErrorAlert message={message} />
@@ -188,7 +200,7 @@ function ResetPasswordForm({ tokenHash }: { tokenHash?: string }) {
       <Button
         type="submit"
         size="lg"
-        className="h-11 w-full"
+        block
         disabled={pending}
         aria-busy={pending || undefined}
       >
