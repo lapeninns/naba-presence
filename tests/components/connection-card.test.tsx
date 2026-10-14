@@ -8,7 +8,9 @@ import { Toaster } from "@/components/ui/toast"
 import type { ConnectionSummary } from "@/lib/api/connections"
 
 const workspaceMock = vi.fn()
-vi.mock("@/lib/queries/use-connection-workspace", () => ({ useConnectionWorkspace: () => workspaceMock() }))
+vi.mock("@/lib/queries/use-connection-workspace", () => ({
+  useConnectionWorkspace: () => workspaceMock(),
+}))
 
 function connection(overrides: Partial<ConnectionSummary>): ConnectionSummary {
   return {
@@ -24,13 +26,23 @@ function connection(overrides: Partial<ConnectionSummary>): ConnectionSummary {
   }
 }
 
-function renderCard(connections: ConnectionSummary[], disconnectMutate = vi.fn()) {
+function renderCard(
+  connections: ConnectionSummary[],
+  disconnectMutate = vi.fn()
+) {
   workspaceMock.mockReturnValue({
-    query: { data: { connections }, isPending: false, isError: false, refetch: vi.fn() },
+    query: {
+      data: { connections },
+      isPending: false,
+      isError: false,
+      refetch: vi.fn(),
+    },
     connect: { mutate: vi.fn(), isPending: false },
     disconnect: { mutate: disconnectMutate, isPending: false },
   })
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   return render(
     <QueryClientProvider client={client}>
       <Toaster>
@@ -47,26 +59,51 @@ describe("ConnectionCard", () => {
     renderCard([connection({})])
     expect(screen.getByText("owner@riverside.test")).toBeInTheDocument()
     expect(screen.getByText("Connected")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Disconnect owner@riverside.test" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Disconnect owner@riverside.test" })
+    ).toBeInTheDocument()
   })
 
   it("offers a connect button when there are no connections", () => {
     renderCard([])
-    expect(screen.getByRole("button", { name: "Connect Google Business Profile" })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: "Connect Google Business Profile" })
+    ).toBeInTheDocument()
   })
 
   it("keeps Disconnect disarmed until the login's email is typed, then disconnects once", async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
     renderCard([connection({})], mutate)
-    await user.click(screen.getByRole("button", { name: "Disconnect owner@riverside.test" }))
+    await user.click(
+      screen.getByRole("button", { name: "Disconnect owner@riverside.test" })
+    )
     const dialog = await screen.findByRole("alertdialog")
     // The consequences stay, and the cancel keeps its words.
     expect(within(dialog).getByText("After 7 days")).toBeInTheDocument()
-    expect(within(dialog).getByRole("button", { name: "Keep it connected" })).toBeInTheDocument()
+    // The consequences match what the server does: the purge deletes the
+    // reviews and Google data, keeps held reviews, and never the listings.
+    expect(
+      within(dialog).getByText(
+        "Their reviews and the Google data we hold for them are permanently deleted, unless this login is reconnected first. Reviews under a legal hold are kept. The listings stay in NabaPresence, unlinked."
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(
+        "This unlinks its listings now. They stay in NabaPresence; their reviews and Google data are deleted after 7 days."
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText(/Its listings and their reviews/)
+    ).toBeNull()
+    expect(
+      within(dialog).getByRole("button", { name: "Keep it connected" })
+    ).toBeInTheDocument()
     const confirm = within(dialog).getByRole("button", { name: "Disconnect" })
     expect(confirm).toBeDisabled()
-    const field = within(dialog).getByRole("textbox", { name: /Type owner@riverside\.test to confirm/ })
+    const field = within(dialog).getByRole("textbox", {
+      name: /Type owner@riverside\.test to confirm/,
+    })
     await user.type(field, "owner@riverside")
     expect(confirm).toBeDisabled()
     await user.click(confirm)
@@ -75,22 +112,36 @@ describe("ConnectionCard", () => {
     expect(confirm).toBeEnabled()
     await user.click(confirm)
     expect(mutate).toHaveBeenCalledTimes(1)
-    expect(mutate).toHaveBeenCalledWith("c1", expect.objectContaining({ onSuccess: expect.any(Function) }))
+    expect(mutate).toHaveBeenCalledWith(
+      "c1",
+      expect.objectContaining({ onSuccess: expect.any(Function) })
+    )
     // The outcome toast names the login and offers no Undo (a Google write).
     act(() => mutate.mock.calls[0][1].onSuccess())
-    expect(await screen.findByText("Disconnected owner@riverside.test")).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /undo/i })).not.toBeInTheDocument()
+    expect(
+      await screen.findByText("Disconnected owner@riverside.test")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: /undo/i })
+    ).not.toBeInTheDocument()
   })
 
   it("asks for the word DISCONNECT when the login has no email on record", async () => {
     const user = userEvent.setup()
     const mutate = vi.fn()
     renderCard([connection({ googleEmail: null })], mutate)
-    await user.click(screen.getByRole("button", { name: "Disconnect Google account" }))
+    await user.click(
+      screen.getByRole("button", { name: "Disconnect Google account" })
+    )
     const dialog = await screen.findByRole("alertdialog")
     const confirm = within(dialog).getByRole("button", { name: "Disconnect" })
     expect(confirm).toBeDisabled()
-    await user.type(within(dialog).getByRole("textbox", { name: /Type DISCONNECT to confirm/ }), "disconnect")
+    await user.type(
+      within(dialog).getByRole("textbox", {
+        name: /Type DISCONNECT to confirm/,
+      }),
+      "disconnect"
+    )
     expect(confirm).toBeEnabled()
     await user.click(confirm)
     expect(mutate).toHaveBeenCalledTimes(1)

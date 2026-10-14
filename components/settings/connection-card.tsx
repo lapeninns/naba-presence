@@ -293,8 +293,10 @@ function DisconnectDialog({
               After 7 days
             </span>
             <span>
-              Its listings and their reviews are permanently deleted, unless
-              this login is reconnected first. Deletion can’t be undone.
+              Their reviews and the Google data we hold for them are
+              permanently deleted, unless this login is reconnected first.
+              Reviews under a legal hold are kept. The listings stay in
+              NabaPresence, unlinked.
             </span>
           </li>
         </ol>
@@ -304,7 +306,7 @@ function DisconnectDialog({
           onValueChange={setTyped}
           onMatchChange={setArmed}
           fieldClassName="[overflow-wrap:anywhere]"
-          description="This unlinks its listings now and deletes them, with their reviews, after 7 days."
+          description="This unlinks its listings now. They stay in NabaPresence; their reviews and Google data are deleted after 7 days."
         />
         <AlertDialogFooter>
           <AlertDialogClose
