@@ -307,10 +307,10 @@ export function PerformanceView() {
         />
       ) : null}
       <Tabs value={active} onValueChange={selectTab}>
-        {/* `fill`: three equal columns on a phone, the ordinary row from
-            `sm`. The rule now lives on TabsList, so any short tab row gets
-            the same narrow-screen behaviour without restating it. */}
-        <TabsList fill>
+        {/* Notion Mail text tabs: plain labels, the current one 600 ink with
+            a 2px ink underline; still 44px tall on touch. `fill`: three
+            equal columns on a phone, the ordinary row from `sm`. */}
+        <TabsList fill variant="text">
           {TABS.map((tab) => (
             <TabsTab key={tab.value} value={tab.value}>
               {tab.lead}

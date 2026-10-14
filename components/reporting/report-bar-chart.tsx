@@ -256,7 +256,7 @@ export function ReportBarChart({
             aria-valuenow={Math.max(0, active)}
             aria-valuetext={readout}
             onKeyDown={onKeyDown}
-            className="relative flex h-45 cursor-pointer items-end gap-px rounded-sm border-b border-line-strong outline-none focus-halo @[30rem]/chart:gap-0.5"
+            className="relative flex h-45 cursor-pointer items-end gap-px rounded-sm border-b border-line-strong focus-halo outline-none @[30rem]/chart:gap-0.5"
           >
             <span className="pointer-events-none absolute inset-x-0 top-0 border-t border-line-subtle" />
             <span className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-line-subtle" />
@@ -345,9 +345,7 @@ export function ReportBarChart({
           box around it keeps it out of the page's scroll width. */}
       <div
         id={tableId}
-        className={
-          showValues ? "max-h-72 min-w-0 overflow-auto" : "sr-only"
-        }
+        className={showValues ? "max-h-72 min-w-0 overflow-auto" : "sr-only"}
       >
         <ChartDataTable
           caption={title}
@@ -360,7 +358,9 @@ export function ReportBarChart({
               return v === null || v === undefined ? "—" : format(v)
             }),
           ])}
-          className="font-mono tabular-nums"
+          // Figures are mono in their own cells (ChartDataTable); the dates
+          // and headings stay sans with tabular numerals (D1).
+          className="tabular-nums"
         />
       </div>
       <figcaption className="text-caption text-ink-muted">

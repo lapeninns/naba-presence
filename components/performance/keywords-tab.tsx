@@ -6,6 +6,7 @@ import { useState } from "react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buttonVariants } from "@/components/ui/button"
+import { EmptyIllustration } from "@/components/ui/empty"
 import { CsvDownloadButton } from "@/components/reporting/csv-download-button"
 import {
   PartialCoverageAlert,
@@ -247,7 +248,9 @@ export function KeywordsTab({
           framed
           titleAs="h3"
           variant="empty"
-          icon={<SearchIcon />}
+          // A filter that matched nothing: NM's search-with-no-results
+          // drawing, in place of the glyph.
+          illustration={<EmptyIllustration name="search" />}
           title="No terms match this filter"
           description="Clear the filter to see every term."
         />

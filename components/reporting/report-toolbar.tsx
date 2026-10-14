@@ -131,7 +131,7 @@ export function ReportToolbar({
             ) : null}
           </SheetBody>
           <SheetFooter>
-            <SheetClose render={<Button className="w-full sm:w-auto" />}>
+            <SheetClose render={<Button block className="sm:w-auto" />}>
               Done
             </SheetClose>
           </SheetFooter>
