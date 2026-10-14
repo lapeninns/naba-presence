@@ -3,10 +3,13 @@ name: CI
 # One required check, `CI result`, aggregates every job below. Jobs may be
 # added, split or sharded without touching branch protection.
 #
-# Lanes: gate/build/migrations/integration/e2e run on the runner chosen by
-# `plan` (GitHub-hosted unless vars.SELF_HOSTED_ENABLED == 'true' and the run
-# is trusted). The whole build -> integration -> e2e chain moves together
-# because the standalone build contains platform-native binaries.
+# Lanes: every job runs on the runner chosen by `plan` (GitHub-hosted unless
+# vars.SELF_HOSTED_ENABLED == 'true' and the run is trusted). The whole build
+# -> integration -> e2e chain moves together because the standalone build
+# contains platform-native binaries. Plan itself, Secret scan, Dependency
+# review and CI result follow the lane too, so a trusted run needs no hosted
+# minutes at all: while the Actions budget blocks hosted jobs, the Mac lane is
+# the only way the required check can run (docs/ci.md section 8).
 
 on:
   pull_request:
@@ -44,7 +47,19 @@ env:
 jobs:
   plan:
     name: Plan
-    runs-on: ubuntu-24.04
+    # The same trust rule as the "Choose runner lane" step below, as an
+    # expression, because Plan has to run somewhere before it can choose.
+    # tests/server/ci-aggregate.test.ts keeps the two in step.
+    runs-on: >-
+      ${{ (vars.SELF_HOSTED_ENABLED == 'true'
+        && github.repository == 'lapeninns/naba-presence'
+        && ((github.event_name != 'pull_request' && github.ref == 'refs/heads/main')
+          || (github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+            && github.event.pull_request.user.login != 'dependabot[bot]'
+            && github.actor != 'dependabot[bot]')))
+        && fromJSON('["self-hosted","macOS","ARM64","naba-trusted"]')
+        || 'ubuntu-24.04' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -364,13 +379,15 @@ jobs:
 
   secret-scan:
     name: Secret scan
-    runs-on: ubuntu-24.04
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
     timeout-minutes: 5
     permissions:
       contents: read
     env:
       GITLEAKS_VERSION: 8.30.1
-      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      GITLEAKS_SHA256_LINUX_X64: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      GITLEAKS_SHA256_DARWIN_ARM64: b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -378,10 +395,15 @@ jobs:
           persist-credentials: false
       - name: Install gitleaks
         run: |
-          archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          case "$RUNNER_OS/$RUNNER_ARCH" in
+            Linux/X64) platform=linux_x64; sum="$GITLEAKS_SHA256_LINUX_X64" ;;
+            macOS/ARM64) platform=darwin_arm64; sum="$GITLEAKS_SHA256_DARWIN_ARM64" ;;
+            *) echo "::error::No pinned gitleaks for $RUNNER_OS/$RUNNER_ARCH"; exit 1 ;;
+          esac
+          archive="gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
           curl -fsSL -o "$RUNNER_TEMP/$archive" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$archive"
-          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          echo "$sum  $RUNNER_TEMP/$archive" | shasum -a 256 -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" gitleaks
       - name: Scan
         env:
@@ -412,8 +434,9 @@ jobs:
 
   dependency-review:
     name: Dependency review
+    needs: plan
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(needs.plan.outputs.runner) }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -426,7 +449,8 @@ jobs:
     name: CI result
     if: always()
     needs: [plan, gate, build, migrations, integration, e2e, secret-scan, dependency-review]
-    runs-on: ubuntu-24.04
+    # Hosted when Plan never reported a lane (it failed or never started).
+    runs-on: ${{ fromJSON(needs.plan.outputs.runner || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -436,6 +460,11 @@ jobs:
           persist-credentials: false
           sparse-checkout: scripts/ci
           sparse-checkout-cone-mode: true
+      # The Mac lane has no Node on the runner's PATH; cone mode keeps the
+      # root .nvmrc in the sparse checkout.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
       # Strict: every job that applies to the change must succeed. Skips pass
       # only for code jobs on a docs-only PR (plan code=false) and for
       # dependency-review outside pull requests. See docs/ci.md section 3.

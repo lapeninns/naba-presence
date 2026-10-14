@@ -12,7 +12,7 @@ import { withTenant } from "@/lib/server/db"
 import { retiredStoredGoogleResource, retiredGoogleMessage } from "@/lib/domain/google-support"
 import { requireLocationAccess } from "@/lib/server/permissions"
 import type { Session } from "@/lib/server/session"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { locationActivityProjection } from "./location-activity-projection"
 
 function parseCursor(value: string | undefined, locationId: string) {
@@ -79,14 +79,14 @@ export async function listLocationActivity(
       : null
     return {
       canManage: session.role === "owner" || session.role === "admin",
-      items: items.map((item) => locationActivityItemSchema.parse({
+      items: items.map((item) => parseStored(locationActivityItemSchema, {
         ...item,
         ...historicalDetails(item.resourceType),
         createdAt: new Date(item.createdAt).toISOString(),
         finishedAt: item.finishedAt
           ? new Date(item.finishedAt).toISOString()
           : null,
-      })),
+      }, "location_activity.item")),
       total,
       pageSize,
       nextCursor,

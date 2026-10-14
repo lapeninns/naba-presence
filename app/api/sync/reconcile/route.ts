@@ -5,7 +5,7 @@ import { writeAudit } from "@/lib/server/audit"
 import { getDatabase, withTenant } from "@/lib/server/db"
 import { ApiError } from "@/lib/server/http"
 import { log } from "@/lib/server/logger"
-import { withAdvisoryLock } from "@/lib/server/leases"
+import { withFleetLease } from "@/lib/server/leases"
 import { requireScopesEnabled } from "@/lib/server/pause-controls"
 import {
   linkedLocations,
@@ -261,7 +261,7 @@ async function runReconcilePage({
 }: ReconcilePageInput) {
   // A session reconcile takes the fleet lease too; recorded as manual so it
   // cannot stand in for the cron's heartbeat.
-  const result = await withAdvisoryLock(
+  const result = await withFleetLease(
     "naba:reconcile",
     () => reconcile({ session, input, requestId, clientRequestId }),
     { trigger: session ? "manual" : "cron" }
@@ -279,6 +279,7 @@ async function runReconcilePage({
 }
 
 export const POST = route({
+  maxDuration,
   auth: "public",
   origin: "same",
   handler: async ({ request, requestId, clientRequestId }) => {
@@ -293,10 +294,13 @@ export const POST = route({
 // location in every organisation gets a reconcile checkpoint, and the job
 // runner claims the due ones every minute, fairly across organisations and
 // within its own budget, so no organisation waits on a cursor. An
-// owner/admin session reconciling its own organisation keeps using POST, and
-// so does the self-hosted scheduler (scripts/scheduler.mjs). The kill switch
-// is checked before parsing, preserving the POST order of 401, 503, then 400.
+// owner/admin session reconciling its own organisation keeps using POST. The
+// self-hosted scheduler (scripts/scheduler.mjs) fires this GET too, so both
+// topologies enqueue; the bearer POST's inline walk is not scheduled. The
+// kill switch is checked before parsing, preserving the POST order of 401,
+// 503, then 400.
 export const GET = route({
+  maxDuration,
   auth: "cron",
   handler: async ({ query, requestId }) => {
     await requireScopesEnabled("sync", SYNC_PAUSED)

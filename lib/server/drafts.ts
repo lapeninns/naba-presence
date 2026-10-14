@@ -11,6 +11,7 @@ import {
 import {
   AiOutputError,
   semanticVerification,
+  type AiCallBudget,
   type AiUsage,
   type SemanticInput,
 } from "@/lib/server/ai"
@@ -84,10 +85,11 @@ export const SEMANTIC_UNAVAILABLE: VerificationReason = {
  * the same intent → provider → settle shape lib/server/publishing uses.
  */
 export async function runSemanticVerification(
-  input: SemanticInput
+  input: SemanticInput,
+  budget: AiCallBudget = {}
 ): Promise<SemanticOutcome> {
   try {
-    const result = await semanticVerification(input)
+    const result = await semanticVerification(input, budget)
     return result.ran
       ? {
           status: "ran",

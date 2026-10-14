@@ -7,6 +7,16 @@ const describeDatabase = run ? describe : describe.skip
 describeDatabase("first-tenant provisioning under RLS", () => {
   let admin: ReturnType<typeof postgres>
   const createdOrgs: string[] = []
+  const newIdentity = (displayName: string) => {
+    const subject = crypto.randomUUID()
+    return {
+      provider: "supabase",
+      subject,
+      email: `provision-${subject.slice(0, 8)}@example.test`,
+      displayName,
+      emailVerified: true,
+    }
+  }
 
   beforeAll(() => {
     admin = postgres(process.env.DIRECT_DATABASE_URL!, { max: 1 })
@@ -31,15 +41,12 @@ describeDatabase("first-tenant provisioning under RLS", () => {
   })
 
   it("provisions a brand-new user and organisation as the runtime role", async () => {
-    const { provisionOwner } = await import(
+    const { provisionAuthenticatedOwner } = await import(
       "@/lib/server/provisioning"
     )
-    const sub = `sub-${crypto.randomUUID()}`
-    const result = await provisionOwner({
-      sub,
-      email: `provision-${sub.slice(4, 12)}@example.test`,
-      name: "Provision Test",
-    })
+    const result = await provisionAuthenticatedOwner(
+      newIdentity("Provision Test")
+    )
     createdOrgs.push(result.organisationId)
     expect(result.organisationId).toMatch(/^[0-9a-f-]{36}$/)
     const [member] = await admin`
@@ -56,13 +63,10 @@ describeDatabase("first-tenant provisioning under RLS", () => {
   })
 
   it("gives a new organisation an explicit pilot billing record", async () => {
-    const { provisionOwner } = await import("@/lib/server/provisioning")
-    const sub = `sub-${crypto.randomUUID()}`
-    const result = await provisionOwner({
-      sub,
-      email: `provision-${sub.slice(4, 12)}@example.test`,
-      name: "Pilot Billing",
-    })
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
+    const result = await provisionAuthenticatedOwner(newIdentity("Pilot Billing"))
     createdOrgs.push(result.organisationId)
     const rows = await admin`
       select
@@ -81,13 +85,10 @@ describeDatabase("first-tenant provisioning under RLS", () => {
   })
 
   it("creates a business-mode organisation with exactly one home client", async () => {
-    const { provisionOwner } = await import("@/lib/server/provisioning")
-    const sub = `sub-${crypto.randomUUID()}`
-    const result = await provisionOwner({
-      sub,
-      email: `provision-${sub.slice(4, 12)}@example.test`,
-      name: "Home Client Test",
-    })
+    const { provisionAuthenticatedOwner } = await import(
+      "@/lib/server/provisioning"
+    )
+    const result = await provisionAuthenticatedOwner(newIdentity("Home Client Test"))
     createdOrgs.push(result.organisationId)
     const [organisation] = await admin`
       select workspace_mode as mode from organisation
@@ -137,22 +138,13 @@ describeDatabase("first-tenant provisioning under RLS", () => {
   })
 
   it("reuses the default organisation for a returning user", async () => {
-    const { provisionOwner } = await import(
+    const { provisionAuthenticatedOwner } = await import(
       "@/lib/server/provisioning"
     )
-    const sub = `sub-${crypto.randomUUID()}`
-    const email = `provision-${sub.slice(4, 12)}@example.test`
-    const first = await provisionOwner({
-      sub,
-      email,
-      name: "Repeat",
-    })
+    const identity = newIdentity("Repeat")
+    const first = await provisionAuthenticatedOwner(identity)
     createdOrgs.push(first.organisationId)
-    const second = await provisionOwner({
-      sub,
-      email,
-      name: "Repeat",
-    })
+    const second = await provisionAuthenticatedOwner(identity)
     expect(second.organisationId).toBe(first.organisationId)
   })
 })

@@ -7,7 +7,7 @@ import {
   StoreIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import * as React from "react"
 
 import { ShellLink } from "@/components/app-shell/shell-link"
@@ -58,6 +58,7 @@ import {
 } from "@/lib/queries/use-locations"
 import { cn } from "@/lib/utils"
 import { useNow } from "@/lib/time/server-now"
+import { replaceUrl } from "@/lib/navigation/shallow-url"
 
 const HEALTH_FILTERS = [
   { value: "all", label: "All" },
@@ -76,6 +77,8 @@ function isHealthFilter(value: string | null): value is HealthFilter {
 type BoardOrder = "health" | "client"
 
 const UNFILED = "__unfiled__"
+/** As the inbox's search (review-filters.tsx): the URL follows a pause. */
+const SEARCH_URL_DELAY_MS = 300
 
 type BoardRow = {
   entry: DirectoryEntry
@@ -406,7 +409,6 @@ function ListingsBoard({
   bulkEnabled?: boolean
 }) {
   const now = useNow()
-  const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const canManage = role === "owner" || role === "admin"
@@ -432,7 +434,9 @@ function ListingsBoard({
   const business = useWorkspaceMode() === "business"
 
   // Local state answers each keystroke at once; the URL follows it (replace,
-  // not push, so Back leaves the board rather than undoing filters).
+  // not push, so Back leaves the board rather than undoing filters). The URL
+  // is rewritten through the history API, so no change here asks the server
+  // for anything, and a search waits for a pause in the typing.
   const [search, setSearchState] = React.useState(
     () => searchParams.get("q") ?? ""
   )
@@ -458,13 +462,31 @@ function ListingsBoard({
   )
   const order: BoardOrder = business ? "health" : orderState
 
-  const writeUrl = (next: {
+  const pendingSearch = React.useRef<{ q: string; timer: number } | null>(
+    null
+  )
+  React.useEffect(
+    () => () => window.clearTimeout(pendingSearch.current?.timer),
+    []
+  )
+  const writeUrl = (change: {
     q?: string
     health?: HealthFilter
     clientId?: string | null
     order?: BoardOrder
   }) => {
-    const params = new URLSearchParams(searchParams.toString())
+    // A search still waiting out its pause goes with this write, so neither
+    // undoes the other.
+    const pending = pendingSearch.current
+    if (pending) {
+      window.clearTimeout(pending.timer)
+      pendingSearch.current = null
+    }
+    const next =
+      pending && change.q === undefined ? { ...change, q: pending.q } : change
+    // The address as it is now, not as this render saw it: the top-bar
+    // switcher can move `?clientId=` while a search waits.
+    const params = new URLSearchParams(window.location.search)
     const set = (
       key: string,
       value: string | null | undefined,
@@ -479,13 +501,18 @@ function ListingsBoard({
     set("clientId", next.clientId, "")
     set("order", next.order, "health")
     const query = params.toString()
-    router.replace(query ? `${pathname}?${query}` : pathname, {
-      scroll: false,
-    })
+    replaceUrl(query ? `${pathname}?${query}` : pathname)
   }
   const setSearch = (value: string) => {
     setSearchState(value)
-    writeUrl({ q: value })
+    window.clearTimeout(pendingSearch.current?.timer)
+    pendingSearch.current = {
+      q: value,
+      timer: window.setTimeout(() => {
+        pendingSearch.current = null
+        writeUrl({ q: value })
+      }, SEARCH_URL_DELAY_MS),
+    }
   }
   const setHealth = (value: HealthFilter) => {
     setHealthState(value)

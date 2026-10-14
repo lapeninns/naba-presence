@@ -22,7 +22,7 @@ import {
   stableGoogleHash,
   type GbpLocationContext,
 } from "@/lib/server/gbp-management"
-import { ApiError } from "@/lib/server/http"
+import { ApiError, parseStored } from "@/lib/server/http"
 import { requireGbpDispatch } from "@/lib/server/pause-controls"
 import type { Session } from "@/lib/server/session"
 
@@ -85,10 +85,10 @@ export async function confirmIndustryManagement(session: Session, locationId: st
     const result = await observeAndConfirmGbpMutation({
       organisationId: session.organisationId,
       mutationId,
-      payload: z.record(z.string(), z.unknown()).parse(attempt.requested_payload),
+      payload: parseStored(z.record(z.string(), z.unknown()), attempt.requested_payload, "gbp_management_mutation.requested_payload"),
       updateMask: attempt.update_mask,
       executionState: attempt.execution_state === "accepted" ? "accepted" : "unknown",
-      response: attempt.google_response == null ? undefined : z.record(z.string(), z.unknown()).parse(attempt.google_response),
+      response: attempt.google_response == null ? undefined : parseStored(z.record(z.string(), z.unknown()), attempt.google_response, "gbp_management_mutation.google_response"),
       observe: () => googleLodgingApi(token, { locationName: linked.googleLocationName, operation: "get" }, { connectionKey: linked.connectionId }),
       onObserved: (response) => cacheGbpSnapshot({ organisationId: session.organisationId, locationId, googleAccountId: linked.googleAccountId, resourceType: "lodging", resourceName: `${linked.googleLocationName}/lodging`, payload: response }),
     })

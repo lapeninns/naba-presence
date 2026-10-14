@@ -204,6 +204,42 @@ describe("access lost", () => {
     expect(client.getQueryData(queryKeys.locationHours("loc-2"))).toEqual({ hours: 2 })
   })
 
+  it("drops the administration tab's workflow, verification and access caches", async () => {
+    const { client } = setup()
+    const keys = [
+      queryKeys.locationLifecycleWorkflows("loc-1"),
+      queryKeys.locationLifecycleAttempt("loc-1", "rev-1"),
+      queryKeys.locationVerificationWorkflows("loc-1", "start"),
+      queryKeys.locationVerificationWorkflows("loc-1", "complete"),
+      queryKeys.locationVerificationState("loc-1"),
+      queryKeys.locationAccessWorkflows("loc-1"),
+    ]
+    for (const key of keys) client.setQueryData(key, { held: true })
+    client.setQueryData(queryKeys.locationVerificationState("loc-2"), { held: true })
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      json({ error: "location_not_found", message: "Not found." }, 404)
+    )
+    await expect(
+      apiFetch("/api/locations/loc-1/verification")
+    ).rejects.toMatchObject({ status: 404 })
+    for (const key of keys) expect(client.getQueryData(key)).toBeUndefined()
+    expect(client.getQueryData(queryKeys.locationVerificationState("loc-2"))).toEqual({ held: true })
+  })
+
+  it("roots every per-location key at a root the access-lost cleanup drops", () => {
+    const roots = resourcePrefixesForPath("/api/locations/loc-1")
+    const perLocation = Object.entries(queryKeys).flatMap(([name, key]) => {
+      if (typeof key !== "function" || !/^location[A-Z]|^listing|^postSchedules|^legacyPostSchedules|^businessInformationMetadata/.test(name)) return []
+      const built = (key as (...args: string[]) => readonly unknown[])("loc-1", "x", "y")
+      return [[name, built] as const]
+    })
+    expect(perLocation.length).toBeGreaterThan(20)
+    for (const [name, key] of perLocation) {
+      const rooted = roots.some((root) => root.every((part, index) => key[index] === part))
+      expect(rooted, name).toBe(true)
+    }
+  })
+
   it("refetches in place, keeping the data, when an action is refused", async () => {
     const { client } = setup()
     client.setQueryData(queryKeys.locationHours("loc-1"), { hours: 1 })

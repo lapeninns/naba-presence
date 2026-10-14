@@ -7,9 +7,9 @@ import { route } from "@/lib/server/route"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
-export const GET = route({ roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), query: lifecycleWorkflowsQuerySchema,
+export const GET = route({ maxDuration, roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), query: lifecycleWorkflowsQuerySchema,
   handler: async ({ session, params, query }) => listLifecycleWorkflows(session, params.id, query),
 })
-export const POST = route({ roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), body: googleLifecycleRequestSchema,
+export const POST = route({ maxDuration, roles: ["owner", "admin"], params: z.object({ id: z.uuid() }), body: googleLifecycleRequestSchema,
   handler: async ({ session, params, body, requestId }) => ({ review: await previewLifecycle(session, params.id, body, requestId) }),
 })
